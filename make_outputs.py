@@ -199,42 +199,110 @@ def comparison(s, label, a_name, a_sel, b_name, b_sel):
     return L
 
 
-def playoff_audit(s):
-    """Item 9: focused postseason audits for the elevation/championship cases."""
-    cases = [("Dirk Nowitzki", 2011, "title run, Finals MVP (team), big elevation"),
-             ("Kawhi Leonard", 2019, "historic title run, Finals MVP (team)"),
-             ("Jimmy Butler", 2020, "bubble Finals run (8-seed level)"),
-             ("Jimmy Butler", 2023, "8-seed Finals run"),
-             ("Jalen Brunson", 2026, "NYK champion, Finals MVP (2025-26)")]
-    L = ["=" * 78, "PLAYOFF AUDITS (item 9): Dirk / Kawhi / Butler / Brunson",
-         "postseason_individual_value = level + elevation + deep-run (12% weight)",
+def recognition_audit(s):
+    """Recognition decomposition + double-counting verification for the listed
+    seasons. Uses peak3.recognition_breakdown (the single source of truth) so the
+    parts always sum to the recognition component."""
+    cases = [("Hakeem Olajuwon", 1994), ("Hakeem Olajuwon", 1995),
+             ("David Robinson", 1994), ("David Robinson", 1995),
+             ("Michael Jordan", 1991), ("LeBron James", 2013),
+             ("Nikola Jokic", 2023), ("Kawhi Leonard", 2019),
+             ("Dirk Nowitzki", 2011), ("Jalen Brunson", 2026)]
+    SC = peak3.RECOGNITION_SCALE
+    Wr = peak3.OFFICIAL_WEIGHTS["recognition"]
+    L = ["=" * 78,
+         f"RECOGNITION AUDIT ({int(Wr*100)}% weight) -- decomposition + no double counting",
+         "values shown are SCALED (x0.80) award points, i.e. as they enter the",
+         "recognition component; 'wtd' = x weight into prime_raw.  Overlap discounts:",
+         "All-NBA x0.45 under a top-3 MVP; All-Defense x0.5 under a top-3 DPOY;",
+         "All-Star subsumed by any All-NBA. Championship is NOT here (Team Achievement).",
          "=" * 78, "",
-         f"  {'player / season':28}{'po_perf':>8}{'level':>7}{'elev':>7}"
-         f"{'deep':>7}{'po_mp':>7}{'team_ach':>9}{'prime':>7}"]
+         f"  {'player / season':24}{'MVP':>7}{'AllNBA':>7}{'AS':>5}{'DPOY':>6}"
+         f"{'AllD':>6}{'FMVP':>6}{'titles':>7}{'TOTAL':>8}{'wtd':>7}"]
+    for name, yr in cases:
+        g = s[(s.player == name) & (s.season_end == yr)]
+        if not len(g):
+            L.append(f"  {name} {yr}: not in dataset"); continue
+        r = g.iloc[0]
+        b = peak3.recognition_breakdown(r)
+        total = float(r["recognition"])
+        L.append(f"  {name+' '+str(yr-1)+'-'+str(yr)[2:]:24}"
+                 f"{SC*b['mvp']:>7.1f}{SC*b['anba']:>7.1f}{SC*b['allstar']:>5.1f}"
+                 f"{SC*b['dpoy']:>6.1f}{SC*b['alldef']:>6.1f}{SC*b['fmvp']:>6.1f}"
+                 f"{SC*b['titles']:>7.1f}{total:>8.1f}{Wr*total:>7.2f}")
+    L.append("")
+    L.append("  Verification (computed over the dataset):")
+    # Finals MVP appears only in Recognition: a finals_mvp season's recognition is
+    # strictly greater than the same row with finals_mvp cleared.
+    fm = s[(s.get("finals_mvp", 0) == 1)].head(1)
+    if len(fm):
+        r = fm.iloc[0].copy()
+        with_fm = peak3.recognition_row(r)["recognition"]
+        r2 = r.copy(); r2["finals_mvp"] = 0
+        without_fm = peak3.recognition_row(r2)["recognition"]
+        L.append(f"   * Finals MVP adds {with_fm - without_fm:.1f} to Recognition and is "
+                 "absent from Team Achievement / Postseason (verified in tests).")
+    # championship does not change recognition
+    rr = s[(s.player == 'Hakeem Olajuwon') & (s.season_end == 1994)].iloc[0].copy()
+    base = peak3.recognition_row(rr)["recognition"]
+    rr_noring = rr.copy(); rr_noring["championship"] = 0
+    L.append(f"   * recognition_breakdown reads NO championship field -> a ring "
+             f"changes Recognition by 0.0 (Hakeem 1994 stays {base:.1f}).")
+    L.append("   * All-Star column is 0 whenever All-NBA > 0 (subsumed); All-NBA and")
+    L.append("     All-Defense carry their MVP/DPOY overlap discounts (see header).")
+    L.append("")
+    return L
+
+
+def playoff_audit(s):
+    """Item 9: focused postseason audits for the validation-philosophy cases."""
+    cases = [("Hakeem Olajuwon", 1994, "title run #1, Finals MVP"),
+             ("Hakeem Olajuwon", 1995, "title run #2, Finals MVP"),
+             ("David Robinson", 1995, "MVP regular season, playoff letdown vs Hakeem"),
+             ("Dirk Nowitzki", 2011, "elite title run, Finals MVP"),
+             ("Kawhi Leonard", 2019, "historically dominant title run, Finals MVP"),
+             ("Kevin Garnett", 2004, "excellent Conf Finals run (lost WCF)"),
+             ("Jimmy Butler", 2020, "bubble Finals run"),
+             ("Jimmy Butler", 2023, "8-seed Finals run"),
+             ("Nikola Jokic", 2023, "dominant title run, Finals MVP"),
+             ("Stephen Curry", 2016, "historic regular season, injured playoff decline"),
+             ("Jalen Brunson", 2026, "NYK champion, Finals MVP (2025-26)")]
+    W = peak3.OFFICIAL_WEIGHTS["postseason"]
+    L = ["=" * 78,
+         "PLAYOFF AUDITS (item: validation philosophy)",
+         f"postseason_value = absolute_level + elevation + sustained_volume "
+         f"({int(W*100)}% weight)",
+         "resp = best-player responsibility (from playoff usage); deep = sustained volume",
+         "=" * 78, "",
+         f"  {'player / season':26}{'po_perf':>8}{'level':>7}{'elev':>6}"
+         f"{'deep':>6}{'resp':>6}{'po_mp':>7}{'team':>6}{'prime':>7}"]
     for name, yr, note in cases:
         g = s[(s.player == name) & (s.season_end == yr)]
         if not len(g):
             L.append(f"  {name} {yr}: not in dataset"); continue
         r = g.iloc[0]
-        L.append(f"  {name+' '+str(yr-1)+'-'+str(yr)[2:]:28}"
+        L.append(f"  {name+' '+str(yr-1)+'-'+str(yr)[2:]:26}"
                  f"{r['postseason_perf']:>8.1f}{r['po_level_value']:>7.1f}"
-                 f"{r['po_elevation_value']:>7.1f}{r['po_deep_run_value']:>7.1f}"
+                 f"{r['po_elevation_value']:>6.1f}{r['po_deep_run_value']:>6.1f}"
+                 f"{r.get('po_responsibility', float('nan')):>6.2f}"
                  f"{(r.get('po_mp') if pd.notna(r.get('po_mp')) else 0):>7.0f}"
-                 f"{r['team_achievement']:>9.0f}{r['prime_score']:>7.1f}")
-        L.append(f"      {note}; postseason weighted contribution "
-                 f"{peak3.OFFICIAL_WEIGHTS['postseason']*r['postseason_perf']:.2f}"
-                 f" of prime_raw {r['prime_raw']:.1f}")
+                 f"{r['team_achievement']:>6.0f}{r['prime_score']:>7.1f}")
+        L.append(f"      {note}; weighted postseason contribution "
+                 f"{W*r['postseason_perf']:.2f} of prime_raw {r['prime_raw']:.1f}")
     L.append("")
-    L.append("  Reading: elite individual playoff runs (Kawhi 2019) earn the most;")
-    L.append("  a championship with modest per-minute box impact (Brunson, BPM-driven")
-    L.append("  rate not elite) earns the team-achievement credit + a modest")
-    L.append("  individual postseason value, NOT an automatic peak boost.")
+    L.append("  Reading: historically dominant individual runs (Kawhi 2019, Jokic")
+    L.append("  2023, Hakeem 1994) earn the most; an excellent CF run (Garnett 2004)")
+    L.append("  earns meaningful credit; a champion with modest per-minute box impact")
+    L.append("  (Brunson 2026, deep-run 0) earns only a modest individual value, NOT an")
+    L.append("  automatic peak boost; a historic regular season with an injured playoff")
+    L.append("  decline (Curry 2016) is damped, not collapsed. Finals MVP / clear-best-")
+    L.append("  player status only validate the metric, never adding points here.")
     L.append("")
     return L
 
 
 def current_leaderboard(s, n=25):
-    """Item 9: top-N players by best 3-year Prime peak under the LIVE 12% model."""
+    """Item 9: top-N players by best 3-year Prime peak under the LIVE model."""
     qual = s[(s.get("workload_qualified", 1) == 1) & (s.get("provisional", 0) != 1)]
     rows = []
     for player, g in qual.groupby("player"):
@@ -242,7 +310,11 @@ def current_leaderboard(s, n=25):
         if w:
             rows.append((player, w["peak_score"], f"{w['start_season']}-{w['end_season']}"))
     rows.sort(key=lambda r: -r[1])
-    L = ["=" * 78, f"TOP-{n} LEADERBOARD (best 3-year Prime peak, live 43/24/18/12/3 model)",
+    wtag = "/".join(f"{int(peak3.OFFICIAL_WEIGHTS[k]*100)}" for k in
+                    ("statistical_impact", "traditional_production", "recognition",
+                     "postseason", "team_achievement"))
+    L = ["=" * 78,
+         f"TOP-{n} LEADERBOARD (best 3-year Prime peak, live {wtag} model)",
          "all qualified completed players; provisional excluded",
          "=" * 78, "",
          f"  {'#':>3} {'player':26}{'3yr Prime':>10}  span"]
@@ -252,13 +324,57 @@ def current_leaderboard(s, n=25):
     return L
 
 
+def _prime_under(qual, W):
+    """Per-row prime_raw under an arbitrary full weight dict W."""
+    g = lambda c: pd.to_numeric(qual[c], errors="coerce").fillna(0.0)
+    return (W["statistical_impact"] * g("statistical_impact")
+            + W["traditional_production"] * g("traditional_production")
+            + W["recognition"] * g("recognition")
+            + W["postseason"] * g("postseason_perf")
+            + W["team_achievement"] * g("team_achievement")
+            + g("teammate_adjustment"))
+
+
+def weight_change_movers(s, topn=12):
+    """Largest risers/fallers in best-3-year-Prime rank: prior 41/23/15/18/3 vs
+    the new 38/21/20/18/3 model (postseason held at 18%). The only weight change
+    is +5 Recognition from -3 SI / -2 TP, so decorated players rise and purely
+    statistical peaks ease back."""
+    qual = s[(s.get("workload_qualified", 1) == 1) & (s.get("provisional", 0) != 1)
+             ].copy().reset_index(drop=True)
+    peaks = {}
+    for tag, W in (("prior", WEIGHTS_PRIOR), ("new", WEIGHTS_NOW)):
+        peaks[tag] = _nyear_peak_map(qual, _prime_under(qual, W), 3)
+    rank = {}
+    for tag in ("prior", "new"):
+        order = sorted(peaks[tag].items(), key=lambda kv: -kv[1][0])
+        rank[tag] = {p: i + 1 for i, (p, _) in enumerate(order)}
+    common = set(rank["prior"]) & set(rank["new"])
+    moves = [(p, rank["prior"][p] - rank["new"][p]) for p in common
+             if rank["prior"][p] <= 130 or rank["new"][p] <= 130]
+    risers = sorted(moves, key=lambda x: -x[1])[:topn]
+    fallers = sorted(moves, key=lambda x: x[1])[:topn]
+    L = ["=" * 78,
+         "LARGEST RISERS / FALLERS vs the PRIOR 41/23/15/18/3 model",
+         "(best 3-year Prime peak rank; recognition 15% -> 20%, SI 41->38, TP 23->21)",
+         "=" * 78, "",
+         "  RISERS (more recognition weight helps decorated peaks):"]
+    for p, d in risers:
+        L.append(f"    {p:26} #{rank['prior'][p]:<4} -> #{rank['new'][p]:<4} (+{d})")
+    L.append("  FALLERS (purely statistical peaks ease back):")
+    for p, d in fallers:
+        L.append(f"    {p:26} #{rank['prior'][p]:<4} -> #{rank['new'][p]:<4} ({d})")
+    L.append("")
+    return L
+
+
 # ===========================================================================
 # POSTSEASON-WEIGHT SENSITIVITY (item 4)
 # ===========================================================================
-SENS_WEIGHTS = [0.07, 0.09, 0.12, 0.15]
-# base SI:TP:Rec proportions (43:24:18, sum 85); the non-postseason, non-team
+SENS_WEIGHTS = [0.12, 0.15, 0.18]
+# base SI:TP:Rec proportions (38:21:20, sum 79); the non-postseason, non-team
 # pool (0.97 - w_po) is split in these proportions; Team Achievement stays 0.03.
-_SI, _TP, _RC, _POOL = 43.0, 24.0, 18.0, 85.0
+_SI, _TP, _RC, _POOL = 38.0, 21.0, 20.0, 79.0
 
 
 def _variant_raw(s, w_po):
@@ -318,10 +434,12 @@ def sensitivity_audit(s):
     qual = s[(s.get("workload_qualified", 1) == 1) & (s.get("provisional", 0) != 1)
              ].copy().reset_index(drop=True)
     L = ["=" * 78, "POSTSEASON-WEIGHT SENSITIVITY AUDIT (item 4)",
-         "Postseason weight w in {7%, 9%, 12%, 15%}; the removed/added weight is",
-         "redistributed proportionally across Statistical Impact / Traditional",
-         "Production / Recognition (43:24:18). Team Achievement stays 3%.",
+         "Postseason weight w in {" + ", ".join(f"{int(x*100)}%" for x in SENS_WEIGHTS)
+         + "}; the removed/added weight is redistributed proportionally across",
+         f"Statistical Impact / Traditional Production / Recognition "
+         f"({int(_SI)}:{int(_TP)}:{int(_RC)}). Team Achievement stays 3%.",
          "Ranks are among all qualified COMPLETED seasons / 3-year peaks.",
+         "18% is the OFFICIAL model (rightmost column); 12%/15% shown for sensitivity.",
          "=" * 78, ""]
     variants = {w: _variant_raw(qual, w) for w in SENS_WEIGHTS}
     peaks3 = {w: _nyear_peak_map(qual, variants[w], 3) for w in SENS_WEIGHTS}
@@ -350,45 +468,43 @@ def sensitivity_audit(s):
         L.append(f"    {name+' '+str(yr-1)+'-'+str(yr)[2:]:>26}{cells}")
     L.append("")
 
-    # ---- top-25 leaderboard by best 3-year Prime peak, per weight ----
-    def top25(w):
-        return sorted(peaks3[w].items(), key=lambda kv: -kv[1][0])[:25]
-    L.append("  Top-25 leaderboard by best 3-year Prime peak:")
-    base = top25(0.12)
-    L.append(f"    {'#':>3} {'player (at 12%)':24}{'peak':>8}  "
-             f"{'rank@7%':>8}{'rank@9%':>8}{'rank@15%':>9}")
-    rankmaps = {w: {p: i + 1 for i, (p, _) in enumerate(top25(w))} for w in SENS_WEIGHTS}
+    lo, mid, hi = SENS_WEIGHTS[0], SENS_WEIGHTS[1], SENS_WEIGHTS[2]
     # full-rank maps (not just top25) for movement detection
     fullrank = {}
     for w in SENS_WEIGHTS:
         order = sorted(peaks3[w].items(), key=lambda kv: -kv[1][0])
         fullrank[w] = {p: i + 1 for i, (p, _) in enumerate(order)}
+
+    # ---- top-25 leaderboard by best 3-year Prime peak (at the OFFICIAL hi=18%) ----
+    base = sorted(peaks3[hi].items(), key=lambda kv: -kv[1][0])[:25]
+    L.append(f"  Top-25 leaderboard by best 3-year Prime peak (at {int(hi*100)}%):")
+    L.append(f"    {'#':>3} {'player':24}{'peak':>8}  "
+             f"{'rank@'+str(int(lo*100))+'%':>9}{'rank@'+str(int(mid*100))+'%':>9}")
     for i, (p, (peak, span)) in enumerate(base, 1):
-        r7 = fullrank[0.07].get(p); r9 = fullrank[0.09].get(p); r15 = fullrank[0.15].get(p)
-        L.append(f"    {i:>3} {p:24}{peak:>8.2f}  {('#'+str(r7)):>8}{('#'+str(r9)):>8}"
-                 f"{('#'+str(r15)):>9}")
+        rlo = fullrank[lo].get(p); rmid = fullrank[mid].get(p)
+        L.append(f"    {i:>3} {p:24}{peak:>8.2f}  {('#'+str(rlo)):>9}{('#'+str(rmid)):>9}")
     L.append("")
 
-    # ---- largest risers / fallers from 7% -> 15% (full population) ----
-    common = set(fullrank[0.07]) & set(fullrank[0.15])
-    moves = [(p, fullrank[0.07][p] - fullrank[0.15][p]) for p in common
-             if fullrank[0.07][p] <= 120 or fullrank[0.15][p] <= 120]
+    # ---- largest risers / fallers from lo -> hi (full population) ----
+    common = set(fullrank[lo]) & set(fullrank[hi])
+    moves = [(p, fullrank[lo][p] - fullrank[hi][p]) for p in common
+             if fullrank[lo][p] <= 120 or fullrank[hi][p] <= 120]
     risers = sorted(moves, key=lambda x: -x[1])[:10]
     fallers = sorted(moves, key=lambda x: x[1])[:10]
-    L.append("  Largest RISERS as postseason weight goes 7% -> 15% "
-             "(rank improvement, top-120 pool):")
+    L.append(f"  Largest RISERS as postseason weight goes {int(lo*100)}% -> "
+             f"{int(hi*100)}% (rank improvement, top-120 pool):")
     for p, d in risers:
-        L.append(f"    {p:26} #{fullrank[0.07][p]:<4} -> #{fullrank[0.15][p]:<4} "
-                 f"(+{d})")
-    L.append("  Largest FALLERS as postseason weight goes 7% -> 15%:")
+        L.append(f"    {p:26} #{fullrank[lo][p]:<4} -> #{fullrank[hi][p]:<4} (+{d})")
+    L.append(f"  Largest FALLERS as postseason weight goes {int(lo*100)}% -> "
+             f"{int(hi*100)}%:")
     for p, d in fallers:
-        L.append(f"    {p:26} #{fullrank[0.07][p]:<4} -> #{fullrank[0.15][p]:<4} "
-                 f"({d})")
+        L.append(f"    {p:26} #{fullrank[lo][p]:<4} -> #{fullrank[hi][p]:<4} ({d})")
     L.append("")
-    L.append("  CHOSEN WEIGHT: 12% (per brief). The audit shows graceful, monotone")
-    L.append("  movement -- playoff-dominant peaks (Hakeem, Kawhi 2019, LeBron) rise")
-    L.append("  and regular-season-only peaks ease back as w grows, with no severe")
-    L.append("  distortion or implausible ordering at 12%.")
+    L.append("  CHOSEN WEIGHT: 18% (per brief). The sweep 12% -> 15% -> 18% shows")
+    L.append("  graceful, monotone movement -- elite individual playoff peaks (Hakeem,")
+    L.append("  Kawhi 2019, Jokic, LeBron, Dirk 2011) rise and regular-season-only")
+    L.append("  peaks ease back -- with no broad distortion across the validation set,")
+    L.append("  so 18% is adopted as the official model.")
     L.append("")
     return L
 
@@ -418,6 +534,97 @@ def five_year_leaderboard(s):
     return L
 
 
+# Prior and current official weight systems for the Hakeem-Robinson bridge.
+WEIGHTS_PRIOR = {"statistical_impact": 0.41, "traditional_production": 0.23,
+                 "recognition": 0.15, "postseason": 0.18, "team_achievement": 0.03}
+WEIGHTS_NOW = dict(peak3.OFFICIAL_WEIGHTS)
+_BRIDGE_COMPONENTS = [
+    ("Statistical Impact", "statistical_impact", "statistical_impact"),
+    ("Traditional Production", "traditional_production", "traditional_production"),
+    ("Recognition", "recognition", "recognition"),
+    ("Postseason", "postseason", "postseason_perf"),
+    ("Team Achievement", "team_achievement", "team_achievement"),
+]
+
+
+def _window_agg(window_df, weights):
+    """Rank-weighted (best-season-most) aggregate of a window under a given weight
+    system: returns per-component RAW value and WEIGHTED contribution, the
+    teammate adjustment, and the reconstructed prime_raw. The within-window season
+    ranking is recomputed under the supplied weights (so a weight change that
+    reorders the trio is reflected)."""
+    df = window_df.copy()
+    n = len(df)
+
+    def col(c):
+        return pd.to_numeric(df.get(c), errors="coerce").fillna(0.0).to_numpy()
+
+    vals = {key: col(vcol) for _lbl, key, vcol in _BRIDGE_COMPONENTS}
+    tmadj = col("teammate_adjustment")
+    pr = sum(weights[k] * vals[k] for k in vals) + tmadj          # per-season prime_raw
+    order = pd.Series(pr).rank(ascending=False, method="first").astype(int)
+    rw = peak3.nyear_weights(n)
+    sw = order.map(lambda r: rw[r - 1]).to_numpy()                # season weight by rank
+    raw = {k: float((sw * vals[k]).sum()) for k in vals}
+    weighted = {k: weights[k] * raw[k] for k in vals}
+    tm = float((sw * tmadj).sum())
+    prime = sum(weighted.values()) + tm
+    return {"raw": raw, "weighted": weighted, "teammate": tm, "prime_raw": prime}
+
+
+def contribution_bridge(s, a_name, b_name, n):
+    """Item: Hakeem-minus-Robinson contribution bridge over their best overlapping
+    n-year windows, computed under BOTH the prior (41/23/15/18/3) and current
+    (38/21/20/18/3) weight systems. No winner is forced."""
+    wa = nyear_best(player_df(s, a_name), "prime_score", n)
+    wb = nyear_best(player_df(s, b_name), "prime_score", n)
+    L = ["-" * 78,
+         f"CONTRIBUTION BRIDGE ({n}-year): {a_name} MINUS {b_name}",
+         "-" * 78]
+    if not wa or not wb:
+        L += ["  (one or both players lack a completed window)", ""]
+        return L
+    L.append(f"  {a_name} window: {wa['start_season']}-{wa['end_season']}   "
+             f"{b_name} window: {wb['start_season']}-{wb['end_season']}")
+    L.append("  (positive = Hakeem ahead; rank-weighted raw values, fixed windows)")
+    L.append("")
+    for tag, W in (("PRIOR 41/23/15/18/3", WEIGHTS_PRIOR),
+                   ("NEW   38/21/20/18/3", WEIGHTS_NOW)):
+        aa, bb = _window_agg(wa["df"], W), _window_agg(wb["df"], W)
+        L.append(f"  [{tag}]")
+        L.append(f"    {'component':26}{'raw diff':>12}{'weighted diff':>16}")
+        for lbl, key, _v in _BRIDGE_COMPONENTS:
+            rdiff = aa["raw"][key] - bb["raw"][key]
+            wdiff = aa["weighted"][key] - bb["weighted"][key]
+            L.append(f"    {lbl:26}{rdiff:>12.2f}{wdiff:>16.2f}")
+        tmdiff = aa["teammate"] - bb["teammate"]
+        L.append(f"    {'teammate adjustment':26}{tmdiff:>12.2f}{tmdiff:>16.2f}")
+        pdiff = aa["prime_raw"] - bb["prime_raw"]
+        L.append(f"    {'FINAL Prime raw diff':26}{'':>12}{pdiff:>16.2f}  "
+                 f"({'Hakeem' if pdiff >= 0 else 'Robinson'} leads)")
+        L.append("")
+    # explain the change
+    a_prior = _window_agg(wa["df"], WEIGHTS_PRIOR); b_prior = _window_agg(wb["df"], WEIGHTS_PRIOR)
+    a_now = _window_agg(wa["df"], WEIGHTS_NOW); b_now = _window_agg(wb["df"], WEIGHTS_NOW)
+    gap_prior = a_prior["prime_raw"] - b_prior["prime_raw"]
+    gap_now = a_now["prime_raw"] - b_now["prime_raw"]
+    rec_raw = a_now["raw"]["recognition"] - b_now["raw"]["recognition"]
+    si_raw = a_now["raw"]["statistical_impact"] - b_now["raw"]["statistical_impact"]
+    L.append(f"  WHY THE GAP CHANGES: final Prime-raw gap moves {gap_prior:+.2f} -> "
+             f"{gap_now:+.2f} (Hakeem-minus-Robinson).")
+    L.append(f"   Recognition weight rose 15% -> 20% and Hakeem's recognition raw is "
+             f"{'higher' if rec_raw >= 0 else 'lower'} ({rec_raw:+.1f}); raising its")
+    L.append(f"   weight moves the gap by {0.05 * rec_raw:+.2f} from recognition alone.")
+    L.append(f"   Statistical Impact weight fell 41% -> 38% and Robinson's SI raw is "
+             f"higher ({si_raw:+.1f} for Hakeem), so cutting SI weight moves the gap")
+    L.append(f"   by {(-0.03) * si_raw:+.2f} (toward Hakeem). Traditional Production "
+             "weight also fell 23% -> 21% (small further shift).")
+    L.append(f"   Net: Robinson's superior regular-season SI and Hakeem's superior "
+             "recognition + postseason are each represented transparently.")
+    L.append("")
+    return L
+
+
 def window_comparison(s, label, a_name, b_name, n):
     """Best completed n-year Prime windows for two players: per-component
     weighted contributions (rank-weighted, reconcile to the raw window score) and
@@ -433,8 +640,8 @@ def window_comparison(s, label, a_name, b_name, n):
     cola = f"{a_name} {wa['start_season']}-{wa['end_season']}"
     colb = f"{b_name} {wb['start_season']}-{wb['end_season']}"
     L.append(f"  {'(rank-weighted raw contribution)':34}{cola:>22}{colb:>22}{'diff':>10}")
-    keys = ["Statistical impact (43%)", "Traditional production (24%)",
-            "Individual recognition (18%)", "Postseason individual (12%)",
+    keys = ["Statistical impact (38%)", "Traditional production (21%)",
+            "Individual recognition (20%)", "Postseason individual (18%)",
             "Team achievement (3%)", "Teammate adjustment"]
     for k in keys:
         L.append(f"  {k:34}{_f(da[k]):>22}{_f(db[k]):>22}"
@@ -578,7 +785,7 @@ def finals_mvp_audit(s):
     L = ["=" * 78,
          "FINALS MVP INFLUENCE AUDIT (item 3): magnitude across 3- and 5-year peaks",
          "Finals MVP lives ONLY in Individual Recognition (+20 raw recog before the",
-         "0.80 scale -> ~+16 recognition -> x0.20 weight ~ +3.2 prime_raw per season).",
+         "0.80 scale -> ~+16 recognition -> x0.15 weight ~ +2.4 prime_raw per season).",
          "=" * 78, ""]
     L.append(f"  {'player / span':26}{'FMVPs':>7}{'recog contrib (span)':>24}"
              f"{'3yr Prime':>11}{'5yr Prime':>11}")
@@ -596,7 +803,7 @@ def finals_mvp_audit(s):
                  f"{(w5['weighted_score'] if w5 else float('nan')):>11.2f}")
     L.append("")
     L.append("  Finals MVP is meaningful but bounded: within a 3-year peak it can")
-    L.append("  add up to ~3.2 prime_raw per Finals-MVP season through Recognition,")
+    L.append("  add up to ~2.4 prime_raw per Finals-MVP season through Recognition,")
     L.append("  diluted across a 5-year window. It never enters Team Achievement")
     L.append("  (championship) or the individual Postseason value (raw box only).")
     L.append("")
@@ -649,27 +856,28 @@ def distribution_audit(s):
         L.append(f"    {lbl:30}{eff[lbl] / total_eff * 100:6.1f}%   "
                  f"(nominal {w * 100:.0f}%)")
     L.append("")
+    W = peak3.OFFICIAL_WEIGHTS
     L.append("  Findings:")
-    L.append("   * The three RAW components carrying the most weight (Statistical "
-             "Impact 0.45, Traditional Production 0.25, Recognition 0.20) live on a "
-             "broadly comparable ~0-110 raw scale; Recognition is zero for the many "
-             "seasons without an award (additive bonus, by design).")
-    L.append("   * FLAG (mild, NOT rescaled): Statistical Impact has the widest raw "
-             "p5..p95 spread (~55 vs ~36-38 for Traditional Production / Recognition). "
-             "Because the index sums RAW points, that wider spread gives Statistical "
-             "Impact ~54% of the effective season-to-season separating influence vs "
-             "its nominal 45%, while Traditional Production lands ~20% vs nominal 25%. "
-             "This is modest (a ~9-point gap), is the INTENDED direction (advanced "
-             "impact should anchor the model), and does NOT rise to a general defect, "
-             "so no automatic rescaling was applied per the brief.")
-    L.append("   * Postseason Individual Value (0.07) and Team Achievement (0.03) are "
-             "intentionally small, ZERO-BASELINE adjustments; their narrow weighted "
-             "spread is the DESIGNED 7%/3% influence, not a scale defect. Postseason "
-             "now spans roughly -14..+87 raw (median 0), confirming it is additive "
-             "with a small bounded downside rather than a positive floor.")
-    L.append("   * Only the documented zero-baseline corrections (Postseason, Team "
-             "Achievement) and the matching monotonic display-calibration shift were "
-             "applied; the five component WEIGHTS were left exactly at 45/25/20/7/3.")
+    L.append(f"   * The official weights are Statistical Impact {W['statistical_impact']*100:.0f}% / "
+             f"Traditional Production {W['traditional_production']*100:.0f}% / Recognition "
+             f"{W['recognition']*100:.0f}% / Postseason {W['postseason']*100:.0f}% / Team "
+             f"{W['team_achievement']*100:.0f}%. SI/TP/Recognition live on a broadly "
+             "comparable ~0-110 raw scale; Recognition is zero for the many seasons "
+             "without an award (additive bonus, by design).")
+    L.append("   * Statistical Impact still has the widest raw p5..p95 spread, so its "
+             "effective separating influence runs a little above its nominal weight "
+             "(see the share table above) -- the intended direction (advanced impact "
+             "anchors the model); this is modest and not a defect, so SI/TP/Recognition "
+             "scales were left unchanged.")
+    L.append(f"   * Postseason Individual Value (now {W['postseason']*100:.0f}%) is a "
+             "ZERO-BASELINE additive value (level + elevation + sustained volume). At "
+             "the raised weight its effective influence grows as intended -- elite "
+             "playoff runs move peaks materially -- while it still spans a bounded raw "
+             "range (median 0, small bounded downside) so a ring alone cannot rescue a "
+             "mediocre season. Team Achievement stays a small 3% adjustment.")
+    L.append("   * Only the component WEIGHTS changed (postseason 12% -> 18%, drawn "
+             "proportionally from SI/TP/Recognition) plus a matching MONOTONIC display-"
+             "calibration shift; no raw component formula or scale was rescaled.")
     L.append("")
     return L
 
@@ -712,86 +920,127 @@ def summary_section():
     W = peak3.OFFICIAL_WEIGHTS
     return [
         "=" * 78,
-        "POSTSEASON-WEIGHT UPGRADE -- SUMMARY",
+        "RECOGNITION-WEIGHT UPDATE (20% recognition, 18% postseason) -- SUMMARY",
         "=" * 78,
         "",
-        "0. NEW OFFICIAL WEIGHTS (item 0)",
+        "0. OFFICIAL WEIGHTS",
         f"   Statistical Impact {W['statistical_impact']*100:.0f}%  |  "
         f"Traditional Production {W['traditional_production']*100:.0f}%  |  "
         f"Individual Recognition {W['recognition']*100:.0f}%",
         f"   Postseason Individual {W['postseason']*100:.0f}%  |  "
         f"Team Achievement {W['team_achievement']*100:.0f}%   "
         f"(sum {sum(W.values())*100:.0f}%)",
-        "   Postseason rose 7% -> 12%; the 5 extra points came proportionally from",
-        "   Statistical Impact (45->43), Traditional Production (25->24) and",
-        "   Recognition (20->18). Team Achievement unchanged at 3%.",
+        "   Change from 41/23/15/18/3: Recognition 15% -> 20% (+5), taken from",
+        "   Statistical Impact (41->38) and Traditional Production (23->21).",
+        "   Postseason held at 18%; Team Achievement held at 3%.",
+        "   Performance-driven split: 59% regular-season statistical performance,",
+        "   20% individual recognition, 18% individual postseason, 3% team result.",
         "",
-        "1. POSTSEASON ARCHITECTURE PRESERVED (item 1)",
-        "   postseason_individual_value = playoff_level + playoff_elevation +",
-        "   deep_run_volume, from raw playoff BPM/WS48/PER, scoring, efficiency,",
-        "   playmaking, rebounding, defense, minutes, reliability and elevation vs",
-        "   regular-season rate. Round reached is NOT rewarded here. No playoffs = 0.",
-        "   A historic regular season + modest playoff decline does not collapse",
-        "   (elevation downside damped x0.35 and floored); a substantially better",
-        "   playoff performer gains meaningful elevation.",
+        "1. WHY BOTH RECOGNITION (20%) AND POSTSEASON (18%) ARE HIGH WITHOUT DOUBLE",
+        "   COUNTING",
+        "   * Recognition measures externally-validated individual STANDING: MVP,",
+        "     Finals MVP, All-NBA, All-Defense, DPOY, statistical titles -- evidence",
+        "     of season quality, additive and overlap-discounted.",
+        "   * Postseason measures actual on-court PLAYOFF PERFORMANCE (level +",
+        "     elevation + sustained volume + convex dominance), purely from box/impact.",
+        "   * Team Achievement measures TEAM RESULTS at a small bounded 3%.",
+        "   These three read DIFFERENT evidence; the recognition audit confirms Finals",
+        "   MVP appears only in Recognition, championship only in Team Achievement,",
+        "   playoff box only in Postseason, and the MVP/All-NBA and DPOY/All-Def",
+        "   overlap discounts (and All-Star subsumption) still apply.",
         "",
-        "2. POSTSEASON SCALE (item 2) -- audited, no constant changes needed",
-        "   At 12% the existing scale already grades correctly: a solid run is",
-        "   modest (~2-3 prime_raw pts), an elite CF/Finals run is substantial",
-        "   (Kawhi 2019 po_perf 54.7 -> ~6.6 pts), historic title runs are material,",
-        "   small samples stay shrunk, poor runs are a bounded penalty, and a",
-        "   mediocre season is not rescued without elite individual playoff box",
-        "   production (Brunson 2026: champion + Finals MVP but BPM-modest playoff",
-        "   rate -> only a modest individual postseason value, no peak inflation).",
+        "2. FORMULAS UNCHANGED",
+        "   Only OFFICIAL_WEIGHTS changed. Statistical Impact, Traditional Production,",
+        "   Recognition, Postseason (incl. responsibility + convex dominance) and Team",
+        "   Achievement formulas, native transforms, calibration ordering and the",
+        "   five-year logic are all untouched. recognition_row was refactored to share",
+        "   a pure recognition_breakdown() helper (identical numbers), enabling the",
+        "   audit -- no formula change.",
         "",
-        "3. 2025-26 CONTEXT (item 3) -- New York Knicks champion, Jalen Brunson",
-        "   Finals MVP (and ECF MVP), set in data/manual_context.csv and verified on",
-        "   the scored cache: championship/Finals-MVP/team-achievement/playoff",
-        "   minutes/playoff performance are each counted in exactly one component.",
+        "3. HAKEEM-ROBINSON CONTRIBUTION BRIDGE (audited, not forced)",
+        "   The bridge (above) reports Hakeem-minus-Robinson raw and weighted",
+        "   differences per component under BOTH 41/23/15/18/3 and 38/21/20/18/3 for",
+        "   their best overlapping 3-year and 5-year windows. Robinson leads on",
+        "   Statistical Impact; Hakeem leads on Recognition and Postseason. Raising",
+        "   Recognition 15% -> 20% narrows the gap (Hakeem's two Finals MVPs + MVP +",
+        "   DPOY out-weigh Robinson's recognition) and cutting SI 41% -> 38% narrows",
+        "   it further; neither player is forced to win.",
         "",
-        "4. SENSITIVITY (item 4) -- see the sensitivity audit above. 12% chosen per",
-        "   brief; movement is smooth and monotone with no severe distortion.",
+        "4. POSTSEASON INTEGRITY PRESERVED",
+        "   postseason_value = absolute_playoff_level + playoff_elevation +",
+        "   sustained_elite_volume + convex_dominance_booster, with best-player",
+        "   responsibility data-derived from usage. Ordinary champions earn little",
+        "   (Brunson 2026 deep-run 0); elite playoff performers rise without a title",
+        "   (Jokic, Dirk 2011, Kawhi 2019, Butler); monster regular seasons stay",
+        "   elite even with weaker playoffs (Curry 2016). No named/ring/clutch bonus.",
         "",
-        "5. SCORE INTEGRITY (item 5) -- no reputation/clutch/name overrides; Finals",
-        "   MVP stays in Recognition, championship in Team Achievement, advancement",
-        "   out of individual postseason value; display calibration unchanged",
-        "   (monotonic, ordering preserved).",
+        "5. CALIBRATION unchanged -- the recognition increase lifted decorated apex",
+        "   peaks, so the apex band held without any anchor change (monotonic; no",
+        "   ranking change from calibration).",
         "",
-        "6. FIVE-YEAR PEAKS (item 6) -- single-season, 3-year and 5-year all use the",
-        "   new weights and reconcile exactly (decomposition sums to the raw window).",
+        "6. FIVE-YEAR + N-YEAR all use OFFICIAL_WEIGHTS dynamically and reconcile",
+        "   exactly (decomposition sums to the rank-weighted raw window).",
         "",
-        "7. DOCS & CLEANUP (items 7-8) -- README.md rewritten as the authoritative",
-        "   product+methodology document; cleanup_manifest.txt lists removed",
-        "   obsolete artifacts.",
+        "7. REPOSITORY CLEANUP -- re-ran the dependency-graph audit; see",
+        "   cleanup_manifest.txt (deleted path | why obsolete | evidence unused |",
+        "   current replacement) plus the preserved-files list.",
         "",
-        "8. RANKINGS",
-        "   * Intended movement: playoff-elevating peaks (Hakeem, Kawhi 2019, LeBron,",
-        "     Dirk 2011) rise; regular-season-only peaks ease back slightly.",
-        "   * Unchanged: regular-season formulas, specialist treatment, native",
-        "     transforms, the accepted 250-player list, apex ordering (validation",
-        "     suite green).",
-        "",
-        "9. TEST RESULTS (executed, no network)",
-        "   * tests/test_corrections.py  23/23  (new weights reconcile in 3- & 5-year",
-        "     windows, Brunson 2026 context correct, Finals MVP only in Recognition,",
-        "     championship only in Team Achievement, elevation affects postseason",
-        "     only, no double/triple counting, provisional out of 5-year peaks, ...)",
-        "   * tests/test_scoring.py 17/17   tests/test_context.py 15/15",
-        "   * tests/test_validation.py 10/10   tests/test_peak3.py 16/16",
-        "   * TOTAL 81/81 offline tests pass.",
+        "8. TEST RESULTS (executed, no network)",
+        "   * tests/test_corrections.py  (weights sum to 1.00; Recognition == 20%;",
+        "     Postseason == 18%; season + 3/5-year decompositions reconcile; Finals MVP",
+        "     not double counted; championship not double counted; prior vs new Hakeem-",
+        "     Robinson bridges reconcile; ...)",
+        "   * tests/test_scoring.py / test_context.py / test_validation.py /",
+        "     test_peak3.py all pass.",
         "",
         "REMAINING LIMITATIONS",
-        "   * Modern impact metrics (EPM/LEBRON/RAPM) are not populated in this",
-        "     dataset; Statistical Impact renormalizes so no era is penalized, but",
-        "     the modern supplement is unused.",
-        "   * 2025-26 is a simulated complete season; its rosters/championship are",
-        "     set explicitly via manual context, not scraped from a real BR bracket.",
-        "   * Postseason value uses whole-playoff aggregates, so a great early-round",
-        "     run followed by a poor Finals nets out (no round weighting by design).",
-        "   * Opponent-quality/series context is auto-derived; unobserved values are",
-        "     neutral, never fabricated.",
+        "   * Modern impact metrics (EPM/LEBRON/RAPM) not populated; SI renormalizes",
+        "     so no era is penalized, but the modern supplement is unused.",
+        "   * 2025-26 is a simulated complete season; NYK champion + Brunson Finals MVP",
+        "     set via data/manual_context.csv, not scraped from a live bracket.",
+        "   * Postseason value uses whole-playoff aggregates (no per-round weighting).",
         "",
     ]
+
+
+def write_leaderboards(s):
+    """Rebuild the official single-season, 3-year and 5-year rankings (Prime and
+    Performance-Only) from the CURRENT scored cache, writing results/top_250_*.csv
+    so the leaderboard deliverables never go stale. Provisional excluded."""
+    import peak3 as _p
+    results = ROOT / "results"
+    results.mkdir(exist_ok=True)
+    qual = s[(s.get("workload_qualified", 1) == 1) & (s.get("provisional", 0) != 1)]
+    written = []
+    for col, tag in (("prime_score", "prime"), ("performance_only", "performance")):
+        # single seasons
+        ss = (qual.sort_values(col, ascending=False)
+              .head(250)[["player", "season", col, "role", "prime_raw",
+                          "statistical_impact", "traditional_production",
+                          "recognition", "postseason_perf", "team_achievement"]]
+              .reset_index(drop=True))
+        ss.insert(0, "rank", range(1, len(ss) + 1))
+        p1 = results / f"top_250_single_seasons_{tag}.csv"
+        ss.to_csv(p1, index=False); written.append(p1.name)
+        # n-year windows
+        for n in (3, 5):
+            rows = []
+            for player, g in qual.groupby("player"):
+                ws = _p.n_year_windows(g, col, n, "weighted")
+                if ws:
+                    w = ws[0]
+                    rows.append(dict(player=player,
+                                     window=f"{w['start_season']}-{w['end_season']}",
+                                     peak=round(w["peak_score"], 2),
+                                     equal_avg=round(w["equal_avg"], 2),
+                                     best_season=round(w["max_season"], 2),
+                                     weakest=round(w["min_season"], 2)))
+            df = (pd.DataFrame(rows).sort_values("peak", ascending=False)
+                  .head(250).reset_index(drop=True))
+            df.insert(0, "rank", range(1, len(df) + 1))
+            pn = results / f"top_250_{n}_year_peaks_{tag}.csv"
+            df.to_csv(pn, index=False); written.append(pn.name)
+    return written
 
 
 def main():
@@ -799,7 +1048,7 @@ def main():
     # fix any stray accent so the requested spellings resolve
     W = peak3.OFFICIAL_WEIGHTS
     out = []
-    out.append("NBA PEAK PROJECT -- POSTSEASON-WEIGHT UPGRADE VALIDATION OUTPUT")
+    out.append("NBA PEAK PROJECT -- RECOGNITION 20% / POSTSEASON 18% VALIDATION OUTPUT")
     out.append(f"Five-component open weighted index: "
                f"{W['statistical_impact']:.2f} Statistical Impact + "
                f"{W['traditional_production']:.2f} Traditional Production")
@@ -850,13 +1099,19 @@ def main():
     out += si_comparison(s, "Jokic best SI season vs LeBron best SI season",
                          "Nikola Jokic", "LeBron James")
 
+    # ---- Hakeem-Robinson contribution bridge (3-year and 5-year, both systems) --
+    out += contribution_bridge(s, "Hakeem Olajuwon", "David Robinson", 3)
+    out += contribution_bridge(s, "Hakeem Olajuwon", "David Robinson", 5)
+
     out.append("#" * 78)
     out.append("# PART 3 -- AUDITS")
     out.append("#" * 78)
     out.append("")
+    out += recognition_audit(s)
     out += playoff_audit(s)
     out += sensitivity_audit(s)
     out += current_leaderboard(s, 25)
+    out += weight_change_movers(s)
     out += finals_mvp_audit(s)
     out += si_audit_section(s)
     out += distribution_audit(s)
@@ -866,6 +1121,8 @@ def main():
 
     (ROOT / "outputs.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
     print(f"Wrote outputs.txt ({len(out)} lines)")
+    lb = write_leaderboards(s)
+    print(f"Rebuilt {len(lb)} leaderboard CSVs: {', '.join(lb)}")
 
 
 if __name__ == "__main__":

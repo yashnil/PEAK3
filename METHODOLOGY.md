@@ -7,8 +7,8 @@ objective is invented.
 > **AUTHORITATIVE SCORE:** the season score executed by the code is the
 > **Five-Component Open Weighted Index** documented in the final section,
 > [OFFICIAL SCORE — Five-Component Open Weighted Index](#official-score--five-component-open-weighted-index-current-model):
-> `prime_raw = 0.43·Statistical Impact + 0.24·Traditional Production +
-> 0.18·Individual Recognition + 0.12·Postseason Individual Value +
+> `prime_raw = 0.38·Statistical Impact + 0.21·Traditional Production +
+> 0.20·Individual Recognition + 0.18·Postseason Individual Value +
 > 0.03·Team Achievement` (+ ±0.5 teammate adjustment), with
 > `prime_score = calibrate(prime_raw)` a separate monotonic display relabel.
 > It is **not** percentile-based; era-relative percentiles/z-scores are computed
@@ -343,7 +343,7 @@ distribution and validated against award tiers (95+ = 100% All-NBA, 85-90 = 100%
 The raw weighted score (`stat_raw`/`legacy_raw`) is then passed through a
 **monotonic calibration curve** (`calibrate_score`, transparent piecewise-linear
 anchors) that stretches the elite tail and compresses the crowded middle so the
-bands mean something. Validated in `results/score_calibration.txt`:
+bands mean something. Illustrative bands (validated against award tiers):
 
 ```
 90-100  inner-circle/apex      100% All-NBA
@@ -431,14 +431,14 @@ The single-season **Prime** score replaces all prior pathway/percentile/landmark
 designs. It is an **open weighted index built from raw-value contributions**:
 
 ```
-prime_index = 0.43 * STATISTICAL_IMPACT
-            + 0.24 * TRADITIONAL_PRODUCTION
-            + 0.18 * INDIVIDUAL_RECOGNITION
-            + 0.12 * POSTSEASON_INDIVIDUAL_VALUE
+prime_index = 0.38 * STATISTICAL_IMPACT
+            + 0.21 * TRADITIONAL_PRODUCTION
+            + 0.20 * INDIVIDUAL_RECOGNITION
+            + 0.18 * POSTSEASON_INDIVIDUAL_VALUE
             + 0.03 * TEAM_ACHIEVEMENT
             + teammate_adjustment            (±0.5, descriptive)
 prime_score = calibrate(prime_index)         # monotonic relabel only
-performance_only = calibrate(0.43*SI + 0.24*TP + 0.12*PO)   # no awards/team
+performance_only = calibrate(0.38*SI + 0.21*TP + 0.18*PO)   # no awards/team
 ```
 
 Every component is computed from **raw** basketball metrics through
@@ -452,13 +452,13 @@ separation is never lost. Two continuous primitives:
 - `_hinge_value(x, thr, per, knee)` — production metric → points: ~0 below `thr`
   (average/off-role contributes nothing, never negative), then linear + log tail.
 
-**1. Statistical impact (43%)** — `_masked_wavg` of raw-value sub-scores with
+**1. Statistical impact (38%)** — `_masked_wavg` of raw-value sub-scores with
 weights 15/10/8/5/7 (relative): BPM/OBPM/DBPM consensus, VORP + total WS, WS/48,
 PER, and a modern EPM/LEBRON/RAPM consensus. Modern is a bounded supplement;
 when absent the weight renormalizes over the classic metrics, so older seasons
 are never penalized.
 
-**2. Traditional production (24%)** — weights 10/5/4/3/3 (relative):
+**2. Traditional production (21%)** — weights 10/5/4/3/3 (relative):
 - *Scoring value* combines volume and efficiency **nonlinearly**:
   `hinge(PTS/100) * minutes_load_mult * efficiency_mult + usage_burden − inefficient_high_volume_penalty` (uses PTS/100, usage, sustained minutes/total points, rTS, TS+).
 - *Efficiency* (rTS/TS+), *playmaking* (AST/100, AST%), *rebounding* (TRB/100,
@@ -468,35 +468,45 @@ are never penalized.
 - Penalties: inefficient high-volume scoring, excessive turnovers, poor
   availability (single-counted).
 
-**3. Individual recognition (18%)** — additive grouped award values
+**3. Individual recognition (20%)** — additive grouped award values
 (`recognition_row`): MVP rank + vote share (+ unanimous-MVP record), All-NBA
 (discounted when grouped with a top-3 MVP), All-Star (subsumed by All-NBA),
 DPOY rank + share grouped with All-Defense, Finals MVP, scoring/assist/rebound/
 steal/block titles and 50-40-90. **No championship/team result** appears here.
 
-**4. Postseason individual value (12%)** — a zero-baseline additive value built
+**4. Postseason individual value (18%)** — a zero-baseline additive value built
 from three individual parts so it captures playoff greatness without rewarding
 team advancement:
 
 ```
-postseason_individual_value = playoff_level + playoff_elevation + deep_run_volume
+postseason_individual_value = absolute_playoff_level
+                            + playoff_elevation
+                            + sustained_elite_volume
 ```
 
-* **playoff_level** — absolute raw playoff quality across all skills (BPM/OBPM/
+* **absolute_playoff_level** — raw playoff quality across all skills (BPM/OBPM/
   DBPM + WS48 + PER *rate*, scoring volume, efficiency, playmaking, rebounding,
   box defense, minutes), opponent-quality adjusted, centered on a replacement
-  baseline (`PO_BASELINE = 25`): excellent play adds, poor play is a small
-  bounded penalty (the combined rate-quality downside is floored once at
+  baseline (`PO_BASELINE = 25`). The curve is **nonlinear**, with a **convex
+  dominance booster** (`+PO_DOMINANCE_K = 0.30` per point of `level_full` above
+  `PO_DOMINANCE_KNEE = 50`) so a *historically dominant* run is **exceptional**
+  while ordinary/good/merely-elite runs are unaffected. Excellent play adds; poor
+  play is a small bounded penalty (combined rate-quality downside floored once at
   `−PO_PENALTY_CAP = −14`).
 * **playoff_elevation** — `playoff rate impact − regular-season rate impact`
   (same `_rate_impact_value` for both). Gains are rewarded in full; a decline
   from an extreme regular-season baseline is **damped** (`×0.35`) and bounded, so
   a great regular season is not punished. Elevation **supplements** absolute
   level, never replaces it, and is shrunk toward 0 on small samples.
-* **deep_run_volume** — elite per-minute quality (`level_full` above a high
-  threshold) **sustained over real playoff minutes** (`po_mp`, a proxy for
-  multiple series). Floored at 0 and requires *both* quality and minutes — it is
-  individual workload/value, **never** an automatic team-advancement reward.
+* **sustained_elite_volume** — elite per-minute quality (`level_full` above a
+  high threshold) **sustained over real playoff minutes** (`po_mp`, a proxy for
+  multiple series), scaled by **best-player responsibility**. Responsibility is
+  derived purely from the playoff **usage burden** (`PO_RESP_FLOOR = 0.55` →
+  `PO_RESP_CAP = 1.12`), so a primary creator carrying a deep run earns full
+  credit while a low-usage role player earns little even with a ring. Floored at
+  0 and requires quality *and* minutes *and* responsibility — individual
+  workload/value, **never** an automatic team-advancement reward. Finals MVP and
+  clear-best-player status only **validate** the metric and add no points here.
 
 No playoffs / no playoff minutes contributes exactly 0; injury-limited samples
 shrink toward 0 (`reliab = clip(po_mp/450, 0, 1)`); availability is counted

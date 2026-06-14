@@ -146,6 +146,42 @@ def test_deep_run_volume_requires_quality_and_minutes():
     assert p_long_elite["po_deep_run"][0] > 0.0
 
 
+def test_sustained_volume_scales_with_best_player_responsibility():
+    """On an identical elite deep run, a high-usage primary creator earns more
+    sustained-volume than a low-usage contributor (responsibility from usage),
+    but the low-usage elite player is NOT zeroed out (floor keeps real value)."""
+    elite = dict(po_bpm=9.0, po_obpm=6.0, po_dbpm=2.5, po_ws_per_48=0.25,
+                 po_per=27, po_pts=31, po_r_ts=6.0, po_ts_plus=110, po_mp=900)
+    _, hi = peak3.postseason_value(
+        pd.DataFrame([_po_row(po_usg_pct=32.0, **elite)]), pd.Series([True]))
+    _, lo = peak3.postseason_value(
+        pd.DataFrame([_po_row(po_usg_pct=15.0, **elite)]), pd.Series([True]))
+    assert hi["po_responsibility"][0] > lo["po_responsibility"][0]
+    assert hi["po_deep_run"][0] > lo["po_deep_run"][0] > 0.0, \
+        "low-usage elite still earns some sustained-volume (floor), high-usage more"
+    assert lo["po_responsibility"][0] >= peak3.PO_RESP_FLOOR - 1e-9
+
+
+def test_dominance_booster_only_lifts_historically_dominant_levels():
+    """The convex dominance booster lifts only the very top of the level curve:
+    a merely-good playoff level is unaffected, a historically dominant one gains
+    extra. Ordinary/good runs never benefit."""
+    good = _po_row(po_bpm=4.0, po_obpm=2.5, po_dbpm=1.0, po_ws_per_48=0.16,
+                   po_per=20, po_pts=22, po_r_ts=2.0, po_ts_plus=104, po_mp=600,
+                   po_usg_pct=26.0)
+    dominant = _po_row(po_bpm=13.0, po_obpm=9.0, po_dbpm=3.5, po_ws_per_48=0.34,
+                       po_per=33, po_pts=38, po_r_ts=9.0, po_ts_plus=118, po_mp=600,
+                       po_usg_pct=33.0)
+    vg, _ = peak3.postseason_value(pd.DataFrame([good]), pd.Series([True]))
+    vd, _ = peak3.postseason_value(pd.DataFrame([dominant]), pd.Series([True]))
+    # the gap between dominant and good must exceed a purely-linear expectation:
+    # confirm the dominant value is in the exceptional range while good is modest.
+    assert float(vg.iloc[0]) < 22.0, "a merely-good playoff run stays modest"
+    assert float(vd.iloc[0]) > 45.0, "a historically dominant run is exceptional"
+    # the dominant run is far more than 2x the good run (nonlinear separation)
+    assert float(vd.iloc[0]) > 2.5 * float(vg.iloc[0])
+
+
 # ----------------------------------------------------------- team achievement ---
 def _ta_row(prs, **flags):
     base = dict(playoff_round_score=prs, championship=0, finals_appearance=0,
@@ -189,6 +225,42 @@ def test_missing_awards_produce_zero_recognition():
                          finals_mvp=0))
     rec = peak3.recognition_row(row)
     assert rec["recognition"] == 0.0, "no award/accolade -> zero recognition"
+
+
+def test_recognition_breakdown_sums_to_component():
+    """The recognition_breakdown sub-values, scaled by RECOGNITION_SCALE, sum to
+    the recognition component exactly -- so the decomposition can never silently
+    add or drop points (no double counting in the audit)."""
+    row = pd.Series(dict(awards="MVP-1,NBA1,DEF1,AS", player="Hakeem Olajuwon",
+                         season_end=1994, mvp_vote_share=0.9, dpoy_vote_share=0.8,
+                         finals_mvp=1))
+    b = peak3.recognition_breakdown(row)
+    parts = peak3.RECOGNITION_SCALE * (b["mvp"] + b["unanimous"] + b["anba"] +
+                                       b["allstar"] + b["defense_rec"] +
+                                       b["fmvp"] + b["titles"])
+    assert abs(parts - peak3.recognition_row(row)["recognition"]) < 1e-9
+    # championship is NOT a field recognition_breakdown reads
+    rr = row.copy(); rr["championship"] = 1
+    assert peak3.recognition_row(rr)["recognition"] == \
+        peak3.recognition_row(row)["recognition"], "championship must not enter recognition"
+    # All-Star is subsumed when All-NBA is present
+    assert b["allstar"] == 0.0, "All-Star subsumed by All-NBA"
+
+
+def test_recognition_overlap_discounts_still_apply():
+    """MVP/All-NBA and DPOY/All-Defense overlap discounts survive the 20% weight."""
+    # top-3 MVP -> All-NBA discounted x0.45 ; top-3 DPOY -> All-Def x0.5
+    r = pd.Series(dict(awards="MVP-1,NBA1,DPOY-1,DEF1", player="X",
+                       season_end=2000, mvp_vote_share=np.nan,
+                       dpoy_vote_share=np.nan, finals_mvp=0))
+    b = peak3.recognition_breakdown(r)
+    assert abs(b["anba"] - 30.0 * 0.45) < 1e-9, "All-NBA discounted under top-3 MVP"
+    assert abs(b["alldef"] - 16.0 * 0.5) < 1e-9, "All-Def discounted under top-3 DPOY"
+    # without an MVP/DPOY finish the same teams are full value
+    r2 = pd.Series(dict(awards="NBA1,DEF1", player="Y", season_end=2000,
+                        mvp_vote_share=np.nan, dpoy_vote_share=np.nan, finals_mvp=0))
+    b2 = peak3.recognition_breakdown(r2)
+    assert b2["anba"] == 30.0 and b2["alldef"] == 16.0
 
 
 # ------------------------------------------------------------------- provisional ---
@@ -282,8 +354,8 @@ def test_five_year_component_decomposition_reconciles_exactly():
     win = peak3.n_year_windows(df, "prime_score", 5)[0]
     dec = peak3.nyear_window_decomposition(win, "prime_score", "weighted")
     parts = sum(v for k, v in dec.items()
-                if k in ("Statistical impact (43%)", "Traditional production (24%)",
-                         "Individual recognition (18%)", "Postseason individual (12%)",
+                if k in ("Statistical impact (38%)", "Traditional production (21%)",
+                         "Individual recognition (20%)", "Postseason individual (18%)",
                          "Team achievement (3%)", "Teammate adjustment"))
     assert abs(parts - dec["_raw_window_score"]) < 1e-6, \
         "5-year component decomposition must reconcile to the raw window score"
@@ -390,8 +462,8 @@ def test_new_weights_reconcile_in_three_and_five_year_windows():
     for n in (3, 5):
         win = peak3.n_year_windows(df, "prime_score", n)[0]
         dec = peak3.nyear_window_decomposition(win, "prime_score", "weighted")
-        keys = ["Statistical impact (43%)", "Traditional production (24%)",
-                "Individual recognition (18%)", "Postseason individual (12%)",
+        keys = ["Statistical impact (38%)", "Traditional production (21%)",
+                "Individual recognition (20%)", "Postseason individual (18%)",
                 "Team achievement (3%)", "Teammate adjustment"]
         parts = sum(dec[k] for k in keys)
         assert abs(parts - dec["_raw_window_score"]) < 1e-6, \
@@ -416,17 +488,44 @@ def test_contributions_reconcile_exactly_to_prime_raw():
              scored["teammate_adjustment"])
     diff = (recon - scored["prime_raw"]).abs().max()
     assert diff < 1e-9, f"contributions must sum to prime_raw (max diff {diff})"
-    # weights used must be exactly the stated 43/24/18/12/3.
+    # weights used must be exactly the stated 38/21/20/18/3.
     assert peak3.OFFICIAL_WEIGHTS == {
-        "statistical_impact": 0.43, "traditional_production": 0.24,
-        "recognition": 0.18, "postseason": 0.12, "team_achievement": 0.03}
+        "statistical_impact": 0.38, "traditional_production": 0.21,
+        "recognition": 0.20, "postseason": 0.18, "team_achievement": 0.03}
     assert abs(sum(peak3.OFFICIAL_WEIGHTS.values()) - 1.0) < 1e-9
+    # Recognition stays at EXACTLY 20% and Postseason at EXACTLY 18% (brief).
+    assert peak3.OFFICIAL_WEIGHTS["recognition"] == 0.20
+    assert peak3.OFFICIAL_WEIGHTS["postseason"] == 0.18
+
+
+def test_contribution_bridge_reconciles_under_both_weight_systems():
+    """Under ANY full weight system, the per-component weighted contributions plus
+    the teammate adjustment sum to prime_raw; therefore the Hakeem-minus-Robinson
+    bridge's per-component weighted differences (+ teammate diff) reconcile to the
+    final Prime-raw difference -- under both 41/23/15/18/3 and 38/21/20/18/3."""
+    rng = np.random.default_rng(0)
+    comp = ["statistical_impact", "traditional_production", "recognition",
+            "postseason_perf", "team_achievement"]
+    A = {c: rng.uniform(0, 100) for c in comp}; A["teammate_adjustment"] = 0.3
+    B = {c: rng.uniform(0, 100) for c in comp}; B["teammate_adjustment"] = -0.2
+    wmap = {"statistical_impact": "statistical_impact",
+            "traditional_production": "traditional_production",
+            "recognition": "recognition", "postseason": "postseason_perf",
+            "team_achievement": "team_achievement"}
+    for W in ({"statistical_impact": 0.41, "traditional_production": 0.23,
+               "recognition": 0.15, "postseason": 0.18, "team_achievement": 0.03},
+              dict(peak3.OFFICIAL_WEIGHTS)):
+        def prime(x):
+            return sum(W[k] * x[v] for k, v in wmap.items()) + x["teammate_adjustment"]
+        wdiff = sum(W[k] * (A[v] - B[v]) for k, v in wmap.items())
+        wdiff += A["teammate_adjustment"] - B["teammate_adjustment"]
+        assert abs(wdiff - (prime(A) - prime(B))) < 1e-9
 
 
 # ------------------------------------------------------------------ formula text ---
 def test_formula_text_matches_implementation():
     t = peak3.FORMULA_TEXT
-    for token in ("0.43", "0.24", "0.18", "0.12", "0.03",
+    for token in ("0.38", "0.21", "0.20", "0.18", "0.03",
                   "Statistical Impact", "Traditional Production",
                   "Individual Recognition", "Postseason Individual",
                   "Team Achievement", "prime_raw", "calibrate_score"):

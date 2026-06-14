@@ -35,10 +35,10 @@ their own dedicated slices.
 The Prime index is an **open weighted sum of five raw-value components**:
 
 ```
-prime_raw = 0.43 · Statistical Impact
-          + 0.24 · Traditional Production
-          + 0.18 · Individual Recognition
-          + 0.12 · Postseason Individual Value
+prime_raw = 0.38 · Statistical Impact
+          + 0.21 · Traditional Production
+          + 0.20 · Individual Recognition
+          + 0.18 · Postseason Individual Value
           + 0.03 · Team Achievement
           + teammate_adjustment        (descriptive, capped ±0.5 index pts)
 
@@ -52,19 +52,45 @@ percentiles exist only for role labels and descriptive display). The index is
 open/uncapped, so apex seasons separate naturally.
 
 `performance_only` is the same sum **without** Recognition and Team Achievement:
-`0.43·SI + 0.24·TP + 0.12·Postseason`.
+`0.38·SI + 0.21·TP + 0.18·Postseason`.
 
-### Why 12% postseason?
-The postseason weight was deliberately raised from 7% to 12% so that playoff
-performance is a **major** part of peak evaluation, while dominant regular
-seasons still carry the day. The 5 extra points were taken proportionally from
-Statistical Impact (45→43), Traditional Production (25→24) and Recognition
-(20→18); Team Achievement stayed at 3%. A full sensitivity sweep (7/9/12/15%) is
-in `outputs.txt` and shows smooth, monotone movement with no distortion at 12%.
+### The performance-driven split
+
+```
+59% regular-season statistical performance   (Statistical Impact 38 + Traditional Production 21)
+20% individual recognition
+18% individual postseason performance
+ 3% team achievement
+```
+
+### Why Recognition (20%) and Postseason (18%) are *both* high — without double counting
+
+These two large slices read **completely different evidence**, so a high weight on
+each is additive information, not duplication:
+
+- **Individual Recognition (20%)** measures externally-validated individual
+  *standing*: MVP, Finals MVP, All-NBA, All-Defense, DPOY, and statistical titles.
+  These are meaningful, voted/objective evidence of season quality. Awards are
+  additive and **overlap-discounted** (MVP↔All-NBA, DPOY↔All-Defense, All-Star
+  subsumed) so no honor is counted twice.
+- **Postseason Individual Value (18%)** measures *actual on-court playoff
+  performance* from box/impact metrics (level + elevation + sustained volume +
+  convex dominance). A ring or deep run **by itself** does not create a large
+  boost — the player must have performed at an elite level and carried major
+  responsibility (see §6).
+- **Team Achievement (3%)** measures *team results* with a small bounded weight,
+  so a player is not credited heavily merely for being on a good team.
+
+The boundaries are strict and enforced by tests: **Finals MVP appears only in
+Recognition**, **championship/advancement only in Team Achievement**, and
+**playoff box-score performance only in Postseason**. Recognition stayed at 20%
+(up from a transient 15%) because the awards it encodes are genuine evidence of a
+peak; the +5 points came proportionally from Statistical Impact (41→38) and
+Traditional Production (23→21). Postseason stayed at 18%.
 
 ---
 
-## 3. Statistical Impact (43%)
+## 3. Statistical Impact (38%)
 
 Raw advanced-impact metrics, combined by a masked weighted average that
 **renormalizes over whatever is present**, so a missing metric never penalizes a
@@ -86,7 +112,7 @@ not double-counted; defense enters once, via DBPM inside the BPM consensus.
 
 ---
 
-## 4. Traditional Production (24%)
+## 4. Traditional Production (21%)
 
 Raw box production, where each skill **only adds when it is genuinely strong** (a
 hinge that is ~0 at average), so a center's ordinary assists or a guard's
@@ -106,7 +132,7 @@ volume is not treated like elite efficiency at high volume.
 
 ---
 
-## 5. Individual Recognition (18%)
+## 5. Individual Recognition (20%)
 
 Additive, **grouped** award values (overlapping honors do not each count in
 full). A season with **no award contributes exactly zero**.
@@ -123,38 +149,50 @@ full). A season with **no award contributes exactly zero**.
   add independently.
 
 The sum is scaled ×0.80 onto the same ~0–115 magnitude as the other components,
-so the 18% weight is an honest 18%. **No championship or team result appears in
+so the 20% weight is an honest 20%. **No championship or team result appears in
 Recognition.**
 
 ---
 
-## 6. Postseason Individual Value (12%)
+## 6. Postseason Individual Value (18%)
 
-A purely individual, zero-baseline, additive value built from three parts:
+At 18% this is a **major** slice, so it is built to reward elite individual
+playoff performance — **not** winning. A purely individual, zero-baseline,
+additive value with three parts:
 
 ```
-postseason_individual_value = playoff_level + playoff_elevation + deep_run_volume
+postseason_individual_value = absolute_playoff_level
+                            + playoff_elevation
+                            + sustained_elite_volume
 ```
 
-**playoff_level** — absolute raw playoff quality across all skills: BPM/WS48/PER
+**absolute_playoff_level** — raw playoff quality across all skills: BPM/WS48/PER
 rate, scoring volume, efficiency, playmaking, rebounding, box defense, and
-minutes, opponent-quality adjusted. It is centered on a replacement playoff
-baseline (`PO_BASELINE = 25`): excellent play adds, average is ~0, and poor play
-is a **small bounded penalty** (the combined rate-quality downside is floored
-once at `−14`). Round reached is **not** rewarded.
+minutes, opponent-quality adjusted, centered on a replacement baseline
+(`PO_BASELINE = 25`). The curve is **nonlinear**: ordinary play is a small
+contribution, good is moderate, elite is substantial, and a **convex dominance
+booster** (`+0.30` per point of level above a high knee) makes a *historically
+dominant* run **exceptional**. Excellent play adds, poor play is a small bounded
+penalty (downside floored once at `−14`). A ring/Finals/deep run **by itself**
+does not produce a large level. Round reached is **not** rewarded.
 
 **playoff_elevation** — `playoff rate impact − regular-season rate impact`, using
 the identical rate formula for both. Gains are rewarded in full; a **decline from
 an extreme regular-season baseline is damped (×0.35)** and bounded (≤ +14, ≥ −6),
 and shrunk toward 0 on small samples. Elevation **supplements** absolute level;
 it never replaces it. A historic regular season with a modest playoff dip does
-**not** collapse; a player who is substantially better in the playoffs gains
-meaningful value.
+**not** collapse; a player who is clearly better in the playoffs (e.g. a Jokić
+who elevates) gains meaningful value even without a title.
 
-**deep_run_volume** — elite per-minute quality **sustained over real playoff
-minutes** (a proxy for surviving multiple series). It requires **both** quality
-and minutes, is floored at 0, and is individual workload/value — **never** an
-automatic reward for the team advancing.
+**sustained_elite_volume** — elite per-minute quality **sustained over real
+playoff minutes** (a proxy for surviving multiple series), scaled by **best-player
+responsibility**. Responsibility is derived purely from the **playoff usage
+burden** (floor `0.55`, cap `1.12`): a primary creator carrying a deep run earns
+full credit; a low-usage role player earns little even with a ring. It requires
+quality **and** minutes **and** responsibility, is floored at 0, and is never an
+automatic reward for the team advancing. Finals MVP and clear-best-player status
+only **validate** that these metrics found the right player — their points are
+never duplicated here.
 
 **Reliability & no-double-counting.** Availability is counted **once**, through a
 minutes-reliability factor `clip(po_mp/450, 0, 1)` that shrinks the rate-quality
@@ -250,7 +288,7 @@ The model rewards real value through whichever channel a player provides it:
 - **Dominant regular-season engines** (Jordan, LeBron, Jokić) win on Statistical
   Impact + Traditional Production.
 - **Playoff elevators** (Hakeem's title runs, Kawhi 2019, Dirk 2011) gain through
-  Postseason level + elevation + deep-run volume — now a major 12% slice.
+  Postseason level + elevation + sustained-volume — now a major 18% slice.
 - **Pure scorers** (Dantley, English) score on Traditional Production.
 - **Defensive anchors / rebound specialists** (Ben Wallace, Rodman, Mutombo)
   reach high marks through DBPM/stocks and rebounding hinges plus All-Defense
@@ -347,18 +385,20 @@ and provisional seasons cannot enter five-year peaks.
 
 **A dominant regular-season player (Nikola Jokić).** His Prime is anchored by an
 enormous Statistical Impact (top-tier BPM consensus, WS/48, PER) and Traditional
-Production. His Postseason value is solidly positive but secondary; the 12%
+Production. His Postseason value is solidly positive but secondary; the 18%
 weight lifts strong playoff runs without overturning a historically great regular
 season. He ranks where his raw advanced metrics put him — not forced anywhere.
 
 **A playoff-elevating player (Hakeem Olajuwon, 1993-94 / title runs).** His
 regular-season Statistical Impact is excellent but below the very top; his peak
 is materially lifted by Postseason value — strong playoff level, positive
-elevation (he raised his game in May/June), and deep-run volume from two deep
-championship runs — plus two Finals MVPs in Recognition. As the postseason weight
-rises 7%→15%, his 3-year peak closes the gap on David Robinson's superior
-regular-season résumé (from ~5.5 to ~2.0 raw points) **if the data supports it**,
-without ever being forced above him.
+elevation (he raised his game in May/June), and sustained-volume from two deep
+championship runs — plus two Finals MVPs in Recognition. The Hakeem–Robinson
+**contribution bridge** in `outputs.txt` makes this transparent: Robinson leads
+on Statistical Impact while Hakeem leads on Recognition and Postseason, and
+raising Recognition from 15% to 20% (and trimming Statistical Impact 41→38) flips
+their best-overlapping-3-year raw Prime gap from a slight Robinson edge to a
+slight Hakeem edge — **if the data supports it**, with neither player forced.
 
 ---
 

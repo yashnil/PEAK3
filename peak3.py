@@ -11,8 +11,8 @@ Given a player name, this program:
 
 Each season's PRIME index is the weighted sum of five RAW additive components
 (no percentiles inside the index):
-  prime_raw = 0.43 Statistical Impact + 0.24 Traditional Production
-            + 0.18 Individual Recognition + 0.12 Postseason Individual Value
+  prime_raw = 0.38 Statistical Impact + 0.21 Traditional Production
+            + 0.20 Individual Recognition + 0.18 Postseason Individual Value
             + 0.03 Team Achievement  (+ small descriptive teammate adjustment)
 The display score, prime_score = calibrate_score(prime_raw), is a SEPARATE
 monotonic relabel of the raw index into interpretable 0-100 historical bands.
@@ -936,20 +936,16 @@ def _title_recognition(row: pd.Series) -> float:
     return total
 
 
-def recognition_row(row: pd.Series) -> Dict[str, float]:
-    """
-    INDIVIDUAL recognition as ADDITIVE award values (NO championship/team
-    result; championships live in Team Achievement). Overlapping awards are
-    GROUPED so they do not each count as an independent full bonus:
-      * MVP and All-NBA overlap  -> All-NBA is discounted when the player is a
-        top-3 MVP finisher (the MVP value already implies first-team All-NBA);
-      * DPOY and All-Defense overlap -> All-Defense discounted for a top-3 DPOY;
-      * All-Star is subsumed by any All-NBA selection.
-    Vote share (when present) adds a small continuous bonus on top of the rank.
-    Statistical titles and 50-40-90 are independent feats and add separately.
-    Finals MVP is individual postseason recognition. Unanimous MVP (objective
-    record) adds a small extra. Output is an open additive value (~0..110).
-    """
+RECOGNITION_SCALE = 0.80   # additive award value -> ~0..115 component magnitude
+
+
+def recognition_breakdown(row: pd.Series) -> Dict[str, float]:
+    """Pure decomposition of INDIVIDUAL recognition into its grouped, overlap-
+    discounted sub-values (all PRE the RECOGNITION_SCALE multiply). This is the
+    single source of truth for the recognition formula; recognition_row() and the
+    audit both consume it, so the numbers can never drift. NO championship / team
+    result enters here (championships live in Team Achievement); the only
+    postseason-linked term is the individual Finals MVP award."""
     awards = row.get("awards", "")
     mvp_r = award_rank(awards, "MVP")
     mvp = 0.0
@@ -1015,17 +1011,37 @@ def recognition_row(row: pd.Series) -> Dict[str, float]:
 
     fmvp = 20.0 if float(row.get("finals_mvp") or 0) == 1 else 0.0
     titles = _title_recognition(row)
+    return {"mvp": mvp, "unanimous": unanimous, "anba": anba, "allstar": allstar,
+            "dpoy": dpoy, "alldef": alldef, "defense_rec": defense_rec,
+            "fmvp": fmvp, "titles": titles}
 
+
+def recognition_row(row: pd.Series) -> Dict[str, float]:
+    """
+    INDIVIDUAL recognition as ADDITIVE award values (NO championship/team
+    result; championships live in Team Achievement). Overlapping awards are
+    GROUPED so they do not each count as an independent full bonus:
+      * MVP and All-NBA overlap  -> All-NBA is discounted when the player is a
+        top-3 MVP finisher (the MVP value already implies first-team All-NBA);
+      * DPOY and All-Defense overlap -> All-Defense discounted for a top-3 DPOY;
+      * All-Star is subsumed by any All-NBA selection.
+    Vote share (when present) adds a small continuous bonus on top of the rank.
+    Statistical titles and 50-40-90 are independent feats and add separately.
+    Finals MVP is individual postseason recognition. Unanimous MVP (objective
+    record) adds a small extra. Output is an open additive value (~0..110).
+    """
+    b = recognition_breakdown(row)
     # Scale the additive award value onto the same ~0..115 magnitude as the
-    # other components so the 18% weight is an honest 18% of the index (a
+    # other components so the 20% weight is an honest 20% of the index (a
     # maximal MVP+DPOY+Finals-MVP+titles season tops out near ~115).
-    recognition = 0.80 * (mvp + unanimous + anba + allstar +
-                          defense_rec + fmvp + titles)
+    recognition = RECOGNITION_SCALE * (b["mvp"] + b["unanimous"] + b["anba"] +
+                                       b["allstar"] + b["defense_rec"] +
+                                       b["fmvp"] + b["titles"])
     return {
         "recognition": clamp(recognition, 0, 120),
-        "recognition_mvp": clamp(0.80 * (mvp + unanimous), 0, 75),
-        "recognition_titles": clamp(0.80 * titles, 0, 50),
-        "unanimous_mvp": 1.0 if unanimous > 0 else 0.0,
+        "recognition_mvp": clamp(RECOGNITION_SCALE * (b["mvp"] + b["unanimous"]), 0, 75),
+        "recognition_titles": clamp(RECOGNITION_SCALE * b["titles"], 0, 50),
+        "unanimous_mvp": 1.0 if b["unanimous"] > 0 else 0.0,
     }
 
 
@@ -1167,13 +1183,14 @@ PLAYOFF_INVERSE = ["tov"]
 # rising through the top anchors so GOAT seasons never flatten together. Bands:
 # ~60s = quality role/starter, mid-70s = credible All-NBA, ~88+ = MVP-level,
 # ~95+ = historically dominant peak. Fitted to the index distribution and
-# validated against award tiers, not players. The raw anchors (interior only)
-# were lowered ~2 points relative to the prior fit to absorb the ZERO-BASELINE
-# postseason/team-achievement correction (which removed the old positive
-# no-playoff/weak-playoff priors and shifted prime_raw down roughly uniformly);
+# validated against award tiers, not players. The interior raw anchors are
+# lowered a couple points each time the component WEIGHTS are rebalanced (most
+# recently postseason 12% -> 18%, which shifted prime_raw down slightly because
+# the postseason component has a lower mean than the regular-season components);
 # this preserves the historical DISPLAY bands without touching any component
-# weight or raw formula. Calibration remains a pure monotonic relabel.
-CALIBRATION_ANCHORS_RAW = [-10, 0, 12, 18, 26, 34, 43, 53, 63, 76, 88, 94, 112]
+# weight or raw formula. Calibration is a pure MONOTONIC relabel, so it never
+# changes any ranking.
+CALIBRATION_ANCHORS_RAW = [-10, 0, 12, 18, 26, 34, 42, 50, 60, 73, 85, 92, 112]
 CALIBRATION_ANCHORS_CAL = [3, 15, 37, 46, 56, 64, 73, 81, 88, 93, 97, 99, 100]
 
 
@@ -1265,11 +1282,11 @@ def compute_pathways(df: pd.DataFrame) -> pd.DataFrame:
 # ===========================================================================
 # OFFICIAL SINGLE-SEASON SCORE  (open weighted raw-value index)
 # ---------------------------------------------------------------------------
-#   STATISTICAL IMPACT        43%   (raw BPM/OBPM/DBPM, VORP, total WS, WS/48,
+#   STATISTICAL IMPACT        38%   (raw BPM/OBPM/DBPM, VORP, total WS, WS/48,
 #                                    PER, + bounded modern EPM/LEBRON/RAPM)
-#   TRADITIONAL PRODUCTION    24%   (nonlinear scoring volume x efficiency,
+#   TRADITIONAL PRODUCTION    23%   (nonlinear scoring volume x efficiency,
 #                                    efficiency, playmaking, rebounding, def box)
-#   INDIVIDUAL RECOGNITION    18%   (additive grouped awards; recognition_row)
+#   INDIVIDUAL RECOGNITION    15%   (additive grouped awards; recognition_row)
 #   POSTSEASON INDIVIDUAL     12%   (additive level + elevation + deep-run volume)
 #   TEAM ACHIEVEMENT           3%   (championships/finals/CF x role; small)
 #
@@ -1283,10 +1300,10 @@ def compute_pathways(df: pd.DataFrame) -> pd.DataFrame:
 # ===========================================================================
 
 OFFICIAL_WEIGHTS = {
-    "statistical_impact": 0.43,
-    "traditional_production": 0.24,
-    "recognition": 0.18,
-    "postseason": 0.12,
+    "statistical_impact": 0.38,
+    "traditional_production": 0.21,
+    "recognition": 0.20,
+    "postseason": 0.18,
     "team_achievement": 0.03,
 }
 MODERN_IMPACT_COLS = ["epm", "lebron", "raptor", "darko", "rapm"]
@@ -1340,7 +1357,7 @@ def _masked_wavg(score_arrays: List[np.ndarray], weights: List[float]) -> np.nda
 
 
 def statistical_impact(df: pd.DataFrame) -> Tuple[pd.Series, Dict[str, np.ndarray]]:
-    """STATISTICAL IMPACT (43%) from raw advanced metrics (continuous formulas).
+    """STATISTICAL IMPACT (38%) from raw advanced metrics (continuous formulas).
     Sub-weights of the 45: BPM/OBPM/DBPM 15, VORP+total WS 10, WS/48 8, PER 5,
     modern consensus 7 (bounded supplement, excluded when absent)."""
     bpm, obpm, dbpm = num(df, "bpm"), num(df, "obpm"), num(df, "dbpm")
@@ -1373,7 +1390,7 @@ def statistical_impact(df: pd.DataFrame) -> Tuple[pd.Series, Dict[str, np.ndarra
 
 def traditional_production(df: pd.DataFrame
                            ) -> Tuple[pd.Series, Dict[str, np.ndarray]]:
-    """TRADITIONAL PRODUCTION (24%). Scoring value combines volume and
+    """TRADITIONAL PRODUCTION (21%). Scoring value combines volume and
     efficiency NONLINEARLY (PTS/100, usage, sustained minutes/total points, rTS,
     TS+). Each skill only ADDS when strong (hinge -> ~0 at average). Penalties:
     inefficient high-volume scoring, excessive turnovers, poor availability."""
@@ -1436,6 +1453,20 @@ PO_ELEV_DOWN_CAP = 6.0         # max negative elevation value (small)
 PO_DEEPRUN_QUAL_THR = 42.0     # only genuinely strong playoff levels qualify
 PO_DEEPRUN_MIN_FULL = 720.0    # ~a deep multi-series run of heavy minutes
 PO_DEEPRUN_SCALE = 0.26
+# Best-player RESPONSIBILITY for sustained-volume credit, derived purely from the
+# playoff usage burden (data, not narrative). A floor keeps elite low-usage
+# contributors (e.g. defensive anchors who still reach an elite level) credited,
+# while a primary creator (high usage) earns full credit and a low-usage role
+# player earns little. Combined with the quality+minutes gates on deep-run.
+PO_RESP_FLOOR = 0.55           # minimum responsibility multiplier
+PO_RESP_USG_LO = 18.0          # usage% at the responsibility floor
+PO_RESP_PER_USG = 0.0333       # responsibility gained per usage% above the floor
+PO_RESP_CAP = 1.12             # maximum responsibility multiplier
+# Convex DOMINANCE booster so a HISTORICALLY DOMINANT playoff level is
+# exceptional (ordinary/good/elite runs are unaffected; only the very top
+# accelerates). Adds DOMINANCE_K points per point of level above the knee.
+PO_DOMINANCE_KNEE = 50.0
+PO_DOMINANCE_K = 0.30
 
 
 def _rate_impact_value(bpm, obpm, dbpm, ws48, per) -> np.ndarray:
@@ -1454,25 +1485,30 @@ def _rate_impact_value(bpm, obpm, dbpm, ws48, per) -> np.ndarray:
 
 def postseason_value(df: pd.DataFrame, has_po: pd.Series
                      ) -> Tuple[pd.Series, Dict[str, np.ndarray]]:
-    """POSTSEASON INDIVIDUAL VALUE (12%), built to better capture playoff
-    greatness while staying purely INDIVIDUAL and additive:
+    """POSTSEASON INDIVIDUAL VALUE (18%), rewarding ELITE INDIVIDUAL playoff
+    performance -- not merely winning -- while staying purely individual:
 
-        postseason_individual_value = playoff_level   (absolute raw quality)
-                                    + playoff_elevation (vs own regular season)
-                                    + deep_run_volume   (sustained elite minutes)
+        postseason_individual_value = absolute_playoff_level
+                                    + playoff_elevation     (vs own regular season)
+                                    + sustained_elite_volume (carried deep runs)
 
     Contract:
       * NO playoffs / no playoff minutes -> exactly 0 (no positive default);
-      * excellent playoff play adds value; poor play is a small BOUNDED penalty;
+      * absolute level is NONLINEAR: ordinary play small, good moderate, elite
+        substantial, HISTORICALLY DOMINANT exceptional (convex dominance booster);
+        a ring/Finals/deep run by itself does NOT create a large score;
       * elevation SUPPLEMENTS absolute quality (does not replace it) and is
         sample-shrunk; a slight decline from an extreme regular-season baseline
-        is damped, not heavily punished;
-      * deep-run volume requires BOTH strong individual quality AND real minutes
-        (it is individual workload/value, never an automatic team-advancement
-        reward) and is floored at 0;
+        is damped, not heavily punished (Jokic gets credit for excellent/improved
+        play even without a title);
+      * sustained-volume requires elite quality AND real minutes AND best-player
+        RESPONSIBILITY (usage burden, from data), so reaching the Finals with
+        ordinary production -- or as a low-usage role player -- adds little;
       * availability is counted ONCE (minutes reliability) and never twice;
       * championships, round reached and Finals MVP do NOT enter here (Team
-        Achievement / Individual Recognition respectively).
+        Achievement / Individual Recognition respectively); Finals MVP / clear-
+        best-player status only VALIDATE that these metrics found the right
+        player -- their points are never duplicated inside Postseason.
     """
     pbpm, pobpm, pdbpm = num(df, "po_bpm"), num(df, "po_obpm"), num(df, "po_dbpm")
     pws, pper = num(df, "po_ws_per_48"), num(df, "po_per")
@@ -1501,7 +1537,12 @@ def postseason_value(df: pd.DataFrame, has_po: pd.Series
                   0.06 * z0(po_rebounding) + 0.08 * z0(po_defense))
     oq = num(df, "opponent_quality_score").fillna(50.0).to_numpy()
     level_full = level_full * np.clip(0.90 + 0.20 * (oq - 50.0) / 50.0, 0.85, 1.15)
-    playoff_level = np.clip(level_full - PO_BASELINE, -PO_PENALTY_CAP, None)
+    # Absolute value above a replacement playoff baseline, with a CONVEX dominance
+    # booster so only a HISTORICALLY DOMINANT level becomes exceptional (ordinary,
+    # good and merely-elite runs are unaffected by the booster).
+    dominance = PO_DOMINANCE_K * np.clip(level_full - PO_DOMINANCE_KNEE, 0.0, None)
+    playoff_level = np.clip(level_full - PO_BASELINE + dominance,
+                            -PO_PENALTY_CAP, None)
 
     # ---- (b) PLAYOFF ELEVATION: playoff rate impact - regular rate impact ----
     reg_rate = _rate_impact_value(num(df, "bpm"), num(df, "obpm"),
@@ -1512,11 +1553,20 @@ def postseason_value(df: pd.DataFrame, has_po: pd.Series
     elev = np.where(elev_raw >= 0.0, elev_raw, PO_ELEV_DOWN_DAMP * elev_raw)
     elevation = np.clip(PO_ELEV_SCALE * elev, -PO_ELEV_DOWN_CAP, PO_ELEV_UP_CAP)
 
-    # ---- (c) DEEP-RUN INDIVIDUAL VOLUME: elite quality x sustained minutes ----
+    # ---- (c) SUSTAINED ELITE VOLUME: elite quality x minutes x responsibility --
+    # Best-player RESPONSIBILITY from the playoff usage burden (data, not
+    # narrative): a primary creator carrying a deep run earns full sustained-
+    # volume credit; a low-usage role player earns little even with a ring.
+    po_usg = num(df, "po_usg_pct").to_numpy()
+    responsibility = np.clip(
+        PO_RESP_FLOOR + PO_RESP_PER_USG * (np.nan_to_num(po_usg, nan=PO_RESP_USG_LO)
+                                           - PO_RESP_USG_LO),
+        PO_RESP_FLOOR, PO_RESP_CAP)
     quality_above = np.clip(level_full - PO_DEEPRUN_QUAL_THR, 0.0, None)
     minutes_factor = np.nan_to_num(
         np.clip(po_mp.to_numpy() / PO_DEEPRUN_MIN_FULL, 0.0, 1.0), nan=0.0)
-    deep_run = PO_DEEPRUN_SCALE * quality_above * minutes_factor   # >= 0
+    deep_run = (PO_DEEPRUN_SCALE * quality_above * minutes_factor
+                * responsibility)                                  # >= 0
 
     # ---- reliability + assembly (availability counted ONCE) ------------------
     # The rate-quality terms (level + elevation) are shrunk toward 0 on small/
@@ -1538,6 +1588,7 @@ def postseason_value(df: pd.DataFrame, has_po: pd.Series
         "po_deep_run": np.where(played, deep_run, z),
         "po_reg_rate": np.nan_to_num(reg_rate, nan=0.0),
         "po_play_rate": np.nan_to_num(po_rate, nan=0.0),
+        "po_responsibility": np.where(played, responsibility, z),
     }
     return pd.Series(val, index=df.index), parts
 
@@ -1593,11 +1644,11 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
 
     # ===================================================================
     # OFFICIAL FIVE-COMPONENT INDEX (open, raw-value contributions)
-    #   43% statistical impact | 24% traditional production |
-    #   18% recognition | 12% postseason individual | 3% team achievement
+    #   38% statistical impact | 21% traditional production |
+    #   20% recognition | 18% postseason individual | 3% team achievement
     # ===================================================================
     si, si_parts = statistical_impact(df)            # 43% component (raw value)
-    tp, tp_parts = traditional_production(df)         # 24% component (raw value)
+    tp, tp_parts = traditional_production(df)         # 23% component (raw value)
     df["statistical_impact"] = si
     df["traditional_production"] = tp
 
@@ -1648,6 +1699,7 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
     df["po_deep_run_value"] = po_parts["po_deep_run"]     # sustained elite minutes
     df["po_reg_rate"] = po_parts["po_reg_rate"]
     df["po_play_rate"] = po_parts["po_play_rate"]
+    df["po_responsibility"] = po_parts["po_responsibility"]
     po_g, team_po_g = num(df, "po_g"), num(df, "team_po_g")
     po_mp_ = num(df, "po_mp")
     avail = (po_g / team_po_g).clip(0, 1) * 100.0
@@ -1776,7 +1828,7 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
         "perf_only_raw", "prime_raw",
         "regular_perf", "postseason_perf", "postseason_availability",
         "po_level_value", "po_elevation_value", "po_deep_run_value",
-        "po_reg_rate", "po_play_rate",
+        "po_reg_rate", "po_play_rate", "po_responsibility",
         "recognition", "recognition_mvp", "recognition_titles", "unanimous_mvp",
         "team_achievement", "recognition_bonus", "team_bonus",
         "regular", "playoff", "accolade", "team_score", "durability",
@@ -2087,24 +2139,26 @@ def collect_warnings(player_df: pd.DataFrame, flags: Dict[str, bool]) -> List[st
 FORMULA_TEXT = """\
 FORMULA  (OPEN FIVE-COMPONENT WEIGHTED RAW-VALUE INDEX; not percentile-based)
   prime_raw =
-      0.43 * Statistical Impact        (raw advanced metrics: BPM/OBPM/DBPM,
+      0.38 * Statistical Impact        (raw advanced metrics: BPM/OBPM/DBPM,
                                          VORP + total WS, WS/48, PER, modern EPM/LEBRON)
-    + 0.24 * Traditional Production    (nonlinear scoring volume x efficiency, usage,
+    + 0.21 * Traditional Production    (nonlinear scoring volume x efficiency, usage,
                                          playmaking, rebounding, box defense; raw box stats)
-    + 0.18 * Individual Recognition    (additive grouped awards: MVP rank + vote share,
+    + 0.20 * Individual Recognition    (additive grouped awards: MVP rank + vote share,
                                          All-NBA, DPOY/All-D, Finals MVP, stat titles,
                                          50-40-90, unanimous MVP; NO championship/team result;
                                          a season with NO award contributes ZERO here)
-    + 0.12 * Postseason Individual Value = playoff_level + playoff_elevation + deep_run_volume
-                                         playoff_level: absolute raw playoff quality (BPM/WS48/
+    + 0.18 * Postseason Individual Value = absolute_playoff_level + playoff_elevation + sustained_elite_volume
+                                         absolute_playoff_level: raw playoff quality (BPM/WS48/
                                            PER rate, scoring, efficiency, playmaking, rebounding,
-                                           defense, minutes) above a replacement baseline -- ADDITIVE
-                                           (strong adds, weak = small bounded penalty);
+                                           defense, minutes) above a replacement baseline, NONLINEAR
+                                           with a convex booster so HISTORICALLY DOMINANT runs are
+                                           exceptional (strong adds, weak = small bounded penalty);
                                          playoff_elevation: playoff rate impact - regular rate
                                            impact (gains rewarded, decline from an extreme baseline
                                            damped, sample-shrunk); supplements, never replaces level;
-                                         deep_run_volume: elite quality SUSTAINED over real playoff
-                                           minutes/series (individual workload, not advancement);
+                                         sustained_elite_volume: elite quality x sustained minutes x
+                                           best-player RESPONSIBILITY (usage burden, from data) --
+                                           a ring with ordinary/role-player production adds little;
                                          NO playoffs = 0; injury shrinks toward 0; availability
                                          counted ONCE; NO championship / round / Finals MVP here)
     + 0.03 * Team Achievement          (ZERO baseline; positive only AFTER winning a playoff
@@ -2161,14 +2215,14 @@ def window_buckets(window: Dict, weighting: str = "weighted") -> Dict[str, float
         return float(v) if pd.notna(v) else d
 
     buckets = {k: 0.0 for k in (
-        "Statistical impact (43%)", "Traditional production (24%)",
-        "Individual recognition (18%)", "Postseason individual (12%)",
+        "Statistical impact (38%)", "Traditional production (21%)",
+        "Individual recognition (20%)", "Postseason individual (18%)",
         "Team achievement (3%)", "Teammate adjustment")}
     for w, (_, r) in zip(weights, trio.iterrows()):
-        buckets["Statistical impact (43%)"] += w * g(r, "contrib_statistical_impact")
-        buckets["Traditional production (24%)"] += w * g(r, "contrib_traditional_production")
-        buckets["Individual recognition (18%)"] += w * g(r, "contrib_recognition")
-        buckets["Postseason individual (12%)"] += w * g(r, "contrib_postseason")
+        buckets["Statistical impact (38%)"] += w * g(r, "contrib_statistical_impact")
+        buckets["Traditional production (21%)"] += w * g(r, "contrib_traditional_production")
+        buckets["Individual recognition (20%)"] += w * g(r, "contrib_recognition")
+        buckets["Postseason individual (18%)"] += w * g(r, "contrib_postseason")
         buckets["Team achievement (3%)"] += w * g(r, "contrib_team_achievement")
         buckets["Teammate adjustment"] += w * g(r, "teammate_adjustment")
     return buckets
@@ -2199,10 +2253,10 @@ def nyear_window_decomposition(window: Dict, score_col: str,
             else pd.Series([d] * n, index=wdf.index)
 
     comps = {
-        "Statistical impact (43%)": float((weights * g("contrib_statistical_impact")).sum()),
-        "Traditional production (24%)": float((weights * g("contrib_traditional_production")).sum()),
-        "Individual recognition (18%)": float((weights * g("contrib_recognition")).sum()),
-        "Postseason individual (12%)": float((weights * g("contrib_postseason")).sum()),
+        "Statistical impact (38%)": float((weights * g("contrib_statistical_impact")).sum()),
+        "Traditional production (21%)": float((weights * g("contrib_traditional_production")).sum()),
+        "Individual recognition (20%)": float((weights * g("contrib_recognition")).sum()),
+        "Postseason individual (18%)": float((weights * g("contrib_postseason")).sum()),
         "Team achievement (3%)": float((weights * g("contrib_team_achievement")).sum()),
         "Teammate adjustment": float((weights * g("teammate_adjustment")).sum()),
     }
@@ -3205,8 +3259,8 @@ def _report_nyear(player: str, player_df: pd.DataFrame, n: int, mode: str,
         dec = nyear_window_decomposition(bw, col, weighting)
         print("  Component decomposition (rank-weighted RAW contributions, "
               f"sum = {dec['_raw_window_score']:.2f} raw):")
-        for k in ("Statistical impact (43%)", "Traditional production (24%)",
-                  "Individual recognition (18%)", "Postseason individual (12%)",
+        for k in ("Statistical impact (38%)", "Traditional production (21%)",
+                  "Individual recognition (20%)", "Postseason individual (18%)",
                   "Team achievement (3%)", "Teammate adjustment"):
             print(f"    {k:32} {dec[k]:7.2f}")
         print(f"  Aggregates: avg Statistical Impact {dec['avg_statistical_impact']:.1f}"

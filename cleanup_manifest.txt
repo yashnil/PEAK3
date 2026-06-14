@@ -1,71 +1,82 @@
 REPOSITORY CLEANUP MANIFEST
-Generated during the postseason-weight upgrade (43/24/18/12/3) pass.
+Pass: recognition-weight update (Recognition 15% -> 20%; weights 38/21/20/18/3).
 
-Scope: removed ONLY clearly obsolete, unused iteration artifacts from results/.
-Preserved: all source data, required cache files, tests, current leaderboards
-(results/top_250_*.csv, results/all_players.csv), README.md, METHODOLOGY.md,
-outputs.txt, data/ (incl. generated context + manual_context.csv), and every
-file referenced by active code.
+Method: re-ran the unused-file audit. For every results/ artifact, grep across
+peak3.py, nba_peak/, make_outputs.py, tests/, README.md and METHODOLOGY.md, and
+classify each reference as a WRITE site (a command that regenerates the file) vs
+a READ/consume (code or docs that depend on it). A file is removable only when
+it has NO read/consume reference, is not a current deliverable, and is stale
+relative to the live model.
 
-Format: deleted file | reason deleted | replacement / current source of truth
+Columns: deleted path | why obsolete | evidence it is unused | current replacement.
 
-----------------------------------------------------------------------------
-results/pre_redesign_formula_diagnosis.csv
-  reason: one-off diagnosis of a SUPERSEDED pre-redesign formula; not referenced
-          by any active code; the model has since been fully re-derived.
-  current source of truth: METHODOLOGY.md (formula derivation) + results/
-          final_formula_map.{csv,txt} (live --audit-data output).
+============================================================================
+DELETED THIS PASS (stale, write-only audit snapshots from old-model runs)
 
-results/pre_redesign_formula_diagnosis.txt
-  reason: text twin of the above; superseded, unreferenced.
-  current source of truth: METHODOLOGY.md + README.md.
+results/all_players.csv
+  why obsolete: a full player dump generated 2026-06-12 under a superseded model.
+  evidence unused: only WRITTEN by `--list-all-players` (nba_peak/cli_commands.py,
+    peak3.py); no code reads it; not referenced by README/METHODOLOGY.
+  current replacement: `python peak3.py --list-all-players` regenerates it on
+    demand from the live cache.
 
-results/pre_final_master_redesign/            (whole directory)
-    baseline_reports.csv
-    top25_single_season.csv
-    top25_three_year.csv
-  reason: frozen snapshot from an OLD "master redesign" iteration; superseded by
-          the current leaderboards and validation output; not referenced.
-  current source of truth: results/top_250_single_seasons_{prime,performance}.csv,
-          results/top_250_three_year_peaks_{prime,performance}.csv, outputs.txt.
+results/candidate_audit.csv
+results/candidate_audit.txt
+  why obsolete: stale `--audit-candidates` output (2026-06-12).
+  evidence unused: only WRITTEN by cli_commands.audit_candidates; no reads; not
+    in docs.
+  current replacement: `python peak3.py --audit-candidates`.
 
-results/shaq_peak.json
-  reason: stale one-off JSON export from very early manual testing; not
-          referenced; not part of any current report.
-  current source of truth: `python peak3.py --player "Shaquille O'Neal" --export
-          <path>` regenerates an up-to-date export on demand.
+results/teammate_audit.csv
+results/teammate_audit.txt
+  why obsolete: stale `--audit-teammates` dump (2026-06-13).
+  evidence unused: only WRITTEN by cli_commands.audit_teammates; no reads; not
+    in docs.
+  current replacement: `python peak3.py --audit-teammates`.
 
-results/baseline/candidates_before.csv
-  reason: pre-enrichment manual snapshot of an early candidate list; unreferenced
-          and superseded by the tiered candidate build.
-  current source of truth: data/generated/candidates.csv (+ candidate_exclusions.csv).
+results/final_data_audit.json
+results/final_data_audit.txt
+results/final_data_coverage.csv
+results/final_data_anomalies.csv
+results/final_formula_map.csv
+results/final_formula_map.txt
+  why obsolete: stale `--audit-data` outputs (2026-06-13) describing an old-model
+    formula/coverage map; the formula has since changed (weights 38/21/20/18/3).
+  evidence unused: only WRITTEN by nba_peak/data_audit.py; no code reads them; not
+    referenced by README/METHODOLOGY (the live formula reference is METHODOLOGY.md
+    + README.md).
+  current replacement: `python peak3.py --audit-data` regenerates the full set;
+    the authoritative formula map is METHODOLOGY.md / README.md.
 
-results/baseline/peak_scores_before.csv
-  reason: ad-hoc "before" peak-score dump from an early iteration; unreferenced.
-  current source of truth: cache/processed/scored_1980_2026.parquet + outputs.txt.
+============================================================================
+REVIEWED BUT PRESERVED (with reason)
 
-results/baseline/lebron_legacy.txt
-  reason: early manual single-player report capture; unreferenced, superseded by
-          the live report and outputs.txt.
-  current source of truth: `python peak3.py --player "LeBron James"`.
+results/top_250_single_seasons_{prime,performance}.csv
+results/top_250_3_year_peaks_{prime,performance}.csv
+results/top_250_5_year_peaks_{prime,performance}.csv
+  CURRENT leaderboard deliverables, rebuilt every run from the live cache by
+  make_outputs.write_leaderboards() (single-season, 3-year, 5-year; Prime and
+  Performance-Only).
 
-results/baseline/wade_legacy.txt
-  reason: early manual single-player report capture; unreferenced.
-  current source of truth: `python peak3.py --player "Dwyane Wade"`.
+results/context_audit.{json,txt}
+  Referenced by METHODOLOGY.md; live `--audit-context` output.
 
-----------------------------------------------------------------------------
-KEPT (deliberately NOT deleted, though they look incidental):
+results/scoring_dependency_audit.{csv,txt}
+  Referenced by a peak3.py comment AND METHODOLOGY.md (documents the still-current
+  legacy `_pct` column-naming limitation).
 
 results/baseline/scored_pre_context.parquet
-  kept because peak3.py (--audit-context) references it as the before/after
-  baseline snapshot and recreates it only when absent.
+  READ by peak3.py (--audit-context) as the before/after baseline; recreated only
+  when absent. (Its sibling snapshots were removed in an earlier pass.)
 
-results/curry_2015_vs_2016_audit.{csv,txt}
-  kept: current --compare-seasons output (regenerated by cli_commands).
+Source / data / model files (peak3.py, make_outputs.py, nba_peak/**, tests/**,
+cache/processed/*.parquet, cache/html/**, data/**, README.md, METHODOLOGY.md,
+outputs.txt, requirements.txt) were all preserved.
 
-results/score_calibration.{csv,txt}, results/scoring_dependency_audit.{csv,txt},
-results/final_data_audit.*, results/final_formula_map.*, results/context_audit.*,
-results/candidate_audit.*, results/teammate_audit.*, results/spot_check_validation.*,
-results/all_players.csv, results/top_250_*.csv
-  kept: live outputs of active --audit-* / leaderboard commands and/or referenced
-  by code comments as the documented source of truth.
+============================================================================
+PRIOR-PASS DELETIONS (already gone; see git history)
+  results/pre_redesign_formula_diagnosis.*, results/pre_final_master_redesign/,
+  results/shaq_peak.json, results/baseline/{lebron_legacy,wade_legacy,
+  candidates_before,peak_scores_before}.*, results/spot_check_validation.*,
+  results/score_calibration.*, results/curry_2015_vs_2016_audit.*,
+  results/top_250_three_year_peaks_{prime,performance}.csv.
