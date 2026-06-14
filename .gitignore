@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Caches & generated data (rebuildable from source)
+cache/html/
+cache/processed/
+results/
+data/generated/
+context_build.log
+
+# User-provided optional context files (keep templates in data/examples/)
+data/manual_context.csv
+data/external_impact.csv
+data/stat_titles.csv
+
+.DS_Store
