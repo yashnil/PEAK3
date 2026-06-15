@@ -1907,8 +1907,16 @@ def main():
     out += warnings_section(s)
     out += summary_section()
 
-    # Item 12: final ranked case-study comparison at the very bottom.
+    # Item 12: final ranked case-study comparison.
     out += final_25_comparison(s)
+
+    # Five-player comparative prime audit (compact); full report is the .md.
+    from nba_peak import five_player_audit as fpa
+    audit = fpa.build_audit(s)
+    out += fpa.render_compact(audit)
+    fpa.export_csvs(audit, ROOT / "reports")
+    (ROOT / "FIVE_PLAYER_PRIME_AUDIT.md").write_text(
+        fpa.render_markdown(audit), encoding="utf-8")
 
     (ROOT / "outputs.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
     print(f"Wrote outputs.txt ({len(out)} lines)")

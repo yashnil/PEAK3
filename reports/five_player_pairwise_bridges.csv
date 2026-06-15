@@ -1,0 +1,13 @@
+player_a,player_b,duration,total_raw_diff,display_diff,diff_statistical_impact,diff_traditional_production,diff_recognition,diff_postseason_perf,diff_team_achievement,diff_teammate
+James Harden,David Robinson,1,1.868,0.718,0.14,0.562,-0.577,1.765,0.157,-0.179
+James Harden,David Robinson,3,0.528,0.37,-1.772,0.758,-0.904,2.183,0.34,-0.076
+James Harden,David Robinson,5,0.511,0.358,-1.545,0.794,-1.224,2.096,0.43,-0.04
+David Robinson,Hakeem Olajuwon,1,-6.312,-2.428,6.604,2.064,-4.901,-8.199,-1.73,-0.151
+David Robinson,Hakeem Olajuwon,3,-0.81,-0.567,8.27,1.996,-3.579,-5.868,-1.476,-0.153
+David Robinson,Hakeem Olajuwon,5,2.092,1.464,8.77,1.933,-2.051,-5.122,-1.369,-0.071
+Stephen Curry,James Harden,1,13.628,5.104,4.405,3.684,4.782,0.261,0.541,-0.046
+Stephen Curry,James Harden,3,8.979,3.569,0.952,1.623,2.776,2.493,1.312,-0.176
+Stephen Curry,James Harden,5,5.416,3.286,-0.723,1.307,1.243,2.496,1.355,-0.263
+Kobe Bryant,James Harden,1,-7.585,-4.658,-8.857,-3.16,0.441,3.163,0.541,0.287
+Kobe Bryant,James Harden,3,-7.065,-4.946,-9.864,-4.37,1.985,3.819,1.402,-0.037
+Kobe Bryant,James Harden,5,-5.218,-3.653,-7.574,-3.356,2.952,2.005,0.774,-0.019

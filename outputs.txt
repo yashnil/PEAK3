@@ -1437,23 +1437,23 @@ NEW = diminishing-return, reliability-shrunk dominance + sample-shrunk level.
     Dale Ellis               #185 -> #163  (+22)
     Mo Williams              #296 -> #275  (+21)
     Chandler Parsons         #375 -> #355  (+20)
-    Anthony Parker           #441 -> #422  (+19)
     Hedo Turkoglu            #300 -> #281  (+19)
     Andrew Toney             #315 -> #296  (+19)
+    Anthony Parker           #441 -> #422  (+19)
     Nicolas Batum            #297 -> #279  (+18)
     Orlando Woolridge        #264 -> #247  (+17)
-    Wally Szczerbiak         #326 -> #310  (+16)
+    Arron Afflalo            #451 -> #435  (+16)
   Largest FALLERS (best-3-year Prime rank dropped):
     Roy Hibbert              #273 -> #302  (-29)
     Dennis Schroder          #429 -> #457  (-28)
     Jerome Kersey            #294 -> #320  (-26)
-    Caldwell Jones           #457 -> #481  (-24)
-    Tiny Archibald           #281 -> #305  (-24)
     Antonio Davis            #417 -> #441  (-24)
     Trevor Ariza             #346 -> #370  (-24)
     Sam Perkins              #263 -> #287  (-24)
-    James Donaldson          #269 -> #292  (-23)
+    Tiny Archibald           #281 -> #305  (-24)
+    Caldwell Jones           #457 -> #481  (-24)
     Jason Richardson         #217 -> #240  (-23)
+    James Donaldson          #269 -> #292  (-23)
 
 ==============================================================================
 INTEGRITY CHECKS (section 10)
@@ -1883,22 +1883,22 @@ Ranks are among all qualified COMPLETED seasons / 3-year peaks.
     Pau Gasol                  #63   -> #56   (+7)
     Ray Allen                  #67   -> #61   (+6)
     James Worthy               #126  -> #120  (+6)
-    Jeff Hornacek              #118  -> #113  (+5)
     Cedric Maxwell             #106  -> #101  (+5)
     Reggie Miller              #55   -> #50   (+5)
-    Terry Porter               #62   -> #58   (+4)
+    Jeff Hornacek              #118  -> #113  (+5)
     Dikembe Mutombo            #98   -> #94   (+4)
+    Terry Porter               #62   -> #58   (+4)
   Largest FALLERS as postseason weight goes 12% -> 18%:
-    Mark Price                 #59   -> #65   (-6)
     Chris Webber               #61   -> #67   (-6)
     Karl-Anthony Towns         #58   -> #64   (-6)
+    Mark Price                 #59   -> #65   (-6)
     Vince Carter               #64   -> #69   (-5)
-    DeMarcus Cousins           #102  -> #106  (-4)
-    Kyle Lowry                 #83   -> #87   (-4)
-    George Gervin              #56   -> #60   (-4)
-    Kyrie Irving               #70   -> #74   (-4)
-    Peja Stojakovic            #93   -> #97   (-4)
     David Robinson             #10   -> #14   (-4)
+    Domantas Sabonis           #53   -> #57   (-4)
+    Peja Stojakovic            #93   -> #97   (-4)
+    Kyle Lowry                 #83   -> #87   (-4)
+    Trae Young                 #100  -> #104  (-4)
+    George Gervin              #56   -> #60   (-4)
 
   CHOSEN WEIGHT: 18% (per brief). The sweep 12% -> 15% -> 18% shows
   graceful, monotone movement -- elite individual playoff peaks (Hakeem,
@@ -1955,19 +1955,19 @@ LARGEST RISERS / FALLERS vs the PRIOR 41/23/15/18/3 model
     DeAndre Jordan             #83   -> #76   (+7)
     Isiah Thomas               #76   -> #70   (+6)
     Ben Simmons                #131  -> #125  (+6)
-    Tim Hardaway               #88   -> #83   (+5)
+    Allen Iverson              #47   -> #42   (+5)
   FALLERS (purely statistical peaks ease back):
     Dan Issel                  #129  -> #138  (-9)
     Jarrett Allen              #95   -> #103  (-8)
     Elton Brand                #60   -> #68   (-8)
     Shawn Marion               #86   -> #93   (-7)
-    Terrell Brandon            #90   -> #96   (-6)
-    Kyle Lowry                 #81   -> #87   (-6)
     Doc Rivers                 #125  -> #131  (-6)
-    Detlef Schrempf            #123  -> #129  (-6)
-    Yao Ming                   #84   -> #90   (-6)
     Karl-Anthony Towns         #58   -> #64   (-6)
-    Paul Pierce                #68   -> #73   (-5)
+    Detlef Schrempf            #123  -> #129  (-6)
+    Kyle Lowry                 #81   -> #87   (-6)
+    Yao Ming                   #84   -> #90   (-6)
+    Terrell Brandon            #90   -> #96   (-6)
+    Vince Carter               #64   -> #69   (-5)
     Brad Daugherty             #66   -> #71   (-5)
 
 ==============================================================================
@@ -2286,4 +2286,47 @@ D. CROSS-DURATION SUMMARY (sorted by 1-year rank)
   largest decline 1yr->5yr rank    : Stephen Curry (#3 -> #5, -2)
   ranked top 5 at ALL three durations: Michael Jordan, LeBron James, Nikola Jokic, Stephen Curry
   best 1-year season OUTSIDE best 3-year window: LeBron James
+
+##############################################################################
+# FIVE-PLAYER PRIME AUDIT
+##############################################################################
+
+Harden / Robinson / Hakeem / Curry / Kobe. Model unchanged (38/21/20/18/3). Completed seasons; windows aggregate RAW then calibrate once. Full report: FIVE_PLAYER_PRIME_AUDIT.md
+
+BEST-WINDOW RAW (display):
+  player                       1yr             3yr             5yr
+  James Harden    2017-18-2017-18 62.1      2017+ 59.6      2014+ 56.2
+  David Robinson  1994-95-1994-95 60.2      1993+ 59.1      1991+ 55.7
+  Hakeem Olajuwon 1993-94-1993-94 66.5      1992+ 59.9      1992+ 53.6
+  Stephen Curry   2015-16-2015-16 75.7      2014+ 68.6      2014+ 61.6
+  Kobe Bryant     2007-08-2007-08 54.5      2007+ 52.6      2005+ 51.0
+
+  1yr: Curry 75.7 > Olajuwon 66.5 > Harden 62.1 > Robinson 60.2 > Bryant 54.5
+  3yr: Curry 68.6 > Olajuwon 59.9 > Harden 59.6 > Robinson 59.1 > Bryant 52.6
+  5yr: Curry 61.6 > Harden 56.2 > Robinson 55.7 > Olajuwon 53.6 > Bryant 51.0
+
+COMPONENT SHARE at best season (% of positive weighted total):
+  player            SI%  TP%  Rec%  PO%  Tm%
+  James Harden       51   20    23    4    2
+  David Robinson     52   19    25    2    2
+  Hakeem Olajuwon    38   14    30   14    5
+  Stephen Curry      47   21    25    4    3
+  Kobe Bryant        42   17    27   11    4
+
+HARDEN - ROBINSON bridge (raw weighted-contribution diff):
+   dur     SI     TP    Rec     PO   Team   total
+    1y   0.14   0.56  -0.58   1.76   0.16    1.87
+    3y  -1.77   0.76  -0.90   2.18   0.34    0.53
+    5y  -1.54   0.79  -1.22   2.10   0.43    0.51
+  -> at 3/5y Robinson leads SI+Recognition; Harden's entire margin is Postseason (+~2.1). Stable but sensitive.
+
+SENSITIVITY (Harden vs Robinson never flips; Hakeem<->Robinson does):
+  Official  38/21/20/18/3      1y H>R  3y H>R  5y H>R
+  More stats 41/23/17/16/3     1y H>R  3y H>R  5y H>R
+  Less awards 40/22/17/18/3    1y H>R  3y H>R  5y H>R
+  Less playoff 40/22/20/15/3   1y H>R  3y H>R  5y H>R
+
+COUNTERFACTUAL: Harden-Robinson raw gap 1y +1.87 / 3y +0.53 / 5y +0.51. Robinson needs +4.9 SI pts or +10.4 PO pts to pass at 1y.
+
+VERDICTS: Harden>Robinson defensible-but-sensitive (entire margin = Postseason). Hakeem vs Robinson defensible-but-sensitive. Curry #1 strongly defensible. Kobe #5 strongly defensible. No implementation flaw found; key levers are PHIL/CHOICE (postseason weight, awards-team correlation, advanced-metric redundancy).
 
