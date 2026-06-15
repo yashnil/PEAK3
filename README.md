@@ -122,7 +122,7 @@ ordinary rebounds contribute nothing rather than dragging the score:
 
 | Sub-metric | Weight | Notes |
 |---|---|---|
-| Scoring value | 0.40 | **Nonlinear**: `hinge(PTS/100) × minutes-load × efficiency-mult + usage burden − inefficient-high-volume penalty` |
+| Scoring value | 0.40 | **Nonlinear**: `hinge(PTS/100) × minutes-load × efficiency-mult + successful-burden residual − inefficient-high-volume penalty` |
 | Efficiency | 0.20 | relative TS% and TS+ above league |
 | Playmaking | 0.16 | AST/100 and AST% hinges |
 | Rebounding | 0.12 | TRB/100 and TRB% hinges |
@@ -132,6 +132,35 @@ Single-counted **penalties**: excessive turnovers and poor availability (games
 played). Scoring multiplies volume × efficiency, so elite efficiency at low
 volume is not treated like elite efficiency at high volume.
 
+**Successful offensive-burden residual.** The scoring term's prior *raw heavy-usage
+bonus* (`0.8·hinge(usage)`, which rewarded high usage by itself) is **replaced** by
+a small, **bounded** residual that credits only *successfully absorbed* extreme
+creation:
+
+```
+expected relative efficiency  = a usage-adjusted baseline (efficiency is expected to
+                                fall as usage rises above ~22%)
+usage_efficiency_residual     = actual relative TS − expected
+creation_load                 = bounded(ACTUAL team scoring share + 0.45·team assist share)
+                                (USG%+0.45·AST% proxy only as a flagged fallback)
+successful_burden_residual    = scale · creation_load · max(usage_efficiency_residual, 0)
+                                       · workload_reliability      (bounded, small)
+```
+
+The **creation load uses actual team scoring/assist shares** (player season points
+÷ team points; assists ÷ team assists — *real* production responsibility, not the
+USG%/AST% proxy). The actual-share pivots are **percentile-matched** to the old
+proxy distribution, so the residual distribution and the TP scale are preserved
+(mean burden 1.42 → 1.59; TP mean Δ ≈ +0.07). When a team share is missing the row
+falls back to the proxy, flagged via `burden_data_status`. So **high usage alone
+earns nothing**, high volume on poor efficiency earns nothing (small bounded
+deduction at most), and strong efficiency on a light role earns nothing — only
+genuinely *difficult* creation carried at **better-than-expected** efficiency over
+real minutes adds (bounded to a few points). It does not duplicate Statistical
+Impact (correlation ≈ 0.75) or the rest of Traditional Production; OBPM validates
+it but is never an additive input. (USG%, team scoring share, team assist share
+and AST% are kept as **distinct** measures — see DATA_SOURCES.md.)
+
 ---
 
 ## 5. Individual Recognition (20%)
@@ -139,16 +168,36 @@ volume is not treated like elite efficiency at high volume.
 Additive, **grouped** award values (overlapping honors do not each count in
 full). A season with **no award contributes exactly zero**.
 
-- **MVP**: 1st = 58, 2nd = 36, 3rd = 26, top-5 = 18, top-10 = 9, plus up to +14 for
-  MVP vote share; **unanimous MVP** adds +8 (objective record).
+**Smooth award-voting for ranked awards (MVP, DPOY).** Placement *buckets* (which
+created arbitrary second-to-fourth cliffs) are replaced by
+
+```
+award_voting_value = winner_premium                    (only the actual winner)
+                   + continuous_vote_share_value       (primary signal)
+                   + small_nonwinner_placement_stabilizer
+```
+
+**Real MVP/DPOY vote share** (Basketball Reference `award_share = points won ÷
+points max`) is now populated for **every ranked awards-era season** and is the
+primary continuous signal; the **documented smooth exponential placement
+fallback** is used only where a ranked finish has no vote row (flagged via
+`mvp_vote_data_status` / `dpoy_vote_data_status`). Missing vote share is **NaN,
+never 0**. First place clearly exceeds second and **2nd → 10th decline smoothly
+with no cliff**. Real share also separates a *dominant* winner (Embiid 2023 .915,
+Westbrook 2017 .879 → above the fallback) from a narrow one, and a close runner-up
+from a distant one. MVP example (placement fallback):
+1st = 58, 2nd ≈ 29.8, 3rd ≈ 24.6, 4th ≈ 20.4, 5th ≈ 16.8 … 10th ≈ 6.5.
+
+- **MVP**: smooth voting value (above); **unanimous MVP** adds +8 (objective record).
 - **All-NBA**: 1st team 30 / 2nd 20 / 3rd 12 — **discounted ×0.45** for a top-3 MVP
   finisher (the MVP value already implies first-team).
 - **All-Star**: 8, but **subsumed** by any All-NBA selection.
-- **Defense**: DPOY 1st = 34 / 2nd = 18 / 3rd = 12 / top-5 = 7 (+ up to +10 vote
-  share), grouped with All-Defense (1st 16 / 2nd 9, **×0.5** for a top-3 DPOY).
-- **Finals MVP**: 20 — and Finals MVP lives **only** here.
+- **Defense**: DPOY smooth voting value (1st ≈ 35, then a smooth decline), grouped
+  with All-Defense (1st 16 / 2nd 9, **×0.5** for a top-3 DPOY).
+- **Finals MVP**: 20, **binary — no runner-up value** — and Finals MVP lives **only** here.
 - **Statistical titles** (scoring/assist/rebound/steal/block leader) and **50-40-90**
-  add independently.
+  add independently (the achievement itself, not the underlying statistical edge,
+  which already lives in Statistical Impact / Traditional Production).
 
 The sum is scaled ×0.80 onto the same ~0–115 magnitude as the other components,
 so the 20% weight is an honest 20%. **No championship or team result appears in
@@ -226,23 +275,37 @@ single-season Prime crown passes to a complete Finals-length run (Jordan 1990-91
 
 ## 7. Team Achievement (3%)
 
-Zero baseline. Positive value begins **only after winning a playoff series**,
-then increases progressively, scaled by the player's role on the team:
+Zero baseline. The component is
 
-| Result | Base × role multiplier |
+```
+team_achievement = smooth_bounded_advancement_value × role_responsibility_multiplier
+```
+
+The **advancement value** is a *smooth, bounded* progression in `[0, 100]` driven by
+measurable results (rounds reached / series won / championship), **interpolated**
+between anchors rather than coarse `0 / 50 / 100` buckets:
+
+| Result (rounds reached) | Advancement value |
 |---|---|
 | First-round exit / no playoffs | **0** |
-| Won ≥1 series (no Conf Finals) | 30 × 0.85 |
-| Conference Finals | 62 × 0.8 |
-| Finals | 80 × 0.8 |
-| Champion — role player | 100 × 0.55 |
-| Champion — co-best player | 100 × 0.85 |
-| Champion — best player | 100 × 1.00 |
+| Won ≥1 series (lost Conf Semis) | 30 |
+| Conference Finals | 58 |
+| Finals | 80 |
+| Champion | 100 |
+
+…with intermediate `playoff_round_score` values interpolated smoothly between
+those anchors. The **role-responsibility multiplier** distinguishes a *clear
+primary player* (1.00) → *co-star* (0.82) → *secondary contributor* → *role
+player* (floor 0.34). Recognized best/co-best players use the explicit flag;
+everyone else is graded smoothly by **creation burden** (usage + assist share),
+capped at the co-star level, so a low-creation role player on a champion receives
+limited credit while a high-responsibility hub does not.
 
 `playoff_round_score` encodes rounds *reached*, not won, so a first-round **loss**
 (score 30, zero series won) correctly scores 0. With only a 3% weight (≤3.0 index
 points) a title can never offset a large individual gap. **Championships appear
-only here.**
+only here; Finals MVP and individual playoff box score never enter Team
+Achievement.**
 
 ---
 

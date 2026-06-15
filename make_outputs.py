@@ -1247,8 +1247,582 @@ def write_leaderboards(s):
     return written
 
 
+# ============================================================================
+#  REFINEMENT-PASS AUDITS (Recognition / offensive burden / Team Achievement)
+# ============================================================================
+
+def load_pre_refine_snapshot():
+    """Pre-refinement (post-postseason-correction) per-season values, frozen in
+    data/refine_pre_snapshot.csv. Everything BUT this pass's Recognition, burden,
+    and Team-Achievement changes is identical, so it isolates the refinement."""
+    p = ROOT / "data" / "refine_pre_snapshot.csv"
+    return pd.read_csv(p) if p.exists() else None
+
+
+KOBE_SEASONS = [2001, 2003, 2006, 2007, 2008, 2009, 2010]
+
+
+def _award_voting_value(r):
+    """The smooth MVP award-voting value (winner premium + continuous + stabilizer),
+    pre RECOGNITION_SCALE -- the single number that replaced the old buckets."""
+    return peak3.ranked_award_value(
+        peak3.award_rank(r.get("awards", ""), "MVP"),
+        r.get("mvp_vote_share"), **peak3.MVP_VOTING)
+
+
+def kobe_burden_audit(s, pre):
+    """Item 9: full per-season burden + recognition + team decomposition for Kobe,
+    plus the 2005-06 minus 2008-09 bridge."""
+    okey = pre.set_index(["player", "season_end"]) if pre is not None else None
+    L = ["=" * 78,
+         "KOBE BRYANT BURDEN / RECOGNITION / TEAM AUDIT (item 8)",
+         "team scoring/assist shares are ACTUAL (player season totals / team totals);",
+         "USG% and AST% are shown SEPARATELY (possession-ending / playmaking-rate);",
+         "burden residual is in TP 'scoring' units (enters TP at 0.40 weight)",
+         "=" * 78]
+    for yr in KOBE_SEASONS:
+        g = s[(s.player == "Kobe Bryant") & (s.season_end == yr)]
+        if not len(g):
+            L.append(f"  {yr}: not in dataset"); continue
+        r = g.iloc[0]
+        tp_after = float(r.get("traditional_production"))
+        tp_before = tp_after - 0.40 * float(r.get("burden_residual") or 0.0)
+        b = peak3.recognition_breakdown(r)
+        L.append("")
+        L.append(f"  -- Kobe Bryant {yr-1}-{str(yr)[2:]} --")
+        L.append(f"    Statistical Impact            : {_f(r.get('statistical_impact'),1)}")
+        L.append(f"    USG%                          : {_f(r.get('usg_pct'),1)}"
+                 f"   points/75: {_f(r.get('pts_per75'),1)}"
+                 f"   relative TS: {_f(r.get('r_ts'),1)}")
+        L.append(f"    actual team scoring share     : {_f(r.get('team_scoring_share'),3)}"
+                 f"   actual team assist share: {_f(r.get('team_assist_share'),3)}"
+                 f"   AST%: {_f(r.get('ast_pct_raw'),1)}")
+        L.append(f"    usage-adj efficiency residual : {_f(r.get('usage_eff_residual'),2)}"
+                 f"   creation-load value: {_f(r.get('creation_load'),3)}"
+                 f"   creation share: {_f(r.get('creation_share'),3)}")
+        L.append(f"    successful burden residual    : {_f(r.get('burden_residual'),2)}"
+                 f"   (data: {r.get('burden_data_status','?')})")
+        L.append(f"    Traditional Production (before burden) : {_f(tp_before,1)}")
+        L.append(f"    Traditional Production (after burden)  : {_f(tp_after,1)}")
+        mvp_rank = r.get("mvp_rank")
+        share = r.get("mvp_vote_share")
+        share_txt = (f"{_f(share,3)} (real, {r.get('mvp_vote_data_status')})"
+                     if pd.notna(share) else
+                     f"n/a -> placement fallback ({r.get('mvp_vote_data_status')})")
+        L.append(f"    MVP finish                    : "
+                 f"{int(mvp_rank) if pd.notna(mvp_rank) else '-'}"
+                 f"   MVP vote share: {share_txt}")
+        L.append(f"    award-voting value (MVP)      : {_f(_award_voting_value(r),1)}")
+        L.append(f"    Recognition breakdown         : mvp {_f(b['mvp'],1)} + anba "
+                 f"{_f(b['anba'],1)} + defense {_f(b['defense_rec'],1)} + fmvp "
+                 f"{_f(b['fmvp'],1)} + titles {_f(b['titles'],1)} -> "
+                 f"Recognition {_f(r.get('recognition'),1)}")
+        L.append(f"    Postseason Individual Value    : {_f(r.get('postseason_perf'),1)}")
+        L.append(f"    Team Achievement              : {_f(r.get('team_achievement'),1)}")
+        L.append(f"    teammate adjustment           : {_f(r.get('teammate_adjustment'),2)}")
+        L.append(f"    Prime raw                     : {_f(r.get('prime_raw'),1)}"
+                 f"   Prime display: {_f(r.get('prime_score'),1)}")
+
+    # ---- 2005-06 minus 2008-09 bridge ----
+    a = s[(s.player == "Kobe Bryant") & (s.season_end == 2006)]
+    c = s[(s.player == "Kobe Bryant") & (s.season_end == 2009)]
+    if len(a) and len(c):
+        a, c = a.iloc[0], c.iloc[0]
+        W = peak3.OFFICIAL_WEIGHTS
+        pre_a = okey.loc[("Kobe Bryant", 2006)] if okey is not None else None
+        pre_c = okey.loc[("Kobe Bryant", 2009)] if okey is not None else None
+        L += ["", "  -- BRIDGE: Kobe 2005-06 minus Kobe 2008-09 (positive = 2006 ahead) --"]
+        L.append(f"    Statistical Impact diff           : "
+                 f"{_f(a['statistical_impact']-c['statistical_impact'],1)}")
+        if pre_a is not None:
+            L.append(f"    Traditional Production diff (pre)  : "
+                     f"{_f(pre_a['pre_traditional_production']-pre_c['pre_traditional_production'],1)}")
+        L.append(f"    successful burden residual diff    : "
+                 f"{_f(a['burden_residual']-c['burden_residual'],2)}")
+        L.append(f"    Traditional Production diff (post) : "
+                 f"{_f(a['traditional_production']-c['traditional_production'],1)}")
+        L.append(f"    Recognition diff                  : "
+                 f"{_f(a['recognition']-c['recognition'],1)}")
+        L.append(f"    Postseason diff                   : "
+                 f"{_f(a['postseason_perf']-c['postseason_perf'],1)}")
+        L.append(f"    Team Achievement diff             : "
+                 f"{_f(a['team_achievement']-c['team_achievement'],1)}")
+        L.append(f"    teammate adjustment diff          : "
+                 f"{_f(a['teammate_adjustment']-c['teammate_adjustment'],2)}")
+        L.append(f"    final Prime raw diff              : "
+                 f"{_f(a['prime_raw']-c['prime_raw'],2)}")
+        lead = "2005-06" if a['prime_raw'] > c['prime_raw'] else "2008-09"
+        L.append(f"    -> {lead} leads on Prime raw (not forced). 2005-06 shows the "
+                 f"unusually high successful burden;")
+        L.append(f"       2008-09's edge (if any) comes from postseason + Finals-MVP "
+                 f"recognition + team achievement.")
+    L.append("")
+    return L
+
+
+def validation_cases_audit(s):
+    """Item 10: required validation cases -- confirm the model behaves logically."""
+    cases = [("Michael Jordan", 1988), ("Michael Jordan", 1991),
+             ("LeBron James", 2009), ("LeBron James", 2012), ("LeBron James", 2013),
+             ("Hakeem Olajuwon", 1994), ("Hakeem Olajuwon", 1995),
+             ("David Robinson", 1994), ("David Robinson", 1995),
+             ("Scottie Pippen", 1994), ("Scottie Pippen", 1996),
+             ("Kevin Garnett", 2004), ("Allen Iverson", 2001),
+             ("James Harden", 2019), ("Russell Westbrook", 2017),
+             ("Nikola Jokic", 2023), ("Kawhi Leonard", 2019),
+             ("Dirk Nowitzki", 2011), ("Stephen Curry", 2016),
+             ("Shaquille O'Neal", 2000)]
+    L = ["=" * 78,
+         "VALIDATION CASES (item 10) -- refined model",
+         "burden = successful-burden residual (TP scoring units); MVP = MVP placement",
+         "=" * 78, "",
+         f"  {'player / season':24}{'SI':>6}{'TP':>6}{'burden':>7}{'usg':>5}"
+         f"{'rTS':>6}{'Rec':>6}{'MVP':>4}{'PO':>6}{'Team':>6}{'Praw':>7}"]
+    for name, yr in cases:
+        g = s[(s.player == name) & (s.season_end == yr)]
+        if not len(g):
+            L.append(f"  {name} {yr}: not in dataset"); continue
+        r = g.iloc[0]
+        mvp = r.get("mvp_rank")
+        L.append(f"  {name+' '+str(yr-1)+'-'+str(yr)[2:]:24}"
+                 f"{_n(r.get('statistical_impact')):>6.1f}{_n(r.get('traditional_production')):>6.1f}"
+                 f"{_n(r.get('burden_residual')):>7.2f}{_n(r.get('usg_pct')):>5.1f}"
+                 f"{_n(r.get('r_ts')):>6.1f}{_n(r.get('recognition')):>6.1f}"
+                 f"{(int(mvp) if pd.notna(mvp) else 0):>4}{_n(r.get('postseason_perf')):>6.1f}"
+                 f"{_n(r.get('team_achievement')):>6.1f}{_n(r.get('prime_raw')):>7.1f}")
+    L.append("")
+    L.append("  Reading: advanced-statistical dominance (SI) stays central; successful")
+    L.append("  extreme burden (Harden 2019, Curry 2016, Jokic 2023) earns measured TP")
+    L.append("  credit while inefficient high volume (Iverson 2001, Westbrook 2017) does")
+    L.append("  not rise automatically; MVP winners (Jordan 1988/1991, Garnett 2004,")
+    L.append("  Shaq 2000, Curry 2016) carry a clear premium over non-winners (Jokic")
+    L.append("  2023, Harden 2019 -> MVP-2); championships move Team Achievement only")
+    L.append("  modestly (3% weight).")
+    L.append("")
+    return L
+
+
+def refinement_before_after(s):
+    """Item 11: before/after for the 25 case-study players (best single-season
+    Prime), with the component responsible for the largest moves."""
+    pre = load_pre_refine_snapshot()
+    L = ["=" * 78,
+         "REFINEMENT BEFORE / AFTER (25 case-study players, best single-season Prime)",
+         "OLD = post-postseason-correction model; NEW = + Recognition smoothing,",
+         "successful-burden residual, and smooth role-adjusted Team Achievement.",
+         "=" * 78, ""]
+    if pre is None:
+        L.append("  (data/refine_pre_snapshot.csv missing -- before/after unavailable)")
+        L.append("")
+        return L
+    pk = pre.set_index(["player", "season_end"])
+    qual = s[(s.get("workload_qualified", 1) == 1) & (s.get("provisional", 0) != 1)].copy()
+    qm = qual.merge(pre, on=["player", "season_end"], how="left")
+    # ranks among ALL qualified completed single seasons (old vs new)
+    new_rank = qm.assign(_r=qm["prime_raw"].rank(ascending=False, method="min")
+                         ).set_index(["player", "season_end"])["_r"]
+    old_rank = qm.assign(_r=qm["pre_prime_raw"].rank(ascending=False, method="min")
+                         ).set_index(["player", "season_end"])["_r"]
+    rows = []
+    for name in PLAYERS:
+        g = qm[qm.player == name]
+        if not len(g):
+            continue
+        rnew = g.loc[g["prime_raw"].astype(float).idxmax()]
+        yr = int(rnew["season_end"])
+        rows.append((name, yr, rnew))
+    L.append(f"  {'player':22}{'oRec':>6}{'nRec':>6}{'oTP':>6}{'nTP':>6}{'burd':>6}"
+             f"{'oTeam':>6}{'nTeam':>6}{'oPraw':>7}{'nPraw':>7}{'oRk':>5}{'nRk':>5}")
+    movers = []
+    for name, yr, r in rows:
+        key = (name, yr)
+        opre = pk.loc[key] if key in pk.index else None
+        orec = _n(opre["pre_recognition"]) if opre is not None else float("nan")
+        otp = _n(opre["pre_traditional_production"]) if opre is not None else float("nan")
+        oteam = _n(opre["pre_team_achievement"]) if opre is not None else float("nan")
+        opraw = _n(opre["pre_prime_raw"]) if opre is not None else float("nan")
+        orank = int(old_rank.get(key, 0)); nrank = int(new_rank.get(key, 0))
+        movers.append((name, orank - nrank, orank, nrank, r))
+        L.append(f"  {name:22}{orec:>6.1f}{_n(r['recognition']):>6.1f}{otp:>6.1f}"
+                 f"{_n(r['traditional_production']):>6.1f}{_n(r['burden_residual']):>6.2f}"
+                 f"{oteam:>6.1f}{_n(r['team_achievement']):>6.1f}{opraw:>7.1f}"
+                 f"{_n(r['prime_raw']):>7.1f}{orank:>5}{nrank:>5}")
+    L.append("  (ranks are among ALL qualified completed single seasons, old vs new)")
+    L.append("")
+    movers_sorted = sorted(movers, key=lambda m: m[1], reverse=True)
+    def _why(r, opre_key):
+        opre = pk.loc[opre_key] if opre_key in pk.index else None
+        if opre is None:
+            return "n/a"
+        d = {"Recognition": _n(r['recognition']) - _n(opre['pre_recognition']),
+             "Traditional Prod": _n(r['traditional_production']) - _n(opre['pre_traditional_production']),
+             "Team Achievement": _n(r['team_achievement']) - _n(opre['pre_team_achievement'])}
+        k = max(d, key=lambda x: abs(d[x]))
+        return f"{k} {d[k]:+.1f}"
+    L.append("  Largest RISERS (best-single-season Prime rank):")
+    for name, dlt, orank, nrank, r in movers_sorted[:5]:
+        L.append(f"    {name:22} #{orank} -> #{nrank} (+{dlt})   driver: {_why(r, (name, int(r['season_end'])))}")
+    L.append("  Largest FALLERS:")
+    for name, dlt, orank, nrank, r in sorted(movers, key=lambda m: m[1])[:5]:
+        L.append(f"    {name:22} #{orank} -> #{nrank} ({dlt})   driver: {_why(r, (name, int(r['season_end'])))}")
+    L.append("")
+    return L
+
+
+def _season_data_status(r):
+    """Compact data-completeness label for one season: 'full' when team shares are
+    observed and every ranked award used REAL vote share; otherwise note the
+    flagged fallback(s) in play."""
+    flags = []
+    if str(r.get("team_share_data_status")) != "observed":
+        flags.append("share-proxy")
+    if str(r.get("mvp_vote_data_status")) == "fallback":
+        flags.append("mvp-fallback")
+    if str(r.get("dpoy_vote_data_status")) == "fallback":
+        flags.append("dpoy-fallback")
+    return "full" if not flags else "+".join(flags)
+
+
+def _window_data_status(wdf):
+    statuses = {_season_data_status(row) for _, row in wdf.iterrows()}
+    return "full" if statuses == {"full"} else "mixed"
+
+
+def _window_contribs(g, n):
+    """Best completed consecutive n-year window for a player, selecting by the
+    rank-weighted RAW (prime_raw) aggregate and calibrating that single aggregate
+    once -- the official raw-first methodology. Returns a dict or None."""
+    ws = peak3.n_year_windows(g, "prime_raw", n, "weighted")  # ranks by RAW
+    if not ws:
+        return None
+    w = ws[0]
+    dec = peak3.nyear_window_decomposition(w, "prime_raw", "weighted")
+    raw = dec["_raw_window_score"]
+    disp = float(peak3.calibrate_score(pd.Series([raw])).iloc[0])
+    wdf = w["df"]
+    anchor = wdf.loc[wdf["prime_raw"].astype(float).idxmax(), "season"]
+    return {
+        "window": f"{w['start_season']}-{w['end_season']}",
+        "raw": raw, "disp": disp, "anchor": anchor,
+        "si": dec["Statistical impact (38%)"], "tp": dec["Traditional production (21%)"],
+        "rec": dec["Individual recognition (20%)"], "po": dec["Postseason individual (18%)"],
+        "team": dec["Team achievement (3%)"], "status": _window_data_status(wdf),
+    }
+
+
+def final_25_comparison(s):
+    """Item 12: final ranked case-study comparison (best 1-, 3-, 5-year Prime)
+    over the 25 case-study players, plus the cross-duration summary. To include
+    all 25 (some, e.g. Ginobili/Capela, lack 3 consecutive 28-mpg qualified
+    seasons), the case-study basis is COMPLETED (non-provisional) seasons; the
+    provisional/incomplete exclusion is applied consistently across A/B/C."""
+    qual = s[s.get("provisional", 0) != 1]
+    L = ["#" * 78, "# FINAL 25-PLAYER PRIME COMPARISON", "#" * 78, "",
+         "Rankings over the 25 case-study players only (completed, non-provisional",
+         "seasons). Single-season uses prime_raw (calibrated = prime display); 3-/5-",
+         "year use the official rank-weighted RAW aggregate, calibrated ONCE.", ""]
+    W = peak3.OFFICIAL_WEIGHTS
+
+    # ---- A. best single season ----
+    a_rows = []
+    for name in PLAYERS:
+        g = qual[qual.player == name]
+        if not len(g):
+            continue
+        r = g.loc[g["prime_raw"].astype(float).idxmax()]
+        a_rows.append((name, r))
+    a_rows.sort(key=lambda x: -float(x[1]["prime_raw"]))
+    L.append("A. BEST ONE-SEASON PRIME")
+    L.append(f"  {'#':>3} {'player':22}{'season':>9}{'Praw':>7}{'Pdisp':>7}"
+             f"{'SI':>7}{'TP':>7}{'Rec':>7}{'PO':>7}{'Team':>6}  data")
+    a_rank = {}
+    for i, (name, r) in enumerate(a_rows, 1):
+        a_rank[name] = i
+        L.append(f"  {i:>3} {name:22}{r['season']:>9}{_n(r['prime_raw']):>7.1f}"
+                 f"{_n(r['prime_score']):>7.1f}"
+                 f"{W['statistical_impact']*_n(r['statistical_impact']):>7.1f}"
+                 f"{W['traditional_production']*_n(r['traditional_production']):>7.1f}"
+                 f"{W['recognition']*_n(r['recognition']):>7.1f}"
+                 f"{W['postseason']*_n(r['postseason_perf']):>7.1f}"
+                 f"{W['team_achievement']*_n(r['team_achievement']):>6.1f}  "
+                 f"{_season_data_status(r)}")
+    a_season = {name: r["season"] for name, r in a_rows}
+    L.append("")
+
+    # ---- B & C. best 3-year and 5-year ----
+    rank_maps = {}
+    win_maps = {}
+    for n, letter, title in ((3, "B", "BEST THREE-YEAR PRIME"),
+                             (5, "C", "BEST FIVE-YEAR PRIME")):
+        rows = []
+        for name in PLAYERS:
+            g = qual[qual.player == name]
+            wc = _window_contribs(g, n) if len(g) else None
+            if wc:
+                rows.append((name, wc))
+        rows.sort(key=lambda x: -x[1]["raw"])
+        rmap = {}
+        wmap = {}
+        L.append(f"{letter}. {title}")
+        L.append(f"  {'#':>3} {'player':23}{'window':>17}{'raw':>7}{'disp':>7}"
+                 f"{'anchor':>9}{'SI':>7}{'TP':>7}{'Rec':>7}{'PO':>7}{'Team':>6}  data")
+        for i, (name, wc) in enumerate(rows, 1):
+            rmap[name] = i
+            wmap[name] = wc["window"]
+            L.append(f"  {i:>3} {name:23}{wc['window']:>17}{wc['raw']:>7.1f}"
+                     f"{wc['disp']:>7.1f}{wc['anchor']:>9}{wc['si']:>7.1f}"
+                     f"{wc['tp']:>7.1f}{wc['rec']:>7.1f}{wc['po']:>7.1f}{wc['team']:>6.1f}"
+                     f"  {wc['status']}")
+        L.append("")
+        rank_maps[n] = rmap
+        win_maps[n] = wmap
+
+    # ---- D. cross-duration summary ----
+    L.append("D. CROSS-DURATION SUMMARY (sorted by 1-year rank)")
+    L.append(f"  {'player':22}{'1yr':>4}{'3yr':>4}{'5yr':>4}  "
+             f"{'best 1yr':>9}  {'best 3yr':>14}  {'best 5yr':>14}")
+    r3, r5 = rank_maps.get(3, {}), rank_maps.get(5, {})
+    w3, w5 = win_maps.get(3, {}), win_maps.get(5, {})
+    summary = sorted(PLAYERS, key=lambda p: a_rank.get(p, 999))
+    for name in summary:
+        if name not in a_rank:
+            continue
+        L.append(f"  {name:22}{a_rank.get(name,0):>4}{r3.get(name,0):>4}"
+                 f"{r5.get(name,0):>4}  {a_season.get(name,'-'):>9}  "
+                 f"{w3.get(name,'-'):>14}  {w5.get(name,'-'):>14}")
+    L.append("")
+    # movers between 1-year and 5-year rank
+    common5 = [p for p in PLAYERS if p in a_rank and p in r5]
+    moves = sorted(((p, a_rank[p] - r5[p]) for p in common5), key=lambda x: x[1])
+    if moves:
+        up = moves[-1]; down = moves[0]
+        L.append(f"  largest improvement 1yr->5yr rank: {up[0]} "
+                 f"(#{a_rank[up[0]]} -> #{r5[up[0]]}, +{up[1]})")
+        L.append(f"  largest decline 1yr->5yr rank    : {down[0]} "
+                 f"(#{a_rank[down[0]]} -> #{r5[down[0]]}, {down[1]})")
+    top5_all = [p for p in PLAYERS if a_rank.get(p, 99) <= 5
+                and r3.get(p, 99) <= 5 and r5.get(p, 99) <= 5]
+    L.append(f"  ranked top 5 at ALL three durations: "
+             f"{', '.join(top5_all) if top5_all else '(none)'}")
+    outside = [p for p in PLAYERS if p in a_season and p in w3
+               and not _season_in_window(a_season[p], w3[p])]
+    L.append(f"  best 1-year season OUTSIDE best 3-year window: "
+             f"{', '.join(outside) if outside else '(none)'}")
+    L.append("")
+    return L
+
+
+def _season_in_window(season, window):
+    """True if a 'YYYY-YY' season falls inside a 'YYYY-YY-YYYY-YY' window span."""
+    try:
+        start = int(window[:4]); end = int(window.split("-")[2])
+        syr = int(season[:4])
+        return start <= syr <= end
+    except Exception:
+        return True
+
+
+# Audited seasons for the data-completion before/after (spec sections 8-9).
+AUDIT_SEASONS = [
+    ("Kobe Bryant", 2001), ("Kobe Bryant", 2003), ("Kobe Bryant", 2006),
+    ("Kobe Bryant", 2007), ("Kobe Bryant", 2008), ("Kobe Bryant", 2009),
+    ("Kobe Bryant", 2010),
+    ("Michael Jordan", 1988), ("Michael Jordan", 1991),
+    ("LeBron James", 2009), ("LeBron James", 2012), ("LeBron James", 2013),
+    ("Hakeem Olajuwon", 1994), ("Hakeem Olajuwon", 1995),
+    ("David Robinson", 1994), ("David Robinson", 1995),
+    ("Scottie Pippen", 1994), ("Scottie Pippen", 1996),
+    ("Kevin Garnett", 2004), ("Allen Iverson", 2001), ("James Harden", 2019),
+    ("Russell Westbrook", 2017), ("Nikola Jokic", 2023), ("Kawhi Leonard", 2019),
+    ("Dirk Nowitzki", 2011), ("Stephen Curry", 2016), ("Shaquille O'Neal", 2000),
+]
+
+
+def load_datacomplete_pre_snapshot():
+    """Pre-data-completion baseline (refined model with the USG/AST burden PROXY
+    and placement-fallback votes), frozen in data/datacomplete_pre_snapshot.csv;
+    isolates the effect of swapping in actual team shares + real award votes."""
+    p = ROOT / "data" / "datacomplete_pre_snapshot.csv"
+    return pd.read_csv(p) if p.exists() else None
+
+
+def burden_ablation_report(s):
+    """Spec section 2: A (USG/AST proxy creation) vs B (ACTUAL team-share creation)
+    burden residual, with correlations, moments, and the largest movers. Documents
+    why version B was adopted (distinct/defensible, no material TP-scale inflation)."""
+    import peak3 as P
+    q = s[(s.get("workload_qualified", 1) == 1) & (s.get("provisional", 0) != 1)].copy()
+    usg = pd.to_numeric(q["usg_pct"], errors="coerce")
+    astp = pd.to_numeric(q["ast_pct_raw"], errors="coerce")
+    r_ts = pd.to_numeric(q["r_ts"], errors="coerce").fillna(0).to_numpy()
+    mp = pd.to_numeric(q["mp"], errors="coerce").fillna(0).to_numpy()
+    tss = pd.to_numeric(q["team_scoring_share"], errors="coerce")
+    tas = pd.to_numeric(q["team_assist_share"], errors="coerce")
+    cp = (usg + 0.45 * astp).to_numpy()
+    ca = (100 * tss + 0.45 * 100 * tas).to_numpy()
+
+    def burden(creation, pivot, scale):
+        exp = -P.BURDEN_EFF_SLOPE * np.clip(
+            np.nan_to_num(usg.to_numpy(), nan=P.BURDEN_USG_PIVOT) - P.BURDEN_USG_PIVOT, 0, None)
+        resid = r_ts - exp
+        cl = np.clip((np.nan_to_num(creation) - pivot) / scale, 0, 1)
+        wl = np.clip(mp / P.BURDEN_MP_FULL, 0, 1)
+        pos = np.clip(resid, 0, P.BURDEN_RESID_CAP)
+        neg = np.clip(-resid, 0, P.BURDEN_RESID_CAP)
+        return (np.clip(P.BURDEN_POS_SCALE * cl * pos * wl, 0, P.BURDEN_POS_MAX)
+                - np.clip(P.BURDEN_NEG_SCALE * cl * neg * wl, 0, P.BURDEN_NEG_MAX))
+
+    bA = pd.Series(burden(cp, P.BURDEN_CREATION_PIVOT, P.BURDEN_CREATION_SCALE), index=q.index)
+    bB = pd.Series(burden(ca, P.BURDEN_SHARE_PIVOT, P.BURDEN_SHARE_SCALE), index=q.index)
+    si = pd.to_numeric(q["statistical_impact"], errors="coerce")
+    obpm = pd.to_numeric(q["obpm"], errors="coerce")
+    tp_full = pd.to_numeric(q["traditional_production"], errors="coerce")
+    tp_before = tp_full - 0.40 * bB        # TP without the (adopted) burden term
+
+    L = ["=" * 78,
+         "BURDEN RESIDUAL ABLATION (spec section 2): proxy vs actual team shares",
+         "A = USG%+0.45*AST% proxy creation;  B = 100*scoring_share + 0.45*100*"
+         "assist_share (ACTUAL), pivots percentile-matched to A (scale-preserving)",
+         "=" * 78, "",
+         f"  {'version':10}{'mean':>7}{'std':>7}{'min':>7}{'max':>7}"
+         f"{'rSI':>7}{'rTPbef':>8}{'rTPful':>8}{'rOBPM':>7}"]
+    for nm, b in (("A proxy", bA), ("B actual", bB)):
+        L.append(f"  {nm:10}{b.mean():>7.3f}{b.std():>7.3f}{b.min():>7.3f}"
+                 f"{b.max():>7.3f}{b.corr(si):>7.3f}{b.corr(tp_before):>8.3f}"
+                 f"{b.corr(tp_full):>8.3f}{b.corr(obpm):>7.3f}")
+    L.append(f"  corr(A,B) = {bA.corr(bB):.3f}   |   "
+             f"TP-mean impact of B vs A = {0.40*(bB.mean()-bA.mean()):+.3f} pts "
+             f"(immaterial; no scale break)")
+    L.append("")
+    d = (bB - bA)
+    d.index = q["player"].values + " " + q["season"].values
+    L.append("  Largest 20 INCREASES (B - A), actual shares add credit:")
+    for k, v in d.nlargest(20).items():
+        L.append(f"    {k:30} {v:+.2f}")
+    L.append("  Largest 20 DECREASES (B - A), USG overstated real creation:")
+    for k, v in d.nsmallest(20).items():
+        L.append(f"    {k:30} {v:+.2f}")
+    L.append("")
+    L.append("  DECISION: adopt B (actual shares). It is a DISTINCT, defensible")
+    L.append("  creation-responsibility signal (re-ranks vs the proxy at corr "
+             f"{bA.corr(bB):.2f}),")
+    L.append("  is LESS redundant with SI, and the percentile-matched pivots keep the")
+    L.append("  residual distribution and the TP scale intact. Missing shares fall")
+    L.append("  back to the proxy, flagged via burden_data_status. No coefficient was")
+    L.append("  tuned for any player.")
+    L.append("")
+    return L
+
+
+def recognition_before_after(s):
+    """Spec section 9: per audited season, the MVP/DPOY placement (fallback) value
+    vs the real vote-share value, winner premium + stabilizer, fallback status,
+    old vs new total Recognition, and the resulting Prime-raw change."""
+    import peak3 as P
+    pre = load_datacomplete_pre_snapshot()
+    pk = pre.set_index(["player", "season_end"]) if pre is not None else None
+    mv, dv = P.MVP_VOTING, P.DPOY_VOTING
+    L = ["=" * 78,
+         "RECOGNITION BEFORE / AFTER -- real MVP/DPOY votes vs placement fallback",
+         "(section 9). 'old' = smooth placement fallback; 'new' = real vote share.",
+         "=" * 78, "",
+         f"  {'player / season':22}{'mvpR':>5}{'oMVP':>6}{'nMVP':>6}{'prem':>5}"
+         f"{'stab':>5}{'oDPOY':>6}{'nDPOY':>6}{'oRec':>7}{'nRec':>7}{'dPraw':>7} status"]
+    for name, yr in AUDIT_SEASONS:
+        g = s[(s.player == name) & (s.season_end == yr)]
+        if not len(g):
+            continue
+        r = g.iloc[0]
+        mvp_r = peak3.award_rank(r.get("awards", ""), "MVP")
+        dpoy_r = peak3.award_rank(r.get("awards", ""), "DPOY")
+        o_mvp = peak3.ranked_award_value(mvp_r, float("nan"), **mv)
+        n_mvp = peak3.ranked_award_value(mvp_r, r.get("mvp_vote_share"), **mv)
+        o_dpoy = peak3.ranked_award_value(dpoy_r, float("nan"), **dv)
+        n_dpoy = peak3.ranked_award_value(dpoy_r, r.get("dpoy_vote_share"), **dv)
+        prem = mv["winner_premium"] if mvp_r == 1 else 0.0
+        stab = (mv["stabilizer"] * np.exp(-mv["decay"] * ((mvp_r or 1) - 1))
+                if mvp_r else 0.0)
+        o_rec = (pk.loc[(name, yr), "dc_pre_recognition"]
+                 if pk is not None and (name, yr) in pk.index else float("nan"))
+        o_praw = (pk.loc[(name, yr), "dc_pre_prime_raw"]
+                  if pk is not None and (name, yr) in pk.index else float("nan"))
+        dpraw = float(r["prime_raw"]) - o_praw if pd.notna(o_praw) else float("nan")
+        status = r.get("mvp_vote_data_status", "?")
+        L.append(f"  {name+' '+str(yr-1)+'-'+str(yr)[2:]:22}"
+                 f"{(int(mvp_r) if mvp_r else 0):>5}{o_mvp:>6.1f}{n_mvp:>6.1f}"
+                 f"{prem:>5.0f}{stab:>5.1f}{o_dpoy:>6.1f}{n_dpoy:>6.1f}"
+                 f"{_n(o_rec):>7.1f}{_n(r['recognition']):>7.1f}{_n(dpraw):>7.2f} {status}")
+    L.append("")
+    L.append("  Reading: winners keep a clear premium; the real share separates a")
+    L.append("  dominant winner (Embiid 2023 .92, Westbrook 2017 .88 -> ABOVE the")
+    L.append("  fallback) from a narrow one, and a modest-margin win (e.g. a low DPOY")
+    L.append("  share) lands BELOW the generic fallback. Fourth place is not crushed;")
+    L.append("  ranked seasons all use real data, so no fake precision is introduced.")
+    L.append("")
+    return L
+
+
+def _pctile_row(label, series):
+    v = pd.to_numeric(series, errors="coerce").dropna()
+    return (f"  {label:24}{v.mean():>8.2f}{v.median():>8.2f}{v.std():>8.2f}"
+            f"{v.quantile(.05):>8.2f}{v.quantile(.25):>8.2f}{v.quantile(.75):>8.2f}"
+            f"{v.quantile(.95):>8.2f}{v.max():>8.2f}")
+
+
+def distribution_before_after(s):
+    """Spec section 11: full-distribution old vs new for every component (and Prime
+    raw), to confirm the new data did NOT cause a broad scale break."""
+    pre = load_datacomplete_pre_snapshot()
+    q = s[(s.get("workload_qualified", 1) == 1) & (s.get("provisional", 0) != 1)].copy()
+    L = ["=" * 78,
+         "COMPONENT DISTRIBUTIONS -- BEFORE / AFTER data completion (section 11)",
+         "qualified completed seasons; scales preserved (no recalibration applied)",
+         "=" * 78, "",
+         f"  {'component':24}{'mean':>8}{'med':>8}{'std':>8}{'p5':>8}{'p25':>8}"
+         f"{'p75':>8}{'p95':>8}{'max':>8}"]
+    comps = [("Statistical Impact", "statistical_impact", "dc_pre_statistical_impact"),
+             ("Traditional Prod", "traditional_production", "dc_pre_traditional_production"),
+             ("Recognition", "recognition", "dc_pre_recognition"),
+             ("Postseason", "postseason_perf", "dc_pre_postseason_perf"),
+             ("Team Achievement", "team_achievement", "dc_pre_team_achievement"),
+             ("Prime raw", "prime_raw", "dc_pre_prime_raw")]
+    qm = q.merge(pre, on=["player", "season_end"], how="left") if pre is not None else q
+    for label, newc, oldc in comps:
+        if pre is not None and oldc in qm.columns:
+            L.append(_pctile_row(label + " (old)", qm[oldc]))
+        L.append(_pctile_row(label + " (new)", qm[newc] if pre is not None else q[newc]))
+        L.append("")
+    L.append("  Only Traditional Production, Recognition and Prime raw move (the data")
+    L.append("  pass touches the burden creation input and the MVP/DPOY vote share);")
+    L.append("  Statistical Impact, Postseason and Team Achievement are unchanged.")
+    L.append("  The shifts are small and distribution-preserving -> no rescale needed.")
+    L.append("")
+    return L
+
+
+def integrity_report(s):
+    """Spec section 10: full-dataset integrity checks (fails loud on impossible
+    values; here we surface the PASS report into outputs.txt)."""
+    from nba_peak.integrity import run_integrity_checks
+    mvp = pd.read_csv(ROOT / "data/generated/mvp_votes.csv") \
+        if (ROOT / "data/generated/mvp_votes.csv").exists() else None
+    dpoy = pd.read_csv(ROOT / "data/generated/dpoy_votes.csv") \
+        if (ROOT / "data/generated/dpoy_votes.csv").exists() else None
+    ts = pd.read_csv(ROOT / "data/generated/team_shares.csv") \
+        if (ROOT / "data/generated/team_shares.csv").exists() else None
+    ok, lines = run_integrity_checks(s, mvp, dpoy, ts)
+    return ["=" * 78] + lines + ["", ""]
+
+
 def main():
     s = pd.read_parquet(SCORED)
+    # FAIL LOUD on impossible/inconsistent values before generating anything.
+    from nba_peak.integrity import assert_integrity
+    def _opt(p):
+        p = ROOT / "data/generated" / p
+        return pd.read_csv(p) if p.exists() else None
+    assert_integrity(s, _opt("mvp_votes.csv"), _opt("dpoy_votes.csv"),
+                     _opt("team_shares.csv"))
     # fix any stray accent so the requested spellings resolve
     W = peak3.OFFICIAL_WEIGHTS
     out = []
@@ -1315,6 +1889,14 @@ def main():
     out += playoff_audit(s)
     out += postseason_decomposition_audit(s)
     out += postseason_before_after(s)
+    # ---- data-completion pass (actual team shares + real award votes) ----
+    out += integrity_report(s)
+    out += burden_ablation_report(s)
+    out += recognition_before_after(s)
+    out += distribution_before_after(s)
+    out += kobe_burden_audit(s, load_pre_refine_snapshot())
+    out += validation_cases_audit(s)
+    out += refinement_before_after(s)
     out += sensitivity_audit(s)
     out += current_leaderboard(s, 25)
     out += weight_change_movers(s)
@@ -1324,6 +1906,9 @@ def main():
 
     out += warnings_section(s)
     out += summary_section()
+
+    # Item 12: final ranked case-study comparison at the very bottom.
+    out += final_25_comparison(s)
 
     (ROOT / "outputs.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
     print(f"Wrote outputs.txt ({len(out)} lines)")

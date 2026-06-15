@@ -454,6 +454,11 @@ def add_derived(df: pd.DataFrame) -> pd.DataFrame:
     df["playmaking_load"] = num(df, "ast") * mp / 1000.0
     # creation/ball-handling burden proxy (NOT usage alone)
     df["creation"] = num(df, "usg_pct").fillna(0) + 0.45 * num(df, "ast_pct").fillna(0)
+    # Preserve the RAW assist percentage under a non-colliding name: native-value
+    # scoring later writes the AST/100 native score into the `ast_pct` column (a
+    # legacy collision relied upon by REG_PLAYMAKING), so `ast_pct` no longer holds
+    # the raw AST% after scoring. `ast_pct_raw` keeps the true AST% for reporting.
+    df["ast_pct_raw"] = num(df, "ast_pct")
     return df
 
 
@@ -596,7 +601,90 @@ def merge_optional(regular: pd.DataFrame, context: Optional[pd.DataFrame] = None
         if c not in regular.columns:
             regular[c] = np.nan
 
+    # ---- canonical COMPLETED data (actual team shares + real award votes) ----
+    regular = _merge_completed_data(regular, flags, debug=debug)
+
     return regular, flags
+
+
+# Canonical completed-data files (built deterministically by --rebuild-data).
+TEAM_SHARES_PATH = DATA_DIR / "generated" / "team_shares.csv"
+MVP_VOTES_PATH = DATA_DIR / "generated" / "mvp_votes.csv"
+DPOY_VOTES_PATH = DATA_DIR / "generated" / "dpoy_votes.csv"
+
+
+def _merge_completed_data(regular: pd.DataFrame, flags: Dict[str, bool],
+                          debug: bool = False) -> pd.DataFrame:
+    """Merge the canonical team-share and real MVP/DPOY vote datasets and set the
+    explicit per-field data-status columns. Missing data is NEVER treated as zero:
+    a missing vote share falls back to the smooth placement curve, and a missing
+    team share falls back to the flagged USG%/AST% proxy."""
+    regular = regular.copy()
+    flags.setdefault("team_shares", False)
+    flags.setdefault("mvp_votes", False)
+    flags.setdefault("dpoy_votes", False)
+
+    # --- actual team scoring / assist shares (replaces USG%/AST% proxies) ---
+    # drop any pre-existing (legacy/placeholder) columns so the canonical data
+    # populate the real column name instead of colliding into _x/_y suffixes.
+    regular = regular.drop(columns=[c for c in (
+        "team_scoring_share", "team_assist_share", "n_teams")
+        if c in regular.columns])
+    if TEAM_SHARES_PATH.exists():
+        ts = pd.read_csv(TEAM_SHARES_PATH)
+        ts["player"] = ts["player_clean"].apply(clean_player_name)
+        keep = ts[["player", "season_end", "team_scoring_share",
+                   "team_assist_share", "n_teams"]]
+        regular = regular.merge(keep, on=["player", "season_end"], how="left")
+        flags["team_shares"] = True
+    for c in ("team_scoring_share", "team_assist_share", "n_teams"):
+        if c not in regular.columns:
+            regular[c] = np.nan
+    has_share = regular["team_scoring_share"].notna()
+    regular["team_share_data_status"] = np.where(has_share, "observed", "fallback")
+
+    # --- real MVP / DPOY vote share (empty -> placement fallback, NOT zero) ---
+    def _merge_votes(path, finish_col, share_out, exists_key):
+        nonlocal regular
+        # drop legacy/placeholder column so the real share isn't suffixed away
+        if share_out in regular.columns:
+            regular = regular.drop(columns=[share_out])
+        if path.exists():
+            v = pd.read_csv(path)
+            v["player"] = v["player_clean"].apply(clean_player_name)
+            sub = v[["player", "season_end", "vote_share"]].rename(
+                columns={"vote_share": share_out})
+            # one row per player-season (guard against any dup)
+            sub = sub.drop_duplicates(["player", "season_end"])
+            regular = regular.merge(sub, on=["player", "season_end"], how="left")
+            flags[exists_key] = True
+        if share_out not in regular.columns:
+            regular[share_out] = np.nan
+
+    _merge_votes(MVP_VOTES_PATH, "mvp_finish", "mvp_vote_share", "mvp_votes")
+    _merge_votes(DPOY_VOTES_PATH, "dpoy_finish", "dpoy_vote_share", "dpoy_votes")
+
+    # status fields: observed (real share used) / fallback (ranked but no share,
+    # placement curve used) / none (not in the voting => no recognition value).
+    mvp_ranked = regular["awards"].apply(
+        lambda a: award_rank(a, "MVP") is not None) if "awards" in regular else False
+    dpoy_ranked = regular["awards"].apply(
+        lambda a: award_rank(a, "DPOY") is not None) if "awards" in regular else False
+    regular["mvp_vote_data_status"] = np.select(
+        [regular["mvp_vote_share"].notna(), mvp_ranked],
+        ["observed", "fallback"], default="none")
+    regular["dpoy_vote_data_status"] = np.select(
+        [regular["dpoy_vote_share"].notna(), dpoy_ranked],
+        ["observed", "fallback"], default="none")
+    # burden uses actual team shares when present, else the flagged proxy.
+    regular["burden_data_status"] = np.where(has_share, "observed", "proxy_fallback")
+
+    if debug:
+        print(f"  [completed] team-share observed: {int(has_share.sum())}/"
+              f"{len(regular)}; mvp real share: "
+              f"{int(regular['mvp_vote_share'].notna().sum())}; dpoy real share: "
+              f"{int(regular['dpoy_vote_share'].notna().sum())}")
+    return regular
 
 
 # ======================================================================
@@ -856,6 +944,57 @@ def defense_points(awards) -> float:
     return best
 
 
+def ranked_award_value(rank, share, *, winner_premium: float, curve_base: float,
+                       decay: float, share_scale: float,
+                       stabilizer: float) -> float:
+    """SMOOTH award-voting recognition for a RANKED voting award (MVP, DPOY).
+
+    Replaces arbitrary placement buckets (which created second-to-fourth cliffs)
+    with three transparent pieces:
+
+        award_voting_value = winner_premium                 (only the actual winner)
+                           + continuous_vote_share_value    (primary signal; smooth)
+                           + small_nonwinner_placement_stabilizer
+
+    * The WINNER PREMIUM is a clear categorical reward for actually winning, so
+      first place clearly exceeds second.
+    * The CONTINUOUS value is real vote share when reliably available (the primary
+      signal); when vote-share data are missing it falls back to a DOCUMENTED
+      smooth exponential pseudo-share over placement, so second through tenth
+      decline smoothly with NO arbitrary cliff (a fourth-place finish is not
+      penalized relative to second/third beyond the smooth curve).
+    * A small smooth STABILIZER adds a little placement weight even when vote share
+      is present, and never introduces a cliff.
+
+    rank: 1-based placement (None -> 0); share: vote share in [0, 1] or NaN.
+    """
+    if rank is None or (isinstance(rank, float) and pd.isna(rank)):
+        return 0.0
+    rank = int(rank)
+    if rank < 1:
+        return 0.0
+    value = winner_premium if rank == 1 else 0.0
+    sh = pd.to_numeric(share, errors="coerce")
+    if pd.notna(sh):
+        # primary continuous signal: actual vote share
+        value += share_scale * float(np.clip(sh, 0.0, 1.0))
+    else:
+        # documented placement FALLBACK: smooth exponential pseudo-share
+        value += curve_base * float(np.exp(-decay * (rank - 1)))
+    # small smooth non-winner placement stabilizer (no cliffs)
+    value += stabilizer * float(np.exp(-decay * (rank - 1)))
+    return value
+
+
+# Smooth award-voting parameters (winner premium + continuous curve + stabilizer).
+# Chosen so first place clearly exceeds second, ranks 2..10 decline smoothly, and
+# the magnitudes match the prior top-of-scale (a unanimous-style MVP ~ 58).
+MVP_VOTING = dict(winner_premium=22.0, curve_base=34.0, decay=0.19,
+                  share_scale=42.0, stabilizer=2.0)
+DPOY_VOTING = dict(winner_premium=14.0, curve_base=20.0, decay=0.24,
+                   share_scale=28.0, stabilizer=1.0)
+
+
 # Statistical-leadership weights (a scoring title is worth far more than a
 # blocks title; 50-40-90 is a marquee individual feat).
 TITLE_WEIGHTS = {"scoring_title": 46.0, "assist_title": 30.0,
@@ -948,20 +1087,9 @@ def recognition_breakdown(row: pd.Series) -> Dict[str, float]:
     postseason-linked term is the individual Finals MVP award."""
     awards = row.get("awards", "")
     mvp_r = award_rank(awards, "MVP")
-    mvp = 0.0
-    if mvp_r == 1:
-        mvp = 58.0
-    elif mvp_r == 2:
-        mvp = 36.0
-    elif mvp_r == 3:
-        mvp = 26.0
-    elif mvp_r is not None and mvp_r <= 5:
-        mvp = 18.0
-    elif mvp_r is not None and mvp_r <= 10:
-        mvp = 9.0
-    mvp_share = pd.to_numeric(row.get("mvp_vote_share"), errors="coerce")
-    if pd.notna(mvp_share):
-        mvp += 14.0 * float(np.clip(mvp_share, 0.0, 1.0))
+    # Smooth award-voting value: winner premium + continuous vote-share (with a
+    # documented smooth placement fallback) + small stabilizer. No buckets/cliffs.
+    mvp = ranked_award_value(mvp_r, row.get("mvp_vote_share"), **MVP_VOTING)
     # unanimous MVP (objective record) -> small extra
     unanimous = 0.0
     try:
@@ -985,20 +1113,9 @@ def recognition_breakdown(row: pd.Series) -> Dict[str, float]:
     # All-Star is subsumed by All-NBA (only counts on its own otherwise).
     allstar = 0.0 if anba > 0 else (8.0 if has_token(awards, "AS") else 0.0)
 
-    # Defense group: DPOY rank (+ vote share) grouped with All-Defense.
+    # Defense group: DPOY rank (smooth voting value) grouped with All-Defense.
     dpoy_r = award_rank(awards, "DPOY")
-    dpoy = 0.0
-    if dpoy_r == 1:
-        dpoy = 34.0
-    elif dpoy_r == 2:
-        dpoy = 18.0
-    elif dpoy_r == 3:
-        dpoy = 12.0
-    elif dpoy_r is not None and dpoy_r <= 5:
-        dpoy = 7.0
-    dshare = pd.to_numeric(row.get("dpoy_vote_share"), errors="coerce")
-    if pd.notna(dshare):
-        dpoy += 10.0 * float(np.clip(dshare, 0.0, 1.0))
+    dpoy = ranked_award_value(dpoy_r, row.get("dpoy_vote_share"), **DPOY_VOTING)
     if has_token(awards, "DEF1"):
         alldef = 16.0
     elif has_token(awards, "DEF2"):
@@ -1057,28 +1174,85 @@ def team_achievement_row(row: pd.Series) -> float:
     weight (max 3.0 index points), team achievement cannot materially offset a
     large individual statistical difference.
     """
-    if float(row.get("best_player_title") or 0) == 1:
-        base, mult = 100.0, 1.0
-    elif float(row.get("co_best_player_title") or 0) == 1:
-        base, mult = 100.0, 0.85
-    elif float(row.get("championship") or 0) == 1:
-        base, mult = 100.0, 0.55          # secondary/role player on a champion
-    elif float(row.get("finals_appearance") or 0) == 1:
-        base, mult = 80.0, 0.8
+    base = _advancement_value(row)
+    if base <= 0.0:
+        return 0.0
+    return clamp(base * _team_role_multiplier(row))
+
+
+# SMOOTH, BOUNDED playoff-advancement value (0..100), based on measurable team
+# results (rounds reached / series won / championship). Replaces the prior coarse
+# 0/30/62/80/100 buckets with a monotonic progression; still ZERO for no playoffs
+# or a first-round loss. NO Finals MVP and NO individual playoff box score here.
+ADVANCEMENT_ANCHORS = {
+    # playoff_round_score -> smooth advancement value
+    30.0: 0.0,     # reached the first round, lost it (no series won) -> 0
+    50.0: 30.0,    # won exactly one series (lost Conf Semis)
+    70.0: 58.0,    # reached the Conference Finals
+    85.0: 80.0,    # reached the Finals
+    100.0: 100.0,  # champion
+}
+
+
+def _advancement_value(row: pd.Series) -> float:
+    """Smooth, bounded advancement value in [0, 100] from measurable results.
+
+    Uses explicit round flags when present (championship / Finals / Conf Finals)
+    and otherwise the rounds-reached `playoff_round_score`, interpolated smoothly
+    between anchors so the progression has no hard 0/50/100 cliffs. A first-round
+    loss or no playoffs -> exactly 0."""
+    if float(row.get("championship") or 0) == 1 or \
+            float(row.get("best_player_title") or 0) == 1 or \
+            float(row.get("co_best_player_title") or 0) == 1:
+        return 100.0
+    if float(row.get("finals_appearance") or 0) == 1:
+        base = 80.0
     elif float(row.get("conf_finals") or 0) == 1:
-        base, mult = 62.0, 0.8
+        base = 58.0
     else:
-        # No deep run: credit a genuine SERIES WIN only. playoff_round_score
-        # encodes rounds REACHED, not won: 10 = missed playoffs, 30 = lost in
-        # the FIRST ROUND (zero series won), 50 = won exactly one series (lost in
-        # the Conference Semifinals). Deeper runs (70/85/100) are handled by the
-        # conf_finals/finals/championship branches above, so the only positive
-        # case here is prs == 50. A first-round exit (30) therefore scores ZERO.
-        prs = pd.to_numeric(row.get("playoff_round_score"), errors="coerce")
-        if pd.isna(prs) or float(prs) < 50.0:
-            return 0.0
-        base, mult = 30.0, 0.85          # won one series, did not reach Conf Finals
-    return clamp(base * mult)
+        base = 0.0
+    prs = pd.to_numeric(row.get("playoff_round_score"), errors="coerce")
+    if pd.notna(prs):
+        prs = float(prs)
+        xs = sorted(ADVANCEMENT_ANCHORS)
+        if prs <= xs[0]:
+            interp = 0.0
+        elif prs >= xs[-1]:
+            interp = 100.0
+        else:
+            interp = float(np.interp(prs, xs, [ADVANCEMENT_ANCHORS[x] for x in xs]))
+        base = max(base, interp)
+    return base
+
+
+# Role-responsibility multiplier for Team Achievement: a champion's credit is NOT
+# shared equally. Distinguishes a clear primary player, a co-star, a secondary
+# contributor, and a role player. Derived from explicit best/co-best flags, then
+# the player's regular-season role/usage burden (data, not narrative).
+TEAM_ROLE_PRIMARY = 1.0
+TEAM_ROLE_COSTAR = 0.82
+TEAM_ROLE_SECONDARY = 0.6
+TEAM_ROLE_PLAYER = 0.34
+
+
+def _team_role_multiplier(row: pd.Series) -> float:
+    if float(row.get("best_player_title") or 0) == 1:
+        return TEAM_ROLE_PRIMARY
+    if float(row.get("co_best_player_title") or 0) == 1:
+        return TEAM_ROLE_COSTAR
+    # otherwise grade responsibility by CREATION burden (usage + assist share),
+    # a smooth, data-driven proxy for how central the player was on BOTH scoring
+    # and playmaking -- so a low-usage defensive/playmaking hub is graded as a
+    # secondary contributor, not a pure role player. Bounded between role-player
+    # and co-star: an unflagged contributor never out-credits a recognized
+    # co-star/primary.
+    creation = pd.to_numeric(row.get("creation"), errors="coerce")
+    if pd.isna(creation):
+        creation = pd.to_numeric(row.get("usg_pct"), errors="coerce")
+        if pd.isna(creation):
+            return TEAM_ROLE_SECONDARY
+    frac = float(np.clip((float(creation) - 19.0) / (40.0 - 19.0), 0.0, 1.0))
+    return TEAM_ROLE_PLAYER + frac * (TEAM_ROLE_COSTAR - TEAM_ROLE_PLAYER)
 
 
 # ======================================================================
@@ -1388,11 +1562,92 @@ def statistical_impact(df: pd.DataFrame) -> Tuple[pd.Series, Dict[str, np.ndarra
     return pd.Series(si, index=df.index), parts
 
 
+# ---- SUCCESSFUL OFFENSIVE-BURDEN RESIDUAL (inside Traditional Production) ----
+# A small, BOUNDED residual that measures unusually difficult offensive creation
+# the player SUCCESSFULLY absorbed -- beyond what production/impact already credit.
+# It REPLACES the prior raw "heavy-usage burden" term (`0.8*hinge(usg,24)`), which
+# rewarded high usage by itself. The residual requires high creation load AND
+# beating the usage-adjusted efficiency expectation AND real workload, so high
+# usage alone (or strong efficiency on a light role) earns nothing.
+#
+# DATA-COMPLETION CHANGE (justified by the ablation in outputs.txt): the creation
+# LOAD now uses ACTUAL team scoring/assist shares (100*team_scoring_share +
+# 0.45*100*team_assist_share) instead of the USG%/AST% PROXY, when the real shares
+# are available. The actual-share pivots are PERCENTILE-MATCHED to the proxy
+# distribution, so the residual's distribution and the TP scale are preserved
+# (mean burden 1.42->1.59; TP mean delta ~+0.07, immaterial) while the signal
+# becomes a defensible measure of real production responsibility. When team shares
+# are missing the row FALLS BACK to the proxy (flagged via burden_data_status).
+BURDEN_USG_PIVOT = 22.0       # usage% at which extra creation load begins
+BURDEN_EFF_SLOPE = 0.32       # expected r_TS lost per usage point above the pivot
+BURDEN_CREATION_PIVOT = 28.0  # PROXY creation (usg + 0.45*AST%) where load starts
+BURDEN_CREATION_SCALE = 22.0  # PROXY creation span over which load saturates
+# actual-share creation = 100*team_scoring_share + 0.45*100*team_assist_share;
+# pivots percentile-matched to the proxy (distribution-based, NOT player-tuned).
+BURDEN_SHARE_PIVOT = 9.0      # actual-share creation where load credit starts
+BURDEN_SHARE_SCALE = 13.5     # actual-share creation span over which load saturates
+BURDEN_MP_FULL = 2000.0       # minutes for full workload reliability
+BURDEN_RESID_CAP = 8.0        # cap on |usage-efficiency residual| (r_TS points)
+BURDEN_POS_SCALE = 0.95       # scoring-unit credit per (load x positive residual)
+BURDEN_NEG_SCALE = 0.30       # small, bounded penalty for inefficient extreme load
+BURDEN_POS_MAX = 9.0          # max positive burden credit (scoring units)
+BURDEN_NEG_MAX = 4.0          # max (bounded) negative burden (scoring units)
+
+
+def successful_burden_residual(df: pd.DataFrame) -> Dict[str, np.ndarray]:
+    """Conservative all-era measure of SUCCESSFULLY absorbed offensive burden,
+    returned in `scoring` units (added to the scoring term, replacing the old raw
+    usage bonus). Creation load uses ACTUAL team scoring/assist shares when present
+    (else the USG%/AST% proxy, flagged). Usage%, relative TS and minutes complete
+    the signal. OBPM is carried for VALIDATION only and is NOT an additive input."""
+    usg = num(df, "usg_pct").to_numpy()
+    r_ts = num(df, "r_ts").to_numpy()
+    mp = num(df, "mp").to_numpy()
+    proxy_creation = num(df, "creation").to_numpy()      # usg + 0.45*AST% (proxy)
+    tss = num(df, "team_scoring_share").to_numpy()        # ACTUAL (fraction)
+    tas = num(df, "team_assist_share").to_numpy()
+
+    # Expected relative efficiency DECLINES with usage above the pivot (the well-
+    # documented usage/efficiency trade-off). Residual = actual - expected.
+    expected_r_ts = -BURDEN_EFF_SLOPE * np.clip(
+        np.nan_to_num(usg, nan=BURDEN_USG_PIVOT) - BURDEN_USG_PIVOT, 0.0, None)
+    usage_eff_residual = np.nan_to_num(r_ts, nan=0.0) - expected_r_ts
+
+    # Creation LOAD, bounded to [0,1]. Prefer ACTUAL shares (combine team scoring
+    # share, team assist share, on a usage-comparable scale); fall back to proxy.
+    have_share = ~np.isnan(tss)
+    actual_creation = 100.0 * np.nan_to_num(tss) + 0.45 * 100.0 * np.nan_to_num(tas)
+    load_actual = np.clip((actual_creation - BURDEN_SHARE_PIVOT) / BURDEN_SHARE_SCALE,
+                          0.0, 1.0)
+    load_proxy = np.clip((np.nan_to_num(proxy_creation, nan=0.0)
+                          - BURDEN_CREATION_PIVOT) / BURDEN_CREATION_SCALE, 0.0, 1.0)
+    creation_load = np.where(have_share, load_actual, load_proxy)
+    # reported creation_share: the bounded actual share combo (fraction units)
+    creation_share = np.where(
+        have_share, np.nan_to_num(tss) + 0.45 * np.nan_to_num(tas), np.nan)
+    workload_reliab = np.clip(np.nan_to_num(mp, nan=0.0) / BURDEN_MP_FULL, 0.0, 1.0)
+
+    pos = np.clip(usage_eff_residual, 0.0, BURDEN_RESID_CAP)
+    neg = np.clip(-usage_eff_residual, 0.0, BURDEN_RESID_CAP)
+    credit = np.clip(BURDEN_POS_SCALE * creation_load * pos * workload_reliab,
+                     0.0, BURDEN_POS_MAX)
+    penalty = np.clip(BURDEN_NEG_SCALE * creation_load * neg * workload_reliab,
+                      0.0, BURDEN_NEG_MAX)
+    residual = credit - penalty
+    return {"burden_residual": residual,
+            "usage_eff_residual": usage_eff_residual,
+            "creation_load": creation_load,
+            "creation_share": creation_share,
+            "burden_workload": workload_reliab}
+
+
 def traditional_production(df: pd.DataFrame
                            ) -> Tuple[pd.Series, Dict[str, np.ndarray]]:
     """TRADITIONAL PRODUCTION (21%). Scoring value combines volume and
     efficiency NONLINEARLY (PTS/100, usage, sustained minutes/total points, rTS,
-    TS+). Each skill only ADDS when strong (hinge -> ~0 at average). Penalties:
+    TS+). Each skill only ADDS when strong (hinge -> ~0 at average). The prior raw
+    heavy-usage bonus is REPLACED by a small bounded SUCCESSFUL-BURDEN RESIDUAL
+    (high creation load x positive usage-adjusted efficiency x workload). Penalties:
     inefficient high-volume scoring, excessive turnovers, poor availability."""
     pts, usg = num(df, "pts"), num(df, "usg_pct")
     ts_plus, r_ts = num(df, "ts_plus"), num(df, "r_ts")
@@ -1410,7 +1665,11 @@ def traditional_production(df: pd.DataFrame
     load_mult = np.clip(0.55 + 0.45 * (mp.to_numpy() / 2300.0), 0.5, 1.12)
     eff_mult = np.clip(1.0 + 0.030 * eff_signal, 0.60, 1.45)
     scoring = vol * load_mult * eff_mult                     # sustained volume
-    scoring = scoring + 0.8 * _hinge_value(usg, 24.0, 1.0)   # heavy-usage burden
+    # successful-burden residual REPLACES the old raw `0.8*hinge(usg,24)` term:
+    # high usage by itself no longer adds; only successfully-carried extreme
+    # creation (load x positive usage-adjusted efficiency x workload) does.
+    burden = successful_burden_residual(df)
+    scoring = scoring + burden["burden_residual"]
     # inefficient high-volume scoring -> penalty
     ineff_pen = (np.clip(pts.to_numpy() - 26.0, 0.0, None) *
                  np.clip(-eff_signal, 0.0, None) * 0.05)
@@ -1430,7 +1689,11 @@ def traditional_production(df: pd.DataFrame
 
     parts = {"scoring": scoring, "scoring_volume": vol * load_mult,
              "efficiency": efficiency, "playmaking": playmaking,
-             "rebounding": rebounding, "defense": defbox}
+             "rebounding": rebounding, "defense": defbox,
+             "burden_residual": burden["burden_residual"],
+             "usage_eff_residual": burden["usage_eff_residual"],
+             "creation_load": burden["creation_load"],
+             "creation_share": burden["creation_share"]}
     return pd.Series(tp, index=df.index), parts
 
 
@@ -1752,6 +2015,11 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
     df["playmaking"] = tp_parts["playmaking"]
     df["rebounding"] = tp_parts["rebounding"]
     df["defense"] = tp_parts["defense"]
+    # successful offensive-burden residual diagnostics (inside Traditional Prod.)
+    df["burden_residual"] = tp_parts["burden_residual"]
+    df["usage_eff_residual"] = tp_parts["usage_eff_residual"]
+    df["creation_load"] = tp_parts["creation_load"]
+    df["creation_share"] = tp_parts["creation_share"]
     # Role/workload DIAGNOSTIC: translates rate into total value/reliability; it
     # is NOT a standalone scored category in the official index.
     mpg_, mp_, usg_ = num(df, "mpg"), num(df, "mp"), num(df, "usg_pct")
@@ -1932,7 +2200,8 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
         # ---- redesigned regular sub-components ----
         "rate_impact", "total_impact", "scoring_volume", "scoring_efficiency",
         "volume_efficiency", "scoring_dominance", "playmaking", "rebounding",
-        "defense", "role_workload", "role", "superstar_workload_flag",
+        "defense", "burden_residual", "usage_eff_residual", "creation_load",
+        "creation_share", "role_workload", "role", "superstar_workload_flag",
         "specialty_value", "versatility_bonus", "primary_pathway",
         "workload_qualified", "workload_score", "games_played_pct",
         "season_complete", "provisional", "season_progress_pct",
@@ -1953,8 +2222,12 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
         "obpm", "dbpm", "r_ts", "tov", "games_frac",
         "po_bpm", "po_vorp", "po_ws_per_48", "po_per", "po_pts", "po_ts_plus",
         "mvp_vote_share", "dpoy_vote_share",
+        # ---- canonical completed-data fields + explicit data-status ----
+        "team_scoring_share", "team_assist_share", "n_teams",
+        "team_share_data_status", "burden_data_status",
+        "mvp_vote_data_status", "dpoy_vote_data_status",
         "bpm", "vorp", "ws_per_48", "per", "ts_pct", "ts_plus",
-        "pts", "trb", "ast", "stl", "blk", "stocks", "usg_pct",
+        "pts", "trb", "ast", "stl", "blk", "stocks", "usg_pct", "ast_pct_raw",
         "epm", "lebron", "awards",
         # ---- enriched context (raw, for the report decomposition) ----
         "championship", "finals_mvp", "finals_appearance", "conf_finals",
@@ -2236,12 +2509,24 @@ FORMULA  (OPEN FIVE-COMPONENT WEIGHTED RAW-VALUE INDEX; not percentile-based)
   prime_raw =
       0.38 * Statistical Impact        (raw advanced metrics: BPM/OBPM/DBPM,
                                          VORP + total WS, WS/48, PER, modern EPM/LEBRON)
-    + 0.21 * Traditional Production    (nonlinear scoring volume x efficiency, usage,
-                                         playmaking, rebounding, box defense; raw box stats)
-    + 0.20 * Individual Recognition    (additive grouped awards: MVP rank + vote share,
-                                         All-NBA, DPOY/All-D, Finals MVP, stat titles,
-                                         50-40-90, unanimous MVP; NO championship/team result;
-                                         a season with NO award contributes ZERO here)
+    + 0.21 * Traditional Production    (nonlinear scoring volume x efficiency, playmaking,
+                                         rebounding, box defense; raw box stats; PLUS a small
+                                         bounded SUCCESSFUL-BURDEN RESIDUAL -- creation load x
+                                         positive usage-adjusted efficiency x workload -- where
+                                         creation load uses ACTUAL team scoring/assist shares
+                                         (USG%/AST% proxy only as a flagged fallback). Replaces
+                                         the old raw heavy-usage bonus: usage alone earns nothing
+                                         and inefficient volume is not rewarded)
+    + 0.20 * Individual Recognition    (additive grouped awards. Ranked voting awards (MVP, DPOY)
+                                         use a SMOOTH curve: a WINNER PREMIUM + continuous vote
+                                         share (REAL award_share from Basketball Reference where
+                                         available -- all ranked awards-era seasons; documented
+                                         smooth placement FALLBACK only where a vote row is
+                                         missing) + a small stabilizer -- no placement buckets/
+                                         cliffs (1st clearly > 2nd; 2nd..10th decline smoothly).
+                                         Plus All-NBA, All-D, Finals MVP (binary, no runner-up),
+                                         stat titles, 50-40-90, unanimous MVP, with overlap
+                                         discounts; NO championship/team result; no award = ZERO)
     + 0.18 * Postseason Individual Value = absolute_playoff_level + playoff_elevation + sustained_elite_volume + dominance_bonus
                                          PLAYOFF-SAMPLE RELIABILITY (minutes x games x
                                            series) shrinks the whole upper tail so an extreme
@@ -2263,9 +2548,12 @@ FORMULA  (OPEN FIVE-COMPONENT WEIGHTED RAW-VALUE INDEX; not percentile-based)
                                            away (HISTORICALLY DOMINANT, Finals-length runs only);
                                          NO playoffs = 0; injury shrinks toward 0; availability
                                          counted ONCE; NO championship / round / Finals MVP here)
-    + 0.03 * Team Achievement          (ZERO baseline; positive only AFTER winning a playoff
-                                         series, then Conf Finals < Finals < championship,
-                                         x role multiplier; first-round exit / no playoffs = 0)
+    + 0.03 * Team Achievement          (ZERO baseline; a SMOOTH bounded advancement value
+                                         (series won / round reached / championship, interpolated
+                                         -- not 0/50/100 buckets) x a role-responsibility
+                                         multiplier (primary > co-star > secondary > role player,
+                                         graded by creation burden); first-round exit / no playoffs
+                                         = 0; NO Finals MVP and NO individual playoff box score here)
     + teammate_adjustment              (descriptive, capped +/-0.5 index points)
 
   Each component is a RAW additive points value (continuous formulas on raw basketball
@@ -3061,6 +3349,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Allow incomplete (in-progress) seasons to set peaks.")
     p.add_argument("--sensitivity", action="store_true",
                    help="Run the player across formula variants (robustness).")
+    p.add_argument("--rebuild-data", action="store_true",
+                   help="Rebuild canonical completed-data datasets (team shares, "
+                        "MVP/DPOY votes) from Basketball Reference, then re-score.")
     return p
 
 
@@ -3094,6 +3385,57 @@ def cmd_build_candidates(args, scored: pd.DataFrame) -> int:
     show = ["player", "candidate_tier", "all_nba_selections",
             "selection_reasons", "workload_adjusted_peak_score"]
     print(cands[show].head(30).to_string(index=False))
+    return 0
+
+
+def cmd_rebuild_data(args) -> int:
+    """Build the CANONICAL completed-data datasets deterministically and re-score.
+
+    Writes (under data/generated/): team_shares.csv, mvp_votes.csv, dpoy_votes.csv.
+    Awards + per-game HTML are fetched politely (then cached) so the rebuild is
+    reproducible offline thereafter. Model code is NOT changed; the normal offline
+    scoring path consumes the merged datasets automatically via merge_optional."""
+    from nba_peak import data_complete as dc
+    try:
+        from bs4 import BeautifulSoup
+    except Exception:  # noqa: BLE001
+        print("ERROR: beautifulsoup4 required for --rebuild-data"); return 2
+    scrape = not args.no_scrape
+    start, end = args.start_season_end, args.end_season_end
+    seasons = list(range(start, end + 1))
+
+    # ensure per-game + awards HTML are present (download missing if allowed)
+    print(f"Ensuring source HTML for {len(seasons)} seasons (scrape={scrape}) ...")
+    for se in seasons:
+        fetch_html(f"{BREF_BASE}/leagues/NBA_{se}_per_game.html",
+                   f"NBA_{se}_per_game.html", scrape=scrape, refresh=args.refresh)
+        fetch_html(f"{BREF_BASE}/awards/awards_{se}.html",
+                   f"NBA_{se}_awards.html", scrape=scrape, refresh=args.refresh)
+
+    GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+    print("Building canonical team scoring/assist shares ...")
+    ts = dc.build_team_shares(seasons, fetch_html=fetch_html,
+                              read_tables=read_tables,
+                              drop_header_rows=drop_header_rows,
+                              clean_player_name=clean_player_name)
+    ts.to_csv(TEAM_SHARES_PATH, index=False)
+    print(f"  -> {TEAM_SHARES_PATH}  ({len(ts)} rows, "
+          f"{ts['season_end'].nunique()} seasons)")
+
+    for tid, path in (("mvp", MVP_VOTES_PATH), ("dpoy", DPOY_VOTES_PATH)):
+        v = dc.build_award_votes(seasons, tid, fetch_html=fetch_html,
+                                 uncomment_tables=uncomment_tables,
+                                 BeautifulSoup=BeautifulSoup,
+                                 clean_player_name=clean_player_name)
+        v.to_csv(path, index=False)
+        print(f"  -> {path}  ({len(v)} rows, seasons "
+              f"{int(v['season_end'].min())}-{int(v['season_end'].max())})")
+
+    # re-score so the new data take effect immediately (offline path unchanged)
+    print("Re-scoring with completed data ...")
+    args.rebuild = True
+    scored, _ = get_scored(args)
+    print(f"Done. {len(scored)} player-seasons scored with completed data.")
     return 0
 
 
@@ -3386,6 +3728,16 @@ def _report_nyear(player: str, player_df: pd.DataFrame, n: int, mode: str,
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     write_examples()
+
+    # ---- data-completion command (don't require --player/--top) ----
+    if args.rebuild_data:
+        try:
+            return cmd_rebuild_data(args)
+        except Exception as exc:  # noqa: BLE001
+            print(f"ERROR rebuilding data: {exc}")
+            if args.debug:
+                import traceback; traceback.print_exc()
+            return 2
 
     # ---- context-build commands (don't require --player/--top) ----
     if args.build_context:

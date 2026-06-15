@@ -412,8 +412,11 @@ Output: `results/context_audit.{json,txt}`.
 
 ## 9. Known limitations
 
-- **Award vote shares** are not in the Awards column; ordinal ranks are used.
-  Drop a CSV with `mvp_vote_share`/`dpoy_vote_share` to refine.
+- **Award vote shares** are now populated from Basketball Reference award pages
+  (`data/generated/{mvp,dpoy}_votes.csv`, `vote_share = points won / points max`)
+  for every ranked awards-era season; the smooth placement fallback is used only
+  where a vote row is missing. Rebuild with `python peak3.py --rebuild-data`.
+  See DATA_SOURCES.md.
 - **Modern impact metrics** (EPM/LEBRON/RAPTOR/DARKO/RAPM) are not available in
   a single scrapable public table, so they come from `data/external_impact.csv`
   if provided. Absence never penalizes a player.
@@ -460,7 +463,22 @@ are never penalized.
 
 **2. Traditional production (21%)** — weights 10/5/4/3/3 (relative):
 - *Scoring value* combines volume and efficiency **nonlinearly**:
-  `hinge(PTS/100) * minutes_load_mult * efficiency_mult + usage_burden − inefficient_high_volume_penalty` (uses PTS/100, usage, sustained minutes/total points, rTS, TS+).
+  `hinge(PTS/100) * minutes_load_mult * efficiency_mult + successful_burden_residual − inefficient_high_volume_penalty` (uses PTS/100, rTS, TS+).
+- *Successful offensive-burden residual* (`successful_burden_residual`) — a small,
+  **bounded** residual that **replaces** the prior raw heavy-usage bonus
+  (`0.8·hinge(usage)`). It credits only *successfully absorbed* extreme creation:
+  `creation_load × max(usage_efficiency_residual, 0) × workload`, where the
+  **creation load uses ACTUAL team scoring + assist shares** (`100·team_scoring_share
+  + 0.45·100·team_assist_share`; USG%/AST% proxy only as a flagged fallback),
+  `usage_efficiency_residual = relative TS − expected(usage)`, and expected
+  efficiency falls with usage above ~22%. The actual-share pivots are
+  **percentile-matched** to the proxy distribution, so the TP scale is preserved
+  (mean burden 1.42 → 1.59; TP mean Δ ≈ +0.07 — see the ABLATION in `outputs.txt`).
+  So **high usage alone earns nothing**, inefficient volume earns nothing (small
+  bounded deduction at most), and strong efficiency on a light role earns nothing
+  — only difficult creation carried at better-than-expected efficiency over real
+  minutes adds (bounded). It is *not* duplicative (corr ≈ 0.75 with SI); OBPM
+  validates it but is not an input.
 - *Efficiency* (rTS/TS+), *playmaking* (AST/100, AST%), *rebounding* (TRB/100,
   TRB%), *defensive box* (stocks/100, DBPM) are hinges — each only adds when
   strong, so a center's ordinary assists or a guard's ordinary boards score ~0,
@@ -469,10 +487,19 @@ are never penalized.
   availability (single-counted).
 
 **3. Individual recognition (20%)** — additive grouped award values
-(`recognition_row`): MVP rank + vote share (+ unanimous-MVP record), All-NBA
-(discounted when grouped with a top-3 MVP), All-Star (subsumed by All-NBA),
-DPOY rank + share grouped with All-Defense, Finals MVP, scoring/assist/rebound/
-steal/block titles and 50-40-90. **No championship/team result** appears here.
+(`recognition_row`). **Ranked voting awards (MVP, DPOY)** use a *smooth* curve
+(`ranked_award_value`): a **winner premium** (1st clearly > 2nd) + a continuous
+vote-share value (primary signal) + a small placement stabilizer. **Real vote
+share** (Basketball Reference `award_share`) is populated for every ranked
+awards-era MVP/DPOY season (`data/generated/{mvp,dpoy}_votes.csv`); the
+**documented smooth exponential placement fallback** is used only where a vote row
+is missing (flagged). Missing share is NaN, never 0. Ranks 2→10 decline smoothly
+with **no second-to-fourth cliff** (placement fallback: 1st 58, 2nd 29.8, 3rd
+24.6, 4th 20.4, …); real share additionally separates dominant from narrow winners.
+Plus All-NBA (discounted when grouped with a top-3 MVP), All-Star (subsumed by
+All-NBA), All-Defense grouped with DPOY, **Finals MVP** (binary, no runner-up
+value), scoring/assist/rebound/steal/block titles and 50-40-90. **No
+championship/team result** appears here.
 
 **4. Postseason individual value (18%)** — a zero-baseline additive value built
 from four individual parts so it captures playoff greatness without rewarding
@@ -543,14 +570,19 @@ single-season Prime crown passes to a complete Finals-length run (Jordan
 1990-91), while genuinely complete elite runs (Hakeem 1994, Kawhi 2019, Jokić
 2023, Dirk 2011, Shaq 2000) keep or gain value.
 
-**5. Team achievement (3%)** — **zero baseline**; positive value begins only
-**after winning a playoff series**, then increases progressively through
-**Conference Finals → Finals → championship**, × role multiplier
-(`team_achievement_row`). `playoff_round_score` encodes rounds *reached*, so a
-first-round **loss** (score 30, zero series won) and no playoffs (10/missing)
-both contribute **0**; a series win requires `playoff_round_score ≥ 50`. Small by
-design: with a 3% weight (≤3.0 index points) a title cannot materially offset a
-major individual gap.
+**5. Team achievement (3%)** — **zero baseline**;
+`team_achievement = smooth_bounded_advancement_value × role_responsibility_multiplier`
+(`team_achievement_row`). The advancement value is a *smooth, bounded*
+progression in `[0, 100]` from measurable results — won ≥1 series 30, Conference
+Finals 58, Finals 80, champion 100 — **interpolated** between anchors on
+`playoff_round_score` rather than coarse 0/50/100 buckets. The role multiplier
+distinguishes *primary* (1.00) → *co-star* (0.82) → *secondary* → *role player*
+(floor 0.34): recognized best/co-best players use the explicit flag, everyone
+else is graded smoothly by **creation burden** (usage + assist share, capped at
+the co-star level). A first-round **loss** (score 30) and no playoffs both
+contribute **0**. **No Finals MVP and no individual playoff box score** enter
+here. Small by design: with a 3% weight (≤3.0 index points) a title cannot
+materially offset a major individual gap.
 
 Calibration anchors (`CALIBRATION_ANCHORS_RAW/CAL`) map the open index into
 historical bands and are the only post-hoc step (order-preserving). Validation

@@ -80,3 +80,27 @@ PRIOR-PASS DELETIONS (already gone; see git history)
   candidates_before,peak_scores_before}.*, results/spot_check_validation.*,
   results/score_calibration.*, results/curry_2015_vs_2016_audit.*,
   results/top_250_three_year_peaks_{prime,performance}.csv.
+
+============================================================================
+DATA-COMPLETENESS PASS DELETIONS (2025-06)
+  _prefetch_awards.py
+    purpose      : one-off helper that warmed the awards-page HTML cache.
+    why obsolete : superseded by `python peak3.py --rebuild-data`, which fetches
+                   + caches awards (and per-game) HTML deterministically.
+    evidence     : grep of peak3.py / make_outputs.py / nba_peak/** / tests/**
+                   shows zero references; never committed (untracked temp script).
+    replacement  : peak3.cmd_rebuild_data (fetch_html loop).
+  _rescore.py
+    purpose      : ad-hoc harness to re-score from cached raw frames during dev.
+    why obsolete : identical behavior to `python peak3.py --rebuild --no-scrape`
+                   (proven bit-identical; see test_canonical_rebuild_matches_fast_path).
+    evidence     : zero references in source/tests; untracked temp script.
+    replacement  : peak3.py --rebuild --no-scrape  (offline fast path).
+
+KEPT (verified still referenced; NOT deleted):
+  data/old_model_snapshot.csv         -> make_outputs.postseason_before_after
+  data/refine_pre_snapshot.csv        -> make_outputs.refinement_before_after
+  data/datacomplete_pre_snapshot.csv  -> make_outputs + tests (data-completion B/A)
+  results/baseline/scored_pre_context.parquet -> peak3.py / nba_peak/audit.py
+  data/generated/{team_shares,mvp_votes,dpoy_votes}.csv -> canonical inputs
+    (raw source evidence; rebuildable via --rebuild-data; required for provenance).
