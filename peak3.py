@@ -1448,10 +1448,38 @@ PO_ELEV_SCALE = 0.55           # points of value per point of rate elevation
 PO_ELEV_DOWN_DAMP = 0.35       # decline from an extreme baseline is damped
 PO_ELEV_UP_CAP = 14.0          # max positive elevation value
 PO_ELEV_DOWN_CAP = 6.0         # max negative elevation value (small)
-# Deep-run individual volume: elite per-minute quality SUSTAINED over real
-# playoff minutes / multiple series. NOT team advancement; floored at 0.
+
+# ---- PLAYOFF-SAMPLE RELIABILITY (minutes x games x series) ------------------
+# A SINGLE confidence signal, in [0, 1], built from how MUCH playoff basketball
+# the rate statistics were measured over: total minutes, total games, and the
+# number of series/rounds reached. It governs the WHOLE upper tail -- the
+# absolute level, the elevation, and (most strongly) the convex dominance bonus
+# -- so an extreme rate stat over a SHORT run (one or two rounds) is shrunk
+# toward the league and cannot dwarf a Finals-length elite run. Series count is
+# used only as a SAMPLE signal (how many rounds the rates survived), NEVER as a
+# points-for-advancement reward. When games/series are unobserved the blend
+# gracefully falls back to the minutes signal alone.
+PO_REL_MIN_FULL = 850.0        # playoff minutes for a full (Finals-length) sample
+PO_REL_G_FULL = 19.0           # playoff games for a full sample
+PO_REL_S_FULL = 4.0            # series/rounds reached for a full sample
+PO_REL_W_MIN = 0.40            # sample-reliability weight on minutes
+PO_REL_W_G = 0.35              # ... on games
+PO_REL_W_S = 0.25              # ... on series count
+# The convex dominance bonus is shrunk by an EXTRA series gate on top of the
+# shared sample reliability, so the full historical-dominance bonus is reserved
+# for elite play sustained through the deepest runs (a short Conference-Finals
+# run with extreme rates gets a partial, not full, bonus).
+PO_DOM_TAIL_EXP = 1.0          # extra exponent on series-fraction for dominance
+
+# Deep-run / SUSTAINED ELITE VOLUME: elite per-minute quality ACCUMULATED over
+# real playoff minutes AND games. NOT team advancement; floored at 0. The volume
+# factor rises with BOTH minutes and games (uncapped below a Finals-length run),
+# so at equal rates a four-round run earns more sustained volume than a shorter
+# one -- the additional value comes from sustaining elite play, never from merely
+# reaching a round.
 PO_DEEPRUN_QUAL_THR = 42.0     # only genuinely strong playoff levels qualify
-PO_DEEPRUN_MIN_FULL = 720.0    # ~a deep multi-series run of heavy minutes
+PO_DEEPRUN_MIN_FULL = 950.0    # minutes at which the minutes half saturates
+PO_DEEPRUN_G_FULL = 21.0       # games at which the games half saturates
 PO_DEEPRUN_SCALE = 0.26
 # Best-player RESPONSIBILITY for sustained-volume credit, derived purely from the
 # playoff usage burden (data, not narrative). A floor keeps elite low-usage
@@ -1462,11 +1490,29 @@ PO_RESP_FLOOR = 0.55           # minimum responsibility multiplier
 PO_RESP_USG_LO = 18.0          # usage% at the responsibility floor
 PO_RESP_PER_USG = 0.0333       # responsibility gained per usage% above the floor
 PO_RESP_CAP = 1.12             # maximum responsibility multiplier
-# Convex DOMINANCE booster so a HISTORICALLY DOMINANT playoff level is
-# exceptional (ordinary/good/elite runs are unaffected; only the very top
-# accelerates). Adds DOMINANCE_K points per point of level above the knee.
+# Convex DOMINANCE bonus with DIMINISHING RETURNS (a saturating square-root
+# curve), applied to the EXCEPTIONAL residual of the level above an elite knee
+# and then shrunk by playoff-sample reliability. By construction:
+#   level 50 -> no bonus; 60 -> meaningful; 75 -> larger; 90 -> exceptional;
+#   the curve flattens so it never explodes above the top of the level scale.
+# This REPLACES the old open-ended "+K per level point above the knee" linear
+# booster, whose unbounded slope let a short run with extreme rates run away.
 PO_DOMINANCE_KNEE = 50.0
-PO_DOMINANCE_K = 0.30
+PO_DOMINANCE_SCALE = 2.05      # points per sqrt(level-above-knee), pre-reliability
+
+
+def _po_series_count(prs) -> np.ndarray:
+    """Map the rounds-reached encoding (playoff_round_score) to a SAMPLE count of
+    series the playoff rates were observed over: 10/NaN=0, 30=1 (R1), 50=2 (CSF),
+    70=3 (CF), 85=4 (Finals loss), 100=4 (champion). Used ONLY as a sample-size
+    signal for reliability, never as points for advancement."""
+    p = np.nan_to_num(np.asarray(prs, dtype=float), nan=0.0)
+    out = np.zeros_like(p)
+    out = np.where(p >= 30.0, 1.0, out)
+    out = np.where(p >= 50.0, 2.0, out)
+    out = np.where(p >= 70.0, 3.0, out)
+    out = np.where(p >= 85.0, 4.0, out)
+    return out
 
 
 def _rate_impact_value(bpm, obpm, dbpm, ws48, per) -> np.ndarray:
@@ -1537,12 +1583,31 @@ def postseason_value(df: pd.DataFrame, has_po: pd.Series
                   0.06 * z0(po_rebounding) + 0.08 * z0(po_defense))
     oq = num(df, "opponent_quality_score").fillna(50.0).to_numpy()
     level_full = level_full * np.clip(0.90 + 0.20 * (oq - 50.0) / 50.0, 0.85, 1.15)
-    # Absolute value above a replacement playoff baseline, with a CONVEX dominance
-    # booster so only a HISTORICALLY DOMINANT level becomes exceptional (ordinary,
-    # good and merely-elite runs are unaffected by the booster).
-    dominance = PO_DOMINANCE_K * np.clip(level_full - PO_DOMINANCE_KNEE, 0.0, None)
-    playoff_level = np.clip(level_full - PO_BASELINE + dominance,
-                            -PO_PENALTY_CAP, None)
+    # ABSOLUTE LEVEL: how good the player was, above a replacement playoff
+    # baseline. This is now LINEAR in level (the convex dominance bonus lives in
+    # its own diminishing-return term below, so an extreme level is not rewarded
+    # a second time inside the level itself). The downside is a small bounded
+    # penalty.
+    abs_level = np.clip(level_full - PO_BASELINE, -PO_PENALTY_CAP, None)
+
+    # ---- PLAYOFF-SAMPLE RELIABILITY (minutes x games x series) ---------------
+    # One confidence signal that shrinks the entire upper tail on short/partial
+    # runs. Minutes is always present; games/series fall back to the minutes
+    # signal when unobserved so synthetic / pre-bracket rows degrade gracefully.
+    pm = np.nan_to_num(po_mp.to_numpy(), nan=0.0)
+    m_rel = np.clip(pm / PO_REL_MIN_FULL, 0.0, 1.0)
+    pg = num(df, "po_g").to_numpy() if "po_g" in df.columns else np.full(len(df), np.nan)
+    g_rel = np.where(np.isnan(pg), m_rel, np.clip(pg / PO_REL_G_FULL, 0.0, 1.0))
+    prs = (num(df, "playoff_round_score").to_numpy()
+           if "playoff_round_score" in df.columns else np.full(len(df), np.nan))
+    series_n = _po_series_count(prs)
+    s_frac = np.where(np.isnan(prs), m_rel,
+                      np.clip(series_n / PO_REL_S_FULL, 0.0, 1.0))
+    sample_reliab = (PO_REL_W_MIN * m_rel + PO_REL_W_G * g_rel +
+                     PO_REL_W_S * s_frac)
+    sample_reliab = np.clip(sample_reliab, 0.0, 1.0)
+    # RELIABILITY-ADJUSTED LEVEL: absolute level shrunk by the playoff sample.
+    reliab_level = abs_level * sample_reliab
 
     # ---- (b) PLAYOFF ELEVATION: playoff rate impact - regular rate impact ----
     reg_rate = _rate_impact_value(num(df, "bpm"), num(df, "obpm"),
@@ -1551,41 +1616,63 @@ def postseason_value(df: pd.DataFrame, has_po: pd.Series
     elev_raw = np.nan_to_num(po_rate, nan=0.0) - np.nan_to_num(reg_rate, nan=0.0)
     # gains count fully; declines (esp. from an extreme baseline) are damped
     elev = np.where(elev_raw >= 0.0, elev_raw, PO_ELEV_DOWN_DAMP * elev_raw)
-    elevation = np.clip(PO_ELEV_SCALE * elev, -PO_ELEV_DOWN_CAP, PO_ELEV_UP_CAP)
+    elevation_raw = np.clip(PO_ELEV_SCALE * elev, -PO_ELEV_DOWN_CAP, PO_ELEV_UP_CAP)
+    # SAMPLE-ADJUSTED ELEVATION (shrunk by the same playoff sample as the level,
+    # so improvement measured over a short run is not over-trusted).
+    elevation = elevation_raw * sample_reliab
 
-    # ---- (c) SUSTAINED ELITE VOLUME: elite quality x minutes x responsibility --
+    # ---- (c) SUSTAINED ELITE VOLUME: elite quality x volume x responsibility --
     # Best-player RESPONSIBILITY from the playoff usage burden (data, not
     # narrative): a primary creator carrying a deep run earns full sustained-
-    # volume credit; a low-usage role player earns little even with a ring.
+    # volume credit; a low-usage role player earns little even with a ring. The
+    # VOLUME factor rises with BOTH minutes and games, so at equal rates elite
+    # play sustained through more rounds earns more than a shorter run.
     po_usg = num(df, "po_usg_pct").to_numpy()
     responsibility = np.clip(
         PO_RESP_FLOOR + PO_RESP_PER_USG * (np.nan_to_num(po_usg, nan=PO_RESP_USG_LO)
                                            - PO_RESP_USG_LO),
         PO_RESP_FLOOR, PO_RESP_CAP)
     quality_above = np.clip(level_full - PO_DEEPRUN_QUAL_THR, 0.0, None)
-    minutes_factor = np.nan_to_num(
-        np.clip(po_mp.to_numpy() / PO_DEEPRUN_MIN_FULL, 0.0, 1.0), nan=0.0)
-    deep_run = (PO_DEEPRUN_SCALE * quality_above * minutes_factor
+    min_part = np.clip(pm / PO_DEEPRUN_MIN_FULL, 0.0, 1.0)
+    g_part = np.where(np.isnan(pg), min_part,
+                      np.clip(pg / PO_DEEPRUN_G_FULL, 0.0, 1.0))
+    volume_factor = 0.5 * min_part + 0.5 * g_part
+    deep_run = (PO_DEEPRUN_SCALE * quality_above * volume_factor
                 * responsibility)                                  # >= 0
 
-    # ---- reliability + assembly (availability counted ONCE) ------------------
-    # The rate-quality terms (level + elevation) are shrunk toward 0 on small/
-    # injury-limited samples; deep-run already scales with minutes and is never
-    # negative, so it adds no second availability penalty.
-    reliab = np.nan_to_num(np.clip(po_mp.to_numpy() / 450.0, 0.0, 1.0), nan=0.0)
-    # Combined rate-quality value; its downside is a SINGLE small bounded penalty
-    # (level + elevation cannot stack into a large negative).
-    rate_quality = np.clip(reliab * (playoff_level + elevation),
-                           -PO_PENALTY_CAP, None)
-    val = rate_quality + deep_run
-    played = has_po.to_numpy() & (np.nan_to_num(po_mp.to_numpy(), nan=0.0) > 0)
+    # ---- (d) CONVEX DOMINANCE BONUS: diminishing returns, reliability-shrunk --
+    # Applied ONLY to the exceptional residual of the level above the elite knee,
+    # via a saturating square-root curve, and then shrunk by playoff-sample
+    # reliability with an EXTRA series gate. A short Conference-Finals run with
+    # extreme rates therefore earns only a PARTIAL historical-dominance bonus;
+    # the full bonus is reserved for elite play sustained through the deepest
+    # runs. level 50 -> 0; the curve flattens so it cannot run away at the top.
+    dom_residual = np.clip(level_full - PO_DOMINANCE_KNEE, 0.0, None)
+    dominance_raw = PO_DOMINANCE_SCALE * np.sqrt(dom_residual)      # >= 0
+    tail_reliab = sample_reliab * (s_frac ** PO_DOM_TAIL_EXP)
+    dominance = dominance_raw * tail_reliab                         # >= 0
+
+    # ---- assembly (availability counted ONCE) --------------------------------
+    # The rate-quality terms (reliability-adjusted level + elevation) carry the
+    # SINGLE small bounded downside; deep-run and dominance are non-negative and
+    # add no second availability penalty.
+    rate_quality = np.clip(reliab_level + elevation, -PO_PENALTY_CAP, None)
+    val = rate_quality + deep_run + dominance
+    played = has_po.to_numpy() & (pm > 0)
     val = np.where(played, val, 0.0)
 
     z = np.zeros(len(df))
     parts = {
-        "po_level": np.where(played, reliab * playoff_level, z),
-        "po_elevation": np.where(played, reliab * elevation, z),
+        "po_level": np.where(played, reliab_level, z),
+        "po_elevation": np.where(played, elevation, z),
         "po_deep_run": np.where(played, deep_run, z),
+        "po_dominance": np.where(played, dominance, z),
+        # ---- diagnostics for the postseason audit ----
+        "po_abs_level": np.where(played, abs_level, z),
+        "po_sample_reliab": np.where(played, sample_reliab, z),
+        "po_elev_raw": np.where(played, elevation_raw, z),
+        "po_dominance_raw": np.where(played, dominance_raw, z),
+        "po_series_n": np.where(played, series_n, z),
         "po_reg_rate": np.nan_to_num(reg_rate, nan=0.0),
         "po_play_rate": np.nan_to_num(po_rate, nan=0.0),
         "po_responsibility": np.where(played, responsibility, z),
@@ -1694,9 +1781,15 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
     # ----- POSTSEASON individual value (component 4, additive adjustment) -----
     po_val, po_parts = postseason_value(df, has_po)
     df["postseason_perf"] = po_val
-    df["po_level_value"] = po_parts["po_level"]            # absolute playoff quality
+    df["po_level_value"] = po_parts["po_level"]            # reliability-adjusted level
     df["po_elevation_value"] = po_parts["po_elevation"]   # vs own regular season
-    df["po_deep_run_value"] = po_parts["po_deep_run"]     # sustained elite minutes
+    df["po_deep_run_value"] = po_parts["po_deep_run"]     # sustained elite volume
+    df["po_dominance_value"] = po_parts["po_dominance"]   # convex dominance bonus
+    df["po_abs_level"] = po_parts["po_abs_level"]         # absolute level (pre-reliability)
+    df["po_sample_reliab"] = po_parts["po_sample_reliab"]  # playoff-sample reliability
+    df["po_elev_raw"] = po_parts["po_elev_raw"]           # raw elevation (pre-reliability)
+    df["po_dominance_raw"] = po_parts["po_dominance_raw"]  # dominance (pre-reliability)
+    df["po_series_n"] = po_parts["po_series_n"]           # series observed (sample signal)
     df["po_reg_rate"] = po_parts["po_reg_rate"]
     df["po_play_rate"] = po_parts["po_play_rate"]
     df["po_responsibility"] = po_parts["po_responsibility"]
@@ -1828,6 +1921,8 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
         "perf_only_raw", "prime_raw",
         "regular_perf", "postseason_perf", "postseason_availability",
         "po_level_value", "po_elevation_value", "po_deep_run_value",
+        "po_dominance_value", "po_abs_level", "po_sample_reliab",
+        "po_elev_raw", "po_dominance_raw", "po_series_n", "po_g",
         "po_reg_rate", "po_play_rate", "po_responsibility",
         "recognition", "recognition_mvp", "recognition_titles", "unanimous_mvp",
         "team_achievement", "recognition_bonus", "team_bonus",
@@ -2147,18 +2242,25 @@ FORMULA  (OPEN FIVE-COMPONENT WEIGHTED RAW-VALUE INDEX; not percentile-based)
                                          All-NBA, DPOY/All-D, Finals MVP, stat titles,
                                          50-40-90, unanimous MVP; NO championship/team result;
                                          a season with NO award contributes ZERO here)
-    + 0.18 * Postseason Individual Value = absolute_playoff_level + playoff_elevation + sustained_elite_volume
+    + 0.18 * Postseason Individual Value = absolute_playoff_level + playoff_elevation + sustained_elite_volume + dominance_bonus
+                                         PLAYOFF-SAMPLE RELIABILITY (minutes x games x
+                                           series) shrinks the whole upper tail so an extreme
+                                           rate stat over a SHORT run cannot dwarf a complete run;
                                          absolute_playoff_level: raw playoff quality (BPM/WS48/
                                            PER rate, scoring, efficiency, playmaking, rebounding,
-                                           defense, minutes) above a replacement baseline, NONLINEAR
-                                           with a convex booster so HISTORICALLY DOMINANT runs are
-                                           exceptional (strong adds, weak = small bounded penalty);
+                                           defense, minutes) above a replacement baseline, LINEAR
+                                           in level and reliability-adjusted (strong adds, weak =
+                                           small bounded penalty);
                                          playoff_elevation: playoff rate impact - regular rate
                                            impact (gains rewarded, decline from an extreme baseline
                                            damped, sample-shrunk); supplements, never replaces level;
-                                         sustained_elite_volume: elite quality x sustained minutes x
-                                           best-player RESPONSIBILITY (usage burden, from data) --
-                                           a ring with ordinary/role-player production adds little;
+                                         sustained_elite_volume: elite quality x sustained minutes
+                                           AND games x best-player RESPONSIBILITY (usage burden,
+                                           from data) -- a ring with ordinary production adds little;
+                                         dominance_bonus: DIMINISHING-return (sqrt) bonus on the
+                                           level above an elite knee, reliability-shrunk -- replaces
+                                           the old open-ended linear booster so the tail cannot run
+                                           away (HISTORICALLY DOMINANT, Finals-length runs only);
                                          NO playoffs = 0; injury shrinks toward 0; availability
                                          counted ONCE; NO championship / round / Finals MVP here)
     + 0.03 * Team Achievement          (ZERO baseline; positive only AFTER winning a playoff

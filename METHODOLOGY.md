@@ -475,43 +475,73 @@ DPOY rank + share grouped with All-Defense, Finals MVP, scoring/assist/rebound/
 steal/block titles and 50-40-90. **No championship/team result** appears here.
 
 **4. Postseason individual value (18%)** — a zero-baseline additive value built
-from three individual parts so it captures playoff greatness without rewarding
+from four individual parts so it captures playoff greatness without rewarding
 team advancement:
 
 ```
-postseason_individual_value = absolute_playoff_level
-                            + playoff_elevation
+postseason_individual_value = absolute_playoff_level   (reliability-adjusted)
+                            + playoff_elevation        (sample-adjusted)
                             + sustained_elite_volume
+                            + dominance_bonus          (diminishing, reliability-shrunk)
 ```
+
+**Playoff-sample reliability governs the whole upper tail.** A single confidence
+signal `sample_reliab ∈ [0, 1]` is built from how *much* playoff basketball the
+rate stats were measured over — total **minutes**, total **games**, and the number
+of **series/rounds** reached (`0.40·min/850 + 0.35·games/19 + 0.25·series/4`).
+Series count is used **only** as a sample-size signal (how many rounds the rates
+survived), **never** as points for advancement; when games/series are unobserved
+the blend falls back to the minutes signal. This is what stops an extreme rate
+stat over a *short* run from overpowering a complete Finals-length run.
 
 * **absolute_playoff_level** — raw playoff quality across all skills (BPM/OBPM/
   DBPM + WS48 + PER *rate*, scoring volume, efficiency, playmaking, rebounding,
   box defense, minutes), opponent-quality adjusted, centered on a replacement
-  baseline (`PO_BASELINE = 25`). The curve is **nonlinear**, with a **convex
-  dominance booster** (`+PO_DOMINANCE_K = 0.30` per point of `level_full` above
-  `PO_DOMINANCE_KNEE = 50`) so a *historically dominant* run is **exceptional**
-  while ordinary/good/merely-elite runs are unaffected. Excellent play adds; poor
-  play is a small bounded penalty (combined rate-quality downside floored once at
+  baseline (`PO_BASELINE = 25`). This term is **linear in level** (the convex
+  bonus lives in its own term, so an extreme level is not rewarded twice) and is
+  then **shrunk by `sample_reliab`** → the *reliability-adjusted level*. Poor play
+  is a small bounded penalty (rate-quality downside floored once at
   `−PO_PENALTY_CAP = −14`).
 * **playoff_elevation** — `playoff rate impact − regular-season rate impact`
   (same `_rate_impact_value` for both). Gains are rewarded in full; a decline
   from an extreme regular-season baseline is **damped** (`×0.35`) and bounded, so
   a great regular season is not punished. Elevation **supplements** absolute
-  level, never replaces it, and is shrunk toward 0 on small samples.
+  level, never replaces it, and is **shrunk by the same `sample_reliab`** so
+  improvement measured over a short run is not over-trusted (LeBron 2008-09 still
+  earns major elevation credit; it is just no longer open-ended).
 * **sustained_elite_volume** — elite per-minute quality (`level_full` above a
-  high threshold) **sustained over real playoff minutes** (`po_mp`, a proxy for
-  multiple series), scaled by **best-player responsibility**. Responsibility is
-  derived purely from the playoff **usage burden** (`PO_RESP_FLOOR = 0.55` →
-  `PO_RESP_CAP = 1.12`), so a primary creator carrying a deep run earns full
-  credit while a low-usage role player earns little even with a ring. Floored at
-  0 and requires quality *and* minutes *and* responsibility — individual
-  workload/value, **never** an automatic team-advancement reward. Finals MVP and
-  clear-best-player status only **validate** the metric and add no points here.
+  threshold) **accumulated over real playoff minutes *and* games**
+  (`0.5·min/950 + 0.5·games/21`, uncapped below a Finals-length run), scaled by
+  **best-player responsibility** from the playoff **usage burden**
+  (`PO_RESP_FLOOR = 0.55` → `PO_RESP_CAP = 1.12`). At equal rates, elite play
+  sustained through *more* rounds earns more than a shorter run — the extra value
+  comes from sustaining elite play, **never** from merely reaching a round.
+  Floored at 0; requires quality *and* volume *and* responsibility.
+* **dominance_bonus** — the exceptional residual of the level above an elite knee
+  (`PO_DOMINANCE_KNEE = 50`), through a **saturating square-root curve**
+  (`PO_DOMINANCE_SCALE · √(level−50)`) that **replaces** the old open-ended
+  `+0.30 per point` linear booster. By construction level 50 earns 0, 60 is
+  meaningful, 75 larger, 90 exceptional, and the curve flattens so it never
+  explodes at the top. It is then **shrunk by `sample_reliab` with an extra
+  series gate**, so a short Conference-Finals run with extreme rates earns only a
+  *partial* historical-dominance bonus; the full bonus is reserved for elite play
+  sustained through the deepest runs.
 
-No playoffs / no playoff minutes contributes exactly 0; injury-limited samples
-shrink toward 0 (`reliab = clip(po_mp/450, 0, 1)`); availability is counted
-**once**. Championships, round reached and **Finals MVP** do **not** enter here
-(Team Achievement / Individual Recognition respectively).
+The four terms read **different signals** — absolute level (how good), elevation
+(improvement vs the player's own regular season), sustained volume (how *much*
+elite play), dominance (only the exceptional top, reliability-gated) — so the same
+extreme BPM/PER/WS48 is not rewarded multiple times. No playoffs / no playoff
+minutes contributes exactly 0; availability is counted **once**. Championships,
+round reached and **Finals MVP** do **not** enter here (Team Achievement /
+Individual Recognition respectively); Finals MVP / clear-best-player status only
+**validate** the metric and add no points.
+
+Net effect of the correction: a short run with extreme rates (e.g. **LeBron
+2008-09**, a 14-game Conference-Finals run) no longer dwarfs complete
+championship seasons — its postseason value falls from ~106 to ~75 and the
+single-season Prime crown passes to a complete Finals-length run (Jordan
+1990-91), while genuinely complete elite runs (Hakeem 1994, Kawhi 2019, Jokić
+2023, Dirk 2011, Shaq 2000) keep or gain value.
 
 **5. Team achievement (3%)** — **zero baseline**; positive value begins only
 **after winning a playoff series**, then increases progressively through

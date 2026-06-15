@@ -120,7 +120,11 @@ def player_block(s, name):
     L.append(f"    postseason decomposition       : level {_f(prime.get('po_level_value'),1)}"
              f" + elevation {_f(prime.get('po_elevation_value'),1)}"
              f" + deep-run {_f(prime.get('po_deep_run_value'),1)}"
+             f" + dominance {_f(prime.get('po_dominance_value'),1)}"
              f" = {_f(prime.get('postseason_perf'),1)}")
+    L.append(f"    postseason sample reliability  : {_f(prime.get('po_sample_reliab'),2)}"
+             f"  (po_g {_f(prime.get('po_g'),0)}, po_mp {_f(prime.get('po_mp'),0)},"
+             f" series {_f(prime.get('po_series_n'),0)})")
     L.append(f"    role              : {prime.get('role','?')}")
     L.append(f"    provisional flag  : "
              f"{'YES' if int(prime.get('provisional',0) or 0) else 'no'}")
@@ -270,12 +274,13 @@ def playoff_audit(s):
     W = peak3.OFFICIAL_WEIGHTS["postseason"]
     L = ["=" * 78,
          "PLAYOFF AUDITS (item: validation philosophy)",
-         f"postseason_value = absolute_level + elevation + sustained_volume "
-         f"({int(W*100)}% weight)",
-         "resp = best-player responsibility (from playoff usage); deep = sustained volume",
+         f"postseason_value = reliability-adjusted level + elevation + "
+         f"sustained_volume + dominance ({int(W*100)}% weight)",
+         "rel = playoff-sample reliability (minutes x games x series); dom = convex "
+         "dominance bonus",
          "=" * 78, "",
          f"  {'player / season':26}{'po_perf':>8}{'level':>7}{'elev':>6}"
-         f"{'deep':>6}{'resp':>6}{'po_mp':>7}{'team':>6}{'prime':>7}"]
+         f"{'deep':>6}{'dom':>6}{'rel':>6}{'po_mp':>7}{'team':>6}{'prime':>7}"]
     for name, yr, note in cases:
         g = s[(s.player == name) & (s.season_end == yr)]
         if not len(g):
@@ -284,7 +289,8 @@ def playoff_audit(s):
         L.append(f"  {name+' '+str(yr-1)+'-'+str(yr)[2:]:26}"
                  f"{r['postseason_perf']:>8.1f}{r['po_level_value']:>7.1f}"
                  f"{r['po_elevation_value']:>6.1f}{r['po_deep_run_value']:>6.1f}"
-                 f"{r.get('po_responsibility', float('nan')):>6.2f}"
+                 f"{r.get('po_dominance_value', float('nan')):>6.1f}"
+                 f"{r.get('po_sample_reliab', float('nan')):>6.2f}"
                  f"{(r.get('po_mp') if pd.notna(r.get('po_mp')) else 0):>7.0f}"
                  f"{r['team_achievement']:>6.0f}{r['prime_score']:>7.1f}")
         L.append(f"      {note}; weighted postseason contribution "
@@ -297,6 +303,204 @@ def playoff_audit(s):
     L.append("  automatic peak boost; a historic regular season with an injured playoff")
     L.append("  decline (Curry 2016) is damped, not collapsed. Finals MVP / clear-best-")
     L.append("  player status only validate the metric, never adding points here.")
+    L.append("")
+    return L
+
+
+# Seasons required by the postseason upper-tail correction audit (item 6).
+PO_AUDIT_CASES = [
+    ("LeBron James", 2009), ("LeBron James", 2012), ("LeBron James", 2013),
+    ("Michael Jordan", 1988), ("Michael Jordan", 1991),
+    ("Hakeem Olajuwon", 1994), ("Hakeem Olajuwon", 1995),
+    ("Nikola Jokic", 2023), ("Kawhi Leonard", 2019), ("Dirk Nowitzki", 2011),
+    ("Jimmy Butler", 2020), ("Jimmy Butler", 2023), ("Stephen Curry", 2016),
+    ("Shaquille O'Neal", 2000), ("Kevin Garnett", 2004),
+]
+
+
+def load_old_snapshot():
+    """Pre-correction (OLD postseason model) per-season values, frozen in
+    data/old_model_snapshot.csv. Everything BUT the postseason upper-tail formula
+    is identical between old and new, so this isolates the correction's effect."""
+    p = ROOT / "data" / "old_model_snapshot.csv"
+    if not p.exists():
+        return None
+    return pd.read_csv(p)
+
+
+def postseason_decomposition_audit(s):
+    """Item 6: the FULL postseason decomposition for every required season under
+    the corrected upper-tail model."""
+    W = peak3.OFFICIAL_WEIGHTS["postseason"]
+    L = ["=" * 78,
+         "POSTSEASON DECOMPOSITION AUDIT (corrected upper-tail model)",
+         "postseason_value = reliability-adjusted level + sample-adjusted elevation",
+         "                 + sustained elite volume + reliability-shrunk dominance",
+         "=" * 78, "",
+         "  Legend: g=playoff games  mp=playoff minutes  ser=series observed",
+         "  absL=absolute level (pre-reliability)  rel=playoff-sample reliability",
+         "  adjL=reliability-adjusted level  eRaw=raw elevation  eAdj=sample-adjusted",
+         "  deep=sustained elite volume  domR=dominance pre-reliability  domF=final",
+         "  dominance  PERF=final postseason value  wPO=weighted postseason contrib",
+         "",
+         f"  {'player / season':24}{'g':>3}{'mp':>6}{'ser':>4}{'absL':>7}{'rel':>6}"
+         f"{'adjL':>7}{'eRaw':>6}{'eAdj':>6}{'deep':>6}{'domR':>6}{'domF':>6}"
+         f"{'PERF':>7}{'wPO':>7}"]
+    for name, yr in PO_AUDIT_CASES:
+        g = s[(s.player == name) & (s.season_end == yr)]
+        if not len(g):
+            L.append(f"  {name} {yr}: not in dataset"); continue
+        r = g.iloc[0]
+        tag = f"{name} {yr-1}-{str(yr)[2:]}"
+        L.append(
+            f"  {tag:24}{_n(r.get('po_g')):>3.0f}{_n(r.get('po_mp')):>6.0f}"
+            f"{_n(r.get('po_series_n')):>4.0f}{_n(r.get('po_abs_level')):>7.1f}"
+            f"{_n(r.get('po_sample_reliab')):>6.2f}{_n(r.get('po_level_value')):>7.1f}"
+            f"{_n(r.get('po_elev_raw')):>6.1f}{_n(r.get('po_elevation_value')):>6.1f}"
+            f"{_n(r.get('po_deep_run_value')):>6.1f}{_n(r.get('po_dominance_raw')):>6.1f}"
+            f"{_n(r.get('po_dominance_value')):>6.1f}{_n(r.get('postseason_perf')):>7.1f}"
+            f"{W*_n(r.get('postseason_perf')):>7.2f}")
+    L.append("")
+    L.append("  Each season reconciles: adjL + eAdj + deep + domF = PERF.")
+    L.append("  The dominance term is BOTH diminishing (a square-root curve on the")
+    L.append("  level above 50) AND reliability-shrunk (a short Conference-Finals run")
+    L.append("  earns only a partial bonus), so an extreme rate stat over a short run")
+    L.append("  no longer overpowers a complete Finals-length championship season.")
+    L.append("")
+    return L
+
+
+def _n(v, default=0.0):
+    try:
+        return default if pd.isna(v) else float(v)
+    except Exception:
+        return default
+
+
+def postseason_before_after(s):
+    """Item 8: before/after table for the audited seasons plus the headline
+    single-season / 3-year Prime shifts, top-25 leaderboard moves, and the
+    largest risers/fallers caused by the postseason upper-tail correction."""
+    old = load_old_snapshot()
+    L = ["=" * 78,
+         "POSTSEASON CORRECTION -- BEFORE / AFTER",
+         "OLD = open-ended linear dominance booster (+0.30 per level point > 50);",
+         "NEW = diminishing-return, reliability-shrunk dominance + sample-shrunk level.",
+         "=" * 78, ""]
+    if old is None:
+        L.append("  (data/old_model_snapshot.csv missing -- before/after unavailable)")
+        L.append("")
+        return L
+
+    W = peak3.OFFICIAL_WEIGHTS["postseason"]
+    okey = old.set_index(["player", "season_end"])
+
+    # ---- qualified completed frames for ranking (new + old prime) ----
+    qual = s[(s.get("workload_qualified", 1) == 1) &
+             (s.get("provisional", 0) != 1)].copy().reset_index(drop=True)
+    qm = qual.merge(old[["player", "season_end", "old_prime_score",
+                         "old_prime_raw"]],
+                    on=["player", "season_end"], how="left")
+    new_peak = _nyear_peak_map(qm, qm["prime_score"], 3)
+    old_peak = _nyear_peak_map(qm, qm["old_prime_score"].fillna(-1e9), 3)
+    new_rank = {p: i + 1 for i, (p, _) in
+                enumerate(sorted(new_peak.items(), key=lambda kv: -kv[1][0]))}
+    old_rank = {p: i + 1 for i, (p, _) in
+                enumerate(sorted(old_peak.items(), key=lambda kv: -kv[1][0]))}
+    # single-season Prime ranks (across all qualified completed seasons)
+    new_srank = qm.assign(_r=qm["prime_score"].rank(ascending=False, method="min")
+                          ).set_index(["player", "season_end"])["_r"]
+    old_srank = qm.assign(
+        _r=qm["old_prime_score"].rank(ascending=False, method="min")
+        ).set_index(["player", "season_end"])["_r"]
+
+    # ---- per-season before/after for the audited seasons ----
+    L.append(f"  {'player / season':24}{'oldPO':>7}{'newPO':>7}{'owPO':>6}{'nwPO':>6}"
+             f"{'oPrR':>7}{'nPrR':>7}{'oRnk':>6}{'nRnk':>6}")
+    for name, yr in PO_AUDIT_CASES:
+        g = s[(s.player == name) & (s.season_end == yr)]
+        if not len(g):
+            L.append(f"  {name} {yr}: not in dataset"); continue
+        r = g.iloc[0]
+        try:
+            o = okey.loc[(name, yr)]
+        except KeyError:
+            o = None
+        opo = _n(o["old_postseason_perf"]) if o is not None else float("nan")
+        npo = _n(r["postseason_perf"])
+        opr = _n(o["old_prime_raw"]) if o is not None else float("nan")
+        npr = _n(r["prime_raw"])
+        orank = int(old_srank.get((name, yr), 0))
+        nrank = int(new_srank.get((name, yr), 0))
+        tag = f"{name} {yr-1}-{str(yr)[2:]}"
+        L.append(f"  {tag:24}{opo:>7.1f}{npo:>7.1f}{W*opo:>6.1f}{W*npo:>6.1f}"
+                 f"{opr:>7.1f}{npr:>7.1f}{orank:>6}{nrank:>6}")
+    L.append("  (owPO/nwPO = old/new weighted postseason contribution; oRnk/nRnk =")
+    L.append("   the season's rank in the single-season Prime leaderboard, old vs new.)")
+    L.append("")
+
+    # ---- headline single-season Prime shifts (best per player, old vs new) ----
+    def best_season(player, score_col, frame):
+        g = frame[frame.player == player]
+        g = g[g.get("provisional", 0) != 1] if "provisional" in g.columns else g
+        if not len(g):
+            return None
+        i = g[score_col].astype(float).idxmax()
+        return g.loc[i]
+
+    L.append("  Best SINGLE-SEASON Prime (completed), old vs new:")
+    for player in ("LeBron James", "Michael Jordan"):
+        bn = best_season(player, "prime_score", s)
+        bo = best_season(player, "old_prime_score", qm)
+        if bn is not None and bo is not None:
+            L.append(f"    {player:16} OLD {int(bo['season_end'])-1}-"
+                     f"{str(int(bo['season_end']))[2:]} "
+                     f"(prime {_f(bo['old_prime_score'],1)})  ->  NEW "
+                     f"{int(bn['season_end'])-1}-{str(int(bn['season_end']))[2:]} "
+                     f"(prime {_f(bn['prime_score'],1)})")
+    L.append("")
+
+    # ---- Hakeem vs Robinson best-3-year Prime, old vs new ----
+    L.append("  Hakeem vs Robinson best-3-year Prime peak (rank-weighted, calibrated")
+    L.append("  prime_score; the fixed-window RAW bridge is in PART 2):")
+    for player in ("Hakeem Olajuwon", "David Robinson"):
+        npk = new_peak.get(player); opk = old_peak.get(player)
+        if npk and opk:
+            L.append(f"    {player:16} OLD {opk[0]:.2f} ({opk[1]})  ->  "
+                     f"NEW {npk[0]:.2f} ({npk[1]})")
+    if new_peak.get("Hakeem Olajuwon") and new_peak.get("David Robinson"):
+        h, rb = new_peak["Hakeem Olajuwon"][0], new_peak["David Robinson"][0]
+        lead = "Hakeem" if h > rb else "Robinson"
+        L.append(f"    -> NEW model: {lead} leads by {abs(h-rb):.2f} (transparent, "
+                 f"not forced).")
+    L.append("")
+
+    # ---- top-25 leaderboard changes + largest movers ----
+    common = set(new_rank) & set(old_rank)
+    moves = sorted(((p, old_rank[p] - new_rank[p]) for p in common),
+                   key=lambda kv: kv[1])
+    new_top25 = {p for p, rk in new_rank.items() if rk <= 25}
+    old_top25 = {p for p, rk in old_rank.items() if rk <= 25}
+    entered = sorted(new_top25 - old_top25, key=lambda p: new_rank[p])
+    dropped = sorted(old_top25 - new_top25, key=lambda p: old_rank[p])
+    L.append("  TOP-25 (best-3-year Prime) membership changes:")
+    if entered:
+        for p in entered:
+            L.append(f"    + ENTERED  {p:22} old #{old_rank[p]:>3} -> new #{new_rank[p]:>3}")
+    if dropped:
+        for p in dropped:
+            L.append(f"    - DROPPED  {p:22} old #{old_rank[p]:>3} -> new #{new_rank[p]:>3}")
+    if not entered and not dropped:
+        L.append("    (no change in top-25 membership; only intra-list reordering)")
+    L.append("")
+    risers = [m for m in reversed(moves) if m[1] > 0][:10]
+    fallers = [m for m in moves if m[1] < 0][:10]
+    L.append("  Largest RISERS (best-3-year Prime rank improved):")
+    for p, d in risers:
+        L.append(f"    {p:24} #{old_rank[p]:>3} -> #{new_rank[p]:>3}  (+{d})")
+    L.append("  Largest FALLERS (best-3-year Prime rank dropped):")
+    for p, d in fallers:
+        L.append(f"    {p:24} #{old_rank[p]:>3} -> #{new_rank[p]:>3}  ({d})")
     L.append("")
     return L
 
@@ -1109,6 +1313,8 @@ def main():
     out.append("")
     out += recognition_audit(s)
     out += playoff_audit(s)
+    out += postseason_decomposition_audit(s)
+    out += postseason_before_after(s)
     out += sensitivity_audit(s)
     out += current_leaderboard(s, 25)
     out += weight_change_movers(s)

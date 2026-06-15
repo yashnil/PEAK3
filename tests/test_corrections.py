@@ -163,23 +163,166 @@ def test_sustained_volume_scales_with_best_player_responsibility():
 
 
 def test_dominance_booster_only_lifts_historically_dominant_levels():
-    """The convex dominance booster lifts only the very top of the level curve:
-    a merely-good playoff level is unaffected, a historically dominant one gains
-    extra. Ordinary/good runs never benefit."""
-    good = _po_row(po_bpm=4.0, po_obpm=2.5, po_dbpm=1.0, po_ws_per_48=0.16,
-                   po_per=20, po_pts=22, po_r_ts=2.0, po_ts_plus=104, po_mp=600,
-                   po_usg_pct=26.0)
+    """The convex dominance bonus lifts only the very top of the level curve:
+    a merely-good playoff level gets ZERO dominance, a historically dominant one
+    (full Finals-length sample) gains a real, reliability-shrunk bonus. Ordinary/
+    good runs never benefit."""
+    good = _po_row(po_bpm=5.5, po_obpm=3.5, po_dbpm=1.5, po_ws_per_48=0.18,
+                   po_per=22, po_pts=24, po_r_ts=3.0, po_ts_plus=106, po_mp=900,
+                   po_g=20, playoff_round_score=100.0, po_usg_pct=26.0)
     dominant = _po_row(po_bpm=13.0, po_obpm=9.0, po_dbpm=3.5, po_ws_per_48=0.34,
-                       po_per=33, po_pts=38, po_r_ts=9.0, po_ts_plus=118, po_mp=600,
-                       po_usg_pct=33.0)
-    vg, _ = peak3.postseason_value(pd.DataFrame([good]), pd.Series([True]))
-    vd, _ = peak3.postseason_value(pd.DataFrame([dominant]), pd.Series([True]))
-    # the gap between dominant and good must exceed a purely-linear expectation:
-    # confirm the dominant value is in the exceptional range while good is modest.
-    assert float(vg.iloc[0]) < 22.0, "a merely-good playoff run stays modest"
+                       po_per=33, po_pts=38, po_r_ts=9.0, po_ts_plus=118, po_mp=900,
+                       po_g=20, playoff_round_score=100.0, po_usg_pct=33.0)
+    vg, pg = peak3.postseason_value(pd.DataFrame([good]), pd.Series([True]))
+    vd, pd_ = peak3.postseason_value(pd.DataFrame([dominant]), pd.Series([True]))
+    assert float(pg["po_dominance"][0]) == 0.0, "a good run earns NO dominance bonus"
+    assert float(pd_["po_dominance"][0]) > 0.0, "a dominant run earns a dominance bonus"
+    assert float(vg.iloc[0]) < 12.0, "a merely-good playoff run stays modest"
     assert float(vd.iloc[0]) > 45.0, "a historically dominant run is exceptional"
     # the dominant run is far more than 2x the good run (nonlinear separation)
     assert float(vd.iloc[0]) > 2.5 * float(vg.iloc[0])
+
+
+def test_dominance_bonus_has_diminishing_returns():
+    """The dominance bonus uses a SATURATING (square-root) curve: equal steps in
+    playoff level produce SHRINKING increments of dominance, never the old open-
+    ended linear `+K per point` that let an extreme rate run away."""
+    def dom_raw(scale):
+        r = _po_row(po_bpm=6 * scale, po_obpm=4 * scale, po_dbpm=2 * scale,
+                    po_ws_per_48=0.18 * scale, po_per=22 * scale, po_pts=26 * scale,
+                    po_r_ts=4 * scale, po_ts_plus=100 + 8 * scale, po_mp=950,
+                    po_g=22, playoff_round_score=100.0, po_usg_pct=30.0)
+        _, p = peak3.postseason_value(pd.DataFrame([r]), pd.Series([True]))
+        return float(p["po_abs_level"][0] + peak3.PO_BASELINE), float(p["po_dominance_raw"][0])
+    pts = [dom_raw(s) for s in (1.5, 1.7, 1.9, 2.1)]
+    # levels increase by roughly equal steps; dominance increments must shrink
+    incs = [pts[i + 1][1] - pts[i][1] for i in range(len(pts) - 1)]
+    assert all(b > 0 for b in incs), "dominance still rises with level"
+    assert incs[0] > incs[1] > incs[2], "increments shrink (diminishing returns)"
+    # the curve never explodes: at a sky-high level the raw bonus stays bounded
+    assert pts[-1][1] < 0.6 * pts[-1][0], "dominance is a small fraction of level"
+
+
+def test_dominance_bonus_is_reliability_adjusted():
+    """At an IDENTICAL dominant level, the convex dominance bonus is shrunk by the
+    playoff-sample reliability: a short Conference-Finals run earns only a PARTIAL
+    bonus, a full Finals-length run earns the whole curve value."""
+    kw = dict(po_bpm=13.0, po_obpm=9.0, po_dbpm=3.5, po_ws_per_48=0.34, po_per=33,
+              po_pts=38, po_r_ts=9.0, po_ts_plus=118, po_usg_pct=33.0)
+    full = _po_row(po_mp=980, po_g=23, playoff_round_score=100.0, **kw)
+    short = _po_row(po_mp=470, po_g=12, playoff_round_score=70.0, **kw)
+    _, pf = peak3.postseason_value(pd.DataFrame([full]), pd.Series([True]))
+    _, ps = peak3.postseason_value(pd.DataFrame([short]), pd.Series([True]))
+    # identical level/rates -> identical PRE-reliability dominance
+    assert abs(float(pf["po_dominance_raw"][0]) - float(ps["po_dominance_raw"][0])) < 1e-9
+    # but the FINAL dominance is shrunk on the short sample
+    assert float(ps["po_dominance"][0]) < float(pf["po_dominance"][0])
+    assert float(ps["po_dominance"][0]) < float(ps["po_dominance_raw"][0])
+    assert abs(float(pf["po_dominance"][0]) - float(pf["po_dominance_raw"][0])) < 1e-9
+
+
+def test_short_extreme_run_cannot_dwarf_finals_length_elite():
+    """The core correction: a SHORT run with extreme rates cannot automatically
+    dwarf a complete Finals-length elite run, and at EQUAL rates the Finals-length
+    sample scores higher (the extra value comes from sustained minutes/games, not
+    from advancement)."""
+    extreme = dict(po_bpm=13, po_obpm=9, po_dbpm=3.5, po_ws_per_48=0.34, po_per=33,
+                   po_pts=37, po_r_ts=9, po_ts_plus=118, po_usg_pct=33)
+    elite = dict(po_bpm=11, po_obpm=7.5, po_dbpm=3.0, po_ws_per_48=0.30, po_per=30,
+                 po_pts=33, po_r_ts=7.5, po_ts_plus=114, po_usg_pct=32)
+
+    def v(**kw):
+        return float(peak3.postseason_value(
+            pd.DataFrame([_po_row(**kw)]), pd.Series([True]))[0].iloc[0])
+
+    short_extreme = v(po_mp=560, po_g=14, playoff_round_score=70.0, **extreme)
+    finals_elite = v(po_mp=980, po_g=23, playoff_round_score=100.0, **elite)
+    extreme_full = v(po_mp=980, po_g=23, playoff_round_score=100.0, **extreme)
+    # the short extreme run does NOT run away from the complete elite run
+    assert short_extreme < 1.4 * finals_elite, "short run must not dwarf a Finals run"
+    # at EQUAL (extreme) rates, the Finals-length sample is worth meaningfully more
+    assert extreme_full > short_extreme * 1.2, "more elite minutes/games -> more value"
+
+
+def test_level_elevation_dominance_use_distinct_signals():
+    """Absolute level, elevation and dominance are NOT the identical full signal:
+      * elevation responds to the REGULAR-season baseline; absolute level does not;
+      * dominance is reliability-scaled; the pre-reliability absolute level is not.
+    """
+    base = dict(po_bpm=12.0, po_obpm=8.0, po_dbpm=3.0, po_ws_per_48=0.32, po_per=31,
+                po_pts=35, po_r_ts=8.0, po_ts_plus=116, po_usg_pct=32,
+                po_mp=900, po_g=22, playoff_round_score=100.0)
+    # same playoffs, DIFFERENT regular season -> same abs level, different elevation
+    low_reg = _po_row(reg_rate_match=False, bpm=2, obpm=1, dbpm=1,
+                      ws_per_48=0.10, per=16, **base)
+    high_reg = _po_row(reg_rate_match=False, bpm=10, obpm=7, dbpm=2.5,
+                       ws_per_48=0.28, per=29, **base)
+    _, pl = peak3.postseason_value(pd.DataFrame([low_reg]), pd.Series([True]))
+    _, ph = peak3.postseason_value(pd.DataFrame([high_reg]), pd.Series([True]))
+    assert abs(float(pl["po_abs_level"][0]) - float(ph["po_abs_level"][0])) < 1e-9, \
+        "absolute level ignores the regular-season baseline"
+    assert float(pl["po_elev_raw"][0]) > float(ph["po_elev_raw"][0]), \
+        "elevation reads the playoff-minus-regular delta, not the level"
+    # same playoffs, DIFFERENT sample -> same abs level, different final dominance
+    short = _po_row(reg_rate_match=False, bpm=10, obpm=7, dbpm=2.5, ws_per_48=0.28,
+                    per=29, **{**base, "po_mp": 470, "po_g": 12,
+                              "playoff_round_score": 70.0})
+    _, pshort = peak3.postseason_value(pd.DataFrame([short]), pd.Series([True]))
+    assert abs(float(pshort["po_abs_level"][0]) - float(ph["po_abs_level"][0])) < 1e-9, \
+        "absolute (pre-reliability) level ignores the sample size"
+    assert float(pshort["po_dominance"][0]) < float(ph["po_dominance"][0]), \
+        "dominance IS reliability-scaled by the sample"
+
+
+def test_postseason_four_terms_reconcile_exactly():
+    """postseason_value = reliability-adjusted level + elevation + sustained volume
+    + dominance, and the four reported terms sum EXACTLY to the returned value for
+    every positive (non-penalty-clipped) playoff row."""
+    rows = [
+        _po_row(po_bpm=13, po_obpm=9, po_dbpm=3.5, po_ws_per_48=0.34, po_per=33,
+                po_pts=38, po_r_ts=9, po_ts_plus=118, po_mp=950, po_g=22,
+                playoff_round_score=100.0, po_usg_pct=33),
+        _po_row(po_bpm=9, po_obpm=6, po_dbpm=2, po_ws_per_48=0.24, po_per=27,
+                po_pts=29, po_r_ts=5, po_ts_plus=108, po_mp=560, po_g=14,
+                playoff_round_score=70.0, po_usg_pct=28),
+        _po_row(po_bpm=5, po_obpm=3, po_dbpm=1.5, po_ws_per_48=0.16, po_per=21,
+                po_pts=23, po_r_ts=2, po_ts_plus=104, po_mp=820, po_g=18,
+                playoff_round_score=85.0, po_usg_pct=24),
+    ]
+    val, p = peak3.postseason_value(pd.DataFrame(rows), pd.Series([True] * len(rows)))
+    recon = (p["po_level"] + p["po_elevation"] + p["po_deep_run"] + p["po_dominance"])
+    assert np.allclose(val.to_numpy(), recon, atol=1e-9), \
+        "the four postseason terms must reconcile exactly to the value"
+
+
+def test_postseason_monotonic_in_performance_at_fixed_sample():
+    """At a fixed playoff sample (minutes/games/series), better playoff performance
+    never decreases postseason value."""
+    def v(scale):
+        r = _po_row(po_bpm=4 * scale, po_obpm=3 * scale, po_dbpm=1.5 * scale,
+                    po_ws_per_48=0.14 * scale, po_per=18 * scale, po_pts=20 * scale,
+                    po_r_ts=2 * scale, po_ts_plus=100 + 6 * scale, po_mp=900,
+                    po_g=20, playoff_round_score=100.0, po_usg_pct=30.0)
+        return float(peak3.postseason_value(pd.DataFrame([r]), pd.Series([True]))[0].iloc[0])
+    vals = [v(s) for s in (1.0, 1.3, 1.6, 1.9, 2.2)]
+    assert all(b > a for a, b in zip(vals, vals[1:])), \
+        f"postseason value must rise monotonically with performance: {vals}"
+
+
+def test_postseason_monotonic_in_elite_minutes_at_fixed_performance():
+    """At fixed (elite) playoff performance, more elite minutes AND games never
+    decrease postseason value -- a deeper elite run is worth at least as much."""
+    kw = dict(po_bpm=10.0, po_obpm=7.0, po_dbpm=2.5, po_ws_per_48=0.28, po_per=29,
+              po_pts=32, po_r_ts=7.0, po_ts_plus=112, po_usg_pct=31.0,
+              playoff_round_score=100.0)
+    samples = [(300, 8), (500, 12), (700, 16), (900, 20), (1050, 24)]
+    vals = []
+    for mp, g in samples:
+        r = _po_row(po_mp=mp, po_g=g, **kw)
+        vals.append(float(peak3.postseason_value(
+            pd.DataFrame([r]), pd.Series([True]))[0].iloc[0]))
+    assert all(b > a for a, b in zip(vals, vals[1:])), \
+        f"postseason value must rise with sustained elite minutes/games: {vals}"
 
 
 # ----------------------------------------------------------- team achievement ---
@@ -400,17 +543,22 @@ def test_playoff_accomplishments_not_triple_counted():
     """Each playoff accomplishment lives in exactly ONE component: round/series
     -> Team Achievement only; Finals MVP -> Recognition only; neither touches the
     individual Postseason value (which reads only raw playoff box stats)."""
+    # Hold the playoff SAMPLE fixed (minutes/games/series). playoff_round_score
+    # legitimately feeds sample reliability now (a deeper run = a larger sample
+    # for the same rates), so it is kept EQUAL in both rows; what must NOT leak is
+    # the championship flag and the Finals-MVP award (those are Team Achievement /
+    # Recognition, never points inside the individual Postseason value).
     po_df = pd.DataFrame([_po_row(po_bpm=8.0, po_obpm=5.0, po_dbpm=2.0,
                                   po_ws_per_48=0.22, po_per=25, po_pts=27,
-                                  po_r_ts=4.0, po_ts_plus=106, po_mp=600)])
-    # postseason value does not read championship / round / finals_mvp at all
+                                  po_r_ts=4.0, po_ts_plus=106, po_mp=900, po_g=20,
+                                  playoff_round_score=100.0)])
     base_val = float(_pv(po_df, [True]).iloc[0])
     po_df2 = po_df.copy()
     po_df2["championship"] = 1
-    po_df2["playoff_round_score"] = 100.0
     po_df2["finals_mvp"] = 1
+    po_df2["best_player_title"] = 1
     assert float(_pv(po_df2, [True]).iloc[0]) == base_val, \
-        "team/round/Finals-MVP must not leak into Postseason Individual Value"
+        "championship / Finals-MVP must not leak into Postseason Individual Value"
 
 
 def test_playoff_elevation_affects_postseason_only():
@@ -451,9 +599,11 @@ def test_brunson_2026_context_is_correct():
     # championship shows up in team achievement, not recognition.
     assert float(b["recognition"]) > 0.0
     # no double count: postseason value reads only raw playoff box, independent of
-    # the championship/Finals-MVP flags (level+elevation+deep-run reconcile).
+    # the championship/Finals-MVP flags. The four additive terms (reliability-
+    # adjusted level + elevation + sustained volume + dominance) reconcile exactly.
     assert float(b["postseason_perf"]) == _approx(
-        b["po_level_value"] + b["po_elevation_value"] + b["po_deep_run_value"])
+        b["po_level_value"] + b["po_elevation_value"] + b["po_deep_run_value"]
+        + b["po_dominance_value"])
 
 
 # ------------------------------------------- new weights / windows reconcile ---

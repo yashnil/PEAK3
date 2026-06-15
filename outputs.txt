@@ -11,134 +11,138 @@ Generated deterministically from the built scored cache (1980-2026). No network.
 PLAYER: Michael Jordan
 ==============================================================================
   Best completed regular-season peak :  1987-88  regular_perf 52.96
-  Best completed Performance-Only    :  1990-91  score 90.08
-  Best completed Prime season        :  1990-91  score 97.65
-  Best completed 3-year Perf-Only win : 1988-89..1990-91  P3Y 89.48
-  Best completed 3-year Prime window : 1988-89..1990-91  P3Y 95.84  (seasons 1988-89, 1989-90, 1990-91)
+  Best completed Performance-Only    :  1990-91  score 89.57
+  Best completed Prime season        :  1990-91  score 97.27
+  Best completed 3-year Perf-Only win : 1988-89..1990-91  P3Y 88.72
+  Best completed 3-year Prime window : 1988-89..1990-91  P3Y 95.22  (seasons 1988-89, 1989-90, 1990-91)
 
   -- best Prime season detail (1990-91) --
-    raw Prime index   : 87.29
-    display Prime score: 97.65
+    raw Prime index   : 85.95
+    display Prime score: 97.27
     Statistical Impact            :   98.96   (weighted contribution 37.61)
     Traditional Production        :   66.20   (weighted contribution 13.90)
     Individual Recognition        :   95.60   (weighted contribution 19.12)
-    Postseason Individual Value   :   77.28   (weighted contribution 13.91)
+    Postseason Individual Value   :   69.81   (weighted contribution 12.57)
     Team Achievement              :  100.00   (weighted contribution 3.00)
-    postseason decomposition       : level 63.0 + elevation 4.7 + deep-run 9.6 = 77.3
+    postseason decomposition       : level 48.1 + elevation 4.1 + deep-run 7.7 + dominance 9.8 = 69.8
+    postseason sample reliability  : 0.89  (po_g 17, po_mp 689, series 4)
     role              : Primary offensive engine
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
       - Statistical Impact (+37.61 weighted index pts)
       - Individual Recognition (+19.12 weighted index pts)
-      - Postseason Individual Value (+13.91 weighted index pts)
+      - Traditional Production (+13.90 weighted index pts)
     smallest weighted contribution: Team Achievement (+3.00 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 1987-88..1991-92  weighted 88.66
+    5-year Performance-Only peak: 1987-88..1991-92  weighted 87.83
       seasons: 1987-88, 1988-89, 1989-90, 1990-91, 1991-92
-      equal-avg 87.8  best-season 90.1  weakest 81.9  variance 8.8
+      equal-avg 86.9  best-season 89.6  weakest 82.3  variance 6.3
       avg Statistical Impact 95.1  avg Traditional Production 64.2
-      total postseason contribution 55.90  total recognition 86.32  total team achievement 9.74
-    5-year Prime peak: 1987-88..1991-92  weighted 95.98
+      total postseason contribution 46.49  total recognition 86.32  total team achievement 9.74
+    5-year Prime peak: 1987-88..1991-92  weighted 95.29
       seasons: 1987-88, 1988-89, 1989-90, 1990-91, 1991-92
-      equal-avg 95.3  best-season 97.7  weakest 93.2  variance 2.6
+      equal-avg 94.7  best-season 97.3  weakest 93.4  variance 2.1
       avg Statistical Impact 95.1  avg Traditional Production 64.2
-      total postseason contribution 55.90  total recognition 86.32  total team achievement 9.74
+      total postseason contribution 46.49  total recognition 86.32  total team achievement 9.74
 
 ==============================================================================
 PLAYER: LeBron James
 ==============================================================================
   Best completed regular-season peak :  2008-09  regular_perf 51.64
-  Best completed Performance-Only    :  2008-09  score 92.15
-  Best completed Prime season        :  2008-09  score 97.81
-  Best completed 3-year Perf-Only win : 2007-08..2009-10  P3Y 86.75
-  Best completed 3-year Prime window : 2011-12..2013-14  P3Y 93.87  (seasons 2011-12, 2012-13, 2013-14)
+  Best completed Performance-Only    :  2008-09  score 89.99
+  Best completed Prime season        :  2008-09  score 96.07
+  Best completed 3-year Perf-Only win : 2011-12..2013-14  P3Y 86.14
+  Best completed 3-year Prime window : 2011-12..2013-14  P3Y 94.01  (seasons 2011-12, 2012-13, 2013-14)
 
   -- best Prime season detail (2008-09) --
-    raw Prime index   : 87.82
-    display Prime score: 97.81
+    raw Prime index   : 82.20
+    display Prime score: 96.07
     Statistical Impact            :  102.44   (weighted contribution 38.93)
     Traditional Production        :   60.53   (weighted contribution 12.71)
     Individual Recognition        :   78.00   (weighted contribution 15.60)
-    Postseason Individual Value   :  106.44   (weighted contribution 19.16)
+    Postseason Individual Value   :   75.18   (weighted contribution 13.53)
     Team Achievement              :   49.60   (weighted contribution 1.49)
-    postseason decomposition       : level 82.5 + elevation 11.7 + deep-run 12.3 = 106.4
+    postseason decomposition       : level 49.7 + elevation 8.4 + deep-run 9.7 + dominance 7.3 = 75.2
+    postseason sample reliability  : 0.72  (po_g 14, po_mp 580, series 3)
     role              : Primary offensive engine
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
       - Statistical Impact (+38.93 weighted index pts)
-      - Postseason Individual Value (+19.16 weighted index pts)
       - Individual Recognition (+15.60 weighted index pts)
+      - Postseason Individual Value (+13.53 weighted index pts)
     smallest weighted contribution: Team Achievement (+1.49 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2008-09..2012-13  weighted 86.98
+    5-year Performance-Only peak: 2008-09..2012-13  weighted 86.06
       seasons: 2008-09, 2009-10, 2010-11, 2011-12, 2012-13
-      equal-avg 84.8  best-season 92.2  weakest 73.7  variance 37.1
+      equal-avg 84.0  best-season 90.0  weakest 73.7  variance 31.5
       avg Statistical Impact 90.9  avg Traditional Production 60.4
-      total postseason contribution 49.03  total recognition 76.72  total team achievement 10.17
-    5-year Prime peak: 2008-09..2012-13  weighted 94.49
+      total postseason contribution 41.06  total recognition 76.72  total team achievement 10.17
+    5-year Prime peak: 2008-09..2012-13  weighted 93.84
       seasons: 2008-09, 2009-10, 2010-11, 2011-12, 2012-13
-      equal-avg 92.7  best-season 97.8  weakest 83.2  variance 25.4
+      equal-avg 92.2  best-season 96.1  weakest 83.2  variance 22.8
       avg Statistical Impact 90.9  avg Traditional Production 60.4
-      total postseason contribution 49.03  total recognition 76.72  total team achievement 10.17
+      total postseason contribution 41.06  total recognition 76.72  total team achievement 10.17
 
 ==============================================================================
 PLAYER: Nikola Jokic
 ==============================================================================
   Best completed regular-season peak :  2025-26  regular_perf 52.18
-  Best completed Performance-Only    :  2023-24  score 88.57
-  Best completed Prime season        :  2022-23  score 93.62
-  Best completed 3-year Perf-Only win : 2022-23..2024-25  P3Y 88.03
-  Best completed 3-year Prime window : 2021-22..2023-24  P3Y 92.85  (seasons 2021-22, 2022-23, 2023-24)
+  Best completed Performance-Only    :  2022-23  score 88.51
+  Best completed Prime season        :  2022-23  score 93.66
+  Best completed 3-year Perf-Only win : 2022-23..2024-25  P3Y 86.78
+  Best completed 3-year Prime window : 2021-22..2023-24  P3Y 92.13  (seasons 2021-22, 2022-23, 2023-24)
 
   -- best Prime season detail (2022-23) --
-    raw Prime index   : 74.85
-    display Prime score: 93.62
+    raw Prime index   : 74.99
+    display Prime score: 93.66
     Statistical Impact            :   94.50   (weighted contribution 35.91)
     Traditional Production        :   70.34   (weighted contribution 14.77)
     Individual Recognition        :   52.00   (weighted contribution 10.40)
-    Postseason Individual Value   :   58.33   (weighted contribution 10.50)
+    Postseason Individual Value   :   59.14   (weighted contribution 10.64)
     Team Achievement              :  100.00   (weighted contribution 3.00)
-    postseason decomposition       : level 51.3 + elevation -0.3 + deep-run 7.2 = 58.3
+    postseason decomposition       : level 44.0 + elevation -0.3 + deep-run 6.5 + dominance 9.0 = 59.1
+    postseason sample reliability  : 0.97  (po_g 20, po_mp 789, series 4)
     role              : Primary playmaker
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
       - Statistical Impact (+35.91 weighted index pts)
       - Traditional Production (+14.77 weighted index pts)
-      - Postseason Individual Value (+10.50 weighted index pts)
+      - Postseason Individual Value (+10.64 weighted index pts)
     smallest weighted contribution: Team Achievement (+3.00 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2021-22..2025-26  weighted 87.23
+    5-year Performance-Only peak: 2021-22..2025-26  weighted 86.11
       seasons: 2021-22, 2022-23, 2023-24, 2024-25, 2025-26
-      equal-avg 86.4  best-season 88.6  weakest 83.3  variance 4.0
+      equal-avg 85.4  best-season 88.5  weakest 82.9  variance 3.5
       avg Statistical Impact 96.9  avg Traditional Production 70.3
-      total postseason contribution 32.08  total recognition 51.68  total team achievement 4.53
-    5-year Prime peak: 2020-21..2024-25  weighted 92.28
+      total postseason contribution 23.67  total recognition 51.68  total team achievement 4.53
+    5-year Prime peak: 2020-21..2024-25  weighted 91.59
       seasons: 2020-21, 2021-22, 2022-23, 2023-24, 2024-25
-      equal-avg 91.7  best-season 93.6  weakest 89.9  variance 2.2
+      equal-avg 91.0  best-season 93.7  weakest 89.3  variance 2.4
       avg Statistical Impact 95.7  avg Traditional Production 68.9
-      total postseason contribution 35.30  total recognition 52.64  total team achievement 5.29
+      total postseason contribution 25.87  total recognition 52.64  total team achievement 5.29
 
 ==============================================================================
 PLAYER: Stephen Curry
 ==============================================================================
   Best completed regular-season peak :  2015-16  regular_perf 51.87
-  Best completed Performance-Only    :  2015-16  score 84.69
-  Best completed Prime season        :  2015-16  score 93.58
-  Best completed 3-year Perf-Only win : 2014-15..2016-17  P3Y 81.80
-  Best completed 3-year Prime window : 2014-15..2016-17  P3Y 89.60  (seasons 2014-15, 2015-16, 2016-17)
+  Best completed Performance-Only    :  2015-16  score 84.38
+  Best completed Prime season        :  2015-16  score 93.44
+  Best completed 3-year Perf-Only win : 2014-15..2016-17  P3Y 81.49
+  Best completed 3-year Prime window : 2014-15..2016-17  P3Y 89.39  (seasons 2014-15, 2015-16, 2016-17)
 
   -- best Prime season detail (2015-16) --
-    raw Prime index   : 74.74
-    display Prime score: 93.58
+    raw Prime index   : 74.31
+    display Prime score: 93.44
     Statistical Impact            :   94.89   (weighted contribution 36.06)
     Traditional Production        :   75.30   (weighted contribution 15.81)
     Individual Recognition        :   89.20   (weighted contribution 17.84)
-    Postseason Individual Value   :   18.86   (weighted contribution 3.39)
+    Postseason Individual Value   :   16.43   (weighted contribution 2.96)
     Team Achievement              :   64.00   (weighted contribution 1.92)
-    postseason decomposition       : level 23.4 + elevation -6.0 + deep-run 1.4 = 18.9
+    postseason decomposition       : level 20.4 + elevation -5.2 + deep-run 1.3 + dominance 0.0 = 16.4
+    postseason sample reliability  : 0.87  (po_g 18, po_mp 614, series 4)
     role              : Primary offensive engine
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -148,35 +152,36 @@ PLAYER: Stephen Curry
     smallest weighted contribution: Team Achievement (+1.92 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2014-15..2018-19  weighted 79.09
+    5-year Performance-Only peak: 2014-15..2018-19  weighted 78.75
       seasons: 2014-15, 2015-16, 2016-17, 2017-18, 2018-19
-      equal-avg 76.5  best-season 84.7  weakest 67.0  variance 41.8
+      equal-avg 76.1  best-season 84.4  weakest 66.9  variance 42.7
       avg Statistical Impact 72.8  avg Traditional Production 60.4
-      total postseason contribution 28.25  total recognition 44.96  total team achievement 10.14
-    5-year Prime peak: 2014-15..2018-19  weighted 86.75
+      total postseason contribution 26.44  total recognition 44.96  total team achievement 10.14
+    5-year Prime peak: 2014-15..2018-19  weighted 86.53
       seasons: 2014-15, 2015-16, 2016-17, 2017-18, 2018-19
-      equal-avg 84.0  best-season 93.6  weakest 76.5  variance 46.8
+      equal-avg 83.7  best-season 93.4  weakest 75.9  variance 49.2
       avg Statistical Impact 72.8  avg Traditional Production 60.4
-      total postseason contribution 28.25  total recognition 44.96  total team achievement 10.14
+      total postseason contribution 26.44  total recognition 44.96  total team achievement 10.14
 
 ==============================================================================
 PLAYER: David Robinson
 ==============================================================================
   Best completed regular-season peak :  1993-94  regular_perf 49.23
-  Best completed Performance-Only    :  1993-94  score 80.36
-  Best completed Prime season        :  1993-94  score 88.84
-  Best completed 3-year Perf-Only win : 1993-94..1995-96  P3Y 77.89
-  Best completed 3-year Prime window : 1993-94..1995-96  P3Y 88.14  (seasons 1993-94, 1994-95, 1995-96)
+  Best completed Performance-Only    :  1993-94  score 80.31
+  Best completed Prime season        :  1993-94  score 88.82
+  Best completed 3-year Perf-Only win : 1993-94..1995-96  P3Y 77.33
+  Best completed 3-year Prime window : 1993-94..1995-96  P3Y 87.86  (seasons 1993-94, 1994-95, 1995-96)
 
   -- best Prime season detail (1993-94) --
-    raw Prime index   : 62.18
-    display Prime score: 88.84
+    raw Prime index   : 62.14
+    display Prime score: 88.82
     Statistical Impact            :   97.02   (weighted contribution 36.87)
     Traditional Production        :   58.87   (weighted contribution 12.36)
     Individual Recognition        :   63.60   (weighted contribution 12.72)
-    Postseason Individual Value   :    0.74   (weighted contribution 0.13)
+    Postseason Individual Value   :    0.47   (weighted contribution 0.08)
     Team Achievement              :    0.00   (weighted contribution 0.00)
-    postseason decomposition       : level 2.7 + elevation -1.9 + deep-run 0.0 = 0.7
+    postseason decomposition       : level 1.7 + elevation -1.2 + deep-run 0.0 + dominance 0.0 = 0.5
+    postseason sample reliability  : 0.20  (po_g 4, po_mp 146, series 1)
     role              : Primary scorer
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -186,35 +191,36 @@ PLAYER: David Robinson
     smallest weighted contribution: Team Achievement (+0.00 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 1991-92..1995-96  weighted 75.59
+    5-year Performance-Only peak: 1991-92..1995-96  weighted 75.07
       seasons: 1991-92, 1992-93, 1993-94, 1994-95, 1995-96
-      equal-avg 73.3  best-season 80.4  weakest 63.7  variance 33.6
+      equal-avg 72.8  best-season 80.3  weakest 62.6  variance 35.8
       avg Statistical Impact 80.5  avg Traditional Production 50.1
-      total postseason contribution 7.36  total recognition 60.24  total team achievement 3.02
-    5-year Prime peak: 1991-92..1995-96  weighted 86.06
+      total postseason contribution 4.63  total recognition 60.24  total team achievement 3.02
+    5-year Prime peak: 1991-92..1995-96  weighted 85.73
       seasons: 1991-92, 1992-93, 1993-94, 1994-95, 1995-96
-      equal-avg 84.0  best-season 88.8  weakest 72.7  variance 35.7
+      equal-avg 83.6  best-season 88.8  weakest 71.4  variance 40.2
       avg Statistical Impact 80.5  avg Traditional Production 50.1
-      total postseason contribution 7.36  total recognition 60.24  total team achievement 3.02
+      total postseason contribution 4.63  total recognition 60.24  total team achievement 3.02
 
 ==============================================================================
 PLAYER: Hakeem Olajuwon
 ==============================================================================
   Best completed regular-season peak :  1992-93  regular_perf 37.73
-  Best completed Performance-Only    :  1992-93  score 76.19
-  Best completed Prime season        :  1993-94  score 90.82
-  Best completed 3-year Perf-Only win : 1992-93..1994-95  P3Y 72.33
-  Best completed 3-year Prime window : 1992-93..1994-95  P3Y 86.89  (seasons 1992-93, 1993-94, 1994-95)
+  Best completed Performance-Only    :  1993-94  score 74.50
+  Best completed Prime season        :  1993-94  score 91.06
+  Best completed 3-year Perf-Only win : 1992-93..1994-95  P3Y 71.44
+  Best completed 3-year Prime window : 1992-93..1994-95  P3Y 86.44  (seasons 1992-93, 1993-94, 1994-95)
 
   -- best Prime season detail (1993-94) --
-    raw Prime index   : 67.33
-    display Prime score: 90.82
+    raw Prime index   : 67.96
+    display Prime score: 91.06
     Statistical Impact            :   65.56   (weighted contribution 24.91)
     Traditional Production        :   45.06   (weighted contribution 9.46)
     Individual Recognition        :  106.80   (weighted contribution 21.36)
-    Postseason Individual Value   :   47.24   (weighted contribution 8.50)
+    Postseason Individual Value   :   50.73   (weighted contribution 9.13)
     Team Achievement              :  100.00   (weighted contribution 3.00)
-    postseason decomposition       : level 38.3 + elevation 4.2 + deep-run 4.7 = 47.2
+    postseason decomposition       : level 35.2 + elevation 4.2 + deep-run 4.7 + dominance 6.6 = 50.7
+    postseason sample reliability  : 1.00  (po_g 23, po_mp 989, series 4)
     role              : Primary scorer
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -224,35 +230,36 @@ PLAYER: Hakeem Olajuwon
     smallest weighted contribution: Team Achievement (+3.00 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 1992-93..1996-97  weighted 70.04
+    5-year Performance-Only peak: 1992-93..1996-97  weighted 69.00
       seasons: 1992-93, 1993-94, 1994-95, 1995-96, 1996-97
-      equal-avg 67.3  best-season 76.2  weakest 57.7  variance 46.1
+      equal-avg 66.4  best-season 74.5  weakest 57.9  variance 41.3
       avg Statistical Impact 57.3  avg Traditional Production 42.9
-      total postseason contribution 30.75  total recognition 63.04  total team achievement 9.02
-    5-year Prime peak: 1992-93..1996-97  weighted 83.49
+      total postseason contribution 26.37  total recognition 63.04  total team achievement 9.02
+    5-year Prime peak: 1992-93..1996-97  weighted 82.90
       seasons: 1992-93, 1993-94, 1994-95, 1995-96, 1996-97
-      equal-avg 80.0  best-season 90.8  weakest 67.6  variance 74.9
+      equal-avg 79.3  best-season 91.1  weakest 67.7  variance 75.7
       avg Statistical Impact 57.3  avg Traditional Production 42.9
-      total postseason contribution 30.75  total recognition 63.04  total team achievement 9.02
+      total postseason contribution 26.37  total recognition 63.04  total team achievement 9.02
 
 ==============================================================================
 PLAYER: Shaquille O'Neal
 ==============================================================================
   Best completed regular-season peak :  1999-00  regular_perf 44.49
-  Best completed Performance-Only    :  1999-00  score 82.13
-  Best completed Prime season        :  1999-00  score 93.53
-  Best completed 3-year Perf-Only win : 1999-00..2001-02  P3Y 79.55
-  Best completed 3-year Prime window : 1999-00..2001-02  P3Y 90.17  (seasons 1999-00, 2000-01, 2001-02)
+  Best completed Performance-Only    :  1999-00  score 82.56
+  Best completed Prime season        :  1999-00  score 93.74
+  Best completed 3-year Perf-Only win : 1999-00..2001-02  P3Y 79.69
+  Best completed 3-year Prime window : 1999-00..2001-02  P3Y 90.24  (seasons 1999-00, 2000-01, 2001-02)
 
   -- best Prime season detail (1999-00) --
-    raw Prime index   : 74.60
-    display Prime score: 93.53
+    raw Prime index   : 75.22
+    display Prime score: 93.74
     Statistical Impact            :   85.74   (weighted contribution 32.58)
     Traditional Production        :   56.72   (weighted contribution 11.91)
     Individual Recognition        :  100.80   (weighted contribution 20.16)
-    Postseason Individual Value   :   39.55   (weighted contribution 7.12)
+    Postseason Individual Value   :   43.02   (weighted contribution 7.74)
     Team Achievement              :  100.00   (weighted contribution 3.00)
-    postseason decomposition       : level 37.2 + elevation -2.2 + deep-run 4.5 = 39.6
+    postseason decomposition       : level 34.4 + elevation -2.2 + deep-run 4.5 + dominance 6.3 = 43.0
+    postseason sample reliability  : 1.00  (po_g 23, po_mp 1000, series 4)
     role              : Primary scorer
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -262,73 +269,75 @@ PLAYER: Shaquille O'Neal
     smallest weighted contribution: Team Achievement (+3.00 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 1998-99..2002-03  weighted 78.15
+    5-year Performance-Only peak: 1998-99..2002-03  weighted 77.73
       seasons: 1998-99, 1999-00, 2000-01, 2001-02, 2002-03
-      equal-avg 76.6  best-season 82.1  weakest 68.4  variance 20.0
+      equal-avg 75.7  best-season 82.6  weakest 67.4  variance 26.0
       avg Statistical Impact 72.6  avg Traditional Production 56.1
-      total postseason contribution 32.08  total recognition 54.40  total team achievement 10.53
-    5-year Prime peak: 1998-99..2002-03  weighted 88.02
+      total postseason contribution 28.23  total recognition 54.40  total team achievement 10.53
+    5-year Prime peak: 1998-99..2002-03  weighted 87.69
       seasons: 1998-99, 1999-00, 2000-01, 2001-02, 2002-03
-      equal-avg 85.7  best-season 93.5  weakest 74.6  variance 39.0
+      equal-avg 85.1  best-season 93.7  weakest 73.7  variance 45.6
       avg Statistical Impact 72.6  avg Traditional Production 56.1
-      total postseason contribution 32.08  total recognition 54.40  total team achievement 10.53
+      total postseason contribution 28.23  total recognition 54.40  total team achievement 10.53
 
 ==============================================================================
 PLAYER: Giannis Antetokounmpo
 ==============================================================================
   Best completed regular-season peak :  2021-22  regular_perf 46.18
-  Best completed Performance-Only    :  2021-22  score 82.14
-  Best completed Prime season        :  2019-20  score 91.32
-  Best completed 3-year Perf-Only win : 2019-20..2021-22  P3Y 80.51
-  Best completed 3-year Prime window : 2018-19..2020-21  P3Y 90.87  (seasons 2018-19, 2019-20, 2020-21)
+  Best completed Performance-Only    :  2018-19  score 81.14
+  Best completed Prime season        :  2018-19  score 90.80
+  Best completed 3-year Perf-Only win : 2018-19..2020-21  P3Y 79.65
+  Best completed 3-year Prime window : 2018-19..2020-21  P3Y 90.50  (seasons 2018-19, 2019-20, 2020-21)
 
-  -- best Prime season detail (2019-20) --
-    raw Prime index   : 68.64
-    display Prime score: 91.32
-    Statistical Impact            :   83.75   (weighted contribution 31.83)
-    Traditional Production        :   60.66   (weighted contribution 12.74)
-    Individual Recognition        :   90.80   (weighted contribution 18.16)
-    Postseason Individual Value   :   29.28   (weighted contribution 5.27)
-    Team Achievement              :   25.50   (weighted contribution 0.77)
-    postseason decomposition       : level 27.4 + elevation -0.7 + deep-run 2.6 = 29.3
-    role              : Two-way engine
+  -- best Prime season detail (2018-19) --
+    raw Prime index   : 67.27
+    display Prime score: 90.80
+    Statistical Impact            :   84.87   (weighted contribution 32.25)
+    Traditional Production        :   65.28   (weighted contribution 13.71)
+    Individual Recognition        :   78.00   (weighted contribution 15.60)
+    Postseason Individual Value   :   23.55   (weighted contribution 4.24)
+    Team Achievement              :   49.60   (weighted contribution 1.49)
+    postseason decomposition       : level 21.4 + elevation -2.6 + deep-run 2.2 + dominance 2.5 = 23.5
+    postseason sample reliability  : 0.71  (po_g 15, po_mp 514, series 3)
+    role              : Primary offensive engine
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
-      - Statistical Impact (+31.83 weighted index pts)
-      - Individual Recognition (+18.16 weighted index pts)
-      - Traditional Production (+12.74 weighted index pts)
-    smallest weighted contribution: Team Achievement (+0.77 weighted index pts of prime_raw)
+      - Statistical Impact (+32.25 weighted index pts)
+      - Individual Recognition (+15.60 weighted index pts)
+      - Traditional Production (+13.71 weighted index pts)
+    smallest weighted contribution: Team Achievement (+1.49 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2017-18..2021-22  weighted 79.86
-      seasons: 2017-18, 2018-19, 2019-20, 2020-21, 2021-22
-      equal-avg 78.0  best-season 82.1  weakest 67.7  variance 29.6
-      avg Statistical Impact 77.2  avg Traditional Production 59.1
-      total postseason contribution 27.93  total recognition 61.84  total team achievement 6.02
-    5-year Prime peak: 2017-18..2021-22  weighted 88.87
-      seasons: 2017-18, 2018-19, 2019-20, 2020-21, 2021-22
-      equal-avg 86.8  best-season 91.3  weakest 73.3  variance 46.7
-      avg Statistical Impact 77.2  avg Traditional Production 59.1
-      total postseason contribution 27.93  total recognition 61.84  total team achievement 6.02
+    5-year Performance-Only peak: 2018-19..2022-23  weighted 78.66
+      seasons: 2018-19, 2019-20, 2020-21, 2021-22, 2022-23
+      equal-avg 76.9  best-season 81.1  weakest 65.7  variance 32.6
+      avg Statistical Impact 78.1  avg Traditional Production 60.2
+      total postseason contribution 18.65  total recognition 63.52  total team achievement 6.02
+    5-year Prime peak: 2018-19..2022-23  weighted 88.38
+      seasons: 2018-19, 2019-20, 2020-21, 2021-22, 2022-23
+      equal-avg 86.3  best-season 90.8  weakest 72.7  variance 47.3
+      avg Statistical Impact 78.1  avg Traditional Production 60.2
+      total postseason contribution 18.65  total recognition 63.52  total team achievement 6.02
 
 ==============================================================================
 PLAYER: Kevin Garnett
 ==============================================================================
   Best completed regular-season peak :  2003-04  regular_perf 43.33
-  Best completed Performance-Only    :  2003-04  score 76.82
-  Best completed Prime season        :  2003-04  score 88.85
-  Best completed 3-year Perf-Only win : 2002-03..2004-05  P3Y 72.86
-  Best completed 3-year Prime window : 2002-03..2004-05  P3Y 83.44  (seasons 2002-03, 2003-04, 2004-05)
+  Best completed Performance-Only    :  2003-04  score 76.53
+  Best completed Prime season        :  2003-04  score 88.74
+  Best completed 3-year Perf-Only win : 2002-03..2004-05  P3Y 72.56
+  Best completed 3-year Prime window : 2002-03..2004-05  P3Y 83.15  (seasons 2002-03, 2003-04, 2004-05)
 
   -- best Prime season detail (2003-04) --
-    raw Prime index   : 62.20
-    display Prime score: 88.85
+    raw Prime index   : 61.92
+    display Prime score: 88.74
     Statistical Impact            :   87.64   (weighted contribution 33.30)
     Traditional Production        :   47.75   (weighted contribution 10.03)
     Individual Recognition        :   75.60   (weighted contribution 15.12)
-    Postseason Individual Value   :   13.81   (weighted contribution 2.49)
+    Postseason Individual Value   :   12.24   (weighted contribution 2.20)
     Team Achievement              :   49.60   (weighted contribution 1.49)
-    postseason decomposition       : level 18.8 + elevation -5.4 + deep-run 0.5 = 13.8
+    postseason decomposition       : level 16.7 + elevation -4.8 + deep-run 0.4 + dominance 0.0 = 12.2
+    postseason sample reliability  : 0.89  (po_g 18, po_mp 783, series 3)
     role              : Primary scorer
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -338,35 +347,36 @@ PLAYER: Kevin Garnett
     smallest weighted contribution: Team Achievement (+1.49 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2001-02..2005-06  weighted 71.03
+    5-year Performance-Only peak: 2001-02..2005-06  weighted 70.77
       seasons: 2001-02, 2002-03, 2003-04, 2004-05, 2005-06
-      equal-avg 69.0  best-season 76.8  weakest 61.2  variance 26.5
+      equal-avg 68.7  best-season 76.5  weakest 60.9  variance 26.4
       avg Statistical Impact 75.2  avg Traditional Production 42.7
-      total postseason contribution 4.47  total recognition 44.32  total team achievement 1.49
-    5-year Prime peak: 2000-01..2004-05  weighted 80.86
-      seasons: 2000-01, 2001-02, 2002-03, 2003-04, 2004-05
-      equal-avg 78.1  best-season 88.8  weakest 69.2  variance 44.9
-      avg Statistical Impact 72.2  avg Traditional Production 40.4
-      total postseason contribution 8.01  total recognition 50.72  total team achievement 1.49
+      total postseason contribution 3.27  total recognition 44.32  total team achievement 1.49
+    5-year Prime peak: 2003-04..2007-08  weighted 80.82
+      seasons: 2003-04, 2004-05, 2005-06, 2006-07, 2007-08
+      equal-avg 77.2  best-season 88.7  weakest 63.4  variance 79.5
+      avg Statistical Impact 72.9  avg Traditional Production 42.0
+      total postseason contribution 4.93  total recognition 44.80  total team achievement 4.49
 
 ==============================================================================
 PLAYER: Magic Johnson
 ==============================================================================
   Best completed regular-season peak :  1989-90  regular_perf 42.73
-  Best completed Performance-Only    :  1989-90  score 78.39
-  Best completed Prime season        :  1986-87  score 90.19
-  Best completed 3-year Perf-Only win : 1988-89..1990-91  P3Y 77.08
-  Best completed 3-year Prime window : 1988-89..1990-91  P3Y 86.67  (seasons 1988-89, 1989-90, 1990-91)
+  Best completed Performance-Only    :  1986-87  score 77.39
+  Best completed Prime season        :  1986-87  score 90.11
+  Best completed 3-year Perf-Only win : 1988-89..1990-91  P3Y 76.05
+  Best completed 3-year Prime window : 1988-89..1990-91  P3Y 85.98  (seasons 1988-89, 1989-90, 1990-91)
 
   -- best Prime season detail (1986-87) --
-    raw Prime index   : 65.68
-    display Prime score: 90.19
+    raw Prime index   : 65.49
+    display Prime score: 90.11
     Statistical Impact            :   77.53   (weighted contribution 29.46)
     Traditional Production        :   49.77   (weighted contribution 10.45)
     Individual Recognition        :   80.40   (weighted contribution 16.08)
-    Postseason Individual Value   :   37.08   (weighted contribution 6.67)
+    Postseason Individual Value   :   36.00   (weighted contribution 6.48)
     Team Achievement              :  100.00   (weighted contribution 3.00)
-    postseason decomposition       : level 33.7 + elevation 0.9 + deep-run 2.5 = 37.1
+    postseason decomposition       : level 28.3 + elevation 0.8 + deep-run 2.1 + dominance 4.7 = 36.0
+    postseason sample reliability  : 0.89  (po_g 18, po_mp 666, series 4)
     role              : Primary playmaker
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -376,35 +386,36 @@ PLAYER: Magic Johnson
     smallest weighted contribution: Team Achievement (+3.00 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 1986-87..1990-91  weighted 76.05
+    5-year Performance-Only peak: 1986-87..1990-91  weighted 75.29
       seasons: 1986-87, 1987-88, 1988-89, 1989-90, 1990-91
-      equal-avg 74.3  best-season 78.4  weakest 63.4  variance 31.2
+      equal-avg 73.7  best-season 77.4  weakest 63.4  variance 27.2
       avg Statistical Impact 74.4  avg Traditional Production 48.4
-      total postseason contribution 25.19  total recognition 53.20  total team achievement 10.61
-    5-year Prime peak: 1986-87..1990-91  weighted 86.61
+      total postseason contribution 22.35  total recognition 53.20  total team achievement 10.61
+    5-year Prime peak: 1986-87..1990-91  weighted 86.18
       seasons: 1986-87, 1987-88, 1988-89, 1989-90, 1990-91
-      equal-avg 84.5  best-season 90.2  weakest 73.6  variance 34.9
+      equal-avg 84.1  best-season 90.1  weakest 73.6  variance 32.5
       avg Statistical Impact 74.4  avg Traditional Production 48.4
-      total postseason contribution 25.19  total recognition 53.20  total team achievement 10.61
+      total postseason contribution 22.35  total recognition 53.20  total team achievement 10.61
 
 ==============================================================================
 PLAYER: James Harden
 ==============================================================================
   Best completed regular-season peak :  2018-19  regular_perf 46.35
-  Best completed Performance-Only    :  2018-19  score 81.69
-  Best completed Prime season        :  2017-18  score 88.77
-  Best completed 3-year Perf-Only win : 2017-18..2019-20  P3Y 80.54
-  Best completed 3-year Prime window : 2017-18..2019-20  P3Y 88.36  (seasons 2017-18, 2018-19, 2019-20)
+  Best completed Performance-Only    :  2018-19  score 80.12
+  Best completed Prime season        :  2017-18  score 88.51
+  Best completed 3-year Perf-Only win : 2017-18..2019-20  P3Y 78.57
+  Best completed 3-year Prime window : 2017-18..2019-20  P3Y 87.36  (seasons 2017-18, 2018-19, 2019-20)
 
   -- best Prime season detail (2017-18) --
-    raw Prime index   : 62.01
-    display Prime score: 88.77
+    raw Prime index   : 61.32
+    display Prime score: 88.51
     Statistical Impact            :   83.30   (weighted contribution 31.65)
     Traditional Production        :   58.88   (weighted contribution 12.36)
     Individual Recognition        :   66.80   (weighted contribution 13.36)
-    Postseason Individual Value   :   18.81   (weighted contribution 3.39)
+    Postseason Individual Value   :   14.98   (weighted contribution 2.70)
     Team Achievement              :   49.60   (weighted contribution 1.49)
-    postseason decomposition       : level 22.2 + elevation -4.7 + deep-run 1.3 = 18.8
+    postseason decomposition       : level 17.6 + elevation -3.7 + deep-run 1.1 + dominance 0.0 = 15.0
+    postseason sample reliability  : 0.79  (po_g 17, po_mp 621, series 3)
     role              : Primary offensive engine
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -414,35 +425,36 @@ PLAYER: James Harden
     smallest weighted contribution: Team Achievement (+1.49 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2016-17..2020-21  weighted 78.34
-      seasons: 2016-17, 2017-18, 2018-19, 2019-20, 2020-21
-      equal-avg 76.2  best-season 81.7  weakest 65.8  variance 33.4
-      avg Statistical Impact 75.5  avg Traditional Production 55.4
-      total postseason contribution 25.42  total recognition 42.08  total team achievement 4.55
-    5-year Prime peak: 2015-16..2019-20  weighted 85.89
-      seasons: 2015-16, 2016-17, 2017-18, 2018-19, 2019-20
-      equal-avg 83.5  best-season 88.8  weakest 69.2  variance 54.5
-      avg Statistical Impact 76.9  avg Traditional Production 57.2
-      total postseason contribution 21.04  total recognition 43.52  total team achievement 3.78
+    5-year Performance-Only peak: 2014-15..2018-19  weighted 76.60
+      seasons: 2014-15, 2015-16, 2016-17, 2017-18, 2018-19
+      equal-avg 74.7  best-season 80.1  weakest 65.1  variance 28.2
+      avg Statistical Impact 77.0  avg Traditional Production 56.3
+      total postseason contribution 13.83  total recognition 43.20  total team achievement 4.51
+    5-year Prime peak: 2014-15..2018-19  weighted 84.99
+      seasons: 2014-15, 2015-16, 2016-17, 2017-18, 2018-19
+      equal-avg 82.5  best-season 88.5  weakest 68.5  variance 53.5
+      avg Statistical Impact 77.0  avg Traditional Production 56.3
+      total postseason contribution 13.83  total recognition 43.20  total team achievement 4.51
 
 ==============================================================================
 PLAYER: Russell Westbrook
 ==============================================================================
   Best completed regular-season peak :  2016-17  regular_perf 42.15
-  Best completed Performance-Only    :  2016-17  score 75.33
-  Best completed Prime season        :  2016-17  score 86.62
-  Best completed 3-year Perf-Only win : 2014-15..2016-17  P3Y 71.68
-  Best completed 3-year Prime window : 2014-15..2016-17  P3Y 81.47  (seasons 2014-15, 2015-16, 2016-17)
+  Best completed Performance-Only    :  2016-17  score 74.43
+  Best completed Prime season        :  2016-17  score 85.98
+  Best completed 3-year Perf-Only win : 2014-15..2016-17  P3Y 71.03
+  Best completed 3-year Prime window : 2014-15..2016-17  P3Y 81.01  (seasons 2014-15, 2015-16, 2016-17)
 
   -- best Prime season detail (2016-17) --
-    raw Prime index   : 58.02
-    display Prime score: 86.62
+    raw Prime index   : 57.12
+    display Prime score: 85.98
     Statistical Impact            :   82.24   (weighted contribution 31.25)
     Traditional Production        :   51.88   (weighted contribution 10.89)
     Individual Recognition        :   66.80   (weighted contribution 13.36)
-    Postseason Individual Value   :   12.16   (weighted contribution 2.19)
+    Postseason Individual Value   :    7.13   (weighted contribution 1.28)
     Team Achievement              :    0.00   (weighted contribution 0.00)
-    postseason decomposition       : level 12.9 + elevation -1.7 + deep-run 0.9 = 12.2
+    postseason decomposition       : level 7.1 + elevation -1.0 + deep-run 0.8 + dominance 0.2 = 7.1
+    postseason sample reliability  : 0.25  (po_g 5, po_mp 194, series 1)
     role              : Primary offensive engine
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -452,35 +464,36 @@ PLAYER: Russell Westbrook
     smallest weighted contribution: Team Achievement (+0.00 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2013-14..2017-18  weighted 68.66
+    5-year Performance-Only peak: 2013-14..2017-18  weighted 68.10
       seasons: 2013-14, 2014-15, 2015-16, 2016-17, 2017-18
-      equal-avg 65.7  best-season 75.3  weakest 57.6  variance 52.1
+      equal-avg 65.3  best-season 74.4  weakest 57.0  variance 48.4
       avg Statistical Impact 64.6  avg Traditional Production 38.6
-      total postseason contribution 13.34  total recognition 36.56  total team achievement 2.98
-    5-year Prime peak: 2013-14..2017-18  weighted 77.36
+      total postseason contribution 11.13  total recognition 36.56  total team achievement 2.98
+    5-year Prime peak: 2013-14..2017-18  weighted 76.96
       seasons: 2013-14, 2014-15, 2015-16, 2016-17, 2017-18
-      equal-avg 73.2  best-season 86.6  weakest 58.6  variance 101.5
+      equal-avg 72.9  best-season 86.0  weakest 58.0  variance 99.8
       avg Statistical Impact 64.6  avg Traditional Production 38.6
-      total postseason contribution 13.34  total recognition 36.56  total team achievement 2.98
+      total postseason contribution 11.13  total recognition 36.56  total team achievement 2.98
 
 ==============================================================================
 PLAYER: Steve Nash
 ==============================================================================
   Best completed regular-season peak :  2006-07  regular_perf 32.54
-  Best completed Performance-Only    :  2006-07  score 65.31
-  Best completed Prime season        :  2005-06  score 79.92
-  Best completed 3-year Perf-Only win : 2004-05..2006-07  P3Y 63.37
-  Best completed 3-year Prime window : 2004-05..2006-07  P3Y 77.64  (seasons 2004-05, 2005-06, 2006-07)
+  Best completed Performance-Only    :  2006-07  score 64.04
+  Best completed Prime season        :  2005-06  score 79.73
+  Best completed 3-year Perf-Only win : 2004-05..2006-07  P3Y 62.55
+  Best completed 3-year Prime window : 2004-05..2006-07  P3Y 76.93  (seasons 2004-05, 2005-06, 2006-07)
 
   -- best Prime season detail (2005-06) --
-    raw Prime index   : 48.92
-    display Prime score: 79.92
+    raw Prime index   : 48.73
+    display Prime score: 79.73
     Statistical Impact            :   54.71   (weighted contribution 20.79)
     Traditional Production        :   46.37   (weighted contribution 9.74)
     Individual Recognition        :   75.60   (weighted contribution 15.12)
-    Postseason Individual Value   :   11.69   (weighted contribution 2.10)
+    Postseason Individual Value   :   10.68   (weighted contribution 1.92)
     Team Achievement              :   49.60   (weighted contribution 1.49)
-    postseason decomposition       : level 14.2 + elevation -2.5 + deep-run 0.0 = 11.7
+    postseason decomposition       : level 12.9 + elevation -2.3 + deep-run 0.0 + dominance 0.0 = 10.7
+    postseason sample reliability  : 0.91  (po_g 20, po_mp 798, series 3)
     role              : Primary playmaker
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -490,54 +503,55 @@ PLAYER: Steve Nash
     smallest weighted contribution: Team Achievement (+1.49 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2002-03..2006-07  weighted 61.17
+    5-year Performance-Only peak: 2002-03..2006-07  weighted 60.59
       seasons: 2002-03, 2003-04, 2004-05, 2005-06, 2006-07
-      equal-avg 59.0  best-season 65.3  weakest 48.8  variance 33.3
+      equal-avg 58.7  best-season 64.0  weakest 49.5  variance 26.7
       avg Statistical Impact 50.8  avg Traditional Production 40.7
-      total postseason contribution 7.16  total recognition 39.28  total team achievement 5.23
-    5-year Prime peak: 2004-05..2008-09  weighted 73.23
+      total postseason contribution 5.42  total recognition 39.28  total team achievement 5.23
+    5-year Prime peak: 2004-05..2008-09  weighted 72.72
       seasons: 2004-05, 2005-06, 2006-07, 2007-08, 2008-09
-      equal-avg 69.3  best-season 79.9  weakest 51.4  variance 113.7
+      equal-avg 68.8  best-season 79.7  weakest 51.4  variance 106.9
       avg Statistical Impact 48.8  avg Traditional Production 41.9
-      total postseason contribution 8.28  total recognition 46.48  total team achievement 3.74
+      total postseason contribution 6.18  total recognition 46.48  total team achievement 3.74
 
 ==============================================================================
 PLAYER: Chris Paul
 ==============================================================================
   Best completed regular-season peak :  2008-09  regular_perf 45.80
-  Best completed Performance-Only    :  2007-08  score 82.25
-  Best completed Prime season        :  2007-08  score 89.69
-  Best completed 3-year Perf-Only win : 2012-13..2014-15  P3Y 73.41
-  Best completed 3-year Prime window : 2012-13..2014-15  P3Y 83.41  (seasons 2012-13, 2013-14, 2014-15)
+  Best completed Performance-Only    :  2007-08  score 78.88
+  Best completed Prime season        :  2007-08  score 88.18
+  Best completed 3-year Perf-Only win : 2007-08..2009-10  P3Y 71.84
+  Best completed 3-year Prime window : 2012-13..2014-15  P3Y 81.77  (seasons 2012-13, 2013-14, 2014-15)
 
   -- best Prime season detail (2007-08) --
-    raw Prime index   : 64.39
-    display Prime score: 89.69
+    raw Prime index   : 60.48
+    display Prime score: 88.18
     Statistical Impact            :   87.28   (weighted contribution 33.17)
     Traditional Production        :   43.97   (weighted contribution 9.23)
     Individual Recognition        :   58.80   (weighted contribution 11.76)
-    Postseason Individual Value   :   52.13   (weighted contribution 9.38)
+    Postseason Individual Value   :   30.41   (weighted contribution 5.47)
     Team Achievement              :   25.50   (weighted contribution 0.77)
-    postseason decomposition       : level 45.6 + elevation 2.9 + deep-run 3.7 = 52.1
+    postseason decomposition       : level 23.5 + elevation 1.6 + deep-run 2.9 + dominance 2.3 = 30.4
+    postseason sample reliability  : 0.57  (po_g 12, po_mp 486, series 2)
     role              : Primary playmaker
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
       - Statistical Impact (+33.17 weighted index pts)
       - Individual Recognition (+11.76 weighted index pts)
-      - Postseason Individual Value (+9.38 weighted index pts)
+      - Traditional Production (+9.23 weighted index pts)
     smallest weighted contribution: Team Achievement (+0.77 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2007-08..2011-12  weighted 73.33
+    5-year Performance-Only peak: 2007-08..2011-12  weighted 71.83
       seasons: 2007-08, 2008-09, 2009-10, 2010-11, 2011-12
-      equal-avg 69.7  best-season 82.3  weakest 54.8  variance 83.6
+      equal-avg 68.5  best-season 78.9  weakest 54.8  variance 72.3
       avg Statistical Impact 74.6  avg Traditional Production 38.8
-      total postseason contribution 14.20  total recognition 38.24  total team achievement 1.53
-    5-year Prime peak: 2011-12..2015-16  weighted 82.10
+      total postseason contribution 7.80  total recognition 38.24  total team achievement 1.53
+    5-year Prime peak: 2011-12..2015-16  weighted 80.75
       seasons: 2011-12, 2012-13, 2013-14, 2014-15, 2015-16
-      equal-avg 80.9  best-season 84.2  weakest 76.3  variance 9.1
+      equal-avg 79.8  best-season 82.7  weakest 75.2  variance 6.9
       avg Statistical Impact 73.4  avg Traditional Production 40.5
-      total postseason contribution 19.67  total recognition 49.52  total team achievement 2.29
+      total postseason contribution 11.80  total recognition 49.52  total team achievement 2.29
 
 ==============================================================================
 PLAYER: Allen Iverson
@@ -545,8 +559,8 @@ PLAYER: Allen Iverson
   Best completed regular-season peak :  2000-01  regular_perf 29.49
   Best completed Performance-Only    :  2000-01  score 61.02
   Best completed Prime season        :  2000-01  score 78.52
-  Best completed 3-year Perf-Only win : 2000-01..2002-03  P3Y 56.75
-  Best completed 3-year Prime window : 2000-01..2002-03  P3Y 68.24  (seasons 2000-01, 2001-02, 2002-03)
+  Best completed 3-year Perf-Only win : 2000-01..2002-03  P3Y 56.00
+  Best completed 3-year Prime window : 2000-01..2002-03  P3Y 67.72  (seasons 2000-01, 2001-02, 2002-03)
 
   -- best Prime season detail (2000-01) --
     raw Prime index   : 47.52
@@ -556,7 +570,8 @@ PLAYER: Allen Iverson
     Individual Recognition        :   71.60   (weighted contribution 14.32)
     Postseason Individual Value   :    8.47   (weighted contribution 1.52)
     Team Achievement              :   64.00   (weighted contribution 1.92)
-    postseason decomposition       : level 10.0 + elevation -1.6 + deep-run 0.0 = 8.5
+    postseason decomposition       : level 10.0 + elevation -1.6 + deep-run 0.0 + dominance 0.0 = 8.5
+    postseason sample reliability  : 1.00  (po_g 22, po_mp 1016, series 4)
     role              : Primary scorer
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -566,73 +581,75 @@ PLAYER: Allen Iverson
     smallest weighted contribution: Postseason Individual Value (+1.52 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 1998-99..2002-03  weighted 55.53
+    5-year Performance-Only peak: 1998-99..2002-03  weighted 55.10
       seasons: 1998-99, 1999-00, 2000-01, 2001-02, 2002-03
-      equal-avg 53.5  best-season 61.0  weakest 44.0  variance 30.0
+      equal-avg 53.3  best-season 61.0  weakest 45.8  variance 23.7
       avg Statistical Impact 44.9  avg Traditional Production 29.6
-      total postseason contribution 4.98  total recognition 41.68  total team achievement 4.21
-    5-year Prime peak: 1998-99..2002-03  weighted 67.14
+      total postseason contribution 3.65  total recognition 41.68  total team achievement 4.21
+    5-year Prime peak: 1998-99..2002-03  weighted 66.82
       seasons: 1998-99, 1999-00, 2000-01, 2001-02, 2002-03
-      equal-avg 63.7  best-season 78.5  weakest 51.4  variance 77.3
+      equal-avg 63.5  best-season 78.5  weakest 52.9  variance 72.2
       avg Statistical Impact 44.9  avg Traditional Production 29.6
-      total postseason contribution 4.98  total recognition 41.68  total team achievement 4.21
+      total postseason contribution 3.65  total recognition 41.68  total team achievement 4.21
 
 ==============================================================================
 PLAYER: Carmelo Anthony
 ==============================================================================
   Best completed regular-season peak :  2013-14  regular_perf 27.68
   Best completed Performance-Only    :  2013-14  score 57.68
-  Best completed Prime season        :  2012-13  score 65.10
+  Best completed Prime season        :  2012-13  score 65.29
   Best completed 3-year Perf-Only win : 2011-12..2013-14  P3Y 55.19
-  Best completed 3-year Prime window : 2011-12..2013-14  P3Y 59.64  (seasons 2011-12, 2012-13, 2013-14)
+  Best completed 3-year Prime window : 2011-12..2013-14  P3Y 59.66  (seasons 2011-12, 2012-13, 2013-14)
 
   -- best Prime season detail (2012-13) --
-    raw Prime index   : 34.98
-    display Prime score: 65.10
+    raw Prime index   : 35.15
+    display Prime score: 65.29
     Statistical Impact            :   48.15   (weighted contribution 18.30)
     Traditional Production        :   41.77   (weighted contribution 8.77)
     Individual Recognition        :   37.60   (weighted contribution 7.52)
-    Postseason Individual Value   :   -2.16   (weighted contribution -0.39)
+    Postseason Individual Value   :   -1.24   (weighted contribution -0.22)
     Team Achievement              :   25.50   (weighted contribution 0.77)
-    postseason decomposition       : level 0.9 + elevation -3.1 + deep-run 0.0 = -2.2
+    postseason decomposition       : level 0.5 + elevation -1.8 + deep-run 0.0 + dominance 0.0 = -1.2
+    postseason sample reliability  : 0.57  (po_g 12, po_mp 481, series 2)
     role              : Primary scorer
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
       - Statistical Impact (+18.30 weighted index pts)
       - Traditional Production (+8.77 weighted index pts)
       - Individual Recognition (+7.52 weighted index pts)
-    smallest weighted contribution: Postseason Individual Value (+-0.39 weighted index pts of prime_raw)
+    smallest weighted contribution: Postseason Individual Value (+-0.22 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2009-10..2013-14  weighted 54.18
+    5-year Performance-Only peak: 2009-10..2013-14  weighted 53.98
       seasons: 2009-10, 2010-11, 2011-12, 2012-13, 2013-14
-      equal-avg 52.8  best-season 57.7  weakest 49.1  variance 13.2
+      equal-avg 52.5  best-season 57.7  weakest 48.9  variance 15.3
       avg Statistical Impact 41.7  avg Traditional Production 34.0
-      total postseason contribution 2.65  total recognition 16.64  total team achievement 0.77
-    5-year Prime peak: 2009-10..2013-14  weighted 58.75
+      total postseason contribution 1.49  total recognition 16.64  total team achievement 0.77
+    5-year Prime peak: 2009-10..2013-14  weighted 58.56
       seasons: 2009-10, 2010-11, 2011-12, 2012-13, 2013-14
-      equal-avg 56.7  best-season 65.1  weakest 51.5  variance 25.9
+      equal-avg 56.4  best-season 65.3  weakest 51.1  variance 28.8
       avg Statistical Impact 41.7  avg Traditional Production 34.0
-      total postseason contribution 2.65  total recognition 16.64  total team achievement 0.77
+      total postseason contribution 1.49  total recognition 16.64  total team achievement 0.77
 
 ==============================================================================
 PLAYER: Adrian Dantley
 ==============================================================================
   Best completed regular-season peak :  1983-84  regular_perf 33.36
-  Best completed Performance-Only    :  1983-84  score 66.47
-  Best completed Prime season        :  1983-84  score 74.65
-  Best completed 3-year Perf-Only win : 1983-84..1985-86  P3Y 61.90
-  Best completed 3-year Prime window : 1983-84..1985-86  P3Y 66.44  (seasons 1983-84, 1984-85, 1985-86)
+  Best completed Performance-Only    :  1983-84  score 65.00
+  Best completed Prime season        :  1983-84  score 73.35
+  Best completed 3-year Perf-Only win : 1983-84..1985-86  P3Y 61.32
+  Best completed 3-year Prime window : 1983-84..1985-86  P3Y 65.92  (seasons 1983-84, 1984-85, 1985-86)
 
   -- best Prime season detail (1983-84) --
-    raw Prime index   : 43.65
-    display Prime score: 74.65
+    raw Prime index   : 42.35
+    display Prime score: 73.35
     Statistical Impact            :   56.39   (weighted contribution 21.43)
     Traditional Production        :   56.82   (weighted contribution 11.93)
     Individual Recognition        :   32.80   (weighted contribution 6.56)
-    Postseason Individual Value   :   15.74   (weighted contribution 2.83)
+    Postseason Individual Value   :    8.52   (weighted contribution 1.53)
     Team Achievement              :   25.50   (weighted contribution 0.77)
-    postseason decomposition       : level 16.2 + elevation -0.4 + deep-run 0.0 = 15.7
+    postseason decomposition       : level 8.7 + elevation -0.2 + deep-run 0.0 + dominance 0.0 = 8.5
+    postseason sample reliability  : 0.54  (po_g 11, po_mp 454, series 2)
     role              : Secondary star
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -642,54 +659,55 @@ PLAYER: Adrian Dantley
     smallest weighted contribution: Team Achievement (+0.77 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 1983-84..1987-88  weighted 60.43
+    5-year Performance-Only peak: 1983-84..1987-88  weighted 59.88
       seasons: 1983-84, 1984-85, 1985-86, 1986-87, 1987-88
-      equal-avg 58.3  best-season 66.5  weakest 52.7  variance 28.3
+      equal-avg 57.8  best-season 65.0  weakest 52.0  variance 25.3
       avg Statistical Impact 47.8  avg Traditional Production 43.1
-      total postseason contribution 6.13  total recognition 9.12  total team achievement 4.94
-    5-year Prime peak: 1983-84..1987-88  weighted 64.37
+      total postseason contribution 4.26  total recognition 9.12  total team achievement 4.94
+    5-year Prime peak: 1983-84..1987-88  weighted 63.88
       seasons: 1983-84, 1984-85, 1985-86, 1986-87, 1987-88
-      equal-avg 61.5  best-season 74.6  weakest 54.4  variance 53.7
+      equal-avg 61.1  best-season 73.3  weakest 53.7  variance 49.1
       avg Statistical Impact 47.8  avg Traditional Production 43.1
-      total postseason contribution 6.13  total recognition 9.12  total team achievement 4.94
+      total postseason contribution 4.26  total recognition 9.12  total team achievement 4.94
 
 ==============================================================================
 PLAYER: Dennis Rodman
 ==============================================================================
   Best completed regular-season peak :  1991-92  regular_perf 21.10
-  Best completed Performance-Only    :  1991-92  score 49.67
-  Best completed Prime season        :  1991-92  score 59.63
-  Best completed 3-year Perf-Only win : 1989-90..1991-92  P3Y 43.09
-  Best completed 3-year Prime window : 1989-90..1991-92  P3Y 54.69  (seasons 1989-90, 1990-91, 1991-92)
+  Best completed Performance-Only    :  1991-92  score 49.74
+  Best completed Prime season        :  1991-92  score 59.69
+  Best completed 3-year Perf-Only win : 1989-90..1991-92  P3Y 43.59
+  Best completed 3-year Prime window : 1989-90..1991-92  P3Y 55.07  (seasons 1989-90, 1990-91, 1991-92)
 
   -- best Prime season detail (1991-92) --
-    raw Prime index   : 29.63
-    display Prime score: 59.63
+    raw Prime index   : 29.69
+    display Prime score: 59.69
     Statistical Impact            :   42.24   (weighted contribution 16.05)
     Traditional Production        :   24.02   (weighted contribution 5.04)
     Individual Recognition        :   43.20   (weighted contribution 8.64)
-    Postseason Individual Value   :   -0.90   (weighted contribution -0.16)
+    Postseason Individual Value   :   -0.59   (weighted contribution -0.11)
     Team Achievement              :    0.00   (weighted contribution 0.00)
-    postseason decomposition       : level -0.3 + elevation -0.6 + deep-run 0.0 = -0.9
+    postseason decomposition       : level -0.2 + elevation -0.4 + deep-run 0.0 + dominance 0.0 = -0.6
+    postseason sample reliability  : 0.23  (po_g 5, po_mp 156, series 1)
     role              : High-impact role player
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
       - Statistical Impact (+16.05 weighted index pts)
       - Individual Recognition (+8.64 weighted index pts)
       - Traditional Production (+5.04 weighted index pts)
-    smallest weighted contribution: Postseason Individual Value (+-0.16 weighted index pts of prime_raw)
+    smallest weighted contribution: Postseason Individual Value (+-0.11 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 1987-88..1991-92  weighted 44.23
+    5-year Performance-Only peak: 1987-88..1991-92  weighted 44.52
       seasons: 1987-88, 1988-89, 1989-90, 1990-91, 1991-92
-      equal-avg 42.1  best-season 49.7  weakest 33.8  variance 28.8
+      equal-avg 42.5  best-season 49.7  weakest 35.0  variance 25.7
       avg Statistical Impact 33.7  avg Traditional Production 21.3
-      total postseason contribution -8.57  total recognition 26.56  total team achievement 6.71
-    5-year Prime peak: 1987-88..1991-92  weighted 53.45
+      total postseason contribution -7.38  total recognition 26.56  total team achievement 6.71
+    5-year Prime peak: 1987-88..1991-92  weighted 53.72
       seasons: 1987-88, 1988-89, 1989-90, 1990-91, 1991-92
-      equal-avg 50.9  best-season 59.6  weakest 42.0  variance 38.0
+      equal-avg 51.2  best-season 59.7  weakest 42.0  variance 37.6
       avg Statistical Impact 33.7  avg Traditional Production 21.3
-      total postseason contribution -8.57  total recognition 26.56  total team achievement 6.71
+      total postseason contribution -7.38  total recognition 26.56  total team achievement 6.71
 
 ==============================================================================
 PLAYER: Draymond Green
@@ -697,8 +715,8 @@ PLAYER: Draymond Green
   Best completed regular-season peak :  2015-16  regular_perf 26.01
   Best completed Performance-Only    :  2015-16  score 57.64
   Best completed Prime season        :  2015-16  score 68.41
-  Best completed 3-year Perf-Only win : 2014-15..2016-17  P3Y 53.66
-  Best completed 3-year Prime window : 2014-15..2016-17  P3Y 63.23  (seasons 2014-15, 2015-16, 2016-17)
+  Best completed 3-year Perf-Only win : 2014-15..2016-17  P3Y 53.41
+  Best completed 3-year Prime window : 2014-15..2016-17  P3Y 63.02  (seasons 2014-15, 2015-16, 2016-17)
 
   -- best Prime season detail (2015-16) --
     raw Prime index   : 37.92
@@ -708,7 +726,8 @@ PLAYER: Draymond Green
     Individual Recognition        :   44.00   (weighted contribution 8.80)
     Postseason Individual Value   :    9.10   (weighted contribution 1.64)
     Team Achievement              :   64.00   (weighted contribution 1.92)
-    postseason decomposition       : level 9.5 + elevation -0.4 + deep-run 0.0 = 9.1
+    postseason decomposition       : level 9.5 + elevation -0.4 + deep-run 0.0 + dominance 0.0 = 9.1
+    postseason sample reliability  : 1.00  (po_g 23, po_mp 879, series 4)
     role              : Secondary star
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -718,35 +737,36 @@ PLAYER: Draymond Green
     smallest weighted contribution: Postseason Individual Value (+1.64 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2014-15..2018-19  weighted 51.29
+    5-year Performance-Only peak: 2014-15..2018-19  weighted 51.10
       seasons: 2014-15, 2015-16, 2016-17, 2017-18, 2018-19
-      equal-avg 48.7  best-season 57.6  weakest 39.0  variance 42.2
+      equal-avg 48.5  best-season 57.6  weakest 39.0  variance 40.9
       avg Statistical Impact 37.6  avg Traditional Production 19.8
-      total postseason contribution 9.64  total recognition 25.76  total team achievement 8.79
-    5-year Prime peak: 2014-15..2018-19  weighted 59.79
+      total postseason contribution 9.02  total recognition 25.76  total team achievement 8.79
+    5-year Prime peak: 2014-15..2018-19  weighted 59.63
       seasons: 2014-15, 2015-16, 2016-17, 2017-18, 2018-19
-      equal-avg 56.1  best-season 68.4  weakest 43.5  variance 81.4
+      equal-avg 56.0  best-season 68.4  weakest 43.5  variance 79.8
       avg Statistical Impact 37.6  avg Traditional Production 19.8
-      total postseason contribution 9.64  total recognition 25.76  total team achievement 8.79
+      total postseason contribution 9.02  total recognition 25.76  total team achievement 8.79
 
 ==============================================================================
 PLAYER: Ben Wallace
 ==============================================================================
   Best completed regular-season peak :  2001-02  regular_perf 22.42
-  Best completed Performance-Only    :  2002-03  score 53.41
-  Best completed Prime season        :  2002-03  score 68.36
-  Best completed 3-year Perf-Only win : 2001-02..2003-04  P3Y 52.01
-  Best completed 3-year Prime window : 2001-02..2003-04  P3Y 65.69  (seasons 2001-02, 2002-03, 2003-04)
+  Best completed Performance-Only    :  2002-03  score 52.79
+  Best completed Prime season        :  2002-03  score 67.80
+  Best completed 3-year Perf-Only win : 2001-02..2003-04  P3Y 51.82
+  Best completed 3-year Prime window : 2001-02..2003-04  P3Y 65.53  (seasons 2001-02, 2002-03, 2003-04)
 
   -- best Prime season detail (2002-03) --
-    raw Prime index   : 37.87
-    display Prime score: 68.36
+    raw Prime index   : 37.37
+    display Prime score: 67.80
     Statistical Impact            :   44.25   (weighted contribution 16.81)
     Traditional Production        :   19.03   (weighted contribution 4.00)
     Individual Recognition        :   62.40   (weighted contribution 12.48)
-    Postseason Individual Value   :   17.33   (weighted contribution 3.12)
+    Postseason Individual Value   :   14.56   (weighted contribution 2.62)
     Team Achievement              :   49.60   (weighted contribution 1.49)
-    postseason decomposition       : level 11.0 + elevation 6.4 + deep-run 0.0 = 17.3
+    postseason decomposition       : level 9.2 + elevation 5.3 + deep-run 0.0 + dominance 0.0 = 14.6
+    postseason sample reliability  : 0.84  (po_g 17, po_mp 722, series 3)
     role              : Defensive anchor
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -756,14 +776,14 @@ PLAYER: Ben Wallace
     smallest weighted contribution: Team Achievement (+1.49 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2001-02..2005-06  weighted 50.49
+    5-year Performance-Only peak: 2001-02..2005-06  weighted 50.40
       seasons: 2001-02, 2002-03, 2003-04, 2004-05, 2005-06
-      equal-avg 49.2  best-season 53.4  weakest 45.1  variance 11.5
+      equal-avg 49.2  best-season 52.8  weakest 45.2  variance 9.9
       avg Statistical Impact 42.7  avg Traditional Production 17.4
       total postseason contribution 3.55  total recognition 51.84  total team achievement 7.31
-    5-year Prime peak: 2001-02..2005-06  weighted 64.03
+    5-year Prime peak: 2001-02..2005-06  weighted 63.94
       seasons: 2001-02, 2002-03, 2003-04, 2004-05, 2005-06
-      equal-avg 62.4  best-season 68.4  weakest 57.7  variance 16.0
+      equal-avg 62.4  best-season 67.8  weakest 57.7  variance 14.4
       avg Statistical Impact 42.7  avg Traditional Production 17.4
       total postseason contribution 3.55  total recognition 51.84  total team achievement 7.31
 
@@ -771,9 +791,9 @@ PLAYER: Ben Wallace
 PLAYER: Rajon Rondo
 ==============================================================================
   Best completed regular-season peak :  2008-09  regular_perf 21.02
-  Best completed Performance-Only    :  2008-09  score 50.61
+  Best completed Performance-Only    :  2008-09  score 50.32
   Best completed Prime season        :  2009-10  score 58.14
-  Best completed 3-year Perf-Only win : 2008-09..2010-11  P3Y 47.97
+  Best completed 3-year Perf-Only win : 2008-09..2010-11  P3Y 48.01
   Best completed 3-year Prime window : 2009-10..2011-12  P3Y 55.94  (seasons 2009-10, 2010-11, 2011-12)
 
   -- best Prime season detail (2009-10) --
@@ -784,7 +804,8 @@ PLAYER: Rajon Rondo
     Individual Recognition        :   29.60   (weighted contribution 5.92)
     Postseason Individual Value   :    1.87   (weighted contribution 0.34)
     Team Achievement              :   64.00   (weighted contribution 1.92)
-    postseason decomposition       : level 2.4 + elevation -0.6 + deep-run 0.0 = 1.9
+    postseason decomposition       : level 2.4 + elevation -0.6 + deep-run 0.0 + dominance 0.0 = 1.9
+    postseason sample reliability  : 1.00  (po_g 24, po_mp 975, series 4)
     role              : Secondary star
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
@@ -794,168 +815,172 @@ PLAYER: Rajon Rondo
     smallest weighted contribution: Postseason Individual Value (+0.34 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2007-08..2011-12  weighted 47.56
+    5-year Performance-Only peak: 2007-08..2011-12  weighted 47.46
       seasons: 2007-08, 2008-09, 2009-10, 2010-11, 2011-12
-      equal-avg 46.1  best-season 50.6  weakest 41.2  variance 13.4
+      equal-avg 46.1  best-season 50.3  weakest 41.2  variance 11.9
       avg Statistical Impact 36.0  avg Traditional Production 17.6
-      total postseason contribution 4.50  total recognition 20.00  total team achievement 6.59
-    5-year Prime peak: 2007-08..2011-12  weighted 54.42
+      total postseason contribution 4.32  total recognition 20.00  total team achievement 6.59
+    5-year Prime peak: 2007-08..2011-12  weighted 54.34
       seasons: 2007-08, 2008-09, 2009-10, 2010-11, 2011-12
-      equal-avg 52.5  best-season 58.1  weakest 43.0  variance 27.9
+      equal-avg 52.4  best-season 58.1  weakest 43.0  variance 27.1
       avg Statistical Impact 36.0  avg Traditional Production 17.6
-      total postseason contribution 4.50  total recognition 20.00  total team achievement 6.59
+      total postseason contribution 4.32  total recognition 20.00  total team achievement 6.59
 
 ==============================================================================
 PLAYER: Reggie Miller
 ==============================================================================
   Best completed regular-season peak :  1996-97  regular_perf 28.83
-  Best completed Performance-Only    :  1993-94  score 65.55
-  Best completed Prime season        :  1993-94  score 69.85
-  Best completed 3-year Perf-Only win : 1992-93..1994-95  P3Y 63.13
-  Best completed 3-year Prime window : 1993-94..1995-96  P3Y 66.57  (seasons 1993-94, 1994-95, 1995-96)
+  Best completed Performance-Only    :  1993-94  score 63.97
+  Best completed Prime season        :  1993-94  score 68.27
+  Best completed 3-year Perf-Only win : 1993-94..1995-96  P3Y 62.12
+  Best completed 3-year Prime window : 1993-94..1995-96  P3Y 65.63  (seasons 1993-94, 1994-95, 1995-96)
 
   -- best Prime season detail (1993-94) --
-    raw Prime index   : 39.20
-    display Prime score: 69.85
+    raw Prime index   : 37.80
+    display Prime score: 68.27
     Statistical Impact            :   51.40   (weighted contribution 19.53)
     Traditional Production        :   43.39   (weighted contribution 9.11)
     Individual Recognition        :   11.20   (weighted contribution 2.24)
-    Postseason Individual Value   :   37.40   (weighted contribution 6.73)
+    Postseason Individual Value   :   29.61   (weighted contribution 5.33)
     Team Achievement              :   49.60   (weighted contribution 1.49)
-    postseason decomposition       : level 28.1 + elevation 7.4 + deep-run 1.9 = 37.4
+    postseason decomposition       : level 20.6 + elevation 5.6 + deep-run 1.6 + dominance 1.8 = 29.6
+    postseason sample reliability  : 0.75  (po_g 16, po_mp 576, series 3)
     role              : Secondary star
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
       - Statistical Impact (+19.53 weighted index pts)
       - Traditional Production (+9.11 weighted index pts)
-      - Postseason Individual Value (+6.73 weighted index pts)
+      - Postseason Individual Value (+5.33 weighted index pts)
     smallest weighted contribution: Team Achievement (+1.49 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 1993-94..1997-98  weighted 62.20
+    5-year Performance-Only peak: 1993-94..1997-98  weighted 61.43
       seasons: 1993-94, 1994-95, 1995-96, 1996-97, 1997-98
-      equal-avg 61.1  best-season 65.5  weakest 58.3  variance 8.4
+      equal-avg 60.6  best-season 64.0  weakest 58.6  variance 5.0
       avg Statistical Impact 51.7  avg Traditional Production 40.2
-      total postseason contribution 14.64  total recognition 8.00  total team achievement 4.46
-    5-year Prime peak: 1993-94..1997-98  weighted 65.51
+      total postseason contribution 12.30  total recognition 8.00  total team achievement 4.46
+    5-year Prime peak: 1993-94..1997-98  weighted 64.71
       seasons: 1993-94, 1994-95, 1995-96, 1996-97, 1997-98
-      equal-avg 63.8  best-season 69.8  weakest 59.1  variance 17.0
+      equal-avg 63.3  best-season 68.3  weakest 59.1  variance 11.9
       avg Statistical Impact 51.7  avg Traditional Production 40.2
-      total postseason contribution 14.64  total recognition 8.00  total team achievement 4.46
+      total postseason contribution 12.30  total recognition 8.00  total team achievement 4.46
 
 ==============================================================================
 PLAYER: Manu Ginobili
 ==============================================================================
   Best completed regular-season peak :  2007-08  regular_perf 35.13
-  Best completed Performance-Only    :  2004-05  score 72.69
-  Best completed Prime season        :  2004-05  score 75.37
-  Best completed 3-year Perf-Only win : 2004-05..2006-07  P3Y 67.48
-  Best completed 3-year Prime window : 2004-05..2006-07  P3Y 69.21  (seasons 2004-05, 2005-06, 2006-07)
+  Best completed Performance-Only    :  2004-05  score 72.88
+  Best completed Prime season        :  2004-05  score 75.54
+  Best completed 3-year Perf-Only win : 2004-05..2006-07  P3Y 67.28
+  Best completed 3-year Prime window : 2004-05..2006-07  P3Y 69.00  (seasons 2004-05, 2005-06, 2006-07)
 
   -- best Prime season detail (2004-05) --
-    raw Prime index   : 44.37
-    display Prime score: 75.37
+    raw Prime index   : 44.54
+    display Prime score: 75.54
     Statistical Impact            :   61.03   (weighted contribution 23.19)
     Traditional Production        :   40.10   (weighted contribution 8.42)
     Individual Recognition        :    6.40   (weighted contribution 1.28)
-    Postseason Individual Value   :   56.18   (weighted contribution 10.11)
+    Postseason Individual Value   :   57.15   (weighted contribution 10.29)
     Team Achievement              :   55.00   (weighted contribution 1.65)
-    postseason decomposition       : level 44.6 + elevation 6.6 + deep-run 5.0 = 56.2
+    postseason decomposition       : level 38.6 + elevation 6.4 + deep-run 4.5 + dominance 7.7 = 57.1
+    postseason sample reliability  : 0.96  (po_g 23, po_mp 772, series 4)
     role              : Secondary star
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
       - Statistical Impact (+23.19 weighted index pts)
-      - Postseason Individual Value (+10.11 weighted index pts)
+      - Postseason Individual Value (+10.29 weighted index pts)
       - Traditional Production (+8.42 weighted index pts)
     smallest weighted contribution: Individual Recognition (+1.28 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2003-04..2007-08  weighted 66.37
+    5-year Performance-Only peak: 2003-04..2007-08  weighted 66.15
       seasons: 2003-04, 2004-05, 2005-06, 2006-07, 2007-08
-      equal-avg 64.1  best-season 72.7  weakest 55.6  variance 32.8
+      equal-avg 63.7  best-season 72.9  weakest 54.3  variance 38.7
       avg Statistical Impact 59.4  avg Traditional Production 36.5
-      total postseason contribution 17.79  total recognition 4.64  total team achievement 6.32
-    5-year Prime peak: 2003-04..2007-08  weighted 68.90
+      total postseason contribution 16.05  total recognition 4.64  total team achievement 6.32
+    5-year Prime peak: 2003-04..2007-08  weighted 68.70
       seasons: 2003-04, 2004-05, 2005-06, 2006-07, 2007-08
-      equal-avg 66.2  best-season 75.4  weakest 56.0  variance 46.2
+      equal-avg 65.7  best-season 75.5  weakest 54.7  variance 53.5
       avg Statistical Impact 59.4  avg Traditional Production 36.5
-      total postseason contribution 17.79  total recognition 4.64  total team achievement 6.32
+      total postseason contribution 16.05  total recognition 4.64  total team achievement 6.32
 
 ==============================================================================
 PLAYER: Clint Capela
 ==============================================================================
   Best completed regular-season peak :  2017-18  regular_perf 27.27
-  Best completed Performance-Only    :  2017-18  score 61.98
-  Best completed Prime season        :  2017-18  score 62.99
-  Best completed 3-year Perf-Only win : 2016-17..2018-19  P3Y 56.11
-  Best completed 3-year Prime window : 2016-17..2018-19  P3Y 56.73  (seasons 2016-17, 2017-18, 2018-19)
+  Best completed Performance-Only    :  2017-18  score 60.80
+  Best completed Prime season        :  2017-18  score 61.81
+  Best completed 3-year Perf-Only win : 2016-17..2018-19  P3Y 55.78
+  Best completed 3-year Prime window : 2016-17..2018-19  P3Y 56.41  (seasons 2016-17, 2017-18, 2018-19)
 
   -- best Prime season detail (2017-18) --
-    raw Prime index   : 32.99
-    display Prime score: 62.99
+    raw Prime index   : 31.81
+    display Prime score: 61.81
     Statistical Impact            :   49.99   (weighted contribution 19.00)
     Traditional Production        :   39.40   (weighted contribution 8.27)
     Individual Recognition        :    0.00   (weighted contribution 0.00)
-    Postseason Individual Value   :   26.18   (weighted contribution 4.71)
+    Postseason Individual Value   :   19.62   (weighted contribution 3.53)
     Team Achievement              :   49.60   (weighted contribution 1.49)
-    postseason decomposition       : level 22.2 + elevation 3.5 + deep-run 0.5 = 26.2
+    postseason decomposition       : level 16.5 + elevation 2.6 + deep-run 0.5 + dominance 0.0 = 19.6
+    postseason sample reliability  : 0.75  (po_g 17, po_mp 520, series 3)
     role              : High-impact role player
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
       - Statistical Impact (+19.00 weighted index pts)
       - Traditional Production (+8.27 weighted index pts)
-      - Postseason Individual Value (+4.71 weighted index pts)
+      - Postseason Individual Value (+3.53 weighted index pts)
     smallest weighted contribution: Individual Recognition (+0.00 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2016-17..2020-21  weighted 54.03
+    5-year Performance-Only peak: 2016-17..2020-21  weighted 53.80
       seasons: 2016-17, 2017-18, 2018-19, 2019-20, 2020-21
-      equal-avg 51.5  best-season 62.0  weakest 42.2  variance 40.9
+      equal-avg 51.4  best-season 60.8  weakest 42.2  variance 37.2
       avg Statistical Impact 41.1  avg Traditional Production 30.9
-      total postseason contribution 3.27  total recognition 1.12  total team achievement 4.51
-    5-year Prime peak: 2016-17..2020-21  weighted 54.99
+      total postseason contribution 2.56  total recognition 1.12  total team achievement 4.51
+    5-year Prime peak: 2016-17..2020-21  weighted 54.82
       seasons: 2016-17, 2017-18, 2018-19, 2019-20, 2020-21
-      equal-avg 52.4  best-season 63.0  weakest 41.5  variance 46.7
+      equal-avg 52.3  best-season 61.8  weakest 41.5  variance 43.2
       avg Statistical Impact 41.1  avg Traditional Production 30.9
-      total postseason contribution 3.27  total recognition 1.12  total team achievement 4.51
+      total postseason contribution 2.56  total recognition 1.12  total team achievement 4.51
 
 ==============================================================================
 PLAYER: Bradley Beal
 ==============================================================================
   Best completed regular-season peak :  2016-17  regular_perf 22.02
-  Best completed Performance-Only    :  2016-17  score 49.92
-  Best completed Prime season        :  2020-21  score 51.96
-  Best completed 3-year Perf-Only win : 2018-19..2020-21  P3Y 48.96
-  Best completed 3-year Prime window : 2018-19..2020-21  P3Y 50.91  (seasons 2018-19, 2019-20, 2020-21)
+  Best completed Performance-Only    :  2016-17  score 50.36
+  Best completed Prime season        :  2020-21  score 52.56
+  Best completed 3-year Perf-Only win : 2018-19..2020-21  P3Y 49.20
+  Best completed 3-year Prime window : 2018-19..2020-21  P3Y 51.15  (seasons 2018-19, 2019-20, 2020-21)
 
   -- best Prime season detail (2020-21) --
-    raw Prime index   : 22.76
-    display Prime score: 51.96
+    raw Prime index   : 23.25
+    display Prime score: 52.56
     Statistical Impact            :   36.79   (weighted contribution 13.98)
     Traditional Production        :   36.53   (weighted contribution 7.67)
     Individual Recognition        :    9.60   (weighted contribution 1.92)
-    Postseason Individual Value   :   -6.24   (weighted contribution -1.12)
+    Postseason Individual Value   :   -3.55   (weighted contribution -0.64)
     Team Achievement              :    0.00   (weighted contribution 0.00)
-    postseason decomposition       : level -4.0 + elevation -2.2 + deep-run 0.0 = -6.2
+    postseason decomposition       : level -2.3 + elevation -1.3 + deep-run 0.0 + dominance 0.0 = -3.5
+    postseason sample reliability  : 0.25  (po_g 5, po_mp 195, series 1)
     role              : Primary scorer
     provisional flag  : no
     top three positive drivers (largest weighted contributions):
       - Statistical Impact (+13.98 weighted index pts)
       - Traditional Production (+7.67 weighted index pts)
       - Individual Recognition (+1.92 weighted index pts)
-    smallest weighted contribution: Postseason Individual Value (+-1.12 weighted index pts of prime_raw)
+    smallest weighted contribution: Postseason Individual Value (+-0.64 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2016-17..2020-21  weighted 48.80
+    5-year Performance-Only peak: 2016-17..2020-21  weighted 49.10
       seasons: 2016-17, 2017-18, 2018-19, 2019-20, 2020-21
-      equal-avg 48.1  best-season 49.9  weakest 44.0  variance 4.4
+      equal-avg 48.4  best-season 50.4  weakest 44.1  variance 5.0
       avg Statistical Impact 35.1  avg Traditional Production 32.5
-      total postseason contribution -2.07  total recognition 4.48  total team achievement 0.77
-    5-year Prime peak: 2016-17..2020-21  weighted 50.53
+      total postseason contribution -1.21  total recognition 4.48  total team achievement 0.77
+    5-year Prime peak: 2016-17..2020-21  weighted 50.84
       seasons: 2016-17, 2017-18, 2018-19, 2019-20, 2020-21
-      equal-avg 49.8  best-season 52.0  weakest 46.0  variance 4.2
+      equal-avg 50.0  best-season 52.6  weakest 46.1  variance 4.9
       avg Statistical Impact 35.1  avg Traditional Production 32.5
-      total postseason contribution -2.07  total recognition 4.48  total team achievement 0.77
+      total postseason contribution -1.21  total recognition 4.48  total team achievement 0.77
 
 ==============================================================================
 FIVE-YEAR PEAK LEADERBOARD (25-player validation set)
@@ -964,59 +989,59 @@ best completed consecutive 5-year windows; provisional excluded
 
   best 5-year PRIME peak:
      # player                                  span  weighted   equal   best  weakest
-     1 Michael Jordan               1987-88-1991-92     95.98    95.3   97.7     93.2
-     2 LeBron James                 2008-09-2012-13     94.49    92.7   97.8     83.2
-     3 Nikola Jokic                 2020-21-2024-25     92.28    91.7   93.6     89.9
-     4 Giannis Antetokounmpo        2017-18-2021-22     88.87    86.8   91.3     73.3
-     5 Shaquille O'Neal             1998-99-2002-03     88.02    85.7   93.5     74.6
-     6 Stephen Curry                2014-15-2018-19     86.75    84.0   93.6     76.5
-     7 Magic Johnson                1986-87-1990-91     86.61    84.5   90.2     73.6
-     8 David Robinson               1991-92-1995-96     86.06    84.0   88.8     72.7
-     9 James Harden                 2015-16-2019-20     85.89    83.5   88.8     69.2
-    10 Hakeem Olajuwon              1992-93-1996-97     83.49    80.0   90.8     67.6
-    11 Chris Paul                   2011-12-2015-16     82.10    80.9   84.2     76.3
-    12 Kevin Garnett                2000-01-2004-05     80.86    78.1   88.8     69.2
-    13 Russell Westbrook            2013-14-2017-18     77.36    73.2   86.6     58.6
-    14 Steve Nash                   2004-05-2008-09     73.23    69.3   79.9     51.4
-    15 Manu Ginobili                2003-04-2007-08     68.90    66.2   75.4     56.0
-    16 Allen Iverson                1998-99-2002-03     67.14    63.7   78.5     51.4
-    17 Reggie Miller                1993-94-1997-98     65.51    63.8   69.8     59.1
-    18 Adrian Dantley               1983-84-1987-88     64.37    61.5   74.6     54.4
-    19 Ben Wallace                  2001-02-2005-06     64.03    62.4   68.4     57.7
-    20 Draymond Green               2014-15-2018-19     59.79    56.1   68.4     43.5
-    21 Carmelo Anthony              2009-10-2013-14     58.75    56.7   65.1     51.5
-    22 Clint Capela                 2016-17-2020-21     54.99    52.4   63.0     41.5
-    23 Rajon Rondo                  2007-08-2011-12     54.42    52.5   58.1     43.0
-    24 Dennis Rodman                1987-88-1991-92     53.45    50.9   59.6     42.0
-    25 Bradley Beal                 2016-17-2020-21     50.53    49.8   52.0     46.0
+     1 Michael Jordan               1987-88-1991-92     95.29    94.7   97.3     93.4
+     2 LeBron James                 2008-09-2012-13     93.84    92.2   96.1     83.2
+     3 Nikola Jokic                 2020-21-2024-25     91.59    91.0   93.7     89.3
+     4 Giannis Antetokounmpo        2018-19-2022-23     88.38    86.3   90.8     72.7
+     5 Shaquille O'Neal             1998-99-2002-03     87.69    85.1   93.7     73.7
+     6 Stephen Curry                2014-15-2018-19     86.53    83.7   93.4     75.9
+     7 Magic Johnson                1986-87-1990-91     86.18    84.1   90.1     73.6
+     8 David Robinson               1991-92-1995-96     85.73    83.6   88.8     71.4
+     9 James Harden                 2014-15-2018-19     84.99    82.5   88.5     68.5
+    10 Hakeem Olajuwon              1992-93-1996-97     82.90    79.3   91.1     67.7
+    11 Kevin Garnett                2003-04-2007-08     80.82    77.2   88.7     63.4
+    12 Chris Paul                   2011-12-2015-16     80.75    79.8   82.7     75.2
+    13 Russell Westbrook            2013-14-2017-18     76.96    72.9   86.0     58.0
+    14 Steve Nash                   2004-05-2008-09     72.72    68.8   79.7     51.4
+    15 Manu Ginobili                2003-04-2007-08     68.70    65.7   75.5     54.7
+    16 Allen Iverson                1998-99-2002-03     66.82    63.5   78.5     52.9
+    17 Reggie Miller                1993-94-1997-98     64.71    63.3   68.3     59.1
+    18 Ben Wallace                  2001-02-2005-06     63.94    62.4   67.8     57.7
+    19 Adrian Dantley               1983-84-1987-88     63.88    61.1   73.3     53.7
+    20 Draymond Green               2014-15-2018-19     59.63    56.0   68.4     43.5
+    21 Carmelo Anthony              2009-10-2013-14     58.56    56.4   65.3     51.1
+    22 Clint Capela                 2016-17-2020-21     54.82    52.3   61.8     41.5
+    23 Rajon Rondo                  2007-08-2011-12     54.34    52.4   58.1     43.0
+    24 Dennis Rodman                1987-88-1991-92     53.72    51.2   59.7     42.0
+    25 Bradley Beal                 2016-17-2020-21     50.84    50.0   52.6     46.1
 
   best 5-year PERFORMANCE-ONLY peak:
      # player                                  span  weighted   equal   best  weakest
-     1 Michael Jordan               1987-88-1991-92     88.66    87.8   90.1     81.9
-     2 Nikola Jokic                 2021-22-2025-26     87.23    86.4   88.6     83.3
-     3 LeBron James                 2008-09-2012-13     86.98    84.8   92.2     73.7
-     4 Giannis Antetokounmpo        2017-18-2021-22     79.86    78.0   82.1     67.7
-     5 Stephen Curry                2014-15-2018-19     79.09    76.5   84.7     67.0
-     6 James Harden                 2016-17-2020-21     78.34    76.2   81.7     65.8
-     7 Shaquille O'Neal             1998-99-2002-03     78.15    76.6   82.1     68.4
-     8 Magic Johnson                1986-87-1990-91     76.05    74.3   78.4     63.4
-     9 David Robinson               1991-92-1995-96     75.59    73.3   80.4     63.7
-    10 Chris Paul                   2007-08-2011-12     73.33    69.7   82.3     54.8
-    11 Kevin Garnett                2001-02-2005-06     71.03    69.0   76.8     61.2
-    12 Hakeem Olajuwon              1992-93-1996-97     70.04    67.3   76.2     57.7
-    13 Russell Westbrook            2013-14-2017-18     68.66    65.7   75.3     57.6
-    14 Manu Ginobili                2003-04-2007-08     66.37    64.1   72.7     55.6
-    15 Reggie Miller                1993-94-1997-98     62.20    61.1   65.5     58.3
-    16 Steve Nash                   2002-03-2006-07     61.17    59.0   65.3     48.8
-    17 Adrian Dantley               1983-84-1987-88     60.43    58.3   66.5     52.7
-    18 Allen Iverson                1998-99-2002-03     55.53    53.5   61.0     44.0
-    19 Carmelo Anthony              2009-10-2013-14     54.18    52.8   57.7     49.1
-    20 Clint Capela                 2016-17-2020-21     54.03    51.5   62.0     42.2
-    21 Draymond Green               2014-15-2018-19     51.29    48.7   57.6     39.0
-    22 Ben Wallace                  2001-02-2005-06     50.49    49.2   53.4     45.1
-    23 Bradley Beal                 2016-17-2020-21     48.80    48.1   49.9     44.0
-    24 Rajon Rondo                  2007-08-2011-12     47.56    46.1   50.6     41.2
-    25 Dennis Rodman                1987-88-1991-92     44.23    42.1   49.7     33.8
+     1 Michael Jordan               1987-88-1991-92     87.83    86.9   89.6     82.3
+     2 Nikola Jokic                 2021-22-2025-26     86.11    85.4   88.5     82.9
+     3 LeBron James                 2008-09-2012-13     86.06    84.0   90.0     73.7
+     4 Stephen Curry                2014-15-2018-19     78.75    76.1   84.4     66.9
+     5 Giannis Antetokounmpo        2018-19-2022-23     78.66    76.9   81.1     65.7
+     6 Shaquille O'Neal             1998-99-2002-03     77.73    75.7   82.6     67.4
+     7 James Harden                 2014-15-2018-19     76.60    74.7   80.1     65.1
+     8 Magic Johnson                1986-87-1990-91     75.29    73.7   77.4     63.4
+     9 David Robinson               1991-92-1995-96     75.07    72.8   80.3     62.6
+    10 Chris Paul                   2007-08-2011-12     71.83    68.5   78.9     54.8
+    11 Kevin Garnett                2001-02-2005-06     70.77    68.7   76.5     60.9
+    12 Hakeem Olajuwon              1992-93-1996-97     69.00    66.4   74.5     57.9
+    13 Russell Westbrook            2013-14-2017-18     68.10    65.3   74.4     57.0
+    14 Manu Ginobili                2003-04-2007-08     66.15    63.7   72.9     54.3
+    15 Reggie Miller                1993-94-1997-98     61.43    60.6   64.0     58.6
+    16 Steve Nash                   2002-03-2006-07     60.59    58.7   64.0     49.5
+    17 Adrian Dantley               1983-84-1987-88     59.88    57.8   65.0     52.0
+    18 Allen Iverson                1998-99-2002-03     55.10    53.3   61.0     45.8
+    19 Carmelo Anthony              2009-10-2013-14     53.98    52.5   57.7     48.9
+    20 Clint Capela                 2016-17-2020-21     53.80    51.4   60.8     42.2
+    21 Draymond Green               2014-15-2018-19     51.10    48.5   57.6     39.0
+    22 Ben Wallace                  2001-02-2005-06     50.40    49.2   52.8     45.2
+    23 Bradley Beal                 2016-17-2020-21     49.10    48.4   50.4     44.1
+    24 Rajon Rondo                  2007-08-2011-12     47.46    46.1   50.3     41.2
+    25 Dennis Rodman                1987-88-1991-92     44.52    42.5   49.7     35.0
 
 ##############################################################################
 # PART 2 -- FOCUSED COMPARISONS (diagnostics only; no winner forced)
@@ -1026,113 +1051,113 @@ best completed consecutive 5-year windows; provisional excluded
 COMPARISON: Curry 2014-15 vs 2015-16
 ------------------------------------------------------------------------------
   metric                           Stephen Curry 2014-15     Stephen Curry 2015-16
-  raw Prime index                                  65.11                     74.74
-  display Prime score                              89.96                     93.58
-  Performance-Only                                 81.58                     84.69
+  raw Prime index                                  65.60                     74.31
+  display Prime score                              90.15                     93.44
+  Performance-Only                                 81.92                     84.38
   Statistical Impact                               82.69                     94.89
   Traditional Production                           60.59                     75.30
   Individual Recognition                           57.20                     89.20
-  Postseason Individual Value                      37.13                     18.86
+  Postseason Individual Value                      39.86                     16.43
   Team Achievement                                100.00                     64.00
-  -> Stephen Curry 2015-16 leads by 9.63 raw Prime index points (diagnostic; not forced).
+  -> Stephen Curry 2015-16 leads by 8.71 raw Prime index points (diagnostic; not forced).
 
 ------------------------------------------------------------------------------
 COMPARISON: Robinson 1994-95 vs Hakeem 1993-94
 ------------------------------------------------------------------------------
   metric                          David Robinson 1994-95   Hakeem Olajuwon 1993-94
-  raw Prime index                                  60.68                     67.33
-  display Prime score                              88.26                     90.82
-  Performance-Only                                 75.13                     73.88
+  raw Prime index                                  60.38                     67.96
+  display Prime score                              88.15                     91.06
+  Performance-Only                                 74.83                     74.50
   Statistical Impact                               82.93                     65.56
   Traditional Production                           54.21                     45.06
   Individual Recognition                           75.60                    106.80
-  Postseason Individual Value                       6.84                     47.24
+  Postseason Individual Value                       5.18                     50.73
   Team Achievement                                 49.60                    100.00
-  -> Hakeem Olajuwon 1993-94 leads by 6.65 raw Prime index points (diagnostic; not forced).
+  -> Hakeem Olajuwon 1993-94 leads by 7.58 raw Prime index points (diagnostic; not forced).
 
 ------------------------------------------------------------------------------
 COMPARISON: Rodman peak vs Carmelo peak
 ------------------------------------------------------------------------------
   metric                           Dennis Rodman 1991-92   Carmelo Anthony 2012-13
-  raw Prime index                                  29.63                     34.98
-  display Prime score                              59.63                     65.10
-  Performance-Only                                 49.67                     56.68
+  raw Prime index                                  29.69                     35.15
+  display Prime score                              59.69                     65.29
+  Performance-Only                                 49.74                     56.85
   Statistical Impact                               42.24                     48.15
   Traditional Production                           24.02                     41.77
   Individual Recognition                           43.20                     37.60
-  Postseason Individual Value                      -0.90                     -2.16
+  Postseason Individual Value                      -0.59                     -1.24
   Team Achievement                                  0.00                     25.50
-  -> Carmelo Anthony 2012-13 leads by 5.35 raw Prime index points (diagnostic; not forced).
+  -> Carmelo Anthony 2012-13 leads by 5.46 raw Prime index points (diagnostic; not forced).
 
 ------------------------------------------------------------------------------
 COMPARISON: Draymond peak vs Carmelo peak
 ------------------------------------------------------------------------------
   metric                          Draymond Green 2015-16   Carmelo Anthony 2012-13
-  raw Prime index                                  37.92                     34.98
-  display Prime score                              68.41                     65.10
-  Performance-Only                                 57.64                     56.68
+  raw Prime index                                  37.92                     35.15
+  display Prime score                              68.41                     65.29
+  Performance-Only                                 57.64                     56.85
   Statistical Impact                               52.24                     48.15
   Traditional Production                           29.31                     41.77
   Individual Recognition                           44.00                     37.60
-  Postseason Individual Value                       9.10                     -2.16
+  Postseason Individual Value                       9.10                     -1.24
   Team Achievement                                 64.00                     25.50
-  -> Draymond Green 2015-16 leads by 2.94 raw Prime index points (diagnostic; not forced).
+  -> Draymond Green 2015-16 leads by 2.77 raw Prime index points (diagnostic; not forced).
 
 ------------------------------------------------------------------------------
 COMPARISON: Rondo peak vs Bradley Beal peak
 ------------------------------------------------------------------------------
   metric                             Rajon Rondo 2009-10      Bradley Beal 2020-21
-  raw Prime index                                  28.14                     22.76
-  display Prime score                              58.14                     51.96
-  Performance-Only                                 48.91                     49.16
+  raw Prime index                                  28.14                     23.25
+  display Prime score                              58.14                     52.56
+  Performance-Only                                 48.91                     49.76
   Statistical Impact                               41.80                     36.79
   Traditional Production                           19.58                     36.53
   Individual Recognition                           29.60                      9.60
-  Postseason Individual Value                       1.87                     -6.24
+  Postseason Individual Value                       1.87                     -3.55
   Team Achievement                                 64.00                      0.00
-  -> Rajon Rondo 2009-10 leads by 5.37 raw Prime index points (diagnostic; not forced).
+  -> Rajon Rondo 2009-10 leads by 4.89 raw Prime index points (diagnostic; not forced).
 
 ------------------------------------------------------------------------------
 COMPARISON: Ben Wallace peak vs Bradley Beal peak
 ------------------------------------------------------------------------------
   metric                             Ben Wallace 2002-03      Bradley Beal 2020-21
-  raw Prime index                                  37.87                     22.76
-  display Prime score                              68.36                     51.96
-  Performance-Only                                 53.41                     49.16
+  raw Prime index                                  37.37                     23.25
+  display Prime score                              67.80                     52.56
+  Performance-Only                                 52.79                     49.76
   Statistical Impact                               44.25                     36.79
   Traditional Production                           19.03                     36.53
   Individual Recognition                           62.40                      9.60
-  Postseason Individual Value                      17.33                     -6.24
+  Postseason Individual Value                      14.56                     -3.55
   Team Achievement                                 49.60                      0.00
-  -> Ben Wallace 2002-03 leads by 15.11 raw Prime index points (diagnostic; not forced).
+  -> Ben Wallace 2002-03 leads by 14.12 raw Prime index points (diagnostic; not forced).
 
 ------------------------------------------------------------------------------
 COMPARISON: Reggie Miller peak vs Adrian Dantley peak
 ------------------------------------------------------------------------------
   metric                           Reggie Miller 1993-94    Adrian Dantley 1983-84
-  raw Prime index                                  39.20                     43.65
-  display Prime score                              69.85                     74.65
-  Performance-Only                                 65.55                     66.47
+  raw Prime index                                  37.80                     42.35
+  display Prime score                              68.27                     73.35
+  Performance-Only                                 63.97                     65.00
   Statistical Impact                               51.40                     56.39
   Traditional Production                           43.39                     56.82
   Individual Recognition                           11.20                     32.80
-  Postseason Individual Value                      37.40                     15.74
+  Postseason Individual Value                      29.61                      8.52
   Team Achievement                                 49.60                     25.50
-  -> Adrian Dantley 1983-84 leads by 4.45 raw Prime index points (diagnostic; not forced).
+  -> Adrian Dantley 1983-84 leads by 4.55 raw Prime index points (diagnostic; not forced).
 
 ------------------------------------------------------------------------------
 COMPARISON: Manu Ginobili peak vs Clint Capela peak
 ------------------------------------------------------------------------------
   metric                           Manu Ginobili 2004-05      Clint Capela 2017-18
-  raw Prime index                                  44.37                     32.99
-  display Prime score                              75.37                     62.99
-  Performance-Only                                 72.69                     61.98
+  raw Prime index                                  44.54                     31.81
+  display Prime score                              75.54                     61.81
+  Performance-Only                                 72.88                     60.80
   Statistical Impact                               61.03                     49.99
   Traditional Production                           40.10                     39.40
   Individual Recognition                            6.40                      0.00
-  Postseason Individual Value                      56.18                     26.18
+  Postseason Individual Value                      57.15                     19.62
   Team Achievement                                 55.00                     49.60
-  -> Manu Ginobili 2004-05 leads by 11.38 raw Prime index points (diagnostic; not forced).
+  -> Manu Ginobili 2004-05 leads by 12.74 raw Prime index points (diagnostic; not forced).
 
 ------------------------------------------------------------------------------
 COMPARISON: Hakeem best 3-year Prime vs Robinson best 3-year Prime
@@ -1141,18 +1166,18 @@ COMPARISON: Hakeem best 3-year Prime vs Robinson best 3-year Prime
   Statistical impact (38%)                           25.07                 34.24     -9.16
   Traditional production (21%)                        9.68                 11.74     -2.06
   Individual recognition (20%)                       17.48                 13.33      4.15
-  Postseason individual (18%)                         7.42                  1.09      6.33
+  Postseason individual (18%)                         6.75                  0.74      6.01
   Team achievement (3%)                               2.26                  0.62      1.63
   Teammate adjustment                                 0.15                  0.03      0.13
-  RAW WINDOW SCORE (sum)                             62.06                 61.05      1.01
-  weighted display score                             87.98                 88.32     -0.34
+  RAW WINDOW SCORE (sum)                             61.39                 60.70      0.69
+  weighted display score                             87.58                 88.12     -0.53
   raw aggregates:
     avg Statistical Impact          64.2   vs 87.9
     avg Traditional Production      45.8   vs 54.5
-    total postseason contrib       20.03   vs 5.02
+    total postseason contrib       17.72   vs 3.36
     total recognition contrib      46.72   vs 39.44
     total team contrib              6.77   vs 2.25
-  -> Hakeem Olajuwon 1992-93-1994-95 leads by 1.01 rank-weighted raw points (diagnostic; not forced).
+  -> Hakeem Olajuwon 1992-93-1994-95 leads by 0.69 rank-weighted raw points (diagnostic; not forced).
 
 ------------------------------------------------------------------------------
 COMPARISON: Hakeem best 5-year Prime vs Robinson best 5-year Prime
@@ -1161,18 +1186,18 @@ COMPARISON: Hakeem best 5-year Prime vs Robinson best 5-year Prime
   Statistical impact (38%)                           23.12                 32.24     -9.12
   Traditional production (21%)                        9.28                 11.07     -1.79
   Individual recognition (20%)                       14.62                 12.71      1.91
-  Postseason individual (18%)                         6.85                  1.29      5.55
+  Postseason individual (18%)                         6.02                  0.84      5.18
   Team achievement (3%)                               2.01                  0.61      1.41
   Teammate adjustment                                 0.13                  0.06      0.06
-  RAW WINDOW SCORE (sum)                             56.00                 57.98     -1.98
-  weighted display score                             83.49                 86.06     -2.57
+  RAW WINDOW SCORE (sum)                             55.18                 57.53     -2.35
+  weighted display score                             82.90                 85.73     -2.84
   raw aggregates:
     avg Statistical Impact          57.3   vs 80.5
     avg Traditional Production      42.9   vs 50.1
-    total postseason contrib       30.75   vs 7.36
+    total postseason contrib       26.37   vs 4.63
     total recognition contrib      63.04   vs 60.24
     total team contrib              9.02   vs 3.02
-  -> David Robinson 1991-92-1995-96 leads by 1.98 rank-weighted raw points (diagnostic; not forced).
+  -> David Robinson 1991-92-1995-96 leads by 2.35 rank-weighted raw points (diagnostic; not forced).
 
 ------------------------------------------------------------------------------
 COMPARISON: Jokic best SI season vs Jordan best SI season
@@ -1211,22 +1236,22 @@ CONTRIBUTION BRIDGE (3-year): Hakeem Olajuwon MINUS David Robinson
     Statistical Impact              -24.11           -9.89
     Traditional Production           -9.81           -2.26
     Recognition                      20.73            3.11
-    Postseason                       35.16            6.33
+    Postseason                       33.39            6.01
     Team Achievement                 54.38            1.63
     teammate adjustment               0.13            0.13
-    FINAL Prime raw diff                             -0.94  (Robinson leads)
+    FINAL Prime raw diff                             -1.26  (Robinson leads)
 
   [NEW   38/21/20/18/3]
     component                     raw diff   weighted diff
     Statistical Impact              -24.11           -9.16
     Traditional Production           -9.81           -2.06
     Recognition                      20.73            4.15
-    Postseason                       35.16            6.33
+    Postseason                       33.39            6.01
     Team Achievement                 54.38            1.63
     teammate adjustment               0.13            0.13
-    FINAL Prime raw diff                              1.01  (Hakeem leads)
+    FINAL Prime raw diff                              0.69  (Hakeem leads)
 
-  WHY THE GAP CHANGES: final Prime-raw gap moves -0.94 -> +1.01 (Hakeem-minus-Robinson).
+  WHY THE GAP CHANGES: final Prime-raw gap moves -1.26 -> +0.69 (Hakeem-minus-Robinson).
    Recognition weight rose 15% -> 20% and Hakeem's recognition raw is higher (+20.7); raising its
    weight moves the gap by +1.04 from recognition alone.
    Statistical Impact weight fell 41% -> 38% and Robinson's SI raw is higher (-24.1 for Hakeem), so cutting SI weight moves the gap
@@ -1244,22 +1269,22 @@ CONTRIBUTION BRIDGE (5-year): Hakeem Olajuwon MINUS David Robinson
     Statistical Impact              -23.99           -9.84
     Traditional Production           -8.53           -1.96
     Recognition                       9.56            1.43
-    Postseason                       30.85            5.55
+    Postseason                       28.76            5.18
     Team Achievement                 46.86            1.41
     teammate adjustment               0.06            0.06
-    FINAL Prime raw diff                             -3.35  (Robinson leads)
+    FINAL Prime raw diff                             -3.72  (Robinson leads)
 
   [NEW   38/21/20/18/3]
     component                     raw diff   weighted diff
     Statistical Impact              -23.99           -9.12
     Traditional Production           -8.53           -1.79
     Recognition                       9.56            1.91
-    Postseason                       30.85            5.55
+    Postseason                       28.76            5.18
     Team Achievement                 46.86            1.41
     teammate adjustment               0.06            0.06
-    FINAL Prime raw diff                             -1.98  (Robinson leads)
+    FINAL Prime raw diff                             -2.35  (Robinson leads)
 
-  WHY THE GAP CHANGES: final Prime-raw gap moves -3.35 -> -1.98 (Hakeem-minus-Robinson).
+  WHY THE GAP CHANGES: final Prime-raw gap moves -3.72 -> -2.35 (Hakeem-minus-Robinson).
    Recognition weight rose 15% -> 20% and Hakeem's recognition raw is higher (+9.6); raising its
    weight moves the gap by +0.48 from recognition alone.
    Statistical Impact weight fell 41% -> 38% and Robinson's SI raw is higher (-24.0 for Hakeem), so cutting SI weight moves the gap
@@ -1298,33 +1323,33 @@ All-Star subsumed by any All-NBA. Championship is NOT here (Team Achievement).
 
 ==============================================================================
 PLAYOFF AUDITS (item: validation philosophy)
-postseason_value = absolute_level + elevation + sustained_volume (18% weight)
-resp = best-player responsibility (from playoff usage); deep = sustained volume
+postseason_value = reliability-adjusted level + elevation + sustained_volume + dominance (18% weight)
+rel = playoff-sample reliability (minutes x games x series); dom = convex dominance bonus
 ==============================================================================
 
-  player / season            po_perf  level  elev  deep  resp  po_mp  team  prime
-  Hakeem Olajuwon 1993-94       47.2   38.3   4.2   4.7  1.00    989   100   90.8
-      title run #1, Finals MVP; weighted postseason contribution 8.50 of prime_raw 67.3
-  Hakeem Olajuwon 1994-95       22.6   21.9  -0.8   1.4  1.12    929   100   78.2
+  player / season            po_perf  level  elev  deep   dom   rel  po_mp  team  prime
+  Hakeem Olajuwon 1993-94       50.7   35.2   4.2   4.7   6.6  1.00    989   100   91.1
+      title run #1, Finals MVP; weighted postseason contribution 9.13 of prime_raw 68.0
+  Hakeem Olajuwon 1994-95       22.5   21.9  -0.8   1.4   0.0  1.00    929   100   78.2
       title run #2, Finals MVP; weighted postseason contribution 4.06 of prime_raw 47.2
-  David Robinson 1994-95         6.8   12.0  -5.2   0.0  0.94    623    50   88.3
-      MVP regular season, playoff letdown vs Hakeem; weighted postseason contribution 1.23 of prime_raw 60.7
-  Dirk Nowitzki 2010-11         36.1   31.4   1.3   3.4  1.02    826   100   78.2
-      elite title run, Finals MVP; weighted postseason contribution 6.50 of prime_raw 47.2
-  Kawhi Leonard 2018-19         59.6   45.7   7.6   6.4  1.02    939   100   84.3
-      historically dominant title run, Finals MVP; weighted postseason contribution 10.73 of prime_raw 54.7
-  Kevin Garnett 2003-04         13.8   18.8  -5.4   0.5  0.96    783    50   88.8
-      excellent Conf Finals run (lost WCF); weighted postseason contribution 2.49 of prime_raw 62.2
-  Jimmy Butler 2019-20          22.1   21.1   0.2   0.8  0.77    806    64   63.8
-      bubble Finals run; weighted postseason contribution 3.97 of prime_raw 33.8
-  Jimmy Butler 2022-23          13.8   17.5  -3.9   0.1  0.92    874    64   77.2
+  David Robinson 1994-95         5.2    9.1  -3.9   0.0   0.0  0.76    623    50   88.1
+      MVP regular season, playoff letdown vs Hakeem; weighted postseason contribution 0.93 of prime_raw 60.4
+  Dirk Nowitzki 2010-11         38.6   29.6   1.3   3.2   4.5  0.99    826   100   78.6
+      elite title run, Finals MVP; weighted postseason contribution 6.94 of prime_raw 47.6
+  Kawhi Leonard 2018-19         63.0   40.9   7.6   6.3   8.2  1.00    939   100   84.7
+      historically dominant title run, Finals MVP; weighted postseason contribution 11.34 of prime_raw 55.3
+  Kevin Garnett 2003-04         12.2   16.7  -4.8   0.4   0.0  0.89    783    50   88.7
+      excellent Conf Finals run (lost WCF); weighted postseason contribution 2.20 of prime_raw 61.9
+  Jimmy Butler 2019-20          21.6   20.6   0.2   0.8   0.0  0.98    806    64   63.7
+      bubble Finals run; weighted postseason contribution 3.88 of prime_raw 33.7
+  Jimmy Butler 2022-23          13.8   17.5  -3.9   0.1   0.0  1.00    874    64   77.2
       8-seed Finals run; weighted postseason contribution 2.48 of prime_raw 46.2
-  Nikola Jokic 2022-23          58.3   51.3  -0.3   7.2  0.99    789   100   93.6
-      dominant title run, Finals MVP; weighted postseason contribution 10.50 of prime_raw 74.8
-  Stephen Curry 2015-16         18.9   23.4  -6.0   1.4  1.02    614    64   93.6
-      historic regular season, injured playoff decline; weighted postseason contribution 3.39 of prime_raw 74.7
-  Jalen Brunson 2025-26         11.8    8.6   3.2   0.0  1.03    660   100   63.2
-      NYK champion, Finals MVP (2025-26); weighted postseason contribution 2.12 of prime_raw 33.2
+  Nikola Jokic 2022-23          59.1   44.0  -0.3   6.5   9.0  0.97    789   100   93.7
+      dominant title run, Finals MVP; weighted postseason contribution 10.64 of prime_raw 75.0
+  Stephen Curry 2015-16         16.4   20.4  -5.2   1.3   0.0  0.87    614    64   93.4
+      historic regular season, injured playoff decline; weighted postseason contribution 2.96 of prime_raw 74.3
+  Jalen Brunson 2025-26         10.5    7.7   2.8   0.0   0.0  0.89    660   100   62.9
+      NYK champion, Finals MVP (2025-26); weighted postseason contribution 1.89 of prime_raw 32.9
 
   Reading: historically dominant individual runs (Kawhi 2019, Jokic
   2023, Hakeem 1994) earn the most; an excellent CF run (Garnett 2004)
@@ -1333,6 +1358,102 @@ resp = best-player responsibility (from playoff usage); deep = sustained volume
   automatic peak boost; a historic regular season with an injured playoff
   decline (Curry 2016) is damped, not collapsed. Finals MVP / clear-best-
   player status only validate the metric, never adding points here.
+
+==============================================================================
+POSTSEASON DECOMPOSITION AUDIT (corrected upper-tail model)
+postseason_value = reliability-adjusted level + sample-adjusted elevation
+                 + sustained elite volume + reliability-shrunk dominance
+==============================================================================
+
+  Legend: g=playoff games  mp=playoff minutes  ser=series observed
+  absL=absolute level (pre-reliability)  rel=playoff-sample reliability
+  adjL=reliability-adjusted level  eRaw=raw elevation  eAdj=sample-adjusted
+  deep=sustained elite volume  domR=dominance pre-reliability  domF=final
+  dominance  PERF=final postseason value  wPO=weighted postseason contrib
+
+  player / season           g    mp ser   absL   rel   adjL  eRaw  eAdj  deep  domR  domF   PERF    wPO
+  LeBron James 2008-09     14   580   3   69.2  0.72   49.7  11.7   8.4   9.7  13.6   7.3   75.2  13.53
+  LeBron James 2011-12     23   983   4   43.8  1.00   43.8  -0.6  -0.6   7.4   8.9   8.9   59.6  10.73
+  LeBron James 2012-13     23   960   4   37.2  1.00   37.2  -2.6  -2.6   4.8   7.2   7.2   46.6   8.39
+  Michael Jordan 1987-88   10   427   2   43.7  0.51   22.3  -2.5  -1.3   3.6   8.9   2.3   26.8   4.83
+  Michael Jordan 1990-91   17   689   4   54.2  0.89   48.1   4.7   4.1   7.7  11.1   9.8   69.8  12.57
+  Hakeem Olajuwon 1993-94  23   989   4   35.2  1.00   35.2   4.2   4.2   4.7   6.6   6.6   50.7   9.13
+  Hakeem Olajuwon 1994-95  22   929   4   21.9  1.00   21.9  -0.8  -0.8   1.4   0.0   0.0   22.5   4.06
+  Nikola Jokic 2022-23     20   789   4   45.3  0.97   44.0  -0.3  -0.3   6.5   9.2   9.0   59.1  10.64
+  Kawhi Leonard 2018-19    24   939   4   40.9  1.00   40.9   7.6   7.6   6.3   8.2   8.2   63.0  11.34
+  Dirk Nowitzki 2010-11    21   826   4   29.9  0.99   29.6   1.3   1.3   3.2   4.5   4.5   38.6   6.94
+  Jimmy Butler 2019-20     21   806   4   21.1  0.98   20.6   0.2   0.2   0.8   0.0   0.0   21.6   3.88
+  Jimmy Butler 2022-23     22   874   4   17.5  1.00   17.5  -3.9  -3.9   0.1   0.0   0.0   13.8   2.48
+  Stephen Curry 2015-16    18   614   4   23.4  0.87   20.4  -6.0  -5.2   1.3   0.0   0.0   16.4   2.96
+  Shaquille O'Neal 1999-00 23  1000   4   34.4  1.00   34.4  -2.2  -2.2   4.5   6.3   6.3   43.0   7.74
+  Kevin Garnett 2003-04    18   783   3   18.8  0.89   16.7  -5.4  -4.8   0.4   0.0   0.0   12.2   2.20
+
+  Each season reconciles: adjL + eAdj + deep + domF = PERF.
+  The dominance term is BOTH diminishing (a square-root curve on the
+  level above 50) AND reliability-shrunk (a short Conference-Finals run
+  earns only a partial bonus), so an extreme rate stat over a short run
+  no longer overpowers a complete Finals-length championship season.
+
+==============================================================================
+POSTSEASON CORRECTION -- BEFORE / AFTER
+OLD = open-ended linear dominance booster (+0.30 per level point > 50);
+NEW = diminishing-return, reliability-shrunk dominance + sample-shrunk level.
+==============================================================================
+
+  player / season           oldPO  newPO  owPO  nwPO   oPrR   nPrR  oRnk  nRnk
+  LeBron James 2008-09      106.4   75.2  19.2  13.5   87.8   82.2     1     2
+  LeBron James 2011-12       56.3   59.6  10.1  10.7   76.4   77.0     8     5
+  LeBron James 2012-13       43.1   46.6   7.8   8.4   80.6   81.2     4     3
+  Michael Jordan 1987-88     48.9   26.8   8.8   4.8   83.9   79.9     3     4
+  Michael Jordan 1990-91     77.3   69.8  13.9  12.6   87.3   85.9     2     1
+  Hakeem Olajuwon 1993-94    47.2   50.7   8.5   9.1   67.3   68.0    22    18
+  Hakeem Olajuwon 1994-95    22.6   22.5   4.1   4.1   47.2   47.2   146   138
+  Nikola Jokic 2022-23       58.3   59.1  10.5  10.6   74.8   75.0    10    10
+  Kawhi Leonard 2018-19      59.6   63.0  10.7  11.3   54.7   55.3    82    77
+  Dirk Nowitzki 2010-11      36.1   38.6   6.5   6.9   47.2   47.6   145   130
+  Jimmy Butler 2019-20       22.1   21.6   4.0   3.9   33.8   33.7   419   405
+  Jimmy Butler 2022-23       13.8   13.8   2.5   2.5   46.2   46.2   154   146
+  Stephen Curry 2015-16      18.9   16.4   3.4   3.0   74.7   74.3    11    12
+  Shaquille O'Neal 1999-00   39.6   43.0   7.1   7.7   74.6   75.2    12     9
+  Kevin Garnett 2003-04      13.8   12.2   2.5   2.2   62.2   61.9    41    39
+  (owPO/nwPO = old/new weighted postseason contribution; oRnk/nRnk =
+   the season's rank in the single-season Prime leaderboard, old vs new.)
+
+  Best SINGLE-SEASON Prime (completed), old vs new:
+    LeBron James     OLD 2008-09 (prime 97.8)  ->  NEW 2008-09 (prime 96.1)
+    Michael Jordan   OLD 1990-91 (prime 97.7)  ->  NEW 1990-91 (prime 97.3)
+
+  Hakeem vs Robinson best-3-year Prime peak (rank-weighted, calibrated
+  prime_score; the fixed-window RAW bridge is in PART 2):
+    Hakeem Olajuwon  OLD 87.98 (1992-93-1994-95)  ->  NEW 87.58 (1992-93-1994-95)
+    David Robinson   OLD 88.32 (1993-94-1995-96)  ->  NEW 88.12 (1993-94-1995-96)
+    -> NEW model: Robinson leads by 0.53 (transparent, not forced).
+
+  TOP-25 (best-3-year Prime) membership changes:
+    (no change in top-25 membership; only intra-list reordering)
+
+  Largest RISERS (best-3-year Prime rank improved):
+    John Salmons             #447 -> #423  (+24)
+    Tyler Herro              #440 -> #422  (+18)
+    Doug Christie            #224 -> #207  (+17)
+    Mo Williams              #296 -> #281  (+15)
+    Christian Laettner       #248 -> #233  (+15)
+    Bruce Bowen              #453 -> #438  (+15)
+    Dale Ellis               #185 -> #170  (+15)
+    Tobias Harris            #276 -> #263  (+13)
+    Joe Johnson              #279 -> #267  (+12)
+    Anthony Parker           #441 -> #430  (+11)
+  Largest FALLERS (best-3-year Prime rank dropped):
+    Dennis Schroder          #429 -> #454  (-25)
+    Jameer Nelson            #316 -> #338  (-22)
+    Chris Morris             #321 -> #340  (-19)
+    Antonio Davis            #417 -> #436  (-19)
+    Devin Booker             # 80 -> # 98  (-18)
+    Scottie Barnes           #167 -> #184  (-17)
+    Chuck Person             #423 -> #440  (-17)
+    Jason Richardson         #217 -> #234  (-17)
+    Trevor Ariza             #346 -> #363  (-17)
+    Aaron Gordon             #306 -> #322  (-16)
 
 ==============================================================================
 POSTSEASON-WEIGHT SENSITIVITY AUDIT (item 4)
@@ -1344,70 +1465,70 @@ Ranks are among all qualified COMPLETED seasons / 3-year peaks.
 
   Hakeem Olajuwon vs David Robinson best peaks (rank-weighted raw):
      w_po    Hakeem 3yr    Robinson 3yr     gap    Hakeem 5yr    Robinson 5yr     gap
-      12%         63.55           65.19   -1.64         57.29           61.80   -4.51
-      15%         62.80           63.12   -0.31         56.65           59.89   -3.24
-      18%         62.06           61.05    1.01         56.00           57.98   -1.98
+      12%         63.11           64.96   -1.85         56.74           61.50   -4.76
+      15%         62.25           62.83   -0.58         55.96           59.52   -3.56
+      18%         61.39           60.70    0.69         55.18           57.53   -2.35
     (positive gap = Hakeem ahead; not forced either way)
 
   Single-season Prime rank (of 4833 qualified seasons):
                         season     12%     15%     18%
-         Dirk Nowitzki 2010-11    #159    #151    #145
-         Kawhi Leonard 2018-19    #105     #93     #82
-          Jimmy Butler 2019-20    #452    #441    #419
-          Jimmy Butler 2022-23    #150    #153    #154
-         Jalen Brunson 2025-26    #454    #452    #442
-         Stephen Curry 2015-16      #7      #9     #11
+         Dirk Nowitzki 2010-11    #151    #141    #130
+         Kawhi Leonard 2018-19     #98     #86     #77
+          Jimmy Butler 2019-20    #443    #425    #405
+          Jimmy Butler 2022-23    #146    #147    #146
+         Jalen Brunson 2025-26    #447    #438    #431
+         Stephen Curry 2015-16      #6      #8     #12
 
   Top-25 leaderboard by best 3-year Prime peak (at 18%):
       # player                      peak   rank@12% rank@15%
-      1 Michael Jordan             82.64         #1       #1
-      2 LeBron James               78.14         #2       #2
-      3 Nikola Jokic               73.34         #3       #3
-      4 Giannis Antetokounmpo      67.86         #4       #4
-      5 Stephen Curry              67.81         #5       #5
-      6 Shaquille O'Neal           67.45         #7       #7
-      7 Shai Gilgeous-Alexander    66.92         #6       #6
-      8 Tim Duncan                 64.03        #10       #8
-      9 Kevin Durant               62.69         #8       #9
-     10 Hakeem Olajuwon            62.06        #12      #11
-     11 James Harden               61.38        #11      #12
-     12 David Robinson             61.05         #9      #10
-     13 Larry Bird                 60.13        #14      #13
-     14 Magic Johnson              59.86        #13      #14
-     15 Kawhi Leonard              58.90        #16      #15
-     16 Karl Malone                55.80        #15      #16
-     17 Kevin Garnett              55.60        #17      #17
-     18 Chris Paul                 54.68        #19      #18
-     19 Dwight Howard              54.13        #20      #20
-     20 Dwyane Wade                53.54        #21      #21
-     21 Joel Embiid                53.52        #18      #19
-     22 Charles Barkley            53.19        #22      #22
-     23 Kobe Bryant                53.17        #25      #24
-     24 Russell Westbrook          52.91        #23      #23
-     25 Kareem Abdul-Jabbar        52.76        #26      #26
+      1 Michael Jordan             80.84         #1       #1
+      2 LeBron James               77.49         #2       #2
+      3 Nikola Jokic               71.66         #3       #3
+      4 Shaquille O'Neal           67.63         #7       #5
+      5 Stephen Curry              67.55         #4       #4
+      6 Giannis Antetokounmpo      66.73         #6       #6
+      7 Shai Gilgeous-Alexander    66.35         #5       #7
+      8 Tim Duncan                 62.70        #10       #9
+      9 Kevin Durant               61.90         #8       #8
+     10 Hakeem Olajuwon            61.39        #11      #11
+     11 David Robinson             60.70         #9      #10
+     12 Larry Bird                 60.39        #13      #13
+     13 James Harden               59.83        #12      #12
+     14 Magic Johnson              59.48        #14      #14
+     15 Karl Malone                55.73        #15      #15
+     16 Kawhi Leonard              55.32        #18      #17
+     17 Kevin Garnett              55.23        #16      #16
+     18 Dwight Howard              53.83        #20      #19
+     19 Joel Embiid                53.60        #17      #18
+     20 Kobe Bryant                53.48        #24      #22
+     21 Dirk Nowitzki              52.99        #21      #21
+     22 Chris Paul                 52.94        #19      #20
+     23 Russell Westbrook          52.22        #22      #23
+     24 Dwyane Wade                52.16        #23      #24
+     25 Kareem Abdul-Jabbar        51.95        #26      #26
 
   Largest RISERS as postseason weight goes 12% -> 18% (rank improvement, top-120 pool):
-    Devin Booker               #96   -> #80   (+16)
-    Deron Williams             #91   -> #79   (+12)
-    Derrick Coleman            #129  -> #120  (+9)
-    Jeff Hornacek              #123  -> #116  (+7)
-    Reggie Miller              #57   -> #51   (+6)
-    Shawn Kemp                 #68   -> #62   (+6)
-    Anthony Edwards            #97   -> #91   (+6)
-    Horace Grant               #118  -> #113  (+5)
-    Cedric Maxwell             #103  -> #98   (+5)
-    Dikembe Mutombo            #86   -> #81   (+5)
+    Pau Gasol                  #70   -> #61   (+9)
+    Shawn Kemp                 #66   -> #60   (+6)
+    Anthony Edwards            #99   -> #93   (+6)
+    Jeff Hornacek              #125  -> #119  (+6)
+    Cedric Maxwell             #106  -> #101  (+5)
+    Deron Williams             #97   -> #92   (+5)
+    Reggie Miller              #58   -> #53   (+5)
+    Kobe Bryant                #24   -> #20   (+4)
+    Draymond Green             #68   -> #64   (+4)
+    Marques Johnson            #89   -> #85   (+4)
   Largest FALLERS as postseason weight goes 12% -> 18%:
-    Mark Price                 #60   -> #69   (-9)
-    Dennis Rodman              #120  -> #129  (-9)
-    Dominique Wilkins          #66   -> #75   (-9)
-    Tim Hardaway               #80   -> #86   (-6)
-    Paul George                #81   -> #87   (-6)
-    Peja Stojakovic            #93   -> #99   (-6)
-    DeMarcus Cousins           #102  -> #107  (-5)
-    Kyrie Irving               #77   -> #82   (-5)
-    Karl-Anthony Towns         #69   -> #74   (-5)
-    Mookie Blaylock            #112  -> #117  (-5)
+    Dominique Wilkins          #61   -> #70   (-9)
+    Karl-Anthony Towns         #65   -> #71   (-6)
+    Peja Stojakovic            #92   -> #97   (-5)
+    Vince Carter               #64   -> #69   (-5)
+    Chris Webber               #59   -> #63   (-4)
+    Dennis Rodman              #119  -> #123  (-4)
+    Alex English               #94   -> #98   (-4)
+    Kyle Lowry                 #87   -> #90   (-3)
+    Mitch Richmond             #111  -> #114  (-3)
+    Brandon Roy                #93   -> #96   (-3)
 
   CHOSEN WEIGHT: 18% (per brief). The sweep 12% -> 15% -> 18% shows
   graceful, monotone movement -- elite individual playoff peaks (Hakeem,
@@ -1421,31 +1542,31 @@ all qualified completed players; provisional excluded
 ==============================================================================
 
     # player                     3yr Prime  span
-    1 Michael Jordan                 95.84  1988-89-1990-91
-    2 LeBron James                   93.87  2011-12-2013-14
-    3 Nikola Jokic                   92.85  2021-22-2023-24
-    4 Giannis Antetokounmpo          90.87  2018-19-2020-21
-    5 Shaquille O'Neal               90.17  1999-00-2001-02
-    6 Shai Gilgeous-Alexander        89.81  2023-24-2025-26
-    7 Stephen Curry                  89.60  2014-15-2016-17
-    8 James Harden                   88.36  2017-18-2019-20
-    9 Kevin Durant                   88.34  2011-12-2013-14
-   10 David Robinson                 88.14  1993-94-1995-96
-   11 Tim Duncan                     87.83  2001-02-2003-04
-   12 Larry Bird                     87.16  1983-84-1985-86
-   13 Hakeem Olajuwon                86.89  1992-93-1994-95
-   14 Magic Johnson                  86.67  1988-89-1990-91
-   15 Karl Malone                    84.28  1996-97-1998-99
-   16 Dwight Howard                  83.51  2008-09-2010-11
-   17 Kevin Garnett                  83.44  2002-03-2004-05
-   18 Chris Paul                     83.41  2012-13-2014-15
-   19 Kawhi Leonard                  83.26  2014-15-2016-17
-   20 Joel Embiid                    83.01  2020-21-2022-23
-   21 Charles Barkley                82.54  1988-89-1990-91
-   22 Dwyane Wade                    82.54  2008-09-2010-11
-   23 Kobe Bryant                    82.27  2006-07-2008-09
-   24 Russell Westbrook              81.47  2014-15-2016-17
-   25 Dirk Nowitzki                  81.37  2004-05-2006-07
+    1 Michael Jordan                 95.22  1988-89-1990-91
+    2 LeBron James                   94.01  2011-12-2013-14
+    3 Nikola Jokic                   92.13  2021-22-2023-24
+    4 Giannis Antetokounmpo          90.50  2018-19-2020-21
+    5 Shaquille O'Neal               90.24  1999-00-2001-02
+    6 Stephen Curry                  89.39  2014-15-2016-17
+    7 Shai Gilgeous-Alexander        89.36  2023-24-2025-26
+    8 Kevin Durant                   88.06  2011-12-2013-14
+    9 David Robinson                 87.86  1993-94-1995-96
+   10 James Harden                   87.36  2017-18-2019-20
+   11 Larry Bird                     87.26  1983-84-1985-86
+   12 Tim Duncan                     86.97  2001-02-2003-04
+   13 Hakeem Olajuwon                86.44  1992-93-1994-95
+   14 Magic Johnson                  85.98  1988-89-1990-91
+   15 Karl Malone                    84.21  1996-97-1998-99
+   16 Dwight Howard                  83.18  2008-09-2010-11
+   17 Kevin Garnett                  83.15  2002-03-2004-05
+   18 Joel Embiid                    82.88  2020-21-2022-23
+   19 Kobe Bryant                    82.36  2006-07-2008-09
+   20 Chris Paul                     81.77  2012-13-2014-15
+   21 Kawhi Leonard                  81.77  2014-15-2016-17
+   22 Dirk Nowitzki                  81.69  2004-05-2006-07
+   23 Dwyane Wade                    81.68  2008-09-2010-11
+   24 Charles Barkley                81.54  1988-89-1990-91
+   25 Russell Westbrook              81.01  2014-15-2016-17
 
 ==============================================================================
 LARGEST RISERS / FALLERS vs the PRIOR 41/23/15/18/3 model
@@ -1453,31 +1574,31 @@ LARGEST RISERS / FALLERS vs the PRIOR 41/23/15/18/3 model
 ==============================================================================
 
   RISERS (more recognition weight helps decorated peaks):
-    Ben Wallace                #72   -> #56   (+16)
-    Dennis Rodman              #141  -> #129  (+12)
-    Isiah Thomas               #71   -> #59   (+12)
-    Dikembe Mutombo            #92   -> #81   (+11)
-    Draymond Green             #74   -> #64   (+10)
-    Alvin Robertson            #129  -> #121  (+8)
-    Joakim Noah                #103  -> #95   (+8)
-    Jason Kidd                 #63   -> #55   (+8)
-    Marc Gasol                 #90   -> #83   (+7)
-    Fat Lever                  #117  -> #110  (+7)
-    DeAndre Jordan             #84   -> #77   (+7)
-    Gus Williams               #111  -> #105  (+6)
+    Ben Wallace                #70   -> #55   (+15)
+    Dennis Rodman              #136  -> #123  (+13)
+    Alvin Robertson            #130  -> #118  (+12)
+    Joakim Noah                #102  -> #91   (+11)
+    Draymond Green             #75   -> #64   (+11)
+    Rajon Rondo                #132  -> #121  (+11)
+    Dikembe Mutombo            #98   -> #89   (+9)
+    Gus Williams               #117  -> #108  (+9)
+    Isiah Thomas               #73   -> #65   (+8)
+    Eddie Jones                #118  -> #110  (+8)
+    Derrick Rose               #103  -> #95   (+8)
+    Fat Lever                  #116  -> #109  (+7)
   FALLERS (purely statistical peaks ease back):
-    Kevin Love                 #78   -> #88   (-10)
-    Ray Allen                  #59   -> #68   (-9)
-    Artis Gilmore              #76   -> #85   (-9)
-    Karl-Anthony Towns         #65   -> #74   (-9)
-    Gordon Hayward             #124  -> #132  (-8)
-    Yao Ming                   #86   -> #93   (-7)
-    Kyrie Irving               #75   -> #82   (-7)
-    Doc Rivers                 #126  -> #133  (-7)
-    Pau Gasol                  #60   -> #67   (-7)
-    Kiki Vandeweghe            #120  -> #126  (-6)
-    Tyrese Haliburton          #58   -> #63   (-5)
-    Trae Young                 #101  -> #106  (-5)
+    Karl-Anthony Towns         #62   -> #71   (-9)
+    Gordon Hayward             #123  -> #132  (-9)
+    Terrell Brandon            #92   -> #100  (-8)
+    Detlef Schrempf            #129  -> #136  (-7)
+    Tyrese Haliburton          #59   -> #66   (-7)
+    Doc Rivers                 #128  -> #135  (-7)
+    Ray Allen                  #60   -> #67   (-7)
+    Kiki Vandeweghe            #119  -> #125  (-6)
+    Chris Bosh                 #109  -> #115  (-6)
+    Artis Gilmore              #78   -> #84   (-6)
+    Nikola Vucevic             #110  -> #116  (-6)
+    Chris Mullin               #81   -> #87   (-6)
 
 ==============================================================================
 FINALS MVP INFLUENCE AUDIT (item 3): magnitude across 3- and 5-year peaks
@@ -1486,11 +1607,11 @@ Finals MVP lives ONLY in Individual Recognition (+20 raw recog before the
 ==============================================================================
 
   player / span               FMVPs    recog contrib (span)  3yr Prime  5yr Prime
-  Hakeem Olajuwon 92-95           2                   46.72      87.98      83.49
-  David Robinson 93-96            0                   39.44      88.32      86.06
-  Shaquille O'Neal 99-02          3                   40.64      90.78      88.02
-  LeBron James 11-14              2                   46.48      94.46      94.49
-  Nikola Jokic 21-24              1                   33.28      93.07      92.28
+  Hakeem Olajuwon 92-95           2                   46.72      87.58      82.90
+  David Robinson 93-96            0                   39.44      88.12      85.73
+  Shaquille O'Neal 99-02          3                   40.64      90.84      87.69
+  LeBron James 11-14              2                   46.48      94.45      93.84
+  Nikola Jokic 21-24              1                   33.28      92.43      91.59
 
   Finals MVP is meaningful but bounded: within a 3-year peak it can
   add up to ~2.4 prime_raw per Finals-MVP season through Recognition,
@@ -1544,7 +1665,7 @@ RAW component values (the per-season component scale):
   Statistical Impact              -19.12    3.81   24.98   58.98  102.68   27.33   17.12
   Traditional Production            2.56    6.60   17.97   42.66   75.30   20.45   11.29
   Individual Recognition            0.00    0.00    0.00   38.40  106.80    5.96   13.71
-  Postseason Individual Value     -14.00  -12.55    0.00   20.29  106.44    0.69   10.52
+  Postseason Individual Value     -14.00   -8.68    0.00   14.51   85.84    0.59    8.30
   Team Achievement                  0.00    0.00    0.00   55.00  100.00   12.81   21.66
 
 WEIGHTED contributions to prime_raw (value x stated weight):
@@ -1552,7 +1673,7 @@ WEIGHTED contributions to prime_raw (value x stated weight):
   Statistical Impact (0.38)        -7.27    1.45    9.49   22.41   39.02   10.39    6.50
   Traditional Production (0.21)     0.54    1.39    3.77    8.96   15.81    4.29    2.37
   Individual Recognition (0.20)     0.00    0.00    0.00    7.68   21.36    1.19    2.74
-  Postseason Individual Value (0.18)   -2.52   -2.26    0.00    3.65   19.16    0.12    1.89
+  Postseason Individual Value (0.18)   -2.52   -1.56    0.00    2.61   15.45    0.11    1.49
   Team Achievement (0.03)           0.00    0.00    0.00    1.65    3.00    0.38    0.65
 
 SCALE-CONSISTENCY ASSESSMENT:
@@ -1560,21 +1681,21 @@ SCALE-CONSISTENCY ASSESSMENT:
     Statistical Impact               55.17
     Traditional Production           36.06
     Individual Recognition           38.40
-    Postseason Individual Value      32.84
+    Postseason Individual Value      23.19
     Team Achievement                 55.00
   WEIGHTED p5..p95 spread (effective influence on prime_raw):
     Statistical Impact               20.97
     Traditional Production            7.57
     Individual Recognition            7.68
-    Postseason Individual Value       5.91
+    Postseason Individual Value       4.17
     Team Achievement                  1.65
 
   Effective influence share (weighted p5..p95 / total) vs nominal weight:
-    Statistical Impact              47.9%   (nominal 38%)
-    Traditional Production          17.3%   (nominal 21%)
-    Individual Recognition          17.5%   (nominal 20%)
-    Postseason Individual Value     13.5%   (nominal 18%)
-    Team Achievement                 3.8%   (nominal 3%)
+    Statistical Impact              49.9%   (nominal 38%)
+    Traditional Production          18.0%   (nominal 21%)
+    Individual Recognition          18.3%   (nominal 20%)
+    Postseason Individual Value      9.9%   (nominal 18%)
+    Team Achievement                 3.9%   (nominal 3%)
 
   Findings:
    * The official weights are Statistical Impact 38% / Traditional Production 21% / Recognition 20% / Postseason 18% / Team 3%. SI/TP/Recognition live on a broadly comparable ~0-110 raw scale; Recognition is zero for the many seasons without an award (additive bonus, by design).

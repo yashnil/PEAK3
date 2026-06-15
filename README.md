@@ -74,10 +74,12 @@ each is additive information, not duplication:
   additive and **overlap-discounted** (MVP↔All-NBA, DPOY↔All-Defense, All-Star
   subsumed) so no honor is counted twice.
 - **Postseason Individual Value (18%)** measures *actual on-court playoff
-  performance* from box/impact metrics (level + elevation + sustained volume +
-  convex dominance). A ring or deep run **by itself** does not create a large
-  boost — the player must have performed at an elite level and carried major
-  responsibility (see §6).
+  performance* from box/impact metrics (reliability-adjusted level + sample-
+  adjusted elevation + sustained volume + a diminishing, reliability-shrunk
+  dominance bonus). A ring or deep run **by itself** does not create a large
+  boost, and an extreme rate stat over a **short** run no longer dwarfs a complete
+  Finals-length season — the player must have performed at an elite level and
+  carried major responsibility over a real playoff sample (see §6).
 - **Team Achievement (3%)** measures *team results* with a small bounded weight,
   so a player is not credited heavily merely for being on a good team.
 
@@ -158,48 +160,67 @@ Recognition.**
 
 At 18% this is a **major** slice, so it is built to reward elite individual
 playoff performance — **not** winning. A purely individual, zero-baseline,
-additive value with three parts:
+additive value with four parts:
 
 ```
-postseason_individual_value = absolute_playoff_level
-                            + playoff_elevation
+postseason_individual_value = absolute_playoff_level   (reliability-adjusted)
+                            + playoff_elevation        (sample-adjusted)
                             + sustained_elite_volume
+                            + dominance_bonus          (diminishing, reliability-shrunk)
 ```
+
+**Playoff-sample reliability governs the upper tail.** One confidence signal
+`sample_reliab ∈ [0,1]` measures *how much* playoff basketball the rate stats were
+observed over — **minutes**, **games**, and **series/rounds reached**
+(`0.40·min/850 + 0.35·games/19 + 0.25·series/4`). Series count is a **sample**
+signal only (how many rounds the rates survived), never points for advancement.
+It shrinks the level, the elevation, and especially the dominance bonus, so an
+extreme rate stat over a *short* run cannot dwarf a complete Finals-length run.
 
 **absolute_playoff_level** — raw playoff quality across all skills: BPM/WS48/PER
 rate, scoring volume, efficiency, playmaking, rebounding, box defense, and
 minutes, opponent-quality adjusted, centered on a replacement baseline
-(`PO_BASELINE = 25`). The curve is **nonlinear**: ordinary play is a small
-contribution, good is moderate, elite is substantial, and a **convex dominance
-booster** (`+0.30` per point of level above a high knee) makes a *historically
-dominant* run **exceptional**. Excellent play adds, poor play is a small bounded
-penalty (downside floored once at `−14`). A ring/Finals/deep run **by itself**
-does not produce a large level. Round reached is **not** rewarded.
+(`PO_BASELINE = 25`). This is **linear in level** (the convex bonus is a separate
+term, so an extreme level is never rewarded twice) and is then **shrunk by
+`sample_reliab`** → the *reliability-adjusted level*. Excellent play adds, poor
+play is a small bounded penalty (downside floored once at `−14`). A ring/Finals/
+deep run **by itself** does not produce a large level; round reached is **not**
+rewarded.
 
 **playoff_elevation** — `playoff rate impact − regular-season rate impact`, using
 the identical rate formula for both. Gains are rewarded in full; a **decline from
 an extreme regular-season baseline is damped (×0.35)** and bounded (≤ +14, ≥ −6),
-and shrunk toward 0 on small samples. Elevation **supplements** absolute level;
-it never replaces it. A historic regular season with a modest playoff dip does
-**not** collapse; a player who is clearly better in the playoffs (e.g. a Jokić
-who elevates) gains meaningful value even without a title.
+then **shrunk by the same `sample_reliab`**. Elevation **supplements** absolute
+level; it never replaces it. LeBron 2008-09 still earns major elevation credit; a
+Jokić who elevates gains value even without a title — but improvement measured
+over a short sample is no longer over-trusted.
 
-**sustained_elite_volume** — elite per-minute quality **sustained over real
-playoff minutes** (a proxy for surviving multiple series), scaled by **best-player
-responsibility**. Responsibility is derived purely from the **playoff usage
-burden** (floor `0.55`, cap `1.12`): a primary creator carrying a deep run earns
-full credit; a low-usage role player earns little even with a ring. It requires
-quality **and** minutes **and** responsibility, is floored at 0, and is never an
-automatic reward for the team advancing. Finals MVP and clear-best-player status
-only **validate** that these metrics found the right player — their points are
-never duplicated here.
+**sustained_elite_volume** — elite per-minute quality **accumulated over real
+playoff minutes *and* games** (`0.5·min/950 + 0.5·games/21`, uncapped below a
+Finals-length run), scaled by **best-player responsibility** from the **playoff
+usage burden** (floor `0.55`, cap `1.12`). At equal rates, elite play sustained
+through *more* rounds earns more than a shorter run — the extra value comes from
+sustaining elite play, never from advancing. Requires quality **and** volume
+**and** responsibility; floored at 0.
 
-**Reliability & no-double-counting.** Availability is counted **once**, through a
-minutes-reliability factor `clip(po_mp/450, 0, 1)` that shrinks the rate-quality
-terms toward 0 on small/injury samples; missed games are never penalized twice.
-**No playoffs (or zero playoff minutes) = exactly 0.** Championships, round
+**dominance_bonus** — the exceptional residual of the level above an elite knee
+(`50`), through a **saturating square-root curve** (`PO_DOMINANCE_SCALE·√(level−50)`)
+that **replaces the old open-ended `+0.30 per point` linear booster**. Level 50
+earns 0, 60 is meaningful, 75 larger, 90 exceptional, and the curve flattens so it
+never explodes at the top. It is then **shrunk by `sample_reliab` with an extra
+series gate**, so a short Conference-Finals run with extreme rates earns only a
+*partial* historical-dominance bonus; the full bonus is reserved for elite play
+sustained through the deepest runs.
+
+**Reliability & no-double-counting.** The four terms read **different signals**
+(how good / improvement / how much / exceptional top), so the same extreme
+BPM/PER/WS48 is not counted multiple times; availability is counted **once**.
+**No playoffs (or zero playoff minutes) = exactly 0.** Finals MVP and clear-best-
+player status only **validate** the metric and add no points; championships, round
 reached, and Finals MVP do **not** enter here (they live in Team Achievement and
-Recognition respectively).
+Recognition respectively). *Net effect:* a short extreme run (LeBron 2008-09,
+~106 → ~75) no longer overpowers complete championship seasons, and the
+single-season Prime crown passes to a complete Finals-length run (Jordan 1990-91).
 
 ---
 
@@ -288,7 +309,8 @@ The model rewards real value through whichever channel a player provides it:
 - **Dominant regular-season engines** (Jordan, LeBron, Jokić) win on Statistical
   Impact + Traditional Production.
 - **Playoff elevators** (Hakeem's title runs, Kawhi 2019, Dirk 2011) gain through
-  Postseason level + elevation + sustained-volume — now a major 18% slice.
+  Postseason level + elevation + sustained-volume + dominance — now a major 18%
+  slice, with the dominance bonus diminishing and shrunk by the playoff sample.
 - **Pure scorers** (Dantley, English) score on Traditional Production.
 - **Defensive anchors / rebound specialists** (Ben Wallace, Rodman, Mutombo)
   reach high marks through DBPM/stocks and rebounding hinges plus All-Defense
