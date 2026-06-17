@@ -1918,6 +1918,25 @@ def main():
     (ROOT / "FIVE_PLAYER_PRIME_AUDIT.md").write_text(
         fpa.render_markdown(audit), encoding="utf-8")
 
+    # 2025-26 completed-season completeness audit + guard.
+    from nba_peak import season_completeness as scomp
+    scomp.assert_no_silent_missing(s, 2026)
+    scomp.write_report(s, ROOT / "reports", 2026)
+    out += [""] + scomp.summary_lines(s, 2026) + [""]
+
+    # Specialist & postseason sanity audit (compact); full report is the .md.
+    from nba_peak import specialist_postseason_audit as spa
+    out += spa.render_compact(s)
+    spa.build_reports(s, ROOT)
+
+    # Canonical top-250 Prime leaderboards (1/2/3/5-year) + cross-duration
+    # comparison + 2-year validation. Detailed decompositions live in
+    # leaderboards/*.csv and leaderboards/*.md.
+    from nba_peak import leaderboards as lbs
+    lb_res = lbs.generate_all(s, top=250, write=True)
+    out += [""] + lbs.render_outputs_section(lb_res, top=250)
+    out += lbs.render_validation_section(s)
+
     (ROOT / "outputs.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
     print(f"Wrote outputs.txt ({len(out)} lines)")
     lb = write_leaderboards(s)

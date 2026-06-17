@@ -342,26 +342,44 @@ These invariants are enforced by tests (see §13).
 
 ---
 
-## 10. Single-season, 3-year, 5-year, N-year peaks
+## 10. Single-season, 2-year, 3-year, 5-year, N-year peaks
 
-- A **single season** must clear a workload bar (≈1800 minutes scaled, ≥28 MPG,
-  ≥60% of team games) to be `workload_qualified`.
-- An **N-year window** is N *consecutive completed* seasons. The window score is
-  rank-weighted (best season weighted most) with a documented minimum-weight
-  floor — for 3-year the default is `0.40·best + 0.35·second + 0.25·third`
-  (`--window-weighting equal` averages instead).
-- **5-year peaks** (`best 5-year Performance-Only peak`, `best 5-year Prime peak`)
-  use the same framework via `n_year_windows(n=5)`.
+- A player's **N-year Prime** is the best **consecutive completed** N-season
+  window. Aggregation is **raw-before-calibration**: each season's `prime_raw` is
+  rank-weighted with `nyear_weights(N)` (best season weighted most, with a
+  documented minimum-weight floor), summed to one aggregated **raw** window score,
+  and then calibrated **once**. Calibrated display scores are **never** averaged.
+- The canonical rank weights (used by `--years N` and every top-250 leaderboard):
+
+  | N | rank weights (best → worst) |
+  |---|---|
+  | 1 | `[1.000]` |
+  | 2 | `[0.667, 0.333]` |
+  | 3 | `[0.500, 0.333, 0.167]` |
+  | 5 | `[0.323, 0.258, 0.194, 0.129, 0.097]` |
+
+  The **two-year** weights are the *same* rank-weight system at N=2
+  (`[2,1]/3 = [0.667, 0.333]`), **not** a separate 60/40 rule — so 2-year Prime is
+  a clean interpolation between the single-season apex and sustained 3-year play
+  (the best 2-year raw never exceeds the best single-season raw).
 - Every window's score **decomposes exactly** into the five weighted component
-  contributions (they sum to the rank-weighted raw window score).
+  contributions plus the teammate adjustment (they sum to the rank-weighted raw
+  window score).
+- Canonical **top-250 leaderboards** for all four durations are written under
+  `leaderboards/` (CSV + Markdown) plus a cross-duration comparison; see
+  §12. They use the 250-player universe in
+  `data/generated/final_250_candidates.csv`.
 
 ### Provisional seasons
 A season is **provisional** (incomplete) unless a broad set of rotation players
 have played a near-full schedule — specifically until the **90th-percentile**
 rotation games-fraction reaches `0.90` (not when a single iron-man hits the game
 count). Provisional seasons may appear in career tables but are **excluded** from
-official single-season, 3-year, 5-year, N-year, and leaderboard results
-(`--include-provisional` opts in).
+official single-season, 2-/3-/5-/N-year, and leaderboard results
+(`--include-provisional` opts in). The **2025-26** season is **complete** (not
+provisional): it passes the field-by-field completeness checks in
+`nba_peak/season_completeness.py`, and the rebuild **fails** rather than letting a
+2025-26 season with a silently-missing required field enter a leaderboard.
 
 ---
 
@@ -408,6 +426,18 @@ python peak3.py --player "Stephen Curry" --years 5
 python peak3.py --top 25 --mode legacy
 python peak3.py --top-seasons 25            # best single seasons (provisional excluded)
 
+# canonical top-250 Prime leaderboards (offline, deterministic, 250-player universe)
+python peak3.py --leaderboard --years 1 --top 250 --no-scrape
+python peak3.py --leaderboard --years 2 --top 250 --no-scrape
+python peak3.py --leaderboard --years 3 --top 250 --no-scrape
+python peak3.py --leaderboard --years 5 --top 250 --no-scrape
+python peak3.py --leaderboard-all --top 250 --no-scrape   # all 4 + cross-duration comparison
+#   -> writes leaderboards/top_250_{1,2,3,5}_year_prime.{csv,md}
+#      and leaderboards/top_250_prime_comparison.{csv,md}
+
+# regenerate every deliverable (outputs.txt, reports/, leaderboards/, results/)
+python make_outputs.py
+
 # compare seasons / players (writes an audit under results/)
 python peak3.py --compare-seasons "Stephen Curry" 2015 2016 --trace-formula
 python peak3.py --compare-players "Hakeem Olajuwon" "David Robinson"
@@ -427,6 +457,10 @@ python peak3.py --refresh                            # re-download, then rebuild
 `--top-seasons N`, `--best-season`, `--best-window`, `--window-weighting
 {weighted,equal}`, `--sensitivity`, `--export PATH`, `--include-provisional`,
 `--season YEAR`, `--trace-formula`.
+
+**Leaderboards:** `--leaderboard --years {1,2,3,5} [--top N]`,
+`--leaderboard-all [--top N]` (offline; uses the canonical 250-player universe;
+writes `leaderboards/`).
 
 **Compare:** `--compare-seasons PLAYER S1 S2`, `--compare-players A B`.
 
@@ -448,21 +482,27 @@ python peak3.py --refresh                            # re-download, then rebuild
 
 ## 13. Tests
 
-All offline (no network):
+All offline (no network). Run the whole suite with:
 
 ```bash
-.venv/bin/python tests/test_peak3.py       # I/O, windows, parsing
-.venv/bin/python tests/test_context.py     # context derivation + window reconciliation
-.venv/bin/python tests/test_scoring.py     # component invariants
-.venv/bin/python tests/test_validation.py  # data-supported relationships on the built cache
-.venv/bin/python tests/test_corrections.py # zero baselines, postseason, weights, no-double-count
+pytest                       # currently 174 passing
 ```
 
-`test_corrections.py` proves, among others: the 43/24/18/12/3 weights reconcile
-exactly in single-season, 3-year and 5-year windows; the 2025-26 Brunson context
-is correct; Finals MVP appears only in Recognition; championship appears only in
+Key files: `test_peak3.py` (I/O, windows, parsing), `test_context.py` (context +
+window reconciliation), `test_scoring.py` (component invariants),
+`test_validation.py` (data-supported relationships on the built cache),
+`test_corrections.py` (zero baselines, postseason, weights, no-double-count),
+`test_specialist_postseason_audit.py` (2025-26 completeness guard + bounded
+elevation safeguard), and `test_leaderboards.py` (canonical 250-player universe,
+consecutive-window sizes, raw-before-calibration, determinism, cross-duration
+reconciliation).
+
+The suite proves, among others: the **38/21/20/18/3** official weights reconcile
+exactly in single-season, 2-/3-/5-year windows; the 2025-26 Brunson Finals-MVP
+context is correct and counted only in Recognition; championship appears only in
 Team Achievement; playoff elevation affects Postseason only; no double counting;
-and provisional seasons cannot enter five-year peaks.
+provisional seasons cannot enter multi-year peaks; and the leaderboards are
+deterministic with no silently-missing required data.
 
 ---
 
@@ -502,6 +542,84 @@ slight Hakeem edge — **if the data supports it**, with neither player forced.
   values are treated as neutral, never fabricated.
 - Some official native scores are still stored under legacy `_pct` column names
   (used only for role labels, never the index); a full rename is deferred.
+- Coverage **begins in 1980**; pre-1980 seasons and the missing-data eras of early
+  tracking/defensive stats are out of scope.
+- The project classifies players by **role**, not basketball position; "Primary
+  position" in the comparison file is the model's modal role label.
+- Award voting reflects human and team-context biases; the model uses the **real**
+  vote shares but does not try to correct those biases.
+- Rankings are **model estimates**, not objective truth, and are sensitive to the
+  stated philosophical weights.
+
+---
+
+## 16. What the project produces
+
+- **Per-player Prime** at five durations: single-season, **2-year**, 3-year,
+  5-year, and any N-year window (1–10), each with a full five-component
+  decomposition.
+- **Performance-Only** outputs (individual on-court value, no awards/team).
+- **Canonical top-250 leaderboards** for 1/2/3/5-year Prime + a cross-duration
+  comparison, under `leaderboards/` (CSV + Markdown).
+- **Case-study, sensitivity, and audit reports** under `reports/` (five-player
+  prime audit, specialist & postseason audit, negative-postseason audit, etc.).
+- **Data-completeness reports** (e.g. `reports/season_2025_26_completeness.csv`).
+- A regenerated 25-player validation run + all leaderboards in `outputs.txt`.
+
+## 17. Methodological safeguards
+
+- **Real MVP/DPOY vote shares** (`data/generated/mvp_votes.csv`,
+  `dpoy_votes.csv`) drive Recognition; a documented smooth placement curve is used
+  only where a vote row is genuinely missing.
+- **Actual team scoring/assist shares** (`data/generated/team_shares.csv`) drive
+  the successful-burden residual — never USG%/AST% relabeled as team share (the
+  USG%/AST% proxy is a flagged fallback only).
+- **Missing data is never silently zero**: weighted-available renormalization and
+  explicit `*_data_status` flags keep absent fields from acting like real values;
+  the rebuild **fails** on a silently-missing required field in a completed season.
+- **Postseason sample reliability** (minutes × games × series) shrinks the whole
+  upper tail so a short hot run cannot dwarf a Finals-length one.
+- **Bounded postseason elevation safeguard**: a gated, monotonic floor keeps a
+  large negative elevation from reversing a clearly positive, well-sampled
+  absolute playoff level (it can only ever raise a score; ~0.2% of seasons).
+- **Smooth role-adjusted Team Achievement** (interpolated advancement × creation-
+  burden role multiplier; no 0/50/100 buckets).
+- **Raw-before-calibration** window aggregation (rank-weight raw, calibrate once).
+- **Completed-season checks** gate 2025-26; **deterministic offline rebuilds**.
+
+## 18. Repository structure
+
+| Path | Purpose |
+|---|---|
+| `peak3.py` | Core model, scoring, windows, calibration, CLI. |
+| `make_outputs.py` | Regenerates `outputs.txt`, `reports/`, `leaderboards/`, `results/`. |
+| `nba_peak/` | Supporting modules: `leaderboards.py` (canonical top-250), `season_completeness.py` (2025-26 guard), `specialist_postseason_audit.py`, `five_player_audit.py`, `candidates.py`, `context_build.py`, `integrity.py`, … |
+| `nba_peak/context/` | Context derivations (postseason, awards, stat titles, teammates). |
+| `data/generated/` | Canonical generated inputs: `final_250_candidates.csv` (player universe), `team_shares.csv`, `mvp_votes.csv`, `dpoy_votes.csv`, `player_season_context.parquet`. |
+| `data/` | Manual overrides (`manual_context.csv`), regression snapshots, examples. |
+| `cache/` | Scraped HTML + processed parquet (`scored_1980_2026.parquet`); rebuildable. |
+| `leaderboards/` | Canonical top-250 Prime leaderboards (1/2/3/5-year + comparison), CSV + MD — **release artifacts**. |
+| `reports/` | Audit/case-study/completeness CSVs + Markdown. |
+| `results/` | Legacy single-season/3-/5-year leaderboards + compare-audit dumps. |
+| `tests/` | Offline test suite (`pytest`). |
+| `outputs.txt` | Full regenerated validation report + canonical leaderboards. |
+| `METHODOLOGY.md`, `DATA_SOURCES.md`, `FORMULA_TEXT` (in `peak3.py`) | Methodology, provenance, printable formula. |
+| `cleanup_manifest.txt` | Record of deleted/retained files for release hygiene. |
+
+## 19. Reproducibility
+
+- **Supported coverage:** 1980 through the **completed 2025-26** season.
+- **First run** (needs cached source HTML, or scrapes it once): `python peak3.py
+  --refresh` downloads Basketball Reference, then builds and scores.
+- **Fully offline** thereafter: `python peak3.py --rebuild --no-scrape` re-parses
+  cached HTML and re-scores; `python peak3.py --leaderboard-all --no-scrape` and
+  `python make_outputs.py` regenerate every deliverable from the scored cache with
+  **no network access**.
+- **Deterministic:** identical inputs produce byte-identical leaderboards; ranking
+  uses unrounded raw scores with a documented tie-break (Prime raw ↓, Prime
+  display ↓, SI ↓, Postseason ↓, anchor season ↑, canonical player id ↑).
+- **Verify score identity:** `pytest` checks that the offline rebuild reproduces
+  the checked-in scores and that all component contributions reconcile exactly.
 
 See [`METHODOLOGY.md`](METHODOLOGY.md) for the complete derivation and
 [`outputs.txt`](outputs.txt) for a full regenerated validation run.

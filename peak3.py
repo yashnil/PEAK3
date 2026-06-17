@@ -1711,6 +1711,25 @@ PO_ELEV_SCALE = 0.55           # points of value per point of rate elevation
 PO_ELEV_DOWN_DAMP = 0.35       # decline from an extreme baseline is damped
 PO_ELEV_UP_CAP = 14.0          # max positive elevation value
 PO_ELEV_DOWN_CAP = 6.0         # max negative elevation value (small)
+# ---- ELEVATION-REVERSAL SAFEGUARD (bounded, gated, monotonic NON-DECREASING) ----
+# The postseason contract (docstring below) states that elevation SUPPLEMENTS
+# absolute quality and "does not replace it", and that "a slight decline from an
+# extreme regular-season baseline is damped, not heavily punished". The SPECIALIST
+# AND POSTSEASON AUDIT found that for a small, cross-era set of clearly valuable,
+# well-sampled playoff performers (e.g. McHale 1987, Manu 2008, Shaq 2006, Dirk
+# 2005, Nash 2003, KAT 2025, Parish 1981) a large negative elevation nonetheless
+# REVERSES a clearly positive, reliability-adjusted absolute level, flipping elite
+# individual playoff basketball into a NET-NEGATIVE postseason value -- which
+# contradicts that stated contract. The safeguard caps how much a negative
+# elevation can erode a clearly-positive, adequately-sampled level: elevation may
+# REDUCE but not REVERSE the level below a small retained fraction. It is gated on
+# the absolute level and the sample (archetype- and player-agnostic), can ONLY
+# raise a score (never lowers one, so no protected big can be penalized), adds NO
+# sixth component, and is bounded (single-season Prime-raw effect < ~0.6 pt).
+# The elevation term is NOT removed and scores are NOT floored at zero.
+PO_ELEV_GUARD_LEVEL = 1.0      # reliability-adjusted level must be clearly positive
+PO_ELEV_GUARD_RELIAB = 0.60    # AND the playoff sample must be adequate
+PO_ELEV_GUARD_FRACTION = 0.20  # >= this fraction of a positive level is retained
 
 # ---- PLAYOFF-SAMPLE RELIABILITY (minutes x games x series) ------------------
 # A SINGLE confidence signal, in [0, 1], built from how MUCH playoff basketball
@@ -1883,6 +1902,15 @@ def postseason_value(df: pd.DataFrame, has_po: pd.Series
     # SAMPLE-ADJUSTED ELEVATION (shrunk by the same playoff sample as the level,
     # so improvement measured over a short run is not over-trusted).
     elevation = elevation_raw * sample_reliab
+    # ELEVATION-REVERSAL SAFEGUARD: when the reliability-adjusted level is clearly
+    # positive AND the sample is adequate, a (already damped, capped, reliability-
+    # shrunk) negative elevation may REDUCE but not REVERSE the level below a small
+    # retained fraction. Flooring `elevation` (not the assembly) keeps the reported
+    # components reconciling exactly (level + elevation + deep_run + dominance).
+    # This only ever raises a value; it never lowers one and adds no new component.
+    elev_guard = (reliab_level >= PO_ELEV_GUARD_LEVEL) & (sample_reliab >= PO_ELEV_GUARD_RELIAB)
+    elev_floor = (PO_ELEV_GUARD_FRACTION - 1.0) * np.clip(reliab_level, 0.0, None)
+    elevation = np.where(elev_guard, np.maximum(elevation, elev_floor), elevation)
 
     # ---- (c) SUSTAINED ELITE VOLUME: elite quality x volume x responsibility --
     # Best-player RESPONSIBILITY from the playoff usage burden (data, not
@@ -2257,8 +2285,14 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
 def nyear_weights(n: int) -> List[float]:
     """
     Rank-weighted N-year weights (best season weighted most) with a documented
-    minimum-weight floor so weak seasons are never made nearly irrelevant.
-    N=1 -> [1.0]; N=3 -> ~[0.40, 0.35, 0.25] family.
+    minimum-weight floor so weak seasons are never made nearly irrelevant. This is
+    the CANONICAL N-year aggregation (used by --years and the top-250 leaderboards):
+        N=1 -> [1.000]
+        N=2 -> [0.667, 0.333]
+        N=3 -> [0.500, 0.333, 0.167]
+        N=5 -> [0.323, 0.258, 0.194, 0.129, 0.097]
+    The 2-year weights are this same rank-weight system evaluated at N=2, NOT a
+    separate 60/40 rule.
     """
     if n <= 1:
         return [1.0]
@@ -2568,10 +2602,24 @@ FORMULA  (OPEN FIVE-COMPONENT WEIGHTED RAW-VALUE INDEX; not percentile-based)
     display score         prime_score = calibrate_score(prime_raw), a separate MONOTONIC
                           rescale of prime_raw into interpretable 0-100 historical bands
 
-  3-Year window  = 0.40 best season + 0.35 second + 0.25 third (weighted)
-                   or mean of the 3 seasons (--window-weighting equal).
-  Provisional / incomplete seasons (e.g. 2025-26) are flagged PROVISIONAL and are
-  EXCLUDED from official best-season, leaderboard, and N-year-window results.
+  N-Year windows (canonical, used by --years and the top-250 leaderboards):
+    RAW season prime_raw values are RANK-weighted FIRST with nyear_weights(N)
+    (best season weighted most, with a documented minimum-weight floor), then the
+    aggregated RAW window score is calibrated ONCE -- calibrated display scores are
+    NEVER averaged. The weights are:
+        1yr [1.00]
+        2yr [0.667, 0.333]            (best, second; the rank-weight system at N=2,
+                                        NOT a separate 60/40 rule)
+        3yr [0.500, 0.333, 0.167]
+        5yr [0.323, 0.258, 0.194, 0.129, 0.097]
+    --window-weighting equal uses the mean of the N seasons instead.
+    (The legacy per-player --best-window / default 3-year report uses the older
+    0.40/0.35/0.25 family; the canonical leaderboards and --years use nyear_weights.)
+  Completed-season eligibility: only completed, NON-PROVISIONAL seasons feed
+  best-season, leaderboard and N-year-window results. The 2025-26 season is treated
+  as COMPLETE once its field-by-field completeness checks pass (see
+  nba_peak/season_completeness.py); an in-progress season would be flagged
+  PROVISIONAL and excluded.
 
   Postseason / team context (championship, Finals MVP, round reached, opponent quality,
   series success) is AUTO-DERIVED from Basketball Reference playoff brackets. Manual CSV
@@ -3165,6 +3213,26 @@ def load_raw_frames(args) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     return regular, playoffs, teams
 
 
+def _assert_recent_season_complete(scored: pd.DataFrame, debug: bool = False
+                                   ) -> None:
+    """Fail the rebuild if the most recent COMPLETED season carries a non-
+    provisional player-season with a silently-missing required field. Delegated to
+    nba_peak.season_completeness (imported lazily to avoid any import overhead on
+    paths that never score)."""
+    try:
+        from nba_peak import season_completeness as _sc
+    except Exception:                       # module optional; never block scoring
+        return
+    if "season_end" not in scored.columns or not len(scored):
+        return
+    se = int(scored["season_end"].max())
+    if se < DEFAULT_END_SEASON_END:         # only guard the canonical end season
+        return
+    _sc.assert_no_silent_missing(scored, se)
+    if debug:
+        print(f"[debug] completed-season guard passed for season_end={se}")
+
+
 def get_scored(args) -> Tuple[pd.DataFrame, Dict[str, bool]]:
     start, end = args.start_season_end, args.end_season_end
     paths = processed_paths(start, end)
@@ -3230,6 +3298,10 @@ def get_scored(args) -> Tuple[pd.DataFrame, Dict[str, bool]]:
 
     regular, flags = merge_optional(regular, debug=args.debug)
     scored = score_dataset(regular, playoffs)
+    # COMPLETED-SEASON GUARD: a completed (non-provisional) recent season may not
+    # enter official leaderboards while a REQUIRED field is silently missing.
+    # `not_applicable` (e.g. not in the MVP voting, missed the playoffs) is fine.
+    _assert_recent_season_complete(scored, debug=args.debug)
     save_parquet(scored, paths["scored"])
     if args.debug:
         print(f"[debug] scored {len(scored)} player-seasons, "
@@ -3342,7 +3414,8 @@ def build_parser() -> argparse.ArgumentParser:
     # ---- analysis options ----
     p.add_argument("--window-weighting", choices=["weighted", "equal"],
                    default="weighted",
-                   help="weighted=40/35/25 sorted (default); equal=mean of 3.")
+                   help="weighted=rank-weighted nyear_weights(N) (default); "
+                        "equal=mean of the N seasons.")
     p.add_argument("--workload-policy", choices=["default", "strict", "permissive"],
                    default="default")
     p.add_argument("--include-provisional", action="store_true",
@@ -3352,6 +3425,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--rebuild-data", action="store_true",
                    help="Rebuild canonical completed-data datasets (team shares, "
                         "MVP/DPOY votes) from Basketball Reference, then re-score.")
+    # ---- canonical top-250 Prime leaderboards (offline, deterministic) ----
+    p.add_argument("--leaderboard", action="store_true",
+                   help="Write the canonical top-N Prime leaderboard for the "
+                        "duration in --years (1/2/3/5). Offline; uses the "
+                        "canonical 250-player universe. Default --top 250.")
+    p.add_argument("--leaderboard-all", action="store_true",
+                   help="Write all four (1/2/3/5-year) canonical Prime "
+                        "leaderboards + the cross-duration comparison. Offline.")
     return p
 
 
@@ -3367,6 +3448,51 @@ def _user_candidate_players() -> List[str]:
         except Exception:
             return []
     return []
+
+
+def cmd_leaderboard(args, scored: pd.DataFrame) -> int:
+    """Write canonical top-N Prime leaderboards from the cached scored data.
+    Fully offline + deterministic; uses the canonical 250-player universe and the
+    official raw-before-calibration window aggregation. Reports excluded players."""
+    from nba_peak import leaderboards as LB
+    top = args.top if args.top and args.top > 0 else 250
+    if args.leaderboard_all:
+        res = LB.generate_all(scored, top=top, write=True)
+        for n in LB.DURATIONS:
+            e = res["eligibility"][n]
+            print(f"  {n}-year: ranked {len(res['boards'][n])}, eligible "
+                  f"{len(e['eligible'])}/{len(res['universe'])}, ineligible "
+                  f"{len(e['ineligible'])}"
+                  + (f" ({', '.join(d['player'] for d in e['ineligible'])})"
+                     if e["ineligible"] else ""))
+        print(f"Wrote 4 leaderboards + comparison under {LB.LEADERBOARDS_DIR}/")
+        return 0
+    n = args.years if args.years else 1
+    if n not in LB.DURATIONS:
+        print(f"--leaderboard supports --years in {LB.DURATIONS}; got {n}.")
+        return 1
+    universe = LB.load_universe()
+    elig = LB.eligibility(scored, universe, n)
+    board = LB.build_leaderboard(scored, universe, n, top)
+    LB.LEADERBOARDS_DIR.mkdir(parents=True, exist_ok=True)
+    base = LB.LEADERBOARDS_DIR / f"top_{top}_{n}_year_prime"
+    board.drop(columns=["canonical_player_id"], errors="ignore").to_csv(
+        base.with_suffix(".csv"), index=False)
+    base.with_suffix(".md").write_text(LB.render_board_md(board, n, elig),
+                                       encoding="utf-8")
+    wcol = "Best season" if n == 1 else "Best window"
+    print(f"{n}-year Prime — eligible {len(elig['eligible'])}/{len(universe)}; "
+          f"top 10:")
+    for _, r in board.head(10).iterrows():
+        print(f"  {int(r['Rank']):>3}  {r['Player']:24}{str(r[wcol]):18}"
+              f"raw={r['Prime raw']:.2f}  disp={r['Prime display']:.1f}")
+    if elig["ineligible"]:
+        print(f"  excluded ({len(elig['ineligible'])}): "
+              + ", ".join(f"{d['player']} [{d['reason']}]"
+                          for d in elig["ineligible"]))
+    print(f"Wrote {base.with_suffix('.csv').name} + .md under "
+          f"{LB.LEADERBOARDS_DIR}/")
+    return 0
 
 
 def cmd_build_candidates(args, scored: pd.DataFrame) -> int:
@@ -3753,6 +3879,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     no_query = (not args.player and not args.top and
                 not (args.rebuild or args.refresh) and not args.build_candidates
+                and not args.leaderboard and not args.leaderboard_all
                 and not _any_inspection(args))
     if no_query:
         build_parser().print_help()
@@ -3768,6 +3895,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.build_candidates:
         return cmd_build_candidates(args, scored)
+
+    if args.leaderboard or args.leaderboard_all:
+        return cmd_leaderboard(args, scored)
 
     if (args.rebuild or args.refresh) and not args.player and not args.top \
             and not _any_inspection(args):

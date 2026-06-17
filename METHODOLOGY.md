@@ -590,3 +590,56 @@ examples (Jordan, LeBron, Curry, Jokić, Robinson, Olajuwon, Shaq, Garnett,
 Giannis) are **never score inputs**; they emerge near the top naturally.
 Trace any season with `--audit-score --player P --season S --trace-formula` or
 `--compare-seasons P S1 S2 --trace-formula`.
+
+### N-year Prime windows (1 / 2 / 3 / 5) — raw-before-calibration
+
+A player's **N-year Prime** is the best **consecutive** N-season window. The
+official aggregation, used by `--years N` and every canonical top-250 leaderboard
+(`nba_peak/leaderboards.py`), is **raw-first**:
+
+1. take the `prime_raw` of each season in the window;
+2. **rank-weight** them with `nyear_weights(N)` (best season weighted most, with a
+   documented minimum-weight floor so a weak season is never made irrelevant);
+3. sum to a single aggregated **raw** window score;
+4. calibrate that aggregate **once** with `calibrate_score`.
+
+Calibrated display scores are **never** averaged. The weights are:
+
+| N | rank weights (best → worst) |
+|---|---|
+| 1 | `[1.000]` |
+| 2 | `[0.667, 0.333]` |
+| 3 | `[0.500, 0.333, 0.167]` |
+| 5 | `[0.323, 0.258, 0.194, 0.129, 0.097]` |
+
+The **two-year** weights are not a separate rule — they are the *same* rank-weight
+system (`nyear_weights`) evaluated at N=2, i.e. `[2, 1] / 3 = [0.667, 0.333]`. This
+makes two-year Prime a clean interpolation between the single-season apex and
+sustained three-year performance: the best 2-year raw can never exceed the best
+single-season raw, and the five weighted component contributions plus the teammate
+adjustment reconcile exactly to the aggregated raw window score. (Where a player's
+best 3-year raw marginally exceeds their best 2-year — e.g. Bird, Magic — it is
+because the best 3-year *window* includes a strong third season the best 2-year
+*pair* could not, not a weighting inconsistency.)
+
+### Bounded postseason elevation safeguard
+
+`playoff_elevation` supplements absolute playoff quality and is already damped on
+declines, capped, and sample-shrunk. A small, **gated, monotonic** safeguard
+additionally prevents a large negative elevation from *reversing* a clearly
+positive, well-sampled absolute playoff level into a net-negative postseason value:
+when the reliability-adjusted level ≥ 1.0 and the playoff-sample reliability ≥ 0.60,
+the elevation may reduce but must retain ≥ 20 % of that level
+(`PO_ELEV_GUARD_*`). It can only ever **raise** a postseason value (never lower
+one), affects ~0.2 % of playoff seasons, and is bounded well inside ±1.0 Prime-raw
+in a single season.
+
+### Completed-season eligibility & 2025-26 enforcement
+
+Only completed, **non-provisional** seasons feed best-season, leaderboard and
+N-year-window results. The **2025-26** season (`season_end=2026`) is treated as
+complete because its field-by-field completeness checks pass
+(`nba_peak/season_completeness.py`): every required regular-season, advanced,
+team-share, award, and postseason field is `observed` or legitimately
+`not_applicable`, with **zero** silently-missing required fields. Missing required
+data is never silently treated as zero — the rebuild **fails** instead.

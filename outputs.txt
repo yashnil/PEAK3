@@ -503,11 +503,11 @@ PLAYER: Steve Nash
     smallest weighted contribution: Team Achievement (+1.43 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2002-03..2006-07  weighted 61.23
+    5-year Performance-Only peak: 2002-03..2006-07  weighted 61.29
       seasons: 2002-03, 2003-04, 2004-05, 2005-06, 2006-07
-      equal-avg 59.3  best-season 64.8  weakest 50.2  variance 26.6
+      equal-avg 59.4  best-season 64.8  weakest 50.2  variance 26.3
       avg Statistical Impact 50.8  avg Traditional Production 43.5
-      total postseason contribution 5.42  total recognition 38.84  total team achievement 5.02
+      total postseason contribution 5.87  total recognition 38.84  total team achievement 5.02
     5-year Prime peak: 2004-05..2008-09  weighted 73.00
       seasons: 2004-05, 2005-06, 2006-07, 2007-08, 2008-09
       equal-avg 69.1  best-season 79.8  weakest 52.1  variance 107.1
@@ -893,16 +893,16 @@ PLAYER: Manu Ginobili
     smallest weighted contribution: Individual Recognition (+1.30 weighted index pts of prime_raw)
 
   -- best completed 5-year peaks (provisional excluded) --
-    5-year Performance-Only peak: 2003-04..2007-08  weighted 66.59
+    5-year Performance-Only peak: 2003-04..2007-08  weighted 66.66
       seasons: 2003-04, 2004-05, 2005-06, 2006-07, 2007-08
-      equal-avg 64.0  best-season 73.5  weakest 54.5  variance 40.6
+      equal-avg 64.1  best-season 73.5  weakest 54.5  variance 40.8
       avg Statistical Impact 59.4  avg Traditional Production 38.2
-      total postseason contribution 16.05  total recognition 3.32  total team achievement 7.01
-    5-year Prime peak: 2003-04..2007-08  weighted 68.97
+      total postseason contribution 16.38  total recognition 3.32  total team achievement 7.01
+    5-year Prime peak: 2003-04..2007-08  weighted 69.07
       seasons: 2003-04, 2004-05, 2005-06, 2006-07, 2007-08
-      equal-avg 66.0  best-season 76.6  weakest 54.7  variance 57.0
+      equal-avg 66.0  best-season 76.6  weakest 54.7  variance 57.5
       avg Statistical Impact 59.4  avg Traditional Production 38.2
-      total postseason contribution 16.05  total recognition 3.32  total team achievement 7.01
+      total postseason contribution 16.38  total recognition 3.32  total team achievement 7.01
 
 ==============================================================================
 PLAYER: Clint Capela
@@ -1003,7 +1003,7 @@ best completed consecutive 5-year windows; provisional excluded
     12 Chris Paul                   2011-12-2015-16     80.25    79.1   82.4     74.7
     13 Russell Westbrook            2013-14-2017-18     76.04    71.7   85.8     57.4
     14 Steve Nash                   2004-05-2008-09     73.00    69.1   79.8     52.1
-    15 Manu Ginobili                2003-04-2007-08     68.97    66.0   76.6     54.7
+    15 Manu Ginobili                2003-04-2007-08     69.07    66.0   76.6     54.7
     16 Allen Iverson                1998-99-2002-03     65.88    62.4   78.8     51.3
     17 Reggie Miller                1993-94-1997-98     64.99    63.6   68.5     59.6
     18 Adrian Dantley               1983-84-1987-88     63.88    61.1   73.0     53.8
@@ -1030,9 +1030,9 @@ best completed consecutive 5-year windows; provisional excluded
     11 Kevin Garnett                2001-02-2005-06     70.96    68.9   76.6     61.0
     12 Hakeem Olajuwon              1992-93-1996-97     69.04    66.4   74.6     57.7
     13 Russell Westbrook            2013-14-2017-18     67.59    64.7   73.8     56.5
-    14 Manu Ginobili                2003-04-2007-08     66.59    64.0   73.5     54.5
+    14 Manu Ginobili                2003-04-2007-08     66.66    64.1   73.5     54.5
     15 Reggie Miller                1993-94-1997-98     62.05    61.2   64.7     59.1
-    16 Steve Nash                   2002-03-2006-07     61.23    59.3   64.8     50.2
+    16 Steve Nash                   2002-03-2006-07     61.29    59.4   64.8     50.2
     17 Adrian Dantley               1983-84-1987-88     60.29    58.3   65.4     52.8
     18 Allen Iverson                1998-99-2002-03     54.51    52.6   60.6     44.8
     19 Clint Capela                 2016-17-2020-21     53.96    51.5   61.0     42.2
@@ -1437,9 +1437,9 @@ NEW = diminishing-return, reliability-shrunk dominance + sample-shrunk level.
     Dale Ellis               #185 -> #163  (+22)
     Mo Williams              #296 -> #275  (+21)
     Chandler Parsons         #375 -> #355  (+20)
-    Hedo Turkoglu            #300 -> #281  (+19)
     Andrew Toney             #315 -> #296  (+19)
     Anthony Parker           #441 -> #422  (+19)
+    Hedo Turkoglu            #300 -> #281  (+19)
     Nicolas Batum            #297 -> #279  (+18)
     Orlando Woolridge        #264 -> #247  (+17)
     Arron Afflalo            #451 -> #435  (+16)
@@ -1447,11 +1447,11 @@ NEW = diminishing-return, reliability-shrunk dominance + sample-shrunk level.
     Roy Hibbert              #273 -> #302  (-29)
     Dennis Schroder          #429 -> #457  (-28)
     Jerome Kersey            #294 -> #320  (-26)
-    Antonio Davis            #417 -> #441  (-24)
-    Trevor Ariza             #346 -> #370  (-24)
-    Sam Perkins              #263 -> #287  (-24)
     Tiny Archibald           #281 -> #305  (-24)
+    Trevor Ariza             #346 -> #370  (-24)
+    Antonio Davis            #417 -> #441  (-24)
     Caldwell Jones           #457 -> #481  (-24)
+    Sam Perkins              #263 -> #287  (-24)
     Jason Richardson         #217 -> #240  (-23)
     James Donaldson          #269 -> #292  (-23)
 
@@ -1604,7 +1604,7 @@ qualified completed seasons; scales preserved (no recalibration applied)
   Team Achievement (new)      9.78    0.00   18.40    0.00    0.00   15.64   47.56  100.00
 
   Prime raw (old)            16.33   13.37   11.79    3.31    8.63   20.53   40.12   86.62
-  Prime raw (new)            16.24   13.40   11.61    3.27    8.59   20.56   38.98   86.87
+  Prime raw (new)            16.24   13.40   11.61    3.27    8.59   20.56   39.00   86.87
 
   Only Traditional Production, Recognition and Prime raw move (the data
   pass touches the burden creation input and the MVP/DPOY vote share);
@@ -1800,7 +1800,7 @@ successful-burden residual, and smooth role-adjusted Team Achievement.
   Steve Nash              75.6  73.2  46.4  49.4  7.60  49.6  47.6   48.7   48.8  119  113
   Chris Paul              58.8  56.2  44.0  45.3  4.56  25.5  24.6   60.5   60.2   43   41
   Allen Iverson           71.6  75.0  36.0  33.9  4.23  64.0  65.6   47.5   47.8  133  120
-  Carmelo Anthony         37.6  31.1  41.8  40.7  6.49  25.5  24.6   35.1   33.6  363  384
+  Carmelo Anthony         37.6  31.1  41.8  40.7  6.49  25.5  24.6   35.1   33.6  363  385
   Adrian Dantley          32.8  30.0  56.8  58.5  7.60  25.5  21.5   42.3   42.0  208  194
   Dennis Rodman           43.2  32.5  24.0  24.7  1.71   0.0   0.0   29.7   27.7  566  636
   Draymond Green          44.0  39.3  29.3  31.0  4.34  64.0  50.7   37.9   37.0  286  285
@@ -1821,7 +1821,7 @@ successful-burden residual, and smooth role-adjusted Team Achievement.
   Largest FALLERS:
     Dennis Rodman          #566 -> #636 (-70)   driver: Recognition -10.7
     Rajon Rondo            #621 -> #646 (-25)   driver: Recognition -3.3
-    Carmelo Anthony        #363 -> #384 (-21)   driver: Recognition -6.5
+    Carmelo Anthony        #363 -> #385 (-22)   driver: Recognition -6.5
     Ben Wallace            #295 -> #306 (-11)   driver: Team Achievement -29.9
     Bradley Beal           #955 -> #963 (-8)   driver: Traditional Prod -1.1
 
@@ -1866,39 +1866,39 @@ Ranks are among all qualified COMPLETED seasons / 3-year peaks.
      13 James Harden               59.63        #12      #12
      14 David Robinson             59.11        #10      #13
      15 Kevin Garnett              55.77        #15      #15
-     16 Karl Malone                55.69        #16      #16
+     16 Karl Malone                55.75        #16      #16
      17 Kawhi Leonard              54.23        #19      #19
      18 Dwight Howard              54.20        #18      #18
      19 Joel Embiid                53.22        #17      #17
      20 Kobe Bryant                52.57        #24      #22
-     21 Chris Paul                 52.50        #20      #20
-     22 Dirk Nowitzki              52.46        #21      #21
+     21 Dirk Nowitzki              52.54        #21      #21
+     22 Chris Paul                 52.50        #20      #20
      23 Russell Westbrook          51.73        #22      #23
      24 Kareem Abdul-Jabbar        51.49        #25      #25
      25 Charles Barkley            51.21        #23      #24
 
   Largest RISERS as postseason weight goes 12% -> 18% (rank improvement, top-120 pool):
     Deron Williams             #96   -> #88   (+8)
-    Shawn Kemp                 #69   -> #62   (+7)
     Pau Gasol                  #63   -> #56   (+7)
+    Shawn Kemp                 #69   -> #62   (+7)
     Ray Allen                  #67   -> #61   (+6)
     James Worthy               #126  -> #120  (+6)
-    Cedric Maxwell             #106  -> #101  (+5)
     Reggie Miller              #55   -> #50   (+5)
+    Cedric Maxwell             #106  -> #101  (+5)
     Jeff Hornacek              #118  -> #113  (+5)
+    Kobe Bryant                #24   -> #20   (+4)
     Dikembe Mutombo            #98   -> #94   (+4)
-    Terry Porter               #62   -> #58   (+4)
   Largest FALLERS as postseason weight goes 12% -> 18%:
-    Chris Webber               #61   -> #67   (-6)
-    Karl-Anthony Towns         #58   -> #64   (-6)
     Mark Price                 #59   -> #65   (-6)
+    Karl-Anthony Towns         #58   -> #64   (-6)
+    Chris Webber               #61   -> #67   (-6)
     Vince Carter               #64   -> #69   (-5)
-    David Robinson             #10   -> #14   (-4)
-    Domantas Sabonis           #53   -> #57   (-4)
-    Peja Stojakovic            #93   -> #97   (-4)
-    Kyle Lowry                 #83   -> #87   (-4)
+    DeMarcus Cousins           #102  -> #106  (-4)
     Trae Young                 #100  -> #104  (-4)
-    George Gervin              #56   -> #60   (-4)
+    Kyrie Irving               #70   -> #74   (-4)
+    Domantas Sabonis           #53   -> #57   (-4)
+    Kyle Lowry                 #83   -> #87   (-4)
+    Dominique Wilkins          #75   -> #79   (-4)
 
   CHOSEN WEIGHT: 18% (per brief). The sweep 12% -> 15% -> 18% shows
   graceful, monotone movement -- elite individual playoff peaks (Hakeem,
@@ -1926,14 +1926,14 @@ all qualified completed players; provisional excluded
    12 Tim Duncan                     86.51  2001-02-2003-04
    13 Magic Johnson                  85.82  1988-89-1990-91
    14 Hakeem Olajuwon                85.26  1992-93-1994-95
-   15 Karl Malone                    84.07  1996-97-1998-99
+   15 Karl Malone                    84.10  1996-97-1998-99
    16 Dwight Howard                  83.44  2008-09-2010-11
    17 Kevin Garnett                  83.15  2002-03-2004-05
    18 Joel Embiid                    82.32  2020-21-2022-23
    19 Kobe Bryant                    81.68  2007-08-2009-10
    20 Chris Paul                     81.42  2012-13-2014-15
-   21 Charles Barkley                81.15  1988-89-1990-91
-   22 Dirk Nowitzki                  81.09  2004-05-2006-07
+   21 Dirk Nowitzki                  81.23  2004-05-2006-07
+   22 Charles Barkley                81.15  1988-89-1990-91
    23 Kawhi Leonard                  80.82  2014-15-2016-17
    24 Russell Westbrook              80.41  2014-15-2016-17
    25 Dwyane Wade                    80.21  2008-09-2010-11
@@ -1951,24 +1951,24 @@ LARGEST RISERS / FALLERS vs the PRIOR 41/23/15/18/3 model
     Rajon Rondo                #138  -> #128  (+10)
     Dikembe Mutombo            #103  -> #94   (+9)
     Jason Kidd                 #63   -> #54   (+9)
+    Isiah Thomas               #77   -> #70   (+7)
     Derrick Rose               #98   -> #91   (+7)
-    DeAndre Jordan             #83   -> #76   (+7)
-    Isiah Thomas               #76   -> #70   (+6)
     Ben Simmons                #131  -> #125  (+6)
-    Allen Iverson              #47   -> #42   (+5)
+    DeAndre Jordan             #83   -> #77   (+6)
+    Kobe Bryant                #25   -> #20   (+5)
   FALLERS (purely statistical peaks ease back):
     Dan Issel                  #129  -> #138  (-9)
     Jarrett Allen              #95   -> #103  (-8)
     Elton Brand                #60   -> #68   (-8)
     Shawn Marion               #86   -> #93   (-7)
-    Doc Rivers                 #125  -> #131  (-6)
-    Karl-Anthony Towns         #58   -> #64   (-6)
-    Detlef Schrempf            #123  -> #129  (-6)
-    Kyle Lowry                 #81   -> #87   (-6)
-    Yao Ming                   #84   -> #90   (-6)
+    Doc Rivers                 #125  -> #132  (-7)
     Terrell Brandon            #90   -> #96   (-6)
-    Vince Carter               #64   -> #69   (-5)
+    Kyle Lowry                 #81   -> #87   (-6)
+    Detlef Schrempf            #123  -> #129  (-6)
+    Karl-Anthony Towns         #58   -> #64   (-6)
+    Yao Ming                   #84   -> #90   (-6)
     Brad Daugherty             #66   -> #71   (-5)
+    Cedric Maxwell             #96   -> #101  (-5)
 
 ==============================================================================
 FINALS MVP INFLUENCE AUDIT (item 3): magnitude across 3- and 5-year peaks
@@ -2242,7 +2242,7 @@ C. BEST FIVE-YEAR PRIME
    12 Chris Paul               2007-08-2011-12   50.5   81.3  2007-08   30.4    9.2    8.4    1.9   0.4  full
    13 Russell Westbrook        2013-14-2017-18   46.0   77.0  2016-17   26.4    8.3    8.5    2.3   0.5  full
    14 Steve Nash               2004-05-2008-09   42.3   73.3  2005-06   19.5    9.6   10.8    1.7   1.0  full
-   15 Manu Ginobili            2003-04-2007-08   38.4   69.0  2004-05   23.3    8.7    0.9    4.1   1.6  full
+   15 Manu Ginobili            2003-04-2007-08   38.5   69.1  2004-05   23.3    8.7    0.9    4.2   1.6  full
    16 Allen Iverson            1998-99-2002-03   35.6   65.9  2000-01   18.2    5.9    9.3    1.0   1.0  full
    17 Reggie Miller            1993-94-1997-98   34.8   64.9  1993-94   19.6    9.1    1.8    3.3   0.8  full
    18 Adrian Dantley           1983-84-1987-88   33.6   63.6  1983-84   19.2   10.2    2.4    0.9   0.6  full
@@ -2329,4 +2329,239 @@ SENSITIVITY (Harden vs Robinson never flips; Hakeem<->Robinson does):
 COUNTERFACTUAL: Harden-Robinson raw gap 1y +1.87 / 3y +0.53 / 5y +0.51. Robinson needs +4.9 SI pts or +10.4 PO pts to pass at 1y.
 
 VERDICTS: Harden>Robinson defensible-but-sensitive (entire margin = Postseason). Hakeem vs Robinson defensible-but-sensitive. Curry #1 strongly defensible. Kobe #5 strongly defensible. No implementation flaw found; key levers are PHIL/CHOICE (postseason weight, awards-team correlation, advanced-metric redundancy).
+
+
+  Season 2025-26 completeness (season_end=2026):
+    player-seasons: 279  (provisional: 0; playoff participants: 145)
+    advanced   : observed= 2232 derived=   0 n/a=    0 missing=  0
+    awards     : observed=   52 derived=   0 n/a= 2738 missing=  0
+    postseason : observed= 1015 derived=   0 n/a=  938 missing=  0
+    regular_box: observed= 1953 derived=   0 n/a=    0 missing=  0
+    status     : observed=  279 derived=   0 n/a=    0 missing=  0
+    team       : observed=  837 derived=   0 n/a=    0 missing=  0
+    RESULT: COMPLETE -- 0 required fields silently missing; 2025-26 may enter official leaderboards.
+
+##############################################################################
+# SPECIALIST AND POSTSEASON SANITY AUDIT
+##############################################################################
+
+Official weights UNCHANGED (38/21/20/18/3); no 6th component. Full report: SPECIALIST_AND_POSTSEASON_AUDIT.md
+
+EFFICIENT-BIG best-5yr Prime raw (efficient bigs * vs comparisons):
+  * Dwight Howard      raw= 49.62 (SI 21.02 TP  9.77 Rec 14.43 PO  3.64)  usg=26.1 creation_indep=50.2
+  * Rudy Gobert        raw= 39.82 (SI 21.37 TP  8.98 Rec  8.56 PO  0.70)  usg=17.8 creation_indep=32.0
+  * Kevin McHale       raw= 37.41 (SI 19.23 TP  9.79 Rec  5.61 PO  2.13)  usg=24.1 creation_indep=53.5
+    Patrick Ewing      raw= 37.22 (SI 20.74 TP  9.21 Rec  5.14 PO  1.15)  usg=29.4 creation_indep=63.3
+    Alonzo Mourning    raw= 36.65 (SI 19.09 TP  9.08 Rec  7.56 PO  0.58)  usg=28.1 creation_indep=56.6
+    Ben Wallace        raw= 32.60 (SI 16.69 TP  3.72 Rec 10.55 PO  1.10)  usg=10.2 creation_indep=14.1
+    Pau Gasol          raw= 32.05 (SI 19.82 TP  7.17 Rec  1.73 PO  2.28)  usg=20.4 creation_indep=52.8
+  * Domantas Sabonis   raw= 31.87 (SI 20.55 TP  9.47 Rec  1.93 PO -0.24)  usg=22.2 creation_indep=73.3
+    Chris Webber       raw= 30.60 (SI 18.61 TP  6.35 Rec  4.80 PO  0.15)  usg=31.6 creation_indep=65.1
+    Blake Griffin      raw= 29.74 (SI 18.17 TP  7.42 Rec  2.97 PO  0.98)  usg=29.0 creation_indep=67.7
+  * DeAndre Jordan     raw= 29.54 (SI 17.08 TP  7.11 Rec  4.66 PO  0.83)  usg=13.6 creation_indep= 7.9
+    Dikembe Mutombo    raw= 29.04 (SI 14.83 TP  5.62 Rec  6.70 PO  1.63)  usg=17.4 creation_indep=27.9
+  * Jarrett Allen      raw= 28.01 (SI 17.84 TP  8.20 Rec  0.25 PO  1.46)  usg=15.9 creation_indep=21.1
+    Marc Gasol         raw= 27.28 (SI 17.09 TP  4.74 Rec  4.10 PO  0.89)  usg=19.2 creation_indep=47.4
+    Joakim Noah        raw= 26.71 (SI 16.69 TP  4.01 Rec  5.77 PO  0.04)  usg=18.7 creation_indep=49.6
+    Bam Adebayo        raw= 26.41 (SI 15.94 TP  6.50 Rec  2.66 PO  0.51)  usg=21.2 creation_indep=53.5
+  * Clint Capela       raw= 25.11 (SI 16.75 TP  7.22 Rec  0.25 PO  0.76)  usg=19.4 creation_indep=25.3
+  * Tyson Chandler     raw= 24.90 (SI 14.48 TP  7.31 Rec  3.22 PO -0.35)  usg=13.0 creation_indep= 7.1
+  * Andre Drummond     raw= 20.77 (SI 14.06 TP  5.02 Rec  1.82 PO -0.32)  usg=21.2 creation_indep=38.2
+
+  -> Purest low-creation finishers (DeAndre Jordan, Tyson Chandler) rank at the BOTTOM; no systematic overvaluation. NO efficient-big correction (conditions 1 & 3 fail).
+
+NEGATIVE POSTSEASON (post-safeguard), by category:
+  genuinely_poor_playoff_performance         3279
+  small_sample_underperformance              871
+  secondary_star_or_specialist_compression   129
+  valuable_absolute_negative_elevation       1
+
+  -> Adopted a bounded, gated, MONOTONIC elevation-reversal safeguard inside postseason_value: when a reliability-adjusted level >=1.0 with adequate sample would be REVERSED by negative elevation, retain >=20% of the level. Active for 14/6232 playoff seasons; max effect 0.57 Prime-raw/season (caps 1.0/0.7/0.5). It can only RAISE a score, never lower one; it does NOT rescue Brown/Rodman (their negatives are genuine absolute-level). Elevation NOT removed; scores NOT floored at zero.
+
+MANU vs IVERSON (best 5yr): Manu 38.51 vs Iverson 35.65 (d=+2.87) -> defensible but philosophical.
+
+VERDICTS: DeAndre Jordan=no issue; Gobert=philosophical (Recognition+impact); Howard=no issue (Recognition); Sabonis=no issue (high creation); McHale=postseason weakness FIXED by safeguard; Jaylen Brown=no issue (Finals MVP in Recognition; negatives genuine); Rodman=data/representation limitation (not elevation); Manu>Iverson=defensible but philosophical.
+
+##############################################################################
+# CANONICAL TOP-250 PRIME LEADERBOARDS
+##############################################################################
+
+Player universe: data/generated/final_250_candidates.csv (250). RAW season values aggregated with nyear_weights(n) then calibrated once; calibrated display scores are never averaged. Detailed decompositions: leaderboards/top_250_{1,2,3,5}_year_prime.{csv,md} and leaderboards/top_250_prime_comparison.{csv,md}.
+
+A. Best 1-year Prime — eligible 250/250 (top 30 shown of 250):
+    #  Player                Season/Window          raw   disp
+    1  Michael Jordan        1990-91              86.87   97.5
+    2  LeBron James          2008-09              81.55   95.8
+    3  Stephen Curry         2015-16              75.69   93.9
+    4  Shaquille O'Neal      1999-00              74.67   93.6
+    5  Nikola Jokic          2022-23              74.45   93.5
+    6  Shai Gilgeous-Alexander2024-25              72.73   92.9
+    7  Tim Duncan            2002-03              69.98   91.8
+    8  Giannis Antetokounmpo 2019-20              68.52   91.3
+    9  Magic Johnson         1986-87              66.82   90.6
+   10  Hakeem Olajuwon       1993-94              66.51   90.5
+   11  Kevin Durant          2013-14              66.41   90.5
+   12  Victor Wembanyama     2025-26              65.34   90.1
+   13  Larry Bird            1985-86              63.75   89.4
+   14  Kevin Garnett         2003-04              63.45   89.3
+   15  Kareem Abdul-Jabbar   1979-80              63.29   89.3
+   16  James Harden          2017-18              62.07   88.8
+   17  Chris Paul            2007-08              60.21   88.1
+   18  David Robinson        1994-95              60.20   88.1
+   19  Kawhi Leonard         2016-17              59.77   87.8
+   20  Karl Malone           1996-97              58.54   87.0
+   21  Moses Malone          1982-83              57.68   86.4
+   22  Joel Embiid           2022-23              57.41   86.2
+   23  Dwight Howard         2008-09              57.38   86.2
+   24  Russell Westbrook     2016-17              56.91   85.8
+   25  Dwyane Wade           2005-06              56.21   85.3
+   26  Tracy McGrady         2002-03              55.75   85.0
+   27  Dirk Nowitzki         2005-06              55.54   84.9
+   28  Anthony Davis         2019-20              55.30   84.7
+   29  Charles Barkley       1992-93              54.89   84.4
+   30  Kobe Bryant           2007-08              54.48   84.1
+
+B. Best 2-year Prime — eligible 249/250 (top 30 shown of 249):
+    #  Player                Season/Window          raw   disp
+    1  Michael Jordan        1990-91-1991-92      82.42   96.1
+    2  LeBron James          2011-12-2012-13      79.86   95.3
+    3  Nikola Jokic          2022-23-2023-24      73.12   93.0
+    4  Stephen Curry         2014-15-2015-16      72.68   92.9
+    5  Shai Gilgeous-Alexander2024-25-2025-26      70.03   91.9
+    6  Shaquille O'Neal      1999-00-2000-01      69.72   91.7
+    7  Giannis Antetokounmpo 2018-19-2019-20      68.30   91.2
+    8  Tim Duncan            2001-02-2002-03      66.35   90.4
+    9  Kevin Durant          2012-13-2013-14      63.87   89.5
+   10  Hakeem Olajuwon       1992-93-1993-94      63.67   89.4
+   11  James Harden          2017-18-2018-19      61.00   88.4
+   12  Larry Bird            1984-85-1985-86      60.54   88.2
+   13  David Robinson        1993-94-1994-95      60.07   88.0
+   14  Magic Johnson         1985-86-1986-87      59.38   87.6
+   15  Kawhi Leonard         2015-16-2016-17      58.72   87.1
+   16  Chris Paul            2007-08-2008-09      58.60   87.0
+   17  Kevin Garnett         2003-04-2004-05      58.39   86.9
+   18  Karl Malone           1996-97-1997-98      57.66   86.4
+   19  Kareem Abdul-Jabbar   1979-80-1980-81      56.46   85.5
+   20  Dwight Howard         2008-09-2009-10      55.44   84.8
+   21  Joel Embiid           2021-22-2022-23      54.96   84.5
+   22  Dirk Nowitzki         2005-06-2006-07      54.94   84.5
+   23  Russell Westbrook     2015-16-2016-17      54.40   84.1
+   24  Kobe Bryant           2007-08-2008-09      54.39   84.1
+   25  Moses Malone          1981-82-1982-83      53.34   83.3
+   26  Charles Barkley       1989-90-1990-91      52.04   82.4
+   27  Dwyane Wade           2008-09-2009-10      51.87   82.3
+   28  Victor Wembanyama     2024-25-2025-26      51.82   82.3
+   29  Luka Doncic           2022-23-2023-24      50.44   81.3
+   30  Tracy McGrady         2001-02-2002-03      49.97   81.0
+  ineligible (1): Chet Holmgren
+
+C. Best 3-year Prime — eligible 248/250 (top 30 shown of 248):
+    #  Player                Season/Window          raw   disp
+    1  Michael Jordan        1988-89-1990-91      80.61   95.5
+    2  LeBron James          2011-12-2013-14      77.51   94.5
+    3  Nikola Jokic          2021-22-2023-24      71.84   92.5
+    4  Stephen Curry         2014-15-2016-17      68.61   91.3
+    5  Giannis Antetokounmpo 2018-19-2020-21      67.41   90.8
+    6  Shaquille O'Neal      1999-00-2001-02      67.14   90.8
+    7  Shai Gilgeous-Alexander2023-24-2025-26      66.78   90.6
+    8  Tim Duncan            2001-02-2003-04      62.32   88.9
+    9  Kevin Durant          2011-12-2013-14      62.06   88.8
+   10  Larry Bird            1983-84-1985-86      61.43   88.5
+   11  Magic Johnson         1986-87-1988-89      60.43   88.2
+   12  Hakeem Olajuwon       1992-93-1994-95      59.92   87.9
+   13  James Harden          2017-18-2019-20      59.63   87.7
+   14  David Robinson        1993-94-1995-96      59.11   87.4
+   15  Kevin Garnett         2002-03-2004-05      55.77   85.0
+   16  Karl Malone           1996-97-1998-99      55.75   85.0
+   17  Kawhi Leonard         2014-15-2016-17      54.23   84.0
+   18  Dwight Howard         2008-09-2010-11      54.20   83.9
+   19  Joel Embiid           2020-21-2022-23      53.22   83.2
+   20  Chris Paul            2007-08-2009-10      53.04   83.1
+   21  Kobe Bryant           2007-08-2009-10      52.57   82.8
+   22  Dirk Nowitzki         2004-05-2006-07      52.54   82.8
+   23  Russell Westbrook     2014-15-2016-17      51.73   82.2
+   24  Kareem Abdul-Jabbar   1979-80-1981-82      51.49   82.0
+   25  Charles Barkley       1990-91-1992-93      51.21   81.8
+   26  Dwyane Wade           2008-09-2010-11      50.47   81.3
+   27  Moses Malone          1980-81-1982-83      49.99   81.0
+   28  Anthony Davis         2017-18-2019-20      49.80   80.8
+   29  Luka Doncic           2021-22-2023-24      48.94   79.9
+   30  Steve Nash            2004-05-2006-07      46.79   77.8
+  ineligible (2): Chet Holmgren, Paul Westphal
+
+D. Best 5-year Prime — eligible 237/250 (top 30 shown of 237):
+    #  Player                Season/Window          raw   disp
+    1  Michael Jordan        1987-88-1991-92      79.48   95.2
+    2  LeBron James          2008-09-2012-13      76.35   94.1
+    3  Nikola Jokic          2020-21-2024-25      69.76   91.8
+    4  Giannis Antetokounmpo 2018-19-2022-23      63.58   89.4
+    5  Stephen Curry         2014-15-2018-19      61.60   88.6
+    6  Shaquille O'Neal      1998-99-2002-03      61.49   88.6
+    7  Magic Johnson         1986-87-1990-91      58.92   87.2
+    8  Larry Bird            1983-84-1987-88      58.71   87.1
+    9  Tim Duncan            2000-01-2004-05      57.58   86.3
+   10  Shai Gilgeous-Alexander2021-22-2025-26      57.43   86.2
+   11  Kevin Durant          2009-10-2013-14      57.19   86.0
+   12  James Harden          2014-15-2018-19      56.18   85.3
+   13  David Robinson        1991-92-1995-96      55.67   85.0
+   14  Hakeem Olajuwon       1992-93-1996-97      53.58   83.5
+   15  Karl Malone           1995-96-1999-00      52.80   83.0
+   16  Kevin Garnett         2003-04-2007-08      52.24   82.6
+   17  Kobe Bryant           2005-06-2009-10      50.97   81.7
+   18  Charles Barkley       1988-89-1992-93      50.77   81.5
+   19  Chris Paul            2007-08-2011-12      50.48   81.3
+   20  Dwight Howard         2007-08-2011-12      49.62   80.6
+   21  Joel Embiid           2019-20-2023-24      48.71   79.7
+   22  Dirk Nowitzki         2002-03-2006-07      48.47   79.5
+   23  Dwyane Wade           2005-06-2009-10      47.77   78.8
+   24  Kareem Abdul-Jabbar   1979-80-1983-84      46.83   77.8
+   25  Kawhi Leonard         2012-13-2016-17      46.57   77.6
+   26  Luka Doncic           2019-20-2023-24      46.16   77.2
+   27  Russell Westbrook     2013-14-2017-18      45.96   77.0
+   28  John Stockton         1987-88-1991-92      44.99   76.0
+   29  Anthony Davis         2015-16-2019-20      44.85   75.8
+   30  Moses Malone          1979-80-1983-84      43.51   74.5
+  ineligible (13): Anfernee Hardaway, Mark Price, Victor Wembanyama, Ben Simmons, Derrick Rose, Cade Cunningham, Jalen Duren, Ja Morant, Jalen Johnson, Jalen Williams, Drazen Petrovic, Chet Holmgren, Paul Westphal
+
+E. Cross-duration summary (top 15 by 5-year rank):
+  Player                   1yr   2yr   3yr   5yr    avg   1->5
+  Michael Jordan             1     1     1     1    1.0      0
+  LeBron James               2     2     2     2    2.0      0
+  Nikola Jokic               5     3     3     3    3.5      2
+  Giannis Antetokounmpo      8     7     5     4    6.0      4
+  Stephen Curry              3     4     4     5    4.0     -2
+  Shaquille O'Neal           4     6     6     6    5.5     -2
+  Magic Johnson              9    14    11     7   10.2      2
+  Larry Bird                13    12    10     8   10.8      5
+  Tim Duncan                 7     8     8     9    8.0     -2
+  Shai Gilgeous-Alexander     6     5     7    10    7.0     -4
+  Kevin Durant              11     9     9    11   10.0      0
+  James Harden              16    11    13    12   13.0      4
+  David Robinson            18    13    14    13   14.5      5
+  Hakeem Olajuwon           10    10    12    14   11.5     -4
+  Karl Malone               20    18    16    15   17.2      5
+
+------------------------------------------------------------------------------
+TWO-YEAR PRIME VALIDATION (new duration; rank weights nyear_weights(2) = [0.667, 0.333])
+------------------------------------------------------------------------------
+Raw window scores (RAW-aggregated then calibrated once):
+  player                     1yr     2yr     3yr     5yr  note
+  Michael Jordan           86.87   82.42   80.61   79.48  OK (1yr>=2yr>=3yr>=5yr)
+  LeBron James             81.55   79.86   77.51   76.35  OK (1yr>=2yr>=3yr>=5yr)
+  Nikola Jokic             74.45   73.12   71.84   69.76  OK (1yr>=2yr>=3yr>=5yr)
+  Stephen Curry            75.69   72.68   68.61   61.60  OK (1yr>=2yr>=3yr>=5yr)
+  Shaquille O'Neal         74.67   69.72   67.14   61.49  OK (1yr>=2yr>=3yr>=5yr)
+  Hakeem Olajuwon          66.51   63.67   59.92   53.58  OK (1yr>=2yr>=3yr>=5yr)
+  David Robinson           60.20   60.07   59.11   55.67  OK (1yr>=2yr>=3yr>=5yr)
+  Kobe Bryant              54.48   54.39   52.57   50.97  OK (1yr>=2yr>=3yr>=5yr)
+  James Harden             62.07   61.00   59.63   56.18  OK (1yr>=2yr>=3yr>=5yr)
+  Larry Bird               63.75   60.54   61.43   58.71  note: best 3yr raw > best 2yr (different window adds a strong third season; not a weighting bug)
+  Magic Johnson            66.82   59.38   60.43   58.92  note: best 3yr raw > best 2yr (different window adds a strong third season; not a weighting bug)
+  Tim Duncan               69.98   66.35   62.32   57.58  OK (1yr>=2yr>=3yr>=5yr)
+  Kevin Garnett            63.45   58.39   55.77   52.24  OK (1yr>=2yr>=3yr>=5yr)
+  Giannis Antetokounmpo    68.52   68.30   67.41   63.58  OK (1yr>=2yr>=3yr>=5yr)
+  Kevin Durant             66.41   63.87   62.06   57.19  OK (1yr>=2yr>=3yr>=5yr)
+
+  Hard anomalies (2yr>1yr apex / non-reconciling window): 0
+  2-year raw never exceeds the single-season apex; every window's contributions reconcile to its raw score exactly. Where a best 3yr raw marginally exceeds the best 2yr (e.g. Bird, Magic) it is because the best 3-year window adds a strong third season the best 2-year pair could not include -- expected, not a weighting error.
 

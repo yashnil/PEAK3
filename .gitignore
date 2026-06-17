@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # Caches & generated data (rebuildable from source)
 cache/html/
@@ -16,3 +17,7 @@ data/external_impact.csv
 data/stat_titles.csv
 
 .DS_Store
+
+# NOTE: leaderboards/ and reports/ are intentionally TRACKED release artifacts
+# (canonical top-250 Prime leaderboards + audit/completeness reports) and must
+# NOT be added here. results/ above is local legacy scratch and stays ignored.
