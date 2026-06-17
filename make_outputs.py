@@ -1936,6 +1936,8 @@ def main():
     lb_res = lbs.generate_all(s, top=250, write=True)
     out += [""] + lbs.render_outputs_section(lb_res, top=250)
     out += lbs.render_validation_section(s)
+    # plain-text top-100 rankings (1/2/3/4/5-year) -> leaderboards/*.txt
+    lbs.write_simple_leaderboards(s, top=100)
 
     (ROOT / "outputs.txt").write_text("\n".join(out) + "\n", encoding="utf-8")
     print(f"Wrote outputs.txt ({len(out)} lines)")

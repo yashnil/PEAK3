@@ -124,6 +124,7 @@ def best_window(scored: pd.DataFrame, player: str, n: int,
     return {
         "player": player, "canonical_player_id": player_id, "n": n,
         "window": f"{w['start_season']}-{w['end_season']}",
+        "start_season": str(w["start_season"]), "end_season": str(w["end_season"]),
         "seasons": ", ".join(wdf["season"].astype(str).tolist()),
         "anchor_season": str(anchor["season"]),
         "anchor_season_end": int(anchor["season_end"]),
@@ -495,6 +496,55 @@ def render_validation_section(scored: pd.DataFrame) -> List[str]:
              "pair could not include -- expected, not a weighting error.")
     L.append("")
     return L
+
+
+# =================================================== SIMPLE TEXT EXPORT =========
+# Plain-text top-N Prime rankings for 1/2/3/4/5-year windows. Reuses the exact
+# canonical universe, best-window selection and tie-break above -- N=4 uses the
+# same generalized n_year_windows / nyear_weights family as N=2/3/5 (no separate
+# four-year formula). One line per player; ranked by unrounded prime_raw; the
+# calibrated Prime DISPLAY is printed to two decimals. Window seasons are joined
+# with an EN DASH (U+2013); seasons themselves keep their hyphen.
+SIMPLE_DURATIONS = (1, 2, 3, 4, 5)
+_EN_DASH = "–"
+
+
+def simple_rows(scored: pd.DataFrame, n: int, top: int = 100) -> List[Dict]:
+    """Ranked best-window rows for the simple exporter (deterministic)."""
+    universe = load_universe()
+    rows = []
+    for _, u in universe.iterrows():
+        bw = best_window(scored, u["player"], n,
+                         str(u.get("canonical_player_id", "")))
+        if bw is not None:
+            rows.append(bw)
+    return _tiebreak_sort(rows)[:top]
+
+
+def render_simple_leaderboard(scored: pd.DataFrame, n: int, top: int = 100) -> str:
+    """Title + blank line + the top-`top` ranking lines, nothing else."""
+    rows = simple_rows(scored, n, top)
+    lines = [f"BEST {n}-YEAR PRIMES IN NBA HISTORY", ""]
+    for i, r in enumerate(rows, start=1):
+        disp = f"{round(float(r['prime_display']), 2):.2f}"
+        if n == 1:
+            window = r["anchor_season"]
+        else:
+            window = f"{r['start_season']}{_EN_DASH}{r['end_season']}"
+        lines.append(f"{i}. {window} {r['player']} ({disp})")
+    return "\n".join(lines) + "\n"
+
+
+def write_simple_leaderboards(scored: pd.DataFrame, top: int = 100,
+                              durations=SIMPLE_DURATIONS) -> List[str]:
+    LEADERBOARDS_DIR.mkdir(parents=True, exist_ok=True)
+    written = []
+    for n in durations:
+        text = render_simple_leaderboard(scored, n, top)
+        path = LEADERBOARDS_DIR / f"top_{top}_{n}_year_prime.txt"
+        path.write_text(text, encoding="utf-8")
+        written.append(str(path))
+    return written
 
 
 def main():

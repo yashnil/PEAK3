@@ -244,3 +244,164 @@ def test_no_references_to_deleted_scratch_modules():
     # them, and the cleanup removed only regenerable caches.
     for name in ("_peak3_old", "_peak3_prev"):
         assert not (ROOT / f"{name}.py").exists()
+
+
+# ============================================================================
+#  SIMPLE TEXT LEADERBOARDS (top-100, 1/2/3/4/5-year .txt exports)
+# ============================================================================
+import re  # noqa: E402
+
+_SIMPLE_RE_1 = re.compile(r"^(\d+)\. (\d{4}-\d{2}) (.+) \((\d+\.\d{2})\)$")
+_SIMPLE_RE_N = re.compile(
+    r"^(\d+)\. (\d{4}-\d{2})–(\d{4}-\d{2}) (.+) \((\d+\.\d{2})\)$")
+
+
+def _simple_text(n, top=100):
+    s = _scored()
+    return None if s is None else LB.render_simple_leaderboard(s, n, top)
+
+
+def test_simple_all_five_files_generated(tmp_path):
+    s = _scored()
+    if s is None:
+        return
+    import nba_peak.leaderboards as _LB
+    orig = _LB.LEADERBOARDS_DIR
+    try:
+        _LB.LEADERBOARDS_DIR = tmp_path
+        written = _LB.write_simple_leaderboards(s, top=100)
+    finally:
+        _LB.LEADERBOARDS_DIR = orig
+    assert len(written) == 5
+    names = {Path(p).name for p in written}
+    assert names == {f"top_100_{n}_year_prime.txt" for n in (1, 2, 3, 4, 5)}
+    for p in written:
+        assert Path(p).exists()
+
+
+def test_simple_each_file_has_exactly_100_ranked_lines():
+    for n in LB.SIMPLE_DURATIONS:
+        txt = _simple_text(n)
+        if txt is None:
+            return
+        lines = txt.splitlines()
+        assert lines[0] == f"BEST {n}-YEAR PRIMES IN NBA HISTORY"
+        assert lines[1] == ""
+        body = lines[2:]
+        assert len(body) == 100, (n, len(body))
+
+
+def test_simple_ranks_1_to_100_no_duplicates():
+    for n in LB.SIMPLE_DURATIONS:
+        txt = _simple_text(n)
+        if txt is None:
+            return
+        ranks = [int(ln.split(".")[0]) for ln in txt.splitlines()[2:]]
+        assert ranks == list(range(1, 101)), n
+
+
+def test_simple_one_year_has_single_season():
+    txt = _simple_text(1)
+    if txt is None:
+        return
+    for ln in txt.splitlines()[2:]:
+        m = _SIMPLE_RE_1.match(ln)
+        assert m, repr(ln)
+        # the season token is a single YYYY-YY with no window dash
+        assert "–" not in ln, ln
+
+
+def test_simple_multiyear_lines_are_valid_consecutive_windows():
+    for n in (2, 3, 4, 5):
+        txt = _simple_text(n)
+        if txt is None:
+            return
+        for ln in txt.splitlines()[2:]:
+            m = _SIMPLE_RE_N.match(ln)
+            assert m, (n, repr(ln))
+            start_yr = int(m.group(2).split("-")[0])
+            end_yr = int(m.group(3).split("-")[0])
+            # an N-year window spans exactly N-1 years start->end (consecutive)
+            assert end_yr - start_yr == n - 1, (n, ln)
+
+
+def test_simple_ranking_uses_raw_not_rounded_display():
+    s = _scored()
+    if s is None:
+        return
+    for n in LB.SIMPLE_DURATIONS:
+        rows = LB.simple_rows(s, n, 100)
+        raws = [r["prime_raw"] for r in rows]
+        disps = [round(float(r["prime_display"]), 2) for r in rows]
+        # the order is non-increasing in RAW...
+        assert all(raws[i] >= raws[i + 1] - 1e-12 for i in range(len(raws) - 1)), n
+        # ...and is exactly the tie-break (raw-primary) order, which can differ
+        # from sorting by the 2-dp display when displays tie.
+        assert rows == LB._tiebreak_sort(rows)[:100], n
+
+
+def test_simple_display_has_exactly_two_decimals():
+    for n in LB.SIMPLE_DURATIONS:
+        txt = _simple_text(n)
+        if txt is None:
+            return
+        for ln in txt.splitlines()[2:]:
+            score = ln.rsplit("(", 1)[1].rstrip(")")
+            assert re.match(r"^\d+\.\d{2}$", score), (n, ln)
+
+
+def test_simple_each_player_at_most_once():
+    for n in LB.SIMPLE_DURATIONS:
+        txt = _simple_text(n)
+        if txt is None:
+            return
+        names = []
+        for ln in txt.splitlines()[2:]:
+            m = _SIMPLE_RE_1.match(ln) or _SIMPLE_RE_N.match(ln)
+            names.append(m.group(3) if m.re is _SIMPLE_RE_1 else m.group(4))
+        assert len(set(names)) == len(names) == 100, n
+
+
+def test_simple_output_is_deterministic():
+    s = _scored()
+    if s is None:
+        return
+    for n in LB.SIMPLE_DURATIONS:
+        a = LB.render_simple_leaderboard(s, n, 100)
+        b = LB.render_simple_leaderboard(s, n, 100)
+        assert a == b, n
+
+
+def test_simple_output_is_valid_utf8_with_endash():
+    for n in LB.SIMPLE_DURATIONS:
+        txt = _simple_text(n)
+        if txt is None:
+            return
+        raw = txt.encode("utf-8")
+        assert raw.decode("utf-8") == txt          # round-trips as UTF-8
+        if n > 1:
+            assert "–" in txt                  # en-dash window separator
+            assert b"\xe2\x80\x93" in raw           # its UTF-8 encoding
+
+
+def test_simple_n4_weights_from_canonical_family_no_weight_change():
+    # N=4 reuses the same rank-weight family (base [4,3,2,1] with the 0.5/N floor)
+    w4 = P.nyear_weights(4)
+    base = [4, 3, 2, 1]
+    floored = [max(b / sum(base), 0.5 / 4) for b in base]
+    expected = [x / sum(floored) for x in floored]
+    assert np.allclose(w4, expected), w4
+    # official weights untouched
+    assert P.OFFICIAL_WEIGHTS["statistical_impact"] == 0.38
+    assert sum(P.OFFICIAL_WEIGHTS.values()) == 1.0
+
+
+def test_simple_cli_commands_smoke():
+    s = _scored()
+    if s is None:
+        return
+    assert P.main(["--simple-leaderboards", "--top", "100", "--no-scrape"]) == 0
+    assert P.main(["--simple-leaderboard", "--years", "4", "--top", "100",
+                   "--no-scrape"]) == 0
+    for n in (1, 2, 3, 4, 5):
+        assert (ROOT / "leaderboards" / f"top_100_{n}_year_prime.txt").exists()

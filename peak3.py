@@ -3433,6 +3433,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--leaderboard-all", action="store_true",
                    help="Write all four (1/2/3/5-year) canonical Prime "
                         "leaderboards + the cross-duration comparison. Offline.")
+    p.add_argument("--simple-leaderboards", action="store_true",
+                   help="Write the plain-text top-N Prime rankings for all five "
+                        "durations (1/2/3/4/5-year) to leaderboards/*.txt. Offline.")
+    p.add_argument("--simple-leaderboard", action="store_true",
+                   help="Write the plain-text top-N Prime ranking for the single "
+                        "duration in --years (1/2/3/4/5). Offline.")
     return p
 
 
@@ -3492,6 +3498,29 @@ def cmd_leaderboard(args, scored: pd.DataFrame) -> int:
                           for d in elig["ineligible"]))
     print(f"Wrote {base.with_suffix('.csv').name} + .md under "
           f"{LB.LEADERBOARDS_DIR}/")
+    return 0
+
+
+def cmd_simple_leaderboard(args, scored: pd.DataFrame) -> int:
+    """Write the plain-text top-N Prime rankings (1/2/3/4/5-year) from the cached
+    scored data. Offline + deterministic; reuses the canonical universe and the
+    official N-year window logic (N=4 via the same nyear_weights family)."""
+    from nba_peak import leaderboards as LB
+    top = args.top if args.top and args.top > 0 else 100
+    if args.simple_leaderboards:
+        written = LB.write_simple_leaderboards(scored, top=top)
+        for p in written:
+            print(f"  wrote {p}")
+        print(f"Wrote {len(written)} simple text leaderboards under "
+              f"{LB.LEADERBOARDS_DIR}/")
+        return 0
+    n = args.years if args.years else 1
+    if n not in LB.SIMPLE_DURATIONS:
+        print(f"--simple-leaderboard supports --years in {LB.SIMPLE_DURATIONS}; "
+              f"got {n}.")
+        return 1
+    written = LB.write_simple_leaderboards(scored, top=top, durations=(n,))
+    print(f"Wrote {written[0]}")
     return 0
 
 
@@ -3880,6 +3909,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     no_query = (not args.player and not args.top and
                 not (args.rebuild or args.refresh) and not args.build_candidates
                 and not args.leaderboard and not args.leaderboard_all
+                and not args.simple_leaderboards and not args.simple_leaderboard
                 and not _any_inspection(args))
     if no_query:
         build_parser().print_help()
@@ -3898,6 +3928,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.leaderboard or args.leaderboard_all:
         return cmd_leaderboard(args, scored)
+
+    if args.simple_leaderboards or args.simple_leaderboard:
+        return cmd_simple_leaderboard(args, scored)
 
     if (args.rebuild or args.refresh) and not args.player and not args.top \
             and not _any_inspection(args):

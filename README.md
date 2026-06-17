@@ -356,6 +356,7 @@ These invariants are enforced by tests (see §13).
   | 1 | `[1.000]` |
   | 2 | `[0.667, 0.333]` |
   | 3 | `[0.500, 0.333, 0.167]` |
+  | 4 | `[0.390, 0.293, 0.195, 0.122]` |
   | 5 | `[0.323, 0.258, 0.194, 0.129, 0.097]` |
 
   The **two-year** weights are the *same* rank-weight system at N=2
@@ -435,6 +436,11 @@ python peak3.py --leaderboard-all --top 250 --no-scrape   # all 4 + cross-durati
 #   -> writes leaderboards/top_250_{1,2,3,5}_year_prime.{csv,md}
 #      and leaderboards/top_250_prime_comparison.{csv,md}
 
+# simple plain-text top-100 rankings for 1/2/3/4/5-year Prime (title + ranked lines)
+python peak3.py --simple-leaderboards --top 100 --no-scrape
+python peak3.py --simple-leaderboard --years 4 --top 100 --no-scrape   # single duration
+#   -> writes leaderboards/top_100_{1,2,3,4,5}_year_prime.txt
+
 # regenerate every deliverable (outputs.txt, reports/, leaderboards/, results/)
 python make_outputs.py
 
@@ -460,7 +466,9 @@ python peak3.py --refresh                            # re-download, then rebuild
 
 **Leaderboards:** `--leaderboard --years {1,2,3,5} [--top N]`,
 `--leaderboard-all [--top N]` (offline; uses the canonical 250-player universe;
-writes `leaderboards/`).
+writes `leaderboards/`). Plain-text top-N rankings:
+`--simple-leaderboards [--top N]` (all of 1/2/3/4/5-year) and
+`--simple-leaderboard --years {1,2,3,4,5} [--top N]` → `leaderboards/top_N_*_year_prime.txt`.
 
 **Compare:** `--compare-seasons PLAYER S1 S2`, `--compare-players A B`.
 
@@ -485,7 +493,7 @@ writes `leaderboards/`).
 All offline (no network). Run the whole suite with:
 
 ```bash
-pytest                       # currently 174 passing
+pytest                       # currently 186 passing
 ```
 
 Key files: `test_peak3.py` (I/O, windows, parsing), `test_context.py` (context +

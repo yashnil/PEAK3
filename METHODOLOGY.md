@@ -610,7 +610,12 @@ Calibrated display scores are **never** averaged. The weights are:
 | 1 | `[1.000]` |
 | 2 | `[0.667, 0.333]` |
 | 3 | `[0.500, 0.333, 0.167]` |
+| 4 | `[0.390, 0.293, 0.195, 0.122]` |
 | 5 | `[0.323, 0.258, 0.194, 0.129, 0.097]` |
+
+(`N=4`, like every other duration, comes from the *same* `nyear_weights` family —
+base `[4,3,2,1]` with the `0.5/N` minimum-weight floor, renormalized — not a
+separate four-year rule. It backs the `top_100_4_year_prime.txt` simple export.)
 
 The **two-year** weights are not a separate rule — they are the *same* rank-weight
 system (`nyear_weights`) evaluated at N=2, i.e. `[2, 1] / 3 = [0.667, 0.333]`. This
