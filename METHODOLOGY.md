@@ -321,7 +321,7 @@ Validated: the historic-apex cohort (Jordan '88, LeBron '13, Jokić '23, Hakeem
 ~0.5% of all player-seasons **from the statistics alone** — no legend bonus.
 (Implementation note: official native scores are still stored in legacy `_pct`
 columns to avoid a risky mass rename; despite the name they are native-value
-scores — see `results/scoring_dependency_audit.*`.)
+scores, not percentiles.)
 
 ### 4c. Prior approach (superseded): raw / era-adjusted z-score — NO percentiles
 

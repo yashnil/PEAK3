@@ -1,0 +1,519 @@
+path,extension,size,tracked,category,last_referenced,active_references,regenerable,canonical_replacement,recommended_action
+cache/processed/context_seasons/1980.parquet,.parquet,38853,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1981.parquet,.parquet,39301,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1982.parquet,.parquet,39641,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1983.parquet,.parquet,39843,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1984.parquet,.parquet,39800,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1985.parquet,.parquet,40212,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1986.parquet,.parquet,40473,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1987.parquet,.parquet,41072,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1988.parquet,.parquet,40082,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1989.parquet,.parquet,41111,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1990.parquet,.parquet,41743,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1991.parquet,.parquet,42125,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1992.parquet,.parquet,41885,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1993.parquet,.parquet,41607,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1994.parquet,.parquet,42482,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1995.parquet,.parquet,42095,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1996.parquet,.parquet,42822,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1997.parquet,.parquet,43185,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1998.parquet,.parquet,42913,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/1999.parquet,.parquet,44321,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2000.parquet,.parquet,43199,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2001.parquet,.parquet,43459,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2002.parquet,.parquet,43423,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2003.parquet,.parquet,43706,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2004.parquet,.parquet,43447,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2005.parquet,.parquet,44534,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2006.parquet,.parquet,44495,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2007.parquet,.parquet,45051,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2008.parquet,.parquet,43869,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2009.parquet,.parquet,44011,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2010.parquet,.parquet,43592,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2011.parquet,.parquet,44089,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2012.parquet,.parquet,44964,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2013.parquet,.parquet,44360,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2014.parquet,.parquet,44737,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2015.parquet,.parquet,44788,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2016.parquet,.parquet,44913,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2017.parquet,.parquet,45550,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2018.parquet,.parquet,46634,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2019.parquet,.parquet,46016,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2020.parquet,.parquet,45954,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2021.parquet,.parquet,46763,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2022.parquet,.parquet,47792,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2023.parquet,.parquet,46504,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2024.parquet,.parquet,46764,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2025.parquet,.parquet,46913,untracked,cache,context_build (per-season f-string),1,yes,,retain
+cache/processed/context_seasons/2026.parquet,.parquet,46174,untracked,cache,context_build (per-season f-string),13,yes,,retain
+cache/processed/playoffs_1980_2026.parquet,.parquet,470577,untracked,cache,peak3.processed_paths f-string,1,yes,,retain
+cache/processed/regular_1980_2026.parquet,.parquet,1001049,untracked,cache,peak3.processed_paths f-string,1,yes,,retain
+cache/processed/scored_1980_2026.parquet,.parquet,5315449,untracked,cache,peak3.processed_paths f-string,13,yes,,retain
+cache/processed/teams_1980_2026.parquet,.parquet,21550,untracked,cache,peak3.processed_paths f-string,1,yes,,retain
+data/manual_context.csv,.csv,610,untracked,canonical-input,peak3.py;make_outputs.py;test_corrections.py,6,no,,retain
+data/unanimous_mvp.csv,.csv,77,tracked,canonical-input,peak3.py;DATA_SOURCES.md,2,no,,retain
+.claude/settings.local.json,.json,9787,untracked,config,NONE,0,no,,retain
+data/generated/candidate_exclusions.csv,.csv,211877,untracked,derived-canonical,--rebuild-data / --build-* generators,3,yes,,retain
+data/generated/candidates.csv,.csv,41613,untracked,derived-canonical,--rebuild-data / --build-* generators,6,yes,,retain
+data/generated/dpoy_votes.csv,.csv,154803,untracked,derived-canonical,--rebuild-data / --build-* generators,6,yes,,retain
+data/generated/exception_candidates.csv,.csv,109271,untracked,derived-canonical,--rebuild-data / --build-* generators,1,yes,,retain
+data/generated/final_250_candidates.csv,.csv,28439,untracked,derived-canonical,--rebuild-data / --build-* generators,5,yes,,retain
+data/generated/mvp_votes.csv,.csv,187539,untracked,derived-canonical,--rebuild-data / --build-* generators,6,yes,,retain
+data/generated/player_season_context.parquet,.parquet,411110,untracked,derived-canonical,--rebuild-data / --build-* generators,4,yes,,retain
+data/generated/provenance.csv,.csv,2026,untracked,derived-canonical,--rebuild-data / --build-* generators,2,yes,,retain
+data/generated/team_shares.csv,.csv,4918922,untracked,derived-canonical,--rebuild-data / --build-* generators,6,yes,,retain
+.gitignore,,569,tracked,doc,cleanup_manifest.txt,1,no,,retain
+DATA_SOURCES.md,.md,7933,tracked,doc,README.md;METHODOLOGY.md,2,no,,retain
+FIVE_PLAYER_PRIME_AUDIT.md,.md,25679,tracked,doc,make_outputs.py;five_player_audit.py,2,no,,retain
+METHODOLOGY.md,.md,38242,tracked,doc,peak3.py;README.md;cleanup_manifest.txt,3,no,,retain
+README.md,.md,33039,tracked,doc,cleanup_manifest.txt,1,no,,retain
+SPECIALIST_AND_POSTSEASON_AUDIT.md,.md,20153,tracked,doc,specialist_postseason_audit.py,1,no,,retain
+data/examples/external_impact.csv,.csv,85,tracked,doc,peak3.py;METHODOLOGY.md;DATA_SOURCES.md,3,no,,retain
+data/examples/manual_context.csv,.csv,206,tracked,doc,peak3.py;make_outputs.py;test_corrections.py,6,no,,retain
+data/examples/stat_titles.csv,.csv,135,tracked,doc,peak3.py;METHODOLOGY.md;DATA_SOURCES.md,3,no,,retain
+requirements.txt,.txt,74,tracked,doc,README.md;cleanup_manifest.txt,2,no,,retain
+cleanup_manifest.txt,.txt,9532,tracked,other,make_outputs.py;README.md,2,no,,retain
+cache/html/NBA_1980_advanced.html,.html,1174003,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1980_awards.html,.html,242769,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1980_league_summary.html,.html,565602,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1980_per_game.html,.html,1248767,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1980_per_poss.html,.html,1345650,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1980_playoffs_advanced.html,.html,391634,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1980_playoffs_per_poss.html,.html,418182,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1981_advanced.html,.html,1196025,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1981_awards.html,.html,273158,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1981_league_summary.html,.html,575697,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1981_per_game.html,.html,1271589,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1981_per_poss.html,.html,1369580,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1981_playoffs_advanced.html,.html,392379,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1981_playoffs_per_poss.html,.html,419169,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1982_advanced.html,.html,1229384,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1982_awards.html,.html,260362,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1982_league_summary.html,.html,575370,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1982_per_game.html,.html,1306681,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1982_per_poss.html,.html,1408641,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1982_playoffs_advanced.html,.html,406618,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1982_playoffs_per_poss.html,.html,435639,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1983_advanced.html,.html,1280664,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1983_awards.html,.html,274577,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1983_league_summary.html,.html,575464,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1983_per_game.html,.html,1362319,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1983_per_poss.html,.html,1468172,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1983_playoffs_advanced.html,.html,410065,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1983_playoffs_per_poss.html,.html,439600,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1984_advanced.html,.html,1265419,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1984_awards.html,.html,284082,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1984_league_summary.html,.html,583961,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1984_per_game.html,.html,1343792,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1984_per_poss.html,.html,1448773,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1984_playoffs_advanced.html,.html,496638,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1984_playoffs_per_poss.html,.html,533563,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1985_advanced.html,.html,1314214,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1985_awards.html,.html,288913,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1985_league_summary.html,.html,582429,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1985_per_game.html,.html,1397504,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1985_per_poss.html,.html,1506489,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1985_playoffs_advanced.html,.html,501628,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1985_playoffs_per_poss.html,.html,539325,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1986_advanced.html,.html,1348470,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1986_awards.html,.html,319775,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1986_league_summary.html,.html,582233,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1986_per_game.html,.html,1433642,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1986_per_poss.html,.html,1546100,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1986_playoffs_advanced.html,.html,501670,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1986_playoffs_per_poss.html,.html,539339,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1987_advanced.html,.html,1347180,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1987_awards.html,.html,346978,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1987_league_summary.html,.html,583518,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1987_per_game.html,.html,1434826,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1987_per_poss.html,.html,1547006,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1987_playoffs_advanced.html,.html,500895,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1987_playoffs_per_poss.html,.html,538574,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1988_advanced.html,.html,1457903,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1988_awards.html,.html,331215,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1988_league_summary.html,.html,584591,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1988_per_game.html,.html,1553651,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1988_per_poss.html,.html,1676026,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1988_playoffs_advanced.html,.html,506632,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1988_playoffs_per_poss.html,.html,545204,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1989_advanced.html,.html,1474752,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1989_awards.html,.html,353076,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1989_league_summary.html,.html,601929,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1989_per_game.html,.html,1570391,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1989_per_poss.html,.html,1694280,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1989_playoffs_advanced.html,.html,499735,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1989_playoffs_per_poss.html,.html,537106,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1990_advanced.html,.html,1522585,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1990_awards.html,.html,345683,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1990_league_summary.html,.html,623109,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1990_per_game.html,.html,1622314,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1990_per_poss.html,.html,1750775,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1990_playoffs_advanced.html,.html,503945,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1990_playoffs_per_poss.html,.html,541939,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1991_advanced.html,.html,1490031,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1991_awards.html,.html,409568,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1991_league_summary.html,.html,622857,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1991_per_game.html,.html,1586860,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1991_per_poss.html,.html,1712700,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1991_playoffs_advanced.html,.html,508302,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1991_playoffs_per_poss.html,.html,546960,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1992_advanced.html,.html,1518333,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1992_awards.html,.html,405641,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1992_league_summary.html,.html,623445,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1992_per_game.html,.html,1619592,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1992_per_poss.html,.html,1747719,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1992_playoffs_advanced.html,.html,502714,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1992_playoffs_per_poss.html,.html,540569,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1993_advanced.html,.html,1501819,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1993_awards.html,.html,403328,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1993_league_summary.html,.html,623673,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1993_per_game.html,.html,1600698,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1993_per_poss.html,.html,1727922,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1993_playoffs_advanced.html,.html,504743,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1993_playoffs_per_poss.html,.html,542802,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1994_advanced.html,.html,1570251,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1994_awards.html,.html,396632,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1994_league_summary.html,.html,623563,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1994_per_game.html,.html,1673259,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1994_per_poss.html,.html,1806323,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1994_playoffs_advanced.html,.html,502563,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1994_playoffs_per_poss.html,.html,540277,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1995_advanced.html,.html,1507770,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1995_awards.html,.html,410359,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1995_league_summary.html,.html,622957,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1995_per_game.html,.html,1609270,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1995_per_poss.html,.html,1736614,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1995_playoffs_advanced.html,.html,502865,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1995_playoffs_per_poss.html,.html,540568,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1996_advanced.html,.html,1712722,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1996_awards.html,.html,402703,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1996_league_summary.html,.html,641678,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1996_per_game.html,.html,1830617,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1996_per_poss.html,.html,1976597,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1996_playoffs_advanced.html,.html,508349,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1996_playoffs_per_poss.html,.html,546850,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1997_advanced.html,.html,1781209,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1997_awards.html,.html,403548,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1997_league_summary.html,.html,757229,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1997_per_game.html,.html,1903067,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1997_per_poss.html,.html,2055579,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1997_playoffs_advanced.html,.html,509906,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1997_playoffs_per_poss.html,.html,548614,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1998_advanced.html,.html,1721034,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1998_awards.html,.html,420544,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1998_league_summary.html,.html,755834,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1998_per_game.html,.html,1840364,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1998_per_poss.html,.html,1987252,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1998_playoffs_advanced.html,.html,510176,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1998_playoffs_per_poss.html,.html,548959,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1999_advanced.html,.html,1633597,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1999_awards.html,.html,422767,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1999_league_summary.html,.html,748848,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1999_per_game.html,.html,1743264,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1999_per_poss.html,.html,1881966,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1999_playoffs_advanced.html,.html,509445,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_1999_playoffs_per_poss.html,.html,548358,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2000_advanced.html,.html,1591087,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2000_awards.html,.html,392851,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2000_league_summary.html,.html,756925,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2000_per_game.html,.html,1698687,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2000_per_poss.html,.html,1833564,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2000_playoffs_advanced.html,.html,495312,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2000_playoffs_per_poss.html,.html,531866,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2001_advanced.html,.html,1702924,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2001_awards.html,.html,427435,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2001_league_summary.html,.html,756393,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2001_per_game.html,.html,1819706,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2001_per_poss.html,.html,1964464,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2001_playoffs_advanced.html,.html,511755,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2001_playoffs_per_poss.html,.html,550919,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2002_advanced.html,.html,1610496,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2002_awards.html,.html,423240,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2002_league_summary.html,.html,769293,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2002_per_game.html,.html,1721836,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2002_per_poss.html,.html,1858296,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2002_playoffs_advanced.html,.html,504371,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2002_playoffs_per_poss.html,.html,542240,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2003_advanced.html,.html,1574558,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2003_awards.html,.html,433298,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2003_league_summary.html,.html,772391,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2003_per_game.html,.html,1680764,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2003_per_poss.html,.html,1814170,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2003_playoffs_advanced.html,.html,502675,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2003_playoffs_per_poss.html,.html,539981,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2004_advanced.html,.html,1801927,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2004_awards.html,.html,440771,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2004_league_summary.html,.html,770847,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2004_per_game.html,.html,1926887,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2004_per_poss.html,.html,2080596,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2004_playoffs_advanced.html,.html,508190,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2004_playoffs_per_poss.html,.html,546535,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2005_advanced.html,.html,1798621,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2005_awards.html,.html,466509,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2005_league_summary.html,.html,784153,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2005_per_game.html,.html,1924018,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2005_per_poss.html,.html,2078000,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2005_playoffs_advanced.html,.html,505615,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2005_playoffs_per_poss.html,.html,543542,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2006_advanced.html,.html,1766698,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2006_awards.html,.html,454118,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2006_league_summary.html,.html,785371,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2006_per_game.html,.html,1890615,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2006_per_poss.html,.html,2040573,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2006_playoffs_advanced.html,.html,517083,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2006_playoffs_per_poss.html,.html,556770,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2007_advanced.html,.html,1655555,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2007_awards.html,.html,473510,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2007_league_summary.html,.html,784642,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2007_per_game.html,.html,1770637,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2007_per_poss.html,.html,1910655,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2007_playoffs_advanced.html,.html,511255,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2007_playoffs_per_poss.html,.html,550155,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2008_advanced.html,.html,1849842,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2008_awards.html,.html,450913,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2008_league_summary.html,.html,785056,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2008_per_game.html,.html,1977811,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2008_per_poss.html,.html,2136146,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2008_playoffs_advanced.html,.html,534875,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2008_playoffs_per_poss.html,.html,575695,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2009_advanced.html,.html,1814905,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2009_awards.html,.html,455826,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2009_league_summary.html,.html,784304,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2009_per_game.html,.html,1941001,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2009_per_poss.html,.html,2096790,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2009_playoffs_advanced.html,.html,522885,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2009_playoffs_per_poss.html,.html,563389,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2010_advanced.html,.html,1806348,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2010_awards.html,.html,457924,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2010_league_summary.html,.html,784748,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2010_per_game.html,.html,1933544,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2010_per_poss.html,.html,2088016,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2010_playoffs_advanced.html,.html,524100,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2010_playoffs_per_poss.html,.html,565030,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2011_advanced.html,.html,1894416,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2011_awards.html,.html,454246,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2011_league_summary.html,.html,784245,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2011_per_game.html,.html,2030311,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2011_per_poss.html,.html,2192271,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2011_playoffs_advanced.html,.html,515117,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2011_playoffs_per_poss.html,.html,554695,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2012_advanced.html,.html,1758598,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2012_awards.html,.html,444757,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2012_league_summary.html,.html,781233,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2012_per_game.html,.html,1881347,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2012_per_poss.html,.html,2031194,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2012_playoffs_advanced.html,.html,537746,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2012_playoffs_per_poss.html,.html,578960,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2013_advanced.html,.html,1818106,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2013_awards.html,.html,460377,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2013_league_summary.html,.html,784484,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2013_per_game.html,.html,1944651,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2013_per_poss.html,.html,2099817,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2013_playoffs_advanced.html,.html,546365,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2013_playoffs_per_poss.html,.html,588782,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2014_advanced.html,.html,1885652,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2014_awards.html,.html,485480,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2014_league_summary.html,.html,786064,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2014_per_game.html,.html,2010025,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2014_per_poss.html,.html,2172196,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2014_playoffs_advanced.html,.html,536666,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2014_playoffs_per_poss.html,.html,577637,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2015_advanced.html,.html,1984421,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2015_awards.html,.html,462612,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2015_league_summary.html,.html,785953,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2015_per_game.html,.html,2115338,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2015_per_poss.html,.html,2287127,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2015_playoffs_advanced.html,.html,545986,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2015_playoffs_per_poss.html,.html,588189,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2016_advanced.html,.html,1839972,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2016_awards.html,.html,445832,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2016_league_summary.html,.html,805049,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2016_per_game.html,.html,1959709,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2016_per_poss.html,.html,2118359,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2016_playoffs_advanced.html,.html,556732,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2016_playoffs_per_poss.html,.html,600522,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2017_advanced.html,.html,1875053,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2017_awards.html,.html,425656,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2017_league_summary.html,.html,803690,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2017_per_game.html,.html,1998037,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2017_per_poss.html,.html,2160278,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2017_playoffs_advanced.html,.html,555607,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2017_playoffs_per_poss.html,.html,599183,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2018_advanced.html,.html,2015526,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2018_awards.html,.html,435505,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2018_league_summary.html,.html,804408,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2018_per_game.html,.html,2150327,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2018_per_poss.html,.html,2324852,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2018_playoffs_advanced.html,.html,547949,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2018_playoffs_per_poss.html,.html,590350,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2019_advanced.html,.html,2116425,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2019_awards.html,.html,435591,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2019_league_summary.html,.html,804285,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2019_per_game.html,.html,2259900,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2019_per_poss.html,.html,2443871,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2019_playoffs_advanced.html,.html,552557,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2019_playoffs_per_poss.html,.html,595567,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2020_advanced.html,.html,2000842,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2020_awards.html,.html,391345,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2020_league_summary.html,.html,805402,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2020_per_game.html,.html,2135158,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2020_per_poss.html,.html,2307164,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2020_playoffs_advanced.html,.html,560280,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2020_playoffs_per_poss.html,.html,604480,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2021_advanced.html,.html,2169622,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2021_awards.html,.html,410351,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2021_league_summary.html,.html,803918,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2021_per_game.html,.html,2318526,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2021_per_poss.html,.html,2507420,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2021_playoffs_advanced.html,.html,604019,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2021_playoffs_per_poss.html,.html,653506,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2022_advanced.html,.html,2352525,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2022_awards.html,.html,378338,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2022_league_summary.html,.html,805387,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2022_per_game.html,.html,2518376,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2022_per_poss.html,.html,2723114,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2022_playoffs_advanced.html,.html,559847,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2022_playoffs_per_poss.html,.html,604082,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2023_advanced.html,.html,2061903,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2023_awards.html,.html,419283,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2023_league_summary.html,.html,804659,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2023_per_game.html,.html,2204084,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2023_per_poss.html,.html,2382726,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2023_playoffs_advanced.html,.html,559644,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2023_playoffs_per_poss.html,.html,603989,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2024_advanced.html,.html,2180060,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2024_awards.html,.html,400926,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2024_league_summary.html,.html,806469,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2024_per_game.html,.html,2329529,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2024_per_poss.html,.html,2519384,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2024_playoffs_advanced.html,.html,555632,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2024_playoffs_per_poss.html,.html,599381,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2025_advanced.html,.html,2191627,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2025_awards.html,.html,383680,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2025_league_summary.html,.html,808783,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2025_per_game.html,.html,2342774,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2025_per_poss.html,.html,2533986,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2025_playoffs_advanced.html,.html,563873,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2025_playoffs_per_poss.html,.html,608727,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2026_advanced.html,.html,2210873,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2026_awards.html,.html,382273,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2026_league_summary.html,.html,810970,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2026_per_game.html,.html,2362128,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2026_per_poss.html,.html,2555001,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2026_playoffs_advanced.html,.html,587065,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/NBA_2026_playoffs_per_poss.html,.html,633714,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1980.html,.html,442417,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1981.html,.html,440722,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1982.html,.html,441027,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1983.html,.html,439720,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1984.html,.html,484612,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1985.html,.html,483751,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1986.html,.html,483480,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1987.html,.html,484035,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1988.html,.html,485686,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1989.html,.html,482449,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1990.html,.html,483618,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1991.html,.html,483897,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1992.html,.html,484039,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1993.html,.html,484228,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1994.html,.html,484237,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1995.html,.html,484101,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1996.html,.html,482954,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1997.html,.html,554760,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1998.html,.html,553086,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_1999.html,.html,552737,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2000.html,.html,553996,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2001.html,.html,553204,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2002.html,.html,552975,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2003.html,.html,557498,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2004.html,.html,555525,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2005.html,.html,556605,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2006.html,.html,555810,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2007.html,.html,554353,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2008.html,.html,555447,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2009.html,.html,554669,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2010.html,.html,554308,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2011.html,.html,553833,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2012.html,.html,554736,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2013.html,.html,555786,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2014.html,.html,556421,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2015.html,.html,555071,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2016.html,.html,556581,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2017.html,.html,554872,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2018.html,.html,555316,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2019.html,.html,555423,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2020.html,.html,556264,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2021.html,.html,555982,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2022.html,.html,556109,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2023.html,.html,597107,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2024.html,.html,555810,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2025.html,.html,557112,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+cache/html/playoffs_season_2026.html,.html,565003,untracked,raw,peak3.fetch_html (NBA_{se}_*.html),1,yes,,retain
+leaderboards/top_100_1_year_prime.txt,.txt,3428,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_100_2_year_prime.txt,.txt,4429,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_100_3_year_prime.txt,.txt,4428,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_100_4_year_prime.txt,.txt,4424,tracked,release-artifact,METHODOLOGY.md,1,yes,,retain
+leaderboards/top_100_5_year_prime.txt,.txt,4428,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_250_1_year_prime.csv,.csv,22542,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_250_1_year_prime.md,.md,27094,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_250_2_year_prime.csv,.csv,35469,tracked,release-artifact,test_leaderboards.py,1,yes,,retain
+leaderboards/top_250_2_year_prime.md,.md,40348,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_250_3_year_prime.csv,.csv,39389,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_250_3_year_prime.md,.md,44325,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_250_5_year_prime.csv,.csv,42083,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_250_5_year_prime.md,.md,46859,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_250_prime_comparison.csv,.csv,45157,tracked,release-artifact,NONE,0,yes,,retain
+leaderboards/top_250_prime_comparison.md,.md,64501,tracked,release-artifact,NONE,0,yes,,retain
+outputs.txt,.txt,166555,tracked,report,peak3.py;make_outputs.py;specialist_postseason_audit.py,10,yes,,retain
+reports/efficient_big_audit.csv,.csv,3991,tracked,report,specialist_postseason_audit.py,1,yes,,retain
+reports/efficient_big_bridges.csv,.csv,1155,tracked,report,specialist_postseason_audit.py,1,yes,,retain
+reports/five_player_pairwise_bridges.csv,.csv,1146,tracked,report,five_player_audit.py;test_five_player_audit.py,2,yes,,retain
+reports/five_player_prime_audit.csv,.csv,5327,tracked,report,five_player_audit.py;test_five_player_audit.py,2,yes,,retain
+reports/five_player_sensitivity.csv,.csv,3051,tracked,report,five_player_audit.py;test_five_player_audit.py,2,yes,,retain
+reports/negative_postseason_audit.csv,.csv,762998,tracked,report,specialist_postseason_audit.py,1,yes,,retain
+reports/repository_file_inventory.csv,.csv,70983,untracked,report,NONE,0,yes,,DELETE-CANDIDATE
+reports/season_2025_26_completeness.csv,.csv,1339,tracked,report,specialist_postseason_audit.py;README.md,2,yes,,retain
+reports/secondary_star_context_audit.csv,.csv,904,tracked,report,specialist_postseason_audit.py,1,yes,,retain
+reports/specialist_sensitivity.csv,.csv,1515,tracked,report,specialist_postseason_audit.py,1,yes,,retain
+data/datacomplete_pre_snapshot.csv,.csv,1472253,tracked,snapshot,make_outputs.py;test_data_complete.py;DATA_SOURCES.md,4,no,,retain
+data/old_model_snapshot.csv,.csv,1597234,tracked,snapshot,make_outputs.py;cleanup_manifest.txt,2,no,,retain
+data/refine_pre_snapshot.csv,.csv,1299556,tracked,snapshot,make_outputs.py;DATA_SOURCES.md;cleanup_manifest.txt,3,no,,retain
+results/baseline/scored_pre_context.parquet,.parquet,1392670,untracked,snapshot,peak3 baseline snapshot / nba_peak.audit (read),3,yes,,retain
+make_outputs.py,.py,100933,tracked,source,make_outputs.py;README.md;DATA_SOURCES.md,4,no,,retain
+nba_peak/__init__.py,.py,0,tracked,source,NONE,0,no,,DELETE-CANDIDATE
+nba_peak/audit.py,.py,7703,tracked,source,README.md;METHODOLOGY.md;cleanup_manifest.txt,3,no,,retain
+nba_peak/candidates.py,.py,15446,tracked,source,README.md;METHODOLOGY.md,2,no,,retain
+nba_peak/cli_commands.py,.py,28409,tracked,source,cleanup_manifest.txt,1,no,,retain
+nba_peak/context/__init__.py,.py,0,tracked,source,NONE,0,no,,DELETE-CANDIDATE
+nba_peak/context/awards.py,.py,1990,tracked,source,METHODOLOGY.md;cleanup_manifest.txt,2,no,,retain
+nba_peak/context/postseason.py,.py,10836,tracked,source,METHODOLOGY.md,1,no,,retain
+nba_peak/context/stat_titles.py,.py,3110,tracked,source,METHODOLOGY.md,1,no,,retain
+nba_peak/context/teammates.py,.py,5019,tracked,source,METHODOLOGY.md,1,no,,retain
+nba_peak/context/title_role.py,.py,3529,tracked,source,METHODOLOGY.md,1,no,,retain
+nba_peak/context_build.py,.py,16644,tracked,source,README.md;METHODOLOGY.md;DATA_SOURCES.md,3,no,,retain
+nba_peak/data_audit.py,.py,7808,tracked,source,cleanup_manifest.txt,1,no,,retain
+nba_peak/data_complete.py,.py,8641,tracked,source,cleanup_manifest.txt,1,no,,retain
+nba_peak/five_player_audit.py,.py,49153,tracked,source,README.md,1,no,,retain
+nba_peak/integrity.py,.py,5538,tracked,source,README.md,1,no,,retain
+nba_peak/leaderboards.py,.py,25255,tracked,source,README.md;METHODOLOGY.md;cleanup_manifest.txt,3,no,,retain
+nba_peak/season_completeness.py,.py,10681,tracked,source,peak3.py;README.md;METHODOLOGY.md,3,no,,retain
+nba_peak/specialist_postseason_audit.py,.py,42637,tracked,source,README.md,1,no,,retain
+peak3.py,.py,194536,tracked,source,peak3.py;make_outputs.py;test_validation.py,8,no,,retain
+results/context_audit.json,.json,24171,untracked,temp,nba_peak.audit.run_audit (--audit-context),1,yes,,retain
+results/context_audit.txt,.txt,5483,untracked,temp,nba_peak.audit.run_audit (--audit-context),1,yes,,retain
+results/top_250_3_year_peaks_performance.csv,.csv,14287,untracked,temp,make_outputs.write_leaderboards f-string,1,yes,,retain
+results/top_250_3_year_peaks_prime.csv,.csv,14285,untracked,temp,make_outputs.write_leaderboards f-string,1,yes,leaderboards/ (raw-first canonical),retain
+results/top_250_5_year_peaks_performance.csv,.csv,14335,untracked,temp,make_outputs.write_leaderboards f-string,1,yes,,retain
+results/top_250_5_year_peaks_prime.csv,.csv,14290,untracked,temp,make_outputs.write_leaderboards f-string,1,yes,leaderboards/ (raw-first canonical),retain
+results/top_250_single_seasons_performance.csv,.csv,40531,untracked,temp,make_outputs.write_leaderboards f-string,1,yes,,retain
+results/top_250_single_seasons_prime.csv,.csv,40539,untracked,temp,make_outputs.write_leaderboards f-string,1,yes,leaderboards/ (raw-first canonical),retain
+tests/test_context.py,.py,12926,tracked,test,make_outputs.py;test_context.py;README.md,3,no,,retain
+tests/test_corrections.py,.py,38565,tracked,test,make_outputs.py;test_corrections.py;README.md,3,no,,retain
+tests/test_data_complete.py,.py,15015,tracked,test,cleanup_manifest.txt,1,no,,retain
+tests/test_five_player_audit.py,.py,6960,tracked,test,NONE,0,no,,retain
+tests/test_leaderboards.py,.py,15180,tracked,test,README.md,1,no,,retain
+tests/test_peak3.py,.py,8142,tracked,test,make_outputs.py;test_peak3.py;README.md,3,no,,retain
+tests/test_refinement.py,.py,13633,tracked,test,test_refinement.py,1,no,,retain
+tests/test_scoring.py,.py,11836,tracked,test,make_outputs.py;test_scoring.py;README.md,3,no,,retain
+tests/test_specialist_postseason_audit.py,.py,14487,tracked,test,README.md,1,no,,retain
+tests/test_validation.py,.py,7511,tracked,test,make_outputs.py;README.md,2,no,,retain

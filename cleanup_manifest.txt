@@ -173,3 +173,68 @@ RETAINED CANDIDATES (looked obsolete; KEPT after affirmative evidence of use):
     retained because: it IS the canonical 250-player universe consumed by
       nba_peak/leaderboards.py; rebuildable via `--build-final-250`; required for
       deterministic leaderboard generation. Reused, never duplicated.
+
+============================================================================
+DEEP DEAD-FILE + UNUSED-DATA AUDIT (2026-06)
+Method: full repository inventory (reports/repository_file_inventory.csv, 518
+files excl .git/.venv). For every file, classified category and searched ALL
+active references via git grep / rg over peak3.py, make_outputs.py, nba_peak/**,
+tests/**, README/METHODOLOGY/DATA_SOURCES, INCLUDING dynamically-constructed
+paths (f-strings) and Python package/import requirements. Cross-checked: 8 cached
+HTML page-types are each consumed by a parser; cache/processed holds only the
+canonical 1980_2026 tag + 47 context_seasons (no stale-range parquet); all
+data/generated inputs and all nba_peak modules are imported/used. The repo had
+two prior cleanup passes and is already lean.
+
+DELETED THIS PASS (proven dead — no generator, zero active references):
+  results/scoring_dependency_audit.csv
+  results/scoring_dependency_audit.txt
+    category     : temp / stale analysis output.
+    original purpose: a one-off "which metrics drive the score" dependency dump
+                   from an earlier model iteration.
+    why unused   : NOTHING writes them (grep of the whole tree finds no writer);
+                   the only references were a dangling code comment (peak3.py) and
+                   one METHODOLOGY.md line, both of which pointed at the files with
+                   a glob ("scoring_dependency_audit.*"). They are not regenerated
+                   by any current command, test, rebuild, or report generator.
+    evidence     : `grep -rn scoring_dependency` -> only peak3.py comment +
+                   METHODOLOGY.md prose; no `to_csv`/`write_text` target anywhere.
+    regenerable  : no (no generator remains) -- and not needed: the point they
+                   illustrated (native scores stored in legacy `_pct` columns) is
+                   already documented in METHODOLOGY's FORMULA section.
+    replacement  : none. The two dangling references were removed (peak3.py
+                   comment + METHODOLOGY.md line updated to drop the file pointer).
+
+HOUSEKEEPING (regenerable, gitignored; cleared, recreated on next run):
+  __pycache__/ (all), .pytest_cache/  -> recreated by Python/pytest.
+
+RETAINED CANDIDATES (looked removable; KEPT with the exact active dependency):
+  results/top_250_{single_seasons,3_year_peaks,5_year_peaks}_{prime,performance}.csv
+    looked removable: gitignored scratch; the *_prime peaks duplicate the
+      canonical leaderboards/ (raw-first) using the older calibrated-average view.
+    retained because: WRITTEN every run by make_outputs.write_leaderboards via an
+      f-string path (so literal-name grep shows 0 refs -- a dynamic-path false
+      negative); the *_performance files are the ONLY Performance-Only leaderboards
+      in the project (no replacement under leaderboards/). Active generator; not
+      dead. Removing them would require deleting a generator that still produces
+      unique output.
+  results/context_audit.{json,txt}
+    looked removable: gitignored scratch.
+    retained because: written by the active `--audit-context` command
+      (nba_peak/audit.run_audit); documented in METHODOLOGY.
+  results/baseline/scored_pre_context.parquet
+    looked removable: a "pre"/"baseline" snapshot.
+    retained because: READ by nba_peak/audit.py (pre-enrichment before/after) and
+      conditionally written by peak3.py; an active regression baseline.
+  data/{old_model,refine_pre,datacomplete_pre}_snapshot.csv
+    retained because: each has an active consumer (make_outputs before/after
+      audits; datacomplete also by tests/test_data_complete.py). Not regenerable.
+  cache/html/* (376), cache/processed/* (51)
+    retained because: raw provenance for every scored field AND the source for
+      `--rebuild --no-scrape`; all 8 HTML page-types are parsed; no empty/failed/
+      stale-range files exist.
+  nba_peak/__init__.py, nba_peak/context/__init__.py
+    retained because: required Python package markers (import machinery; invisible
+      to literal-name grep).
+  reports/repository_file_inventory.csv
+    retained because: the deliverable of this audit pass (referenced here).

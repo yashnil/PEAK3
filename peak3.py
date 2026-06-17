@@ -702,8 +702,8 @@ def _merge_completed_data(regular: pd.DataFrame, flags: Dict[str, bool],
 # for DESCRIPTIVE reporting only and never enter the official score.
 # NOTE: the official native-value score is written to `{metric}_pct` columns,
 # kept as a legacy alias to avoid a risky mass rename of every weight dict;
-# despite the name it is a native-value score, NOT a percentile. See
-# results/scoring_dependency_audit.* and the formula map.
+# despite the name it is a native-value score, NOT a percentile (see the FORMULA
+# section of METHODOLOGY.md).
 # ===========================================================================
 NORMALIZATION_MODE = "native"        # native landmarks + soft era context
 EMERGENCY_Z_CAP = 8.0                # corrupt-data guard only (well beyond NBA)
