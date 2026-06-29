@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-06-29",
+  "profile_version": "v2",
+  "lineup_model_version": "experimental_lineup_v2",
+  "ruleset_version": "ruleset_v2",
+  "seeds_per_mode": 1000,
+  "total_boards": 3000,
+  "modes": ["apex_1y", "prime_3y", "foundation_5y"],
+  "failures": 0,
+  "pass_rate": 1.0,
+  "invariants_checked": [
+    "5 rounds x 3 offers per board",
+    "no duplicate players within board",
+    "at least one valid 5-role completion path"
+  ],
+  "profile_pool": {
+    "total_windows": 984,
+    "official_eligible": 740,
+    "excluded": 244,
+    "anchor_eligible": 403,
+    "anchor_saturation_pct": 54.5,
+    "anchor_path_postseason_team": 347,
+    "anchor_path_recognition_validated": 56
+  },
+  "notes": "v2 anchor rules: removed interior_defensive_profile (low TP proxy) and playoff_team_contributor. Added recognition_validated_anchor (high rec + low TP + moderate SI = recognition from defensive/rebounding awards). DNA reduced from 7 to 6 dimensions: removed peer_quality_adjustment (teammate_adjustment is context, not capability)."
+}

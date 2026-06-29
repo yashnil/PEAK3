@@ -631,3 +631,59 @@ slight Hakeem edge — **if the data supports it**, with neither player forced.
 
 See [`METHODOLOGY.md`](METHODOLOGY.md) for the complete derivation and
 [`outputs.txt`](outputs.txt) for a full regenerated validation run.
+
+---
+
+## 20. PEAK3 Arena — Development
+
+PEAK3 Arena is the game application built on top of this model. It ships Peak Duel: a daily 10-question challenge and endless mode comparing player peak windows using real PEAK3 data.
+
+### Quick start
+
+```bash
+# 1. Install dependencies
+make install                  # model + api + web
+
+# 2. Build the web dataset (required before running the API)
+make build-dataset            # reads leaderboards/*.csv → data/web/*.json
+
+# 3. Run services (two terminals)
+make api                      # FastAPI on http://localhost:8000
+make web                      # Next.js on http://localhost:3000
+
+# 4. Run all tests
+make test
+```
+
+### Structure
+
+```
+apps/api/   FastAPI application — read-only, stateless HMAC sessions
+apps/web/   Next.js App Router — game UI, rankings, methodology explorer
+scripts/    build_web_dataset.py — offline exporter (no network access)
+data/web/   Generated JSON dataset (gitignored; run build-dataset to create)
+docs/       Architecture, game design, implementation audit
+CLAUDE.md   Full development reference for AI-assisted sessions
+```
+
+### Routes
+
+| Route | Description |
+|---|---|
+| `/` | Landing page |
+| `/play/daily` | Daily 10-duel challenge |
+| `/play/endless` | Endless peak duel, duration selector |
+| `/rankings` | All-duration PEAK3 leaderboards |
+| `/players/[slug]` | Player profile with component breakdown |
+| `/methodology` | Interactive formula explorer |
+| `/about` | Model transparency and provenance |
+
+### Test counts
+
+| Suite | Count |
+|---|---|
+| Python model tests | 186 |
+| API tests (FastAPI) | 53 |
+| Frontend unit tests | 24 |
+
+See [`CLAUDE.md`](CLAUDE.md) for the full development reference.

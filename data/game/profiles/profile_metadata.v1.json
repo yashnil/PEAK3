@@ -1,0 +1,108 @@
+{
+  "profile_version": "v1",
+  "card_pool_version": "v1",
+  "transform_version": "dna_v1_roles_v1",
+  "generated_at": "2026-06-29T17:59:38.373711+00:00",
+  "source_commit": "20c73e7",
+  "source_file": "data/web/peak_windows.json",
+  "total_profiles": 984,
+  "official_eligible": 821,
+  "excluded": 163,
+  "supported_durations": [
+    1,
+    2,
+    3,
+    5
+  ],
+  "role_names": [
+    "lead_creator",
+    "guard_wing",
+    "wing_forward",
+    "forward_big",
+    "anchor"
+  ],
+  "dna_dimensions": [
+    "primary_creation",
+    "scoring_pressure",
+    "individual_validation",
+    "postseason_translation",
+    "team_context",
+    "peer_quality_adjustment",
+    "context_completeness"
+  ],
+  "dna_version": "v1",
+  "rank_derived_fields_removed": [
+    "peak_tier",
+    "prime_index_normalized"
+  ],
+  "norm_constants": {
+    "statistical_impact": {
+      "max": 38.93,
+      "min": 5.93
+    },
+    "traditional_production": {
+      "max": 15.87,
+      "min": 0.79
+    },
+    "individual_recognition": {
+      "max": 20.0,
+      "min": 0.0
+    },
+    "postseason_individual_value": {
+      "max": 13.53,
+      "min": -2.34
+    },
+    "team_achievement": {
+      "max": 3.0,
+      "min": 0.0
+    },
+    "teammate_adjustment": {
+      "max": 0.495,
+      "min": -0.495
+    }
+  },
+  "role_rules": {
+    "lead_creator": {
+      "id": "lead_creator_v1",
+      "description": "Top-tier statistical impact (top 25%) reflecting primary offensive initiation. Statistical impact captures creation, efficiency, and impact contributions."
+    },
+    "guard_wing": {
+      "id": "guard_wing_v1",
+      "description": "Perimeter function: creation, defense, spacing, or connective play. Above-median SI qualifies; strong postseason presence with any SI also qualifies."
+    },
+    "wing_forward": {
+      "id": "wing_forward_v1",
+      "description": "Versatile forward function: scoring, two-way play, or connective value. Two paths: high-impact forward regardless of scoring, or scoring forward with some SI."
+    },
+    "forward_big": {
+      "id": "forward_big_v1",
+      "description": "Frontcourt scoring or team-enabling high-impact big. High TP qualifies directly; strong team success + solid SI also qualifies."
+    },
+    "anchor": {
+      "id": "anchor_v1",
+      "description": "Interior defensive, rebounding, or size role. Three general OR-paths: (1) traditional postseason + team anchor, (2) non-scoring moderate-impact player (SI 15\u201352, TP \u2264 35) capturing interior defensive/rebounding profiles without scoring requirements, (3) relaxed postseason-team combo for Finals-level contributors. No path requires named-player assignment or position metadata."
+    }
+  },
+  "role_path_usage": {
+    "lead_creator": {
+      "high_si": 245
+    },
+    "guard_wing": {
+      "perimeter_impact": 589,
+      "postseason_presence": 48
+    },
+    "wing_forward": {
+      "scoring_forward": 475,
+      "impact_forward": 49
+    },
+    "forward_big": {
+      "scoring_big": 441,
+      "team_anchor_big": 40
+    },
+    "anchor": {
+      "postseason_team_anchor": 347,
+      "playoff_team_contributor": 20,
+      "interior_defensive_profile": 155
+    }
+  }
+}

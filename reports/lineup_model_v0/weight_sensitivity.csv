@@ -1,0 +1,8 @@
+talent_weight,coverage_weight,synergy_weight,top1_same_as_default,mean_top10_displacement,n_lineups
+0.6,0.32,0.08,True,0.0,219
+0.65,0.27,0.08,True,0.0,219
+0.7,0.22,0.08,True,0.0,219
+0.75,0.17,0.08,True,0.0,219
+0.8,0.12,0.08,True,0.0,219
+0.85,0.07,0.08,True,0.0,219
+0.9,0.02,0.08,True,0.0,219

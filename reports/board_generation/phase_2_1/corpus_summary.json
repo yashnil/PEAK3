@@ -1,0 +1,17 @@
+{
+  "generated_at": "2026-06-29",
+  "profile_version": "v1",
+  "lineup_model_version": "experimental_lineup_v1",
+  "ruleset_version": "ruleset_v1",
+  "seeds_per_mode": 1000,
+  "total_boards": 3000,
+  "modes": ["apex_1y", "prime_3y", "foundation_5y"],
+  "failures": 0,
+  "pass_rate": 1.0,
+  "invariants_checked": [
+    "5 rounds x 3 offers per board",
+    "no duplicate players within board",
+    "at least one valid 5-role completion path"
+  ],
+  "notes": "v1 role rules: anchor gains interior_defensive_profile and playoff_team_contributor paths. DNA: 7 dimensions (removed peak_tier, prime_index_normalized; added peer_quality_adjustment)."
+}

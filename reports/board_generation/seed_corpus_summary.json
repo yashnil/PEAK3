@@ -1,0 +1,35 @@
+{
+  "per_mode": {
+    "apex_1y": {
+      "generated": 200,
+      "requested": 200,
+      "mean_feasible_paths": 152.1,
+      "min_feasible_paths": 24,
+      "max_feasible_paths": 243,
+      "mean_attempts": 1.15,
+      "max_attempts": 3
+    },
+    "prime_3y": {
+      "generated": 200,
+      "requested": 200,
+      "mean_feasible_paths": 163.4,
+      "min_feasible_paths": 24,
+      "max_feasible_paths": 243,
+      "mean_attempts": 1.16,
+      "max_attempts": 4
+    },
+    "foundation_5y": {
+      "generated": 200,
+      "requested": 200,
+      "mean_feasible_paths": 174.9,
+      "min_feasible_paths": 60,
+      "max_feasible_paths": 243,
+      "mean_attempts": 1.23,
+      "max_attempts": 5
+    }
+  },
+  "failures": [],
+  "total_requested": 600,
+  "total_generated": 600,
+  "total_failures": 0
+}

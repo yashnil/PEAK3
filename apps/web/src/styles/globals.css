@@ -1,0 +1,211 @@
+@import "tailwindcss";
+
+/* ================================================================
+   PEAK3 Arena Design Tokens
+   ================================================================ */
+
+:root {
+  /* Page backgrounds */
+  --bg-page: #0a0b0d;
+  --bg-elevated: #111318;
+  --bg-surface: #1a1d24;
+  --bg-surface-hover: #21252e;
+
+  /* Text */
+  --text-primary: #f0f0f0;
+  --text-secondary: #8c8fa8;
+  --text-muted: #555870;
+  --text-inverse: #0a0b0d;
+
+  /* Borders */
+  --border-subtle: #1e2130;
+  --border-default: #2a2e3d;
+  --border-emphasis: #3d4258;
+
+  /* Focus */
+  --focus-ring: #4d63ff;
+
+  /* PEAK3 accent — warm court gold */
+  --peak-accent: #f5c842;
+  --peak-accent-dim: #c9a32a;
+
+  /* Peak Draft mode colors */
+  --apex-coral: #ff6b47;
+  --prime-gold: #f5c842;
+  --foundation-blue: #4a90d9;
+
+  /* Role colors */
+  --role-lead-creator: #f472b6;
+  --role-guard-wing: #60a5fa;
+  --role-wing-forward: #a78bfa;
+  --role-forward-big: #fb923c;
+  --role-anchor: #34d399;
+  --peak-accent-bg: rgba(245, 200, 66, 0.08);
+
+  /* Game states */
+  --correct: #22c55e;
+  --correct-dim: #15803d;
+  --correct-bg: rgba(34, 197, 94, 0.1);
+  --incorrect: #ef4444;
+  --incorrect-dim: #b91c1c;
+  --incorrect-bg: rgba(239, 68, 68, 0.1);
+  --neutral: #6b7280;
+
+  /* Component colors */
+  --comp-si: #60a5fa;    /* Statistical Impact — blue */
+  --comp-tp: #a78bfa;    /* Traditional Production — violet */
+  --comp-rec: #f472b6;   /* Individual Recognition — pink */
+  --comp-po: #fb923c;    /* Postseason Value — orange */
+  --comp-team: #34d399;  /* Team Achievement — emerald */
+  --comp-tm: #94a3b8;    /* Teammate Adj — slate */
+
+  /* Court geometry accent */
+  --court-line: rgba(245, 200, 66, 0.06);
+}
+
+/* ================================================================
+   Base
+   ================================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+  font-family: var(--font-inter, system-ui, sans-serif);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ================================================================
+   Typography utilities
+   ================================================================ */
+
+.font-display {
+  font-family: var(--font-syne, var(--font-inter, system-ui, sans-serif));
+  letter-spacing: -0.02em;
+}
+
+.text-peak-accent {
+  color: var(--peak-accent);
+}
+
+.text-correct {
+  color: var(--correct);
+}
+
+.text-incorrect {
+  color: var(--incorrect);
+}
+
+/* ================================================================
+   Focus states
+   ================================================================ */
+
+*:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ================================================================
+   Court texture / grid motif (subtle background pattern)
+   ================================================================ */
+
+.court-grid-bg {
+  background-image:
+    linear-gradient(var(--court-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--court-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+/* ================================================================
+   Card surfaces
+   ================================================================ */
+
+.card-elevated {
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.card-surface {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+}
+
+/* ================================================================
+   Skip link
+   ================================================================ */
+
+.skip-link {
+  position: absolute;
+  top: -9999px;
+  left: 16px;
+  z-index: 9999;
+  padding: 8px 16px;
+  background: var(--peak-accent);
+  color: var(--text-inverse);
+  font-weight: 600;
+  border-radius: 4px;
+}
+
+.skip-link:focus {
+  top: 16px;
+}
+
+/* ================================================================
+   Reduced motion
+   ================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ================================================================
+   Scrollbar (webkit)
+   ================================================================ */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-page);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-emphasis);
+  border-radius: 3px;
+}
+
+/* ================================================================
+   Selection
+   ================================================================ */
+
+::selection {
+  background: rgba(245, 200, 66, 0.2);
+  color: var(--text-primary);
+}
+
+/* ================================================================
+   Score number display
+   ================================================================ */
+
+.score-number {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}

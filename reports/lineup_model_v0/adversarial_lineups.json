@@ -1,0 +1,38 @@
+{
+  "summary": "Adversarial probes against lineup scoring. exceeds_solver_optimum and any_rating_over_100 must be False. synergy_overrides_talent_gap_gt5 indicates whether bounded synergy can flip a >5pt talent gap.",
+  "probes": [
+    {
+      "mode": "apex_1y",
+      "board_optimum": 81.8291,
+      "max_enumerated_rating": 81.8291,
+      "exceeds_solver_optimum": false,
+      "any_rating_over_100": false,
+      "synergy_overrides_talent_gap_gt5": false,
+      "max_abs_synergy_total": 0.04,
+      "synergy_bound": 0.06,
+      "n_lineups": 171
+    },
+    {
+      "mode": "prime_3y",
+      "board_optimum": 79.7754,
+      "max_enumerated_rating": 79.7754,
+      "exceeds_solver_optimum": false,
+      "any_rating_over_100": false,
+      "synergy_overrides_talent_gap_gt5": false,
+      "max_abs_synergy_total": 0.03,
+      "synergy_bound": 0.06,
+      "n_lineups": 84
+    },
+    {
+      "mode": "foundation_5y",
+      "board_optimum": 75.0597,
+      "max_enumerated_rating": 75.0597,
+      "exceeds_solver_optimum": false,
+      "any_rating_over_100": false,
+      "synergy_overrides_talent_gap_gt5": false,
+      "max_abs_synergy_total": 0.03,
+      "synergy_bound": 0.06,
+      "n_lineups": 243
+    }
+  ]
+}

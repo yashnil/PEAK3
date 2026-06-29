@@ -1,0 +1,107 @@
+{
+  "profile_version": "v2",
+  "card_pool_version": "v2",
+  "transform_version": "dna_v2_roles_v2",
+  "generated_at": "2026-06-29T20:19:03.833188+00:00",
+  "source_commit": "20c73e7",
+  "source_file": "data/web/peak_windows.json",
+  "total_profiles": 984,
+  "official_eligible": 740,
+  "excluded": 244,
+  "supported_durations": [
+    1,
+    2,
+    3,
+    5
+  ],
+  "role_names": [
+    "lead_creator",
+    "guard_wing",
+    "wing_forward",
+    "forward_big",
+    "anchor"
+  ],
+  "dna_dimensions": [
+    "primary_creation",
+    "scoring_pressure",
+    "individual_validation",
+    "postseason_translation",
+    "team_context",
+    "context_completeness"
+  ],
+  "dna_version": "v2",
+  "dna_dimensions_count": 6,
+  "removed_from_v1": [
+    "peer_quality_adjustment"
+  ],
+  "rank_derived_fields_removed": [
+    "peak_tier",
+    "prime_index_normalized"
+  ],
+  "data_constraint": "No per-stat breakdowns (defensive rating, rebound rate, block rate, position) exist at card-profile layer. 6 dimensions is the maximum defensible from available data.",
+  "norm_constants": {
+    "statistical_impact": {
+      "max": 38.93,
+      "min": 5.93
+    },
+    "traditional_production": {
+      "max": 15.87,
+      "min": 0.79
+    },
+    "individual_recognition": {
+      "max": 20.0,
+      "min": 0.0
+    },
+    "postseason_individual_value": {
+      "max": 13.53,
+      "min": -2.34
+    },
+    "team_achievement": {
+      "max": 3.0,
+      "min": 0.0
+    }
+  },
+  "role_rules": {
+    "lead_creator": {
+      "id": "lead_creator_v2",
+      "description": "Top-quartile statistical impact reflecting primary offensive initiation. Statistical impact (SI) is a composite of advanced metrics (BPM, VORP, WS, EPM) that captures creation, efficiency, and impact."
+    },
+    "guard_wing": {
+      "id": "guard_wing_v2",
+      "description": "Perimeter function: creation, defense, spacing, or connective play. Above-median SI qualifies; strong postseason presence with any SI also qualifies."
+    },
+    "wing_forward": {
+      "id": "wing_forward_v2",
+      "description": "Versatile forward function: scoring, two-way play, or connective value."
+    },
+    "forward_big": {
+      "id": "forward_big_v2",
+      "description": "Frontcourt scoring or team-enabling high-impact big."
+    },
+    "anchor": {
+      "id": "anchor_v2",
+      "description": "Interior/defensive/size role. Two data-derived paths: (1) Traditional anchor: dominated at both postseason impact and team winning (identifies Finals-level forces who anchor a team's playoff campaign). (2) Recognition-validated non-scorer: strong recognition accolades (DPOY, defensive/rebounding statistical titles captured in individual_recognition) combined with very low traditional production (confirms recognition was NOT for scoring) and moderate statistical impact (screens out pure bench fillers). Neither path uses positional data (unavailable) or player names. Neither path infers defense from low TP alone \u2014 path 2 requires HIGH recognition as the positive evidence; low TP is a confirmation filter, not the qualifier."
+    }
+  },
+  "role_path_usage": {
+    "lead_creator": {
+      "high_si": 245
+    },
+    "guard_wing": {
+      "perimeter_impact": 589,
+      "postseason_presence": 48
+    },
+    "wing_forward": {
+      "scoring_forward": 475,
+      "impact_forward": 49
+    },
+    "forward_big": {
+      "scoring_big": 441,
+      "team_anchor_big": 40
+    },
+    "anchor": {
+      "postseason_team_anchor": 347,
+      "recognition_validated_anchor": 56
+    }
+  }
+}

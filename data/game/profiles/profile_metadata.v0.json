@@ -1,0 +1,77 @@
+{
+  "profile_version": "v0",
+  "card_pool_version": "v0",
+  "generated_at": "2026-06-29T01:30:29.119522+00:00",
+  "source_commit": "20c73e7",
+  "source_file": "data/web/peak_windows.json",
+  "total_profiles": 984,
+  "official_eligible": 684,
+  "excluded": 300,
+  "supported_durations": [
+    1,
+    3,
+    5
+  ],
+  "role_names": [
+    "lead_creator",
+    "guard_wing",
+    "wing_forward",
+    "forward_big",
+    "anchor"
+  ],
+  "dna_dimensions": [
+    "primary_creation",
+    "scoring_pressure",
+    "individual_validation",
+    "postseason_translation",
+    "team_context",
+    "peak_tier",
+    "prime_index_normalized",
+    "context_completeness"
+  ],
+  "norm_constants": {
+    "statistical_impact": {
+      "max": 38.93,
+      "min": 5.93
+    },
+    "traditional_production": {
+      "max": 15.87,
+      "min": 0.79
+    },
+    "individual_recognition": {
+      "max": 20.0,
+      "min": 0.0
+    },
+    "postseason_individual_value": {
+      "max": 13.53,
+      "min": -2.34
+    },
+    "team_achievement": {
+      "max": 3.0,
+      "min": 0.0
+    },
+    "teammate_adjustment": {
+      "max": 0.49,
+      "min": -0.49
+    }
+  },
+  "role_rules": {
+    "lead_creator": {
+      "si_pct_min": 75
+    },
+    "guard_wing": {
+      "si_pct_min": 40
+    },
+    "wing_forward": {
+      "tp_pct_min": 50,
+      "si_pct_min": 30
+    },
+    "forward_big": {
+      "tp_pct_min": 58
+    },
+    "anchor": {
+      "po_pct_min": 55,
+      "team_pct_min": 42
+    }
+  }
+}

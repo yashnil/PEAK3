@@ -21,3 +21,37 @@ data/stat_titles.csv
 # NOTE: leaderboards/ and reports/ are intentionally TRACKED release artifacts
 # (canonical top-250 Prime leaderboards + audit/completeness reports) and must
 # NOT be added here. results/ above is local legacy scratch and stays ignored.
+
+# App: API
+apps/api/.env
+apps/api/.venv/
+apps/api/__pycache__/
+apps/api/.pytest_cache/
+
+# App: Web
+apps/web/node_modules/
+apps/web/.next/
+apps/web/.env.local
+apps/web/test-results/
+apps/web/playwright-report/
+
+# Web dataset (re-generated from leaderboard CSVs)
+data/web/
+
+# General
+.DS_Store
+*.log
+
+# Frontend test/build artifacts
+apps/web/coverage/
+apps/web/blob-report/
+apps/web/.turbo/
+apps/web/out/
+
+# Python tooling
+.mypy_cache/
+.ruff_cache/
+coverage.xml
+.coverage
+htmlcov/
+apps/web/tsconfig.tsbuildinfo
