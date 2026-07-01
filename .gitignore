@@ -38,6 +38,11 @@ apps/web/playwright-report/
 # Web dataset (re-generated from leaderboard CSVs)
 data/web/
 
+# Ranked-readiness validation harness (Phase 4.0): generated reports and
+# real reviewer data — never committed. See scripts/ranked_validation/.
+scripts/ranked_validation/output/
+scripts/ranked_validation/expert_review_harness/reviews.jsonl
+
 # General
 .DS_Store
 *.log

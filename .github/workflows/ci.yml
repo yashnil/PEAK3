@@ -9,7 +9,7 @@ on:
 jobs:
   # ── Model tests ─────────────────────────────────────────────────────────────
   model-tests:
-    name: Python model tests (186)
+    name: Python model tests (227)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +33,7 @@ jobs:
 
   # ── Lineup model tests ───────────────────────────────────────────────────────
   lineup-tests:
-    name: Experimental lineup model tests (41)
+    name: Experimental lineup model tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +52,7 @@ jobs:
       - name: Install model dependencies
         run: pip install -r requirements.txt
 
-      - name: Run lineup model tests (need v2 profiles)
+      - name: Run lineup model tests (need v3 profiles)
         run: |
           pip install pandas unidecode
           python scripts/build_web_dataset.py
@@ -61,7 +61,7 @@ jobs:
 
   # ── Data build + card profiles ───────────────────────────────────────────────
   web-dataset:
-    name: Build web dataset + card profiles v2
+    name: Build web dataset + card profiles v3
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -77,13 +77,13 @@ jobs:
       - name: Build web dataset
         run: python scripts/build_web_dataset.py
 
-      - name: Build card profiles v2 (Peak Draft game data)
+      - name: Build card profiles v3 (Peak Draft game data)
         run: python scripts/build_card_profiles.py
 
-      - name: Verify v2 artifacts exist
+      - name: Verify v3 artifacts exist
         run: |
-          test -f data/game/profiles/card_profiles.v2.json   || (echo "MISSING card_profiles.v2.json"   && exit 1)
-          test -f data/game/profiles/profile_metadata.v2.json || (echo "MISSING profile_metadata.v2.json" && exit 1)
+          test -f data/game/profiles/card_profiles.v3.json   || (echo "MISSING card_profiles.v3.json"   && exit 1)
+          test -f data/game/profiles/profile_metadata.v3.json || (echo "MISSING profile_metadata.v3.json" && exit 1)
 
       - name: Upload dataset artifact
         uses: actions/upload-artifact@v4
@@ -99,7 +99,7 @@ jobs:
 
   # ── Board generation smoke check ─────────────────────────────────────────────
   board-generation:
-    name: Board generation smoke check (75 seeds × 3 modes)
+    name: Board generation smoke check (225 seeds × 3 modes)
     runs-on: ubuntu-latest
     needs: web-dataset
     steps:
@@ -130,7 +130,7 @@ jobs:
 
   # ── FastAPI tests ────────────────────────────────────────────────────────────
   api-tests:
-    name: FastAPI tests (92, 0 skipped)
+    name: FastAPI tests (180, 0 skipped)
     runs-on: ubuntu-latest
     needs: web-dataset
     steps:
@@ -159,17 +159,22 @@ jobs:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-api-${{ hashFiles('apps/api/requirements.txt') }}
 
-      - name: Install API dependencies
-        run: pip install -r apps/api/requirements.txt
-        working-directory: apps/api
+      - name: Install model + API dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r apps/api/requirements.txt
 
       - name: Run API tests (must have 0 skipped)
-        run: python -m pytest tests/ -v --tb=short
+        # tests/integration/ is excluded here — it always skips without real
+        # Supabase test-project secrets (see the dedicated
+        # supabase-integration job below), which would otherwise violate
+        # this job's own "0 skipped" guarantee.
+        run: python -m pytest tests/ -v --tb=short --ignore=tests/integration
         working-directory: apps/api
 
   # ── Frontend unit tests + build ───────────────────────────────────────────────
   frontend:
-    name: Frontend (typecheck, unit tests, production build)
+    name: Frontend (typecheck, lint, unit tests, production build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -189,19 +194,26 @@ jobs:
         run: npm run typecheck
         working-directory: apps/web
 
-      - name: Unit tests (vitest)
+      - name: Lint (zero warnings)
+        run: npm run lint -- --max-warnings 0
+        working-directory: apps/web
+
+      - name: Unit tests (vitest, 67)
         run: npm run test
         working-directory: apps/web
 
       - name: Production build
-        run: npm run build
+        # Always build from clean state — never reuse .next cache in CI
+        run: |
+          rm -rf .next
+          npm run build
         working-directory: apps/web
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
   # ── Playwright e2e + accessibility ───────────────────────────────────────────
   playwright:
-    name: Playwright browser tests + axe accessibility
+    name: Playwright browser tests + axe accessibility (62, 0 retries)
     runs-on: ubuntu-latest
     needs: [web-dataset, frontend]
     steps:
@@ -252,11 +264,20 @@ jobs:
         run: npx playwright install --with-deps chromium
         working-directory: apps/web
 
-      - name: Run Playwright tests (services auto-start via webServer config)
-        run: npm run test:e2e
+      - name: Confirm no stale processes on ports 3000/8000
+        run: |
+          lsof -ti :3000 && echo "PORT 3000 OCCUPIED — aborting" && exit 1 || true
+          lsof -ti :8000 && echo "PORT 8000 OCCUPIED — aborting" && exit 1 || true
+
+      # CI=true forces reuseExistingServer=false so Playwright always starts
+      # its own services from the current working tree. PLAYWRIGHT_RETRIES=0
+      # ensures zero retries for the release-gate proof run.
+      - name: Run Playwright tests (fresh services, 0 retries)
+        run: npm run test:e2e:ci
         working-directory: apps/web
         env:
           CI: true
+          PLAYWRIGHT_RETRIES: "0"
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
       - name: Upload Playwright report on failure
@@ -274,3 +295,68 @@ jobs:
           name: playwright-traces
           path: apps/web/test-results/
           retention-days: 7
+
+  # ── Supabase integration tests (Phase 4.0 — ranked release gate) ────────────
+  #
+  # Requires a real, isolated Supabase test project. Never runs against a
+  # shared/production project. This job always runs (never a job-level
+  # `if:` skip) so a missing-secrets state is always visibly reported in
+  # the job log and summary as "not configured" — it must never look like
+  # a silent skip that could be mistaken for a pass. Required as a status
+  # check specifically for promoting a build to ranked closed alpha (see
+  # docs/architecture/ADR-004-phase4-ranked.md section A and
+  # docs/implementation/PHASE_4_0_REPORT.md); it is intentionally NOT
+  # required for ordinary merges to main, since most contributors will not
+  # have test-project secrets.
+  supabase-integration:
+    name: Supabase integration tests (ranked release gate)
+    runs-on: ubuntu-latest
+    needs: web-dataset
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets
+        id: check
+        run: |
+          if [ -z "${{ secrets.PEAK3_TEST_SUPABASE_URL }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "## :warning: Supabase integration tests: NOT CONFIGURED" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "PEAK3_TEST_SUPABASE_URL (and related test-project secrets) are not set in this repository/environment." >> "$GITHUB_STEP_SUMMARY"
+            echo "This is expected for ordinary PRs. It IS required, with secrets present, before promoting a build to ranked closed alpha." >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::Supabase integration tests skipped — not configured. Required (with secrets) for ranked release promotion, not for ordinary merges."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        if: steps.check.outputs.configured == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install model + API dependencies
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          pip install -r requirements.txt
+          pip install -r apps/api/requirements.txt
+
+      - name: Run Supabase integration tests
+        if: steps.check.outputs.configured == 'true'
+        run: python -m pytest tests/integration/ -m supabase_integration -v --tb=short
+        working-directory: apps/api
+        env:
+          PEAK3_TEST_SUPABASE_URL: ${{ secrets.PEAK3_TEST_SUPABASE_URL }}
+          PEAK3_TEST_SUPABASE_ANON_KEY: ${{ secrets.PEAK3_TEST_SUPABASE_ANON_KEY }}
+          PEAK3_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.PEAK3_TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          PEAK3_TEST_DATABASE_URL: ${{ secrets.PEAK3_TEST_DATABASE_URL }}
+          PEAK3_TEST_SUPABASE_JWT_SECRET: ${{ secrets.PEAK3_TEST_SUPABASE_JWT_SECRET }}
+
+      - name: Report final status
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.configured }}" != "true" ]; then
+            echo "RESULT: not configured (expected outside ranked-release-promotion runs)"
+          else
+            echo "RESULT: ran against a real Supabase test project"
+          fi

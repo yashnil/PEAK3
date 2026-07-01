@@ -86,7 +86,8 @@ export function GameEngine({
     if (isComplete(state) && mode === "endless") {
       repo.current.updateEndlessScore(state.total_arena_points, state.best_streak);
     }
-  }, [state.phase]); // intentionally only runs on phase change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.phase]); // intentionally narrow: fires exactly once per phase transition
 
   const handleSelect = useCallback(
     async (peakId: string) => {

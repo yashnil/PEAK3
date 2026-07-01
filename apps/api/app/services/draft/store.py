@@ -1,60 +1,64 @@
-"""Ephemeral in-memory game store for Peak Draft.
+"""Backward-compatible store facade — delegates to the in-memory repository.
 
-Games are stored in a process-level dict. They are lost on server restart, which
-is acceptable for Phase 2 without a database. The store is replaced with a Redis
-or Supabase adapter in Phase 3.
+Phase 2 API routes and tests import directly from this module.
+Phase 3 routes use the dependency-injected repository via core/dependencies.py.
 
-Security: the game_id is a random 128-bit token. Private board state (future
-offers, reframe branches, solver optimum) is never in any client payload.
+In production (DATABASE_URL set), the lifespan hook injects PostgreSQL repos
+through app.state.  This module's singletons are used only in test contexts
+where the client fixture does not set app.state.db_pool.
 """
 from __future__ import annotations
 
-import secrets
-import threading
-from datetime import datetime, timedelta, timezone
-
+from app.repositories.memory import MemoryChallengeRepository, MemoryGameRepository
+from app.repositories.protocols import ChallengeRecord
 from nba_peak.lineup.schemas import DraftGameState
 
-# In-memory game store
-_games: dict[str, DraftGameState] = {}
-_lock = threading.Lock()
+# Re-export ChallengeRecord so existing imports from store still work
+__all__ = [
+    "ChallengeRecord",
+    "create_game",
+    "get_game",
+    "save_game",
+    "delete_game",
+    "game_count",
+    "store_challenge",
+    "get_challenge",
+    "save_settlement",
+]
 
-GAME_TTL_HOURS = 24
+# Singletons used by Phase 2 routes and the conftest TestClient.
+# They are replaced at startup by PostgreSQL repos when DATABASE_URL is set.
+_game_repo = MemoryGameRepository()
+_challenge_repo = MemoryChallengeRepository()
 
 
 def create_game(state: DraftGameState) -> str:
-    """Store a new game and return its game_id."""
-    game_id = secrets.token_urlsafe(16)
-    state.game_id = game_id
-    with _lock:
-        _games[game_id] = state
-    return game_id
+    return _game_repo.create_game(state)
 
 
 def get_game(game_id: str) -> DraftGameState | None:
-    with _lock:
-        state = _games.get(game_id)
-    if state is None:
-        return None
-    # Check TTL
-    created = datetime.fromisoformat(state.created_at)
-    if datetime.now(timezone.utc) - created > timedelta(hours=GAME_TTL_HOURS):
-        with _lock:
-            _games.pop(game_id, None)
-        return None
-    return state
+    return _game_repo.get_game(game_id)
 
 
 def save_game(state: DraftGameState) -> None:
-    with _lock:
-        _games[state.game_id] = state
+    _game_repo.save_game(state)
 
 
 def delete_game(game_id: str) -> None:
-    with _lock:
-        _games.pop(game_id, None)
+    _game_repo.delete_game(game_id)
 
 
 def game_count() -> int:
-    with _lock:
-        return len(_games)
+    return _game_repo.game_count()
+
+
+def store_challenge(record: ChallengeRecord) -> None:
+    _challenge_repo.store_challenge(record)
+
+
+def get_challenge(token_hash: str) -> ChallengeRecord | None:
+    return _challenge_repo.get_challenge(token_hash)
+
+
+def save_settlement(token_hash: str, settlement: dict) -> bool:
+    return _challenge_repo.save_settlement(token_hash, settlement)

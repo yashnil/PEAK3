@@ -29,6 +29,16 @@ export function todayUTC(): string {
   return new Date().toISOString().split("T")[0];
 }
 
+/** Derive a short stable key from a challenge token for localStorage storage. */
+export function challengeTokenKey(token: string): string {
+  // Use first 20 chars of btoa — not secure, just for local disambiguation
+  try {
+    return btoa(token).slice(0, 20).replace(/[+/=]/g, "_");
+  } catch {
+    return token.slice(0, 20);
+  }
+}
+
 export function difficultyColor(difficulty: string): string {
   switch (difficulty) {
     case "Photo Finish": return "text-amber-400";
