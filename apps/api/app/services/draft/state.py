@@ -64,6 +64,19 @@ def create_draft_game(
     if board_type == "daily" and not date:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    # Reject future dates for daily boards — only released dates are playable.
+    if board_type == "daily" and date:
+        try:
+            import datetime as _dt
+            given_date = _dt.datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError(f"Invalid date format: {date!r}. Expected YYYY-MM-DD.")
+        today = datetime.now(timezone.utc).date()
+        if given_date > today:
+            raise ValueError(
+                f"Future dates are not allowed for daily boards: {date}"
+            )
+
     config = BoardConfig(mode=mode, board_type=board_type, date=date, seed=seed)
     board = generate_board(config, signing_secret=signing_secret)
 
@@ -384,6 +397,7 @@ def _clone(state: DraftGameState) -> DraftGameState:
         duration_years=state.duration_years,
         lineup_evaluation=state.lineup_evaluation,
         round_history=list(state.round_history),
+        owner_sub=state.owner_sub,
     )
 
 
@@ -468,9 +482,11 @@ def get_public_state(state: DraftGameState) -> dict:
         "reframe_used": state.reframe_used,
         "board_metadata": {
             "board_id": state.board.board_id,
+            "board_version_key": state.board.metadata.get("board_version_key"),
             "lineup_model_version": state.board.metadata.get("lineup_model_version"),
             "ruleset_version": state.board.metadata.get("ruleset_version"),
             "card_pool_version": state.board.metadata.get("card_pool_version"),
+            "board_generation_algorithm": state.board.metadata.get("board_generation_algorithm"),
             # Missing-data transparency: how many cards were available vs placed.
             "card_pool_size": state.board.metadata.get("card_pool_size"),
             "cards_placed": state.board.metadata.get("cards_placed"),

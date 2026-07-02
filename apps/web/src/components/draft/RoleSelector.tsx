@@ -71,6 +71,8 @@ export default function RoleSelector({
 
           return (
             <button
+              data-testid="role-btn"
+              data-role={role}
               key={role}
               disabled={!eligible}
               onClick={() => eligible && onSelect(role)}
@@ -125,6 +127,7 @@ export default function RoleSelector({
       </div>
 
       <button
+        data-testid="lock-in"
         onClick={onConfirm}
         disabled={!selectedRole || submitting}
         className="py-2 rounded-lg text-sm font-semibold transition-all"

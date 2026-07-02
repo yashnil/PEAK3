@@ -2,7 +2,7 @@
 // The lineup model is EXPERIMENTAL — lineup_peak_rating is not a predicted win total.
 
 export type DraftMode = "apex_1y" | "prime_3y" | "foundation_5y";
-export type BoardType = "daily" | "practice" | "challenge";
+export type BoardType = "daily" | "practice" | "challenge" | "ranked";
 export type GameStatus =
   | "board_loaded"
   | "round_active"
@@ -225,9 +225,79 @@ export interface LocalDraftProgress {
 export interface DraftCompletionSummary {
   game_id: string;
   mode: DraftMode;
+  board_type: BoardType;
   completed_at: string;
   lineup_peak_rating: number;
   draft_efficiency: number | null;
   board_percentile: number | null;
   board_id: string;
+  hold_used: boolean;
+  reframe_used: boolean;
+}
+
+// ── Challenge metadata ───────────────────────────────────────────────────────
+
+export interface ChallengeMeta {
+  board_id: string;
+  mode: DraftMode;
+  duration_years: number;
+  board_label: string;       // "Jun 29 · 1Y Apex"
+  challenger_display: string; // always "A PEAK3 player"
+  created_at: string;         // ISO 8601
+  expires_at: string;         // ISO 8601
+  status: "open" | "expired";
+}
+
+// ── Challenge comparison ─────────────────────────────────────────────────────
+
+export interface ComparisonCard {
+  round: number;
+  role: DraftRole;
+  player_name: string;
+  individual_peak_score: number;
+  anchor_season: string;
+}
+
+export interface ComparisonPlayer {
+  display_name: string;
+  lineup_peak_rating: number;
+  talent_score: number;
+  coverage_score: number;
+  synergy_total: number;
+  draft_efficiency: number | null;
+  board_percentile: number | null;
+  selected_cards: ComparisonCard[];
+  final_dna: LineupDNA | null;
+  synergy_items: SynergyItem[];
+  hold_used: boolean;
+  reframe_used: boolean;
+}
+
+export type ComparisonOutcome = "challenger_wins" | "recipient_wins" | "draw";
+
+export interface DecisiveFactor {
+  factor: string;
+  winner: "challenger" | "recipient" | "tied";
+  challenger_value: number;
+  recipient_value: number;
+}
+
+export interface ChallengeComparisonResponse {
+  outcome: ComparisonOutcome;
+  challenger: ComparisonPlayer;
+  recipient: ComparisonPlayer;
+  decisive_factors: DecisiveFactor[];
+  settled_at: string;
+  mode: DraftMode;
+  board_label: string;
+}
+
+// ── Active draft game (for resumption) ──────────────────────────────────────
+
+export interface ActiveDraftGame {
+  game_id: string;
+  mode: DraftMode;
+  board_type: BoardType;
+  board_id: string;
+  started_at: string;
 }

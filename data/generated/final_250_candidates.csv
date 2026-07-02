@@ -1,0 +1,251 @@
+official_rank_seed,player,player_id,career_start,career_end,all_nba_qualifier,all_nba_first_count,total_all_nba_count,candidate_type,exception_rank,exception_routes,best_preliminary_single_season,best_preliminary_three_year_window,selection_explanation
+1,Nikola Jokic,nikola-jokic,2016,2026,True,6,8,mandatory_all_nba,0,,95.8,95.4,8x All-NBA (mandatory)
+2,Michael Jordan,michael-jordan,1985,2003,True,10,11,mandatory_all_nba,0,,94.8,93.6,11x All-NBA (mandatory)
+3,LeBron James,lebron-james,2004,2026,True,13,21,mandatory_all_nba,0,,95.0,93.1,21x All-NBA (mandatory)
+4,James Harden,james-harden,2010,2026,True,6,8,mandatory_all_nba,0,,91.7,90.8,8x All-NBA (mandatory)
+5,Magic Johnson,magic-johnson,1980,1991,True,9,10,mandatory_all_nba,0,,91.1,90.7,10x All-NBA (mandatory)
+6,Stephen Curry,stephen-curry,2010,2026,True,4,11,mandatory_all_nba,0,,91.7,90.3,11x All-NBA (mandatory)
+7,Giannis Antetokounmpo,giannis-antetokounmpo,2014,2026,True,7,9,mandatory_all_nba,0,,91.2,88.9,9x All-NBA (mandatory)
+8,Shai Gilgeous-Alexander,shai-gilgeous-alexander,2019,2026,True,4,4,mandatory_all_nba,0,,89.3,88.6,4x All-NBA (mandatory)
+9,Russell Westbrook,russell-westbrook,2009,2026,True,2,9,mandatory_all_nba,0,,90.8,88.4,9x All-NBA (mandatory)
+10,David Robinson,david-robinson,1990,2003,True,4,10,mandatory_all_nba,0,,89.0,88.3,10x All-NBA (mandatory)
+11,Shaquille O'Neal,shaquille-o-neal,1993,2010,True,8,14,mandatory_all_nba,0,,90.4,88.1,14x All-NBA (mandatory)
+12,Chris Paul,chris-paul,2006,2025,True,4,11,mandatory_all_nba,0,,94.3,88.0,11x All-NBA (mandatory)
+13,John Stockton,john-stockton,1985,2003,True,2,11,mandatory_all_nba,0,,90.1,87.9,11x All-NBA (mandatory)
+14,Tim Duncan,tim-duncan,1998,2016,True,10,15,mandatory_all_nba,0,,89.0,87.8,15x All-NBA (mandatory)
+15,Kevin Garnett,kevin-garnett,1996,2014,True,4,9,mandatory_all_nba,0,,91.3,87.7,9x All-NBA (mandatory)
+16,Kevin Durant,kevin-durant,2008,2026,True,6,12,mandatory_all_nba,0,,88.9,87.4,12x All-NBA (mandatory)
+17,Hakeem Olajuwon,hakeem-olajuwon,1985,2002,True,6,12,mandatory_all_nba,0,,89.9,87.1,12x All-NBA (mandatory)
+18,Larry Bird,larry-bird,1980,1992,True,9,10,mandatory_all_nba,0,,87.4,86.4,10x All-NBA (mandatory)
+19,Dwight Howard,dwight-howard,2005,2021,True,5,8,mandatory_all_nba,0,,86.6,86.0,8x All-NBA (mandatory)
+20,Dwyane Wade,dwyane-wade,2004,2019,True,2,8,mandatory_all_nba,0,,89.4,85.9,8x All-NBA (mandatory)
+21,Charles Barkley,charles-barkley,1985,1999,True,5,11,mandatory_all_nba,0,,86.9,85.1,11x All-NBA (mandatory)
+22,Karl Malone,karl-malone,1986,2004,True,11,14,mandatory_all_nba,0,,87.3,84.7,14x All-NBA (mandatory)
+23,Steve Nash,steve-nash,1998,2013,True,3,7,mandatory_all_nba,0,,85.7,84.2,7x All-NBA (mandatory)
+24,Luka Doncic,luka-doncic,2019,2026,True,6,6,mandatory_all_nba,0,,88.8,83.8,6x All-NBA (mandatory)
+25,Joel Embiid,joel-embiid,2018,2026,True,1,5,mandatory_all_nba,0,,83.2,82.4,5x All-NBA (mandatory)
+26,Moses Malone,moses-malone,1980,1992,True,3,7,mandatory_all_nba,0,,84.5,82.1,7x All-NBA (mandatory)
+27,Chauncey Billups,chauncey-billups,1998,2011,True,0,3,mandatory_all_nba,0,,85.4,81.8,3x All-NBA (mandatory)
+28,Dirk Nowitzki,dirk-nowitzki,1999,2018,True,4,12,mandatory_all_nba,0,,84.8,81.4,12x All-NBA (mandatory)
+29,Kevin Johnson,kevin-johnson,1988,1998,True,0,5,mandatory_all_nba,0,,82.5,80.9,5x All-NBA (mandatory)
+30,Julius Erving,julius-erving,1980,1987,True,4,5,mandatory_all_nba,0,,81.5,80.7,5x All-NBA (mandatory)
+31,Kawhi Leonard,kawhi-leonard,2012,2026,True,3,7,mandatory_all_nba,0,,84.9,80.7,7x All-NBA (mandatory)
+32,Damian Lillard,damian-lillard,2013,2025,True,1,7,mandatory_all_nba,0,,81.8,80.5,7x All-NBA (mandatory)
+33,Anthony Davis,anthony-davis,2013,2025,True,4,5,mandatory_all_nba,0,,83.6,80.4,5x All-NBA (mandatory)
+34,Kareem Abdul-Jabbar,kareem-abdul-jabbar,1980,1989,True,4,6,mandatory_all_nba,0,,86.6,80.4,6x All-NBA (mandatory)
+35,Deron Williams,deron-williams,2006,2017,True,0,2,mandatory_all_nba,0,,82.4,80.1,2x All-NBA (mandatory)
+36,Isiah Thomas,isiah-thomas,1982,1994,True,3,5,mandatory_all_nba,0,,83.9,79.9,5x All-NBA (mandatory)
+37,Kobe Bryant,kobe-bryant,1997,2016,True,11,15,mandatory_all_nba,0,,81.5,79.6,15x All-NBA (mandatory)
+38,Gary Payton,gary-payton,1991,2007,True,2,9,mandatory_all_nba,0,,82.2,79.4,9x All-NBA (mandatory)
+39,Jason Kidd,jason-kidd,1995,2013,True,5,6,mandatory_all_nba,0,,82.3,79.1,6x All-NBA (mandatory)
+40,Rudy Gobert,rudy-gobert,2015,2026,True,0,4,mandatory_all_nba,0,,81.2,79.0,4x All-NBA (mandatory)
+41,Patrick Ewing,patrick-ewing,1986,2001,True,1,7,mandatory_all_nba,0,,82.2,78.9,7x All-NBA (mandatory)
+42,Tracy McGrady,tracy-mcgrady,1998,2012,True,2,7,mandatory_all_nba,0,,84.7,78.4,7x All-NBA (mandatory)
+43,Domantas Sabonis,domantas-sabonis,2017,2025,True,0,2,mandatory_all_nba,0,,80.2,78.1,2x All-NBA (mandatory)
+44,Clyde Drexler,clyde-drexler,1984,1998,True,1,5,mandatory_all_nba,0,,82.4,78.0,5x All-NBA (mandatory)
+45,Scottie Pippen,scottie-pippen,1988,2003,True,3,7,mandatory_all_nba,0,,79.5,77.9,7x All-NBA (mandatory)
+46,Ben Wallace,ben-wallace,1998,2012,True,0,5,mandatory_all_nba,0,,78.5,77.5,5x All-NBA (mandatory)
+47,Draymond Green,draymond-green,2013,2026,True,0,2,mandatory_all_nba,0,,79.8,76.9,2x All-NBA (mandatory)
+48,Tyrese Haliburton,tyrese-haliburton,2021,2025,True,0,2,mandatory_all_nba,0,,80.6,76.9,2x All-NBA (mandatory)
+49,Anfernee Hardaway,anfernee-hardaway,1994,2004,True,2,3,mandatory_all_nba,0,,84.8,76.7,3x All-NBA (mandatory)
+50,Grant Hill,grant-hill,1995,2012,True,1,5,mandatory_all_nba,0,,83.1,76.5,5x All-NBA (mandatory)
+51,Tim Hardaway,tim-hardaway,1990,2002,True,1,5,mandatory_all_nba,0,,79.0,76.4,5x All-NBA (mandatory)
+52,DeAndre Jordan,deandre-jordan,2010,2021,True,1,3,mandatory_all_nba,0,,78.0,76.0,3x All-NBA (mandatory)
+53,John Wall,john-wall,2011,2021,True,0,1,mandatory_all_nba,0,,81.4,75.8,1x All-NBA (mandatory)
+54,Trae Young,trae-young,2019,2025,True,0,1,mandatory_all_nba,0,,77.1,75.8,1x All-NBA (mandatory)
+55,Rajon Rondo,rajon-rondo,2007,2020,True,0,1,mandatory_all_nba,0,,77.4,75.7,1x All-NBA (mandatory)
+56,Shawn Kemp,shawn-kemp,1990,2003,True,0,3,mandatory_all_nba,0,,79.8,75.7,3x All-NBA (mandatory)
+57,Karl-Anthony Towns,karl-anthony-towns,2016,2026,True,0,3,mandatory_all_nba,0,,81.0,75.4,3x All-NBA (mandatory)
+58,Manu Ginobili,manu-ginobili,2003,2018,True,0,2,mandatory_all_nba,0,,77.5,75.1,2x All-NBA (mandatory)
+59,Mark Price,mark-price,1987,1998,True,1,4,mandatory_all_nba,0,,76.4,75.1,4x All-NBA (mandatory)
+60,Victor Wembanyama,victor-wembanyama,2024,2026,True,1,1,mandatory_all_nba,0,,88.5,74.9,1x All-NBA (mandatory)
+61,Pau Gasol,pau-gasol,2002,2018,True,0,4,mandatory_all_nba,0,,75.4,74.7,4x All-NBA (mandatory)
+62,Jayson Tatum,jayson-tatum,2018,2025,True,4,5,mandatory_all_nba,0,,76.3,74.6,5x All-NBA (mandatory)
+63,Kyle Lowry,kyle-lowry,2008,2024,True,0,1,mandatory_all_nba,0,,75.9,74.5,1x All-NBA (mandatory)
+64,Shawn Marion,shawn-marion,2000,2015,True,0,2,mandatory_all_nba,0,,77.9,74.4,2x All-NBA (mandatory)
+65,Alonzo Mourning,alonzo-mourning,1993,2007,True,1,2,mandatory_all_nba,0,,81.5,74.3,2x All-NBA (mandatory)
+66,Jalen Brunson,jalen-brunson,2019,2026,True,0,3,mandatory_all_nba,0,,77.6,74.3,3x All-NBA (mandatory)
+67,Jimmy Butler,jimmy-butler,2013,2026,True,0,5,mandatory_all_nba,0,,76.6,73.7,5x All-NBA (mandatory)
+68,Kevin McHale,kevin-mchale,1981,1993,True,1,1,mandatory_all_nba,0,,77.7,73.7,1x All-NBA (mandatory)
+69,Ben Simmons,ben-simmons,2018,2025,True,0,1,mandatory_all_nba,0,,77.4,73.5,1x All-NBA (mandatory)
+70,Gilbert Arenas,gilbert-arenas,2002,2011,True,0,3,mandatory_all_nba,0,,80.4,73.5,3x All-NBA (mandatory)
+71,Robert Parish,robert-parish,1980,1996,True,0,2,mandatory_all_nba,0,,75.6,73.5,2x All-NBA (mandatory)
+72,Paul Pierce,paul-pierce,1999,2016,True,0,4,mandatory_all_nba,0,,77.9,73.4,4x All-NBA (mandatory)
+73,Dikembe Mutombo,dikembe-mutombo,1992,2007,True,0,3,mandatory_all_nba,0,,75.4,73.1,3x All-NBA (mandatory)
+74,Gus Williams,gus-williams,1980,1986,True,1,2,mandatory_all_nba,0,,75.0,72.6,2x All-NBA (mandatory)
+75,Blake Griffin,blake-griffin,2011,2021,True,0,5,mandatory_all_nba,0,,76.1,72.5,5x All-NBA (mandatory)
+76,Reggie Miller,reggie-miller,1988,2005,True,0,3,mandatory_all_nba,0,,74.0,72.2,3x All-NBA (mandatory)
+77,Stephon Marbury,stephon-marbury,1997,2007,True,0,2,mandatory_all_nba,0,,72.5,71.9,2x All-NBA (mandatory)
+78,Isaiah Thomas,isaiah-thomas,2012,2020,True,0,1,mandatory_all_nba,0,,79.7,71.8,1x All-NBA (mandatory)
+79,Rod Strickland,rod-strickland,1989,2004,True,0,1,mandatory_all_nba,0,,73.8,71.8,1x All-NBA (mandatory)
+80,Allen Iverson,allen-iverson,1997,2009,True,3,7,mandatory_all_nba,0,,77.7,71.7,7x All-NBA (mandatory)
+81,Derrick Rose,derrick-rose,2009,2021,True,1,1,mandatory_all_nba,0,,84.2,71.4,1x All-NBA (mandatory)
+82,Brad Daugherty,brad-daugherty,1987,1994,True,0,1,mandatory_all_nba,0,,75.9,71.3,1x All-NBA (mandatory)
+83,Vince Carter,vince-carter,1999,2019,True,0,2,mandatory_all_nba,0,,77.3,71.3,2x All-NBA (mandatory)
+84,Joakim Noah,joakim-noah,2008,2017,True,1,1,mandatory_all_nba,0,,76.8,71.0,1x All-NBA (mandatory)
+85,Baron Davis,baron-davis,2000,2011,True,0,1,mandatory_all_nba,0,,75.1,70.9,1x All-NBA (mandatory)
+86,Sam Cassell,sam-cassell,1994,2008,True,0,1,mandatory_all_nba,0,,80.4,70.9,1x All-NBA (mandatory)
+87,Adrian Dantley,adrian-dantley,1980,1990,True,0,2,mandatory_all_nba,0,,79.6,70.7,2x All-NBA (mandatory)
+88,Fat Lever,fat-lever,1983,1994,True,0,1,mandatory_all_nba,0,,73.3,70.5,1x All-NBA (mandatory)
+89,Ray Allen,ray-allen,1997,2014,True,0,2,mandatory_all_nba,0,,80.0,70.5,2x All-NBA (mandatory)
+90,Tony Parker,tony-parker,2002,2019,True,0,4,mandatory_all_nba,0,,73.3,70.4,4x All-NBA (mandatory)
+91,Chris Webber,chris-webber,1994,2007,True,1,5,mandatory_all_nba,0,,72.2,70.3,5x All-NBA (mandatory)
+92,Elton Brand,elton-brand,2000,2014,True,0,1,mandatory_all_nba,0,,81.6,70.2,1x All-NBA (mandatory)
+93,Sidney Moncrief,sidney-moncrief,1980,1991,True,1,5,mandatory_all_nba,0,,70.9,70.1,5x All-NBA (mandatory)
+94,Kevin Love,kevin-love,2009,2023,True,0,2,mandatory_all_nba,0,,76.5,69.9,2x All-NBA (mandatory)
+95,Amar'e Stoudemire,amar-e-stoudemire,2003,2015,True,1,5,mandatory_all_nba,0,,80.9,69.8,5x All-NBA (mandatory)
+96,Chris Mullin,chris-mullin,1986,1999,True,1,4,mandatory_all_nba,0,,72.3,69.8,4x All-NBA (mandatory)
+97,Yao Ming,yao-ming,2003,2009,True,0,5,mandatory_all_nba,0,,74.2,69.5,5x All-NBA (mandatory)
+98,Cade Cunningham,cade-cunningham,2022,2026,True,1,2,mandatory_all_nba,0,,78.2,69.4,2x All-NBA (mandatory)
+99,Kyrie Irving,kyrie-irving,2012,2025,True,0,3,mandatory_all_nba,0,,72.8,69.2,3x All-NBA (mandatory)
+100,Andre Drummond,andre-drummond,2013,2026,True,0,1,mandatory_all_nba,0,,71.9,69.0,1x All-NBA (mandatory)
+101,Derrick Coleman,derrick-coleman,1991,2003,True,0,2,mandatory_all_nba,0,,73.3,68.7,2x All-NBA (mandatory)
+102,Jalen Duren,jalen-duren,2023,2026,True,0,1,mandatory_all_nba,0,,73.3,68.6,1x All-NBA (mandatory)
+103,Alex English,alex-english,1980,1991,True,0,3,mandatory_all_nba,0,,69.0,68.5,3x All-NBA (mandatory)
+104,George Gervin,george-gervin,1980,1986,True,3,4,mandatory_all_nba,0,,70.3,68.5,4x All-NBA (mandatory)
+105,Anthony Edwards,anthony-edwards,2021,2026,True,0,2,mandatory_all_nba,0,,71.4,68.2,2x All-NBA (mandatory)
+106,Carlos Boozer,carlos-boozer,2003,2015,True,0,1,mandatory_all_nba,0,,77.6,68.2,1x All-NBA (mandatory)
+107,Devin Booker,devin-booker,2016,2026,True,1,2,mandatory_all_nba,0,,70.6,68.1,2x All-NBA (mandatory)
+108,Donovan Mitchell,donovan-mitchell,2018,2026,True,1,3,mandatory_all_nba,0,,70.4,68.1,3x All-NBA (mandatory)
+109,Dominique Wilkins,dominique-wilkins,1983,1997,True,1,7,mandatory_all_nba,0,,68.9,68.0,7x All-NBA (mandatory)
+110,Paul George,paul-george,2011,2026,True,1,6,mandatory_all_nba,0,,74.7,67.7,6x All-NBA (mandatory)
+111,Andrew Bynum,andrew-bynum,2007,2012,True,0,1,mandatory_all_nba,0,,72.7,67.6,1x All-NBA (mandatory)
+112,Marc Gasol,marc-gasol,2009,2021,True,1,2,mandatory_all_nba,0,,71.7,67.4,2x All-NBA (mandatory)
+113,Evan Mobley,evan-mobley,2022,2026,True,0,1,mandatory_all_nba,0,,70.2,67.0,1x All-NBA (mandatory)
+114,Bernard King,bernard-king,1981,1991,True,2,4,mandatory_all_nba,0,,76.2,66.6,4x All-NBA (mandatory)
+115,DeMarcus Cousins,demarcus-cousins,2011,2018,True,0,2,mandatory_all_nba,0,,70.7,66.5,2x All-NBA (mandatory)
+116,Ja Morant,ja-morant,2020,2025,True,0,1,mandatory_all_nba,0,,69.6,66.5,1x All-NBA (mandatory)
+117,Jermaine O'Neal,jermaine-o-neal,2001,2013,True,0,3,mandatory_all_nba,0,,69.3,66.1,3x All-NBA (mandatory)
+118,Peja Stojakovic,peja-stojakovic,1999,2010,True,0,1,mandatory_all_nba,0,,71.0,65.8,1x All-NBA (mandatory)
+119,LaMarcus Aldridge,lamarcus-aldridge,2007,2022,True,0,5,mandatory_all_nba,0,,68.2,65.7,5x All-NBA (mandatory)
+120,Brandon Roy,brandon-roy,2007,2011,True,0,2,mandatory_all_nba,0,,75.3,65.5,2x All-NBA (mandatory)
+121,Dennis Rodman,dennis-rodman,1987,1999,True,0,2,mandatory_all_nba,0,,71.5,65.4,2x All-NBA (mandatory)
+122,Terry Cummings,terry-cummings,1983,1999,True,0,2,mandatory_all_nba,0,,70.7,65.3,2x All-NBA (mandatory)
+123,Chris Bosh,chris-bosh,2004,2016,True,0,1,mandatory_all_nba,0,,68.0,65.1,1x All-NBA (mandatory)
+124,Detlef Schrempf,detlef-schrempf,1987,2000,True,0,1,mandatory_all_nba,0,,68.4,64.8,1x All-NBA (mandatory)
+125,Eddie Jones,eddie-jones,1995,2007,True,0,1,mandatory_all_nba,0,,68.2,64.8,1x All-NBA (mandatory)
+126,Al Horford,al-horford,2008,2025,True,0,1,mandatory_all_nba,0,,67.8,64.7,1x All-NBA (mandatory)
+127,Carmelo Anthony,carmelo-anthony,2004,2022,True,0,6,mandatory_all_nba,0,,68.6,64.6,6x All-NBA (mandatory)
+128,Marques Johnson,marques-johnson,1980,1986,True,0,2,mandatory_all_nba,0,,70.9,64.6,2x All-NBA (mandatory)
+129,Buck Williams,buck-williams,1982,1997,True,0,1,mandatory_all_nba,0,,67.7,64.5,1x All-NBA (mandatory)
+130,Alvin Robertson,alvin-robertson,1985,1996,True,0,1,mandatory_all_nba,0,,68.1,64.4,1x All-NBA (mandatory)
+131,James Worthy,james-worthy,1983,1994,True,0,2,mandatory_all_nba,0,,65.9,64.2,2x All-NBA (mandatory)
+132,Anthony Mason,anthony-mason,1992,2003,True,0,1,mandatory_all_nba,0,,65.3,64.0,1x All-NBA (mandatory)
+133,Tyrese Maxey,tyrese-maxey,2021,2026,True,0,1,mandatory_all_nba,0,,71.2,64.0,1x All-NBA (mandatory)
+134,Tyson Chandler,tyson-chandler,2002,2018,True,0,1,mandatory_all_nba,0,,67.7,64.0,1x All-NBA (mandatory)
+135,Jamal Murray,jamal-murray,2017,2026,True,0,1,mandatory_all_nba,0,,71.7,63.8,1x All-NBA (mandatory)
+136,DeMar DeRozan,demar-derozan,2010,2026,True,0,3,mandatory_all_nba,0,,64.3,63.7,3x All-NBA (mandatory)
+137,Andrew Bogut,andrew-bogut,2006,2016,True,0,1,mandatory_all_nba,0,,65.1,63.5,1x All-NBA (mandatory)
+138,Tiny Archibald,tiny-archibald,1980,1984,True,0,1,mandatory_all_nba,0,,68.0,63.0,1x All-NBA (mandatory)
+139,Bradley Beal,bradley-beal,2013,2025,True,0,1,mandatory_all_nba,0,,64.9,62.9,1x All-NBA (mandatory)
+140,Dale Ellis,dale-ellis,1984,1999,True,0,1,mandatory_all_nba,0,,64.3,62.9,1x All-NBA (mandatory)
+141,Kemba Walker,kemba-walker,2012,2021,True,0,1,mandatory_all_nba,0,,66.2,62.9,1x All-NBA (mandatory)
+142,Dan Roundfield,dan-roundfield,1980,1986,True,0,1,mandatory_all_nba,0,,67.2,62.8,1x All-NBA (mandatory)
+143,Al Jefferson,al-jefferson,2005,2016,True,0,1,mandatory_all_nba,0,,64.9,62.6,1x All-NBA (mandatory)
+144,Mitch Richmond,mitch-richmond,1989,2001,True,0,5,mandatory_all_nba,0,,64.8,62.6,5x All-NBA (mandatory)
+145,Zach Randolph,zach-randolph,2003,2018,True,0,1,mandatory_all_nba,0,,73.0,62.4,1x All-NBA (mandatory)
+146,Glen Rice,glen-rice,1990,2003,True,0,2,mandatory_all_nba,0,,66.9,62.1,2x All-NBA (mandatory)
+147,Kevin Willis,kevin-willis,1985,2001,True,0,1,mandatory_all_nba,0,,64.4,62.0,1x All-NBA (mandatory)
+148,Joe Dumars,joe-dumars,1986,1999,True,0,3,mandatory_all_nba,0,,65.6,61.9,3x All-NBA (mandatory)
+149,Klay Thompson,klay-thompson,2012,2026,True,0,2,mandatory_all_nba,0,,65.5,61.9,2x All-NBA (mandatory)
+150,Pascal Siakam,pascal-siakam,2018,2026,True,0,2,mandatory_all_nba,0,,63.6,61.8,2x All-NBA (mandatory)
+151,Tom Chambers,tom-chambers,1982,1995,True,0,2,mandatory_all_nba,0,,65.0,61.8,2x All-NBA (mandatory)
+152,Julius Randle,julius-randle,2016,2026,True,0,2,mandatory_all_nba,0,,65.2,61.7,2x All-NBA (mandatory)
+153,Joe Johnson,joe-johnson,2002,2018,True,0,1,mandatory_all_nba,0,,62.3,60.8,1x All-NBA (mandatory)
+154,Metta World Peace,metta-world-peace,2000,2013,True,0,1,mandatory_all_nba,0,,62.9,60.5,1x All-NBA (mandatory)
+155,Michael Redd,michael-redd,2002,2009,True,0,1,mandatory_all_nba,0,,68.3,60.5,1x All-NBA (mandatory)
+156,Larry Johnson,larry-johnson,1992,2001,True,0,1,mandatory_all_nba,0,,68.6,60.0,1x All-NBA (mandatory)
+157,Jaylen Brown,jaylen-brown,2017,2026,True,0,2,mandatory_all_nba,0,,66.0,59.7,2x All-NBA (mandatory)
+158,David Lee,david-lee,2006,2017,True,0,1,mandatory_all_nba,0,,63.9,59.5,1x All-NBA (mandatory)
+159,Ralph Sampson,ralph-sampson,1984,1989,True,0,1,mandatory_all_nba,0,,61.5,59.5,1x All-NBA (mandatory)
+160,Jim Paxson,jim-paxson,1980,1990,True,0,1,mandatory_all_nba,0,,64.5,59.4,1x All-NBA (mandatory)
+161,Jamal Mashburn,jamal-mashburn,1994,2003,True,0,1,mandatory_all_nba,0,,64.3,59.2,1x All-NBA (mandatory)
+162,De'Aaron Fox,de-aaron-fox,2018,2026,True,0,1,mandatory_all_nba,0,,65.3,58.8,1x All-NBA (mandatory)
+163,Goran Dragic,goran-dragic,2010,2021,True,0,1,mandatory_all_nba,0,,62.1,58.8,1x All-NBA (mandatory)
+164,Vin Baker,vin-baker,1994,2004,True,0,2,mandatory_all_nba,0,,63.6,58.5,2x All-NBA (mandatory)
+165,Dennis Johnson,dennis-johnson,1980,1990,True,1,2,mandatory_all_nba,0,,59.9,58.2,2x All-NBA (mandatory)
+166,Jalen Johnson,jalen-johnson,2023,2026,True,0,1,mandatory_all_nba,0,,73.1,58.0,1x All-NBA (mandatory)
+167,Jalen Williams,jalen-williams,2023,2025,True,0,1,mandatory_all_nba,0,,64.6,57.9,1x All-NBA (mandatory)
+168,Antonio McDyess,antonio-mcdyess,1996,2011,True,0,1,mandatory_all_nba,0,,61.7,57.5,1x All-NBA (mandatory)
+169,Victor Oladipo,victor-oladipo,2014,2023,True,0,1,mandatory_all_nba,0,,72.1,56.4,1x All-NBA (mandatory)
+170,Otis Birdsong,otis-birdsong,1980,1988,True,0,1,mandatory_all_nba,0,,60.7,53.2,1x All-NBA (mandatory)
+171,Latrell Sprewell,latrell-sprewell,1993,2005,True,1,1,mandatory_all_nba,0,,63.2,52.5,1x All-NBA (mandatory)
+172,Drazen Petrovic,drazen-petrovic,1991,1993,True,0,1,mandatory_all_nba,0,,57.2,51.7,1x All-NBA (mandatory)
+173,Juwan Howard,juwan-howard,1995,2010,True,0,1,mandatory_all_nba,0,,54.4,50.4,1x All-NBA (mandatory)
+174,Chet Holmgren,chet-holmgren,2024,2026,True,0,1,mandatory_all_nba,0,,71.8,,1x All-NBA (mandatory)
+175,Paul Westphal,paul-westphal,1980,1983,True,1,1,mandatory_all_nba,0,,68.6,,1x All-NBA (mandatory)
+176,Terry Porter,terry-porter,1986,2002,False,0,0,exception,19,near-All-NBA stat peak,80.9,78.1,exception #19: near-All-NBA stat peak
+177,Maurice Cheeks,maurice-cheeks,1980,1992,False,0,0,exception,1,multi DPOY top-5; 4x All-Def 1st; 4x All-Star; near-All-NBA stat peak,75.8,75.0,exception #1: multi DPOY top-5; 4x All-Def 1st; 4x All-Star; near-All-NBA stat peak
+178,Doc Rivers,doc-rivers,1984,1996,False,0,0,exception,28,near-All-NBA stat peak,79.0,74.9,exception #28: near-All-NBA stat peak
+179,Mookie Blaylock,mookie-blaylock,1990,2001,False,0,0,exception,6,multi DPOY top-5; 2x All-Def 1st; near-All-NBA stat peak,78.3,74.5,exception #6: multi DPOY top-5; 2x All-Def 1st; near-All-NBA stat peak
+180,Artis Gilmore,artis-gilmore,1980,1987,False,0,0,exception,31,4x All-Star; near-All-NBA stat peak,75.4,72.6,exception #31: 4x All-Star; near-All-NBA stat peak
+181,Isaiah Hartenstein,isaiah-hartenstein,2022,2026,False,0,0,exception,73,elite individual peak,72.2,71.9,exception #73: elite individual peak
+182,Clint Capela,clint-capela,2016,2025,False,0,0,exception,56,elite individual peak,77.1,70.8,exception #56: elite individual peak
+183,Johnny Moore,johnny-moore,1981,1987,False,0,0,exception,44,elite individual peak,77.4,70.6,exception #44: elite individual peak
+184,Jarrett Allen,jarrett-allen,2018,2026,False,0,0,exception,45,elite individual peak,74.3,70.5,exception #45: elite individual peak
+185,Hassan Whiteside,hassan-whiteside,2015,2022,False,0,0,exception,25,multi DPOY top-5,78.1,70.3,exception #25: multi DPOY top-5
+186,Bam Adebayo,bam-adebayo,2018,2026,False,0,0,exception,5,multi DPOY top-5; 6x All-Def; 3x All-Star,72.5,70.0,exception #5: multi DPOY top-5; 6x All-Def; 3x All-Star
+187,Paul Pressey,paul-pressey,1983,1991,False,0,0,exception,12,2x All-Def 1st,75.1,69.9,exception #12: 2x All-Def 1st
+188,Jack Sikma,jack-sikma,1980,1991,False,0,0,exception,21,6x All-Star,74.9,69.8,exception #21: 6x All-Star
+189,Nikola Vucevic,nikola-vucevic,2012,2026,False,0,0,exception,34,elite individual peak,75.0,69.8,exception #34: elite individual peak
+190,Marcus Camby,marcus-camby,1997,2012,False,0,0,exception,2,DPOY; 2x All-Def 1st,70.4,69.7,exception #2: DPOY; 2x All-Def 1st
+191,Sleepy Floyd,sleepy-floyd,1983,1992,False,0,0,exception,35,elite individual peak,78.9,69.3,exception #35: elite individual peak
+192,Horace Grant,horace-grant,1988,2004,False,0,0,exception,17,4x All-Def,72.4,69.2,exception #17: 4x All-Def
+193,Terrell Brandon,terrell-brandon,1992,2001,False,0,0,exception,39,elite individual peak,77.4,69.1,exception #39: elite individual peak
+194,Mark Jackson,mark-jackson,1988,2003,False,0,0,exception,36,elite individual peak,70.8,68.9,exception #36: elite individual peak
+195,Mike Conley,mike-conley,2008,2025,False,0,0,exception,30,elite individual peak,75.9,68.7,exception #30: elite individual peak
+196,Derek Harper,derek-harper,1984,1999,False,0,0,exception,22,2x All-Def,71.6,68.3,exception #22: 2x All-Def
+197,Jeff Teague,jeff-teague,2012,2021,False,0,0,exception,51,elite individual peak,70.7,68.3,exception #51: elite individual peak
+198,Andrei Kirilenko,andrei-kirilenko,2002,2013,False,0,0,exception,11,multi DPOY top-5; 3x All-Def,69.7,67.5,exception #11: multi DPOY top-5; 3x All-Def
+199,Josh Smith,josh-smith,2005,2015,False,0,0,exception,26,elite individual peak,73.5,67.5,exception #26: elite individual peak
+200,Paul Millsap,paul-millsap,2007,2021,False,0,0,exception,18,4x All-Star,71.8,66.8,exception #18: 4x All-Star
+201,Nate McMillan,nate-mcmillan,1987,1996,False,0,0,exception,46,2x All-Def,68.5,66.7,exception #46: 2x All-Def
+202,Kenny Anderson,kenny-anderson,1992,2003,False,0,0,exception,48,elite individual peak,73.1,66.7,exception #48: elite individual peak
+203,Jeff Hornacek,jeff-hornacek,1987,2000,False,0,0,exception,38,elite individual peak,69.3,66.5,exception #38: elite individual peak
+204,Darrell Armstrong,darrell-armstrong,1997,2007,False,0,0,exception,68,elite individual peak,70.8,66.5,exception #68: elite individual peak
+205,Cedric Maxwell,cedric-maxwell,1980,1987,False,0,0,exception,63,elite individual peak,70.2,66.2,exception #63: elite individual peak
+206,Larry Nance,larry-nance,1982,1993,False,0,0,exception,16,3x All-Def; 3x All-Star,68.9,65.6,exception #16: 3x All-Def; 3x All-Star
+207,Andre Miller,andre-miller,2000,2015,False,0,0,exception,71,elite individual peak,71.0,65.6,exception #71: elite individual peak
+208,Kirk Hinrich,kirk-hinrich,2004,2015,False,0,0,exception,57,elite individual peak,66.3,65.4,exception #57: elite individual peak
+209,Mike Bibby,mike-bibby,1999,2011,False,0,0,exception,65,elite individual peak,68.1,65.4,exception #65: elite individual peak
+210,Bill Laimbeer,bill-laimbeer,1981,1993,False,0,0,exception,42,4x All-Star,68.0,65.3,exception #42: 4x All-Star
+211,Jason Terry,jason-terry,2000,2017,False,0,0,exception,53,elite individual peak,68.4,65.2,exception #53: elite individual peak
+212,Michael Ray Richardson,michael-ray-richardson,1980,1986,False,0,0,exception,23,2x All-Def 1st; 4x All-Star,70.5,65.0,exception #23: 2x All-Def 1st; 4x All-Star
+213,Bobby Jones,bobby-jones,1980,1986,False,0,0,exception,7,multi DPOY top-5; 5x All-Def 1st,65.5,64.6,exception #7: multi DPOY top-5; 5x All-Def 1st
+214,Lamar Odom,lamar-odom,2000,2013,False,0,0,exception,55,elite individual peak,66.4,64.0,exception #55: elite individual peak
+215,Derrick White,derrick-white,2019,2026,False,0,0,exception,33,3x All-Def,65.6,63.8,exception #33: 3x All-Def
+216,Brad Miller,brad-miller,2001,2011,False,0,0,exception,60,elite individual peak,68.1,63.8,exception #60: elite individual peak
+217,Vlade Divac,vlade-divac,1990,2004,False,0,0,exception,47,elite individual peak,68.0,63.6,exception #47: elite individual peak
+218,Mark Aguirre,mark-aguirre,1982,1993,False,0,0,exception,59,3x All-Star,69.4,63.5,exception #59: 3x All-Star
+219,Steve Francis,steve-francis,2000,2007,False,0,0,exception,70,3x All-Star,67.2,63.5,exception #70: 3x All-Star
+220,Rasheed Wallace,rasheed-wallace,1996,2010,False,0,0,exception,37,4x All-Star,63.7,63.3,exception #37: 4x All-Star
+221,Andre Iguodala,andre-iguodala,2005,2021,False,0,0,exception,24,2x All-Def,66.3,63.1,exception #24: 2x All-Def
+222,Hersey Hawkins,hersey-hawkins,1989,2000,False,0,0,exception,50,elite individual peak,70.2,62.9,exception #50: elite individual peak
+223,Gordon Hayward,gordon-hayward,2011,2024,False,0,0,exception,69,elite individual peak,69.9,62.5,exception #69: elite individual peak
+224,Serge Ibaka,serge-ibaka,2010,2021,False,0,0,exception,9,multi DPOY top-5; 3x All-Def 1st,63.9,62.4,exception #9: multi DPOY top-5; 3x All-Def 1st
+225,Jrue Holiday,jrue-holiday,2010,2026,False,0,0,exception,8,3x All-Def 1st,65.2,62.3,exception #8: 3x All-Def 1st
+226,Richard Jefferson,richard-jefferson,2002,2017,False,0,0,exception,66,elite individual peak,69.6,62.3,exception #66: elite individual peak
+227,Charles Oakley,charles-oakley,1986,2002,False,0,0,exception,27,2x All-Def,66.6,61.5,exception #27: 2x All-Def
+228,Doug Christie,doug-christie,1994,2005,False,0,0,exception,15,multi DPOY top-5; 4x All-Def,63.0,61.3,exception #15: multi DPOY top-5; 4x All-Def
+229,Gerald Wallace,gerald-wallace,2005,2014,False,0,0,exception,29,elite individual peak,66.8,61.3,exception #29: elite individual peak
+230,Scottie Barnes,scottie-barnes,2022,2026,False,0,0,exception,41,elite individual peak,72.4,61.1,exception #41: elite individual peak
+231,Tree Rollins,tree-rollins,1980,1988,False,0,0,exception,49,2x All-Def,69.6,60.9,exception #49: 2x All-Def
+232,Kenyon Martin,kenyon-martin,2001,2012,False,0,0,exception,58,elite individual peak,66.9,60.8,exception #58: elite individual peak
+233,Rolando Blackman,rolando-blackman,1982,1993,False,0,0,exception,72,4x All-Star,65.8,60.4,exception #72: 4x All-Star
+234,Michael Cooper,michael-cooper,1980,1990,False,0,0,exception,4,DPOY; 5x All-Def 1st,61.3,60.1,exception #4: DPOY; 5x All-Def 1st
+235,John Starks,john-starks,1991,2001,False,0,0,exception,61,elite individual peak,61.3,60.1,exception #61: elite individual peak
+236,Ron Harper,ron-harper,1987,2001,False,0,0,exception,75,elite individual peak,70.1,59.9,exception #75: elite individual peak
+237,Eric Bledsoe,eric-bledsoe,2011,2022,False,0,0,exception,64,2x All-Def,62.5,59.8,exception #64: 2x All-Def
+238,P.J. Brown,p-j-brown,1994,2007,False,0,0,exception,62,3x All-Def,61.8,59.0,exception #62: 3x All-Def
+239,Rodney McCray,rodney-mccray,1984,1993,False,0,0,exception,52,2x All-Def,63.3,57.4,exception #52: 2x All-Def
+240,Mark Eaton,mark-eaton,1983,1993,False,0,0,exception,3,DPOY; 3x All-Def 1st,60.3,57.0,exception #3: DPOY; 3x All-Def 1st
+241,Dan Majerle,dan-majerle,1989,2002,False,0,0,exception,43,2x All-Def; 3x All-Star,58.4,56.4,exception #43: 2x All-Def; 3x All-Star
+242,Mikal Bridges,mikal-bridges,2019,2026,False,0,0,exception,54,elite individual peak,59.8,56.3,exception #54: elite individual peak
+243,Tony Allen,tony-allen,2005,2017,False,0,0,exception,20,multi DPOY top-5; 3x All-Def 1st,57.0,55.4,exception #20: multi DPOY top-5; 3x All-Def 1st
+244,Jaren Jackson Jr.,jaren-jackson-jr,2019,2026,False,0,0,exception,14,DPOY; 2x All-Def 1st,60.2,55.1,exception #14: DPOY; 2x All-Def 1st
+245,Brook Lopez,brook-lopez,2009,2026,False,0,0,exception,32,2x All-Def,65.7,55.0,exception #32: 2x All-Def
+246,Theo Ratliff,theo-ratliff,1996,2006,False,0,0,exception,67,multi DPOY top-5; 2x All-Def,57.4,55.0,exception #67: multi DPOY top-5; 2x All-Def
+247,Luol Deng,luol-deng,2005,2017,False,0,0,exception,74,elite individual peak,66.6,54.8,exception #74: elite individual peak
+248,Shane Battier,shane-battier,2002,2014,False,0,0,exception,40,multi DPOY top-5; 2x All-Def,56.1,54.7,exception #40: multi DPOY top-5; 2x All-Def
+249,Marcus Smart,marcus-smart,2015,2026,False,0,0,exception,13,DPOY; 3x All-Def 1st,57.5,54.5,exception #13: DPOY; 3x All-Def 1st
+250,Bruce Bowen,bruce-bowen,1998,2009,False,0,0,exception,10,multi DPOY top-5; 5x All-Def 1st,48.8,45.5,exception #10: multi DPOY top-5; 5x All-Def 1st

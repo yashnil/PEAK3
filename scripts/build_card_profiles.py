@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Build card profiles v2 for Peak Draft from peak_windows.json.
+"""Build card profiles v3 for Peak Draft from peak_windows.json.
+
+v3 changes vs v2:
+  - Role eligibility: anchor redesigned.
+      REMOVED: postseason_team_anchor (po_pct≥55, team_pct≥42 — too team-success-oriented)
+      KEPT:    recognition_validated_anchor (rec_pct≥55, tp_pct≤35, si_pct≥15)
+      ADDED:   playoff_impact_anchor (po_pct≥65, tp_pct≤45, si_pct≥20 — high individual
+               playoff performance without being primarily a scorer; PO is an individual
+               metric: BPM, WS/48, VORP, PER, playoff box scores, efficiency)
+  - Profile version: v2 → v3; RULESET_VERSION: ruleset_v2 → ruleset_v3
 
 v2 changes vs v1:
   - DNA: removed peer_quality_adjustment (teammate_adjustment is context, not lineup capability).
   - DNA dimensions: 7 → 6. All 6 map directly to PEAK3 components + data_status.
   - Data constraint documented: no per-stat breakdowns (defensive rating, rebound rate,
-    block rate, position metadata) exist at card-profile layer. Dimensions like
-    interior_defense / perimeter_defense cannot be derived without fabricating values.
-  - Role eligibility: anchor redesigned.
-      REMOVED: interior_defensive_profile (low TP as proxy for interior defense)
-      REMOVED: playoff_team_contributor (team success alone)
-      ADDED:   recognition_validated_anchor (high recognition + low TP = awards from
-               non-scoring contributions such as DPOY, defensive titles, rebounding titles)
+    block rate, position metadata) exist at card-profile layer.
+  - Role eligibility: anchor redesigned (removed interior_defensive_profile,
+    playoff_team_contributor; added recognition_validated_anchor)
   - Profile version: v1 → v2; RULESET_VERSION: ruleset_v1 → ruleset_v2
 
 v1 changes vs v0:
@@ -24,10 +29,10 @@ using only data that actually exists in the committed PEAK3 dataset.
 Nothing is fabricated: every dimension traces back to a named PEAK3 field.
 
 Outputs:
-  data/game/profiles/card_profiles.v2.json
-  data/game/profiles/profile_metadata.v2.json
-  data/game/profiles/profile_coverage.v2.json
-  data/game/profiles/profile_exclusions.v2.json
+  data/game/profiles/card_profiles.v3.json
+  data/game/profiles/profile_metadata.v3.json
+  data/game/profiles/profile_coverage.v3.json
+  data/game/profiles/profile_exclusions.v3.json
 """
 from __future__ import annotations
 
@@ -41,9 +46,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 WINDOWS_PATH = REPO_ROOT / "data" / "web" / "peak_windows.json"
 OUT_DIR = REPO_ROOT / "data" / "game" / "profiles"
 
-PROFILE_VERSION = "v2"
-CARD_POOL_VERSION = "v2"
-TRANSFORM_VERSION = "dna_v2_roles_v2"
+PROFILE_VERSION = "v3"
+CARD_POOL_VERSION = "v3"
+TRANSFORM_VERSION = "dna_v2_roles_v3"
 
 # ---------------------------------------------------------------------------
 # Component normalisation constants (fixed for stable re-runs)
@@ -151,29 +156,21 @@ ROLE_RULES_V2: dict[str, dict] = {
         ],
     },
     "anchor": {
-        "id": "anchor_v2",
+        "id": "anchor_v3",
         "description": (
             "Interior/defensive/size role. Two data-derived paths: "
-            "(1) Traditional anchor: dominated at both postseason impact and team winning "
-            "(identifies Finals-level forces who anchor a team's playoff campaign). "
-            "(2) Recognition-validated non-scorer: strong recognition accolades (DPOY, "
+            "(1) Recognition-validated non-scorer: strong recognition accolades (DPOY, "
             "defensive/rebounding statistical titles captured in individual_recognition) "
             "combined with very low traditional production (confirms recognition was NOT "
             "for scoring) and moderate statistical impact (screens out pure bench fillers). "
+            "(2) Playoff impact anchor: very high postseason individual performance (PO is an "
+            "individual metric: BPM, WS/48, VORP, PER, playoff box scores, efficiency) combined "
+            "with not being primarily a scorer (tp_pct≤45) and meaningful statistical impact "
+            "(si_pct≥20). Identifies players who excel in playoffs through non-scoring means. "
             "Neither path uses positional data (unavailable) or player names. "
-            "Neither path infers defense from low TP alone — path 2 requires HIGH recognition "
-            "as the positive evidence; low TP is a confirmation filter, not the qualifier."
+            "Neither path infers defense from low TP alone — positive evidence always required."
         ),
         "paths": [
-            {
-                "path_id": "postseason_team_anchor",
-                "description": (
-                    "Strong postseason impact (≥55th pct) AND strong team success (≥42nd pct). "
-                    "Identifies players who were dominant forces in winning playoff campaigns."
-                ),
-                "po_pct_min": 55,
-                "team_pct_min": 42,
-            },
             {
                 "path_id": "recognition_validated_anchor",
                 "description": (
@@ -190,6 +187,21 @@ ROLE_RULES_V2: dict[str, dict] = {
                 "rec_pct_min": 55,
                 "tp_pct_max": 35,
                 "si_pct_min": 15,
+            },
+            {
+                "path_id": "playoff_impact_anchor",
+                "description": (
+                    "Very high individual postseason performance (≥65th pct) with not being "
+                    "primarily a scorer (TP ≤45th pct) and meaningful statistical impact "
+                    "(SI ≥20th pct). PO is an individual metric (playoff BPM, WS/48, VORP, "
+                    "PER, box scores, efficiency) — this path identifies players who translate "
+                    "to the playoffs through non-scoring impact (defense, rebounding, positioning). "
+                    "tp_pct≤45 confirms the player was not primarily a scorer. "
+                    "si_pct≥20 screens out bench-level contributors."
+                ),
+                "po_pct_min": 65,
+                "tp_pct_max": 45,
+                "si_pct_min": 20,
             },
         ],
     },
@@ -608,7 +620,7 @@ def main() -> int:
     # Summary
     ov = stats["overall"]
     print()
-    print("=== Card Profile Coverage (v2) ===")
+    print("=== Card Profile Coverage (v3) ===")
     print(f"Total windows:       {ov['total']}")
     print(f"Verified:            {ov['verified']} ({ov['verified']/ov['total']*100:.0f}%)")
     print(f"Provisional:         {ov['provisional']} ({ov['provisional']/ov['total']*100:.0f}%)")

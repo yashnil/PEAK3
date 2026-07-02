@@ -1,0 +1,24 @@
+field,source_name,derivation_method,confidence,retrieved_at
+championship,Basketball Reference playoff bracket,Finals series winner,0.97,2026-06-12
+finals_appearance,BR playoff bracket,team reached Finals series,0.97,2026-06-12
+conf_finals,BR playoff bracket,team reached Conference Finals or deeper,0.97,2026-06-12
+playoff_round,BR playoff bracket,deepest series participated,0.95,2026-06-12
+playoff_round_score,BR playoff bracket,round-reached -> fixed 0-100 map,0.95,2026-06-12
+finals_mvp,BR playoffs page,parsed Finals MVP line,0.96,2026-06-12
+opponent_quality_score,BR team ratings + bracket,series-weighted opponent SRS/Net/Win/Def percentiles,0.82,2026-06-12
+playoff_path_difficulty,BR team ratings + bracket,avg opponent strength scaled by rounds + elite bonus,0.78,2026-06-12
+series_success_score,BR playoff bracket,0.45 round + 0.25 series win% + 0.15 upset + 0.15 result,0.85,2026-06-12
+mvp_rank,BR Awards column,parsed MVP-N token,0.95,2026-06-12
+dpoy_rank,BR Awards column,parsed DPOY-N token,0.95,2026-06-12
+all_nba_team,BR Awards column,parsed NBA1/2/3 token,0.95,2026-06-12
+all_defense_team,BR Awards column,parsed DEF1/2 token,0.95,2026-06-12
+all_star,BR Awards column,parsed AS token,0.9,2026-06-12
+scoring_title,BR per-game leaders,qualified per-game PTS leader,0.85,2026-06-12
+assist_title,BR per-game leaders,qualified per-game AST leader,0.85,2026-06-12
+rebound_title,BR per-game leaders,qualified per-game TRB leader,0.85,2026-06-12
+steals_title,BR per-game leaders,qualified per-game STL leader,0.85,2026-06-12
+blocks_title,BR per-game leaders,qualified per-game BLK leader,0.85,2026-06-12
+fifty_forty_ninety,BR per-game shooting,"FG>=.5,3P>=.4,FT>=.9 with volume thresholds",0.85,2026-06-12
+teammate_strength_score,BR regular-season VORP/WS,season-relative supporting-cast percentile (player excluded),0.85,2026-06-12
+teammate_adjustment,derived,(50 - strength_pct)/10 capped +/-5,0.85,2026-06-12
+best_player_title,derived (champions only),title-run composite ranking of champion roster,0.8,2026-06-12
