@@ -9,7 +9,7 @@ on:
 jobs:
   # ── Model tests ─────────────────────────────────────────────────────────────
   model-tests:
-    name: Python model tests (227)
+    name: Python model tests (186)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,12 +28,23 @@ jobs:
       - name: Install model dependencies
         run: pip install -r requirements.txt
 
+      - name: Keep the scored-data cache fresh
+        # actions/checkout materializes every file at roughly the same time,
+        # in whatever order git happens to write blobs — not the original
+        # authoring order. peak3.py's own cache-invalidation logic (comparing
+        # mtimes) treats cache/processed/scored_1980_2026.parquet as stale if
+        # data/generated/player_season_context.parquet looks newer, which can
+        # happen purely from checkout ordering and would trigger an
+        # unintended (and here, network-less) rebuild attempt mid-test-run.
+        # Touching it last guarantees it is never considered stale.
+        run: touch cache/processed/scored_1980_2026.parquet
+
       - name: Run model tests
         run: python -m pytest tests/ -v --tb=short --ignore=tests/lineup
 
   # ── Lineup model tests ───────────────────────────────────────────────────────
   lineup-tests:
-    name: Experimental lineup model tests
+    name: Experimental lineup model tests (41)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -130,7 +141,7 @@ jobs:
 
   # ── FastAPI tests ────────────────────────────────────────────────────────────
   api-tests:
-    name: FastAPI tests (180, 0 skipped)
+    name: FastAPI tests (264, 0 skipped)
     runs-on: ubuntu-latest
     needs: web-dataset
     steps:
@@ -165,11 +176,13 @@ jobs:
           pip install -r apps/api/requirements.txt
 
       - name: Run API tests (must have 0 skipped)
-        # tests/integration/ is excluded here — it always skips without real
-        # Supabase test-project secrets (see the dedicated
-        # supabase-integration job below), which would otherwise violate
-        # this job's own "0 skipped" guarantee.
-        run: python -m pytest tests/ -v --tb=short --ignore=tests/integration
+        # tests/integration/ is excluded here, and any test marked
+        # supabase_integration (including test_repository_conformance.py's
+        # real-Postgres half) is deselected rather than run-and-skipped —
+        # both always skip without real Supabase test-project secrets (see
+        # the dedicated supabase-integration job below), which would
+        # otherwise violate this job's own "0 skipped" guarantee.
+        run: python -m pytest tests/ -v --tb=short --ignore=tests/integration -m "not supabase_integration"
         working-directory: apps/api
 
   # ── Frontend unit tests + build ───────────────────────────────────────────────
@@ -198,7 +211,7 @@ jobs:
         run: npm run lint -- --max-warnings 0
         working-directory: apps/web
 
-      - name: Unit tests (vitest, 67)
+      - name: Unit tests (vitest, 87)
         run: npm run test
         working-directory: apps/web
 
@@ -343,7 +356,11 @@ jobs:
 
       - name: Run Supabase integration tests
         if: steps.check.outputs.configured == 'true'
-        run: python -m pytest tests/integration/ -m supabase_integration -v --tb=short
+        # test_repository_conformance.py's Postgres-half tests carry the same
+        # supabase_integration marker as tests/integration/ (see that file's
+        # module docstring) so they run for real here too, instead of being
+        # permanently deselected everywhere.
+        run: python -m pytest tests/integration/ tests/test_repository_conformance.py -m supabase_integration -v --tb=short
         working-directory: apps/api
         env:
           PEAK3_TEST_SUPABASE_URL: ${{ secrets.PEAK3_TEST_SUPABASE_URL }}

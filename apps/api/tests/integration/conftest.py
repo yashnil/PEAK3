@@ -42,6 +42,15 @@ SUPABASE_NOT_CONFIGURED_REASON = (
     "ranked release readiness."
 )
 
+# NOTE: this does NOT apply to sibling test modules — pytest only applies a
+# conftest.py's module-level `pytestmark` to code defined in conftest.py
+# itself (there is none here to mark). Each test_*.py file in this package
+# declares `pytestmark = pytest.mark.supabase_integration` directly so that
+# `pytest -m supabase_integration` (the CI Supabase-integration job's
+# selection filter) actually selects them — verified via
+# `pytest tests/integration/ -m supabase_integration --collect-only`.
+# The real skip-when-unconfigured behavior below is independent of markers
+# entirely (the autouse fixture runs regardless of any -m filter).
 pytestmark = pytest.mark.supabase_integration
 
 

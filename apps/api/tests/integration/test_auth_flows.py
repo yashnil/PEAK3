@@ -20,6 +20,15 @@ _repo_root = Path(__file__).resolve().parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
+# conftest.py's module-level `pytestmark` only applies within conftest.py
+# itself, not to sibling test modules — pytest does not propagate it
+# automatically. Each test module in this package must declare it directly
+# so `pytest -m supabase_integration` (used by the CI Supabase-integration
+# job) actually selects these tests instead of silently deselecting all of
+# them. The real skip-when-unconfigured behavior is independently enforced
+# by conftest.py's autouse `_require_supabase_test_project` fixture.
+pytestmark = pytest.mark.supabase_integration
+
 
 def _auth_headers(anon_key: str) -> dict:
     return {"apikey": anon_key, "Content-Type": "application/json"}

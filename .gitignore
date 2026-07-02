@@ -4,15 +4,34 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# Caches & generated data (rebuildable from source)
-cache/html/
-cache/processed/
+# Caches & generated data (rebuildable from source, EXCEPT the specific
+# fixtures carved out below — those require live network access to
+# basketball-reference.com to rebuild and cannot be produced during CI, so
+# they are committed as canonical inputs instead. See
+# docs/implementation/CI_DATA_CONTRACT.md.)
+cache/html/*
+!cache/html/NBA_2006_per_game.html
+cache/processed/*
+!cache/processed/scored_1980_2026.parquet
+!cache/processed/regular_1980_2026.parquet
+!cache/processed/playoffs_1980_2026.parquet
+!cache/processed/teams_1980_2026.parquet
 results/
-data/generated/
 context_build.log
 
-# User-provided optional context files (keep templates in data/examples/)
-data/manual_context.csv
+# NOTE: data/generated/ is intentionally TRACKED (committed candidate
+# universe, team/award-vote shares, and parquet context) — see
+# docs/implementation/CI_DATA_CONTRACT.md. Do NOT add it back here.
+
+# User-provided optional context files (keep templates in data/examples/).
+# data/manual_context.csv is the exception: the currently-committed
+# cache/processed/scored_1980_2026.parquet was built WITH it applied (it
+# supplies playoff/award outcomes for the in-progress 2025-26 season that
+# real scraped data cannot yet contain), and
+# tests/test_data_complete.py::test_canonical_rebuild_matches_fast_path plus
+# tests/test_leaderboards.py's 2026-completeness tests all require it to
+# reproduce/validate that same cache from a clean checkout. See
+# docs/implementation/CI_DATA_CONTRACT.md.
 data/external_impact.csv
 data/stat_titles.csv
 

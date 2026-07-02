@@ -14,6 +14,10 @@ except ImportError:
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "supabase" / "migrations"
 
+# See test_auth_flows.py's comment: conftest.py's pytestmark does not
+# propagate to sibling modules, so each module declares it directly.
+pytestmark = pytest.mark.supabase_integration
+
 
 def _migration_files() -> list[Path]:
     return sorted(MIGRATIONS_DIR.glob("*.sql"))

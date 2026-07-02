@@ -7,9 +7,14 @@ hold for one backend and not the other.
 
 The Postgres half requires a real local Supabase/Postgres instance
 (PEAK3_TEST_DATABASE_URL — see supabase/migrations and `supabase start`).
-When absent, the Postgres half is skipped with an explicit reason — the
-memory half still always runs. This mirrors tests/integration/conftest.py's
-"never silently report as passing" discipline.
+Each Postgres test is marked `supabase_integration` (same marker as
+tests/integration/) so the "FastAPI tests (0 skipped)" CI job — which runs
+without a database — deselects them entirely with `-m "not supabase_integration"`
+rather than reporting them as skipped. The dedicated Supabase-integration CI
+job runs them for real (alongside tests/integration/) whenever test-project
+secrets are configured. The memory half carries no marker and always runs in
+every job. This mirrors tests/integration/conftest.py's "never silently
+report as passing" discipline.
 """
 from __future__ import annotations
 
@@ -110,6 +115,7 @@ async def test_memory_game_repo_conforms():
 
 
 @pytest.mark.asyncio
+@pytest.mark.supabase_integration
 async def test_postgres_game_repo_conforms(pg_pool):
     from app.repositories.postgres import PostgresGameRepository
     await _assert_game_repo_conforms(PostgresGameRepository(pg_pool))
@@ -167,6 +173,7 @@ async def test_memory_challenge_repo_conforms():
 
 
 @pytest.mark.asyncio
+@pytest.mark.supabase_integration
 async def test_postgres_challenge_repo_conforms(pg_pool):
     from app.repositories.postgres import PostgresChallengeRepository
     await _assert_challenge_repo_conforms(PostgresChallengeRepository(pg_pool))
@@ -216,6 +223,7 @@ async def test_memory_daily_completion_repo_conforms():
 
 
 @pytest.mark.asyncio
+@pytest.mark.supabase_integration
 async def test_postgres_daily_completion_repo_conforms(pg_pool):
     from app.repositories.postgres import PostgresDailyCompletionRepository
     await _assert_daily_completion_repo_conforms(PostgresDailyCompletionRepository(pg_pool))
@@ -255,6 +263,7 @@ async def test_memory_result_snapshot_repo_conforms():
 
 
 @pytest.mark.asyncio
+@pytest.mark.supabase_integration
 async def test_postgres_result_snapshot_repo_conforms(pg_pool):
     from app.repositories.postgres import PostgresResultSnapshotRepository
     await _assert_result_snapshot_repo_conforms(PostgresResultSnapshotRepository(pg_pool))
@@ -299,6 +308,7 @@ async def test_memory_profile_repo_conforms():
 
 
 @pytest.mark.asyncio
+@pytest.mark.supabase_integration
 async def test_postgres_profile_repo_conforms(pg_pool):
     from app.repositories.postgres_profile import PostgresProfileRepository
     await _assert_profile_repo_conforms(PostgresProfileRepository(pg_pool))

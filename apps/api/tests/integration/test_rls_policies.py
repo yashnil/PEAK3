@@ -20,6 +20,10 @@ try:
 except ImportError:
     asyncpg = None  # type: ignore[assignment]
 
+# See test_auth_flows.py's comment: conftest.py's pytestmark does not
+# propagate to sibling modules, so each module declares it directly.
+pytestmark = pytest.mark.supabase_integration
+
 
 async def _connection_as(pool, sub: str | None, role: str = "authenticated"):
     """Open a connection whose RLS-visible identity is `sub` (or anonymous
