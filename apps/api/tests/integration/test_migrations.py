@@ -12,7 +12,7 @@ try:
 except ImportError:
     asyncpg = None  # type: ignore[assignment]
 
-MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "infra" / "migrations"
+MIGRATIONS_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "supabase" / "migrations"
 
 
 def _migration_files() -> list[Path]:

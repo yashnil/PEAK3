@@ -109,7 +109,7 @@ def _repos():
     )
 
 
-def _complete(
+async def _complete(
     owner_sub,
     prog_repo,
     rec_repo,
@@ -149,7 +149,7 @@ def _complete(
             {"assigned_role": "anchor"},
         ],
     }
-    return process_game_completion(
+    return await process_game_completion(
         owner_sub=owner_sub,
         result_snapshot=snapshot,
         result_id=result_id,
@@ -170,12 +170,13 @@ def _complete(
 # 1. XP awarded once for eligible event
 # ============================================================
 
-def test_xp_awarded_for_daily_completion():
+@pytest.mark.asyncio
+async def test_xp_awarded_for_daily_completion():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
-    summary = _complete(sub, prog, rec, ach, strk, is_first=True)
+    summary = await _complete(sub, prog, rec, ach, strk, is_first=True)
     assert summary["xp_awarded"] > 0
-    progress = prog.get_progress(sub)
+    progress = await prog.get_progress(sub)
     assert progress is not None
     assert progress.total_xp > 0
 
@@ -184,14 +185,15 @@ def test_xp_awarded_for_daily_completion():
 # 2. Retry does not duplicate XP
 # ============================================================
 
-def test_retry_does_not_duplicate_xp():
+@pytest.mark.asyncio
+async def test_retry_does_not_duplicate_xp():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
     rid = str(uuid.uuid4())
-    s1 = _complete(sub, prog, rec, ach, strk, result_id=rid)
-    s2 = _complete(sub, prog, rec, ach, strk, result_id=rid, ts=_ts())
+    s1 = await _complete(sub, prog, rec, ach, strk, result_id=rid)
+    s2 = await _complete(sub, prog, rec, ach, strk, result_id=rid, ts=_ts())
     assert s2["xp_awarded"] == 0
-    progress = prog.get_progress(sub)
+    progress = await prog.get_progress(sub)
     assert progress.total_xp == s1["xp_awarded"]
 
 
@@ -199,12 +201,13 @@ def test_retry_does_not_duplicate_xp():
 # 3. Same Daily board replay gives no additional official XP
 # ============================================================
 
-def test_daily_replay_no_xp():
+@pytest.mark.asyncio
+async def test_daily_replay_no_xp():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
-    _complete(sub, prog, rec, ach, strk, result_id="first-play")
+    await _complete(sub, prog, rec, ach, strk, result_id="first-play")
     # Second completion on same local day different result_id → no extra daily XP
-    s2 = _complete(sub, prog, rec, ach, strk, result_id="second-play")
+    s2 = await _complete(sub, prog, rec, ach, strk, result_id="second-play")
     assert s2["xp_awarded"] == 0
 
 
@@ -212,16 +215,17 @@ def test_daily_replay_no_xp():
 # 4. XP does not depend on score or win/loss
 # ============================================================
 
-def test_xp_independent_of_score():
+@pytest.mark.asyncio
+async def test_xp_independent_of_score():
     # Low score game
     prog1, rec1, ach1, strk1 = _repos()
     sub1 = f"user-{uuid.uuid4()}"
-    s_low = _complete(sub1, prog1, rec1, ach1, strk1, lineup_rating=10.0, efficiency=0.1)
+    s_low = await _complete(sub1, prog1, rec1, ach1, strk1, lineup_rating=10.0, efficiency=0.1)
 
     # High score game
     prog2, rec2, ach2, strk2 = _repos()
     sub2 = f"user-{uuid.uuid4()}"
-    s_high = _complete(sub2, prog2, rec2, ach2, strk2, lineup_rating=99.0, efficiency=0.99)
+    s_high = await _complete(sub2, prog2, rec2, ach2, strk2, lineup_rating=99.0, efficiency=0.99)
 
     # Both get the same daily completion XP
     assert s_low["xp_awarded"] == s_high["xp_awarded"]
@@ -231,15 +235,16 @@ def test_xp_independent_of_score():
 # 5. Local day cap enforced
 # ============================================================
 
-def test_local_day_cap():
+@pytest.mark.asyncio
+async def test_local_day_cap():
     policy = get_active_policy()
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
 
     # Award XP from multiple sources on the same day
     # First game (first_game_bonus + daily = 30+100 = 130 < cap=150)
-    _complete(sub, prog, rec, ach, strk, result_id="day1-game1", is_first=True)
-    progress = prog.get_progress(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="day1-game1", is_first=True)
+    progress = await prog.get_progress(sub)
     assert progress.total_xp <= policy.local_day_cap
 
 
@@ -247,14 +252,15 @@ def test_local_day_cap():
 # 6. Practice weekly cap (first per mode per week)
 # ============================================================
 
-def test_practice_weekly_cap():
+@pytest.mark.asyncio
+async def test_practice_weekly_cap():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
     # First practice in a mode this week — should award XP
-    s1 = _complete(sub, prog, rec, ach, strk, result_id="prac1",
+    s1 = await _complete(sub, prog, rec, ach, strk, result_id="prac1",
                    board_type="practice", mode="apex_1y", ts=_ts(0))
     # Second practice in same mode same week — no XP
-    s2 = _complete(sub, prog, rec, ach, strk, result_id="prac2",
+    s2 = await _complete(sub, prog, rec, ach, strk, result_id="prac2",
                    board_type="practice", mode="apex_1y", ts=_ts(1))
     assert s1["xp_awarded"] > 0
     assert s2["xp_awarded"] == 0
@@ -264,13 +270,14 @@ def test_practice_weekly_cap():
 # 7. Self-challenge farming does not award challenge XP
 # ============================================================
 
-def test_self_challenge_no_xp():
+@pytest.mark.asyncio
+async def test_self_challenge_no_xp():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
-    summary = _complete(sub, prog, rec, ach, strk, result_id="selfch",
+    summary = await _complete(sub, prog, rec, ach, strk, result_id="selfch",
                         board_type="challenge", is_self=True)
     # Challenge XP specifically should not be awarded
-    events = prog.list_events(sub)
+    events = await prog.list_events(sub)
     challenge_xp_events = [e for e in events if e.event_type == "challenge_completion"]
     assert len(challenge_xp_events) == 0
 
@@ -337,12 +344,13 @@ def test_unknown_policy_raises():
 # 10. Personal record set from immutable snapshot
 # ============================================================
 
-def test_personal_record_from_snapshot():
+@pytest.mark.asyncio
+async def test_personal_record_from_snapshot():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
     rid = str(uuid.uuid4())
-    _complete(sub, prog, rec, ach, strk, result_id=rid, lineup_rating=85.0)
-    records = rec.list_records(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id=rid, lineup_rating=85.0)
+    records = await rec.list_records(sub)
     lineup_recs = [r for r in records if r.record_type == "lineup_score"]
     assert len(lineup_recs) == 1
     assert lineup_recs[0].record_value == pytest.approx(85.0)
@@ -353,14 +361,15 @@ def test_personal_record_from_snapshot():
 # 11. Inferior result does not replace a record
 # ============================================================
 
-def test_inferior_result_does_not_replace_record():
+@pytest.mark.asyncio
+async def test_inferior_result_does_not_replace_record():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
     # First: good result
-    _complete(sub, prog, rec, ach, strk, result_id="good", lineup_rating=90.0, ts=_ts(0))
+    await _complete(sub, prog, rec, ach, strk, result_id="good", lineup_rating=90.0, ts=_ts(0))
     # Second: worse result (different day so streak allows it, but score is worse)
-    _complete(sub, prog, rec, ach, strk, result_id="worse", lineup_rating=70.0, ts=_ts(1))
-    records = rec.list_records(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="worse", lineup_rating=70.0, ts=_ts(1))
+    records = await rec.list_records(sub)
     lineup_recs = [r for r in records if r.record_type == "lineup_score" and r.mode == "apex_1y"]
     assert len(lineup_recs) == 1
     assert lineup_recs[0].record_value == pytest.approx(90.0)
@@ -371,12 +380,13 @@ def test_inferior_result_does_not_replace_record():
 # 12. Superior compatible result replaces it and records previous
 # ============================================================
 
-def test_superior_result_replaces_record():
+@pytest.mark.asyncio
+async def test_superior_result_replaces_record():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
-    _complete(sub, prog, rec, ach, strk, result_id="first", lineup_rating=70.0, ts=_ts(0))
-    _complete(sub, prog, rec, ach, strk, result_id="better", lineup_rating=95.0, ts=_ts(1))
-    records = rec.list_records(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="first", lineup_rating=70.0, ts=_ts(0))
+    await _complete(sub, prog, rec, ach, strk, result_id="better", lineup_rating=95.0, ts=_ts(1))
+    records = await rec.list_records(sub)
     lineup_recs = [r for r in records if r.record_type == "lineup_score" and r.mode == "apex_1y"]
     assert lineup_recs[0].record_value == pytest.approx(95.0)
     assert lineup_recs[0].source_result_id == "better"
@@ -424,7 +434,8 @@ def test_incompatible_model_versions_separate_records():
 # 14. Achievement award is idempotent
 # ============================================================
 
-def test_achievement_award_idempotent():
+@pytest.mark.asyncio
+async def test_achievement_award_idempotent():
     ach = MemoryAchievementRepository()
     sub = f"user-{uuid.uuid4()}"
     award = AchievementAward(
@@ -432,30 +443,31 @@ def test_achievement_award_idempotent():
         source_type="daily", source_id="r1",
         awarded_at=datetime.now(UTC),
     )
-    r1 = ach.award_achievement(award)
-    r2 = ach.award_achievement(AchievementAward(
+    r1 = await ach.award_achievement(award)
+    r2 = await ach.award_achievement(AchievementAward(
         id=str(uuid.uuid4()), owner_sub=sub, achievement_key="first_game",
         source_type="daily", source_id="r2",
         awarded_at=datetime.now(UTC),
     ))
     assert r1 is True
     assert r2 is False
-    assert len(ach.list_awards(sub)) == 1
+    assert len(await ach.list_awards(sub)) == 1
 
 
 # ============================================================
 # 15. Retroactive: re-evaluating existing events doesn't re-award
 # ============================================================
 
-def test_retroactive_evaluation_idempotent():
+@pytest.mark.asyncio
+async def test_retroactive_evaluation_idempotent():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
     # First run
-    _complete(sub, prog, rec, ach, strk, result_id="r1", is_first=True, ts=_ts(0))
-    ach_count_before = len(ach.list_awards(sub))
+    await _complete(sub, prog, rec, ach, strk, result_id="r1", is_first=True, ts=_ts(0))
+    ach_count_before = len(await ach.list_awards(sub))
     # Second run with same result_id (simulating retroactive pass)
-    _complete(sub, prog, rec, ach, strk, result_id="r1", ts=_ts(0))
-    ach_count_after = len(ach.list_awards(sub))
+    await _complete(sub, prog, rec, ach, strk, result_id="r1", ts=_ts(0))
+    ach_count_after = len(await ach.list_awards(sub))
     assert ach_count_before == ach_count_after
 
 
@@ -477,15 +489,16 @@ def test_achievement_catalog_has_no_hidden_visible():
 # 17. Streak increments once per local day
 # ============================================================
 
-def test_streak_increments_once_per_day():
+@pytest.mark.asyncio
+async def test_streak_increments_once_per_day():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
-    _complete(sub, prog, rec, ach, strk, result_id="d1", ts=_ts(0))
-    state = strk.get_streak(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="d1", ts=_ts(0))
+    state = await strk.get_streak(sub)
     assert state.current_streak == 1
 
-    _complete(sub, prog, rec, ach, strk, result_id="d2", ts=_ts(1))
-    state = strk.get_streak(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="d2", ts=_ts(1))
+    state = await strk.get_streak(sub)
     assert state.current_streak == 2
 
 
@@ -493,13 +506,14 @@ def test_streak_increments_once_per_day():
 # 18. Same-day duplicate does not increment
 # ============================================================
 
-def test_same_day_duplicate_no_increment():
+@pytest.mark.asyncio
+async def test_same_day_duplicate_no_increment():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
-    _complete(sub, prog, rec, ach, strk, result_id="d1", ts=_ts(0, 10))
+    await _complete(sub, prog, rec, ach, strk, result_id="d1", ts=_ts(0, 10))
     # Same local day, different hour
-    _complete(sub, prog, rec, ach, strk, result_id="d1b", ts=_ts(0, 20))
-    state = strk.get_streak(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="d1b", ts=_ts(0, 20))
+    state = await strk.get_streak(sub)
     assert state.current_streak == 1
 
 
@@ -507,21 +521,22 @@ def test_same_day_duplicate_no_increment():
 # 19. One-day gap consumes reserve
 # ============================================================
 
-def test_one_day_gap_consumes_reserve():
+@pytest.mark.asyncio
+async def test_one_day_gap_consumes_reserve():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
 
     # Build a 7-day streak to earn a reserve
     for i in range(7):
-        _complete(sub, prog, rec, ach, strk, result_id=f"d{i}", ts=_ts(i))
+        await _complete(sub, prog, rec, ach, strk, result_id=f"d{i}", ts=_ts(i))
 
-    state = strk.get_streak(sub)
+    state = await strk.get_streak(sub)
     assert state.current_streak == 7
     assert state.reserve_count == 1
 
     # Skip day 7 (one-day gap), then complete day 8
-    _complete(sub, prog, rec, ach, strk, result_id="d8", ts=_ts(8))
-    state = strk.get_streak(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="d8", ts=_ts(8))
+    state = await strk.get_streak(sub)
     # Reserve consumed, streak continues
     assert state.reserve_count == 0
     assert state.current_streak == 8
@@ -531,17 +546,18 @@ def test_one_day_gap_consumes_reserve():
 # 20. Larger gap resets current streak
 # ============================================================
 
-def test_two_day_gap_resets_streak():
+@pytest.mark.asyncio
+async def test_two_day_gap_resets_streak():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
-    _complete(sub, prog, rec, ach, strk, result_id="d1", ts=_ts(0))
-    _complete(sub, prog, rec, ach, strk, result_id="d2", ts=_ts(1))
-    state = strk.get_streak(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="d1", ts=_ts(0))
+    await _complete(sub, prog, rec, ach, strk, result_id="d2", ts=_ts(1))
+    state = await strk.get_streak(sub)
     assert state.current_streak == 2
 
     # Skip 2 days — day 2 and 3 missed → complete on day 4
-    _complete(sub, prog, rec, ach, strk, result_id="d5", ts=_ts(4))
-    state = strk.get_streak(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="d5", ts=_ts(4))
+    state = await strk.get_streak(sub)
     assert state.current_streak == 1  # reset
 
 
@@ -549,18 +565,19 @@ def test_two_day_gap_resets_streak():
 # 21. Longest streak preserved
 # ============================================================
 
-def test_longest_streak_preserved():
+@pytest.mark.asyncio
+async def test_longest_streak_preserved():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
     # Build 3-day streak
     for i in range(3):
-        _complete(sub, prog, rec, ach, strk, result_id=f"da{i}", ts=_ts(i))
-    state = strk.get_streak(sub)
+        await _complete(sub, prog, rec, ach, strk, result_id=f"da{i}", ts=_ts(i))
+    state = await strk.get_streak(sub)
     assert state.longest_streak == 3
 
     # Skip 3 days and complete again
-    _complete(sub, prog, rec, ach, strk, result_id="da6", ts=_ts(6))
-    state = strk.get_streak(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="da6", ts=_ts(6))
+    state = await strk.get_streak(sub)
     assert state.current_streak == 1
     assert state.longest_streak == 3  # preserved
 
@@ -586,28 +603,29 @@ def test_dst_spring_forward():
 # 23. Timezone changes cannot create duplicate qualifying days
 # ============================================================
 
-def test_timezone_change_no_duplicate_streak():
+@pytest.mark.asyncio
+async def test_timezone_change_no_duplicate_streak():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
 
     # First game: June 15 14:00 UTC → local June 15 under UTC
-    _complete(sub, prog, rec, ach, strk, result_id="tz1", ts=_ts(0), tz="UTC")
-    state = strk.get_streak(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="tz1", ts=_ts(0), tz="UTC")
+    state = await strk.get_streak(sub)
     assert state.current_streak == 1
     assert state.last_qualifying_date == date(2026, 6, 15)
 
     # Second game: June 16 14:00 UTC → 16:00 CEST (UTC+2) → local June 16
     # Different timezone, but still the correct consecutive local day
-    _complete(sub, prog, rec, ach, strk, result_id="tz2", ts=_ts(1), tz="Europe/Berlin")
-    state = strk.get_streak(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="tz2", ts=_ts(1), tz="Europe/Berlin")
+    state = await strk.get_streak(sub)
     assert state.current_streak == 2
     assert state.last_qualifying_date == date(2026, 6, 16)
 
     # Third: attempt a "re-play" of the same local day (June 16) under a different result_id
     # June 16 12:00 CEST = June 16 10:00 UTC → still local June 16 under Berlin
     same_day_ts = datetime(2026, 6, 16, 10, 0, 0, tzinfo=UTC)
-    _complete(sub, prog, rec, ach, strk, result_id="tz2b", ts=same_day_ts, tz="Europe/Berlin")
-    state = strk.get_streak(sub)
+    await _complete(sub, prog, rec, ach, strk, result_id="tz2b", ts=same_day_ts, tz="Europe/Berlin")
+    state = await strk.get_streak(sub)
     # Same local day → same_day event, streak stays at 2
     assert state.current_streak == 2
 
@@ -616,32 +634,33 @@ def test_timezone_change_no_duplicate_streak():
 # 24. Anonymous claim transfers XP without duplication
 # ============================================================
 
-def test_anonymous_claim_transfers_xp():
+@pytest.mark.asyncio
+async def test_anonymous_claim_transfers_xp():
     prog, rec, ach, strk = _repos()
     anon_sub = f"anon:{uuid.uuid4()}"
     real_sub = f"user-{uuid.uuid4()}"
 
     # Anon plays two games
-    _complete(anon_sub, prog, rec, ach, strk, result_id="anon1", ts=_ts(0))
-    _complete(anon_sub, prog, rec, ach, strk, result_id="anon2", ts=_ts(1))
-    anon_xp = prog.get_progress(anon_sub).total_xp
+    await _complete(anon_sub, prog, rec, ach, strk, result_id="anon1", ts=_ts(0))
+    await _complete(anon_sub, prog, rec, ach, strk, result_id="anon2", ts=_ts(1))
+    anon_xp = (await prog.get_progress(anon_sub)).total_xp
     assert anon_xp > 0
 
     # Claim
-    count = prog.transfer_events(anon_sub, real_sub)
+    count = await prog.transfer_events(anon_sub, real_sub)
     assert count > 0
 
     # Recalculate real user's XP
-    all_events = prog.list_events(real_sub, limit=1000)
+    all_events = await prog.list_events(real_sub, limit=1000)
     real_xp = sum(e.xp_amount for e in all_events)
     assert real_xp == anon_xp
 
     # Anon no longer has events
-    anon_events = prog.list_events(anon_sub)
+    anon_events = await prog.list_events(anon_sub)
     assert len(anon_events) == 0
 
     # No duplication if claim is re-run
-    count2 = prog.transfer_events(anon_sub, real_sub)
+    count2 = await prog.transfer_events(anon_sub, real_sub)
     assert count2 == 0
 
 
@@ -649,21 +668,22 @@ def test_anonymous_claim_transfers_xp():
 # 25. Claim merges personal records correctly
 # ============================================================
 
-def test_claim_merges_personal_records():
+@pytest.mark.asyncio
+async def test_claim_merges_personal_records():
     prog, rec, ach, strk = _repos()
     anon_sub = f"anon:{uuid.uuid4()}"
     real_sub = f"user-{uuid.uuid4()}"
 
     # Anon has a good record
-    _complete(anon_sub, prog, rec, ach, strk, result_id="anon1", lineup_rating=90.0, ts=_ts(0))
+    await _complete(anon_sub, prog, rec, ach, strk, result_id="anon1", lineup_rating=90.0, ts=_ts(0))
     # Real user has a worse record
-    _complete(real_sub, prog, rec, ach, strk, result_id="real1", lineup_rating=70.0, ts=_ts(1))
+    await _complete(real_sub, prog, rec, ach, strk, result_id="real1", lineup_rating=70.0, ts=_ts(1))
 
     # Merge: anon's 90 beats real's 70
-    count = rec.transfer_records(anon_sub, real_sub)
+    count = await rec.transfer_records(anon_sub, real_sub)
     assert count >= 1
 
-    real_records = rec.list_records(real_sub)
+    real_records = await rec.list_records(real_sub)
     lineup_recs = [r for r in real_records if r.record_type == "lineup_score" and r.mode == "apex_1y"]
     assert lineup_recs[0].record_value == pytest.approx(90.0)
 
@@ -672,26 +692,27 @@ def test_claim_merges_personal_records():
 # 26. Claim merges achievements correctly
 # ============================================================
 
-def test_claim_merges_achievements():
+@pytest.mark.asyncio
+async def test_claim_merges_achievements():
     prog, rec, ach, strk = _repos()
     anon_sub = f"anon:{uuid.uuid4()}"
     real_sub = f"user-{uuid.uuid4()}"
 
     # Anon earned first_game
-    ach.award_achievement(AchievementAward(
+    await ach.award_achievement(AchievementAward(
         id=str(uuid.uuid4()), owner_sub=anon_sub, achievement_key="first_game",
         source_type="daily", source_id="a1", awarded_at=datetime.now(UTC),
     ))
     # Real user earned apex_explorer
-    ach.award_achievement(AchievementAward(
+    await ach.award_achievement(AchievementAward(
         id=str(uuid.uuid4()), owner_sub=real_sub, achievement_key="apex_explorer",
         source_type="daily", source_id="r1", awarded_at=datetime.now(UTC),
     ))
 
-    count = ach.transfer_awards(anon_sub, real_sub)
+    count = await ach.transfer_awards(anon_sub, real_sub)
     assert count == 1  # first_game transferred (apex_explorer already real's)
 
-    real_awards = {a.achievement_key for a in ach.list_awards(real_sub)}
+    real_awards = {a.achievement_key for a in await ach.list_awards(real_sub)}
     assert "first_game" in real_awards
     assert "apex_explorer" in real_awards
 
@@ -700,27 +721,28 @@ def test_claim_merges_achievements():
 # 27. Claim merges streak correctly
 # ============================================================
 
-def test_claim_merges_streak():
+@pytest.mark.asyncio
+async def test_claim_merges_streak():
     prog, rec, ach, strk = _repos()
     anon_sub = f"anon:{uuid.uuid4()}"
     real_sub = f"user-{uuid.uuid4()}"
 
     # Anon has 5-day streak
     for i in range(5):
-        _complete(anon_sub, prog, rec, ach, strk, result_id=f"a{i}", ts=_ts(i))
-    anon_state = strk.get_streak(anon_sub)
+        await _complete(anon_sub, prog, rec, ach, strk, result_id=f"a{i}", ts=_ts(i))
+    anon_state = await strk.get_streak(anon_sub)
     assert anon_state.current_streak == 5
 
     # Merge
-    transferred = strk.transfer_streak(anon_sub, real_sub)
+    transferred = await strk.transfer_streak(anon_sub, real_sub)
     assert transferred is True
 
-    real_state = strk.get_streak(real_sub)
+    real_state = await strk.get_streak(real_sub)
     assert real_state is not None
     assert real_state.current_streak == 5
     assert real_state.longest_streak == 5
     # Anon no longer has a streak
-    assert strk.get_streak(anon_sub) is None
+    assert await strk.get_streak(anon_sub) is None
 
 
 # ============================================================
@@ -774,7 +796,8 @@ def test_progression_requires_auth():
 # 30. Progression writes do not mutate stored result snapshots
 # ============================================================
 
-def test_progression_does_not_mutate_snapshot():
+@pytest.mark.asyncio
+async def test_progression_does_not_mutate_snapshot():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
     original_snapshot = {
@@ -794,7 +817,7 @@ def test_progression_does_not_mutate_snapshot():
     import copy
     snapshot_copy = copy.deepcopy(original_snapshot)
 
-    process_game_completion(
+    await process_game_completion(
         owner_sub=sub,
         result_snapshot=original_snapshot,
         result_id="snap1",
@@ -846,14 +869,15 @@ def test_merge_streak_states_keeps_best():
 # skipped on the first pass. This test proves the two-pass fix is in place.
 # ============================================================
 
-def test_first_completion_awards_first_game_and_apex_explorer_together():
+@pytest.mark.asyncio
+async def test_first_completion_awards_first_game_and_apex_explorer_together():
     prog, rec, ach, strk = _repos()
     sub = f"user-{uuid.uuid4()}"
     # A first daily apex game that also sets a personal record.
     # With the bug, only personal_best was awarded (3 achievements, not 5).
     # With the fix, first_game + apex_explorer + personal_best + role_complete
     # + balanced_five may all be awarded in one call.
-    summary = _complete(
+    summary = await _complete(
         sub, prog, rec, ach, strk,
         result_id="r-regr",
         is_first=True,
@@ -864,7 +888,7 @@ def test_first_completion_awards_first_game_and_apex_explorer_together():
         percentile=25.0,
         ts=_ts(0),
     )
-    awards = {a.achievement_key for a in ach.list_awards(sub)}
+    awards = {a.achievement_key for a in await ach.list_awards(sub)}
 
     # The two-pass fix must deliver BOTH game-event awards from the same call.
     assert "first_game" in awards, (
@@ -880,15 +904,15 @@ def test_first_completion_awards_first_game_and_apex_explorer_together():
     assert "apex_explorer" in new_keys
 
     # Replaying the same result_id must not re-award anything.
-    before = len(ach.list_awards(sub))
-    _complete(
+    before = len(await ach.list_awards(sub))
+    await _complete(
         sub, prog, rec, ach, strk,
         result_id="r-regr",
         board_type="daily",
         mode="apex_1y",
         ts=_ts(0),
     )
-    assert len(ach.list_awards(sub)) == before, "Replay must not add new awards"
+    assert len(await ach.list_awards(sub)) == before, "Replay must not add new awards"
 
 
 def test_merge_streak_reserves_capped():

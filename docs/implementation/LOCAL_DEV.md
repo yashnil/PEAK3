@@ -34,20 +34,23 @@ with a "not configured" message when Supabase env vars are absent.
 
 ```bash
 supabase start
-# Outputs: API URL, anon key, JWT secret, DB URL
+# Applies every migration under supabase/migrations/ automatically and
+# outputs: API URL, anon key, service-role key, JWT secret, DB URL, Studio URL
 ```
 
-### Apply migrations
+`supabase/migrations/` is the **only** editable migration source (see
+`infra/migrations/README.md` — that directory is documentation-only now).
+To re-apply the full chain from scratch against a clean local database:
 
 ```bash
-supabase db push --local
-# Or apply manually:
-psql postgresql://postgres:postgres@localhost:54322/postgres \
-  -f infra/migrations/001_identity.sql \
-  -f infra/migrations/002_versioning.sql \
-  -f infra/migrations/003_game_records.sql \
-  -f infra/migrations/004_challenges.sql \
-  -f infra/migrations/005_rls.sql
+supabase db reset
+```
+
+To add a new migration:
+
+```bash
+supabase migration new <description>
+# then edit the generated supabase/migrations/<timestamp>_<description>.sql
 ```
 
 ### Configure environment
@@ -74,6 +77,37 @@ make api   # API now connects to local Postgres and verifies JWTs
 make web   # Frontend now shows Sign In / Profile links
 ```
 
+Confirm every domain is durable by checking the startup log line:
+```
+Repository registry: postgres (13/13 domains)
+```
+If it instead reads `memory (13/13 domains)`, `PEAK3_DATABASE_URL` isn't set
+or the pool failed to initialize — check the log line above it. In
+production (`PEAK3_DEBUG=false`) any non-`postgres` domain fails startup
+outright rather than silently falling back (`app/core/repository_registry.py`).
+
+### Running the real Supabase integration + conformance suites locally
+
+These are normally skipped ("not configured") in a plain `pytest` run — they
+require the local stack above to actually be running:
+
+```bash
+export PEAK3_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+export PEAK3_TEST_SUPABASE_URL=http://127.0.0.1:54321
+export PEAK3_TEST_SUPABASE_ANON_KEY=<ANON_KEY-from-supabase-status>
+export PEAK3_TEST_SUPABASE_SERVICE_ROLE_KEY=<SERVICE_ROLE_KEY-from-supabase-status>
+export PEAK3_TEST_SUPABASE_JWT_SECRET=<JWT_SECRET-from-supabase-status>
+
+cd apps/api
+python -m pytest tests/integration/ -q                # real auth + RLS round-trips
+python -m pytest tests/test_repository_conformance.py -q  # same behavior suite, memory + real Postgres
+```
+
+Both suites create and clean up their own throwaway data (random UUIDs/emails
+per run) against the local stack — no fixed seed data or persistent test
+users are required. `supabase db reset` at any point returns the stack to a
+clean slate.
+
 ---
 
 ## With Supabase (cloud project)
@@ -84,7 +118,9 @@ make web   # Frontend now shows Sign In / Profile links
    - `anon` public key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - JWT Secret → `PEAK3_SUPABASE_JWT_SECRET`
 3. Go to **Settings → Database** and copy the connection string → `PEAK3_DATABASE_URL`.
-4. Apply migrations from `infra/migrations/` via the Supabase SQL editor or `supabase db push`.
+4. Apply migrations from `supabase/migrations/` via `supabase link` (hosted project) then
+   `supabase db push`, or paste them into the Supabase SQL editor in order. **Phase 4.0A
+   deliberately does not do this** — no hosted project is linked from this codebase.
 5. Enable **Email** auth under **Authentication → Providers**.
 
 ---
@@ -100,6 +136,8 @@ make web   # Frontend now shows Sign In / Profile links
 | `PEAK3_SUPABASE_JWT_SECRET` | For auth | Supabase JWT secret (verifies access tokens) |
 | `PEAK3_DEBUG` | No | `true` in dev; `false` in prod (enables production safety checks) |
 | `PEAK3_CORS_ORIGINS` | No | JSON array of allowed CORS origins |
+| `PEAK3_TEST_DATABASE_URL` | No | Local-stack Postgres URL for `tests/integration/` + conformance suite only |
+| `PEAK3_TEST_SUPABASE_URL` / `_ANON_KEY` / `_SERVICE_ROLE_KEY` / `_JWT_SECRET` | No | Local-stack values for real auth/RLS integration tests only — never a hosted project |
 
 ### Web (`apps/web/.env.local`)
 

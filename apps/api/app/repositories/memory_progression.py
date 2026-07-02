@@ -35,21 +35,21 @@ class MemoryProgressionRepository:
         self._progress: dict[str, UserProgress] = {}             # owner_sub → progress
         self._lock = threading.Lock()
 
-    def record_event(self, event: ProgressionEvent) -> None:
+    async def record_event(self, event: ProgressionEvent) -> None:
         with self._lock:
             if event.idempotency_key in self._idem_index:
                 return  # idempotent: already recorded
             self._events[event.id] = deepcopy(event)
             self._idem_index[event.idempotency_key] = event.id
 
-    def get_event_by_idempotency_key(self, key: str) -> Optional[ProgressionEvent]:
+    async def get_event_by_idempotency_key(self, key: str) -> Optional[ProgressionEvent]:
         with self._lock:
             eid = self._idem_index.get(key)
             if eid is None:
                 return None
             return deepcopy(self._events[eid])
 
-    def list_events(
+    async def list_events(
         self, owner_sub: str, limit: int = 50, before_id: Optional[str] = None
     ) -> list[ProgressionEvent]:
         with self._lock:
@@ -66,7 +66,7 @@ class MemoryProgressionRepository:
                 pass
         return results[:limit]
 
-    def get_events_in_window(
+    async def get_events_in_window(
         self, owner_sub: str, event_type: str, after: datetime, before: datetime
     ) -> list[ProgressionEvent]:
         with self._lock:
@@ -77,16 +77,16 @@ class MemoryProgressionRepository:
                 and after <= e.occurred_at <= before
             ]
 
-    def upsert_progress(self, progress: UserProgress) -> None:
+    async def upsert_progress(self, progress: UserProgress) -> None:
         with self._lock:
             self._progress[progress.owner_sub] = deepcopy(progress)
 
-    def get_progress(self, owner_sub: str) -> Optional[UserProgress]:
+    async def get_progress(self, owner_sub: str) -> Optional[UserProgress]:
         with self._lock:
             p = self._progress.get(owner_sub)
             return deepcopy(p) if p else None
 
-    def transfer_events(self, from_sub: str, to_sub: str) -> int:
+    async def transfer_events(self, from_sub: str, to_sub: str) -> int:
         count = 0
         with self._lock:
             to_update = [e for e in self._events.values() if e.owner_sub == from_sub]
@@ -109,7 +109,7 @@ class MemoryPersonalRecordRepository:
              lmv: str, cpv: str, rv: str) -> str:
         return f"{owner_sub}:{record_type}:{mode}:{lmv}:{cpv}:{rv}"
 
-    def upsert_record(self, record: PersonalRecord) -> None:
+    async def upsert_record(self, record: PersonalRecord) -> None:
         k = self._key(
             record.owner_sub, record.record_type, record.mode,
             record.lineup_model_version, record.card_pool_version, record.ruleset_version,
@@ -117,7 +117,7 @@ class MemoryPersonalRecordRepository:
         with self._lock:
             self._records[k] = deepcopy(record)
 
-    def get_record(
+    async def get_record(
         self, owner_sub: str, record_type: str, mode: str,
         lmv: str, cpv: str, rv: str,
     ) -> Optional[PersonalRecord]:
@@ -126,18 +126,18 @@ class MemoryPersonalRecordRepository:
             r = self._records.get(k)
             return deepcopy(r) if r else None
 
-    def list_records(self, owner_sub: str) -> list[PersonalRecord]:
+    async def list_records(self, owner_sub: str) -> list[PersonalRecord]:
         with self._lock:
             return [
                 deepcopy(r) for r in self._records.values()
                 if r.owner_sub == owner_sub
             ]
 
-    def record_event(self, event: PersonalRecordEvent) -> None:
+    async def record_event(self, event: PersonalRecordEvent) -> None:
         with self._lock:
             self._events.append(deepcopy(event))
 
-    def transfer_records(self, from_sub: str, to_sub: str) -> int:
+    async def transfer_records(self, from_sub: str, to_sub: str) -> int:
         """Merge records from from_sub to to_sub, keeping the better value."""
         count = 0
         with self._lock:
@@ -171,7 +171,7 @@ class MemoryAchievementRepository:
         self._awards: dict[str, AchievementAward] = {}  # "owner_sub:key" → award
         self._lock = threading.Lock()
 
-    def award_achievement(self, award: AchievementAward) -> bool:
+    async def award_achievement(self, award: AchievementAward) -> bool:
         k = f"{award.owner_sub}:{award.achievement_key}"
         with self._lock:
             if k in self._awards:
@@ -179,20 +179,20 @@ class MemoryAchievementRepository:
             self._awards[k] = deepcopy(award)
             return True
 
-    def get_award(self, owner_sub: str, achievement_key: str) -> Optional[AchievementAward]:
+    async def get_award(self, owner_sub: str, achievement_key: str) -> Optional[AchievementAward]:
         k = f"{owner_sub}:{achievement_key}"
         with self._lock:
             a = self._awards.get(k)
             return deepcopy(a) if a else None
 
-    def list_awards(self, owner_sub: str) -> list[AchievementAward]:
+    async def list_awards(self, owner_sub: str) -> list[AchievementAward]:
         with self._lock:
             return [
                 deepcopy(a) for a in self._awards.values()
                 if a.owner_sub == owner_sub
             ]
 
-    def transfer_awards(self, from_sub: str, to_sub: str) -> int:
+    async def transfer_awards(self, from_sub: str, to_sub: str) -> int:
         count = 0
         with self._lock:
             to_transfer = [a for a in self._awards.values() if a.owner_sub == from_sub]
@@ -217,20 +217,20 @@ class MemoryStreakRepository:
         self._events: list[StreakEvent] = []
         self._lock = threading.Lock()
 
-    def get_streak(self, owner_sub: str) -> Optional[StreakState]:
+    async def get_streak(self, owner_sub: str) -> Optional[StreakState]:
         with self._lock:
             s = self._states.get(owner_sub)
             return deepcopy(s) if s else None
 
-    def save_streak(self, state: StreakState) -> None:
+    async def save_streak(self, state: StreakState) -> None:
         with self._lock:
             self._states[state.owner_sub] = deepcopy(state)
 
-    def record_streak_event(self, event: StreakEvent) -> None:
+    async def record_streak_event(self, event: StreakEvent) -> None:
         with self._lock:
             self._events.append(deepcopy(event))
 
-    def list_streak_events(
+    async def list_streak_events(
         self, owner_sub: str, limit: int = 50
     ) -> list[StreakEvent]:
         with self._lock:
@@ -238,7 +238,7 @@ class MemoryStreakRepository:
         results.sort(key=lambda e: e.occurred_at, reverse=True)
         return results[:limit]
 
-    def transfer_streak(self, from_sub: str, to_sub: str) -> bool:
+    async def transfer_streak(self, from_sub: str, to_sub: str) -> bool:
         """Move the anon streak to the real user and apply merge policy."""
         from app.services.progression.streak_service import merge_streak_states
         with self._lock:

@@ -3,9 +3,9 @@
 These connect through PostgREST-equivalent row-level security by opening a
 Postgres connection AS the anon/authenticated roles Supabase issues,
 using `SET LOCAL ROLE` + `SET LOCAL request.jwt.claims` the same way
-PostgREST does, so the policies in infra/migrations/005_rls.sql,
-010_progression_rls.sql, and 016_ranked_rls.sql are exercised for real
-rather than asserted about.
+PostgREST does, so the policies in supabase/migrations/20260630124900_rls.sql,
+20260630125400_progression_rls.sql, and 20260630130000_ranked_rls.sql are
+exercised for real rather than asserted about.
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import json
 import uuid
 
 import pytest
+import pytest_asyncio
 
 try:
     import asyncpg
@@ -32,7 +33,7 @@ async def _connection_as(pool, sub: str | None, role: str = "authenticated"):
     return conn
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def db_pool(test_database_url: str):
     assert asyncpg is not None
     pool = await asyncpg.create_pool(test_database_url)
@@ -42,8 +43,20 @@ async def db_pool(test_database_url: str):
 
 @pytest.mark.asyncio
 async def test_authenticated_owner_can_read_own_queue_entry(db_pool) -> None:
-    owner_sub = f"owner-{uuid.uuid4().hex[:8]}"
+    # auth.uid() casts the JWT sub claim to ::uuid (see auth.uid()'s real
+    # definition on this stack) — ranked owner_sub is always a genuine
+    # Supabase auth UUID in production (ranked requires a real account, never
+    # an anonymous session), so test subs must be real UUIDs too.
+    owner_sub = str(uuid.uuid4())
     async with db_pool.acquire() as service_conn:
+        await service_conn.execute(
+            """
+            INSERT INTO ranked_queue_versions (mode, queue_version, ruleset_version, lineup_model_version,
+                card_pool_version, board_generator_version, anchor_eligibility_version, rating_algorithm_version)
+            VALUES ('apex_1y', 'ranked_queue_v1', 'r', 'l', 'c', 'b', 'a', 'glicko2_v1')
+            ON CONFLICT DO NOTHING
+            """
+        )
         await service_conn.execute(
             """
             INSERT INTO ranked_queue_entries
@@ -65,9 +78,17 @@ async def test_authenticated_owner_can_read_own_queue_entry(db_pool) -> None:
 
 @pytest.mark.asyncio
 async def test_authenticated_non_owner_cannot_read_someone_elses_queue_entry(db_pool) -> None:
-    owner_sub = f"owner-{uuid.uuid4().hex[:8]}"
-    stranger_sub = f"stranger-{uuid.uuid4().hex[:8]}"
+    owner_sub = str(uuid.uuid4())
+    stranger_sub = str(uuid.uuid4())
     async with db_pool.acquire() as service_conn:
+        await service_conn.execute(
+            """
+            INSERT INTO ranked_queue_versions (mode, queue_version, ruleset_version, lineup_model_version,
+                card_pool_version, board_generator_version, anchor_eligibility_version, rating_algorithm_version)
+            VALUES ('apex_1y', 'ranked_queue_v1', 'r', 'l', 'c', 'b', 'a', 'glicko2_v1')
+            ON CONFLICT DO NOTHING
+            """
+        )
         await service_conn.execute(
             """
             INSERT INTO ranked_queue_entries
@@ -112,7 +133,7 @@ async def test_public_metadata_tables_are_readable_by_anonymous(db_pool) -> None
 
 @pytest.mark.asyncio
 async def test_participant_cannot_read_opponent_submission_before_settlement(db_pool) -> None:
-    sub_a, sub_b = f"a-{uuid.uuid4().hex[:8]}", f"b-{uuid.uuid4().hex[:8]}"
+    sub_a, sub_b = str(uuid.uuid4()), str(uuid.uuid4())
     match_id = str(uuid.uuid4())
     async with db_pool.acquire() as service_conn:
         await service_conn.execute(

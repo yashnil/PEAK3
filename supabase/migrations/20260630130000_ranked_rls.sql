@@ -1,6 +1,6 @@
 -- Migration 016: Row Level Security policies for ranked tables (ADR-004 §14)
 --
--- Summary (mirrors infra/migrations/005_rls.sql's table):
+-- Summary (mirrors supabase/migrations/20260630124900_rls.sql's table):
 --
 -- | Table                        | Public reads        | Owner/participant reads         | Server writes |
 -- |-------------------------------|---------------------|----------------------------------|---------------|
@@ -42,6 +42,31 @@ ALTER TABLE ranked_integrity_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ranked_abort_allowances ENABLE ROW LEVEL SECURITY;
 
 -- ---------------------------------------------------------------------------
+-- Helper: is `p_sub` a participant in `p_match_id`?
+--
+-- SECURITY DEFINER so this function's internal SELECT against
+-- ranked_match_participants runs as the function owner and bypasses RLS —
+-- required because ranked_match_participants' own opponent-visibility policy
+-- needs to ask this same question about itself. Querying the table directly
+-- from within its own policy causes Postgres to re-evaluate that table's RLS
+-- policies recursively ("infinite recursion detected in policy for relation
+-- ranked_match_participants"); routing through a SECURITY DEFINER function is
+-- the standard fix for self-referential RLS.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION is_ranked_match_participant(p_match_id UUID, p_sub TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM ranked_match_participants
+        WHERE match_id = p_match_id AND owner_sub = p_sub
+    );
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Configuration — public metadata
 -- ---------------------------------------------------------------------------
 DROP POLICY IF EXISTS ranked_queue_versions_public_read ON ranked_queue_versions;
@@ -66,13 +91,16 @@ CREATE POLICY ranked_queue_entries_owner ON ranked_queue_entries
 -- ---------------------------------------------------------------------------
 -- ranked_matches — either participant may read (both need the shared board)
 -- ---------------------------------------------------------------------------
+-- Uses is_ranked_match_participant() (defined below, before its first use)
+-- rather than an inline EXISTS on ranked_match_participants: that table's own
+-- policies read from ranked_matches, and an inline subquery here would close
+-- a mutual-recursion cycle between the two tables' RLS evaluation. Routing
+-- through the SECURITY DEFINER function breaks the cycle since it bypasses
+-- RLS internally.
 DROP POLICY IF EXISTS ranked_matches_participant ON ranked_matches;
 CREATE POLICY ranked_matches_participant ON ranked_matches
     FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM ranked_match_participants p
-            WHERE p.match_id = ranked_matches.id AND p.owner_sub = auth.uid()::text
-        )
+        is_ranked_match_participant(ranked_matches.id, auth.uid()::text)
     );
 
 -- ---------------------------------------------------------------------------
@@ -89,10 +117,7 @@ CREATE POLICY ranked_match_participants_opponent_post_settlement ON ranked_match
             SELECT 1 FROM ranked_matches m
             WHERE m.id = ranked_match_participants.match_id
               AND m.status = 'settled'
-              AND EXISTS (
-                  SELECT 1 FROM ranked_match_participants p2
-                  WHERE p2.match_id = m.id AND p2.owner_sub = auth.uid()::text
-              )
+              AND is_ranked_match_participant(m.id, auth.uid()::text)
         )
     );
 
@@ -110,10 +135,7 @@ CREATE POLICY ranked_match_submissions_opponent_post_settlement ON ranked_match_
             SELECT 1 FROM ranked_matches m
             WHERE m.id = ranked_match_submissions.match_id
               AND m.status = 'settled'
-              AND EXISTS (
-                  SELECT 1 FROM ranked_match_participants p2
-                  WHERE p2.match_id = m.id AND p2.owner_sub = auth.uid()::text
-              )
+              AND is_ranked_match_participant(m.id, auth.uid()::text)
         )
     );
 
@@ -170,3 +192,4 @@ CREATE POLICY placement_states_owner ON placement_states
 -- Down:
 -- (RLS policies are dropped automatically when their tables are dropped in
 -- migrations 011-015's down blocks; no separate down block needed here.)
+-- DROP FUNCTION IF EXISTS is_ranked_match_participant(UUID, TEXT);

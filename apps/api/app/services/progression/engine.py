@@ -5,6 +5,11 @@ and database uniqueness constraints so retries are safe.
 
 Skill isolation guarantee: this module NEVER modifies result_snapshots,
 board seeds, card offers, or any game-domain objects.
+
+Async throughout — the repositories this orchestrates (progression_repo,
+record_repo, achievement_repo, streak_repo) are async Protocols (see
+progression_protocols.py), matching the pattern used across the rest of the
+persistence layer after Phase 4.0A's durable-repository unification.
 """
 from __future__ import annotations
 
@@ -42,7 +47,7 @@ def _idempotency_key(owner_sub: str, event_type: str, source_type: str, source_i
     return f"{owner_sub}:{event_type}:{source_type}:{source_id}:{policy}"
 
 
-def process_game_completion(
+async def process_game_completion(
     owner_sub: str,
     result_snapshot: dict,
     result_id: str,
@@ -81,18 +86,18 @@ def process_game_completion(
     # -----------------------------------------------------------------------
     xp_total_this_call = 0
 
-    def _try_award_xp(event_type: str, source_type: str, source_id: str, extra_meta: dict | None = None) -> int:
+    async def _try_award_xp(event_type: str, source_type: str, source_id: str, extra_meta: dict | None = None) -> int:
         """Award XP if eligible and not already awarded. Returns XP amount."""
         if is_self_challenge and event_type in policy.NO_SELF_CHALLENGE:
             return 0
         idem_key = _idempotency_key(owner_sub, event_type, source_type, source_id)
-        existing = progression_repo.get_event_by_idempotency_key(idem_key)
+        existing = await progression_repo.get_event_by_idempotency_key(idem_key)
         if existing is not None:
             return 0  # already awarded
 
         # Lifetime-once events
         if event_type in policy.LIFETIME_ONCE:
-            past = progression_repo.list_events(owner_sub, limit=500)
+            past = await progression_repo.list_events(owner_sub, limit=500)
             if any(e.event_type == event_type for e in past):
                 return 0
 
@@ -113,12 +118,12 @@ def process_game_completion(
             awarded_at=now,
             metadata=extra_meta or {},
         )
-        progression_repo.record_event(event)
+        await progression_repo.record_event(event)
         return xp
 
     # First-ever game bonus
     if is_first_ever_game:
-        xp_total_this_call += _try_award_xp("first_game_bonus", "result_snapshot", result_id)
+        xp_total_this_call += await _try_award_xp("first_game_bonus", "result_snapshot", result_id)
 
     # Daily completion XP (only for daily board_type, first of local day)
     if board_type == "daily":
@@ -128,7 +133,7 @@ def process_game_completion(
         day_str = local_date.isoformat()
         # Use a day-scoped idempotency key
         idem_key_daily = f"{owner_sub}:daily_completion_first:day:{day_str}:{policy.version}"
-        existing_daily = progression_repo.get_event_by_idempotency_key(idem_key_daily)
+        existing_daily = await progression_repo.get_event_by_idempotency_key(idem_key_daily)
         if existing_daily is None:
             event = ProgressionEvent(
                 id=str(uuid.uuid4()),
@@ -143,7 +148,7 @@ def process_game_completion(
                 awarded_at=now,
                 metadata={"local_date": day_str, "tz": tz_name, "mode": mode},
             )
-            progression_repo.record_event(event)
+            await progression_repo.record_event(event)
             xp_total_this_call += policy.daily_completion_first
 
     elif board_type == "practice":
@@ -152,7 +157,7 @@ def process_game_completion(
         week_start = completed_at - timedelta(days=completed_at.weekday())
         week_str = week_start.strftime("%Y-W%W")
         idem_key_prac = f"{owner_sub}:practice_completion_first_weekly:{mode}:{week_str}:{policy.version}"
-        existing_prac = progression_repo.get_event_by_idempotency_key(idem_key_prac)
+        existing_prac = await progression_repo.get_event_by_idempotency_key(idem_key_prac)
         if existing_prac is None:
             event = ProgressionEvent(
                 id=str(uuid.uuid4()),
@@ -167,11 +172,11 @@ def process_game_completion(
                 awarded_at=now,
                 metadata={"week": week_str, "mode": mode},
             )
-            progression_repo.record_event(event)
+            await progression_repo.record_event(event)
             xp_total_this_call += policy.practice_completion_first_weekly
 
     elif board_type == "challenge" and not is_self_challenge:
-        xp_total_this_call += _try_award_xp("challenge_completion", "result_snapshot", result_id)
+        xp_total_this_call += await _try_award_xp("challenge_completion", "result_snapshot", result_id)
 
     elif board_type == "ranked":
         # Ranked: identical participation XP structure to practice (once per
@@ -183,7 +188,7 @@ def process_game_completion(
         week_start = completed_at - timedelta(days=completed_at.weekday())
         week_str = week_start.strftime("%Y-W%W")
         idem_key_ranked = f"{owner_sub}:ranked_completion_first_weekly:{mode}:{week_str}:{policy.version}"
-        existing_ranked = progression_repo.get_event_by_idempotency_key(idem_key_ranked)
+        existing_ranked = await progression_repo.get_event_by_idempotency_key(idem_key_ranked)
         if existing_ranked is None:
             event = ProgressionEvent(
                 id=str(uuid.uuid4()),
@@ -198,7 +203,7 @@ def process_game_completion(
                 awarded_at=now,
                 metadata={"week": week_str, "mode": mode},
             )
-            progression_repo.record_event(event)
+            await progression_repo.record_event(event)
             xp_total_this_call += policy.ranked_completion_first_weekly
 
     summary["xp_awarded"] = xp_total_this_call
@@ -207,12 +212,12 @@ def process_game_completion(
     # 2. Update user_progress aggregate
     # -----------------------------------------------------------------------
     if xp_total_this_call > 0:
-        current = progression_repo.get_progress(owner_sub)
+        current = await progression_repo.get_progress(owner_sub)
         old_xp = current.total_xp if current else 0
         old_level = current.current_level if current else 1
         new_xp = old_xp + xp_total_this_call
         new_level = level_from_xp(new_xp)
-        progression_repo.upsert_progress(UserProgress(
+        await progression_repo.upsert_progress(UserProgress(
             owner_sub=owner_sub,
             total_xp=new_xp,
             current_level=new_level,
@@ -227,7 +232,7 @@ def process_game_completion(
     # -----------------------------------------------------------------------
     if board_type == "daily":
         from app.services.progression.streak_service import StreakState as SvcStreak
-        stored = streak_repo.get_streak(owner_sub)
+        stored = await streak_repo.get_streak(owner_sub)
         if stored is None:
             svc_state = empty_streak_state(owner_sub, policy.version)
         else:
@@ -247,7 +252,7 @@ def process_game_completion(
         new_svc_state = apply_transition(svc_state, transition, now)
 
         # Save updated streak state
-        streak_repo.save_streak(StreakState(
+        await streak_repo.save_streak(StreakState(
             owner_sub=owner_sub,
             policy_version=new_svc_state.policy_version,
             current_streak=new_svc_state.current_streak,
@@ -260,7 +265,7 @@ def process_game_completion(
         ))
 
         # Record the streak event
-        streak_repo.record_streak_event(StreakEvent(
+        await streak_repo.record_streak_event(StreakEvent(
             id=str(uuid.uuid4()),
             owner_sub=owner_sub,
             event_type=transition.event_type,
@@ -285,7 +290,7 @@ def process_game_completion(
     # -----------------------------------------------------------------------
     candidates = extract_candidates(result_snapshot, result_id, completed_at)
     for candidate in candidates:
-        current_rec = record_repo.get_record(
+        current_rec = await record_repo.get_record(
             owner_sub,
             candidate.record_type,
             candidate.mode,
@@ -308,8 +313,8 @@ def process_game_completion(
                 achieved_at=candidate.achieved_at,
                 previous_record_id=current_rec.id if current_rec else None,
             )
-            record_repo.upsert_record(new_rec)
-            record_repo.record_event(PersonalRecordEvent(
+            await record_repo.upsert_record(new_rec)
+            await record_repo.record_event(PersonalRecordEvent(
                 id=str(uuid.uuid4()),
                 owner_sub=owner_sub,
                 record_type=candidate.record_type,
@@ -332,15 +337,16 @@ def process_game_completion(
     # -----------------------------------------------------------------------
     # 5. Achievement evaluation
     # -----------------------------------------------------------------------
-    existing_awards = {a.achievement_key for a in achievement_repo.list_awards(owner_sub)}
-    all_records = record_repo.list_records(owner_sub)
+    existing_award_list = await achievement_repo.list_awards(owner_sub)
+    existing_awards = {a.achievement_key for a in existing_award_list}
+    all_records = await record_repo.list_records(owner_sub)
     modes_completed = {r.mode for r in all_records if r.record_type == "lineup_score"}
 
     # Add any mode from this completion
     if mode:
         modes_completed.add(mode)
 
-    streak_state = streak_repo.get_streak(owner_sub)
+    streak_state = await streak_repo.get_streak(owner_sub)
     current_streak_count = streak_state.current_streak if streak_state else 0
 
     challenge_margin = result_snapshot.get("challenge_margin")
@@ -386,13 +392,13 @@ def process_game_completion(
             source_id=result_id,
             awarded_at=now,
         )
-        if achievement_repo.award_achievement(award):
+        if await achievement_repo.award_achievement(award):
             summary["new_achievements"].append(key)
 
     return summary
 
 
-def process_ui_action(
+async def process_ui_action(
     owner_sub: str,
     action_type: str,   # 'receipt_exploration' | 'methodology_exploration'
     source_id: str,
@@ -405,12 +411,12 @@ def process_ui_action(
     summary: dict = {"xp_awarded": 0, "new_achievements": []}
 
     idem_key = _idempotency_key(owner_sub, action_type, "ui_action", source_id)
-    existing = progression_repo.get_event_by_idempotency_key(idem_key)
+    existing = await progression_repo.get_event_by_idempotency_key(idem_key)
     if existing is not None:
         return summary
 
     # Check lifetime cap
-    past = progression_repo.list_events(owner_sub, limit=500)
+    past = await progression_repo.list_events(owner_sub, limit=500)
     if any(e.event_type == action_type for e in past):
         return summary
 
@@ -428,14 +434,14 @@ def process_ui_action(
             occurred_at=now,
             awarded_at=now,
         )
-        progression_repo.record_event(event)
+        await progression_repo.record_event(event)
         summary["xp_awarded"] = xp
 
         # Update progress
-        current = progression_repo.get_progress(owner_sub)
+        current = await progression_repo.get_progress(owner_sub)
         old_xp = current.total_xp if current else 0
         new_xp = old_xp + xp
-        progression_repo.upsert_progress(UserProgress(
+        await progression_repo.upsert_progress(UserProgress(
             owner_sub=owner_sub,
             total_xp=new_xp,
             current_level=level_from_xp(new_xp),
@@ -444,7 +450,8 @@ def process_ui_action(
         ))
 
     # Evaluate achievements
-    existing_awards = {a.achievement_key for a in achievement_repo.list_awards(owner_sub)}
+    existing_award_list = await achievement_repo.list_awards(owner_sub)
+    existing_awards = {a.achievement_key for a in existing_award_list}
     ctx = EvalContext(
         owner_sub=owner_sub,
         event_type=action_type,
@@ -461,7 +468,7 @@ def process_ui_action(
             source_id=source_id,
             awarded_at=now,
         )
-        if achievement_repo.award_achievement(award):
+        if await achievement_repo.award_achievement(award):
             summary["new_achievements"].append(key)
 
     return summary

@@ -67,8 +67,9 @@ async def get_history(
     Results are sourced from result_snapshots (all game types) and daily_completions.
     Daily completions include hold/reframe metadata.
     """
-    results = result_repo.list_results(auth.sub, limit=limit + 1, before_id=before_id)
-    completions = {c.board_id: c for c in daily_repo.list_completions(auth.sub, limit=200)}
+    results = await result_repo.list_results(auth.sub, limit=limit + 1, before_id=before_id)
+    daily_completions = await daily_repo.list_completions(auth.sub, limit=200)
+    completions = {c.board_id: c for c in daily_completions}
 
     has_more = len(results) > limit
     results = results[:limit]
@@ -115,7 +116,7 @@ async def get_result_snapshot(
     Only the owner can access their own snapshots.
     The payload is the immutable result stored at completion time.
     """
-    result = result_repo.get_result(result_id)
+    result = await result_repo.get_result(result_id)
     if result is None:
         raise HTTPException(status_code=404, detail="result_not_found")
 

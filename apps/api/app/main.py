@@ -19,6 +19,11 @@ from app.api.v1 import progression as progression_router
 from app.api.v1 import ranked as ranked_router
 from app.core.config import settings
 from app.core.dataset import dataset_store
+from app.core.repository_registry import (
+    assert_production_ready,
+    build_repository_registry,
+    log_repository_registry,
+)
 
 # Ensure repo root is on sys.path so `nba_peak` lineup package is importable
 _repo_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -61,6 +66,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "DATABASE_URL not set — using in-memory repositories. "
             "State will be lost on restart."
         )
+
+    registry = build_repository_registry(app.state.db_pool is not None)
+    log_repository_registry(registry)
+    assert_production_ready(registry, settings.DEBUG)
 
     yield
 

@@ -87,17 +87,6 @@ def _error_detail(exc: Exception, default_code: str = "invalid_request") -> dict
     return {"error_code": code, "message": str(exc)}
 
 
-async def _maybe_await(value):
-    """Bridge sync (memory) and async (Postgres) GameRepository implementations —
-    see ranked_protocols.py's module docstring for why this is needed rather
-    than assuming one calling convention.
-    """
-    import inspect
-    if inspect.isawaitable(value):
-        return await value
-    return value
-
-
 def _require_ranked_access(auth: RequiredAuth) -> None:
     if not settings.RANKED_ENABLED:
         raise HTTPException(status_code=403, detail={"error_code": "ranked_not_enabled", "message": "Ranked is not enabled."})
@@ -239,13 +228,13 @@ async def start_or_get_game(match_id: str, auth: RequiredAuth, matchmaking_repo:
     match, participant = await _get_participant_or_404(match_id, auth, matchmaking_repo)
 
     if participant.game_id:
-        game_state = await _maybe_await(game_repo.get_game(participant.game_id))
+        game_state = await game_repo.get_game(participant.game_id)
         if game_state is not None:
             return state_machine.get_public_state(game_state)
 
     board = board_from_dict(match.board_snapshot)
     game_state = create_participant_game_state(board, match.mode)
-    game_id = await _maybe_await(game_repo.create_game(game_state))
+    game_id = await game_repo.create_game(game_state)
     game_state.game_id = game_id
     await matchmaking_repo.set_participant_game(match_id, auth.sub, game_id)
     await matchmaking_repo.set_participant_status(match_id, auth.sub, "in_progress")
@@ -258,7 +247,7 @@ async def get_game_state(match_id: str, auth: RequiredAuth, matchmaking_repo: Ra
     _match, participant = await _get_participant_or_404(match_id, auth, matchmaking_repo)
     if not participant.game_id:
         raise HTTPException(status_code=404, detail={"error_code": "game_not_started", "message": "Game has not been started yet."})
-    game_state = await _maybe_await(game_repo.get_game(participant.game_id))
+    game_state = await game_repo.get_game(participant.game_id)
     if game_state is None:
         raise HTTPException(status_code=404, detail={"error_code": "game_not_found", "message": "Game not found."})
     return state_machine.get_public_state(game_state)
@@ -276,7 +265,7 @@ async def submit_action(
     if not participant.game_id:
         raise HTTPException(status_code=400, detail={"error_code": "game_not_started", "message": "Start the game before submitting actions."})
 
-    game_state = await _maybe_await(game_repo.get_game(participant.game_id))
+    game_state = await game_repo.get_game(participant.game_id)
     if game_state is None:
         raise HTTPException(status_code=404, detail={"error_code": "game_not_found", "message": "Game not found."})
 
@@ -296,7 +285,7 @@ async def submit_action(
     except DraftError as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc))
 
-    await _maybe_await(game_repo.save_game(new_state))
+    await game_repo.save_game(new_state)
 
     if new_state.status == "draft_complete" and participant.status != "complete":
         await matchmaking_repo.set_participant_status(match_id, auth.sub, "complete", completed_at=datetime.now(timezone.utc))
@@ -315,7 +304,7 @@ async def submit_action(
             # allowed to raise into the settlement response: a progression
             # failure must not appear as a ranked-match failure to the client.
             try:
-                process_game_completion(
+                await process_game_completion(
                     owner_sub=auth.sub,
                     result_snapshot=lineup_payload,
                     result_id=settlement.id,

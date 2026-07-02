@@ -42,6 +42,8 @@ from app.repositories.progression_protocols import (
     ProgressionRepository,
     StreakRepository,
 )
+from app.repositories.memory_profile import MemoryProfileRepository
+from app.repositories.profile_protocols import ProfileRepository
 from app.repositories.ranked_memory import (
     MemoryRankedIntegrityRepository,
     MemoryRankedMatchmakingRepository,
@@ -66,6 +68,7 @@ _memory_progression_repo = MemoryProgressionRepository()
 _memory_record_repo = MemoryPersonalRecordRepository()
 _memory_achievement_repo = MemoryAchievementRepository()
 _memory_streak_repo = MemoryStreakRepository()
+_memory_profile_repo = MemoryProfileRepository()
 
 # Ranked repositories are always async (see ranked_protocols.py docstring), so
 # the in-memory singletons below are shared across requests just like the
@@ -163,6 +166,15 @@ def get_streak_repo(request: Request) -> StreakRepository:
     return _memory_streak_repo
 
 
+def get_profile_repo(request: Request) -> ProfileRepository:
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.postgres_profile import PostgresProfileRepository
+        return PostgresProfileRepository(pool)
+    _warn_memory_repo("ProfileRepository")
+    return _memory_profile_repo
+
+
 def get_ranked_matchmaking_repo(request: Request) -> RankedMatchmakingRepository:
     pool = getattr(request.app.state, "db_pool", None)
     if pool is not None:
@@ -216,6 +228,7 @@ ProgressionRepoDep = Annotated[ProgressionRepository, Depends(get_progression_re
 RecordRepoDep = Annotated[PersonalRecordRepository, Depends(get_record_repo)]
 AchievementRepoDep = Annotated[AchievementRepository, Depends(get_achievement_repo)]
 StreakRepoDep = Annotated[StreakRepository, Depends(get_streak_repo)]
+ProfileRepoDep = Annotated[ProfileRepository, Depends(get_profile_repo)]
 RankedMatchmakingRepoDep = Annotated[RankedMatchmakingRepository, Depends(get_ranked_matchmaking_repo)]
 RankedRatingRepoDep = Annotated[RankedRatingRepository, Depends(get_ranked_rating_repo)]
 RankedIntegrityRepoDep = Annotated[RankedIntegrityRepository, Depends(get_ranked_integrity_repo)]

@@ -120,16 +120,17 @@ def test_create_challenge_requires_complete_game(client: TestClient) -> None:
 # 2. create_challenge stores snapshot
 # ---------------------------------------------------------------------------
 
-def test_create_challenge_stores_snapshot(client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_create_challenge_stores_snapshot(client: TestClient) -> None:
     """Completing a game and creating a challenge persists a ChallengeRecord in the store."""
-    from app.services.draft import store as draft_store
+    from app.core.dependencies import _memory_challenge_repo
 
     state = _play_full_game(client)
     ch = _create_challenge(client, state["game_id"])
     token = ch["challenge_token"]
 
     token_hash = hashlib.sha256(token.encode()).hexdigest()[:32]
-    record = draft_store.get_challenge(token_hash)
+    record = await _memory_challenge_repo.get_challenge(token_hash)
 
     assert record is not None
     assert record.board_id == ch["board_id"]
@@ -447,9 +448,10 @@ def test_comparison_draw(client: TestClient) -> None:
 # 14. Settlement is cached after first comparison
 # ---------------------------------------------------------------------------
 
-def test_settlement_cached(client: TestClient) -> None:
+@pytest.mark.asyncio
+async def test_settlement_cached(client: TestClient) -> None:
     """After the first comparison call, record.settlement is set and reused."""
-    from app.services.draft import store as draft_store
+    from app.core.dependencies import _memory_challenge_repo
 
     challenger_state = _play_full_game(client, mode="apex_1y")
     ch = _create_challenge(client, challenger_state["game_id"])
@@ -457,7 +459,7 @@ def test_settlement_cached(client: TestClient) -> None:
     token_hash = hashlib.sha256(token.encode()).hexdigest()[:32]
 
     # Before comparison, settlement should be None
-    record = draft_store.get_challenge(token_hash)
+    record = await _memory_challenge_repo.get_challenge(token_hash)
     assert record is not None
     assert record.settlement is None
 
@@ -473,7 +475,7 @@ def test_settlement_cached(client: TestClient) -> None:
     assert resp1.status_code == 200
 
     # Settlement should now be cached
-    record = draft_store.get_challenge(token_hash)
+    record = await _memory_challenge_repo.get_challenge(token_hash)
     assert record is not None
     assert record.settlement is not None
 

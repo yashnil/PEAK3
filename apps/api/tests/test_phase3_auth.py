@@ -398,7 +398,7 @@ class TestPublicProfile:
 
 
 class TestHistory:
-    def _inject_snapshot(self, owner_sub: str) -> str:
+    async def _inject_snapshot(self, owner_sub: str) -> str:
         """Directly inject a ResultSnapshot into the in-memory singleton repo."""
         from app.core.dependencies import _memory_result_snapshot_repo
 
@@ -416,7 +416,7 @@ class TestHistory:
             completed_at=datetime.now(timezone.utc),
             payload={"date": "2026-06-30", "draft_points": 850},
         )
-        _memory_result_snapshot_repo.record_result(snap)
+        await _memory_result_snapshot_repo.record_result(snap)
         return result_id
 
     def test_history_requires_auth(self):
@@ -455,9 +455,10 @@ class TestHistory:
         assert resp.status_code == 404
         assert resp.json()["detail"] == "result_not_found"
 
-    def test_other_user_cannot_read_result(self):
+    @pytest.mark.asyncio
+    async def test_other_user_cannot_read_result(self):
         owner_sub = f"user-{uuid.uuid4()}"
-        result_id = self._inject_snapshot(owner_sub)
+        result_id = await self._inject_snapshot(owner_sub)
 
         other = _auth(sub=f"user-{uuid.uuid4()}")
         _clear_overrides()

@@ -15,14 +15,14 @@ games are built from (ADR-004 §3 "Rejected" alternative).
 """
 from __future__ import annotations
 
-import dataclasses
 import hashlib
 from datetime import datetime, timezone
 
 from app.core.config import settings
+from app.services.draft.serialization import board_from_dict, board_to_dict
 from app.services.ranked.versions import RANKED_BOARD_GENERATOR_VERSION
 from nba_peak.lineup.board import BoardConfig, generate_board, make_board_version_key
-from nba_peak.lineup.schemas import Board, CardProfile, DraftGameState, LineupDNA, RoundOffers
+from nba_peak.lineup.schemas import Board, DraftGameState
 
 VALID_MODES = {"apex_1y": 1, "prime_3y": 3, "foundation_5y": 5}
 
@@ -68,43 +68,6 @@ def ranked_board_version_key(board: Board) -> str:
         board.metadata["ruleset_version"],
         board.metadata["card_pool_version"],
         RANKED_BOARD_GENERATOR_VERSION,
-    )
-
-
-def board_to_dict(board: Board) -> dict:
-    """Serialize a Board (including nested CardProfile/LineupDNA dataclasses)
-    to a plain JSON-safe dict for storage in ranked_matches.board_snapshot.
-    """
-    return dataclasses.asdict(board)
-
-
-def board_from_dict(d: dict) -> Board:
-    """Reconstruct a Board from a stored board_snapshot payload.
-
-    JSON round-tripping turns the ``reframe_branches`` dict's integer keys
-    into strings, so they are converted back to int here.
-    """
-    rounds = [
-        RoundOffers(
-            round_number=r["round_number"],
-            offers=[CardProfile.from_dict(c) for c in r["offers"]],
-        )
-        for r in d["rounds"]
-    ]
-    reframe_branches = {
-        int(round_num): [CardProfile.from_dict(c) for c in cards]
-        for round_num, cards in d["reframe_branches"].items()
-    }
-    return Board(
-        board_id=d["board_id"],
-        mode=d["mode"],
-        duration_years=d["duration_years"],
-        board_type=d["board_type"],
-        date=d.get("date"),
-        seed=d["seed"],
-        rounds=rounds,
-        reframe_branches=reframe_branches,
-        metadata=d["metadata"],
     )
 
 

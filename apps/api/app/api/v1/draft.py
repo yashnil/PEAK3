@@ -20,17 +20,30 @@ import json
 import secrets
 import sys
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Cookie, HTTPException, Query, Response
 
 # Ensure repo root is on sys.path for nba_peak imports
 _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
+from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, resolve_owner_sub
 from app.core.config import settings
+from app.core.dependencies import (
+    AchievementRepoDep,
+    ChallengeRepoDep,
+    DailyCompletionRepoDep,
+    GameRepoDep,
+    ProgressionRepoDep,
+    RecordRepoDep,
+    ResultSnapshotRepoDep,
+    StreakRepoDep,
+)
 from app.core.security import create_session_token, verify_session_token
 from app.models.draft import (
     ChallengeMeta,
@@ -43,9 +56,10 @@ from app.models.draft import (
     DraftMetaResponse,
     PublicGameStateResponse,
 )
+from app.repositories.protocols import ChallengeRecord, DailyCompletion, ResultSnapshot
 from app.services.draft import state as state_machine
-from app.services.draft import store
 from app.services.draft.state import DraftError, _find_card_by_id
+from app.services.progression.engine import process_game_completion
 
 
 def _error_detail(exc: Exception, default_code: str = "invalid_request") -> dict:
@@ -75,7 +89,13 @@ DNA_DIMENSIONS = [
 # ---------------------------------------------------------------------------
 
 @router.post("/draft/games", response_model=PublicGameStateResponse)
-async def create_game(body: CreateDraftGameRequest) -> PublicGameStateResponse:
+async def create_game(
+    body: CreateDraftGameRequest,
+    auth: OptionalAuth,
+    response: Response,
+    game_repo: GameRepoDep,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
+) -> PublicGameStateResponse:
     try:
         game_state = state_machine.create_draft_game(
             mode=body.mode,
@@ -87,7 +107,8 @@ async def create_game(body: CreateDraftGameRequest) -> PublicGameStateResponse:
     except (ValueError, RuntimeError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc, "board_error"))
 
-    game_id = store.create_game(game_state)
+    game_state.owner_sub = resolve_owner_sub(auth, peak3_anon, response, settings.SIGNING_SECRET)
+    game_id = await game_repo.create_game(game_state)
     game_state.game_id = game_id
     return PublicGameStateResponse(**state_machine.get_public_state(game_state))
 
@@ -98,8 +119,12 @@ async def create_game(body: CreateDraftGameRequest) -> PublicGameStateResponse:
 
 @router.get("/draft/daily", response_model=PublicGameStateResponse)
 async def get_daily(
+    auth: OptionalAuth,
+    response: Response,
+    game_repo: GameRepoDep,
     mode: str = Query(default="prime_3y"),
     date: str = Query(default=""),
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
 ) -> PublicGameStateResponse:
     if not date:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -114,7 +139,8 @@ async def get_daily(
     except (ValueError, RuntimeError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc, "board_error"))
 
-    game_id = store.create_game(game_state)
+    game_state.owner_sub = resolve_owner_sub(auth, peak3_anon, response, settings.SIGNING_SECRET)
+    game_id = await game_repo.create_game(game_state)
     game_state.game_id = game_id
     return PublicGameStateResponse(**state_machine.get_public_state(game_state))
 
@@ -124,8 +150,8 @@ async def get_daily(
 # ---------------------------------------------------------------------------
 
 @router.get("/draft/games/{game_id}", response_model=PublicGameStateResponse)
-async def get_game(game_id: str) -> PublicGameStateResponse:
-    game_state = store.get_game(game_id)
+async def get_game(game_id: str, game_repo: GameRepoDep) -> PublicGameStateResponse:
+    game_state = await game_repo.get_game(game_id)
     if game_state is None:
         raise HTTPException(status_code=404, detail="Game not found or expired")
     return PublicGameStateResponse(**state_machine.get_public_state(game_state))
@@ -136,13 +162,25 @@ async def get_game(game_id: str) -> PublicGameStateResponse:
 # ---------------------------------------------------------------------------
 
 @router.post("/draft/games/{game_id}/actions", response_model=PublicGameStateResponse)
-async def submit_action(game_id: str, body: DraftActionRequest) -> PublicGameStateResponse:
+async def submit_action(
+    game_id: str,
+    body: DraftActionRequest,
+    game_repo: GameRepoDep,
+    daily_repo: DailyCompletionRepoDep,
+    result_repo: ResultSnapshotRepoDep,
+    progression_repo: ProgressionRepoDep,
+    record_repo: RecordRepoDep,
+    achievement_repo: AchievementRepoDep,
+    streak_repo: StreakRepoDep,
+) -> PublicGameStateResponse:
     if body.game_id != game_id:
         raise HTTPException(status_code=400, detail="game_id in body must match URL")
 
-    game_state = store.get_game(game_id)
+    game_state = await game_repo.get_game(game_id)
     if game_state is None:
         raise HTTPException(status_code=404, detail="Game not found or expired")
+
+    was_already_complete = game_state.status == "draft_complete"
 
     try:
         action = body.action
@@ -171,8 +209,92 @@ async def submit_action(game_id: str, body: DraftActionRequest) -> PublicGameSta
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc))
 
-    store.save_game(new_state)
+    await game_repo.save_game(new_state)
+
+    if new_state.status == "draft_complete" and not was_already_complete and new_state.owner_sub:
+        await _record_completion(
+            new_state, result_repo, daily_repo, progression_repo, record_repo, achievement_repo, streak_repo,
+        )
+
     return PublicGameStateResponse(**state_machine.get_public_state(new_state))
+
+
+async def _record_completion(
+    game_state,
+    result_repo: ResultSnapshotRepoDep,
+    daily_repo: DailyCompletionRepoDep,
+    progression_repo: ProgressionRepoDep,
+    record_repo: RecordRepoDep,
+    achievement_repo: AchievementRepoDep,
+    streak_repo: StreakRepoDep,
+) -> None:
+    """Persist the durable result of a completed Practice/Daily/Challenge game.
+
+    Runs once, at the draft_complete transition. Result snapshot + (for Daily)
+    completion record are the durable source History reads from. Progression
+    (XP/records/achievements/streak) is additive and must never fail the
+    draft response — mirrors the same ordering used for ranked matches.
+    """
+    owner_sub = game_state.owner_sub
+    board = game_state.board
+    ev = game_state.lineup_evaluation
+    payload = _snapshot_from_game(game_state)
+    completed_at = datetime.now(timezone.utc)
+    result_id = str(uuid.uuid4())
+
+    result = ResultSnapshot(
+        id=result_id,
+        owner_sub=owner_sub,
+        game_id=game_state.game_id,
+        board_id=board.board_id,
+        board_type=board.board_type,
+        mode=game_state.mode,
+        lineup_peak_rating=ev.lineup_peak_rating,
+        draft_efficiency=ev.draft_efficiency,
+        board_percentile=ev.board_percentile,
+        completed_at=completed_at,
+        payload=payload,
+    )
+    await result_repo.record_result(result)
+
+    if board.board_type == "daily":
+        completion = DailyCompletion(
+            id=str(uuid.uuid4()),
+            owner_sub=owner_sub,
+            board_id=board.board_id,
+            mode=game_state.mode,
+            date=board.date or "",
+            game_id=game_state.game_id,
+            lineup_peak_rating=ev.lineup_peak_rating,
+            draft_efficiency=ev.draft_efficiency,
+            board_percentile=ev.board_percentile,
+            hold_used=game_state.hold_used,
+            reframe_used=game_state.reframe_used,
+            completed_at=completed_at,
+            result_snapshot=payload,
+        )
+        await daily_repo.record_completion(completion)
+
+    try:
+        await process_game_completion(
+            owner_sub=owner_sub,
+            result_snapshot=payload,
+            result_id=result_id,
+            board_type=board.board_type,
+            mode=game_state.mode,
+            completed_at=completed_at,
+            tz_name="UTC",
+            progression_repo=progression_repo,
+            record_repo=record_repo,
+            achievement_repo=achievement_repo,
+            streak_repo=streak_repo,
+            is_first_ever_game=True,
+            is_self_challenge=False,
+        )
+    except Exception:
+        # Progression is additive; a failure here must never surface as a
+        # draft-completion failure to the client.
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -283,8 +405,13 @@ def _build_comparison_player_from_snapshot(snapshot: dict, display_name: str) ->
 # ---------------------------------------------------------------------------
 
 @router.post("/draft/challenges")
-async def create_challenge(game_id: str, include_spoilers: bool = False) -> dict:
-    game_state = store.get_game(game_id)
+async def create_challenge(
+    game_id: str,
+    game_repo: GameRepoDep,
+    challenge_repo: ChallengeRepoDep,
+    include_spoilers: bool = False,
+) -> dict:
+    game_state = await game_repo.get_game(game_id)
     if game_state is None:
         raise HTTPException(status_code=404, detail="Game not found or expired")
 
@@ -322,7 +449,7 @@ async def create_challenge(game_id: str, include_spoilers: bool = False) -> dict
     token_hash = hashlib.sha256(challenge_token.encode()).hexdigest()[:32]
     snapshot = _snapshot_from_game(game_state)
 
-    record = store.ChallengeRecord(
+    record = ChallengeRecord(
         token_hash=token_hash,
         challenger_game_id=game_id,
         board_id=board.board_id,
@@ -334,8 +461,9 @@ async def create_challenge(game_id: str, include_spoilers: bool = False) -> dict
         created_at=now,
         expires_at=expires_at,
         challenger_snapshot=snapshot,
+        anon_subject_id=game_state.owner_sub,
     )
-    store.store_challenge(record)
+    await challenge_repo.store_challenge(record)
 
     return {
         "challenge_token": challenge_token,
@@ -390,12 +518,12 @@ def _verify_challenge_token(token: str) -> dict:
 
 
 @router.get("/draft/challenges/{token}/meta", response_model=ChallengeMeta)
-async def get_challenge_meta(token: str) -> ChallengeMeta:
+async def get_challenge_meta(token: str, challenge_repo: ChallengeRepoDep) -> ChallengeMeta:
     """Return spoiler-safe metadata for a challenge token."""
     payload = _verify_challenge_token(token)
 
     token_hash = hashlib.sha256(token.encode()).hexdigest()[:32]
-    record = store.get_challenge(token_hash)
+    record = await challenge_repo.get_challenge(token_hash)
     if record is None:
         raise HTTPException(status_code=404, detail="challenge_not_found")
 
@@ -418,13 +546,15 @@ async def get_challenge_meta(token: str) -> ChallengeMeta:
 @router.get("/draft/challenges/{token}/comparison", response_model=ChallengeComparisonResponse)
 async def get_challenge_comparison(
     token: str,
+    challenge_repo: ChallengeRepoDep,
+    game_repo: GameRepoDep,
     recipient_game_id: str = Query(...),
 ) -> ChallengeComparisonResponse:
     """Compare a completed recipient game against the stored challenger snapshot."""
     _verify_challenge_token(token)
 
     token_hash = hashlib.sha256(token.encode()).hexdigest()[:32]
-    record = store.get_challenge(token_hash)
+    record = await challenge_repo.get_challenge(token_hash)
     if record is None:
         raise HTTPException(status_code=404, detail="challenge_not_found")
 
@@ -433,7 +563,7 @@ async def get_challenge_comparison(
         return ChallengeComparisonResponse.model_validate(record.settlement)
 
     # Validate recipient game
-    recipient_game = store.get_game(recipient_game_id)
+    recipient_game = await game_repo.get_game(recipient_game_id)
     if recipient_game is None:
         raise HTTPException(status_code=404, detail="Recipient game not found or expired")
 
@@ -505,13 +635,19 @@ async def get_challenge_comparison(
     )
 
     # Cache the settlement so repeated calls return instantly
-    store.save_settlement(token_hash, response.model_dump())
+    await challenge_repo.save_settlement(token_hash, response.model_dump())
 
     return response
 
 
 @router.get("/draft/challenges/{token}", response_model=PublicGameStateResponse)
-async def load_challenge(token: str) -> PublicGameStateResponse:
+async def load_challenge(
+    token: str,
+    auth: OptionalAuth,
+    response: Response,
+    game_repo: GameRepoDep,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
+) -> PublicGameStateResponse:
     payload = _verify_challenge_token(token)
 
     try:
@@ -525,7 +661,8 @@ async def load_challenge(token: str) -> PublicGameStateResponse:
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc, "board_error"))
 
-    game_id = store.create_game(game_state)
+    game_state.owner_sub = resolve_owner_sub(auth, peak3_anon, response, settings.SIGNING_SECRET)
+    game_id = await game_repo.create_game(game_state)
     game_state.game_id = game_id
     return PublicGameStateResponse(**state_machine.get_public_state(game_state))
 

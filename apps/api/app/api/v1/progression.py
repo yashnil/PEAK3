@@ -130,12 +130,12 @@ async def get_my_progression(
     achievement_repo: AchievementRepoDep,
     streak_repo: StreakRepoDep,
 ) -> ProgressionSummary:
-    progress = progression_repo.get_progress(auth.sub)
+    progress = await progression_repo.get_progress(auth.sub)
     total_xp = progress.total_xp if progress else 0
     level = level_from_xp(total_xp)
 
-    streak = streak_repo.get_streak(auth.sub)
-    awards = achievement_repo.list_awards(auth.sub)
+    streak = await streak_repo.get_streak(auth.sub)
+    awards = await achievement_repo.list_awards(auth.sub)
     recent_keys = [
         a.achievement_key
         for a in sorted(awards, key=lambda x: x.awarded_at, reverse=True)[:3]
@@ -171,7 +171,7 @@ async def list_progression_events(
     limit: int = Query(default=20, ge=1, le=100),
     before_id: Optional[str] = Query(default=None),
 ) -> dict:
-    events = progression_repo.list_events(auth.sub, limit=limit + 1, before_id=before_id)
+    events = await progression_repo.list_events(auth.sub, limit=limit + 1, before_id=before_id)
     has_more = len(events) > limit
     events = events[:limit]
     next_cursor = events[-1].id if has_more and events else None
@@ -206,7 +206,7 @@ async def record_ui_action(
     achievement_repo: AchievementRepoDep,
 ) -> dict:
     from app.services.progression.engine import process_ui_action
-    summary = process_ui_action(
+    summary = await process_ui_action(
         owner_sub=auth.sub,
         action_type=body.action_type,
         source_id=body.source_id,
@@ -225,7 +225,7 @@ async def get_my_records(
     auth: RequiredAuth,
     record_repo: RecordRepoDep,
 ) -> list[PersonalRecordOut]:
-    records = record_repo.list_records(auth.sub)
+    records = await record_repo.list_records(auth.sub)
     return [
         PersonalRecordOut(
             record_type=r.record_type,
@@ -253,7 +253,7 @@ async def get_achievements(
 ) -> list[AchievementOut]:
     awards_by_key: dict[str, str] = {}
     if auth is not None:
-        for a in achievement_repo.list_awards(auth.sub):
+        for a in await achievement_repo.list_awards(auth.sub):
             awards_by_key[a.achievement_key] = a.awarded_at.isoformat() if hasattr(a.awarded_at, "isoformat") else str(a.awarded_at)
 
     return [
@@ -285,7 +285,7 @@ async def get_achievement(
         raise HTTPException(status_code=404, detail="achievement_not_found")
     earned_at = None
     if auth is not None:
-        award = achievement_repo.get_award(auth.sub, key)
+        award = await achievement_repo.get_award(auth.sub, key)
         if award:
             earned_at = award.awarded_at.isoformat() if hasattr(award.awarded_at, "isoformat") else str(award.awarded_at)
     return AchievementOut(
@@ -308,7 +308,7 @@ async def get_my_streak(
     auth: RequiredAuth,
     streak_repo: StreakRepoDep,
 ) -> StreakOut:
-    state = streak_repo.get_streak(auth.sub)
+    state = await streak_repo.get_streak(auth.sub)
     if state is None:
         return StreakOut(
             current_streak=0,

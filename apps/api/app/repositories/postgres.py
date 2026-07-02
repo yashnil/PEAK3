@@ -3,9 +3,8 @@
 These are the production implementations.  They require DATABASE_URL to be set.
 The API startup code injects these when DATABASE_URL is available.
 
-Async implementations using asyncpg connection pools.  All methods are
-async even though the Protocol uses sync signatures — FastAPI resolves
-this transparently via dependency injection with async dependencies.
+Async implementations using asyncpg connection pools, matching the async
+Protocol declarations in protocols.py.
 """
 from __future__ import annotations
 
@@ -14,6 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from app.services.draft.serialization import game_state_from_dict, game_state_to_dict
 from nba_peak.lineup.schemas import DraftGameState
 
 from .protocols import (
@@ -46,10 +46,9 @@ class PostgresGameRepository:
         self._pool = pool
 
     async def create_game(self, state: DraftGameState) -> str:
-        from nba_peak.lineup.schemas import DraftGameState as _GS
         game_id = str(uuid.uuid4())
         state.game_id = game_id
-        payload = _serialize_game_state(state)
+        payload = game_state_to_dict(state)
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """
@@ -57,7 +56,7 @@ class PostgresGameRepository:
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 """,
                 game_id,
-                payload.get("anon_subject_id"),
+                state.owner_sub,
                 state.board.board_id,
                 state.mode,
                 state.board.board_type,
@@ -70,24 +69,31 @@ class PostgresGameRepository:
     async def get_game(self, game_id: str) -> DraftGameState | None:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT payload FROM games WHERE id = $1", game_id
+                "SELECT owner_sub, payload FROM games WHERE id = $1", game_id
             )
         if row is None:
             return None
-        return _deserialize_game_state(json.loads(row["payload"]))
+        state = game_state_from_dict(json.loads(row["payload"]))
+        # owner_sub is authoritative from its dedicated column, never the
+        # payload blob — transfer_owner (claim flow) only updates the column,
+        # so trusting the payload here would silently resurrect the
+        # pre-transfer owner on every subsequent read.
+        state.owner_sub = row["owner_sub"]
+        return state
 
     async def save_game(self, state: DraftGameState) -> None:
-        payload = _serialize_game_state(state)
+        payload = game_state_to_dict(state)
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """
                 UPDATE games
-                SET payload = $2, status = $3, updated_at = $4
+                SET payload = $2, status = $3, owner_sub = $4, updated_at = $5
                 WHERE id = $1
                 """,
                 state.game_id,
                 json.dumps(payload),
                 state.status,
+                state.owner_sub,
                 datetime.now(timezone.utc),
             )
 
@@ -98,6 +104,13 @@ class PostgresGameRepository:
     async def game_count(self) -> int:
         async with self._pool.acquire() as conn:
             return await conn.fetchval("SELECT COUNT(*) FROM games")
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE games SET owner_sub = $2 WHERE owner_sub = $1", from_sub, to_sub
+            )
+        return int(result.split()[-1])
 
 
 class PostgresChallengeRepository:
@@ -168,6 +181,14 @@ class PostgresChallengeRepository:
                 datetime.now(timezone.utc),
             )
         return result != "UPDATE 0"
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE challenges SET anon_subject_id = $2 WHERE anon_subject_id = $1",
+                from_sub, to_sub,
+            )
+        return int(result.split()[-1])
 
 
 class PostgresDailyCompletionRepository:
@@ -252,6 +273,28 @@ class PostgresDailyCompletionRepository:
                 )
         return [_row_to_daily_completion(r) for r in rows]
 
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign anon completions to the real user, first-completion-wins
+        per board (matching the UNIQUE(owner_sub, board_id) constraint) —
+        any anon completion for a board the real user already has an
+        official completion for is dropped, not duplicated.
+        """
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                result = await conn.execute(
+                    """
+                    UPDATE daily_completions SET owner_sub = $2
+                    WHERE owner_sub = $1
+                      AND board_id NOT IN (
+                          SELECT board_id FROM daily_completions WHERE owner_sub = $2
+                      )
+                    """,
+                    from_sub, to_sub,
+                )
+                moved = int(result.split()[-1])
+                await conn.execute("DELETE FROM daily_completions WHERE owner_sub = $1", from_sub)
+        return moved
+
 
 class PostgresResultSnapshotRepository:
     """PostgreSQL-backed result snapshot store."""
@@ -326,6 +369,14 @@ class PostgresResultSnapshotRepository:
                 )
         return [_row_to_result_snapshot(r) for r in rows]
 
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE result_snapshots SET owner_sub = $2 WHERE owner_sub = $1",
+                from_sub, to_sub,
+            )
+        return int(result.split()[-1])
+
 
 class PostgresOwnershipClaimRepository:
     """PostgreSQL-backed ownership claim store."""
@@ -386,29 +437,6 @@ async def create_pool(database_url: str) -> Any:
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
-
-
-def _serialize_game_state(state: DraftGameState) -> dict:
-    """Serialize DraftGameState to a plain dict suitable for JSONB storage."""
-    import dataclasses
-    return dataclasses.asdict(state) if hasattr(state, "__dataclass_fields__") else state.__dict__
-
-
-def _deserialize_game_state(payload: dict) -> DraftGameState:
-    """Deserialize a JSONB payload back to DraftGameState.
-
-    The Board sub-object and card profiles are reconstructed from the stored
-    board snapshot so the state machine can operate on them as usual.
-    """
-    from nba_peak.lineup.schemas import DraftGameState as _GS
-    # Full reconstruction from persisted payload
-    # In practice the Board is re-generated from the payload's seed/date/mode
-    # rather than stored in full — see note below.
-    raise NotImplementedError(
-        "Full DraftGameState deserialization requires the board snapshot stored "
-        "separately in board_snapshots. This implementation is deferred to "
-        "Phase 3.1 when the board_snapshots table is fully wired."
-    )
 
 
 def _row_to_daily_completion(row: Any) -> DailyCompletion:

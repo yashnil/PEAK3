@@ -16,7 +16,7 @@ import logging
 from dataclasses import dataclass
 from typing import Annotated, Optional
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 logger = logging.getLogger(__name__)
@@ -135,6 +135,53 @@ def create_anon_subject_cookie(sub: str, signing_secret: str) -> str:
     from app.core.security import create_session_token
 
     return create_session_token({"sub": sub}, signing_secret, ttl_seconds=30 * 86400)
+
+
+ANON_COOKIE_NAME = "peak3_anon"
+ANON_COOKIE_MAX_AGE = 30 * 86400  # 30 days
+
+
+def resolve_owner_sub(
+    auth: "AuthSubject | None",
+    existing_anon_cookie: str | None,
+    response: Response,
+    signing_secret: str,
+) -> str:
+    """Resolve the effective owning identity for a request: the real
+    authenticated sub if present, otherwise a verified anonymous cookie sub,
+    otherwise a freshly-issued anonymous sub (cookie set on the response).
+
+    This is the single shared resolution path for any route that creates or
+    reads owned game/history data anonymously-or-authenticated — previously
+    duplicated ad hoc in app/api/v1/auth.py and absent entirely from
+    app/api/v1/draft.py (see docs/architecture/REPOSITORY_WIRING_AUDIT.md).
+    Never trusts a client-submitted sub; only a verified JWT or a
+    signature-verified cookie.
+    """
+    import secrets as _secrets
+
+    from app.core.config import settings as _settings
+
+    if auth is not None:
+        return auth.sub
+
+    if existing_anon_cookie:
+        sub = verify_anon_subject(existing_anon_cookie, signing_secret)
+        if sub:
+            return sub
+
+    new_sub = f"anon:{_secrets.token_urlsafe(16)}"
+    cookie_value = create_anon_subject_cookie(new_sub, signing_secret)
+    response.set_cookie(
+        key=ANON_COOKIE_NAME,
+        value=cookie_value,
+        max_age=ANON_COOKIE_MAX_AGE,
+        httponly=True,
+        samesite="lax",
+        secure=not _settings.DEBUG,
+        path="/",
+    )
+    return new_sub
 
 
 # ---------------------------------------------------------------------------

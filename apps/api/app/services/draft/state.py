@@ -397,6 +397,7 @@ def _clone(state: DraftGameState) -> DraftGameState:
         duration_years=state.duration_years,
         lineup_evaluation=state.lineup_evaluation,
         round_history=list(state.round_history),
+        owner_sub=state.owner_sub,
     )
 
 
