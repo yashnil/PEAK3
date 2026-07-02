@@ -286,12 +286,29 @@ jobs:
       # its own services from the current working tree. PLAYWRIGHT_RETRIES=0
       # ensures zero retries for the release-gate proof run.
       - name: Run Playwright tests (fresh services, 0 retries)
+        # ranked.spec.ts's own header comment documents these three ranked
+        # feature flags plus a shared JWT secret as required — without them
+        # the FastAPI backend rejects every ranked queue-join with 403
+        # ranked_not_enabled, so the UI never reaches "Waiting for an
+        # opponent" (this is what made the job fail the first time it ever
+        # ran to completion; it was previously always skipped because the
+        # frontend job it depends on used to fail first).
+        # PEAK3_SUPABASE_JWT_SECRET (verified server-side) and
+        # PEAK3_TEST_JWT_SECRET (signed test-side, in helpers/test-jwt.ts)
+        # must be the same value — this is a dev/test-only shared HMAC
+        # secret, never a real Supabase project secret.
         run: npm run test:e2e:ci
         working-directory: apps/web
         env:
           CI: true
           PLAYWRIGHT_RETRIES: "0"
           NEXT_PUBLIC_API_URL: http://localhost:8000
+          PEAK3_RANKED_ENABLED: "true"
+          PEAK3_RANKED_MATCHMAKING_ENABLED: "true"
+          PEAK3_RANKED_RATING_WRITES_ENABLED: "true"
+          PEAK3_RANKED_READINESS_LEVEL: "internal_alpha"
+          PEAK3_SUPABASE_JWT_SECRET: "e2e-ranked-test-secret-do-not-use-in-prod"
+          PEAK3_TEST_JWT_SECRET: "e2e-ranked-test-secret-do-not-use-in-prod"
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4
