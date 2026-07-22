@@ -1,10 +1,10 @@
 # PEAK3 Next Ambitious Steps
 
 **Relationship to the existing master plan:** a complete 3,210-line, version-2.0
-game-platform master plan already exists at the repo root:
-[`PEAK3_GAME_PLATFORM_MASTER_PLAN.md`](../../PEAK3_GAME_PLATFORM_MASTER_PLAN.md)
-(currently untracked — see `docs/implementation/CURRENT_PROJECT_STATE.md` §7 for
-a path/asset discrepancy that should be resolved before it's committed). That
+game-platform master plan already exists at
+[`docs/product/PEAK3_GAME_PLATFORM_MASTER_PLAN.md`](PEAK3_GAME_PLATFORM_MASTER_PLAN.md)
+— the single source of truth for the game-platform pivot; this file lives
+alongside it in `docs/product/`. That
 plan already covers, in far more depth than this document repeats: competitive
 research (§3), full product architecture and shared engines (§4–5), mode
 specs for 82-0, Forge, Draft Duel, and every multiplayer format (§6–9), the
@@ -236,7 +236,7 @@ Full visual system: master plan §13.
 
 | Phase | Deliverables | Files/systems likely touched | Tests required | Acceptance criteria |
 |---|---|---|---|---|
-| **5A — Research/state audit and plan lock** | Reconcile master-plan location/asset mismatch (§7 of `CURRENT_PROJECT_STATE.md`); ADR documenting the flagship pivot; revised information architecture. | `docs/architecture/ADR-005-*.md`; possibly relocate `PEAK3_GAME_PLATFORM_MASTER_PLAN.md` to `docs/strategy/`; `reference_screenshots/`. | None (docs-only phase). | ADR merged; master plan's internal links resolve to real files; no code changed. |
+| **5A — Research/state audit and plan lock** | Capture the pending `docs/product/reference_screenshots/` files (see that directory's README); ADR documenting the flagship pivot; revised information architecture. | `docs/architecture/ADR-005-*.md`; `docs/product/reference_screenshots/*.png`. | None (docs-only phase). | ADR merged; master plan's internal links resolve to real files; no code changed. |
 | **5B — Data expansion schema** | Player-identity / team-season-membership / peak-card / attribute-profile schema; cohort-based candidate builder; first expansion audit report. | New `nba_peak/` or `data/generated/` schema modules; new Supabase migrations under `supabase/migrations/` (local only); `scripts/` for cohort building and coverage audits. | New Python unit tests for schema validation, cohort auditability, duplicate-identity resolution; existing 186 model tests must stay green. | Every supported team-decade has a minimum eligible-player count; no unresolved duplicate identities; existing PEAK3 rankings unchanged unless intentionally versioned. |
 | **5C — 82-0 Peak Season vertical slice** | Feature-flagged CourtBuilder (5 starters + 3 bench), team+decade spin stage, eligible-player search, exact peak-card resolution, lineup-fit v1, season simulator v1, result receipt, share link. | `apps/api/app/domains/{eligibility,peak_cards,court,lineup,simulation,modes/perfect_season}/` (new); `apps/web/src/components/` new CourtBuilder/SpinStage/PeakCard components; `apps/web/src/app/(main)/arena` route additions. | New API tests per domain; frontend unit tests for court state; new Playwright flow for a full anonymous 82-0 game; existing 264 API + 87 frontend + 62 Playwright tests must stay green. | Result always loads after final lock; no answer-key score shown pre-selection; ≥3 unconventional lineups remain legal; court usable via touch and keyboard; 10,000+ generated boards pass validity checks. |
 | **5D — Daily 82 and result sharing** | Daily immutable boards, official/practice attempt split, global/friends leaderboards, streaks, Locker Room shelves, playable challenge links, archive. | Reuse existing daily-board and challenge-link infra from Peak Draft (`apps/api/app/services/duel.py`-adjacent patterns, `app/c/[token]` route); progression repos. | Daily settlement tests; leaderboard ordering tests; challenge-link E2E. | Daily first-attempt rules enforced server-side; leaderboards materialize correctly; streaks/achievements fire once per completion. |

@@ -3032,7 +3032,7 @@ Future coding agents should follow this sequence.
 Continue PEAK3 from the latest green branch and implement Phase 5.0: Arena Product Pivot and 82-0 Court Prototype.
 
 Read:
-- docs/strategy/PEAK3_GAME_PLATFORM_MASTER_PLAN.md
+- docs/product/PEAK3_GAME_PLATFORM_MASTER_PLAN.md
 - docs/implementation/PHASE_4_0A_REPORT.md
 - existing ADRs and repository wiring docs
 - the original blueprint page images referenced by the master plan
