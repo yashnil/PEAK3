@@ -297,6 +297,9 @@ jobs:
         # PEAK3_TEST_JWT_SECRET (signed test-side, in helpers/test-jwt.ts)
         # must be the same value — this is a dev/test-only shared HMAC
         # secret, never a real Supabase project secret.
+        # PEAK3_COURTBUILDER_* mirrors the same requirement for
+        # courtbuilder.spec.ts (Phase 5C) — without these, every
+        # /perfect-season/* route 403s with courtbuilder_not_enabled.
         run: npm run test:e2e:ci
         working-directory: apps/web
         env:
@@ -309,6 +312,9 @@ jobs:
           PEAK3_RANKED_READINESS_LEVEL: "internal_alpha"
           PEAK3_SUPABASE_JWT_SECRET: "e2e-ranked-test-secret-do-not-use-in-prod"
           PEAK3_TEST_JWT_SECRET: "e2e-ranked-test-secret-do-not-use-in-prod"
+          PEAK3_COURTBUILDER_ENABLED: "true"
+          PEAK3_COURTBUILDER_TEAM_SPIN_ENABLED: "true"
+          PEAK3_COURTBUILDER_READINESS_LEVEL: "internal_dev"
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4

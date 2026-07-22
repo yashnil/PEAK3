@@ -14,7 +14,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.services.draft.serialization import game_state_from_dict, game_state_to_dict
+from app.services.perfect_season.serialization import court_state_from_dict, court_state_to_dict
 from nba_peak.lineup.schemas import DraftGameState
+from nba_peak.perfect_season.schemas import CourtLineupState
 
 from .protocols import (
     ChallengeRecord,
@@ -109,6 +111,76 @@ class PostgresGameRepository:
         async with self._pool.acquire() as conn:
             result = await conn.execute(
                 "UPDATE games SET owner_sub = $2 WHERE owner_sub = $1", from_sub, to_sub
+            )
+        return int(result.split()[-1])
+
+
+class PostgresCourtLineupRepository:
+    """PostgreSQL-backed CourtBuilder lineup store (Phase 5C).
+
+    Reuses the existing `games` table with `board_type = "perfect_season"` as
+    the discriminator -- no new migration, per
+    docs/architecture/PHASE_5_DATA_MODEL.md entity 8's resolved open question
+    and docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md Sec 0.
+    """
+
+    def __init__(self, pool: Any) -> None:
+        _require_asyncpg()
+        self._pool = pool
+
+    async def create_lineup(self, state: CourtLineupState) -> str:
+        game_id = str(uuid.uuid4())
+        state.game_id = game_id
+        payload = court_state_to_dict(state)
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO games (id, owner_sub, board_id, mode, board_type, status, payload, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                """,
+                game_id,
+                state.owner_sub,
+                state.board.board_id,
+                state.mode,
+                state.board.board_type,  # "practice" -- see vertical slice doc Sec 3
+                state.status,
+                json.dumps(payload),
+                datetime.now(timezone.utc),
+            )
+        return game_id
+
+    async def get_lineup(self, game_id: str) -> CourtLineupState | None:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT owner_sub, payload FROM games WHERE id = $1", game_id
+            )
+        if row is None:
+            return None
+        state = court_state_from_dict(json.loads(row["payload"]))
+        state.owner_sub = row["owner_sub"]
+        return state
+
+    async def save_lineup(self, state: CourtLineupState) -> None:
+        payload = court_state_to_dict(state)
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE games
+                SET payload = $2, status = $3, owner_sub = $4, updated_at = $5
+                WHERE id = $1
+                """,
+                state.game_id,
+                json.dumps(payload),
+                state.status,
+                state.owner_sub,
+                datetime.now(timezone.utc),
+            )
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE games SET owner_sub = $2 WHERE owner_sub = $1 AND board_type = 'perfect_season'",
+                from_sub, to_sub,
             )
         return int(result.split()[-1])
 

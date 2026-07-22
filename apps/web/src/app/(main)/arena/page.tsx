@@ -5,6 +5,7 @@ import {
   MODE_LABELS,
   MODE_DESCRIPTIONS,
 } from "@/types/draft";
+import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 
 export const metadata: Metadata = {
   title: "Arena — Peak Draft | PEAK3",
@@ -69,7 +70,20 @@ function ModeCard({ mode }: { mode: DraftMode }) {
   );
 }
 
-export default function ArenaPage() {
+export default async function ArenaPage() {
+  // CourtBuilder (Phase 5C prototype) is only linked from nav when the
+  // server reports it enabled -- never linked by default (ADR-005 Decision
+  // 7; PHASE_5_COURTBUILDER_VERTICAL_SLICE.md Sec 6 rollout boundaries).
+  // A fetch failure (e.g. API down) is treated as "not enabled" -- fail
+  // closed, never show a link to a mode that may not work.
+  let courtBuilderEnabled = false;
+  try {
+    const readiness = await getCourtBuilderReadiness();
+    courtBuilderEnabled = readiness.courtbuilder_enabled;
+  } catch {
+    courtBuilderEnabled = false;
+  }
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
       <div className="mb-8">
@@ -122,6 +136,36 @@ export default function ArenaPage() {
           View Ranked
         </Link>
       </div>
+
+      {courtBuilderEnabled && (
+        <div
+          data-testid="courtbuilder-nav-card"
+          className="mt-6 rounded-2xl border p-5 flex items-center justify-between gap-4"
+          style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
+        >
+          <div>
+            <div className="font-bold text-base flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
+              82-0 Peak Season
+              <span
+                className="text-[10px] uppercase tracking-wide rounded px-2 py-0.5"
+                style={{ background: "var(--bg-surface)", color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
+              >
+                Prototype
+              </span>
+            </div>
+            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              Spin a team and era, build a 5+3 roster, and try to go 82-0. Early vertical-slice prototype.
+            </div>
+          </div>
+          <Link
+            href="/arena/court/practice/apex_1y"
+            className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold"
+            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+          >
+            Try It
+          </Link>
+        </div>
+      )}
 
       <div className="mt-10 text-xs" style={{ color: "var(--text-muted)" }}>
         <p>

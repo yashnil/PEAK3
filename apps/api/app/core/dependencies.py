@@ -18,6 +18,7 @@ from fastapi import Depends, Request
 from app.core.config import settings
 from app.repositories.memory import (
     MemoryChallengeRepository,
+    MemoryCourtLineupRepository,
     MemoryDailyCompletionRepository,
     MemoryGameRepository,
     MemoryOwnershipClaimRepository,
@@ -31,6 +32,7 @@ from app.repositories.memory_progression import (
 )
 from app.repositories.protocols import (
     ChallengeRepository,
+    CourtLineupRepository,
     DailyCompletionRepository,
     GameRepository,
     OwnershipClaimRepository,
@@ -60,6 +62,7 @@ from app.repositories.ranked_protocols import (
 # ---------------------------------------------------------------------------
 
 _memory_game_repo = MemoryGameRepository()
+_memory_court_lineup_repo = MemoryCourtLineupRepository()
 _memory_challenge_repo = MemoryChallengeRepository()
 _memory_daily_completion_repo = MemoryDailyCompletionRepository()
 _memory_result_snapshot_repo = MemoryResultSnapshotRepository()
@@ -92,6 +95,23 @@ def get_game_repo(request: Request) -> GameRepository:
         return PostgresGameRepository(pool)
     _warn_memory_repo("GameRepository")
     return _memory_game_repo
+
+
+def get_court_lineup_repo(request: Request) -> CourtLineupRepository:
+    """Return the active CourtLineupRepository (Postgres or in-memory).
+
+    Not registered in app.core.repository_registry.REPOSITORY_DOMAINS yet --
+    CourtBuilder is feature-flagged off by default (COURTBUILDER_ENABLED)
+    and this is a Phase 5C vertical slice, not yet promoted to the same
+    production-readiness gate as the domains ranked/history depend on. See
+    docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md.
+    """
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.postgres import PostgresCourtLineupRepository
+        return PostgresCourtLineupRepository(pool)
+    _warn_memory_repo("CourtLineupRepository")
+    return _memory_court_lineup_repo
 
 
 def get_challenge_repo(request: Request) -> ChallengeRepository:
@@ -220,6 +240,7 @@ def _warn_memory_repo(name: str) -> None:
 # ---------------------------------------------------------------------------
 
 GameRepoDep = Annotated[GameRepository, Depends(get_game_repo)]
+CourtLineupRepoDep = Annotated[CourtLineupRepository, Depends(get_court_lineup_repo)]
 ChallengeRepoDep = Annotated[ChallengeRepository, Depends(get_challenge_repo)]
 DailyCompletionRepoDep = Annotated[DailyCompletionRepository, Depends(get_daily_completion_repo)]
 ResultSnapshotRepoDep = Annotated[ResultSnapshotRepository, Depends(get_result_snapshot_repo)]

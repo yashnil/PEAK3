@@ -117,6 +117,18 @@ test.describe("accessibility: Hold state", () => {
   });
 });
 
+test.describe("accessibility: CourtBuilder screen (Phase 5C)", () => {
+  test("no critical/serious violations on initial CourtBuilder screen", async ({ page }) => {
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "networkidle" });
+    await page.locator('[data-testid="court-builder"]').waitFor({ timeout: 15_000 });
+    await expectNoViolations(
+      new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa"])
+        .exclude("[aria-hidden=true]")
+    );
+  });
+});
+
 test.describe("accessibility: Mobile navigation", () => {
   test("no critical/serious violations on mobile landing", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });

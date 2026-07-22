@@ -90,6 +90,52 @@ class Settings(BaseSettings):
             pass
         return self
 
+    # ---------------------------------------------------------------------------
+    # Phase 5C — CourtBuilder / 82-0 Peak Season feature flags
+    #
+    # Mirrors the RANKED_* pattern above exactly: independent capability
+    # switches, plus a human-facing readiness level validated for internal
+    # consistency. See docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md
+    # and docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md §1.
+    # ---------------------------------------------------------------------------
+
+    # Master switch: CourtBuilder routes/API exist at all.
+    COURTBUILDER_ENABLED: bool = False
+
+    # Whether team+decade/exact-team-season spins are offered, vs. a simpler
+    # duration-only spin fallback. Separately switchable because the interim
+    # team dataset (data/game/interim/courtbuilder_team_seasons.v0.json) is
+    # intentionally narrow — this flag lets the rest of the loop ship even if
+    # team spins need to be turned off independently.
+    COURTBUILDER_TEAM_SPIN_ENABLED: bool = False
+
+    # Closed-cohort allowlist of owner_sub values (real auth sub or signed
+    # anon-cookie subject) permitted to see CourtBuilder while
+    # COURTBUILDER_ENABLED=True but not yet publicly linked from nav. Empty +
+    # enabled = internal engineering only, same semantics as RANKED_ALPHA_ALLOWLIST.
+    # Unlike ranked, CourtBuilder is anonymous-friendly by design (ADR-005
+    # Decision 1), so this allowlist matches against owner_sub (which may be
+    # an anon subject), never requires a signed-in account.
+    COURTBUILDER_ALPHA_ALLOWLIST: list[str] = []
+
+    # Human-facing readiness classification. Does not itself gate behavior —
+    # the booleans above do — but is surfaced on /api/v1/perfect-season/readiness
+    # and must be kept consistent with them (validated below).
+    COURTBUILDER_READINESS_LEVEL: Literal[
+        "disabled", "internal_dev", "internal_alpha", "public_beta"
+    ] = "disabled"
+
+    @model_validator(mode="after")
+    def validate_courtbuilder_readiness(self) -> "Settings":
+        level = self.COURTBUILDER_READINESS_LEVEL
+        if level == "disabled" and self.COURTBUILDER_ENABLED:
+            raise ValueError(
+                "PEAK3_COURTBUILDER_READINESS_LEVEL is 'disabled' but "
+                "COURTBUILDER_ENABLED is set. Set an appropriate readiness "
+                "level or disable the flag."
+            )
+        return self
+
     @model_validator(mode="after")
     def warn_insecure_secret(self) -> "Settings":
         if self.DEBUG and self.SIGNING_SECRET == "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION":
