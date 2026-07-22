@@ -40,15 +40,23 @@ SIMULATOR_EXPERIMENTAL_NOTICE = (
 )
 
 # Court shape (master plan Sec 5.5, Sec 6.2): 5 starters + 3 bench, soft
-# position assignment. Never enforced as hard eligibility -- see
-# SLOT_TYPES below, used only as positional labels.
+# position assignment -- placement is never blocked by position (see
+# nba_peak.perfect_season.positions.classify_fit), but slots now carry real
+# position/role identity instead of being purely numbered labels
+# (docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 6.1). The 5 starter slots
+# are position-anchored (PG/SG/SF/PF/C, v1 archetype-approximated -- see
+# positions.py); the 3 bench slots are role-anchored, not position-anchored
+# (sixth_man/defensive_specialist/wildcard), and accept any player.
 STARTER_SLOTS = 5
 BENCH_SLOTS = 3
 TOTAL_ROUNDS = STARTER_SLOTS + BENCH_SLOTS  # 8
 
+# Order matters: the first STARTER_SLOTS entries are the starters (consumed
+# in this exact order by simulation.py::compute_fit_components' starters/
+# bench split), followed by the BENCH_SLOTS bench entries.
 SLOT_TYPES: list[str] = [
-    "starter_1", "starter_2", "starter_3", "starter_4", "starter_5",
-    "bench_1", "bench_2", "bench_3",
+    "PG", "SG", "SF", "PF", "C",
+    "sixth_man", "defensive_specialist", "wildcard",
 ]
 
 # Duration modes reused verbatim from nba_peak.lineup.config.SUPPORTED_MODES

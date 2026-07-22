@@ -168,6 +168,38 @@ html, body {
 }
 
 /* ================================================================
+   CourtBuilder spin ceremony (Phase 5X.2)
+   Pure CSS keyframes -- automatically neutralized by the global
+   prefers-reduced-motion rule below. Component-side JS also short-circuits
+   the whole ceremony's timers under reduced motion (see SpinStage.tsx) so
+   no information is delayed behind an animation for those users.
+   ================================================================ */
+
+@keyframes spin-ceremony-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.spin-ceremony-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--peak-accent, #f5c842);
+  animation: spin-ceremony-pulse 0.6s ease-in-out infinite;
+}
+
+@keyframes spin-ceremony-lock {
+  0% { transform: scale(0.92); opacity: 0.5; }
+  60% { transform: scale(1.03); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.spin-ceremony-lock-flash {
+  animation: spin-ceremony-lock 0.35s ease-out;
+}
+
+/* ================================================================
    Reduced motion
    ================================================================ */
 

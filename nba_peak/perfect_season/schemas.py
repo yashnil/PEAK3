@@ -56,13 +56,20 @@ class PerfectSeasonBoard:
 
 @dataclass
 class CourtSlot:
-    """One roster position -- five starters + three bench (soft assignment,
-    never a hard eligibility lock; master plan Sec 5.5).
+    """One roster position -- five position-anchored starters (PG/SG/SF/PF/C)
+    + three role-anchored bench slots (sixth_man/defensive_specialist/
+    wildcard). Soft assignment, never a hard eligibility lock (master plan
+    Sec 5.5) -- any player may be placed in any slot; `role_fit` records how
+    well the v1 archetype approximation says they fit, for display only.
     """
-    slot_type: str  # e.g. "starter_1".."starter_5", "bench_1".."bench_3"
+    slot_type: str  # e.g. "PG".."C", "sixth_man", "defensive_specialist", "wildcard"
     round_number: Optional[int] = None  # which round filled this slot
     peak_window_id: Optional[str] = None
     resolved_via_spin_id: Optional[str] = None
+    # "primary" | "secondary" | "off_position" | "flexible" -- set at
+    # placement time by nba_peak.perfect_season.positions.classify_fit().
+    # Display-only; never gates whether a placement is legal.
+    role_fit: Optional[str] = None
 
 
 @dataclass

@@ -1,16 +1,49 @@
 "use client";
-import { SimulationResultPublic } from "@/types/perfect-season";
+import { CourtLineupPublicState, SimulationResultPublic, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import LineupInsightPanel from "./LineupInsightPanel";
+import PeakCardCourt from "./PeakCardCourt";
+
+interface Props {
+  state: CourtLineupPublicState;
+  result: SimulationResultPublic;
+}
+
+function recordFraming(wins: number, losses: number): string {
+  if (wins >= 82) return "PERFECT SEASON";
+  if (losses === 1) return "One loss from perfect";
+  if (losses <= 3) return "So close to perfect";
+  if (wins >= 60) return "A strong season";
+  if (wins >= 45) return "A playoff-caliber season";
+  return "A rebuilding season";
+}
 
 /**
- * v0 result screen -- record, expected-wins range, decisive factors,
- * explicit experimental notice. Explicitly NOT the full broadcast-style
- * presentation (master plan Sec 13.6) -- deferred, see
- * PHASE_5_COURTBUILDER_VERTICAL_SLICE.md Sec 3/7.
+ * The broadcast/reveal result screen. This is the ONLY place exact
+ * score/rank is ever shown -- the server only includes them in `state.slots`
+ * once status is "result_ready" (docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md
+ * Sec 3.5/3.1 step 7), so rendering `state.slots` here via the same
+ * PeakCardCourt used during roster-building naturally reveals them for the
+ * first time -- no separate "reveal" data path to keep in sync.
+ *
+ * Explicitly NOT the full broadcast-style presentation (animated count-up,
+ * loss timeline, share card) from master plan Sec 13.6 -- those are
+ * deferred (PHASE_5X_ARENA_OVERHAUL_PLAN.md Phase 5X.7). This is the
+ * record/roster/breakdown moment, not the animated version of it.
  */
-export default function SeasonResultStub({ result }: { result: SimulationResultPublic }) {
+export default function SeasonResultStub({ state, result }: Props) {
+  const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
+  const benchSlots = state.slots.filter((s) => BENCH_SLOT_TYPES.includes(s.slot_type));
+
   return (
     <div data-testid="season-result" className="flex flex-col gap-4">
+      <div
+        className="text-[10px] uppercase tracking-wide rounded px-2 py-1 self-start"
+        style={{ background: "rgba(245,200,66,0.15)", color: "var(--peak-accent, #f5c842)" }}
+        data-testid="v0-simulator-label"
+      >
+        v0 prototype simulator
+      </div>
+
       <div className="text-center">
         <div
           data-testid="season-record"
@@ -19,13 +52,31 @@ export default function SeasonResultStub({ result }: { result: SimulationResultP
         >
           {result.wins}-{result.losses}
         </div>
-        {result.is_perfect_season && (
-          <div className="text-sm font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent, #f5c842)" }}>
-            Perfect Season
-          </div>
-        )}
+        <div
+          className="text-sm font-bold uppercase tracking-wide"
+          style={{ color: result.is_perfect_season ? "var(--peak-accent, #f5c842)" : "var(--text-secondary)" }}
+          data-testid="record-framing"
+        >
+          {recordFraming(result.wins, result.losses)}
+        </div>
         <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
           Expected wins: {result.expected_wins} (range {result.expected_wins_low}–{result.expected_wins_high})
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+          Your roster, revealed
+        </div>
+        <div className="grid grid-cols-5 gap-2">
+          {starterSlots.map((slot) => (
+            <PeakCardCourt key={slot.slot_type} slot={slot} />
+          ))}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {benchSlots.map((slot) => (
+            <PeakCardCourt key={slot.slot_type} slot={slot} />
+          ))}
         </div>
       </div>
 

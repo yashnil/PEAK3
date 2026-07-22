@@ -1,6 +1,6 @@
 "use client";
 import type { CSSProperties } from "react";
-import { CourtSlotPublic, SLOT_LABELS } from "@/types/perfect-season";
+import { CourtSlotPublic, ROLE_FIT_LABELS, SLOT_LABELS } from "@/types/perfect-season";
 
 interface Props {
   slot: CourtSlotPublic;
@@ -10,9 +10,13 @@ interface Props {
 
 /**
  * One court/bench slot. Empty slots show only the slot label -- once a slot
- * is filled (locked), the resolved card's score/rank IS shown, since the
- * pick is no longer reversible (ADR-005 Decision 6 applies to pre-lock
- * candidates only, not to already-placed slots).
+ * is filled, the server withholds `individual_peak_score`/`individual_peak_rank`
+ * until the whole roster is locked and simulated (status "result_ready");
+ * before that, this card shows only qualitative info ("peak locked" +
+ * `anchor_season`, plus a role-fit note) per
+ * docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.5. Once the score IS
+ * present (post-reveal), the full line renders -- no separate prop needed,
+ * this component just renders whatever the slot payload actually contains.
  *
  * Renders as a real <button> only when actionable (onClick provided --
  * i.e. an open slot during the placement step). Filled slots and idle
@@ -32,7 +36,9 @@ interface Props {
  * alone, both at full opacity.
  */
 export default function PeakCardCourt({ slot, isPendingTarget, onClick }: Props) {
-  const isBench = slot.slot_type.startsWith("bench");
+  const isBench = slot.slot_type === "sixth_man" || slot.slot_type === "defensive_specialist" || slot.slot_type === "wildcard";
+  const revealed = slot.individual_peak_score != null;
+  const fitLabel = slot.role_fit ? ROLE_FIT_LABELS[slot.role_fit] : "";
 
   const content = (
     <>
@@ -44,9 +50,27 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick }: Props)
           <div className="text-sm font-bold text-center" style={{ color: "var(--text-primary)" }}>
             {slot.player_name}
           </div>
-          <div className="text-xs" style={{ color: "var(--text-secondary)" }}>
-            {slot.anchor_season} · {Math.round(slot.individual_peak_score ?? 0)} pts · #{slot.individual_peak_rank}
-          </div>
+          {revealed ? (
+            <div className="text-xs" style={{ color: "var(--text-secondary)" }} data-testid="revealed-score-line">
+              {slot.anchor_season} · {Math.round(slot.individual_peak_score ?? 0)} pts · #{slot.individual_peak_rank}
+            </div>
+          ) : (
+            <div className="text-xs" style={{ color: "var(--text-secondary)" }} data-testid="peak-locked-note">
+              {slot.anchor_season} · Peak locked
+            </div>
+          )}
+          {fitLabel && (
+            <div
+              className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
+              style={{
+                color: slot.role_fit === "off_position" ? "#fb923c" : "var(--peak-accent, #f5c842)",
+                background: "rgba(255,255,255,0.06)",
+              }}
+              data-testid="role-fit-badge"
+            >
+              {fitLabel}
+            </div>
+          )}
         </>
       ) : (
         <div className="text-xs" style={{ color: "var(--text-muted)" }}>

@@ -7,7 +7,7 @@ import {
   hasResult,
 } from "@/lib/court-state";
 import type { CourtLineupPublicState, CourtSlotPublic } from "@/types/perfect-season";
-import { SLOT_TYPES } from "@/types/perfect-season";
+import { SLOT_TYPES, STARTER_SLOT_TYPES } from "@/types/perfect-season";
 
 function mockSlots(filledCount: number): CourtSlotPublic[] {
   return SLOT_TYPES.map((slot_type, i) => ({
@@ -62,17 +62,17 @@ describe("getOpenSlotTypes", () => {
   it("returns only unfilled slots", () => {
     const open = getOpenSlotTypes(mockSlots(3));
     expect(open).toHaveLength(5);
-    expect(open).not.toContain("starter_1");
-    expect(open).toContain("bench_3");
+    expect(open).not.toContain("PG");
+    expect(open).toContain("wildcard");
   });
 
   it("allows bench slots to be open while starters are filled -- soft placement, no forced order", () => {
     const slots = mockSlots(0).map((s) => ({
       ...s,
-      filled: s.slot_type.startsWith("starter"),
+      filled: STARTER_SLOT_TYPES.includes(s.slot_type),
     }));
     const open = getOpenSlotTypes(slots);
-    expect(open).toEqual(["bench_1", "bench_2", "bench_3"]);
+    expect(open).toEqual(["sixth_man", "defensive_specialist", "wildcard"]);
   });
 });
 

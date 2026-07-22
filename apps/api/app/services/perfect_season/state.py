@@ -28,6 +28,7 @@ if str(_repo_root) not in sys.path:
 
 from nba_peak.perfect_season.board import find_spin, generate_board, resolve_card
 from nba_peak.perfect_season.config import SLOT_TYPES, TOTAL_ROUNDS
+from nba_peak.perfect_season.positions import classify_fit
 from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot
 from nba_peak.perfect_season.simulation import simulate_season
 
@@ -185,6 +186,9 @@ def action_place_card(
     slot.round_number = state.current_round
     slot.resolved_via_spin_id = state.pending_selection_spin_id
 
+    placed_card = resolve_card_by_window_id(state, slot.peak_window_id)
+    slot.role_fit = classify_fit(placed_card.primary_role if placed_card else None, slot_type)
+
     state.pending_selection_peak_window_id = None
     state.pending_selection_spin_id = None
     state.last_action_at = datetime.now(timezone.utc).isoformat()
@@ -233,8 +237,18 @@ def get_public_state(state: CourtLineupState) -> dict:
 
     ADR-005 Decision 6, ruthlessly enforced here: the current round's
     candidate list contains ONLY player_slug + display context, never
-    prime_score/prime_index/rank. Already-placed slots DO include the
-    resolved card's score, since the pick is already locked.
+    prime_score/prime_index/rank.
+
+    Deferred reveal (docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.5,
+    extending ADR-005 Decision 6 rather than replacing it): a filled slot's
+    exact `individual_peak_score`/`individual_peak_rank` are withheld until
+    `state.status == "result_ready"` -- i.e. until the full 8-slot roster is
+    locked AND simulated, not the instant each slot is filled. Before that,
+    a filled slot exposes only qualitative information: `player_name`,
+    `anchor_season` ("peak locked" -- which window was resolved, not its
+    score), and `role_fit` (position/role fit note). This collapses 8
+    separate "was I right?" reveals into a single roster-wide broadcast
+    reveal at the end, instead of resolving the suspense once per pick.
     """
     spin = find_spin(state.board, state.current_round) if state.status == "selection_pending" else None
 
@@ -262,6 +276,7 @@ def get_public_state(state: CourtLineupState) -> dict:
                 # No score here either -- still not locked into a slot yet.
             }
 
+    reveal_scores = state.status == "result_ready"
     slots_public = []
     for slot in state.slots:
         entry: dict = {"slot_type": slot.slot_type, "filled": slot.peak_window_id is not None}
@@ -272,10 +287,14 @@ def get_public_state(state: CourtLineupState) -> dict:
                     "peak_window_id": card.peak_window_id,
                     "player_name": card.player_name,
                     "anchor_season": card.anchor_season,
-                    "individual_peak_score": card.individual_peak_score,
-                    "individual_peak_rank": card.individual_peak_rank,
+                    "role_fit": slot.role_fit,
                     "resolved_via_spin_id": slot.resolved_via_spin_id,
                 })
+                if reveal_scores:
+                    entry.update({
+                        "individual_peak_score": card.individual_peak_score,
+                        "individual_peak_rank": card.individual_peak_rank,
+                    })
         slots_public.append(entry)
 
     simulation_public = None

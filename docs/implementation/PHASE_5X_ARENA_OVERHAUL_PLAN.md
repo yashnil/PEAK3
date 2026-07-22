@@ -1,8 +1,10 @@
 # Phase 5X — Arena Overhaul Implementation Plan
 
-**Status:** Planning only. No product code authorized by this document
-alone (a handful of tiny doc/label corrections are the only exception, per
-the task that produced this plan).
+**Status:** 5X.1 (Arena IA), 5X.2 (spin ceremony), 5X.3 (position-aware
+slots), and the deferred-reveal contract change originally scoped under
+5X.7 have been implemented, on `phase5-courtbuilder-vertical-slice` /
+PR #3 (still draft). 5X.4-5X.6, and the rest of 5X.7 (loss timeline, share
+card) remain planning-only.
 **Depends on:** `docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md` (the "what and
 why" — read that first), `docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md`
 (still binding), `docs/architecture/PHASE_5_DATA_MODEL.md` (schema design),
@@ -12,6 +14,25 @@ track).
 (PR #3, draft, correctly still draft — see report). This plan does not
 prescribe a specific new branch name; that's a decision for whoever starts
 5X.1, made against whatever `main`/PR state exists at that time.
+
+**Implementation notes (where the shipped code intentionally differs from
+this plan's original 5X.3 description):**
+- **No slot-first reordering.** §5X.3 originally proposed reordering the
+  round flow so the player picks a target slot *before* seeing candidates.
+  The shipped version keeps the existing select-then-place flow (pick a
+  candidate, then place them into any open slot) and layers position
+  identity onto the *existing* flow instead — smaller, lower-risk change
+  with the same "soft placement, never blocked" guarantee. Slot-first
+  ordering remains a legitimate future UX experiment, just not part of
+  this pass.
+- **No separate `COURTBUILDER_POSITION_SLOTS_ENABLED`/
+  `COURTBUILDER_DEFERRED_REVEAL_ENABLED` flags.** §"New feature flags for
+  overhaul stages" below proposed independent flags for these two changes.
+  Both shipped directly gated by the existing `COURTBUILDER_ENABLED`
+  instead, since `COURTBUILDER_ENABLED` has never been `true` in any real
+  deployment (confirmed before starting) — the same reasoning §5X.3's own
+  "breaking change" callout already used to justify a direct rewrite over
+  a versioned migration.
 
 ---
 

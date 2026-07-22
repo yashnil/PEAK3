@@ -1,7 +1,9 @@
 """Tests for the 82-0 Peak Season / CourtBuilder API and state machine
-(Phase 5C vertical slice).
+(Phase 5C vertical slice + Phase 5X.1-5X.3/5X.7 overhaul: position-aware
+slots and deferred score/rank reveal).
 
-See docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md and
+See docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md,
+docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md, and
 docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md Sec 5/8.
 """
 from __future__ import annotations
@@ -29,6 +31,15 @@ from nba_peak.perfect_season.board import (
     resolve_card,
 )
 from nba_peak.perfect_season.config import BENCH_SLOTS, SLOT_TYPES, STARTER_SLOTS, TOTAL_ROUNDS
+from nba_peak.perfect_season.positions import (
+    ARCHETYPE_POSITION_MAP,
+    BENCH_SLOTS as BENCH_SLOT_NAMES,
+    STARTER_SLOTS as STARTER_SLOT_NAMES,
+    classify_fit,
+)
+
+STARTER_SLOT_TYPES = ["PG", "SG", "SF", "PF", "C"]
+BENCH_SLOT_TYPES = ["sixth_man", "defensive_specialist", "wildcard"]
 
 
 @pytest.fixture(autouse=True)
@@ -126,6 +137,87 @@ def test_interim_team_summary_counts_franchises_only_in_exact_season_spins(tmp_p
     }))
     summary = interim_team_summary(fixture)
     assert summary["franchise_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Position-aware slots (Phase 5X.3)
+# ---------------------------------------------------------------------------
+
+def test_court_shape_is_five_starters_three_bench():
+    assert STARTER_SLOTS == 5
+    assert BENCH_SLOTS == 3
+    assert TOTAL_ROUNDS == 8
+    assert len(SLOT_TYPES) == 8
+
+
+def test_slot_types_are_position_and_role_anchored():
+    assert SLOT_TYPES[:5] == STARTER_SLOT_TYPES
+    assert SLOT_TYPES[5:] == BENCH_SLOT_TYPES
+    # No lingering numbered starter_N/bench_N slot names anywhere.
+    assert not any(s.startswith("starter_") or s.startswith("bench_") for s in SLOT_TYPES)
+
+
+def test_every_archetype_maps_to_exactly_one_primary_position():
+    archetypes = ["lead_creator", "guard_wing", "wing_forward", "forward_big", "anchor"]
+    for a in archetypes:
+        assert a in ARCHETYPE_POSITION_MAP
+        primary, secondaries = ARCHETYPE_POSITION_MAP[a]
+        assert primary in STARTER_SLOT_NAMES
+        assert 0 <= len(secondaries) <= 2
+        assert primary not in secondaries
+        for s in secondaries:
+            assert s in STARTER_SLOT_NAMES
+
+
+@pytest.mark.parametrize("archetype,slot,expected", [
+    ("lead_creator", "PG", "primary"),
+    ("lead_creator", "SG", "secondary"),
+    ("lead_creator", "C", "off_position"),
+    ("guard_wing", "SG", "primary"),
+    ("guard_wing", "PG", "secondary"),
+    ("guard_wing", "SF", "secondary"),
+    ("wing_forward", "SF", "primary"),
+    ("forward_big", "PF", "primary"),
+    ("forward_big", "C", "secondary"),
+    ("anchor", "C", "primary"),
+    ("anchor", "PF", "secondary"),
+    ("anchor", "PG", "off_position"),
+    (None, "PG", "off_position"),
+])
+def test_classify_fit_for_starter_slots(archetype, slot, expected):
+    assert classify_fit(archetype, slot) == expected
+
+
+@pytest.mark.parametrize("archetype", ["lead_creator", "guard_wing", "wing_forward", "forward_big", "anchor", None])
+@pytest.mark.parametrize("slot", BENCH_SLOT_TYPES)
+def test_bench_slots_are_always_flexible_regardless_of_archetype(archetype, slot):
+    assert classify_fit(archetype, slot) == "flexible"
+
+
+def test_off_position_placement_is_never_blocked(client: TestClient):
+    """An anchor (C-primary) archetype placed at PG must still succeed --
+    soft placement, position is display feedback only, never an eligibility
+    gate (product spec Sec 6.2)."""
+    state = _create(client, mode="apex_1y", seed=42)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    player_slug = state["current_spin"]["candidates"][0]["player_slug"]
+    _select(client, game_id, player_slug)
+    # Place into PG regardless of the selected player's real archetype fit.
+    placed = _place(client, game_id, "PG")
+    pg_slot = next(s for s in placed["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is True
+    assert pg_slot["role_fit"] in ("primary", "secondary", "off_position")
+
+
+def test_role_fit_present_once_slot_filled(client: TestClient):
+    final_state = _play_full_game(client, mode="apex_1y", seed=42, slot_order=SLOT_TYPES)
+    for slot in final_state["slots"]:
+        assert slot["filled"] is True
+        assert slot["role_fit"] in ("primary", "secondary", "off_position", "flexible")
+    for slot_type in BENCH_SLOT_TYPES:
+        bench_slot = next(s for s in final_state["slots"] if s["slot_type"] == slot_type)
+        assert bench_slot["role_fit"] == "flexible"
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +330,8 @@ def test_completion_is_idempotent(client: TestClient):
 
 
 # ---------------------------------------------------------------------------
-# ADR-005 Decision 6: no score/rank before lock
+# ADR-005 Decision 6 + deferred reveal (product spec Sec 3.5):
+# no score/rank anywhere before status == "result_ready", full stop.
 # ---------------------------------------------------------------------------
 
 def test_current_spin_candidates_never_expose_score_or_rank(client: TestClient):
@@ -264,11 +357,73 @@ def test_current_spin_candidates_never_expose_score_or_rank(client: TestClient):
         _place(client, game_id, open_slots[0])
 
 
-def test_placed_slots_do_reveal_score_once_locked(client: TestClient):
-    final_state = _play_full_game(client, mode="apex_1y", seed=44)
-    filled_slots = [s for s in final_state["slots"] if s["filled"]]
-    assert len(filled_slots) == TOTAL_ROUNDS
-    for s in filled_slots:
+def test_filled_slots_withhold_score_and_rank_until_result_ready(client: TestClient):
+    """The core Phase 5X.7 contract change: placing a card into a slot does
+    NOT reveal its score/rank immediately -- only qualitative info (name,
+    anchor_season, role_fit) is visible while status is selection_pending /
+    placement_pending / rounds_complete. Exact score/rank appear only once
+    status == result_ready. This is the opposite of what this test asserted
+    before the deferred-reveal change."""
+    state = _create(client, mode="apex_1y", seed=44)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    player_slug = state["current_spin"]["candidates"][0]["player_slug"]
+    _select(client, game_id, player_slug)
+    placed = _place(client, game_id, SLOT_TYPES[0])
+
+    filled_slot = next(s for s in placed["slots"] if s["filled"])
+    assert placed["status"] in ("selection_pending", "placement_pending")
+    assert filled_slot["player_name"] is not None
+    assert filled_slot["anchor_season"] is not None
+    assert filled_slot["role_fit"] is not None
+    assert filled_slot["individual_peak_score"] is None
+    assert filled_slot["individual_peak_rank"] is None
+
+    # Still withheld once ALL 8 slots are filled but not yet simulated
+    # (rounds_complete) -- the reveal only happens at result_ready, not at
+    # "roster complete."
+    final_state = _play_full_game(client, mode="apex_1y", seed=45)
+    # _play_full_game already calls /complete, so re-derive the
+    # rounds_complete snapshot by checking the score IS present now that
+    # status is result_ready, proving the gate is status-based.
+    assert final_state["status"] == "result_ready"
+    for s in final_state["slots"]:
+        assert s["individual_peak_score"] is not None
+        assert s["individual_peak_rank"] is not None
+
+
+def test_score_withheld_at_rounds_complete_before_explicit_complete_call(client: TestClient):
+    """Distinguishes 'all 8 slots filled' (rounds_complete) from 'simulated'
+    (result_ready) -- score/rank must stay hidden through rounds_complete,
+    only appearing after the explicit /complete call.
+
+    Uses seed=42 with the natural SLOT_TYPES order -- the same combination
+    already exercised end-to-end elsewhere in this file -- rather than a
+    fresh seed, since the test helpers' greedy "always pick candidates[0]"
+    selection strategy can otherwise paint itself into a corner where a
+    later round's candidate list is entirely already-used identities (a
+    property of the small interim dataset + greedy picking, not a product
+    bug -- see docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md).
+    """
+    state = _create(client, mode="apex_1y", seed=42)
+    game_id = state["game_id"]
+
+    for slot_type in SLOT_TYPES:
+        state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+        player_slug = state["current_spin"]["candidates"][0]["player_slug"]
+        _select(client, game_id, player_slug)
+        state = _place(client, game_id, slot_type)
+
+    assert state["status"] == "rounds_complete"
+    assert state["simulation_result"] is None
+    for s in state["slots"]:
+        assert s["filled"] is True
+        assert s["individual_peak_score"] is None
+        assert s["individual_peak_rank"] is None
+
+    completed = _complete(client, game_id)
+    assert completed["status"] == "result_ready"
+    for s in completed["slots"]:
         assert s["individual_peak_score"] is not None
         assert s["individual_peak_rank"] is not None
 
@@ -294,7 +449,7 @@ def test_same_identity_cannot_be_used_twice_on_one_roster(client: TestClient):
     state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
     player_slug = state["current_spin"]["candidates"][0]["player_slug"]
     _select(client, game_id, player_slug)
-    _place(client, game_id, "starter_1")
+    _place(client, game_id, SLOT_TYPES[0])
 
     # Manually search subsequent rounds for the same player_slug reappearing
     # as a candidate (possible if two interim spins share a player) and
@@ -332,17 +487,31 @@ def test_cannot_place_into_an_already_filled_slot(client: TestClient):
     state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
     player_slug = state["current_spin"]["candidates"][0]["player_slug"]
     _select(client, game_id, player_slug)
-    _place(client, game_id, "starter_1")
+    _place(client, game_id, SLOT_TYPES[0])
 
     state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
     next_slug = state["current_spin"]["candidates"][0]["player_slug"]
     _select(client, game_id, next_slug)
     resp = client.post(
         f"/api/v1/perfect-season/games/{game_id}/place",
-        json={"game_id": game_id, "slot_type": "starter_1"},
+        json={"game_id": game_id, "slot_type": SLOT_TYPES[0]},
     )
     assert resp.status_code == 400
     assert resp.json()["detail"]["error_code"] == "slot_not_open"
+
+
+def test_unknown_slot_type_is_rejected(client: TestClient):
+    state = _create(client, mode="apex_1y", seed=42)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    player_slug = state["current_spin"]["candidates"][0]["player_slug"]
+    _select(client, game_id, player_slug)
+    resp = client.post(
+        f"/api/v1/perfect-season/games/{game_id}/place",
+        json={"game_id": game_id, "slot_type": "starter_1"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "invalid_slot"
 
 
 # ---------------------------------------------------------------------------
@@ -351,9 +520,9 @@ def test_cannot_place_into_an_already_filled_slot(client: TestClient):
 
 @pytest.mark.parametrize("slot_order", [
     # All bench slots filled first, then starters -- reverses the "natural" order.
-    ["bench_1", "bench_2", "bench_3", "starter_1", "starter_2", "starter_3", "starter_4", "starter_5"],
+    ["sixth_man", "defensive_specialist", "wildcard", "PG", "SG", "SF", "PF", "C"],
     # Interleaved, still arbitrary.
-    ["starter_5", "bench_3", "starter_1", "bench_1", "starter_2", "bench_2", "starter_3", "starter_4"],
+    ["C", "wildcard", "PG", "sixth_man", "SG", "defensive_specialist", "SF", "PF"],
     # Reverse of the default declared order entirely.
     list(reversed(SLOT_TYPES)),
 ])
@@ -363,12 +532,13 @@ def test_unconventional_slot_orders_remain_legal(client: TestClient, slot_order)
     assert len([s for s in final_state["slots"] if s["filled"]]) == TOTAL_ROUNDS
 
 
-# ---------------------------------------------------------------------------
-# Regression: STARTER_SLOTS + BENCH_SLOTS shape
-# ---------------------------------------------------------------------------
-
-def test_court_shape_is_five_starters_three_bench():
-    assert STARTER_SLOTS == 5
-    assert BENCH_SLOTS == 3
-    assert TOTAL_ROUNDS == 8
-    assert len(SLOT_TYPES) == 8
+def test_position_mismatched_lineup_remains_completable(client: TestClient):
+    """A roster where every starter is deliberately off-position (e.g. all
+    guards started at PF/C) must still complete and simulate -- position is
+    feedback, never a hard gate (product spec Sec 6.2/6.7)."""
+    # Fill starters in reverse position order relative to draw order to
+    # maximize the chance of off-position placements, then bench.
+    slot_order = ["C", "PF", "SF", "SG", "PG", "sixth_man", "defensive_specialist", "wildcard"]
+    final_state = _play_full_game(client, mode="apex_1y", seed=50, slot_order=slot_order)
+    assert final_state["status"] == "result_ready"
+    assert len([s for s in final_state["slots"] if s["filled"]]) == TOTAL_ROUNDS

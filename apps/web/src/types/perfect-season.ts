@@ -14,11 +14,24 @@ export type CourtStatus =
   | "rounds_complete"
   | "result_ready";
 
+// 5 position-anchored starter slots (v1 archetype approximation -- see
+// nba_peak/perfect_season/positions.py; NOT real NBA position data) + 3
+// role-anchored bench slots that accept any player with no position
+// restriction. Order matters: starters first, then bench (mirrors the
+// backend's SLOT_TYPES order in nba_peak/perfect_season/config.py).
 export const SLOT_TYPES = [
-  "starter_1", "starter_2", "starter_3", "starter_4", "starter_5",
-  "bench_1", "bench_2", "bench_3",
+  "PG", "SG", "SF", "PF", "C",
+  "sixth_man", "defensive_specialist", "wildcard",
 ] as const;
 export type SlotType = (typeof SLOT_TYPES)[number];
+
+export const STARTER_SLOT_TYPES: SlotType[] = ["PG", "SG", "SF", "PF", "C"];
+export const BENCH_SLOT_TYPES: SlotType[] = ["sixth_man", "defensive_specialist", "wildcard"];
+
+// Display-only fit note (nba_peak/perfect_season/positions.py::classify_fit)
+// -- never gates whether a placement is legal. "flexible" applies to bench
+// slots, which are never position-restricted.
+export type RoleFit = "primary" | "secondary" | "off_position" | "flexible";
 
 export const TOTAL_ROUNDS = 8;
 
@@ -46,6 +59,9 @@ export interface CourtSlotPublic {
   peak_window_id?: string | null;
   player_name?: string | null;
   anchor_season?: string | null;
+  role_fit?: RoleFit | null;
+  // Withheld by the server until status === "result_ready" -- always null
+  // for a filled slot before then. See ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.5.
   individual_peak_score?: number | null;
   individual_peak_rank?: number | null;
   resolved_via_spin_id?: string | null;
@@ -96,12 +112,19 @@ export const COURT_MODE_LABELS: Record<CourtMode, string> = {
 };
 
 export const SLOT_LABELS: Record<SlotType, string> = {
-  starter_1: "Starter 1",
-  starter_2: "Starter 2",
-  starter_3: "Starter 3",
-  starter_4: "Starter 4",
-  starter_5: "Starter 5",
-  bench_1: "Bench 1",
-  bench_2: "Bench 2",
-  bench_3: "Bench 3",
+  PG: "Point Guard",
+  SG: "Shooting Guard",
+  SF: "Small Forward",
+  PF: "Power Forward",
+  C: "Center",
+  sixth_man: "6th Man",
+  defensive_specialist: "Defensive Specialist",
+  wildcard: "Wildcard",
+};
+
+export const ROLE_FIT_LABELS: Record<RoleFit, string> = {
+  primary: "Primary fit",
+  secondary: "Secondary fit",
+  off_position: "Off-position",
+  flexible: "",
 };

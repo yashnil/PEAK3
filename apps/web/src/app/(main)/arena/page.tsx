@@ -71,11 +71,12 @@ function ModeCard({ mode }: { mode: DraftMode }) {
 }
 
 export default async function ArenaPage() {
-  // CourtBuilder (Phase 5C prototype) is only linked from nav when the
-  // server reports it enabled -- never linked by default (ADR-005 Decision
-  // 7; PHASE_5_COURTBUILDER_VERTICAL_SLICE.md Sec 6 rollout boundaries).
-  // A fetch failure (e.g. API down) is treated as "not enabled" -- fail
-  // closed, never show a link to a mode that may not work.
+  // CourtBuilder (Phase 5C prototype) is only presented as the flagship
+  // when the server reports it enabled -- never assumed available
+  // (ADR-005 Decision 7; PHASE_5_COURTBUILDER_VERTICAL_SLICE.md Sec 6
+  // rollout boundaries). A fetch failure (e.g. API down) is treated as
+  // "not enabled" -- fail closed, never show a link to a mode that may
+  // not work.
   let courtBuilderEnabled = false;
   try {
     const readiness = await getCourtBuilderReadiness();
@@ -86,14 +87,46 @@ export default async function ArenaPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10">
+      {courtBuilderEnabled && (
+        <div
+          data-testid="courtbuilder-hero"
+          className="mb-8 rounded-2xl border p-6 flex flex-col gap-3"
+          style={{ background: "var(--bg-elevated)", borderColor: "var(--peak-accent, #f5c842)" }}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className="text-[10px] uppercase tracking-wide rounded px-2 py-0.5"
+              style={{ background: "var(--bg-surface)", color: "var(--peak-accent, #f5c842)", border: "1px solid var(--peak-accent, #f5c842)" }}
+            >
+              Flagship prototype
+            </span>
+          </div>
+          <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+            82-0 Peak Season
+          </h1>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            Spin a team and era, build a position-aware 5+3 roster from
+            exact NBA peak windows, and chase a perfect season. Exact
+            ratings stay hidden until the final reveal.
+          </p>
+          <Link
+            href="/arena/court/practice/apex_1y"
+            className="self-start px-5 py-2.5 rounded-lg text-sm font-semibold"
+            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+          >
+            Build a Perfect Season
+          </Link>
+        </div>
+      )}
+
       <div className="mb-8">
-        <h1
-          className="text-3xl font-bold"
+        <h2
+          className="text-xl font-bold"
           style={{ color: "var(--text-primary)" }}
         >
-          Peak Draft Arena
-        </h1>
-        <p className="mt-2 text-base" style={{ color: "var(--text-secondary)" }}>
+          Peak Draft (Legacy / Labs)
+        </h2>
+        <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
           Build a 5-player lineup from NBA peak windows. 5 rounds. 3 offers each.
           Use Hold to bank a card or Reframe to swap the entire round.
         </p>
@@ -136,36 +169,6 @@ export default async function ArenaPage() {
           View Ranked
         </Link>
       </div>
-
-      {courtBuilderEnabled && (
-        <div
-          data-testid="courtbuilder-nav-card"
-          className="mt-6 rounded-2xl border p-5 flex items-center justify-between gap-4"
-          style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
-        >
-          <div>
-            <div className="font-bold text-base flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
-              82-0 Peak Season
-              <span
-                className="text-[10px] uppercase tracking-wide rounded px-2 py-0.5"
-                style={{ background: "var(--bg-surface)", color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
-              >
-                Prototype
-              </span>
-            </div>
-            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-              Spin a team and era, build a 5+3 roster, and try to go 82-0. Early vertical-slice prototype.
-            </div>
-          </div>
-          <Link
-            href="/arena/court/practice/apex_1y"
-            className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold"
-            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-          >
-            Try It
-          </Link>
-        </div>
-      )}
 
       <div className="mt-10 text-xs" style={{ color: "var(--text-muted)" }}>
         <p>

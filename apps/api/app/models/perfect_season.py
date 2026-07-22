@@ -25,7 +25,7 @@ class SelectPlayerRequest(BaseModel):
 
 class PlaceCardRequest(BaseModel):
     game_id: str
-    slot_type: str = Field(..., description="e.g. starter_1..starter_5, bench_1..bench_3")
+    slot_type: str = Field(..., description="PG | SG | SF | PF | C | sixth_man | defensive_specialist | wildcard")
     idempotency_key: Optional[str] = Field(None)
 
 
@@ -57,6 +57,14 @@ class CourtSlotPublic(BaseModel):
     peak_window_id: Optional[str] = None
     player_name: Optional[str] = None
     anchor_season: Optional[str] = None
+    # "primary" | "secondary" | "off_position" | "flexible" -- display-only
+    # position/role fit note (nba_peak.perfect_season.positions.classify_fit),
+    # set once the slot is filled; never gates placement legality.
+    role_fit: Optional[str] = None
+    # Withheld until the roster is fully locked and simulated (status ==
+    # "result_ready") -- see app/services/perfect_season/state.py::
+    # get_public_state's "Deferred reveal" docstring. Always None before
+    # that, even for an already-filled slot.
     individual_peak_score: Optional[float] = None
     individual_peak_rank: Optional[int] = None
     resolved_via_spin_id: Optional[str] = None
