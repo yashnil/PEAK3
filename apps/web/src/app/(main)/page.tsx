@@ -30,7 +30,7 @@ export default function HomePage() {
           {/* CTAs */}
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link
-              href="/play/daily"
+              href="/arena/daily"
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--peak-accent)] px-6 py-3 font-semibold text-[var(--text-inverse)] transition-all hover:bg-[var(--peak-accent-dim)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
             >
               Play today&apos;s challenge
@@ -110,7 +110,7 @@ export default function HomePage() {
               icon={<Trophy size={22} className="text-[var(--peak-accent)]" />}
               title="Daily Challenge"
               description="10 duels. One shot. A new challenge every day. Track your streak and compete against yesterday's score."
-              href="/play/daily"
+              href="/arena/daily"
               cta="Play today"
             />
             <FeatureCard
@@ -172,7 +172,7 @@ export default function HomePage() {
           </div>
           <Link
             href="/methodology"
-            className="mt-8 inline-flex items-center gap-2 text-sm text-[var(--peak-accent)] hover:underline"
+            className="mt-8 inline-flex items-center gap-2 text-sm text-[var(--peak-accent)] underline"
           >
             Explore the full methodology
             <ArrowRight size={14} />
@@ -205,7 +205,7 @@ function FeatureCard({
       </p>
       <Link
         href={href}
-        className="mt-6 text-sm font-medium text-[var(--peak-accent)] hover:underline inline-flex items-center gap-1"
+        className="mt-6 text-sm font-medium text-[var(--peak-accent)] underline inline-flex items-center gap-1"
       >
         {cta} <ArrowRight size={13} />
       </Link>

@@ -50,7 +50,7 @@ export default async function PlayerPage({ params }: Props) {
           </p>
           <Link
             href="/rankings"
-            className="inline-flex items-center gap-2 text-sm text-[var(--peak-accent)] hover:underline"
+            className="inline-flex items-center gap-2 text-sm text-[var(--peak-accent)] underline"
           >
             <ArrowLeft size={14} /> Back to rankings
           </Link>
@@ -169,7 +169,7 @@ export default async function PlayerPage({ params }: Props) {
                 <div className="pt-2 border-t border-[var(--border-subtle)]">
                   <Link
                     href={`/rankings?years=${d}`}
-                    className="text-xs text-[var(--peak-accent)] hover:underline"
+                    className="text-xs text-[var(--peak-accent)] underline"
                   >
                     View {d}-year leaderboard →
                   </Link>
@@ -181,7 +181,7 @@ export default async function PlayerPage({ params }: Props) {
 
         <p className="text-xs text-[var(--text-muted)]">
           Rankings reflect the PEAK3 formula. Not a claim of objective historical truth.{" "}
-          <Link href="/methodology" className="text-[var(--peak-accent)] hover:underline">
+          <Link href="/methodology" className="text-[var(--peak-accent)] underline">
             Methodology
           </Link>
         </p>

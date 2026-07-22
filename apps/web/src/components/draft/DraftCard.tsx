@@ -16,6 +16,7 @@ interface Props {
   onClick?: () => void;
   showRole?: DraftRole | null;
   compact?: boolean;
+  eligible?: boolean;
 }
 
 export default function DraftCard({
@@ -25,6 +26,7 @@ export default function DraftCard({
   onClick,
   showRole,
   compact = false,
+  eligible,
 }: Props) {
   const primaryRole = showRole ?? card.primary_role;
   const roleColor = primaryRole ? ROLE_COLORS[primaryRole] : "#8c8fa8";
@@ -39,6 +41,8 @@ export default function DraftCard({
 
   return (
     <button
+      data-testid="offer-card"
+      data-eligible={eligible !== false ? "true" : "false"}
       onClick={onClick}
       disabled={!onClick}
       aria-pressed={selected}

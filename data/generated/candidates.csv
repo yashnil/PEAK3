@@ -1,0 +1,275 @@
+player,player_id,career_start,career_end,mandatory_all_nba_qualifier,all_nba_selections,mvp_top5_count,finals_mvp_qualifier,dpoy_qualifier,all_defense_qualifier,statistical_qualifier,defensive_safeguard,user_qualifier,candidate_tier,selection_reasons,preliminary_best_window,raw_preliminary_peak_score,workload_adjusted_peak_score,context_status
+Nikola Jokic,nikola-jokic,2016,2026,True,8,7,False,False,False,True,False,False,1,8x All-NBA; 3x MVP; top statistical peak,2022-23 to 2024-25,95.42,95.42,PENDING
+Michael Jordan,michael-jordan,1985,2003,True,11,10,False,True,True,True,True,False,1,11x All-NBA; 5x MVP; DPOY; 9x All-Def 1st; top statistical peak,1987-88 to 1989-90,93.58,93.58,PENDING
+LeBron James,lebron-james,2004,2026,True,21,14,False,True,True,True,True,False,1,21x All-NBA; 4x MVP; multi DPOY top-5; 5x All-Def 1st; top statistical peak,2007-08 to 2009-10,93.1,93.1,PENDING
+James Harden,james-harden,2010,2026,True,8,6,False,False,False,True,False,False,1,8x All-NBA; 1x MVP; top statistical peak,2016-17 to 2018-19,90.83,90.83,PENDING
+Magic Johnson,magic-johnson,1980,1991,True,10,9,False,False,False,True,False,False,1,10x All-NBA; 3x MVP; top statistical peak,1988-89 to 1990-91,90.74,90.74,PENDING
+Stephen Curry,stephen-curry,2010,2026,True,11,4,False,False,False,True,False,False,1,11x All-NBA; 2x MVP; top statistical peak,2014-15 to 2016-17,90.3,90.3,PENDING
+Giannis Antetokounmpo,giannis-antetokounmpo,2014,2026,True,9,7,False,True,True,True,True,False,1,9x All-NBA; 2x MVP; DPOY; 4x All-Def 1st; top statistical peak,2018-19 to 2020-21,88.88,88.88,PENDING
+Shai Gilgeous-Alexander,shai-gilgeous-alexander,2019,2026,True,4,4,False,False,False,True,False,False,1,4x All-NBA; 2x MVP; top statistical peak,2023-24 to 2025-26,88.57,88.57,PENDING
+Russell Westbrook,russell-westbrook,2009,2026,True,9,4,False,False,False,True,False,False,1,9x All-NBA; 1x MVP; top statistical peak,2015-16 to 2017-18,88.41,88.41,PENDING
+David Robinson,david-robinson,1990,2003,True,10,5,False,True,True,True,True,False,1,10x All-NBA; 1x MVP; DPOY; 4x All-Def 1st; top statistical peak,1993-94 to 1995-96,88.29,88.29,PENDING
+Shaquille O'Neal,shaquille-o-neal,1993,2010,True,14,8,False,False,False,True,True,False,1,14x All-NBA; 1x MVP; top statistical peak,1999-00 to 2001-02,88.14,88.14,PENDING
+Chris Paul,chris-paul,2006,2025,True,11,5,False,False,True,True,True,False,1,11x All-NBA; 5x MVP top-5; 7x All-Def 1st; top statistical peak,2012-13 to 2014-15,87.99,87.99,PENDING
+John Stockton,john-stockton,1985,2003,True,11,0,False,False,False,True,True,False,1,11x All-NBA; top statistical peak,1987-88 to 1989-90,87.89,87.89,PENDING
+Tim Duncan,tim-duncan,1998,2016,True,15,9,False,True,True,True,True,False,1,15x All-NBA; 2x MVP; multi DPOY top-5; 8x All-Def 1st; top statistical peak,2001-02 to 2003-04,87.78,87.78,PENDING
+Kevin Garnett,kevin-garnett,1996,2014,True,9,5,False,True,True,True,True,False,1,9x All-NBA; 1x MVP; DPOY; 9x All-Def 1st; top statistical peak,2002-03 to 2004-05,87.67,87.67,PENDING
+Kevin Durant,kevin-durant,2008,2026,True,12,6,False,False,False,True,False,False,1,12x All-NBA; 1x MVP; top statistical peak,2011-12 to 2013-14,87.45,87.45,PENDING
+Hakeem Olajuwon,hakeem-olajuwon,1985,2002,True,12,6,False,True,True,True,True,False,1,12x All-NBA; 1x MVP; DPOY; 5x All-Def 1st; top statistical peak,1992-93 to 1994-95,87.11,87.11,PENDING
+Larry Bird,larry-bird,1980,1992,True,10,9,False,False,False,True,True,False,1,10x All-NBA; 3x MVP; top statistical peak,1985-86 to 1987-88,86.36,86.36,PENDING
+Dwight Howard,dwight-howard,2005,2021,True,8,4,False,True,True,True,True,False,1,8x All-NBA; 4x MVP top-5; DPOY; 4x All-Def 1st; top statistical peak,2008-09 to 2010-11,86.05,86.05,PENDING
+Dwyane Wade,dwyane-wade,2004,2019,True,8,2,False,False,False,True,True,False,1,8x All-NBA; 2x MVP top-5; top statistical peak,2008-09 to 2010-11,85.87,85.87,PENDING
+Charles Barkley,charles-barkley,1985,1999,True,11,4,False,False,False,True,False,False,1,11x All-NBA; 1x MVP; top statistical peak,1988-89 to 1990-91,85.12,85.12,PENDING
+Karl Malone,karl-malone,1986,2004,True,14,9,False,False,True,True,True,False,1,14x All-NBA; 2x MVP; 3x All-Def 1st; top statistical peak,1995-96 to 1997-98,84.7,84.7,PENDING
+Steve Nash,steve-nash,1998,2013,True,7,3,False,False,False,True,False,False,1,7x All-NBA; 2x MVP; top statistical peak,2004-05 to 2006-07,84.16,84.16,PENDING
+Luka Doncic,luka-doncic,2019,2026,True,6,4,False,False,False,True,False,False,1,6x All-NBA; 4x MVP top-5; top statistical peak,2021-22 to 2023-24,83.85,83.85,PENDING
+Joel Embiid,joel-embiid,2018,2026,True,5,3,False,True,False,True,True,False,1,5x All-NBA; 1x MVP; multi DPOY top-5; top statistical peak,2020-21 to 2022-23,82.41,82.41,PENDING
+Moses Malone,moses-malone,1980,1992,True,7,4,False,False,False,True,True,False,1,7x All-NBA; 2x MVP; top statistical peak,1980-81 to 1982-83,82.09,82.09,PENDING
+Chauncey Billups,chauncey-billups,1998,2011,True,3,1,False,False,False,True,True,False,1,3x All-NBA; 1x MVP top-5; top statistical peak,2005-06 to 2007-08,81.81,81.81,PENDING
+Dirk Nowitzki,dirk-nowitzki,1999,2018,True,12,3,False,False,False,True,False,False,1,12x All-NBA; 1x MVP; top statistical peak,2004-05 to 2006-07,81.43,81.43,PENDING
+Kevin Johnson,kevin-johnson,1988,1998,True,5,0,False,False,False,True,False,False,1,5x All-NBA; top statistical peak,1988-89 to 1990-91,80.92,80.92,PENDING
+Kawhi Leonard,kawhi-leonard,2012,2026,True,7,3,False,True,True,True,True,False,1,7x All-NBA; 3x MVP top-5; DPOY; 3x All-Def 1st; top statistical peak,2014-15 to 2016-17,80.69,80.69,PENDING
+Julius Erving,julius-erving,1980,1987,True,5,4,False,False,False,True,False,False,1,5x All-NBA; 1x MVP; top statistical peak,1979-80 to 1981-82,80.68,80.68,PENDING
+Damian Lillard,damian-lillard,2013,2025,True,7,1,False,False,False,True,False,False,1,7x All-NBA; 1x MVP top-5; top statistical peak,2018-19 to 2020-21,80.53,80.53,PENDING
+Anthony Davis,anthony-davis,2013,2025,True,5,2,False,True,True,True,True,False,1,5x All-NBA; 2x MVP top-5; multi DPOY top-5; 3x All-Def 1st; top statistical peak,2017-18 to 2019-20,80.43,80.43,PENDING
+Kareem Abdul-Jabbar,kareem-abdul-jabbar,1980,1989,True,6,5,False,False,True,True,True,False,1,6x All-NBA; 1x MVP; 2x All-Def 1st; top statistical peak,1979-80 to 1981-82,80.39,80.39,PENDING
+Deron Williams,deron-williams,2006,2017,True,2,0,False,False,False,True,False,False,1,2x All-NBA; top statistical peak,2007-08 to 2009-10,80.08,80.08,PENDING
+Isiah Thomas,isiah-thomas,1982,1994,True,5,1,False,False,False,True,False,False,1,5x All-NBA; 1x MVP top-5; top statistical peak,1983-84 to 1985-86,79.87,79.87,PENDING
+Kobe Bryant,kobe-bryant,1997,2016,True,15,11,False,True,True,True,True,False,1,15x All-NBA; 1x MVP; multi DPOY top-5; 9x All-Def 1st; top statistical peak,2006-07 to 2008-09,79.59,79.59,PENDING
+Gary Payton,gary-payton,1991,2007,True,9,1,False,True,True,True,True,False,1,9x All-NBA; 1x MVP top-5; DPOY; 9x All-Def 1st; top statistical peak,1995-96 to 1997-98,79.36,79.36,PENDING
+Jason Kidd,jason-kidd,1995,2013,True,6,2,False,False,True,True,True,False,1,6x All-NBA; 2x MVP top-5; 4x All-Def 1st; top statistical peak,2000-01 to 2002-03,79.09,79.09,PENDING
+Rudy Gobert,rudy-gobert,2015,2026,True,4,0,False,True,True,True,True,False,1,4x All-NBA; DPOY; 8x All-Def 1st; top statistical peak,2018-19 to 2020-21,79.02,79.02,PENDING
+Patrick Ewing,patrick-ewing,1986,2001,True,7,6,False,True,False,True,True,False,1,7x All-NBA; 6x MVP top-5; multi DPOY top-5; top statistical peak,1991-92 to 1993-94,78.92,78.92,PENDING
+Tracy McGrady,tracy-mcgrady,1998,2012,True,7,2,False,False,False,True,False,False,1,7x All-NBA; 2x MVP top-5; top statistical peak,2000-01 to 2002-03,78.36,78.36,PENDING
+Domantas Sabonis,domantas-sabonis,2017,2025,True,2,0,False,False,False,True,False,False,1,2x All-NBA; top statistical peak,2022-23 to 2024-25,78.08,78.08,PENDING
+Clyde Drexler,clyde-drexler,1984,1998,True,5,2,False,False,False,True,False,False,1,5x All-NBA; 2x MVP top-5; top statistical peak,1989-90 to 1991-92,77.97,77.97,PENDING
+Scottie Pippen,scottie-pippen,1988,2003,True,7,2,False,True,True,True,True,False,1,7x All-NBA; 2x MVP top-5; multi DPOY top-5; 8x All-Def 1st; top statistical peak,1993-94 to 1995-96,77.92,77.92,PENDING
+Ben Wallace,ben-wallace,1998,2012,True,5,0,False,True,True,True,True,False,1,5x All-NBA; DPOY; 5x All-Def 1st; top statistical peak,2001-02 to 2003-04,77.53,77.53,PENDING
+Draymond Green,draymond-green,2013,2026,True,2,0,False,True,True,True,True,False,1,2x All-NBA; DPOY; 5x All-Def 1st; top statistical peak,2015-16 to 2017-18,76.93,76.93,PENDING
+Tyrese Haliburton,tyrese-haliburton,2021,2025,True,2,0,False,False,False,True,False,False,1,2x All-NBA; top statistical peak,2022-23 to 2024-25,76.89,76.89,PENDING
+Anfernee Hardaway,anfernee-hardaway,1994,2004,True,3,1,False,False,False,True,False,False,1,3x All-NBA; 1x MVP top-5; top statistical peak,1994-95 to 1996-97,76.68,76.68,PENDING
+Grant Hill,grant-hill,1995,2012,True,5,1,False,False,False,True,False,False,1,5x All-NBA; 1x MVP top-5; top statistical peak,1995-96 to 1997-98,76.52,76.52,PENDING
+Tim Hardaway,tim-hardaway,1990,2002,True,5,1,False,False,False,True,False,False,1,5x All-NBA; 1x MVP top-5; top statistical peak,1995-96 to 1997-98,76.38,76.38,PENDING
+DeAndre Jordan,deandre-jordan,2010,2021,True,3,0,False,True,True,True,True,False,1,3x All-NBA; multi DPOY top-5; 2x All-Def 1st; top statistical peak,2014-15 to 2016-17,75.97,75.97,PENDING
+Trae Young,trae-young,2019,2025,True,1,0,False,False,False,True,False,False,1,1x All-NBA; top statistical peak,2020-21 to 2022-23,75.84,75.84,PENDING
+John Wall,john-wall,2011,2021,True,1,0,False,False,False,True,True,False,1,1x All-NBA; top statistical peak,2014-15 to 2016-17,75.75,75.75,PENDING
+Shawn Kemp,shawn-kemp,1990,2003,True,3,0,False,False,False,True,False,False,1,3x All-NBA; top statistical peak,1993-94 to 1995-96,75.74,75.74,PENDING
+Rajon Rondo,rajon-rondo,2007,2020,True,1,0,False,True,True,True,True,False,1,1x All-NBA; multi DPOY top-5; 2x All-Def 1st; top statistical peak,2008-09 to 2010-11,75.72,75.72,PENDING
+Karl-Anthony Towns,karl-anthony-towns,2016,2026,True,3,0,False,False,False,True,False,False,1,3x All-NBA; top statistical peak,2016-17 to 2018-19,75.4,75.4,PENDING
+Mark Price,mark-price,1987,1998,True,4,0,False,False,False,True,False,False,1,4x All-NBA; top statistical peak,1991-92 to 1993-94,75.09,75.09,PENDING
+Manu Ginobili,manu-ginobili,2003,2018,True,2,0,False,False,False,True,False,False,1,2x All-NBA; top statistical peak,2004-05 to 2006-07,75.06,75.06,PENDING
+Maurice Cheeks,maurice-cheeks,1980,1992,False,0,0,False,True,True,True,True,False,1,multi DPOY top-5; 4x All-Def 1st; top statistical peak,1980-81 to 1982-83,74.99,74.99,PENDING
+Pau Gasol,pau-gasol,2002,2018,True,4,0,False,False,False,True,False,False,1,4x All-NBA; top statistical peak,2008-09 to 2010-11,74.71,74.71,PENDING
+Jayson Tatum,jayson-tatum,2018,2025,True,5,2,False,False,False,True,False,False,1,5x All-NBA; 2x MVP top-5; top statistical peak,2022-23 to 2024-25,74.61,74.61,PENDING
+Kyle Lowry,kyle-lowry,2008,2024,True,1,0,False,False,False,True,False,False,1,1x All-NBA; top statistical peak,2015-16 to 2017-18,74.52,74.52,PENDING
+Mookie Blaylock,mookie-blaylock,1990,2001,False,0,0,False,True,True,True,True,False,1,multi DPOY top-5; 2x All-Def 1st; top statistical peak,1993-94 to 1995-96,74.5,74.5,PENDING
+Shawn Marion,shawn-marion,2000,2015,True,2,0,False,True,False,True,True,False,1,2x All-NBA; multi DPOY top-5; top statistical peak,2004-05 to 2006-07,74.39,74.39,PENDING
+Jalen Brunson,jalen-brunson,2019,2026,True,3,1,False,False,False,True,False,False,1,3x All-NBA; 1x MVP top-5; top statistical peak,2023-24 to 2025-26,74.31,74.31,PENDING
+Alonzo Mourning,alonzo-mourning,1993,2007,True,2,2,False,True,True,True,True,False,1,2x All-NBA; 2x MVP top-5; DPOY; 2x All-Def 1st; top statistical peak,1997-98 to 1999-00,74.28,74.28,PENDING
+Jimmy Butler,jimmy-butler,2013,2026,True,5,0,False,False,False,True,True,False,1,5x All-NBA; top statistical peak,2020-21 to 2022-23,73.73,73.73,PENDING
+Kevin McHale,kevin-mchale,1981,1993,True,1,1,False,False,True,True,True,False,1,1x All-NBA; 1x MVP top-5; 3x All-Def 1st; top statistical peak,1985-86 to 1987-88,73.65,73.65,PENDING
+Gilbert Arenas,gilbert-arenas,2002,2011,True,3,0,False,False,False,True,False,False,1,3x All-NBA; top statistical peak,2004-05 to 2006-07,73.53,73.53,PENDING
+Ben Simmons,ben-simmons,2018,2025,True,1,0,False,True,True,True,True,False,1,1x All-NBA; multi DPOY top-5; 2x All-Def 1st; top statistical peak,2017-18 to 2019-20,73.46,73.46,PENDING
+Robert Parish,robert-parish,1980,1996,True,2,1,False,False,False,True,False,False,1,2x All-NBA; 1x MVP top-5; top statistical peak,1980-81 to 1982-83,73.45,73.45,PENDING
+Paul Pierce,paul-pierce,1999,2016,True,4,0,False,False,False,True,False,False,1,4x All-NBA; top statistical peak,2000-01 to 2002-03,73.41,73.41,PENDING
+Victor Wembanyama,victor-wembanyama,2024,2026,True,1,1,False,True,True,True,True,False,1,1x All-NBA; 1x MVP top-5; DPOY; 2x All-Def 1st; top statistical peak,2023-24 to 2025-26,74.89,73.39,PENDING
+Dikembe Mutombo,dikembe-mutombo,1992,2007,True,3,0,False,True,True,True,True,False,1,3x All-NBA; DPOY; 3x All-Def 1st; top statistical peak,1996-97 to 1998-99,73.1,73.1,PENDING
+Gus Williams,gus-williams,1980,1986,True,2,1,False,False,False,True,False,False,1,2x All-NBA; 1x MVP top-5; top statistical peak,1981-82 to 1983-84,72.59,72.59,PENDING
+Blake Griffin,blake-griffin,2011,2021,True,5,1,False,False,False,True,False,False,1,5x All-NBA; 1x MVP top-5; top statistical peak,2011-12 to 2013-14,72.48,72.48,PENDING
+Reggie Miller,reggie-miller,1988,2005,True,3,0,False,False,False,True,False,False,1,3x All-NBA; top statistical peak,1992-93 to 1994-95,72.19,72.19,PENDING
+Stephon Marbury,stephon-marbury,1997,2007,True,2,0,False,False,False,True,False,False,1,2x All-NBA; top statistical peak,2002-03 to 2004-05,71.93,71.93,PENDING
+Rod Strickland,rod-strickland,1989,2004,True,1,0,False,False,False,True,False,False,1,1x All-NBA; top statistical peak,1993-94 to 1995-96,71.82,71.82,PENDING
+Isaiah Thomas,isaiah-thomas,2012,2020,True,1,1,False,False,False,True,False,False,1,1x All-NBA; 1x MVP top-5; top statistical peak,2014-15 to 2016-17,71.8,71.8,PENDING
+Allen Iverson,allen-iverson,1997,2009,True,7,3,False,False,False,True,False,False,1,7x All-NBA; 1x MVP; top statistical peak,2000-01 to 2002-03,71.66,71.66,PENDING
+Derrick Rose,derrick-rose,2009,2021,True,1,1,False,False,False,True,False,False,1,1x All-NBA; 1x MVP; top statistical peak,2009-10 to 2011-12,71.35,71.35,PENDING
+Brad Daugherty,brad-daugherty,1987,1994,True,1,0,False,False,False,True,False,False,1,1x All-NBA; top statistical peak,1990-91 to 1992-93,71.34,71.34,PENDING
+Vince Carter,vince-carter,1999,2019,True,2,0,False,False,False,True,False,False,1,2x All-NBA; top statistical peak,2004-05 to 2006-07,71.25,71.25,PENDING
+Joakim Noah,joakim-noah,2008,2017,True,1,1,False,True,True,True,True,False,1,1x All-NBA; 1x MVP top-5; DPOY; 2x All-Def 1st; top statistical peak,2011-12 to 2013-14,70.96,70.96,PENDING
+Baron Davis,baron-davis,2000,2011,True,1,0,False,False,False,True,False,False,1,1x All-NBA; top statistical peak,2000-01 to 2002-03,70.9,70.9,PENDING
+Sam Cassell,sam-cassell,1994,2008,True,1,0,False,False,False,True,False,False,1,1x All-NBA; top statistical peak,2001-02 to 2003-04,70.89,70.89,PENDING
+Adrian Dantley,adrian-dantley,1980,1990,True,2,0,False,False,False,True,False,False,1,2x All-NBA; top statistical peak,1983-84 to 1985-86,70.72,70.72,PENDING
+Ray Allen,ray-allen,1997,2014,True,2,0,False,False,False,True,False,False,1,2x All-NBA; top statistical peak,1999-00 to 2001-02,70.53,70.53,PENDING
+Fat Lever,fat-lever,1983,1994,True,1,0,False,False,False,True,True,False,1,1x All-NBA; top statistical peak,1986-87 to 1988-89,70.48,70.48,PENDING
+Tony Parker,tony-parker,2002,2019,True,4,1,False,False,False,True,False,False,1,4x All-NBA; 1x MVP top-5; top statistical peak,2010-11 to 2012-13,70.42,70.42,PENDING
+Hassan Whiteside,hassan-whiteside,2015,2022,False,0,0,False,True,False,True,True,False,1,multi DPOY top-5; top statistical peak,2015-16 to 2017-18,70.33,70.33,PENDING
+Chris Webber,chris-webber,1994,2007,True,5,1,False,False,False,True,False,False,1,5x All-NBA; 1x MVP top-5; top statistical peak,1999-00 to 2001-02,70.28,70.28,PENDING
+Elton Brand,elton-brand,2000,2014,True,1,0,False,False,False,True,False,False,1,1x All-NBA; top statistical peak,2004-05 to 2006-07,70.2,70.2,PENDING
+Sidney Moncrief,sidney-moncrief,1980,1991,True,5,1,False,True,True,False,True,False,1,5x All-NBA; 1x MVP top-5; DPOY; 4x All-Def 1st,1982-83 to 1984-85,70.09,70.09,PENDING
+Bam Adebayo,bam-adebayo,2018,2026,False,0,0,False,True,False,False,True,False,1,multi DPOY top-5,2019-20 to 2021-22,70.03,70.03,PENDING
+Kevin Love,kevin-love,2009,2023,True,2,0,False,False,False,False,False,False,1,2x All-NBA,2013-14 to 2015-16,69.92,69.92,PENDING
+Paul Pressey,paul-pressey,1983,1991,False,0,0,False,False,True,False,True,False,1,2x All-Def 1st,1984-85 to 1986-87,69.9,69.9,PENDING
+Amar'e Stoudemire,amar-e-stoudemire,2003,2015,True,5,0,False,False,False,False,False,False,1,5x All-NBA,2006-07 to 2008-09,69.83,69.83,PENDING
+Chris Mullin,chris-mullin,1986,1999,True,4,0,False,False,False,False,False,False,1,4x All-NBA,1988-89 to 1990-91,69.81,69.81,PENDING
+Marcus Camby,marcus-camby,1997,2012,False,0,0,False,True,True,False,True,False,1,DPOY; 2x All-Def 1st,2005-06 to 2007-08,69.69,69.69,PENDING
+Yao Ming,yao-ming,2003,2009,True,5,0,False,False,False,False,False,False,1,5x All-NBA,2003-04 to 2005-06,69.53,69.53,PENDING
+Cade Cunningham,cade-cunningham,2022,2026,True,2,1,False,False,False,False,False,False,1,2x All-NBA; 1x MVP top-5,2023-24 to 2025-26,69.45,69.45,PENDING
+Kyrie Irving,kyrie-irving,2012,2025,True,3,0,False,False,False,False,False,False,1,3x All-NBA,2016-17 to 2018-19,69.24,69.24,PENDING
+Andre Drummond,andre-drummond,2013,2026,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2016-17 to 2018-19,69.02,69.02,PENDING
+Derrick Coleman,derrick-coleman,1991,2003,True,2,0,False,False,False,False,False,False,1,2x All-NBA,1991-92 to 1993-94,68.71,68.71,PENDING
+George Gervin,george-gervin,1980,1986,True,4,2,False,False,False,False,False,False,1,4x All-NBA; 2x MVP top-5,1979-80 to 1981-82,68.54,68.54,PENDING
+Alex English,alex-english,1980,1991,True,3,0,False,False,False,False,False,False,1,3x All-NBA,1982-83 to 1984-85,68.52,68.52,PENDING
+Carlos Boozer,carlos-boozer,2003,2015,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2006-07 to 2008-09,68.2,68.2,PENDING
+Anthony Edwards,anthony-edwards,2021,2026,True,2,0,False,False,False,False,False,False,1,2x All-NBA,2023-24 to 2025-26,68.17,68.17,PENDING
+Devin Booker,devin-booker,2016,2026,True,2,1,False,False,False,False,False,False,1,2x All-NBA; 1x MVP top-5,2021-22 to 2023-24,68.07,68.07,PENDING
+Donovan Mitchell,donovan-mitchell,2018,2026,True,3,1,False,False,False,False,False,False,1,3x All-NBA; 1x MVP top-5,2023-24 to 2025-26,68.06,68.06,PENDING
+Dominique Wilkins,dominique-wilkins,1983,1997,True,7,3,False,False,False,False,False,False,1,7x All-NBA; 3x MVP top-5,1985-86 to 1987-88,67.99,67.99,PENDING
+Paul George,paul-george,2011,2026,True,6,1,False,True,True,False,True,False,1,6x All-NBA; 1x MVP top-5; multi DPOY top-5; 2x All-Def 1st,2016-17 to 2018-19,67.7,67.7,PENDING
+Andrei Kirilenko,andrei-kirilenko,2002,2013,False,0,0,False,True,False,False,True,False,1,multi DPOY top-5,2002-03 to 2004-05,67.46,67.46,PENDING
+Marc Gasol,marc-gasol,2009,2021,True,2,0,False,True,False,False,True,False,1,2x All-NBA; DPOY,2012-13 to 2014-15,67.37,67.37,PENDING
+Evan Mobley,evan-mobley,2022,2026,True,1,0,False,True,True,False,True,False,1,1x All-NBA; DPOY; 2x All-Def 1st,2023-24 to 2025-26,67.03,67.03,PENDING
+Bernard King,bernard-king,1981,1991,True,4,1,False,False,False,False,False,False,1,4x All-NBA; 1x MVP top-5,1982-83 to 1984-85,66.59,66.59,PENDING
+DeMarcus Cousins,demarcus-cousins,2011,2018,True,2,0,False,False,False,False,False,False,1,2x All-NBA,2014-15 to 2016-17,66.54,66.54,PENDING
+Ja Morant,ja-morant,2020,2025,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2020-21 to 2022-23,66.53,66.53,PENDING
+Andrew Bynum,andrew-bynum,2007,2012,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2009-10 to 2011-12,67.59,66.09,PENDING
+Jermaine O'Neal,jermaine-o-neal,2001,2013,True,3,1,False,False,False,False,False,False,1,3x All-NBA; 1x MVP top-5,2001-02 to 2003-04,66.05,66.05,PENDING
+Peja Stojakovic,peja-stojakovic,1999,2010,True,1,1,False,False,False,False,False,False,1,1x All-NBA; 1x MVP top-5,2001-02 to 2003-04,65.76,65.76,PENDING
+LaMarcus Aldridge,lamarcus-aldridge,2007,2022,True,5,0,False,False,False,False,False,False,1,5x All-NBA,2013-14 to 2015-16,65.65,65.65,PENDING
+Jalen Duren,jalen-duren,2023,2026,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2023-24 to 2025-26,68.56,65.56,PENDING
+Brandon Roy,brandon-roy,2007,2011,True,2,0,False,False,False,False,False,False,1,2x All-NBA,2007-08 to 2009-10,65.51,65.51,PENDING
+Dennis Rodman,dennis-rodman,1987,1999,True,2,0,False,True,True,False,True,False,1,2x All-NBA; DPOY; 7x All-Def 1st,1989-90 to 1991-92,65.41,65.41,PENDING
+Terry Cummings,terry-cummings,1983,1999,True,2,1,False,False,False,False,False,False,1,2x All-NBA; 1x MVP top-5,1984-85 to 1986-87,65.31,65.31,PENDING
+Chris Bosh,chris-bosh,2004,2016,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2006-07 to 2008-09,65.08,65.08,PENDING
+Michael Ray Richardson,michael-ray-richardson,1980,1986,False,0,0,False,False,True,False,True,False,1,2x All-Def 1st,1979-80 to 1981-82,64.96,64.96,PENDING
+Detlef Schrempf,detlef-schrempf,1987,2000,True,1,0,False,False,False,False,False,False,1,1x All-NBA,1990-91 to 1992-93,64.82,64.82,PENDING
+Eddie Jones,eddie-jones,1995,2007,True,1,0,False,False,False,False,True,False,1,1x All-NBA,1997-98 to 1999-00,64.81,64.81,PENDING
+Al Horford,al-horford,2008,2025,True,1,0,False,False,False,False,True,False,1,1x All-NBA,2015-16 to 2017-18,64.69,64.69,PENDING
+Carmelo Anthony,carmelo-anthony,2004,2022,True,6,1,False,False,False,False,False,False,1,6x All-NBA; 1x MVP top-5,2011-12 to 2013-14,64.65,64.65,PENDING
+Marques Johnson,marques-johnson,1980,1986,True,2,0,False,False,False,False,False,False,1,2x All-NBA,1980-81 to 1982-83,64.61,64.61,PENDING
+Buck Williams,buck-williams,1982,1997,True,1,0,False,False,True,False,True,False,1,1x All-NBA; 2x All-Def 1st,1981-82 to 1983-84,64.47,64.47,PENDING
+Alvin Robertson,alvin-robertson,1985,1996,True,1,0,False,True,True,False,True,False,1,1x All-NBA; DPOY; 2x All-Def 1st,1985-86 to 1987-88,64.39,64.39,PENDING
+James Worthy,james-worthy,1983,1994,True,2,0,False,False,False,False,False,False,1,2x All-NBA,1987-88 to 1989-90,64.23,64.23,PENDING
+Anthony Mason,anthony-mason,1992,2003,True,1,0,False,False,False,False,True,False,1,1x All-NBA,1995-96 to 1997-98,64.02,64.02,PENDING
+Tyrese Maxey,tyrese-maxey,2021,2026,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2023-24 to 2025-26,63.97,63.97,PENDING
+Tyson Chandler,tyson-chandler,2002,2018,True,1,0,False,True,False,False,True,False,1,1x All-NBA; DPOY,2010-11 to 2012-13,63.97,63.97,PENDING
+Jamal Murray,jamal-murray,2017,2026,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2023-24 to 2025-26,63.84,63.84,PENDING
+DeMar DeRozan,demar-derozan,2010,2026,True,3,0,False,False,False,False,False,False,1,3x All-NBA,2016-17 to 2018-19,63.75,63.75,PENDING
+Andrew Bogut,andrew-bogut,2006,2016,True,1,0,False,False,False,False,True,False,1,1x All-NBA,2013-14 to 2015-16,63.54,63.54,PENDING
+Tiny Archibald,tiny-archibald,1980,1984,True,1,1,False,False,False,False,False,False,1,1x All-NBA; 1x MVP top-5,1979-80 to 1981-82,62.98,62.98,PENDING
+Kemba Walker,kemba-walker,2012,2021,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2015-16 to 2017-18,62.94,62.94,PENDING
+Bradley Beal,bradley-beal,2013,2025,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2016-17 to 2018-19,62.93,62.93,PENDING
+Dale Ellis,dale-ellis,1984,1999,True,1,0,False,False,False,False,False,False,1,1x All-NBA,1986-87 to 1988-89,62.89,62.89,PENDING
+Dan Roundfield,dan-roundfield,1980,1986,True,1,1,False,False,True,False,True,False,1,1x All-NBA; 1x MVP top-5; 3x All-Def 1st,1979-80 to 1981-82,62.81,62.81,PENDING
+Al Jefferson,al-jefferson,2005,2016,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2011-12 to 2013-14,62.65,62.65,PENDING
+Mitch Richmond,mitch-richmond,1989,2001,True,5,0,False,False,False,False,False,False,1,5x All-NBA,1995-96 to 1997-98,62.58,62.58,PENDING
+Zach Randolph,zach-randolph,2003,2018,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2008-09 to 2010-11,62.43,62.43,PENDING
+Serge Ibaka,serge-ibaka,2010,2021,False,0,0,False,True,True,False,True,False,1,multi DPOY top-5; 3x All-Def 1st,2011-12 to 2013-14,62.35,62.35,PENDING
+Jrue Holiday,jrue-holiday,2010,2026,False,0,0,False,False,True,False,True,False,1,3x All-Def 1st,2020-21 to 2022-23,62.3,62.3,PENDING
+Glen Rice,glen-rice,1990,2003,True,2,1,False,False,False,False,False,False,1,2x All-NBA; 1x MVP top-5,1995-96 to 1997-98,62.07,62.07,PENDING
+Kevin Willis,kevin-willis,1985,2001,True,1,0,False,False,False,False,False,False,1,1x All-NBA,1991-92 to 1993-94,61.99,61.99,PENDING
+Joe Dumars,joe-dumars,1986,1999,True,3,0,False,True,True,False,True,False,1,3x All-NBA; multi DPOY top-5; 4x All-Def 1st,1988-89 to 1990-91,61.92,61.92,PENDING
+Klay Thompson,klay-thompson,2012,2026,True,2,0,False,False,False,False,True,False,1,2x All-NBA,2014-15 to 2016-17,61.87,61.87,PENDING
+Tom Chambers,tom-chambers,1982,1995,True,2,0,False,False,False,False,False,False,1,2x All-NBA,1987-88 to 1989-90,61.85,61.85,PENDING
+Pascal Siakam,pascal-siakam,2018,2026,True,2,0,False,False,False,False,False,False,1,2x All-NBA,2021-22 to 2023-24,61.77,61.77,PENDING
+Julius Randle,julius-randle,2016,2026,True,2,0,False,False,False,False,False,False,1,2x All-NBA,2020-21 to 2022-23,61.74,61.74,PENDING
+Bobby Jones,bobby-jones,1980,1986,False,0,0,False,True,True,False,True,False,1,multi DPOY top-5; 5x All-Def 1st,1979-80 to 1981-82,64.6,61.6,PENDING
+Doug Christie,doug-christie,1994,2005,False,0,0,False,True,False,False,True,False,1,multi DPOY top-5,2000-01 to 2002-03,61.25,61.25,PENDING
+Joe Johnson,joe-johnson,2002,2018,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2007-08 to 2009-10,60.79,60.79,PENDING
+Michael Redd,michael-redd,2002,2009,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2003-04 to 2005-06,60.5,60.5,PENDING
+Metta World Peace,metta-world-peace,2000,2013,True,1,0,False,True,True,False,True,False,1,1x All-NBA; DPOY; 2x All-Def 1st,2001-02 to 2003-04,60.47,60.47,PENDING
+Michael Cooper,michael-cooper,1980,1990,False,0,0,False,True,True,False,True,False,1,DPOY; 5x All-Def 1st,1983-84 to 1985-86,60.13,60.13,PENDING
+Larry Johnson,larry-johnson,1992,2001,True,1,0,False,False,False,False,False,False,1,1x All-NBA,1992-93 to 1994-95,60.03,60.03,PENDING
+Jaylen Brown,jaylen-brown,2017,2026,True,2,0,False,False,False,False,False,False,1,2x All-NBA,2023-24 to 2025-26,59.74,59.74,PENDING
+David Lee,david-lee,2006,2017,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2007-08 to 2009-10,59.55,59.55,PENDING
+Ralph Sampson,ralph-sampson,1984,1989,True,1,0,False,False,False,False,False,False,1,1x All-NBA,1983-84 to 1985-86,59.45,59.45,PENDING
+Jim Paxson,jim-paxson,1980,1990,True,1,0,False,False,False,False,False,False,1,1x All-NBA,1981-82 to 1983-84,59.37,59.37,PENDING
+Jamal Mashburn,jamal-mashburn,1994,2003,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2000-01 to 2002-03,59.24,59.24,PENDING
+De'Aaron Fox,de-aaron-fox,2018,2026,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2022-23 to 2024-25,58.84,58.84,PENDING
+Goran Dragic,goran-dragic,2010,2021,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2011-12 to 2013-14,58.84,58.84,PENDING
+Vin Baker,vin-baker,1994,2004,True,2,0,False,False,False,False,False,False,1,2x All-NBA,1995-96 to 1997-98,58.53,58.53,PENDING
+Dennis Johnson,dennis-johnson,1980,1990,True,2,1,False,False,True,False,True,False,1,2x All-NBA; 1x MVP top-5; 5x All-Def 1st,1985-86 to 1987-88,58.16,58.16,PENDING
+Jalen Williams,jalen-williams,2023,2025,True,1,0,False,False,False,False,True,False,1,1x All-NBA,2022-23 to 2024-25,57.94,57.94,PENDING
+Antonio McDyess,antonio-mcdyess,1996,2011,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2006-07 to 2008-09,57.51,57.51,PENDING
+Mark Eaton,mark-eaton,1983,1993,False,0,0,False,True,True,False,True,False,1,DPOY; 3x All-Def 1st,1983-84 to 1985-86,57.01,57.01,PENDING
+Jalen Johnson,jalen-johnson,2023,2026,True,1,0,False,False,False,False,False,False,1,1x All-NBA,2023-24 to 2025-26,58.05,56.55,PENDING
+Victor Oladipo,victor-oladipo,2014,2023,True,1,0,False,False,False,False,True,False,1,1x All-NBA,2015-16 to 2017-18,56.35,56.35,PENDING
+Jaren Jackson Jr.,jaren-jackson-jr,2019,2026,False,0,0,False,True,True,False,True,False,1,DPOY; 2x All-Def 1st,2022-23 to 2024-25,55.12,55.12,PENDING
+Theo Ratliff,theo-ratliff,1996,2006,False,0,0,False,True,False,False,True,False,1,multi DPOY top-5,1998-99 to 2000-01,55.03,55.03,PENDING
+Shane Battier,shane-battier,2002,2014,False,0,0,False,True,False,False,True,False,1,multi DPOY top-5,2005-06 to 2007-08,54.68,54.68,PENDING
+Marcus Smart,marcus-smart,2015,2026,False,0,0,False,True,True,False,True,False,1,DPOY; 3x All-Def 1st,2020-21 to 2022-23,54.47,54.47,PENDING
+Caldwell Jones,caldwell-jones,1980,1989,False,0,0,False,False,True,False,True,False,1,2x All-Def 1st,1979-80 to 1981-82,53.95,53.95,PENDING
+Otis Birdsong,otis-birdsong,1980,1988,True,1,0,False,False,False,False,False,False,1,1x All-NBA,1979-80 to 1981-82,53.17,53.17,PENDING
+Latrell Sprewell,latrell-sprewell,1993,2005,True,1,0,False,False,False,False,True,False,1,1x All-NBA,1994-95 to 1996-97,52.48,52.48,PENDING
+Tony Allen,tony-allen,2005,2017,False,0,0,False,True,True,False,True,False,1,multi DPOY top-5; 3x All-Def 1st,2010-11 to 2012-13,55.41,50.91,PENDING
+Juwan Howard,juwan-howard,1995,2010,True,1,0,False,False,False,False,False,False,1,1x All-NBA,1995-96 to 1997-98,50.42,50.42,PENDING
+Drazen Petrovic,drazen-petrovic,1991,1993,True,1,0,False,False,False,False,False,False,1,1x All-NBA,1990-91 to 1992-93,51.66,50.16,PENDING
+Manute Bol,manute-bol,1986,1992,False,0,0,False,True,False,False,True,False,1,multi DPOY top-5,1985-86 to 1987-88,53.49,48.99,PENDING
+Bruce Bowen,bruce-bowen,1998,2009,False,0,0,False,True,True,False,True,False,1,multi DPOY top-5; 5x All-Def 1st,2003-04 to 2005-06,45.48,45.48,PENDING
+Chet Holmgren,chet-holmgren,2024,2026,True,1,0,False,False,False,False,True,False,1,1x All-NBA,,,,PENDING
+Paul Westphal,paul-westphal,1980,1983,True,1,0,False,False,False,False,False,False,1,1x All-NBA,,,,PENDING
+Terry Porter,terry-porter,1986,2002,False,0,0,False,False,False,True,False,False,2,top statistical peak,1989-90 to 1991-92,78.11,78.11,PENDING
+Doc Rivers,doc-rivers,1984,1996,False,0,0,False,False,False,True,False,False,2,top statistical peak,1986-87 to 1988-89,74.86,74.86,PENDING
+Artis Gilmore,artis-gilmore,1980,1987,False,0,0,False,False,False,True,False,False,2,top statistical peak,1980-81 to 1982-83,72.57,72.57,PENDING
+Johnny Moore,johnny-moore,1981,1987,False,0,0,False,False,False,True,False,False,2,top statistical peak,1982-83 to 1984-85,70.61,70.61,PENDING
+Jarrett Allen,jarrett-allen,2018,2026,False,0,0,False,False,False,True,False,False,2,top statistical peak,2023-24 to 2025-26,70.51,70.51,PENDING
+Jack Sikma,jack-sikma,1980,1991,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1981-82 to 1983-84,69.8,69.8,PENDING
+Horace Grant,horace-grant,1988,2004,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1991-92 to 1993-94,69.17,69.17,PENDING
+Mike Conley,mike-conley,2008,2025,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2011-12 to 2013-14,68.68,68.68,PENDING
+Derek Harper,derek-harper,1984,1999,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1985-86 to 1987-88,68.31,68.31,PENDING
+Josh Smith,josh-smith,2005,2015,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2009-10 to 2011-12,67.48,67.48,PENDING
+Paul Millsap,paul-millsap,2007,2021,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2013-14 to 2015-16,66.76,66.76,PENDING
+Nate McMillan,nate-mcmillan,1987,1996,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1992-93 to 1994-95,66.67,66.67,PENDING
+Micheal Williams,micheal-williams,1991,1994,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1990-91 to 1992-93,66.57,66.57,PENDING
+Larry Nance,larry-nance,1982,1993,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1990-91 to 1992-93,65.63,65.63,PENDING
+Kirk Hinrich,kirk-hinrich,2004,2015,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2004-05 to 2006-07,65.36,65.36,PENDING
+Ivica Zubac,ivica-zubac,2019,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2022-23 to 2024-25,66.63,65.13,PENDING
+Derrick White,derrick-white,2019,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2022-23 to 2024-25,63.81,63.81,PENDING
+Andre Iguodala,andre-iguodala,2005,2021,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2006-07 to 2008-09,63.11,63.11,PENDING
+Dejounte Murray,dejounte-murray,2018,2025,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2021-22 to 2023-24,61.63,61.63,PENDING
+Charles Oakley,charles-oakley,1986,2002,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1992-93 to 1994-95,61.52,61.52,PENDING
+Gerald Wallace,gerald-wallace,2005,2014,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2008-09 to 2010-11,61.28,61.28,PENDING
+Scottie Barnes,scottie-barnes,2022,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,61.09,61.09,PENDING
+Nerlens Noel,nerlens-noel,2015,2021,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2018-19 to 2020-21,62.19,60.69,PENDING
+John Starks,john-starks,1991,2001,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1992-93 to 1994-95,60.14,60.14,PENDING
+Amen Thompson,amen-thompson,2024,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,61.6,60.1,PENDING
+Eric Bledsoe,eric-bledsoe,2011,2022,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2016-17 to 2018-19,59.82,59.82,PENDING
+Roy Hibbert,roy-hibbert,2009,2016,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2010-11 to 2012-13,59.47,59.47,PENDING
+Tree Rollins,tree-rollins,1980,1988,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1979-80 to 1981-82,60.89,59.39,PENDING
+P.J. Brown,p-j-brown,1994,2007,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2000-01 to 2002-03,58.96,58.96,PENDING
+A.C. Green,a-c-green,1986,2001,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1986-87 to 1988-89,57.46,57.46,PENDING
+Eric Snow,eric-snow,1999,2007,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2000-01 to 2002-03,57.45,57.45,PENDING
+Bo Outlaw,bo-outlaw,1995,2004,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1998-99 to 2000-01,57.42,57.42,PENDING
+Rodney McCray,rodney-mccray,1984,1993,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1984-85 to 1986-87,57.35,57.35,PENDING
+Dan Majerle,dan-majerle,1989,2002,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1990-91 to 1992-93,56.42,56.42,PENDING
+Mikal Bridges,mikal-bridges,2019,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2020-21 to 2022-23,56.28,56.28,PENDING
+Eddie Johnson,eddie-johnson,1980,1998,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1979-80 to 1981-82,56.0,56.0,PENDING
+Myles Turner,myles-turner,2016,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2016-17 to 2018-19,55.75,55.75,PENDING
+Danny Green,danny-green,2012,2022,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2012-13 to 2014-15,56.85,55.35,PENDING
+Clifford Robinson,clifford-robinson,1990,2006,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1998-99 to 2000-01,55.09,55.09,PENDING
+Brook Lopez,brook-lopez,2009,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2014-15 to 2016-17,55.03,55.03,PENDING
+Luol Deng,luol-deng,2005,2017,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2005-06 to 2007-08,54.81,54.81,PENDING
+Alex Caruso,alex-caruso,2020,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,57.14,54.14,PENDING
+Derrick McKey,derrick-mckey,1988,1998,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1992-93 to 1994-95,54.04,54.04,PENDING
+Tayshaun Prince,tayshaun-prince,2004,2016,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2004-05 to 2006-07,53.95,53.95,PENDING
+Dyson Daniels,dyson-daniels,2023,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,55.33,53.83,PENDING
+OG Anunoby,og-anunoby,2018,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,53.5,53.5,PENDING
+Quinn Buckner,quinn-buckner,1980,1984,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1979-80 to 1981-82,54.73,53.23,PENDING
+Anderson Varejao,anderson-varejao,2007,2014,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2006-07 to 2008-09,54.44,52.94,PENDING
+Robert Covington,robert-covington,2015,2022,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2019-20 to 2021-22,52.49,52.49,PENDING
+Rick Mahorn,rick-mahorn,1982,1993,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1981-82 to 1983-84,52.41,52.41,PENDING
+Ausar Thompson,ausar-thompson,2024,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,56.19,51.69,PENDING
+Larry Hughes,larry-hughes,1999,2010,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2002-03 to 2004-05,50.7,50.7,PENDING
+George Johnson,george-johnson,1980,1984,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1979-80 to 1981-82,53.49,50.49,PENDING
+Cason Wallace,cason-wallace,2024,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,53.68,49.18,PENDING
+Herbert Jones,herbert-jones,2022,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2021-22 to 2023-24,49.07,49.07,PENDING
+Matisse Thybulle,matisse-thybulle,2020,2024,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2019-20 to 2021-22,53.46,48.96,PENDING
+Bobby Phills,bobby-phills,1994,1999,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1994-95 to 1996-97,48.77,48.77,PENDING
+Jaden McDaniels,jaden-mcdaniels,2021,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,48.54,48.54,PENDING
+Raja Bell,raja-bell,2003,2011,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2005-06 to 2007-08,48.14,48.14,PENDING
+Don Buse,don-buse,1980,1984,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1979-80 to 1981-82,49.08,47.58,PENDING
+T.R. Dunn,t-r-dunn,1980,1988,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1981-82 to 1983-84,46.83,46.83,PENDING
+Patrick Beverley,patrick-beverley,2014,2024,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2021-22 to 2023-24,47.03,45.53,PENDING
+Thabo Sefolosha,thabo-sefolosha,2008,2017,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2010-11 to 2012-13,48.33,45.33,PENDING
+Jalen Suggs,jalen-suggs,2022,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,49.63,45.13,PENDING
+Scott Wedman,scott-wedman,1980,1986,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1979-80 to 1981-82,46.24,44.74,PENDING
+Lonnie Shelton,lonnie-shelton,1980,1985,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1981-82 to 1983-84,44.23,44.23,PENDING
+Avery Bradley,avery-bradley,2012,2022,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2014-15 to 2016-17,43.1,43.1,PENDING
+Andre Roberson,andre-roberson,2015,2018,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2015-16 to 2017-18,44.73,41.73,PENDING
+Luguentz Dort,luguentz-dort,2021,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,41.35,41.35,PENDING
+Bill Hanzlik,bill-hanzlik,1981,1990,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1984-85 to 1986-87,44.62,40.12,PENDING
+Toumani Camara,toumani-camara,2024,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,41.21,39.71,PENDING
+Dillon Brooks,dillon-brooks,2018,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,2023-24 to 2025-26,39.6,39.6,PENDING
+Danny Vranes,danny-vranes,1982,1986,False,0,0,False,False,False,False,True,False,3,defensive safeguard,1981-82 to 1983-84,40.9,37.9,PENDING
+Dave Cowens,dave-cowens,1980,1983,False,0,0,False,False,False,False,True,False,3,defensive safeguard,,,,PENDING
+Dudley Bradley,dudley-bradley,1980,1988,False,0,0,False,False,False,False,True,False,3,defensive safeguard,,,,PENDING
+Kermit Washington,kermit-washington,1980,1981,False,0,0,False,False,False,False,True,False,3,defensive safeguard,,,,PENDING
+Robert Williams,robert-williams,2021,2026,False,0,0,False,False,False,False,True,False,3,defensive safeguard,,,,PENDING

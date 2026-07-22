@@ -101,6 +101,28 @@ export default function ArenaPage() {
         ))}
       </div>
 
+      {/* Ranked is a distinct, separately-labeled mode — not Daily, not Practice. */}
+      <div
+        className="mt-6 rounded-2xl border p-5 flex items-center justify-between gap-4"
+        style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
+      >
+        <div>
+          <div className="font-bold text-base" style={{ color: "var(--text-primary)" }}>
+            Ranked (closed alpha)
+          </div>
+          <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+            Play the same hidden board as a matched opponent. Independent per-queue rating.
+          </div>
+        </div>
+        <Link
+          href="/arena/ranked"
+          className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold"
+          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+        >
+          View Ranked
+        </Link>
+      </div>
+
       <div className="mt-10 text-xs" style={{ color: "var(--text-muted)" }}>
         <p>
           Card scores are the official individual PEAK3 scores — unchanged.

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { getMethodology } from "@/lib/api";
 import type { Methodology, MethodologyComponent } from "@/types";
-import { componentColor, cn } from "@/lib/utils";
+
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -71,7 +71,7 @@ export default function MethodologyPage() {
             Source:{" "}
             <a
               href="https://github.com"
-              className="text-[var(--peak-accent)] hover:underline"
+              className="text-[var(--peak-accent)] underline"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -108,7 +108,7 @@ export default function MethodologyPage() {
         {/* Formula bar */}
         <section aria-labelledby="formula-bar" aria-label="Component weight visualization">
           <h2 id="formula-bar" className="sr-only">Component weights</h2>
-          <div className="flex h-8 rounded-lg overflow-hidden" role="img" aria-label="Formula weight bars: 38% Statistical Impact, 21% Traditional Production, 20% Individual Recognition, 18% Postseason Value, 3% Team Achievement">
+          <div className="flex h-8 rounded-lg overflow-hidden" role="group" aria-label="Formula weight bars: 38% Statistical Impact, 21% Traditional Production, 20% Individual Recognition, 18% Postseason Value, 3% Team Achievement">
             {methodology.components.map((c) => (
               <button
                 key={c.id}

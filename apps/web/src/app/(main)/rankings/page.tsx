@@ -52,7 +52,7 @@ export default function RankingsPage() {
           <h1 className="font-display text-3xl font-bold">PEAK3 Rankings</h1>
           <p className="mt-1 text-sm text-[var(--text-secondary)]">
             Top 250 players by consecutive peak window.{" "}
-            <Link href="/methodology" className="text-[var(--peak-accent)] hover:underline">
+            <Link href="/methodology" className="text-[var(--peak-accent)] underline">
               Methodology →
             </Link>
           </p>
@@ -193,7 +193,7 @@ export default function RankingsPage() {
         {/* Disclaimer */}
         <p className="text-xs text-[var(--text-muted)] text-center">
           Rankings reflect the PEAK3 formula. They are not a claim of objective historical truth.{" "}
-          <Link href="/methodology" className="text-[var(--peak-accent)] hover:underline">
+          <Link href="/methodology" className="text-[var(--peak-accent)] underline">
             Learn about the methodology.
           </Link>
         </p>

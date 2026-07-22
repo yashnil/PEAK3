@@ -2,7 +2,7 @@
  * Client-side reducer for Peak Draft UI state.
  * Server is always authoritative — this reducer manages local UI phase only.
  */
-import { DraftUIState, DraftUIAction, DraftUIPhase, DraftRole, DraftGameState } from "@/types/draft";
+import { DraftUIState, DraftUIAction, DraftUIPhase, DraftRole } from "@/types/draft";
 
 export function createInitialDraftState(): DraftUIState {
   return {
