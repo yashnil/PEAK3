@@ -231,8 +231,10 @@ test.describe("Hold mechanic", () => {
     // Round 1: hold a card, then select another and confirm
     const card = page.locator('[data-testid="offer-card"][data-eligible="true"]:not([disabled])');
     await card.first().click();
-    await page.getByRole("button", { name: /^hold/i }).click();
-    await page.waitForResponse((r) => r.url().includes("/actions") && r.status() === 200);
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/actions") && r.status() === 200),
+      page.getByRole("button", { name: /^hold/i }).click(),
+    ]);
     // Now select a remaining card
     const remaining = page.locator('[data-testid="offer-card"][data-eligible="true"]:not([disabled])');
     await remaining.first().click();
