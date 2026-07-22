@@ -74,7 +74,7 @@ export default function DraftReceipt({ evaluation, onShare }: Props) {
   const ratingDisplay = Math.round(lineup_peak_rating * 10) / 10;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div data-testid="peak-receipt" className="flex flex-col gap-5">
       {/* Experimental disclaimer */}
       <div
         className="text-xs px-3 py-2 rounded-lg border"

@@ -12,8 +12,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import health, leaderboards, meta, methodology, players, game
 from app.api.v1 import draft
+from app.api.v1 import auth as auth_router
+from app.api.v1 import profiles as profiles_router
+from app.api.v1 import history as history_router
+from app.api.v1 import progression as progression_router
+from app.api.v1 import ranked as ranked_router
 from app.core.config import settings
 from app.core.dataset import dataset_store
+from app.core.repository_registry import (
+    assert_production_ready,
+    build_repository_registry,
+    log_repository_registry,
+)
 
 # Ensure repo root is on sys.path so `nba_peak` lineup package is importable
 _repo_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -33,7 +43,40 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except FileNotFoundError as exc:
         logger.warning("Dataset not available at startup: %s", exc)
         # API will start but readiness probe returns 503 until data is available.
+
+    # Initialize PostgreSQL connection pool if DATABASE_URL is configured
+    if settings.DATABASE_URL:
+        try:
+            from app.repositories.postgres import create_pool
+            app.state.db_pool = await create_pool(settings.DATABASE_URL)
+            logger.info("PostgreSQL connection pool initialized")
+        except Exception as exc:
+            logger.error("Failed to initialize database pool: %s", exc)
+            if not settings.DEBUG:
+                raise
+            app.state.db_pool = None
+    else:
+        app.state.db_pool = None
+        if not settings.DEBUG:
+            raise RuntimeError(
+                "DATABASE_URL is required in production. "
+                "Set PEAK3_DATABASE_URL."
+            )
+        logger.warning(
+            "DATABASE_URL not set — using in-memory repositories. "
+            "State will be lost on restart."
+        )
+
+    registry = build_repository_registry(app.state.db_pool is not None)
+    log_repository_registry(registry)
+    assert_production_ready(registry, settings.DEBUG)
+
     yield
+
+    if getattr(app.state, "db_pool", None) is not None:
+        await app.state.db_pool.close()
+        logger.info("PostgreSQL connection pool closed")
+
     logger.info("PEAK3 API shutting down")
 
 
@@ -67,3 +110,8 @@ app.include_router(methodology.router, prefix="/api/v1", tags=["methodology"])
 app.include_router(players.router, prefix="/api/v1", tags=["players"])
 app.include_router(game.router, prefix="/api/v1", tags=["game"])
 app.include_router(draft.router, prefix="/api/v1", tags=["draft"])
+app.include_router(auth_router.router, prefix="/api/v1", tags=["auth"])
+app.include_router(profiles_router.router, prefix="/api/v1", tags=["profiles"])
+app.include_router(history_router.router, prefix="/api/v1", tags=["history"])
+app.include_router(progression_router.router, prefix="/api/v1", tags=["progression"])
+app.include_router(ranked_router.router, prefix="/api/v1", tags=["ranked"])

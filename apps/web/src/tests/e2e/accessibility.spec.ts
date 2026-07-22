@@ -5,7 +5,7 @@
  * Requires real FastAPI (port 8000) and Next.js (port 3000) services.
  * Uses @axe-core/playwright for WCAG 2.1 AA checks.
  */
-import { test, expect } from "@playwright/test";
+import { test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 
 // ---------------------------------------------------------------------------

@@ -21,9 +21,9 @@ v1 changes vs v0:
 """
 from __future__ import annotations
 
-LINEUP_MODEL_VERSION = "experimental_lineup_v2"
-RULESET_VERSION = "ruleset_v2"
-CARD_PROFILE_VERSION = "v2"
+LINEUP_MODEL_VERSION = "experimental_lineup_v3"
+RULESET_VERSION = "ruleset_v3"
+CARD_PROFILE_VERSION = "v3"
 
 # ---------------------------------------------------------------------------
 # Lineup peak rating weights

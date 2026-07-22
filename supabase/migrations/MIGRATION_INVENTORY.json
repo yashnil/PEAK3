@@ -1,0 +1,1233 @@
+[
+  {
+    "filename": "20260630124500_identity.sql",
+    "identifier": "20260630124500_identity",
+    "tables_created": {
+      "profiles": [
+        "id",
+        "auth_sub",
+        "handle",
+        "display_name",
+        "bio",
+        "region",
+        "avatar_key",
+        "is_public",
+        "history_public",
+        "joined_at",
+        "updated_at"
+      ],
+      "user_settings": [
+        "profile_id",
+        "timezone",
+        "reduced_motion",
+        "updated_at"
+      ],
+      "anonymous_subjects": [
+        "id",
+        "sub_hash",
+        "created_at",
+        "consumed_at",
+        "linked_profile"
+      ],
+      "ownership_claims": [
+        "id",
+        "real_user_sub",
+        "anon_subject_id",
+        "claimed_at",
+        "game_count",
+        "completion_count",
+        "challenge_count"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "profiles_handle_lower_idx",
+        "table": "profiles"
+      }
+    ],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [
+      "pgcrypto"
+    ],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
+  },
+  {
+    "filename": "20260630124600_versioning.sql",
+    "identifier": "20260630124600_versioning",
+    "tables_created": {
+      "lineup_model_versions": [
+        "version",
+        "released_at",
+        "is_current",
+        "notes"
+      ],
+      "ruleset_versions": [
+        "version",
+        "released_at",
+        "is_current",
+        "notes"
+      ],
+      "card_pool_versions": [
+        "version",
+        "released_at",
+        "is_current",
+        "notes"
+      ]
+    },
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [
+      "card_pool_versions",
+      "lineup_model_versions",
+      "ruleset_versions"
+    ],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS"
+    ]
+  },
+  {
+    "filename": "20260630124700_game_records.sql",
+    "identifier": "20260630124700_game_records",
+    "tables_created": {
+      "board_snapshots": [
+        "id",
+        "board_id",
+        "board_type",
+        "mode",
+        "date",
+        "seed",
+        "lineup_model_version",
+        "ruleset_version",
+        "card_pool_version",
+        "board_generation_algorithm",
+        "generated_at",
+        "metadata"
+      ],
+      "games": [
+        "id",
+        "owner_sub",
+        "board_id",
+        "mode",
+        "board_type",
+        "status",
+        "payload",
+        "created_at",
+        "updated_at"
+      ],
+      "game_actions": [
+        "id",
+        "game_id",
+        "sequence_num",
+        "action_type",
+        "payload",
+        "idempotency_key",
+        "created_at"
+      ],
+      "result_snapshots": [
+        "id",
+        "owner_sub",
+        "game_id",
+        "board_id",
+        "board_type",
+        "mode",
+        "lineup_peak_rating",
+        "draft_efficiency",
+        "board_percentile",
+        "completed_at",
+        "payload"
+      ],
+      "daily_completions": [
+        "id",
+        "owner_sub",
+        "board_id",
+        "mode",
+        "date",
+        "game_id",
+        "lineup_peak_rating",
+        "draft_efficiency",
+        "board_percentile",
+        "hold_used",
+        "reframe_used",
+        "completed_at",
+        "result_snapshot"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "board_snapshots_board_id_idx",
+        "table": "board_snapshots"
+      },
+      {
+        "name": "games_owner_sub_idx",
+        "table": "games"
+      },
+      {
+        "name": "games_board_id_idx",
+        "table": "games"
+      },
+      {
+        "name": "game_actions_game_id_idx",
+        "table": "game_actions"
+      },
+      {
+        "name": "result_snapshots_owner_sub_idx",
+        "table": "result_snapshots"
+      },
+      {
+        "name": "result_snapshots_game_id_idx",
+        "table": "result_snapshots"
+      },
+      {
+        "name": "daily_completions_owner_sub_idx",
+        "table": "daily_completions"
+      }
+    ],
+    "constraints": [
+      "board_snapshots_daily_unique",
+      "daily_completions_unique",
+      "game_actions_idempotency_unique"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
+  },
+  {
+    "filename": "20260630124800_challenges.sql",
+    "identifier": "20260630124800_challenges",
+    "tables_created": {
+      "challenges": [
+        "id",
+        "token_hash",
+        "challenger_game_id",
+        "board_id",
+        "mode",
+        "board_type",
+        "duration_years",
+        "seed",
+        "date",
+        "created_at",
+        "expires_at",
+        "challenger_snapshot",
+        "anon_subject_id",
+        "settlement",
+        "settled_at"
+      ],
+      "challenge_participants": [
+        "id",
+        "challenge_id",
+        "participant_sub",
+        "game_id",
+        "joined_at"
+      ],
+      "challenge_settlements": [
+        "id",
+        "challenge_id",
+        "recipient_sub",
+        "outcome",
+        "settled_at",
+        "payload"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "challenges_board_id_idx",
+        "table": "challenges"
+      },
+      {
+        "name": "challenges_anon_subject_id_idx",
+        "table": "challenges"
+      },
+      {
+        "name": "challenge_participants_challenge_id_idx",
+        "table": "challenge_participants"
+      }
+    ],
+    "constraints": [
+      "challenge_settlements_unique"
+    ],
+    "functions": [
+      "challenge_participants_enforce_not_self"
+    ],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER"
+    ]
+  },
+  {
+    "filename": "20260630124900_rls.sql",
+    "identifier": "20260630124900_rls",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "anonymous_subjects",
+      "board_snapshots",
+      "challenge_participants",
+      "challenge_settlements",
+      "challenges",
+      "daily_completions",
+      "game_actions",
+      "games",
+      "ownership_claims",
+      "profiles",
+      "result_snapshots",
+      "user_settings"
+    ],
+    "policies": [
+      {
+        "name": "profiles_public_read",
+        "table": "profiles"
+      },
+      {
+        "name": "profiles_owner_all",
+        "table": "profiles"
+      },
+      {
+        "name": "user_settings_owner",
+        "table": "user_settings"
+      },
+      {
+        "name": "board_snapshots_public_meta",
+        "table": "board_snapshots"
+      },
+      {
+        "name": "games_owner",
+        "table": "games"
+      },
+      {
+        "name": "game_actions_deny_all",
+        "table": "game_actions"
+      },
+      {
+        "name": "result_snapshots_owner",
+        "table": "result_snapshots"
+      },
+      {
+        "name": "daily_completions_owner",
+        "table": "daily_completions"
+      },
+      {
+        "name": "challenges_public_meta",
+        "table": "challenges"
+      },
+      {
+        "name": "challenge_participants_owner",
+        "table": "challenge_participants"
+      },
+      {
+        "name": "challenge_settlements_owner",
+        "table": "challenge_settlements"
+      },
+      {
+        "name": "anonymous_subjects_deny",
+        "table": "anonymous_subjects"
+      },
+      {
+        "name": "ownership_claims_owner",
+        "table": "ownership_claims"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260630125000_progression.sql",
+    "identifier": "20260630125000_progression",
+    "tables_created": {
+      "xp_policy_versions": [
+        "version",
+        "config",
+        "is_active",
+        "created_at"
+      ],
+      "progression_events": [
+        "id",
+        "owner_sub",
+        "event_type",
+        "source_type",
+        "source_id",
+        "idempotency_key",
+        "policy_version",
+        "xp_amount",
+        "occurred_at",
+        "awarded_at",
+        "metadata",
+        "progression_season_id",
+        "original_owner_sub"
+      ],
+      "user_progress": [
+        "owner_sub",
+        "total_xp",
+        "current_level",
+        "policy_version",
+        "last_progression_at",
+        "updated_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "xp_policy_single_active",
+        "table": "xp_policy_versions"
+      },
+      {
+        "name": "progression_events_owner_idx",
+        "table": "progression_events"
+      },
+      {
+        "name": "progression_events_type_idx",
+        "table": "progression_events"
+      }
+    ],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [
+      "xp_policy_versions"
+    ],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
+  },
+  {
+    "filename": "20260630125100_records.sql",
+    "identifier": "20260630125100_records",
+    "tables_created": {
+      "personal_records": [
+        "id",
+        "owner_sub",
+        "record_type",
+        "mode",
+        "lineup_model_version",
+        "card_pool_version",
+        "ruleset_version",
+        "record_value",
+        "higher_is_better",
+        "source_result_id",
+        "achieved_at",
+        "previous_record_id",
+        "created_at"
+      ],
+      "personal_record_events": [
+        "id",
+        "owner_sub",
+        "record_type",
+        "mode",
+        "lineup_model_version",
+        "card_pool_version",
+        "ruleset_version",
+        "new_value",
+        "previous_value",
+        "source_result_id",
+        "occurred_at",
+        "original_owner_sub"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "personal_records_owner_idx",
+        "table": "personal_records"
+      },
+      {
+        "name": "personal_record_events_owner_idx",
+        "table": "personal_record_events"
+      }
+    ],
+    "constraints": [
+      "personal_records_unique"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
+  },
+  {
+    "filename": "20260630125200_achievements.sql",
+    "identifier": "20260630125200_achievements",
+    "tables_created": {
+      "achievement_definitions": [
+        "achievement_key",
+        "version",
+        "category",
+        "title",
+        "description",
+        "requirement_copy",
+        "evaluator_id",
+        "is_hidden",
+        "is_repeatable",
+        "sort_order",
+        "created_at"
+      ],
+      "achievement_awards": [
+        "id",
+        "owner_sub",
+        "achievement_key",
+        "source_type",
+        "source_id",
+        "awarded_at",
+        "original_owner_sub"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "achievement_awards_owner_idx",
+        "table": "achievement_awards"
+      }
+    ],
+    "constraints": [
+      "achievement_awards_unique"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [
+      "achievement_definitions"
+    ],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
+  },
+  {
+    "filename": "20260630125300_streaks.sql",
+    "identifier": "20260630125300_streaks",
+    "tables_created": {
+      "streak_states": [
+        "owner_sub",
+        "policy_version",
+        "current_streak",
+        "longest_streak",
+        "last_qualifying_tz",
+        "reserve_count",
+        "reserve_cap",
+        "last_reserve_earned_at",
+        "updated_at"
+      ],
+      "streak_events": [
+        "id",
+        "owner_sub",
+        "event_type",
+        "tz_used",
+        "streak_before",
+        "streak_after",
+        "reserve_before",
+        "reserve_after",
+        "source_type",
+        "source_id",
+        "occurred_at",
+        "original_owner_sub"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "streak_events_owner_idx",
+        "table": "streak_events"
+      }
+    ],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [
+      "xp_policy_versions"
+    ],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
+  },
+  {
+    "filename": "20260630125400_progression_rls.sql",
+    "identifier": "20260630125400_progression_rls",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "achievement_awards",
+      "achievement_definitions",
+      "personal_record_events",
+      "personal_records",
+      "progression_events",
+      "streak_events",
+      "streak_states",
+      "user_progress",
+      "xp_policy_versions"
+    ],
+    "policies": [
+      {
+        "name": "xp_policy_public_read",
+        "table": "xp_policy_versions"
+      },
+      {
+        "name": "progression_events_owner",
+        "table": "progression_events"
+      },
+      {
+        "name": "user_progress_owner",
+        "table": "user_progress"
+      },
+      {
+        "name": "personal_records_owner",
+        "table": "personal_records"
+      },
+      {
+        "name": "personal_records_public",
+        "table": "personal_records"
+      },
+      {
+        "name": "personal_record_events_owner",
+        "table": "personal_record_events"
+      },
+      {
+        "name": "achievement_definitions_public",
+        "table": "achievement_definitions"
+      },
+      {
+        "name": "achievement_awards_owner",
+        "table": "achievement_awards"
+      },
+      {
+        "name": "achievement_awards_public",
+        "table": "achievement_awards"
+      },
+      {
+        "name": "streak_states_owner",
+        "table": "streak_states"
+      },
+      {
+        "name": "streak_states_public",
+        "table": "streak_states"
+      },
+      {
+        "name": "streak_events_owner",
+        "table": "streak_events"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260630125500_ranked_config.sql",
+    "identifier": "20260630125500_ranked_config",
+    "tables_created": {
+      "ranked_queue_versions": [
+        "id",
+        "mode",
+        "queue_version",
+        "status",
+        "ruleset_version",
+        "lineup_model_version",
+        "card_pool_version",
+        "board_generator_version",
+        "anchor_eligibility_version",
+        "rating_algorithm_version",
+        "placement_count",
+        "matchmaking_params",
+        "valid_from",
+        "retired_at"
+      ],
+      "rating_algorithm_versions": [
+        "id",
+        "algorithm_version",
+        "algorithm_name",
+        "initial_rating",
+        "initial_rd",
+        "initial_volatility",
+        "tau",
+        "epsilon",
+        "rating_period_strategy",
+        "valid_from",
+        "retired_at"
+      ],
+      "division_versions": [
+        "id",
+        "division_version",
+        "thresholds",
+        "legend_min_valid_matches",
+        "high_tier_min_queue_population",
+        "valid_from",
+        "retired_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "ranked_queue_versions_mode_status_idx",
+        "table": "ranked_queue_versions"
+      }
+    ],
+    "constraints": [
+      "ranked_queue_versions_unique"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
+  },
+  {
+    "filename": "20260630125600_ranked_matchmaking.sql",
+    "identifier": "20260630125600_ranked_matchmaking",
+    "tables_created": {
+      "ranked_matches": [
+        "id",
+        "mode",
+        "queue_version",
+        "board_snapshot",
+        "board_version_key",
+        "rating_algorithm_version",
+        "abandonment_policy_version",
+        "created_at",
+        "matched_at",
+        "deadline",
+        "status",
+        "settlement_status",
+        "integrity_status",
+        "rating_period_id"
+      ],
+      "ranked_match_participants": [
+        "id",
+        "match_id",
+        "owner_sub",
+        "slot",
+        "game_id",
+        "status",
+        "joined_at",
+        "completed_at",
+        "abandonment_state",
+        "pre_match_rating",
+        "pre_match_rd",
+        "pre_match_volatility",
+        "post_match_rating",
+        "post_match_rd",
+        "post_match_volatility"
+      ],
+      "ranked_match_submissions": [
+        "id",
+        "match_id",
+        "participant_id",
+        "owner_sub",
+        "game_id",
+        "board_version_key",
+        "lineup_evaluation",
+        "solver_version",
+        "submitted_at",
+        "idempotency_key"
+      ],
+      "ranked_queue_entries": [
+        "id",
+        "owner_sub",
+        "mode",
+        "queue_version",
+        "rating_snapshot",
+        "rd_snapshot",
+        "volatility_snapshot",
+        "placement_state",
+        "status",
+        "joined_at",
+        "matched_at",
+        "cancelled_at",
+        "match_id",
+        "search_range_rating"
+      ],
+      "ranked_opponent_history": [
+        "id",
+        "owner_sub",
+        "opponent_sub",
+        "mode",
+        "match_id",
+        "paired_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "ranked_matches_status_idx",
+        "table": "ranked_matches"
+      },
+      {
+        "name": "ranked_matches_mode_idx",
+        "table": "ranked_matches"
+      },
+      {
+        "name": "ranked_match_participants_owner_idx",
+        "table": "ranked_match_participants"
+      },
+      {
+        "name": "ranked_queue_entries_active_unique",
+        "table": "ranked_queue_entries"
+      },
+      {
+        "name": "ranked_queue_entries_waiting_idx",
+        "table": "ranked_queue_entries"
+      },
+      {
+        "name": "ranked_opponent_history_lookup_idx",
+        "table": "ranked_opponent_history"
+      }
+    ],
+    "constraints": [
+      "ranked_match_participants_slot_unique",
+      "ranked_match_participants_user_unique",
+      "ranked_match_submissions_idempotency_unique",
+      "ranked_match_submissions_participant_unique",
+      "ranked_match_submissions_user_match_unique",
+      "ranked_matches_queue_version_fk",
+      "ranked_queue_entries_queue_version_fk"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [
+      "ranked_queue_versions"
+    ],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
+  },
+  {
+    "filename": "20260630125700_ranked_settlement.sql",
+    "identifier": "20260630125700_ranked_settlement",
+    "tables_created": {
+      "rating_periods": [
+        "id",
+        "mode",
+        "queue_version",
+        "match_id",
+        "algorithm_version",
+        "opened_at",
+        "closed_at"
+      ],
+      "ranked_match_settlements": [
+        "id",
+        "match_id",
+        "rating_period_id",
+        "settlement_algorithm_version",
+        "board_version_key",
+        "primary_comparison",
+        "participant_a_sub",
+        "participant_b_sub",
+        "participant_a_score",
+        "participant_b_score",
+        "participant_a_draft_efficiency",
+        "participant_b_draft_efficiency",
+        "participant_a_solver_version",
+        "participant_b_solver_version",
+        "tie_break_used",
+        "outcome",
+        "integrity_decision",
+        "audit_metadata",
+        "created_at"
+      ]
+    },
+    "indexes": [],
+    "constraints": [
+      "ranked_match_settlements_distinct_participants",
+      "ranked_matches_rating_period_fk"
+    ],
+    "functions": [
+      "ranked_enforce_settlement_board_match",
+      "ranked_settlements_immutable"
+    ],
+    "triggers": [
+      {
+        "name": "ranked_match_settlements_board_match_check",
+        "table": "ranked_match_settlements"
+      },
+      {
+        "name": "ranked_match_settlements_no_update",
+        "table": "ranked_match_settlements"
+      },
+      {
+        "name": "ranked_match_settlements_no_delete",
+        "table": "ranked_match_settlements"
+      }
+    ],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [
+      "ranked_matches"
+    ],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER",
+      "constraints: guarded via pg_constraint existence check in a DO block"
+    ]
+  },
+  {
+    "filename": "20260630125800_ranked_rating.sql",
+    "identifier": "20260630125800_ranked_rating",
+    "tables_created": {
+      "rating_ledger_entries": [
+        "id",
+        "owner_sub",
+        "mode",
+        "match_id",
+        "rating_period_id",
+        "pre_rating",
+        "pre_rd",
+        "pre_volatility",
+        "opponent_sub",
+        "opponent_pre_rating",
+        "opponent_pre_rd",
+        "opponent_pre_volatility",
+        "outcome",
+        "post_rating",
+        "post_rd",
+        "post_volatility",
+        "algorithm_version",
+        "entry_type",
+        "reversal_of_entry_id",
+        "reversal_reason",
+        "created_at"
+      ],
+      "rating_snapshots": [
+        "id",
+        "owner_sub",
+        "mode",
+        "ledger_entry_id",
+        "rating",
+        "rd",
+        "volatility",
+        "snapshot_at"
+      ],
+      "queue_ratings": [
+        "id",
+        "owner_sub",
+        "mode",
+        "rating",
+        "rd",
+        "volatility",
+        "valid_rated_matches",
+        "established",
+        "algorithm_version",
+        "last_rated_activity_at",
+        "updated_at"
+      ],
+      "placement_states": [
+        "id",
+        "owner_sub",
+        "mode",
+        "valid_matches_completed",
+        "required_matches",
+        "established",
+        "established_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "rating_ledger_entries_one_settlement_per_user_match",
+        "table": "rating_ledger_entries"
+      },
+      {
+        "name": "rating_ledger_entries_owner_mode_idx",
+        "table": "rating_ledger_entries"
+      },
+      {
+        "name": "rating_snapshots_owner_mode_idx",
+        "table": "rating_snapshots"
+      }
+    ],
+    "constraints": [
+      "placement_states_owner_mode_unique",
+      "queue_ratings_owner_mode_unique",
+      "rating_ledger_entries_reversal_requires_reason"
+    ],
+    "functions": [
+      "rating_ledger_immutable"
+    ],
+    "triggers": [
+      {
+        "name": "rating_ledger_entries_no_update",
+        "table": "rating_ledger_entries"
+      },
+      {
+        "name": "rating_ledger_entries_no_delete",
+        "table": "rating_ledger_entries"
+      }
+    ],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [
+      "ranked_matches",
+      "rating_periods"
+    ],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER"
+    ]
+  },
+  {
+    "filename": "20260630125900_ranked_integrity.sql",
+    "identifier": "20260630125900_ranked_integrity",
+    "tables_created": {
+      "ranked_integrity_events": [
+        "id",
+        "match_id",
+        "owner_sub",
+        "event_type",
+        "severity",
+        "details",
+        "created_at",
+        "resolved_at",
+        "resolution"
+      ],
+      "ranked_abort_allowances": [
+        "id",
+        "owner_sub",
+        "mode",
+        "match_id",
+        "granted_at",
+        "granted_by",
+        "reason",
+        "consumed_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "ranked_integrity_events_owner_idx",
+        "table": "ranked_integrity_events"
+      },
+      {
+        "name": "ranked_integrity_events_unresolved_idx",
+        "table": "ranked_integrity_events"
+      },
+      {
+        "name": "ranked_abort_allowances_owner_idx",
+        "table": "ranked_abort_allowances"
+      }
+    ],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [
+      "ranked_matches"
+    ],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
+  },
+  {
+    "filename": "20260630130000_ranked_rls.sql",
+    "identifier": "20260630130000_ranked_rls",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [
+      "is_ranked_match_participant"
+    ],
+    "triggers": [],
+    "rls_enabled_on": [
+      "division_versions",
+      "placement_states",
+      "queue_ratings",
+      "ranked_abort_allowances",
+      "ranked_integrity_events",
+      "ranked_match_participants",
+      "ranked_match_settlements",
+      "ranked_match_submissions",
+      "ranked_matches",
+      "ranked_opponent_history",
+      "ranked_queue_entries",
+      "ranked_queue_versions",
+      "rating_algorithm_versions",
+      "rating_ledger_entries",
+      "rating_periods",
+      "rating_snapshots"
+    ],
+    "policies": [
+      {
+        "name": "ranked_queue_versions_public_read",
+        "table": "ranked_queue_versions"
+      },
+      {
+        "name": "rating_algorithm_versions_public_read",
+        "table": "rating_algorithm_versions"
+      },
+      {
+        "name": "division_versions_public_read",
+        "table": "division_versions"
+      },
+      {
+        "name": "ranked_queue_entries_owner",
+        "table": "ranked_queue_entries"
+      },
+      {
+        "name": "ranked_matches_participant",
+        "table": "ranked_matches"
+      },
+      {
+        "name": "ranked_match_participants_own",
+        "table": "ranked_match_participants"
+      },
+      {
+        "name": "ranked_match_participants_opponent_post_settlement",
+        "table": "ranked_match_participants"
+      },
+      {
+        "name": "ranked_match_submissions_own",
+        "table": "ranked_match_submissions"
+      },
+      {
+        "name": "ranked_match_submissions_opponent_post_settlement",
+        "table": "ranked_match_submissions"
+      },
+      {
+        "name": "ranked_opponent_history_deny",
+        "table": "ranked_opponent_history"
+      },
+      {
+        "name": "rating_periods_deny",
+        "table": "rating_periods"
+      },
+      {
+        "name": "ranked_integrity_events_deny",
+        "table": "ranked_integrity_events"
+      },
+      {
+        "name": "ranked_abort_allowances_deny",
+        "table": "ranked_abort_allowances"
+      },
+      {
+        "name": "ranked_match_settlements_participant",
+        "table": "ranked_match_settlements"
+      },
+      {
+        "name": "rating_ledger_entries_owner",
+        "table": "rating_ledger_entries"
+      },
+      {
+        "name": "rating_snapshots_owner",
+        "table": "rating_snapshots"
+      },
+      {
+        "name": "queue_ratings_owner",
+        "table": "queue_ratings"
+      },
+      {
+        "name": "placement_states_owner",
+        "table": "placement_states"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260630130100_default_privileges.sql",
+    "identifier": "20260630130100_default_privileges",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": [
+      "ALL",
+      "SCHEMA"
+    ],
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
+  }
+]

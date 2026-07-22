@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useReducer, useCallback } from "react";
+import { useEffect, useReducer, useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DraftGameState,
   DraftCard as DraftCardType,
   DraftRole,
   MODE_LABELS,
+  ChallengeComparisonResponse,
 } from "@/types/draft";
 import {
   draftReducer,
@@ -13,11 +14,13 @@ import {
   eligibleRolesForCard,
 } from "@/lib/draft-state";
 import {
-  getDraftGame,
   submitDraftAction,
   createChallenge,
+  getChallengeComparison,
   DraftAPIError,
 } from "@/lib/draft-api";
+import { draftProgress } from "@/lib/draft-progress";
+import { analytics } from "@/lib/analytics";
 
 import DraftCard from "./DraftCard";
 import LineupBoard from "./LineupBoard";
@@ -26,21 +29,99 @@ import DraftToolbar from "./DraftToolbar";
 import RoleSelector from "./RoleSelector";
 import DraftReceipt from "./DraftReceipt";
 import DecisionReplay from "./DecisionReplay";
+import ShareChallenge from "./ShareChallenge";
+import ChallengeComparison from "./ChallengeComparison";
 
 interface Props {
   initialGameState: DraftGameState;
+  boardDate?: string;        // YYYY-MM-DD, for daily completion tracking
+  challengeToken?: string;   // for challenge completion flow
 }
 
-export default function DraftScreen({ initialGameState }: Props) {
+export default function DraftScreen({ initialGameState, boardDate, challengeToken }: Props) {
   const router = useRouter();
   const [state, dispatch] = useReducer(draftReducer, createInitialDraftState());
+
+  // ── Challenge / share state ──────────────────────────────────────────────
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [comparison, setComparison] = useState<ChallengeComparisonResponse | null>(null);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
+  const [comparisonError, setComparisonError] = useState<string | null>(null);
 
   // Initialize from server-fetched state
   useEffect(() => {
     dispatch({ type: "GAME_LOADED", gameState: initialGameState });
-  }, [initialGameState]);
+    // Persist active game for resumption
+    draftProgress.saveActiveGame({
+      game_id: initialGameState.game_id,
+      mode: initialGameState.mode,
+      board_type: initialGameState.board_type,
+      board_id: initialGameState.board_metadata.board_id,
+      started_at: new Date().toISOString(),
+    });
+    // Track game start
+    if (initialGameState.board_type === "daily" && boardDate !== undefined) {
+      analytics.track({
+        type: "daily_game_started",
+        mode: initialGameState.mode,
+        date: boardDate,
+      });
+    } else if (initialGameState.board_type === "challenge") {
+      analytics.track({ type: "challenge_started", mode: initialGameState.mode });
+    }
+  }, [initialGameState, boardDate]);
 
   const gs = state.gameState;
+
+  // ── Completion side-effects ──────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!gs || gs.status !== "draft_complete" || !gs.lineup_evaluation) return;
+
+    if (gs.board_type === "daily" && boardDate !== undefined) {
+      analytics.track({
+        type: "daily_game_completed",
+        mode: gs.mode,
+        date: boardDate,
+        lineup_peak_rating: gs.lineup_evaluation.lineup_peak_rating,
+        draft_efficiency: gs.lineup_evaluation.draft_efficiency,
+      });
+      draftProgress.saveDailyCompletion(boardDate, gs.mode, {
+        game_id: gs.game_id,
+        mode: gs.mode,
+        board_type: gs.board_type,
+        completed_at: new Date().toISOString(),
+        lineup_peak_rating: gs.lineup_evaluation.lineup_peak_rating,
+        draft_efficiency: gs.lineup_evaluation.draft_efficiency,
+        board_percentile: gs.lineup_evaluation.board_percentile,
+        board_id: gs.board_metadata.board_id,
+        hold_used: gs.hold_used,
+        reframe_used: gs.reframe_used,
+      });
+      draftProgress.clearActiveGame();
+    }
+
+    if (challengeToken) {
+      // challengeToken is set by the challenge page, regardless of the board's original board_type
+      const gameId = gs.game_id;
+      const mode = gs.mode;
+      setComparisonLoading(true);
+      (async () => {
+        try {
+          const result = await getChallengeComparison(challengeToken, gameId);
+          setComparison(result);
+          analytics.track({ type: "challenge_completed", mode, outcome: result.outcome });
+        } catch {
+          setComparisonError("Comparison unavailable");
+        } finally {
+          setComparisonLoading(false);
+        }
+      })();
+      draftProgress.clearActiveGame();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gs?.status]); // intentionally narrow: fires exactly once when status reaches draft_complete
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -101,13 +182,12 @@ export default function DraftScreen({ initialGameState }: Props) {
     if (!gs) return;
     try {
       const result = await createChallenge(gs.game_id);
-      await navigator.clipboard.writeText(
-        window.location.origin + result.public_url_path
-      );
-      // Brief toast via alert (no toast lib dependency)
-      alert("Challenge link copied to clipboard!");
-    } catch {
-      alert("Could not create challenge link.");
+      const url = `${window.location.origin}${result.public_url_path}`;
+      setShareUrl(url);
+      setShowShareModal(true);
+      analytics.track({ type: "challenge_created", mode: gs.mode, board_type: gs.board_type });
+    } catch (err) {
+      console.error("Failed to create challenge:", err);
     }
   }, [gs]);
 
@@ -192,17 +272,44 @@ export default function DraftScreen({ initialGameState }: Props) {
 
       {/* ── DRAFT COMPLETE ──────────────────────── */}
       {isDone && gs.lineup_evaluation && (
-        <>
-          <LineupBoard
-            selectedCards={gs.selected_cards}
-            openRoles={gs.open_roles}
-          />
-          <DraftReceipt
-            evaluation={gs.lineup_evaluation}
-            onShare={handleShareChallenge}
-          />
-          <DecisionReplay history={gs.round_history} />
-        </>
+        <div data-testid="draft-result">
+          {challengeToken && comparison ? (
+            // Challenge recipient completed — show comparison
+            <ChallengeComparison
+              comparison={comparison}
+              recipientGameId={gs.game_id}
+              challengeUrl={shareUrl ?? undefined}
+            />
+          ) : (
+            <>
+              <LineupBoard
+                selectedCards={gs.selected_cards}
+                openRoles={gs.open_roles}
+              />
+              <DraftReceipt
+                evaluation={gs.lineup_evaluation}
+                onShare={handleShareChallenge}
+              />
+              <DecisionReplay history={gs.round_history} />
+              {challengeToken && comparisonLoading && (
+                <div
+                  className="text-sm text-center py-4"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Loading comparison…
+                </div>
+              )}
+              {challengeToken && comparisonError && (
+                <div
+                  className="text-xs px-3 py-2 rounded-lg"
+                  style={{ background: "#ef444420", color: "#ef4444" }}
+                >
+                  {comparisonError}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       )}
 
       {/* ── ROLE SELECTION ──────────────────────── */}
@@ -269,6 +376,7 @@ export default function DraftScreen({ initialGameState }: Props) {
                     card={card}
                     selected={isSelected}
                     dimmed={isDimmed || (!hasEligibleRole && !isSelected)}
+                    eligible={hasEligibleRole}
                     onClick={
                       state.phase === "selecting" && !submitting
                         ? () => handleSelectOffer(card.peak_window_id)
@@ -324,6 +432,16 @@ export default function DraftScreen({ initialGameState }: Props) {
         >
           <DNABar dna={gs.current_dna} label="Current lineup DNA" />
         </div>
+      )}
+
+      {/* ── SHARE CHALLENGE MODAL ────────────────── */}
+      {showShareModal && shareUrl && (
+        <ShareChallenge
+          challengeUrl={shareUrl}
+          mode={gs.mode}
+          lineupPeakRating={gs.lineup_evaluation?.lineup_peak_rating ?? 0}
+          onClose={() => setShowShareModal(false)}
+        />
       )}
     </div>
   );

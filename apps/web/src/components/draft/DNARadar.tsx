@@ -25,7 +25,6 @@ export default function DNARadar({
   const cx = size / 2;
   const cy = size / 2;
   const r = size * 0.38;
-  const labelR = size * 0.48;
 
   function polarToXY(angleIdx: number, radius: number) {
     const angle = (Math.PI * 2 * angleIdx) / n - Math.PI / 2;
@@ -91,14 +90,11 @@ export default function DNARadar({
       />
 
       {/* Label dots */}
-      {DIMS.map((dim, i) => {
-        const label = polarToXY(i, labelR);
-        return (
-          <title key={dim}>
-            {DNA_LABELS[dim]}: {Math.round(dna[dim] ?? 0)}
-          </title>
-        );
-      })}
+      {DIMS.map((dim) => (
+        <title key={dim}>
+          {DNA_LABELS[dim]}: {Math.round(dna[dim] ?? 0)}
+        </title>
+      ))}
     </svg>
   );
 }

@@ -6,3 +6,4 @@ lxml
 html5lib
 unidecode
 pyarrow
+pytest>=8.3.0

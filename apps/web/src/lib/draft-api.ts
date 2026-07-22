@@ -2,7 +2,7 @@
  * API client for Peak Draft endpoints.
  * Never calculates lineup scores — those are server-authoritative.
  */
-import { DraftGameState, DraftMode } from "@/types/draft";
+import { DraftGameState, DraftMode, ChallengeMeta, ChallengeComparisonResponse } from "@/types/draft";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -121,6 +121,26 @@ export async function getDraftMeta(): Promise<{
   experimental_notice: string;
 }> {
   return apiFetch("/draft/meta");
+}
+
+/** Spoiler-safe challenge metadata — does NOT create a game. */
+export async function getChallengeMeta(token: string): Promise<ChallengeMeta> {
+  return apiFetch<ChallengeMeta>(
+    `/draft/challenges/${encodeURIComponent(token)}/meta`,
+    { cache: "no-store" } as RequestInit,
+  );
+}
+
+/** Retrieve comparison after both challenger and recipient have completed. */
+export async function getChallengeComparison(
+  token: string,
+  recipientGameId: string,
+): Promise<ChallengeComparisonResponse> {
+  const params = new URLSearchParams({ recipient_game_id: recipientGameId });
+  return apiFetch<ChallengeComparisonResponse>(
+    `/draft/challenges/${encodeURIComponent(token)}/comparison?${params}`,
+    { cache: "no-store" } as RequestInit,
+  );
 }
 
 export { DraftAPIError };

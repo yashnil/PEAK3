@@ -14,7 +14,7 @@
   /* Text */
   --text-primary: #f0f0f0;
   --text-secondary: #8c8fa8;
-  --text-muted: #555870;
+  --text-muted: #838799;
   --text-inverse: #0a0b0d;
 
   /* Borders */
@@ -84,6 +84,10 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+html, body {
+  overflow-x: clip;
 }
 
 /* ================================================================

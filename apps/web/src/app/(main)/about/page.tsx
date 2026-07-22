@@ -60,7 +60,7 @@ export default function AboutPage() {
             for specific named players.
           </p>
           <p className="mt-3">
-            <Link href="/methodology" className="text-[var(--peak-accent)] hover:underline">
+            <Link href="/methodology" className="text-[var(--peak-accent)] underline">
               Read the methodology →
             </Link>
           </p>

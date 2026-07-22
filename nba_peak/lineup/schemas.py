@@ -206,3 +206,7 @@ class DraftGameState:
     # Decision replay: the offers shown and the choice made, per completed round.
     # Only contains rounds already played (never future offers).
     round_history: list[dict] = field(default_factory=list)
+    # Owning identity (real auth sub or "anon:<token>") — set by the route layer
+    # at creation time, never derived from client input. None only for states
+    # constructed before an owner is resolved (should not reach persistence).
+    owner_sub: Optional[str] = None

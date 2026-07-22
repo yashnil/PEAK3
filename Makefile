@@ -79,9 +79,9 @@ build-dataset:
 	@echo "$(GREEN)✓ Dataset built in data/web/$(RESET)"
 
 build-card-profiles:
-	@echo "Building card profiles v2 for Draft Arena..."
+	@echo "Building card profiles v3 for Draft Arena..."
 	@$(PYTHON) scripts/build_card_profiles.py
-	@echo "$(GREEN)✓ Card profiles v2 built in data/game/profiles/$(RESET)"
+	@echo "$(GREEN)✓ Card profiles v3 built in data/game/profiles/$(RESET)"
 
 build-game-data: build-dataset build-card-profiles
 	@echo "$(GREEN)✓ All game data built$(RESET)"
@@ -178,8 +178,8 @@ verify-game-data:
 	@echo "Verifying generated game data exists..."
 	@test -f data/web/peak_windows.json || (echo "$(YELLOW)MISSING data/web/peak_windows.json$(RESET)" && exit 1)
 	@test -f data/web/leaderboards.json || (echo "$(YELLOW)MISSING data/web/leaderboards.json$(RESET)" && exit 1)
-	@test -f data/game/profiles/card_profiles.v2.json || (echo "$(YELLOW)MISSING card_profiles.v2.json — run make build-card-profiles$(RESET)" && exit 1)
-	@test -f data/game/profiles/profile_metadata.v2.json || (echo "$(YELLOW)MISSING profile_metadata.v2.json — run make build-card-profiles$(RESET)" && exit 1)
+	@test -f data/game/profiles/card_profiles.v3.json || (echo "$(YELLOW)MISSING card_profiles.v3.json — run make build-card-profiles$(RESET)" && exit 1)
+	@test -f data/game/profiles/profile_metadata.v3.json || (echo "$(YELLOW)MISSING profile_metadata.v3.json — run make build-card-profiles$(RESET)" && exit 1)
 	@echo "$(GREEN)✓ All required game data present$(RESET)"
 
 verify-fresh: build-game-data verify-game-data test-fast

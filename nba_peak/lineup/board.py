@@ -54,7 +54,7 @@ def _load_profiles(profiles_path: Path | None = None) -> dict[int, list[CardProf
 
     if profiles_path is None:
         repo_root = Path(__file__).resolve().parent.parent.parent
-        profiles_path = repo_root / "data" / "game" / "profiles" / "card_profiles.v2.json"
+        profiles_path = repo_root / "data" / "game" / "profiles" / "card_profiles.v3.json"
 
     if not profiles_path.exists():
         raise FileNotFoundError(
@@ -249,11 +249,22 @@ def generate_board(
 
         from nba_peak.lineup.config import CARD_PROFILE_VERSION, LINEUP_MODEL_VERSION, RULESET_VERSION
         CARD_POOL_VERSION = CARD_PROFILE_VERSION
+        BOARD_GENERATION_ALGORITHM = "v1"
+        version_key = make_board_version_key(
+            board_id,
+            LINEUP_MODEL_VERSION,
+            RULESET_VERSION,
+            CARD_POOL_VERSION,
+            BOARD_GENERATION_ALGORITHM,
+        )
         metadata = {
             "generated_at": now,
             "card_pool_version": CARD_POOL_VERSION,
             "lineup_model_version": LINEUP_MODEL_VERSION,
             "ruleset_version": RULESET_VERSION,
+            "board_generation_algorithm": BOARD_GENERATION_ALGORITHM,
+            # Full version key for database uniqueness (board_id + all versions)
+            "board_version_key": version_key,
             "attempts": attempt + 1,
             "board_feasibility_verified": True,
             # Missing-data transparency: pool sizing for this board.
@@ -289,3 +300,21 @@ def _make_board_id(config: BoardConfig) -> str:
     if config.seed is not None:
         parts.append(str(config.seed))
     return "-".join(parts)
+
+
+def make_board_version_key(
+    board_id: str,
+    lineup_model_version: str,
+    ruleset_version: str,
+    card_pool_version: str,
+    board_generation_algorithm: str = "v1",
+) -> str:
+    """Return a stable, opaque key encoding the full version tuple.
+
+    Used as the uniqueness key in the board_snapshots table.
+    The public board_id remains compact; this key captures all version components
+    required for the immutability contract.
+
+    Format: {board_id}@{lmv}:{rv}:{cpv}:{bga}
+    """
+    return f"{board_id}@{lineup_model_version}:{ruleset_version}:{card_pool_version}:{board_generation_algorithm}"
