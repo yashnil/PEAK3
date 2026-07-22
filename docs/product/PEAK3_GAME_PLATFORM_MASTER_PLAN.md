@@ -1,10 +1,10 @@
 # PEAK3 Game Platform Master Plan
 
-**Version:** 2.0 product pivot and implementation guide  
-**Date:** July 2026  
-**Purpose:** Durable reference for future product, design, data, model, and engineering work  
-**Status:** Strategic source of truth for the next PEAK3 phases  
-**Primary repository target:** `yashnil/PEAK3`  
+**Version:** 2.0 product pivot and implementation guide
+**Date:** July 2026
+**Purpose:** Durable reference for future product, design, data, model, and engineering work
+**Status:** Strategic source of truth for the next PEAK3 phases
+**Primary repository target:** `yashnil/PEAK3`
 
 ---
 
@@ -1462,54 +1462,54 @@ The system should prefer 12 good attributes over 35 weakly supported ones.
 
 ### Offensive attributes
 
-1. **Rim finishing**  
+1. **Rim finishing**
    Efficiency and volume at the rim, contact finishing, dunk/layup value, role and era adjusted.
 
-2. **Interior scoring / post creation**  
+2. **Interior scoring / post creation**
    Post efficiency, paint creation, foul pressure, turnover cost, and role.
 
-3. **Pull-up and self-created shooting**  
+3. **Pull-up and self-created shooting**
    Off-dribble shooting, shot difficulty, volume, efficiency, and creation burden.
 
-4. **Catch-and-shoot / off-ball shooting**  
+4. **Catch-and-shoot / off-ball shooting**
    Spot-up value, movement shooting where available, spacing effect, and willingness.
 
-5. **Shooting gravity**  
+5. **Shooting gravity**
    A broader estimate combining range, volume, movement, defensive attention, and team-spacing effect. Must be distinct from raw three-point percentage.
 
-6. **Free-throw pressure**  
+6. **Free-throw pressure**
    Foul generation, conversion, and ability to sustain efficient offense.
 
-7. **Ball handling and security**  
+7. **Ball handling and security**
    Creation load relative to turnovers, handle proxies, pressure resilience, and position context.
 
-8. **Playmaking and passing**  
+8. **Playmaking and passing**
    Assist creation, quality of created shots where available, turnover cost, role, and on/off offensive effect.
 
-9. **Offensive decision-making**  
+9. **Offensive decision-making**
    Interpretable composite of shot selection, turnover avoidance, passing efficiency, role execution, and impact stability. Avoid presenting this as direct mind-reading.
 
-10. **Off-ball value**  
+10. **Off-ball value**
     Cutting, screening, movement, spacing, offensive rebounding, and low-usage contribution where measurable.
 
 ### Defensive attributes
 
-11. **Point-of-attack defense**  
+11. **Point-of-attack defense**
     Guard/wing containment, screen navigation proxies, matchup evidence where available, and impact.
 
-12. **Wing/perimeter defense**  
+12. **Wing/perimeter defense**
     Defensive versatility, size, matchup difficulty, deflections/steals without gambling overreward, and team impact.
 
-13. **Help defense**  
+13. **Help defense**
     Rotations, event creation, positional awareness proxies, and impact.
 
-14. **Interior defense / rim protection**  
+14. **Interior defense / rim protection**
     Rim deterrence, block value, foul control, defensive rebounding context, and team impact.
 
-15. **Switchability / defensive versatility**  
+15. **Switchability / defensive versatility**
     Role breadth, physical profile, matchup data, and multi-position defensive evidence.
 
-16. **Defensive rebounding**  
+16. **Defensive rebounding**
     Share, contested value where available, box-out/team effect, role and era context.
 
 ### Physical and availability attributes
@@ -2914,40 +2914,40 @@ Do not keep it as the homepage’s main game merely because it already exists.
 
 These should be resolved through prototypes and user tests, not prolonged speculation.
 
-1. Should default 82-0 use 5 starters or 5+3 bench?  
+1. Should default 82-0 use 5 starters or 5+3 bench?
    **Recommendation:** 5+3, with a five-player quick mode.
 
-2. Should cards reveal exact PEAK3 scores before selection?  
+2. Should cards reveal exact PEAK3 scores before selection?
    **Recommendation:** no in official modes; reveal after lock.
 
-3. Should team+decade resolve to best 1Y season or best 3Y window?  
+3. Should team+decade resolve to best 1Y season or best 3Y window?
    **Recommendation:** 1Y for 82-0 simplicity; offer 3Y/5Y variants later.
 
-4. Should the simulator show a deterministic record or only expected wins?  
+4. Should the simulator show a deterministic record or only expected wins?
    **Recommendation:** show both, with deterministic record as the game outcome.
 
-5. Can a player play any position?  
+5. Can a player play any position?
    **Recommendation:** yes, with soft comfort/fit consequences.
 
-6. How many Forge attributes at launch?  
+6. How many Forge attributes at launch?
    **Recommendation:** 10-12.
 
-7. Should Draft Duel use a salary cap?  
+7. Should Draft Duel use a salary cap?
    **Recommendation:** test both; shared scarcity may be sufficient for the first queue.
 
-8. Should Draft Night include bench picks in the snake draft?  
+8. Should Draft Night include bench picks in the snake draft?
    **Recommendation:** five starter rounds, then simultaneous bench market.
 
-9. Should current and all-time modes share leaderboards?  
+9. Should current and all-time modes share leaderboards?
    **Recommendation:** no.
 
-10. Should exact team-season prompts allow very low-minute players?  
+10. Should exact team-season prompts allow very low-minute players?
     **Recommendation:** no; use explicit minimums and casual exceptions.
 
-11. Should PEAK3 Forge allow physically impossible combinations?  
+11. Should PEAK3 Forge allow physically impossible combinations?
     **Recommendation:** fantasy combinations are allowed, but position template and coherence interactions prevent trivial max-stat builds.
 
-12. How early should player photos/logos be used?  
+12. How early should player photos/logos be used?
     **Recommendation:** text and original visuals first until rights strategy is complete.
 
 ---
@@ -3079,18 +3079,18 @@ Completion requires:
 
 Use these as product references, not templates to copy.
 
-- Six Rings official game and guide: solo Trophy Case modes, Duels, FFA, ranked and persistent profiles.  
-  `https://databallr.com/sixrings`  
+- Six Rings official game and guide: solo Trophy Case modes, Duels, FFA, ranked and persistent profiles.
+  `https://databallr.com/sixrings`
   `https://databallr.com/sixrings/how-to-play`
 
-- First Down Studio: Build a 17-0 Team, Build the GOAT Team, Build an 82-0 Team, and simple result sharing.  
-  `https://www.firstdown.studio/`  
+- First Down Studio: Build a 17-0 Team, Build the GOAT Team, Build an 82-0 Team, and simple result sharing.
+  `https://www.firstdown.studio/`
   `https://www.firstdown.studio/build-a-17-0-team`
 
-- Basketball GM: deep roster-management and simulation reference.  
+- Basketball GM: deep roster-management and simulation reference.
   `https://basketball-gm.com/manual/`
 
-- Immaculate Grid basketball: daily grid, rarity, archive, and personal stats reference.  
+- Immaculate Grid basketball: daily grid, rarity, archive, and personal stats reference.
   `https://www.sports-reference.com/immaculate-grid/basketball/mens/`
 
 - Adjacent perfect-player/draft formats should be reviewed only for interaction lessons; PEAK3’s attribute model and visual identity must be original.
