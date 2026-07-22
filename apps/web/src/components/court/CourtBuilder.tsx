@@ -6,7 +6,7 @@ import {
   selectPlayer,
   PerfectSeasonAPIError,
 } from "@/lib/perfect-season-api";
-import { getOpenSlotTypes, uiPhaseFromStatus } from "@/lib/court-state";
+import { uiPhaseFromStatus } from "@/lib/court-state";
 import { CourtLineupPublicState, SlotType } from "@/types/perfect-season";
 import SpinStage from "./SpinStage";
 import EligiblePlayerSearch from "./EligiblePlayerSearch";
@@ -23,7 +23,6 @@ export default function CourtBuilder({ initialGameState }: Props) {
   const [busy, setBusy] = useState(false);
 
   const phase = uiPhaseFromStatus(state.status);
-  const openSlots = getOpenSlotTypes(state.slots);
 
   async function withBusy<T>(fn: () => Promise<T>): Promise<T | undefined> {
     setBusy(true);
@@ -118,12 +117,6 @@ export default function CourtBuilder({ initialGameState }: Props) {
       )}
 
       {state.simulation_result && <SeasonResultStub result={state.simulation_result} />}
-
-      {openSlots.length === 0 && !state.simulation_result && state.status !== "rounds_complete" && (
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Roster full — finishing up…
-        </p>
-      )}
     </div>
   );
 }

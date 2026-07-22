@@ -6,6 +6,7 @@ docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md Sec 5/8.
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -105,6 +106,26 @@ def test_interim_team_summary_reports_real_dataset():
     summary = interim_team_summary()
     assert summary["available"] is True
     assert summary["franchise_count"] >= 3
+
+
+def test_interim_team_summary_counts_franchises_only_in_exact_season_spins(tmp_path):
+    # Regression test: a franchise appearing ONLY under
+    # exact_team_season_spins (not team_decade_spins) must still be counted.
+    # The committed dataset happens to have every exact-season franchise
+    # also present in team_decade_spins, so this case needs a synthetic
+    # fixture to actually exercise the union logic.
+    fixture = tmp_path / "interim.json"
+    fixture.write_text(json.dumps({
+        "dataset_version": "test-fixture",
+        "team_decade_spins": [
+            {"spin_id": "a", "franchise_display_name": "Franchise A", "decade_label": "1990s", "player_slugs": []},
+        ],
+        "exact_team_season_spins": [
+            {"spin_id": "b", "franchise_display_name": "Franchise B", "season_label": "1999-00", "player_slugs": []},
+        ],
+    }))
+    summary = interim_team_summary(fixture)
+    assert summary["franchise_count"] == 2
 
 
 # ---------------------------------------------------------------------------

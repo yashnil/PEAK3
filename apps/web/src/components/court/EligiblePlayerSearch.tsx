@@ -15,6 +15,13 @@ interface Props {
  * candidate. `SpinCandidate` (types/perfect-season.ts) has no score field at
  * all, so there is nothing to accidentally render here -- the omission is
  * enforced by the type, not just by discipline in this file.
+ *
+ * Deliberately a plain list of buttons, not an ARIA listbox
+ * (role="listbox"/"option"): that pattern implies roving-tabindex arrow-key
+ * navigation, which this component does not implement, so applying the
+ * roles without the behavior would be a misleading promise to assistive
+ * tech. Plain buttons + native Tab order match the convention already used
+ * by the existing Peak Draft offer cards (components/draft/DraftCard.tsx).
  */
 export default function EligiblePlayerSearch({ candidates, onSelect, disabled }: Props) {
   const [query, setQuery] = useState("");
@@ -40,14 +47,12 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
           aria-label="Search eligible players"
         />
       )}
-      <div className="flex flex-col gap-2" role="listbox" aria-label="Eligible players">
+      <div className="flex flex-col gap-2" role="group" aria-label="Eligible players">
         {filtered.map((c) => (
           <button
             key={c.player_slug}
             data-testid="candidate-card"
             data-player-slug={c.player_slug}
-            role="option"
-            aria-selected={false}
             disabled={disabled}
             onClick={() => onSelect(c.player_slug)}
             className="text-left rounded-xl px-4 py-3 font-medium transition-all hover:opacity-90"

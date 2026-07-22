@@ -4,8 +4,10 @@ Mirrors app/services/draft/state.py's role for Peak Draft, but for the
 court-based game grammar (ADR-005; PHASE_5_DATA_MODEL.md entity 8).
 
 State machine (master plan Sec 16.6, adapted):
-  created -> selection_pending -> placement_pending -> (repeat 8x) ->
+  selection_pending -> placement_pending -> (repeat 8x) ->
   rounds_complete -> result_ready
+(create_perfect_season_game() constructs a state that starts directly at
+selection_pending -- there is no separate "created" status value.)
 
 All transitions are validated here. No exact prime_score/prime_index is ever
 included in the public state for the CURRENT round's candidates -- only for

@@ -84,7 +84,10 @@ def interim_team_summary(path: Path | None = None) -> dict:
         data = _load_interim_teams(path)
     except FileNotFoundError:
         return {"available": False, "franchise_count": 0, "dataset_version": None}
+    # Union across both spin types -- a franchise that only appears in
+    # exact_team_season_spins (not team_decade_spins) must still be counted.
     franchises = {e["franchise_display_name"] for e in data.get("team_decade_spins", [])}
+    franchises |= {e["franchise_display_name"] for e in data.get("exact_team_season_spins", [])}
     return {
         "available": True,
         "franchise_count": len(franchises),
