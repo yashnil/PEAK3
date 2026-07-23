@@ -2,12 +2,13 @@
 import { SimulationResultPublic } from "@/types/perfect-season";
 
 const COMPONENT_LABELS: Record<string, string> = {
-  talent_core: "Talent core",
+  talent_core: "Talent core (starters)",
+  bench_strength: "Bench strength",
+  positional_fit: "Positional fit",
   creation_coverage: "Creation coverage",
   scoring_coverage: "Scoring coverage",
   postseason_pedigree: "Postseason pedigree",
   team_context_depth: "Team context depth",
-  role_overlap_penalty: "Role overlap penalty",
 };
 
 /**
@@ -22,7 +23,7 @@ export default function LineupInsightPanel({ result }: { result: SimulationResul
         Lineup fit components
       </div>
       {Object.entries(result.fit_components).map(([key, value]) => {
-        const pct = Math.max(0, Math.min(100, ((value + 15) / 115) * 100));
+        const pct = Math.max(0, Math.min(100, value));
         return (
           <div key={key} className="flex flex-col gap-0.5">
             <div className="flex justify-between text-xs" style={{ color: "var(--text-secondary)" }}>

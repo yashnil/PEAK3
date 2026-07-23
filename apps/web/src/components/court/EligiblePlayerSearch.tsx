@@ -48,23 +48,35 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
         />
       )}
       <div className="flex flex-col gap-2" role="group" aria-label="Eligible players">
-        {filtered.map((c) => (
-          <button
-            key={c.player_slug}
-            data-testid="candidate-card"
-            data-player-slug={c.player_slug}
-            disabled={disabled}
-            onClick={() => onSelect(c.player_slug)}
-            className="text-left rounded-xl px-4 py-3 font-medium transition-all hover:opacity-90"
-            style={{
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-primary)",
-            }}
-          >
-            {c.player_name}
-          </button>
-        ))}
+        {filtered.map((c) => {
+          const positions = [c.primary_position, ...c.secondary_positions].filter(Boolean).join(" / ");
+          return (
+            <button
+              key={c.player_slug}
+              data-testid="candidate-card"
+              data-player-slug={c.player_slug}
+              disabled={disabled}
+              onClick={() => onSelect(c.player_slug)}
+              className="text-left rounded-xl px-4 py-3 font-medium transition-all hover:opacity-90 flex items-center justify-between gap-3"
+              style={{
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border-default)",
+                color: "var(--text-primary)",
+              }}
+            >
+              <span>{c.player_name}</span>
+              {positions && (
+                <span
+                  data-testid="candidate-position-badge"
+                  className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0"
+                  style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
+                >
+                  {positions}
+                </span>
+              )}
+            </button>
+          );
+        })}
         {filtered.length === 0 && (
           <p className="text-sm" style={{ color: "var(--text-muted)" }}>
             No players match &ldquo;{query}&rdquo;.

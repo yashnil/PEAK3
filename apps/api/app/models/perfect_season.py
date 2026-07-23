@@ -25,7 +25,7 @@ class SelectPlayerRequest(BaseModel):
 
 class PlaceCardRequest(BaseModel):
     game_id: str
-    slot_type: str = Field(..., description="PG | SG | SF | PF | C | sixth_man | defensive_specialist | wildcard")
+    slot_type: str = Field(..., description="PG | SG | SF | PF | C | bench_1 | bench_2 | bench_3")
     idempotency_key: Optional[str] = Field(None)
 
 
@@ -36,6 +36,11 @@ class CompleteGameRequest(BaseModel):
 class SpinCandidate(BaseModel):
     player_slug: str
     player_name: str
+    # v1 archetype-approximated position eligibility (never a score) --
+    # shown during selection so a player can see "allowed positions" before
+    # picking, per docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 6.4b.
+    primary_position: Optional[str] = None
+    secondary_positions: list[str] = []
 
 
 class CurrentSpinPublic(BaseModel):
@@ -49,6 +54,12 @@ class CurrentSpinPublic(BaseModel):
 class PendingSelectionPublic(BaseModel):
     peak_window_id: str
     player_name: str
+    primary_position: Optional[str] = None
+    secondary_positions: list[str] = []
+    # slot_type -> "primary" | "secondary" | "off_position" | "flexible" for
+    # every currently open slot -- lets the UI show whether the pending pick
+    # fits each open court/bench spot before it's placed (never blocking).
+    fit_by_open_slot: dict[str, str] = {}
 
 
 class CourtSlotPublic(BaseModel):
@@ -106,3 +117,7 @@ class CourtBuilderReadinessResponse(BaseModel):
     team_spin_enabled: bool
     interim_team_data_version: str
     interim_team_franchise_count: int
+    # The actual resolvable team-wheel pool -- the frontend spin ceremony
+    # cycles through exactly this list, never a broader decorative list that
+    # includes franchises no spin could ever land on.
+    interim_team_franchise_names: list[str] = []

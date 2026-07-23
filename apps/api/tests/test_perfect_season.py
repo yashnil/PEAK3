@@ -1,6 +1,7 @@
 """Tests for the 82-0 Peak Season / CourtBuilder API and state machine
 (Phase 5C vertical slice + Phase 5X.1-5X.3/5X.7 overhaul: position-aware
-slots and deferred score/rank reveal).
+slots and deferred score/rank reveal + Phase 5X.4: team/era wheels, real
+half-court positions, and PEAK-value-first scoring).
 
 See docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md,
 docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md, and
@@ -30,16 +31,24 @@ from nba_peak.perfect_season.board import (
     interim_team_summary,
     resolve_card,
 )
-from nba_peak.perfect_season.config import BENCH_SLOTS, SLOT_TYPES, STARTER_SLOTS, TOTAL_ROUNDS
+from nba_peak.perfect_season.config import (
+    BENCH_SLOTS,
+    ERA_LABELS,
+    PREFERRED_MIN_CANDIDATES,
+    SLOT_TYPES,
+    STARTER_SLOTS,
+    TOTAL_ROUNDS,
+)
 from nba_peak.perfect_season.positions import (
     ARCHETYPE_POSITION_MAP,
     BENCH_SLOTS as BENCH_SLOT_NAMES,
     STARTER_SLOTS as STARTER_SLOT_NAMES,
     classify_fit,
 )
+from nba_peak.perfect_season.simulation import compute_fit_components, simulate_season
 
 STARTER_SLOT_TYPES = ["PG", "SG", "SF", "PF", "C"]
-BENCH_SLOT_TYPES = ["sixth_man", "defensive_specialist", "wildcard"]
+BENCH_SLOT_TYPES = ["bench_1", "bench_2", "bench_3"]
 
 
 @pytest.fixture(autouse=True)
@@ -117,6 +126,24 @@ def test_interim_team_summary_reports_real_dataset():
     summary = interim_team_summary()
     assert summary["available"] is True
     assert summary["franchise_count"] >= 3
+    assert len(summary["franchise_names"]) == summary["franchise_count"]
+    assert summary["franchise_names"] == sorted(summary["franchise_names"])
+
+
+def test_interim_dataset_covers_all_five_eras():
+    """Era wheel rule 1: 1980s-2020s. Verifies the interim dataset actually
+    has at least one team-decade entry per era, not just that the era wheel
+    displays all 5 labels (a wheel that can never land on 2020s would be
+    misleading, not just narrow)."""
+    path = _default_interim_teams_path_for_test()
+    data = json.loads(path.read_text())
+    decades = {e["decade_label"] for e in data.get("team_decade_spins", [])}
+    assert set(ERA_LABELS) <= decades
+
+
+def _default_interim_teams_path_for_test() -> Path:
+    from nba_peak.perfect_season.board import _default_interim_teams_path
+    return _default_interim_teams_path()
 
 
 def test_interim_team_summary_counts_franchises_only_in_exact_season_spins(tmp_path):
@@ -153,8 +180,11 @@ def test_court_shape_is_five_starters_three_bench():
 def test_slot_types_are_position_and_role_anchored():
     assert SLOT_TYPES[:5] == STARTER_SLOT_TYPES
     assert SLOT_TYPES[5:] == BENCH_SLOT_TYPES
-    # No lingering numbered starter_N/bench_N slot names anywhere.
-    assert not any(s.startswith("starter_") or s.startswith("bench_") for s in SLOT_TYPES)
+    # Starters are real position labels, never numbered.
+    assert not any(s.startswith("starter_") for s in SLOT_TYPES)
+    # Bench slots are deliberately plain (Bench 1/2/3), never role-flavored
+    # labels like "6th Man"/"Defensive Specialist"/"Wildcard".
+    assert BENCH_SLOT_TYPES == ["bench_1", "bench_2", "bench_3"]
 
 
 def test_every_archetype_maps_to_exactly_one_primary_position():
@@ -347,12 +377,16 @@ def test_current_spin_candidates_never_expose_score_or_rank(client: TestClient):
             assert "individual_peak_score" not in c
             assert "prime_score" not in c
             assert "individual_peak_rank" not in c
-            assert set(c.keys()) == {"player_slug", "player_name"}
+            # Position eligibility is allowed (never a score) -- see rule 7:
+            # "show name, eligible reason, and allowed positions."
+            assert set(c.keys()) == {"player_slug", "player_name", "primary_position", "secondary_positions"}
         player_slug = candidates[0]["player_slug"]
         selected = _select(client, game_id, player_slug)
         # Pending selection (post-select, pre-place) also carries no score.
         assert "individual_peak_score" not in selected["pending_selection"]
-        assert set(selected["pending_selection"].keys()) == {"peak_window_id", "player_name"}
+        assert set(selected["pending_selection"].keys()) == {
+            "peak_window_id", "player_name", "primary_position", "secondary_positions", "fit_by_open_slot",
+        }
         open_slots = [s["slot_type"] for s in selected["slots"] if not s["filled"]]
         _place(client, game_id, open_slots[0])
 
@@ -520,9 +554,9 @@ def test_unknown_slot_type_is_rejected(client: TestClient):
 
 @pytest.mark.parametrize("slot_order", [
     # All bench slots filled first, then starters -- reverses the "natural" order.
-    ["sixth_man", "defensive_specialist", "wildcard", "PG", "SG", "SF", "PF", "C"],
+    ["bench_1", "bench_2", "bench_3", "PG", "SG", "SF", "PF", "C"],
     # Interleaved, still arbitrary.
-    ["C", "wildcard", "PG", "sixth_man", "SG", "defensive_specialist", "SF", "PF"],
+    ["C", "bench_3", "PG", "bench_1", "SG", "bench_2", "SF", "PF"],
     # Reverse of the default declared order entirely.
     list(reversed(SLOT_TYPES)),
 ])
@@ -538,7 +572,121 @@ def test_position_mismatched_lineup_remains_completable(client: TestClient):
     feedback, never a hard gate (product spec Sec 6.2/6.7)."""
     # Fill starters in reverse position order relative to draw order to
     # maximize the chance of off-position placements, then bench.
-    slot_order = ["C", "PF", "SF", "SG", "PG", "sixth_man", "defensive_specialist", "wildcard"]
+    slot_order = ["C", "PF", "SF", "SG", "PG", "bench_1", "bench_2", "bench_3"]
     final_state = _play_full_game(client, mode="apex_1y", seed=50, slot_order=slot_order)
     assert final_state["status"] == "result_ready"
     assert len([s for s in final_state["slots"] if s["filled"]]) == TOTAL_ROUNDS
+
+
+# ---------------------------------------------------------------------------
+# Team/era wheels expose both dimensions separately (Phase 5X.4 rule 1)
+# ---------------------------------------------------------------------------
+
+def test_team_decade_spin_exposes_franchise_and_era_as_separate_fields(client: TestClient):
+    state = _create(client, mode="apex_1y", seed=42)
+    game_id = state["game_id"]
+    saw_team_decade = False
+    for _ in range(TOTAL_ROUNDS):
+        state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+        if state["status"] != "selection_pending":
+            break
+        spin = state["current_spin"]
+        if spin["spin_type"] == "team_decade":
+            saw_team_decade = True
+            assert spin["franchise_display_name"] is not None
+            assert spin["era_label"] in ERA_LABELS
+        player_slug = spin["candidates"][0]["player_slug"]
+        _select(client, game_id, player_slug)
+        open_slots = [s["slot_type"] for s in state["slots"] if not s["filled"]]
+        _place(client, game_id, open_slots[0])
+    assert saw_team_decade
+
+
+def test_era_labels_cover_all_five_supported_decades():
+    assert ERA_LABELS == ["1980s", "1990s", "2000s", "2010s", "2020s"]
+
+
+# ---------------------------------------------------------------------------
+# Candidate depth (Phase 5X.4 rule 3): no zero-candidate spins, prefer >= 2
+# ---------------------------------------------------------------------------
+
+def test_board_never_yields_a_zero_candidate_spin_across_many_seeds():
+    for seed in range(200, 260):
+        board = generate_board(mode="apex_1y", seed=seed, team_spin_enabled=True)
+        for spin in board.spins:
+            assert len(spin.candidate_player_slugs) >= 1
+
+
+def test_board_prefers_spins_with_at_least_two_candidates_when_available():
+    """Not a hard guarantee (a couple of interim entries are honestly
+    1-candidate-deep, e.g. Spurs 1990s/Nuggets 2020s -- see the interim
+    dataset's own coverage_note) -- but across many seeds, the large
+    majority of team_decade/exact_team_season spins should clear the
+    PREFERRED_MIN_CANDIDATES floor now that _select_interim_entries prefers
+    deeper entries."""
+    total = 0
+    at_least_preferred = 0
+    for seed in range(300, 340):
+        board = generate_board(mode="apex_1y", seed=seed, team_spin_enabled=True)
+        for spin in board.spins:
+            if spin.spin_type == "open_pool":
+                continue
+            total += 1
+            if len(spin.candidate_player_slugs) >= PREFERRED_MIN_CANDIDATES:
+                at_least_preferred += 1
+    assert total > 0
+    assert at_least_preferred / total >= 0.7
+
+
+# ---------------------------------------------------------------------------
+# PEAK-value-first scoring (Phase 5X.4 rule 6): no anti-GOAT/redundancy nerf
+# ---------------------------------------------------------------------------
+
+def test_all_time_elite_lineup_projects_as_dominant_not_nerfed():
+    """A roster of the highest-scoring 1-year peaks in the entire pool --
+    several sharing the same lead_creator/guard_wing archetype -- must
+    project as historically dominant. This is the direct regression test for
+    the "do not add artificial anti-GOAT roster penalties" instruction: the
+    old role_overlap_penalty would have docked this exact roster for
+    archetype redundancy. It no longer exists."""
+    legends = [
+        "michael-jordan", "magic-johnson", "larry-bird", "lebron-james",
+        "kareem-abdul-jabbar", "tim-duncan", "shaquille-oneal", "hakeem-olajuwon",
+    ]
+    cards = [resolve_card(slug, 1) for slug in legends]
+    assert all(c is not None for c in cards)
+    # Several of these share a primary_role (e.g. several lead_creator/
+    # guard_wing perimeter legends) -- the redundancy this used to punish.
+    roles = [c.primary_role for c in cards]
+    assert len(set(roles)) < len(roles)
+
+    result = simulate_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins >= 70
+    assert result.fit_components.talent_core >= 85
+    for factor in result.decisive_factors:
+        assert "redundant" not in factor.lower()
+        assert "overlap" not in factor.lower()
+
+
+def test_lineup_fit_components_have_no_role_overlap_penalty_field():
+    cards = [resolve_card(slug, 1) for slug in ["michael-jordan", "magic-johnson"]]
+    cards = [c for c in cards if c is not None]
+    fit = compute_fit_components(cards, SLOT_TYPES[: len(cards)])
+    assert "role_overlap_penalty" not in fit.as_dict()
+    assert "bench_strength" in fit.as_dict()
+    assert "positional_fit" in fit.as_dict()
+
+
+def test_cross_era_lineup_is_not_penalized_relative_to_same_era_lineup():
+    """Rule 6: 'do not punish cross-era fit merely because players come from
+    different eras.' There is no era field anywhere in LineupFitComponents
+    or the scoring formula, so a deliberately cross-era roster and a
+    same-era roster of comparable talent should score comparably -- proving
+    era mixing itself carries no penalty."""
+    cross_era = [resolve_card(slug, 1) for slug in [
+        "michael-jordan", "nikola-jokic", "kareem-abdul-jabbar", "luka-doncic",
+        "larry-bird", "giannis-antetokounmpo", "tim-duncan", "stephen-curry",
+    ]]
+    assert all(c is not None for c in cross_era)
+    result = simulate_season(cross_era, board_seed=2, slot_types=SLOT_TYPES)
+    assert result.wins >= 65

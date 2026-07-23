@@ -12,6 +12,44 @@ grammar end-to-end but is not fun enough to be the flagship as-is.
 (engineering phases) and `docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`
 (database expansion).
 
+**Correction (Phase 5X.4, shipped on `phase5-courtbuilder-vertical-slice`):**
+a product review of the shipped Phase 5X.1-5X.3 build found this document's
+scoring philosophy (Sec 6.3) and bench slot naming (Sec 6.1) were wrong, not
+just unimplemented. Both were rewritten in code and are now corrected here:
+
+- **No role-overlap/redundancy penalty, ever.** Sec 6.3's `role_overlap_penalty`
+  row and its "too many ball-dominant players"/"creation_overload" framing
+  described a mechanic that punishes a roster for having too much elite
+  talent of a similar archetype. That mechanic shipped in Phase 5C and was
+  removed entirely in 5X.4: PEAK3 is a game about peak value, and a roster
+  of several legitimate all-time-great peaks (Magic, Jordan, Bird, Duncan,
+  Shaq, ...) must project as historically dominant, never nerfed for
+  "having too many stars." The only things `simulation.py` scores besides
+  raw peak talent now are `bench_strength` (real bench talent) and
+  `positional_fit` (whether starters are placed at a position they actually
+  played) — both real basketball constraints, neither a talent-suppression
+  mechanic. Sec 6.3's table below is kept for historical record but is no
+  longer implemented and must not be re-implemented as originally written.
+- **Bench slots are plain: Bench 1 / Bench 2 / Bench 3.** Sec 6.1's
+  "6th Man / Defensive Specialist / Wildcard" role-flavored bench slots
+  shipped in Phase 5C, then were found to imply exactly the kind of
+  archetype-scoring mechanic the correction above removes (a bonus "tied to"
+  a specific DNA dimension per bench slot). 5X.4 replaced them with three
+  identical, unrestricted bench slots — any selected player is eligible for
+  any bench slot, no bonus condition attached to which one they land in.
+- **Team wheel + era wheel are two separate, real random wheels**, not a
+  single combined interim-dataset label. The era wheel is fixed at 5 real
+  decades (1980s-2020s); the team wheel cycles through the actual
+  resolvable franchise set (now 11 franchises via the expanded interim
+  dataset, up from 5) — never a broader decorative list that includes a
+  franchise no spin could actually land on.
+- **Candidate depth is actively managed, not just measured.** The board
+  generator now excludes zero-candidate interim entries outright and
+  prefers >=2-candidate entries over 1-candidate ones whenever enough exist
+  (`nba_peak/perfect_season/board.py::_select_interim_entries`). Sec 1.2's
+  candidate-count table below reflects the pre-5X.4 state; it's kept as the
+  historical baseline the fix was measured against, not current behavior.
+
 ---
 
 ## 0. Why this document exists
@@ -384,7 +422,11 @@ one placeholder for a cheap future win), not more sprawling.
 | PF | Power Forward | Elbow/baseline |
 | C | Center | Rim |
 
-**Bench (3, role-anchored, not position-anchored):**
+**Bench (3) -- SUPERSEDED by the Phase 5X.4 correction above.** As shipped,
+all 3 bench slots are plain and identical: **Bench 1 / Bench 2 / Bench 3**,
+no role label, no per-slot bonus condition. The table below (6th Man /
+Defensive Specialist / Wildcard, each with its own DNA-tied bonus) is kept
+for historical record only and must not be re-implemented.
 
 | Slot | Definition |
 |---|---|
@@ -414,7 +456,15 @@ engineering change than it might first appear.
   bench slots; the bonus condition (Sec 6.1 table) is evaluated per pick,
   not gated as an eligibility filter.
 
-### 6.3 Penalties (extends existing `SYNERGY_RULES` pattern)
+### 6.3 Penalties -- SUPERSEDED by the Phase 5X.4 correction above
+
+**None of this table is implemented, and it must not be.** PEAK3's scoring
+is peak-value-first: a roster is never docked for having "too many
+ball-dominant players" or similar archetype-concentration triggers merely
+because that concentration happens to involve elite talent. The only
+implemented scoring components tied to roster construction are
+`bench_strength` and `positional_fit` (`nba_peak/perfect_season/simulation.py`).
+Kept below for historical record only.
 
 | Penalty | Trigger | Existing precedent to extend |
 |---|---|---|
@@ -426,7 +476,12 @@ engineering change than it might first appear.
 | Too slow | New — same data-constraint caveat; proxy via archetype mix imbalance (heavy `forward_big`/`anchor` count with no `lead_creator`/`guard_wing` balance), must be labeled as a proxy in its own tooltip, never presented as a measured speed stat |
 | No bench creation | No bench slot filled with a `lead_creator`/`guard_wing`-eligible card | New, mirrors `no_lead_creator` at bench scope |
 
-### 6.4 Bonuses (extends existing `SYNERGY_RULES` pattern)
+### 6.4 Bonuses -- SUPERSEDED by the Phase 5X.4 correction above
+
+Not implemented as a per-condition bonus taxonomy. In particular,
+"Complementary usage profiles" below assumed `role_overlap_penalty` would
+keep existing as computed math to invert -- that field was removed
+entirely in 5X.4, not repurposed. Kept for historical record only.
 
 | Bonus | Trigger | Existing precedent to extend |
 |---|---|---|

@@ -3,8 +3,13 @@
 **Status:** 5X.1 (Arena IA), 5X.2 (spin ceremony), 5X.3 (position-aware
 slots), and the deferred-reveal contract change originally scoped under
 5X.7 have been implemented, on `phase5-courtbuilder-vertical-slice` /
-PR #3 (still draft). 5X.4-5X.6, and the rest of 5X.7 (loss timeline, share
-card) remain planning-only.
+PR #3 (still draft). A further pass, ALSO called "Phase 5X.4" by the task
+that produced it, has also shipped -- see the naming-collision callout right
+below the sequencing section for what it actually contains (it is NOT the
+player-database-expansion Phase 5X.4 originally scoped in this document).
+5X.5-5X.6, and the rest of 5X.7 (loss timeline, share card) remain
+planning-only. The original player-database-expansion Phase 5X.4 remains
+planning-only too, under its new name (see the collision callout).
 **Depends on:** `docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md` (the "what and
 why" — read that first), `docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md`
 (still binding), `docs/architecture/PHASE_5_DATA_MODEL.md` (schema design),
@@ -158,6 +163,13 @@ up.
 
 ## Phase 5X.3 — Position-aware CourtBuilder slots
 
+**Note:** the bench slot names below (`sixth_man/defensive_specialist/wildcard`)
+and the "real half-court graphic" deliverable were both changed/shipped in
+the later "Phase 5X.4" pass, not in this one -- see the Phase 5X.4 naming-
+collision callout further down. This section is kept as-shipped-then
+history; bench slots actually shipped as plain `bench_1/bench_2/bench_3`,
+and the half-court graphic shipped in 5X.4, not here.
+
 **Deliverables:**
 - Slot semantics change: `starter_1..5` → `PG/SG/SF/PF/C`; `bench_1..3` →
   `sixth_man/defensive_specialist/wildcard` (product spec Sec 6.1).
@@ -220,7 +232,20 @@ deployment exists anywhere) before starting.
 
 ---
 
-## Phase 5X.4 — Player database expansion plan to 500
+## Phase 5X.4 (original) — Player database expansion plan to 500
+
+**Naming collision, flagged explicitly (mirrors the 5X.8 collision callout
+further down this document):** a later task independently called its own
+work "Phase 5X.4" -- CourtBuilder team/era wheels, a real half-court
+layout, plain Bench 1/2/3 slots, and the peak-value-first scoring
+correction (see `docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md`'s own
+"Correction (Phase 5X.4)" note). That work has SHIPPED, on this same
+branch. It is unrelated to the player-database-expansion phase described
+below, which remains planning-only under its original name here. Whoever
+picks up the actual 500-player expansion next should treat this section's
+scope as still open, just aware the "5X.4" label is now ambiguous in this
+document's own history -- read commit history / PR #3's description to
+disambiguate which "5X.4" a given change belongs to.
 
 **This phase is the parallel data track — see
 `docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md` for the full plan.**
@@ -293,6 +318,18 @@ section above.
 ---
 
 ## Phase 5X.6 — Lineup-fit engine v1
+
+**Superseded in part by the "Phase 5X.4" pass (see the naming-collision
+callout above):** `LineupFitComponents`/`compute_fit_components` were
+already extended, but NOT with the bonus/penalty taxonomy from product spec
+Sec 6.3/6.4 below -- that taxonomy was reviewed and rejected as an
+"anti-GOAT"/role-redundancy mechanic PEAK3 must not have (see the product
+spec's own Phase 5X.4 correction note). What shipped instead: `bench_strength`
+and `positional_fit`, both peak-value-and-real-constraint-based, no
+archetype-count penalties. If this phase is picked up again, do not
+resurrect Sec 6.3/6.4's taxonomy as originally written -- any future
+extension of `LineupFitComponents` must preserve the "no penalty for having
+too much elite talent" invariant.
 
 **Deliverables:**
 - Extend `nba_peak/perfect_season/simulation.py::LineupFitComponents` and

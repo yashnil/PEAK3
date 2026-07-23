@@ -87,6 +87,7 @@ async def get_readiness() -> CourtBuilderReadinessResponse:
         team_spin_enabled=settings.COURTBUILDER_TEAM_SPIN_ENABLED,
         interim_team_data_version=summary["dataset_version"] or "unavailable",
         interim_team_franchise_count=summary["franchise_count"],
+        interim_team_franchise_names=summary["franchise_names"],
     )
 
 

@@ -7,17 +7,19 @@ import {
   PerfectSeasonAPIError,
 } from "@/lib/perfect-season-api";
 import { uiPhaseFromStatus } from "@/lib/court-state";
-import { CourtLineupPublicState, SlotType, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
+import { CourtLineupPublicState, CourtSlotPublic, SlotType, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import SpinStage from "./SpinStage";
 import EligiblePlayerSearch from "./EligiblePlayerSearch";
 import PeakCardCourt from "./PeakCardCourt";
+import CourtLayout from "./CourtLayout";
 import SeasonResultStub from "./SeasonResultStub";
 
 interface Props {
   initialGameState: CourtLineupPublicState;
+  franchiseNames: string[];
 }
 
-export default function CourtBuilder({ initialGameState }: Props) {
+export default function CourtBuilder({ initialGameState, franchiseNames }: Props) {
   const [state, setState] = useState<CourtLineupPublicState>(initialGameState);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,12 +68,15 @@ export default function CourtBuilder({ initialGameState }: Props) {
   const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
   const benchSlots = state.slots.filter((s) => BENCH_SLOT_TYPES.includes(s.slot_type));
 
-  function slotProps(slot: (typeof state.slots)[number]) {
-    return {
-      slot,
-      isPendingTarget: phase === "placing" && !slot.filled,
-      onClick: phase === "placing" && !slot.filled && !busy ? () => handlePlace(slot.slot_type) : undefined,
-    };
+  function renderSlot(slot: CourtSlotPublic) {
+    return (
+      <PeakCardCourt
+        slot={slot}
+        isPendingTarget={phase === "placing" && !slot.filled}
+        onClick={phase === "placing" && !slot.filled && !busy ? () => handlePlace(slot.slot_type) : undefined}
+        pendingFit={phase === "placing" ? state.pending_selection?.fit_by_open_slot?.[slot.slot_type] : undefined}
+      />
+    );
   }
 
   return (
@@ -90,7 +95,8 @@ export default function CourtBuilder({ initialGameState }: Props) {
       <p className="text-xs -mt-3" style={{ color: "var(--text-muted)" }} data-testid="position-logic-note">
         Starter positions (PG/SG/SF/PF/C) use an early approximation from
         each player&apos;s lineup archetype, not verified NBA position data — off-position
-        placements are always allowed.
+        placements are always allowed, and PEAK3 scores your roster mostly on
+        peak talent, not on penalizing a stacked lineup.
       </p>
 
       {error && (
@@ -107,6 +113,7 @@ export default function CourtBuilder({ initialGameState }: Props) {
               spin={state.current_spin}
               roundNumber={state.current_round}
               totalRounds={state.total_rounds}
+              franchiseNames={franchiseNames}
               onRevealComplete={() => setRevealedRound(state.current_round)}
             />
           )}
@@ -122,30 +129,12 @@ export default function CourtBuilder({ initialGameState }: Props) {
           {phase === "placing" && state.pending_selection && (
             <div className="rounded-xl p-3 text-sm" style={{ background: "var(--bg-elevated)", color: "var(--text-primary)" }}>
               Placing <strong>{state.pending_selection.player_name}</strong> — choose any open court or bench spot below.
+              Fit for each open spot is shown as a badge, but every spot is a legal placement.
             </div>
           )}
 
-          <div data-testid="court-grid" className="flex flex-col gap-3">
-            <div className="flex flex-col gap-2">
-              <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                Starters
-              </div>
-              <div data-testid="starters-grid" className="grid grid-cols-5 gap-2">
-                {starterSlots.map((slot) => (
-                  <PeakCardCourt key={slot.slot_type} {...slotProps(slot)} />
-                ))}
-              </div>
-            </div>
-            <div className="flex flex-col gap-2">
-              <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                Bench
-              </div>
-              <div data-testid="bench-grid" className="grid grid-cols-3 gap-2">
-                {benchSlots.map((slot) => (
-                  <PeakCardCourt key={slot.slot_type} {...slotProps(slot)} />
-                ))}
-              </div>
-            </div>
+          <div data-testid="court-grid">
+            <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={renderSlot} />
           </div>
 
           {phase === "complete" && state.status === "rounds_complete" && (

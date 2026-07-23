@@ -28,6 +28,7 @@ from nba_peak.perfect_season.config import (
     FALLBACK_CANDIDATES_PER_ROUND,
     INTERIM_TEAM_DATA_VERSION,
     MODE_TO_YEARS,
+    PREFERRED_MIN_CANDIDATES,
     SUPPORTED_MODES,
     TOTAL_ROUNDS,
 )
@@ -40,7 +41,7 @@ _INTERIM_TEAMS_CACHE: dict | None = None
 
 def _default_interim_teams_path() -> Path:
     repo_root = Path(__file__).resolve().parent.parent.parent
-    return repo_root / "data" / "game" / "interim" / "courtbuilder_team_seasons.v0.json"
+    return repo_root / "data" / "game" / "interim" / "courtbuilder_team_seasons.v1.json"
 
 
 def _load_interim_teams(path: Path | None = None) -> dict:
@@ -78,12 +79,15 @@ def interim_team_summary(path: Path | None = None) -> dict:
     """Public summary of the interim dataset, for the readiness endpoint.
 
     Returns {"available": False} rather than raising if the file is
-    missing -- readiness is a safe diagnostic, never a 500.
+    missing -- readiness is a safe diagnostic, never a 500. `franchise_names`
+    is the actual resolvable team-wheel pool -- the frontend spin ceremony
+    cycles through exactly this list (never a broader, partly-fake list of
+    franchises that could never actually be landed on).
     """
     try:
         data = _load_interim_teams(path)
     except FileNotFoundError:
-        return {"available": False, "franchise_count": 0, "dataset_version": None}
+        return {"available": False, "franchise_count": 0, "dataset_version": None, "franchise_names": []}
     # Union across both spin types -- a franchise that only appears in
     # exact_team_season_spins (not team_decade_spins) must still be counted.
     franchises = {e["franchise_display_name"] for e in data.get("team_decade_spins", [])}
@@ -92,6 +96,7 @@ def interim_team_summary(path: Path | None = None) -> dict:
         "available": True,
         "franchise_count": len(franchises),
         "dataset_version": data.get("dataset_version"),
+        "franchise_names": sorted(franchises),
     }
 
 
@@ -114,6 +119,37 @@ def _candidates_for_entry(entry: dict, duration_pool: list[CardProfile]) -> list
     """
     pool_slugs = {c.player_slug for c in duration_pool}
     return [slug for slug in entry.get("player_slugs", []) if slug in pool_slugs]
+
+
+def _select_interim_entries(
+    entries: list[dict],
+    duration_pool: list[CardProfile],
+    rng: random.Random,
+    limit: int,
+) -> list[tuple[dict, list[str]]]:
+    """Choose up to `limit` interim spin entries for this board, each paired
+    with its resolved candidate list for this duration.
+
+    Two rules, both from the "no fake candidate depth, but no bad spins
+    either" instruction:
+      1. Entries that resolve to 0 candidates at this duration are excluded
+         outright -- never offered as a spin, not even as a last resort.
+      2. Entries with >= PREFERRED_MIN_CANDIDATES candidates are preferred
+         over thinner (1-candidate) entries whenever enough "good" entries
+         exist to fill `limit` slots on their own. Thin entries are only
+         used as filler when there aren't enough good ones -- honest about
+         sparse coverage (see the interim dataset's own coverage_note)
+         rather than pretending it doesn't exist.
+    """
+    resolved = [(e, _candidates_for_entry(e, duration_pool)) for e in entries]
+    resolved = [(e, c) for e, c in resolved if len(c) > 0]
+
+    good = [pair for pair in resolved if len(pair[1]) >= PREFERRED_MIN_CANDIDATES]
+    thin = [pair for pair in resolved if len(pair[1]) < PREFERRED_MIN_CANDIDATES]
+    rng.shuffle(good)
+    rng.shuffle(thin)
+
+    return (good + thin)[:limit]
 
 
 def _can_assign_distinct(round_candidates: list[list[str]]) -> bool:
@@ -176,14 +212,13 @@ def generate_board(
         round_candidates: list[list[str]] = []
 
         if team_spin_enabled and len(interim_entries) >= 1:
-            shuffled_entries = interim_entries.copy()
-            rng.shuffle(shuffled_entries)
             # Use as many distinct interim spins as available, up to
-            # TOTAL_ROUNDS; fall back to open_pool for any remaining rounds
-            # if the interim dataset has fewer than TOTAL_ROUNDS entries.
-            chosen = shuffled_entries[:TOTAL_ROUNDS]
-            for i, entry in enumerate(chosen, start=1):
-                candidates = _candidates_for_entry(entry, duration_pool)
+            # TOTAL_ROUNDS, preferring entries with real candidate depth and
+            # excluding zero-candidate entries outright (see
+            # _select_interim_entries); fall back to open_pool for any
+            # remaining rounds if there aren't enough usable interim entries.
+            chosen = _select_interim_entries(interim_entries, duration_pool, rng, TOTAL_ROUNDS)
+            for i, (entry, candidates) in enumerate(chosen, start=1):
                 spins.append(SpinPrompt(
                     round_number=i,
                     spin_type=entry["spin_type"],

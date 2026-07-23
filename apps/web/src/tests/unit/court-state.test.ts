@@ -7,7 +7,7 @@ import {
   hasResult,
 } from "@/lib/court-state";
 import type { CourtLineupPublicState, CourtSlotPublic } from "@/types/perfect-season";
-import { SLOT_TYPES, STARTER_SLOT_TYPES } from "@/types/perfect-season";
+import { BENCH_SLOT_TYPES, ERA_LABELS, SLOT_LABELS, SLOT_TYPES, STARTER_SLOT_TYPES } from "@/types/perfect-season";
 
 function mockSlots(filledCount: number): CourtSlotPublic[] {
   return SLOT_TYPES.map((slot_type, i) => ({
@@ -34,8 +34,8 @@ function mockState(overrides: Partial<CourtLineupPublicState> = {}): CourtLineup
     slots: mockSlots(0),
     board_seed: 42,
     card_pool_version: "v3",
-    board_generator_version: "perfect_season_board_v0",
-    interim_team_data_version: "courtbuilder_interim_teams.v0",
+    board_generator_version: "perfect_season_board_v1",
+    interim_team_data_version: "courtbuilder_interim_teams.v1",
     simulation_result: null,
     ...overrides,
   };
@@ -63,7 +63,7 @@ describe("getOpenSlotTypes", () => {
     const open = getOpenSlotTypes(mockSlots(3));
     expect(open).toHaveLength(5);
     expect(open).not.toContain("PG");
-    expect(open).toContain("wildcard");
+    expect(open).toContain("bench_3");
   });
 
   it("allows bench slots to be open while starters are filled -- soft placement, no forced order", () => {
@@ -72,7 +72,7 @@ describe("getOpenSlotTypes", () => {
       filled: STARTER_SLOT_TYPES.includes(s.slot_type),
     }));
     const open = getOpenSlotTypes(slots);
-    expect(open).toEqual(["sixth_man", "defensive_specialist", "wildcard"]);
+    expect(open).toEqual(["bench_1", "bench_2", "bench_3"]);
   });
 });
 
@@ -117,5 +117,26 @@ describe("hasResult", () => {
       },
     });
     expect(hasResult(state)).toBe(true);
+  });
+});
+
+describe("court slot labels (Phase 5X.4 rule 4)", () => {
+  it("starters use real position labels PG/SG/SF/PF/C", () => {
+    expect(STARTER_SLOT_TYPES).toEqual(["PG", "SG", "SF", "PF", "C"]);
+  });
+
+  it("bench slots are plain Bench 1/2/3, never role-flavored labels", () => {
+    expect(BENCH_SLOT_TYPES).toEqual(["bench_1", "bench_2", "bench_3"]);
+    expect(SLOT_LABELS.bench_1).toBe("Bench 1");
+    expect(SLOT_LABELS.bench_2).toBe("Bench 2");
+    expect(SLOT_LABELS.bench_3).toBe("Bench 3");
+    const labels = Object.values(SLOT_LABELS);
+    expect(labels).not.toContain("Wildcard");
+    expect(labels).not.toContain("Defensive Specialist");
+    expect(labels).not.toContain("6th Man");
+  });
+
+  it("era wheel covers all 5 supported decades", () => {
+    expect(ERA_LABELS).toEqual(["1980s", "1990s", "2000s", "2010s", "2020s"]);
   });
 });

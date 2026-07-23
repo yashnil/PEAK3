@@ -28,7 +28,7 @@ if str(_repo_root) not in sys.path:
 
 from nba_peak.perfect_season.board import find_spin, generate_board, resolve_card
 from nba_peak.perfect_season.config import SLOT_TYPES, TOTAL_ROUNDS
-from nba_peak.perfect_season.positions import classify_fit
+from nba_peak.perfect_season.positions import classify_fit, primary_position, secondary_positions
 from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot
 from nba_peak.perfect_season.simulation import simulate_season
 
@@ -222,7 +222,8 @@ def action_complete_game(state: CourtLineupState) -> CourtLineupState:
             raise CourtError("card_not_resolvable", f"Could not resolve slot card '{slot.peak_window_id}'")
         cards.append(card)
 
-    state.simulation_result = simulate_season(cards, state.board.seed)
+    slot_types = [s.slot_type for s in state.slots]
+    state.simulation_result = simulate_season(cards, state.board.seed, slot_types)
     state.status = "result_ready"
     state.last_action_at = datetime.now(timezone.utc).isoformat()
     return state
@@ -260,7 +261,7 @@ def get_public_state(state: CourtLineupState) -> dict:
             "franchise_display_name": spin.franchise_display_name,
             "era_label": spin.era_label,
             "candidates": [
-                {"player_slug": slug, "player_name": _display_name_for_slug(slug, state.duration_years)}
+                _candidate_public(slug, state.duration_years)
                 for slug in spin.candidate_player_slugs
                 if slug not in _used_player_slugs(state)
             ],
@@ -274,6 +275,12 @@ def get_public_state(state: CourtLineupState) -> dict:
                 "peak_window_id": card.peak_window_id,
                 "player_name": card.player_name,
                 # No score here either -- still not locked into a slot yet.
+                "primary_position": primary_position(card.primary_role),
+                "secondary_positions": list(secondary_positions(card.primary_role)),
+                "fit_by_open_slot": {
+                    slot_type: classify_fit(card.primary_role, slot_type)
+                    for slot_type in get_open_slot_types(state)
+                },
             }
 
     reveal_scores = state.status == "result_ready"
@@ -334,3 +341,18 @@ def get_public_state(state: CourtLineupState) -> dict:
 def _display_name_for_slug(player_slug: str, duration_years: int) -> str:
     card = resolve_card(player_slug, duration_years)
     return card.player_name if card else player_slug
+
+
+def _candidate_public(player_slug: str, duration_years: int) -> dict:
+    """Public candidate entry: name + v1 position eligibility hint, never a
+    score/rank (ADR-005 Decision 6 -- SpinCandidate has no score field at
+    all, enforced at the Pydantic layer too)."""
+    card = resolve_card(player_slug, duration_years)
+    if card is None:
+        return {"player_slug": player_slug, "player_name": player_slug, "primary_position": None, "secondary_positions": []}
+    return {
+        "player_slug": player_slug,
+        "player_name": card.player_name,
+        "primary_position": primary_position(card.primary_role),
+        "secondary_positions": list(secondary_positions(card.primary_role)),
+    }

@@ -19,12 +19,12 @@ position-slot mechanic is fun, which is the actual goal of this phase.
 """
 from __future__ import annotations
 
-# The 5 position-anchored starter slots and 3 role-anchored bench slots.
-# Duplicated here (rather than imported from config.py) only as plain tuples
-# for fast membership checks -- config.py's SLOT_TYPES remains the single
-# source of truth for the full ordered slot list.
+# The 5 position-anchored starter slots and 3 plain, unrestricted bench
+# slots. Duplicated here (rather than imported from config.py) only as plain
+# tuples for fast membership checks -- config.py's SLOT_TYPES remains the
+# single source of truth for the full ordered slot list.
 STARTER_SLOTS = ("PG", "SG", "SF", "PF", "C")
-BENCH_SLOTS = ("sixth_man", "defensive_specialist", "wildcard")
+BENCH_SLOTS = ("bench_1", "bench_2", "bench_3")
 
 # archetype -> (primary position, tuple of secondary positions)
 ARCHETYPE_POSITION_MAP: dict[str, tuple[str, tuple[str, ...]]] = {
@@ -61,9 +61,9 @@ def classify_fit(archetype: str | None, slot_type: str) -> str:
       "off_position"  -- neither matches (still a fully legal placement --
                           see docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md
                           Sec 6.2: soft placement, never blocked)
-      "flexible"      -- the slot is a bench role slot (sixth_man /
-                          defensive_specialist / wildcard), which is never
-                          position-restricted regardless of archetype
+      "flexible"      -- the slot is a bench slot (bench_1 / bench_2 /
+                          bench_3), which is never position-restricted
+                          regardless of archetype
 
     Placement legality is NOT determined here -- this function is purely
     for display/fit-feedback purposes. Every slot accepts every player;

@@ -1,11 +1,15 @@
 "use client";
 import type { CSSProperties } from "react";
-import { CourtSlotPublic, ROLE_FIT_LABELS, SLOT_LABELS } from "@/types/perfect-season";
+import { BENCH_SLOT_TYPES, CourtSlotPublic, ROLE_FIT_LABELS, RoleFit, SLOT_LABELS } from "@/types/perfect-season";
 
 interface Props {
   slot: CourtSlotPublic;
   isPendingTarget?: boolean;
   onClick?: () => void;
+  /** During placement, whether the currently-pending selection fits this
+   * open slot (nba_peak.perfect_season.positions.classify_fit) -- shown as
+   * a small badge, never blocking. */
+  pendingFit?: RoleFit;
 }
 
 /**
@@ -35,10 +39,11 @@ interface Props {
  * (--bg-surface vs. --bg-elevated) and content ("Open" vs. a player name)
  * alone, both at full opacity.
  */
-export default function PeakCardCourt({ slot, isPendingTarget, onClick }: Props) {
-  const isBench = slot.slot_type === "sixth_man" || slot.slot_type === "defensive_specialist" || slot.slot_type === "wildcard";
+export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingFit }: Props) {
+  const isBench = (BENCH_SLOT_TYPES as string[]).includes(slot.slot_type);
   const revealed = slot.individual_peak_score != null;
   const fitLabel = slot.role_fit ? ROLE_FIT_LABELS[slot.role_fit] : "";
+  const pendingFitLabel = !slot.filled && pendingFit ? ROLE_FIT_LABELS[pendingFit] : "";
 
   const content = (
     <>
@@ -73,8 +78,22 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick }: Props)
           )}
         </>
       ) : (
-        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-          {isPendingTarget ? "Place here" : "Open"}
+        <div className="flex flex-col items-center gap-0.5">
+          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+            {isPendingTarget ? "Place here" : "Open"}
+          </div>
+          {pendingFitLabel && (
+            <div
+              className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
+              style={{
+                color: pendingFit === "off_position" ? "#fb923c" : "var(--peak-accent, #f5c842)",
+                background: "rgba(255,255,255,0.06)",
+              }}
+              data-testid="pending-fit-badge"
+            >
+              {pendingFitLabel}
+            </div>
+          )}
         </div>
       )}
     </>

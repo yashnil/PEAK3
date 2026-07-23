@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import CourtBuilder from "@/components/court/CourtBuilder";
 import { CourtMode } from "@/types/perfect-season";
-import { createCourtGame } from "@/lib/perfect-season-api";
+import { createCourtGame, getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 
 const VALID_MODES: CourtMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
 
@@ -25,8 +25,18 @@ export default async function CourtBuilderPracticePage({ params, searchParams }:
   const seed = sp.seed ? parseInt(sp.seed, 10) : undefined;
 
   let gameState;
+  let franchiseNames: string[] = [];
   try {
-    gameState = await createCourtGame(mode as CourtMode, seed);
+    // Fetched in parallel: the game itself, and the readiness catalog's
+    // franchise-name list, which the spin ceremony's team wheel cycles
+    // through for visual variety (see SpinStage -- always the true
+    // resolvable set, never a broader decorative list).
+    const [game, readiness] = await Promise.all([
+      createCourtGame(mode as CourtMode, seed),
+      getCourtBuilderReadiness().catch(() => null),
+    ]);
+    gameState = game;
+    franchiseNames = readiness?.interim_team_franchise_names ?? [];
   } catch (err) {
     const message =
       err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "courtbuilder_not_enabled"
@@ -39,5 +49,5 @@ export default async function CourtBuilderPracticePage({ params, searchParams }:
     );
   }
 
-  return <CourtBuilder initialGameState={gameState} />;
+  return <CourtBuilder initialGameState={gameState} franchiseNames={franchiseNames} />;
 }

@@ -1,7 +1,8 @@
 /**
  * 82-0 Peak Season / CourtBuilder end-to-end gameplay tests
  * (Phase 5C vertical slice + Phase 5X.1-5X.3/5X.7 overhaul: spin ceremony,
- * position-aware slots, deferred score/rank reveal).
+ * position-aware slots, deferred score/rank reveal + Phase 5X.4: team/era
+ * wheels, real half-court positions, PEAK-value-first scoring).
  * Requires FastAPI (port 8000) and Next.js (port 3000) — both auto-start via
  * playwright.config.ts. Requires PEAK3_COURTBUILDER_ENABLED=true and
  * PEAK3_COURTBUILDER_TEAM_SPIN_ENABLED=true in the API's environment (see
@@ -92,16 +93,24 @@ test.describe("CourtBuilder full attempt", () => {
     await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(1);
   });
 
-  test("starters and bench render as distinct groups with real position labels", async ({ page }) => {
+  test("starters render on the half-court and bench renders as a distinct group, with real position labels", async ({ page }) => {
     await startCourtBuilder(page);
-    await expect(page.locator('[data-testid="starters-grid"] [data-testid="court-slot"]')).toHaveCount(5);
+    await expect(page.locator('[data-testid="half-court"] [data-testid="court-slot"]')).toHaveCount(5);
     await expect(page.locator('[data-testid="bench-grid"] [data-testid="court-slot"]')).toHaveCount(3);
     for (const pos of ["PG", "SG", "SF", "PF", "C"]) {
       await expect(page.locator(`[data-testid="court-slot"][data-slot-type="${pos}"]`)).toHaveCount(1);
     }
-    for (const role of ["sixth_man", "defensive_specialist", "wildcard"]) {
-      await expect(page.locator(`[data-testid="court-slot"][data-slot-type="${role}"]`)).toHaveCount(1);
+    for (const bench of ["bench_1", "bench_2", "bench_3"]) {
+      await expect(page.locator(`[data-testid="court-slot"][data-slot-type="${bench}"]`)).toHaveCount(1);
     }
+    // Deliberately plain bench labels -- never the old role-flavored names.
+    // Labels render visually uppercase (CSS text-transform), so compare
+    // case-insensitively via innerText rather than assuming exact case.
+    const courtText = (await page.locator('[data-testid="court-grid"]').innerText()).toLowerCase();
+    expect(courtText).toContain("bench 1");
+    expect(courtText).not.toContain("wildcard");
+    expect(courtText).not.toContain("defensive specialist");
+    expect(courtText).not.toContain("6th man");
   });
 });
 
@@ -113,8 +122,9 @@ test.describe("CourtBuilder score-hiding contract", () => {
   test("candidate cards never render a numeric score before selection", async ({ page }) => {
     await startCourtBuilder(page);
     const candidateText = await page.locator('[data-testid="candidate-card"]').first().innerText();
-    // A candidate card renders only the player's name -- no digits from a
-    // score/rank should ever appear in its text content.
+    // A candidate card renders the player's name and an allowed-positions
+    // badge (letters only, e.g. "PG / SG") -- no digits from a score/rank
+    // should ever appear in its text content.
     expect(/\d/.test(candidateText)).toBe(false);
   });
 
@@ -134,7 +144,7 @@ test.describe("CourtBuilder score-hiding contract", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Position-aware slots (Phase 5X.3): role-fit note, never a hard block
+// Position-aware slots (Phase 5X.3/5X.4): role-fit note, never a hard block
 // ---------------------------------------------------------------------------
 
 test.describe("CourtBuilder position-aware slots", () => {
@@ -161,6 +171,19 @@ test.describe("CourtBuilder position-aware slots", () => {
     await startCourtBuilder(page);
     await expect(page.locator('[data-testid="position-logic-note"]')).toBeVisible();
   });
+
+  test("an open slot shows a pending-fit badge for the currently selected player", async ({ page }) => {
+    await startCourtBuilder(page);
+    const candidate = page.locator('[data-testid="candidate-card"]').first();
+    await candidate.waitFor({ state: "visible" });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      candidate.click(),
+    ]);
+    // At least one open starter slot should show a fit badge for the
+    // pending selection (primary/secondary/off-position -- never blocking).
+    await expect(page.locator('[data-testid="pending-fit-badge"]').first()).toBeVisible();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -178,13 +201,13 @@ test.describe("CourtBuilder soft placement", () => {
       candidate.click(),
     ]);
 
-    const benchSlot = page.locator('[data-testid="court-slot"][data-slot-type="sixth_man"]');
+    const benchSlot = page.locator('[data-testid="court-slot"][data-slot-type="bench_1"]');
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
       benchSlot.click(),
     ]);
 
-    await expect(page.locator('[data-testid="court-slot"][data-slot-type="sixth_man"]')).toHaveAttribute(
+    await expect(page.locator('[data-testid="court-slot"][data-slot-type="bench_1"]')).toHaveAttribute(
       "data-filled", "true",
     );
     await expect(page.locator('[data-testid="court-slot"][data-slot-type="PG"]')).toHaveAttribute(
@@ -222,7 +245,7 @@ test.describe("CourtBuilder keyboard navigation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Spin ceremony (Phase 5X.2)
+// Team wheel + era wheel spin ceremony (Phase 5X.4 rule 1)
 // ---------------------------------------------------------------------------
 
 test.describe("CourtBuilder spin ceremony", () => {
@@ -245,6 +268,24 @@ test.describe("CourtBuilder spin ceremony", () => {
       timeout: 5_000,
     });
     await expect(page.locator('[data-testid="eligible-count-reveal"]')).toBeVisible();
+  });
+
+  test("team wheel and era wheel render as two distinct reels for a team_decade spin", async ({ page }) => {
+    await startCourtBuilder(page);
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", {
+      timeout: 5_000,
+    });
+    // Seed 42's first round resolves to a team_decade spin against the
+    // expanded interim dataset -- both reels should be present and showing
+    // real, non-empty text once locked.
+    const teamWheel = page.locator('[data-testid="team-wheel"]');
+    const eraWheel = page.locator('[data-testid="era-wheel"]');
+    await expect(teamWheel).toBeVisible();
+    await expect(eraWheel).toBeVisible();
+    const teamText = (await teamWheel.innerText()).trim();
+    const eraText = (await eraWheel.innerText()).trim();
+    expect(teamText.length).toBeGreaterThan(0);
+    expect(/19[89]0s|20[012]0s/.test(eraText)).toBe(true);
   });
 });
 

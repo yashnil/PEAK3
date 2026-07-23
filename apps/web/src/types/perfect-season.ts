@@ -1,4 +1,5 @@
-// 82-0 Peak Season / CourtBuilder TypeScript types (Phase 5C vertical slice).
+// 82-0 Peak Season / CourtBuilder TypeScript types (Phase 5C vertical slice
+// + Phase 5X.4 team/era wheels, real position court, PEAK-based scoring).
 // The simulator is EXPERIMENTAL (v0, uncalibrated) -- never a prediction of
 // real NBA outcomes. See docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md.
 //
@@ -16,17 +17,22 @@ export type CourtStatus =
 
 // 5 position-anchored starter slots (v1 archetype approximation -- see
 // nba_peak/perfect_season/positions.py; NOT real NBA position data) + 3
-// role-anchored bench slots that accept any player with no position
-// restriction. Order matters: starters first, then bench (mirrors the
-// backend's SLOT_TYPES order in nba_peak/perfect_season/config.py).
+// plain, unrestricted bench slots (Bench 1/2/3 -- deliberately not
+// role-flavored labels like "6th Man"/"Wildcard"). Order matters: starters
+// first, then bench (mirrors the backend's SLOT_TYPES order in
+// nba_peak/perfect_season/config.py).
 export const SLOT_TYPES = [
   "PG", "SG", "SF", "PF", "C",
-  "sixth_man", "defensive_specialist", "wildcard",
+  "bench_1", "bench_2", "bench_3",
 ] as const;
 export type SlotType = (typeof SLOT_TYPES)[number];
 
 export const STARTER_SLOT_TYPES: SlotType[] = ["PG", "SG", "SF", "PF", "C"];
-export const BENCH_SLOT_TYPES: SlotType[] = ["sixth_man", "defensive_specialist", "wildcard"];
+export const BENCH_SLOT_TYPES: SlotType[] = ["bench_1", "bench_2", "bench_3"];
+
+// The 5 decades the era wheel spins across -- fixed by product decision, not
+// derived from data coverage (docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md).
+export const ERA_LABELS = ["1980s", "1990s", "2000s", "2010s", "2020s"] as const;
 
 // Display-only fit note (nba_peak/perfect_season/positions.py::classify_fit)
 // -- never gates whether a placement is legal. "flexible" applies to bench
@@ -38,6 +44,10 @@ export const TOTAL_ROUNDS = 8;
 export interface SpinCandidate {
   player_slug: string;
   player_name: string;
+  // v1 archetype-approximated position eligibility -- never a score. Shown
+  // during selection so a player can see "allowed positions" before picking.
+  primary_position: SlotType | null;
+  secondary_positions: SlotType[];
 }
 
 export interface CurrentSpin {
@@ -51,6 +61,11 @@ export interface CurrentSpin {
 export interface PendingSelection {
   peak_window_id: string;
   player_name: string;
+  primary_position: SlotType | null;
+  secondary_positions: SlotType[];
+  // slot_type -> fit note, for every currently open slot -- lets the UI show
+  // whether the pending pick fits each open spot before it's placed.
+  fit_by_open_slot: Record<string, RoleFit>;
 }
 
 export interface CourtSlotPublic {
@@ -103,6 +118,9 @@ export interface CourtBuilderReadiness {
   team_spin_enabled: boolean;
   interim_team_data_version: string;
   interim_team_franchise_count: number;
+  // The actual resolvable team-wheel pool -- the spin ceremony cycles
+  // through exactly this list, never a broader decorative/fake list.
+  interim_team_franchise_names: string[];
 }
 
 export const COURT_MODE_LABELS: Record<CourtMode, string> = {
@@ -117,9 +135,9 @@ export const SLOT_LABELS: Record<SlotType, string> = {
   SF: "Small Forward",
   PF: "Power Forward",
   C: "Center",
-  sixth_man: "6th Man",
-  defensive_specialist: "Defensive Specialist",
-  wildcard: "Wildcard",
+  bench_1: "Bench 1",
+  bench_2: "Bench 2",
+  bench_3: "Bench 3",
 };
 
 export const ROLE_FIT_LABELS: Record<RoleFit, string> = {

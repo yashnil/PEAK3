@@ -57,12 +57,12 @@ class PerfectSeasonBoard:
 @dataclass
 class CourtSlot:
     """One roster position -- five position-anchored starters (PG/SG/SF/PF/C)
-    + three role-anchored bench slots (sixth_man/defensive_specialist/
-    wildcard). Soft assignment, never a hard eligibility lock (master plan
-    Sec 5.5) -- any player may be placed in any slot; `role_fit` records how
-    well the v1 archetype approximation says they fit, for display only.
+    + three plain, unrestricted bench slots (bench_1/bench_2/bench_3). Soft
+    assignment, never a hard eligibility lock (master plan Sec 5.5) -- any
+    player may be placed in any slot; `role_fit` records how well the v1
+    archetype approximation says they fit, for display only.
     """
-    slot_type: str  # e.g. "PG".."C", "sixth_man", "defensive_specialist", "wildcard"
+    slot_type: str  # e.g. "PG".."C", "bench_1", "bench_2", "bench_3"
     round_number: Optional[int] = None  # which round filled this slot
     peak_window_id: Optional[str] = None
     resolved_via_spin_id: Optional[str] = None
@@ -77,22 +77,33 @@ class LineupFitComponents:
     """Lineup-fit dimensions (master plan Sec 5.6) -- explicitly separate from
     the canonical PEAK3 score (ADR-005 Decision 4). Components, never one
     unexplained number.
+
+    PEAK3 product philosophy (see simulation.py's module docstring for the
+    full rationale): a roster with several elite all-time peaks is NOT
+    penalized just for having a lot of star talent -- there is no
+    "too many stars"/"role redundancy" component here. `talent_core` and
+    `bench_strength` are peak-value measures; `positional_fit` is the one
+    component tied to a real board constraint (whether starters are placed
+    at their eligible position), never to how much raw talent is on the
+    roster.
     """
     talent_core: float
+    bench_strength: float
+    positional_fit: float  # 0-100; starters-only, real position constraint
     creation_coverage: float
     scoring_coverage: float
     postseason_pedigree: float
     team_context_depth: float
-    role_overlap_penalty: float  # negative or zero; redundancy penalty
 
     def as_dict(self) -> dict[str, float]:
         return {
             "talent_core": self.talent_core,
+            "bench_strength": self.bench_strength,
+            "positional_fit": self.positional_fit,
             "creation_coverage": self.creation_coverage,
             "scoring_coverage": self.scoring_coverage,
             "postseason_pedigree": self.postseason_pedigree,
             "team_context_depth": self.team_context_depth,
-            "role_overlap_penalty": self.role_overlap_penalty,
         }
 
 

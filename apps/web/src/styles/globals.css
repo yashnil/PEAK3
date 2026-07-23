@@ -199,6 +199,65 @@ html, body {
   animation: spin-ceremony-lock 0.35s ease-out;
 }
 
+@keyframes spin-ceremony-reel-tick {
+  0% { opacity: 0.55; transform: translateY(-2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.spin-ceremony-reel-tick {
+  animation: spin-ceremony-reel-tick 0.09s ease-out;
+}
+
+/* ================================================================
+   Half-court layout
+   ================================================================ */
+
+.court-half {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 16px 16px 4px 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+.court-half::before {
+  /* Free-throw circle, purely decorative court markings. Never intercepts
+     clicks meant for the absolutely-positioned slot cards above it. */
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  width: 34%;
+  aspect-ratio: 1;
+  border: 2px solid var(--border-muted, #333);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.court-half::after {
+  /* Three-point arc, purely decorative court markings. Never intercepts
+     clicks meant for the absolutely-positioned slot cards above it. */
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -32%;
+  width: 92%;
+  aspect-ratio: 1;
+  border: 2px solid var(--border-muted, #333);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.court-half-slot {
+  position: absolute;
+  width: 19%;
+  transform: translate(-50%, -50%);
+}
+
 /* ================================================================
    Reduced motion
    ================================================================ */
