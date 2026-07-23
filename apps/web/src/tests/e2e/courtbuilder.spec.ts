@@ -282,15 +282,28 @@ test.describe("CourtBuilder keyboard navigation", () => {
 test.describe("CourtBuilder spin ceremony", () => {
   test("reduced motion skips straight to revealed candidates with no extra delay", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    const start = Date.now();
     await startCourtBuilder(page);
-    const candidate = page.locator('[data-testid="candidate-card"]').first();
-    await candidate.waitFor({ state: "visible", timeout: 3_000 });
-    // Under reduced motion the ceremony's JS timers are skipped entirely
-    // (not just shortened via CSS), so this should resolve quickly --
-    // generously bounded well under the 2s animated-ceremony budget to
-    // catch a regression that re-introduces the timer delay.
-    expect(Date.now() - start).toBeLessThan(3_000);
+    // Under reduced motion the ceremony's JS timers (SpinStage.tsx's
+    // SPIN_MS/LOCK_MS/COUNT_MS sequence, ~1.7s total for normal-motion
+    // users) are skipped entirely -- the effect flips phase straight to
+    // "revealed" on mount, no timers at all. Assert on that observable
+    // state directly, with a tight timeout, rather than bracketing a
+    // Date.now() measurement around page load: the old assertion measured
+    // navigation + server + hydration time (highly variable, especially in
+    // CI) in the same budget as the ceremony delay it meant to check,
+    // which made it flaky for reasons unrelated to reduced-motion
+    // behavior. `startCourtBuilder` already waits out page-load noise (its
+    // own generous 15s timeouts) before this point, so a short 500ms
+    // window here is tight enough to catch a real regression that
+    // reintroduces the timer delay, without being sensitive to how long
+    // the page itself took to load.
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", {
+      timeout: 500,
+    });
+    await expect(page.locator('[data-testid="candidate-card"]').first()).toBeVisible({ timeout: 500 });
+    // No leftover "spinning" animation state -- confirms the skip is a real
+    // state transition, not a coincidentally-fast animated one.
+    await expect(page.locator('[data-testid="spin-ceremony-spinning"]')).toHaveCount(0);
   });
 
   test("spin stage reaches the revealed phase and shows an eligible-count line", async ({ page }) => {
