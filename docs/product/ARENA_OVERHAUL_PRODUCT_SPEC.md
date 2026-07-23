@@ -1,5 +1,71 @@
 # PEAK3 Arena Overhaul — Product Spec
 
+## Manual Review Rejection — Current CourtBuilder Is Not Ready (Phase 5X.7, 2026-07-23)
+
+**PR #3 remains draft. Do not mark it ready. Do not merge.** A manual
+browser pass — not an automated-test pass, CI is green — rejected the
+current CourtBuilder build on product grounds. This is a different, more
+serious kind of finding than the wheel-coverage bug (5X.5) or the position
+bug (5X.6): those were *correctness* problems in an otherwise-reasonable
+design. This one says the design itself, as currently built, is not good
+enough to ship, even though every automated check passes.
+
+**What manual review found:**
+1. **The feature currently is not fun.** Passing tests and a correct
+   position model are necessary, not sufficient — the actual moment-to-
+   moment experience of playing it isn't good.
+2. **No cancel/back-out after selecting a candidate.** Once a player is
+   selected, the only path forward was placing them — a real usability gap
+   (fixed this session, see Sec 5X.7 code changes in the companion plan
+   doc; this is the one item from this list that got an actual code fix).
+3. **The court view looks visually awful:** floating boxes, awkward
+   spacing, weak basketball feel, overlapping text/cards, not fun or
+   shareable. The half-court markings shipped under the "5X.5" label
+   (key/hoop/arc) were a real improvement over nothing, and are nowhere
+   near enough.
+4. **The spinner is lame.** Two text boxes cycling through names, however
+   functionally correct, does not create the anticipation a slot-machine-
+   style reveal is supposed to create. It does not feel like a real random
+   event.
+5. **Team + decade is probably the wrong constraint grain.** A decade-wide
+   pool (e.g. "Lakers, 1980s") is less legible and less exciting than a
+   specific, real roster-year ("2015-16 Warriors — pick one eligible
+   player from that real roster"). New direction: **team + year**, not
+   team + decade. See Sec "New direction: team + year, not team + decade"
+   below.
+6. **The dataset makes the mode feel fake.** The candidate pools are tiny
+   even after the 5X.5 coverage fix — e.g. the 2010s Warriors pool should
+   eventually include real rotation players like Andre Iguodala, not just
+   the two or three obvious superstars. The 250-player pool is too small
+   for team+year specifically (it's worse than team+decade, since a single
+   year has fewer eligible names than a full decade). **The 1000-player
+   expansion (`docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`,
+   already targeted since Phase 5X.6) is now a hard prerequisite for this
+   mode to be genuinely fun, not a nice-to-have.**
+7. **The hooks from comparable products haven't actually been extracted
+   yet.** First Down Studio's 17-0/82-0 builders, Sleeper 17-0, and
+   Databallr's Six Rings were named as references in earlier planning
+   passes, but their actual mechanical hooks (visible progress, chemistry/
+   scoring, lifelines, hidden-impact reveal, trophy case) were never
+   translated into concrete PEAK3-native design decisions. Sec "Redesign
+   spec: the PEAK3-native game loop" below is the first pass at actually
+   doing that extraction.
+
+**What this means going forward:**
+- The current scaffolding (state machine, API contract, position system,
+  scoring philosophy) **remains useful and is not being thrown away** —
+  the game *grammar* (spin → select → place → repeat → reveal) is sound.
+  What's rejected is the *execution*: visual design, spinner feel, and
+  constraint grain.
+- This is a **redesign-spec pass, not a redesign-execution pass.** Per this
+  task's own scope limits, the only code shipped this session is the
+  cancel/back fix (item 2 above) and a copy honesty fix (Sec "Copy fix"
+  below) — everything else here is direction-setting documentation for
+  future phases, the same discipline already established for the Phase
+  5X.6 product-direction-reset pass.
+
+---
+
 **Status:** Product spec, no product code authorized by this document alone.
 **Supersedes, for CourtBuilder specifically:** parts of
 `docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md`, which shipped
@@ -88,6 +154,110 @@ problems this document did not yet address:
    this addendum is implemented beyond the position-data fix and one
    interim-dataset correction (Jrue Holiday's Celtics affiliation) — it is
    direction-setting for future phases, per that task's own scope limits.
+
+## Redesign spec: the PEAK3-native game loop (Phase 5X.7)
+
+Extracted from — not copied from — the mechanical hooks in the named
+reference products, translated into PEAK3-specific decisions:
+
+| Hook (from reference products) | PEAK3-native version |
+|---|---|
+| Slot-machine/random team-season reveal (First Down Studio, Sleeper) | Team + year spin (see below), not team + decade — a specific roster is more exciting to land on than a decade-wide pool |
+| Fixed roster slots (First Down Studio) | Already true: PG/SG/SF/PF/C + Bench 1/2/3, unchanged |
+| Visible progress through rounds (First Down Studio) | Already true (`Round N / 8`), needs visual polish not redesign |
+| Hidden score/reveal tension (Databallr Six Rings' "blind values") | Already true (deferred-reveal contract, Phase 5X.7-of-the-earlier-numbering) — PEAK3's version is a full roster-wide reveal at the end, not per-pick |
+| Personal best / leaderboard (Sleeper, Databallr) | Designed, not built (Phase 5X.6's leaderboard schema target) — the durable PEAK3 lineup score is the sort key |
+| Shareable result card (Sleeper) | Designed, not built (product spec Sec 3.7, unchanged) |
+| Daily challenge (First Down Studio, Sleeper) | Explicitly deferred (Phase 5X.8), unchanged |
+| Limited rerolls/lifelines (Sleeper's team/year reroll, Databallr's lifelines) | New: one team reroll + one decade/year reroll per attempt (already scoped in the Phase 5X.6 plan doc section, restated below for the team+year context) |
+| Names/faces, hidden impact reveal, trophy case (Databallr) | Names: already true. Faces: blocked on `PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md`'s licensing gate. Trophy case: a leaderboard/history concept, deferred with the rest of Phase 5X.8 |
+| Solo / duels / FFA (Databallr) | Solo only for the foreseeable future — CourtBuilder is explicitly single-player practice today (ADR-005 Decision 1); duels/FFA would be a Phase 5X.9 ranked-layer concept, not scoped here |
+
+**The round loop (target, not yet built):**
+
+```text
+1. Roll random team.
+2. Roll random year (an actual season, e.g. "2015-16" -- see the team+year
+   section below).
+3. Show team logo/color identity. (Logo blocked on asset strategy --
+   color identity is safe to build now.)
+4. Show the year prominently -- this is now the headline of the round,
+   not a secondary label next to the team name.
+5. Show eligible real roster/player-season candidates from that exact
+   team-year.
+6. User chooses one player.
+7. User can cancel/back before placing (SHIPPED this session -- see the
+   companion plan doc's "Phase 5X.7" section for the implementation).
+8. User places into PG/SG/SF/PF/C or bench.
+9. Repeat for 8 rounds.
+10. Final result shows: projected record, PEAK3 lineup score, percentile/
+    tier (once the leaderboard exists), score receipt, share-card-ready
+    layout. All already scoped in the Phase 5X.6 "Product Direction Reset"
+    section of the companion plan doc -- restated here as the loop's
+    terminal step, not redesigned again.
+```
+
+Steps 1-2 (team+year spin), 3 (color identity only), and 4 are the
+concrete near-term redesign target. Steps 6-9 are the existing, working
+select/cancel/place loop (step 7 shipped this session). Step 10 is
+designed but not built (Phase 5X.6).
+
+## New direction: team + year, not team + decade
+
+**Old:** a spin resolves to a franchise + decade (e.g. "Lakers, 1980s"),
+pooling every in-pool player who was on that team at any point in that
+decade.
+**New:** a spin resolves to a franchise + **specific season** (e.g.
+"2015-16 Warriors," "2002-03 Spurs," "1995-96 Bulls"), pooling only
+players who were actually on that exact roster that year.
+
+**Why:** a decade-wide pool is less legible ("the 1980s Lakers" spans 3
+different core rosters across a real 10-year span) and, per the manual
+review, less exciting than "you rolled the 2015-16 Warriors — pick one."
+An exact year is also a better niche-player discovery mechanic: a specific
+roster-year naturally surfaces role players who were meaningfully on that
+team but wouldn't clear an all-time or even a decade-wide cutoff.
+
+**This is a real widening of scope, not a relabeling.** The interim
+dataset already supports `exact_team_season` as a spin type today (a small
+number of hand-curated entries, e.g. `warriors-2015-16`) — but flipping it
+to the *default* constraint grain, for *every* team in the wheel, across
+*all* seasons from the model's starting season through present, requires
+real roster-membership data at a depth the current 250-player pool cannot
+support (see the manual-review finding above: exact-year pools are
+*narrower* than decade pools, so they need *more*, not less, player-pool
+depth to stay fun). **The 1000-player expansion is the gating dependency**
+— see `docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`'s new
+team-year coverage QA section. Team + year does not ship as the default
+mode until that coverage gate is met; shipping it against the current
+sparse dataset would make the exact problem (tiny, fake-feeling candidate
+pools) worse, not better.
+
+**Rules for when this ships:**
+- Year is an actual season (`"2015-16"`, `"2002-03"`, `"1995-96"`), not a
+  decade bucket.
+- Eventually covers all seasons from the model's starting season through
+  the present, not a curated handful.
+- A rolled team-year maps to real roster membership (the
+  `team_season_roster_member` entity already scoped in
+  `PHASE_5_DATA_MODEL.md`, not the interim hand-curated dataset's
+  eventual replacement).
+- Limited rerolls apply to both dimensions independently (one team
+  reroll, one year reroll per attempt — same mechanic already scoped for
+  team+decade in the Phase 5X.6 plan doc section, carried forward
+  unchanged in spirit).
+
+## Copy fix (shipped this session)
+
+Sec 6.4b below (and the equivalent in-app copy) said "an early
+approximation from each player's lineup archetype, not verified NBA
+position data." That became actively inaccurate once the Phase 5X.6
+manual `POSITION_OVERRIDES` table shipped (every player reachable in the
+game today has a human-verified, not archetype-derived, position) — and
+read as amateur regardless. Replaced in-app with: *"Prototype mode: roster
+eligibility uses interim team-year coverage and manual position checks.
+Full historical roster expansion is not yet live."* The limited-coverage
+badge (`interim-data-label`) is unchanged.
 
 ---
 
@@ -368,6 +538,17 @@ master plan §6.11 exactly, unchanged).
 ---
 
 ## 4. UI/UX overhaul
+
+**Superseded/expanded (Phase 5X.7):** Sec 4.2 below described the current
+half-court + card layout as the target; manual review rejected it
+(floating boxes, awkward spacing, overlapping text, "not fun or
+shareable"). Full visual-redesign requirements (NBA-arena-style card
+table, proper half-court geometry, team-color accents, headshot/silhouette
+slots, team logo reel, responsive roster rail, shareable result card) are
+now tracked as a dedicated future task in
+`docs/implementation/PHASE_5X_ARENA_OVERHAUL_PLAN.md`'s "Phase 5X.7"
+section — **not executed in this pass**, per this task's own explicit "do
+not do the full visual redesign yet" scope limit.
 
 ### 4.1 Arena landing page
 

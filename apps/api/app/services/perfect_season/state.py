@@ -161,6 +161,28 @@ def action_select_player(
     return state
 
 
+def action_cancel_selection(state: CourtLineupState) -> CourtLineupState:
+    """Cancel the pending selection and return to selection_pending for the
+    SAME round, so the player can pick a different candidate instead.
+
+    Phase 5X.7 fix: before this action existed, selecting a candidate was a
+    one-way door -- there was no way back to the candidate list short of
+    placing whoever you selected (manual review finding: "no obvious way
+    to cancel/back out and choose another player before placing them").
+    Does not touch current_round or any already-placed slot -- only the
+    current round's pending, not-yet-placed selection.
+    """
+    _assert_active(state)
+    if state.status != "placement_pending" or not state.pending_selection_peak_window_id:
+        raise CourtError("cancel_not_allowed", "No pending selection to cancel")
+
+    state.pending_selection_peak_window_id = None
+    state.pending_selection_spin_id = None
+    state.status = "selection_pending"
+    state.last_action_at = datetime.now(timezone.utc).isoformat()
+    return state
+
+
 def action_place_card(
     state: CourtLineupState,
     slot_type: str,

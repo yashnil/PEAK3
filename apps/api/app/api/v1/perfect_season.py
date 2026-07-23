@@ -5,6 +5,7 @@ Routes:
   POST /api/v1/perfect-season/games               - create a new practice game
   GET  /api/v1/perfect-season/games/{id}          - get current public state
   POST /api/v1/perfect-season/games/{id}/select   - select a candidate player
+  POST /api/v1/perfect-season/games/{id}/cancel   - cancel the pending selection, back to candidates
   POST /api/v1/perfect-season/games/{id}/place    - place the pending selection into a slot
   POST /api/v1/perfect-season/games/{id}/complete - run the v0 simulation and freeze the result
 
@@ -34,6 +35,7 @@ from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, resolve_owner_sub
 from app.core.config import settings
 from app.core.dependencies import CourtLineupRepoDep
 from app.models.perfect_season import (
+    CancelSelectionRequest,
     CompleteGameRequest,
     CourtBuilderCoverageSummary,
     CourtBuilderReadinessResponse,
@@ -168,6 +170,29 @@ async def select_player(
 
     try:
         new_state = state_machine.action_select_player(game_state, body.player_slug)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc))
+
+    await court_repo.save_lineup(new_state)
+    return PublicCourtStateResponse(**state_machine.get_public_state(new_state))
+
+
+@router.post("/perfect-season/games/{game_id}/cancel", response_model=PublicCourtStateResponse)
+async def cancel_selection(
+    game_id: str,
+    body: CancelSelectionRequest,
+    court_repo: CourtLineupRepoDep,
+) -> PublicCourtStateResponse:
+    _require_courtbuilder_enabled()
+    if body.game_id != game_id:
+        raise HTTPException(status_code=400, detail="game_id in body must match URL")
+
+    game_state = await court_repo.get_lineup(game_id)
+    if game_state is None:
+        raise HTTPException(status_code=404, detail="Game not found or expired")
+
+    try:
+        new_state = state_machine.action_cancel_selection(game_state)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc))
 

@@ -218,6 +218,85 @@ test.describe("CourtBuilder position-aware slots", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Cancel/back before placing (Phase 5X.7): selecting a candidate is not a
+// one-way door -- manual review found no way to back out and pick someone
+// else before placing.
+// ---------------------------------------------------------------------------
+
+test.describe("CourtBuilder cancel/back", () => {
+  test("a cancelled selection returns to the candidate list without placing anyone", async ({ page }) => {
+    await startCourtBuilder(page);
+    const firstCandidate = page.locator('[data-testid="candidate-card"]').first();
+    await firstCandidate.waitFor({ state: "visible" });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      firstCandidate.click(),
+    ]);
+
+    // Now in the "placing" step -- the candidate panel is gone, replaced by
+    // the placing banner with a cancel button.
+    await expect(page.locator('[data-testid="candidate-panel"]')).toHaveCount(0);
+    const cancelBtn = page.locator('[data-testid="cancel-selection-btn"]');
+    await expect(cancelBtn).toBeVisible();
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/cancel") && r.status() === 200),
+      cancelBtn.click(),
+    ]);
+
+    // Back to the candidate list -- no slot got filled by the cancelled pick.
+    await expect(page.locator('[data-testid="candidate-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(0);
+  });
+
+  test("select A, cancel, select a different candidate B, and place B", async ({ page }) => {
+    await startCourtBuilder(page);
+    const candidates = page.locator('[data-testid="candidate-card"]');
+    const slugA = await candidates.nth(0).getAttribute("data-player-slug");
+    const slugB = await candidates.nth(1).getAttribute("data-player-slug");
+    expect(slugA).not.toBe(slugB);
+    const nameA = (await candidates.nth(0).innerText()).split("\n")[0];
+
+    // Select candidate A.
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      candidates.nth(0).click(),
+    ]);
+    await expect(page.locator('[data-testid="placing-banner"]')).toContainText(nameA);
+
+    // Back out, then select candidate B instead.
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/cancel") && r.status() === 200),
+      page.locator('[data-testid="cancel-selection-btn"]').click(),
+    ]);
+    const bCard = page.locator(`[data-testid="candidate-card"][data-player-slug="${slugB}"]`);
+    await expect(bCard).toBeVisible();
+    const nameB = (await bCard.innerText()).split("\n")[0];
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      bCard.click(),
+    ]);
+    // The placing banner now names B, not A -- proves the cancel genuinely
+    // cleared the old pending selection rather than just hiding it.
+    await expect(page.locator('[data-testid="placing-banner"]')).toContainText(nameB);
+
+    // Place B into the first open slot.
+    const openSlot = page.locator('[data-testid="court-slot"][data-filled="false"]').first();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
+      openSlot.click(),
+    ]);
+
+    // Exactly one slot is filled, and it holds B's name, not A's.
+    const filledSlot = page.locator('[data-testid="court-slot"][data-filled="true"]');
+    await expect(filledSlot).toHaveCount(1);
+    const filledText = await filledSlot.innerText();
+    expect(filledText).toContain(nameB);
+    expect(filledText).not.toContain(nameA);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Unconventional lineup remains legal
 // ---------------------------------------------------------------------------
 

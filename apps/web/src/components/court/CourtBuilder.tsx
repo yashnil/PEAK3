@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import {
+  cancelSelection,
   completeCourtGame,
   placeCard,
   selectPlayer,
@@ -60,6 +61,11 @@ export default function CourtBuilder({ initialGameState, franchiseNames }: Props
     if (next) setState(next);
   }
 
+  async function handleCancel() {
+    const next = await withBusy(() => cancelSelection(state.game_id));
+    if (next) setState(next);
+  }
+
   async function handleComplete() {
     const next = await withBusy(() => completeCourtGame(state.game_id));
     if (next) setState(next);
@@ -94,10 +100,10 @@ export default function CourtBuilder({ initialGameState, franchiseNames }: Props
         </span>
       </div>
       <p className="text-xs -mt-3" style={{ color: "var(--text-muted)" }} data-testid="position-logic-note">
-        Starter positions (PG/SG/SF/PF/C) use an early approximation from
-        each player&apos;s lineup archetype, not verified NBA position data — off-position
-        placements are always allowed, and PEAK3 scores your roster mostly on
-        peak talent, not on penalizing a stacked lineup.
+        Prototype mode: roster eligibility uses interim team-year coverage and
+        manual position checks. Full historical roster expansion is not yet
+        live — off-position placements are always allowed, and PEAK3 scores
+        your roster mostly on peak talent, not on penalizing a stacked lineup.
       </p>
 
       {error && (
@@ -143,14 +149,27 @@ export default function CourtBuilder({ initialGameState, franchiseNames }: Props
           {phase === "placing" && state.pending_selection && (
             <div
               data-testid="placing-banner"
-              className="rounded-xl p-3 text-sm flex flex-col gap-1"
+              className="rounded-xl p-3 text-sm flex flex-col gap-2"
               style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)", color: "var(--text-primary)" }}
             >
-              <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--peak-accent, #f5c842)" }}>
-                Step 2 · Place {state.pending_selection.player_name}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--peak-accent, #f5c842)" }}>
+                    Step 2 · Place {state.pending_selection.player_name}
+                  </div>
+                  Choose any open court or bench spot below — the fit badge shows how well
+                  they match that spot, but every open spot is a legal placement.
+                </div>
+                <button
+                  data-testid="cancel-selection-btn"
+                  onClick={handleCancel}
+                  disabled={busy}
+                  className="text-xs font-semibold uppercase tracking-wide rounded px-2 py-1 shrink-0"
+                  style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+                >
+                  Choose someone else
+                </button>
               </div>
-              Choose any open court or bench spot below — the fit badge shows how well
-              they match that spot, but every open spot is a legal placement.
             </div>
           )}
 

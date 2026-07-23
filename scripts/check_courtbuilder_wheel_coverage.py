@@ -16,6 +16,21 @@ Usage:
 Exit code 0 always (this is a diagnostic printout, not a pass/fail gate --
 the CI-facing distribution assertions live in
 apps/api/tests/test_perfect_season.py).
+
+TODO (Phase 5X.7 randomness audit, not built this pass -- see
+docs/implementation/PHASE_5X_ARENA_OVERHAUL_PLAN.md's "Randomness audit"
+section for full context):
+  - Once team+year (exact-season) entries exist in the interim dataset at
+    meaningful scale, add a per-exact-year distribution report alongside
+    the existing per-franchise/per-era ones.
+  - Add an optional --seed flag that prints the exact selection trace for
+    one specific seed (which entries were "good" vs "sparse," which ones
+    the weighted sample picked) -- a visible receipt for auditing a single
+    board, not just aggregate statistics across many.
+  - Add an optional strict/CI mode that exits non-zero if any playable
+    combination's observed frequency across the sample falls outside a
+    documented tolerance band, instead of only printing numbers for a
+    human to read.
 """
 from __future__ import annotations
 

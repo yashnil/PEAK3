@@ -58,6 +58,26 @@ launch-scope numbers in Sec 2.3/4.2 do.
    teams mid-decade in a way that matters" rather than relying on whoever
    is curating that entry to happen to remember.
 
+**Phase 5X.7 (2026-07-23): this is now a hard dependency, not a nice-to-
+have.** A manual product-quality review of CourtBuilder (see
+`docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md`'s "Manual Review Rejection"
+section) concluded the mode **is not product-fun until the player pool
+expands** — the 250-player pool is explicitly a scaffold, proven to work
+mechanically, not a content base a shipped game mode can stand on. Two
+concrete reasons this document's target matters more than it did before:
+1. The review's own example: the 2010s Warriors pool should eventually
+   include real rotation players like Andre Iguodala, not just the two or
+   three obvious superstars — exactly the "slice depth" mechanism Sec 1
+   below already explains, now validated by direct product feedback
+   instead of only a statistical argument.
+2. The review's redesign direction (team + **year**, not team + decade —
+   see the product spec and the implementation plan's Phase 5X.7 section)
+   makes this worse before it gets better: a single season's roster is a
+   *narrower* pool than a full decade's, so exact-year mode needs *more*
+   player-pool depth per constraint than team-decade mode does, not less.
+   **Team+year does not ship as the default mode until the coverage gate
+   in Sec 4 below (extended with an explicit team-year QA pass) is met.**
+
 ---
 
 ## 1. Why 250 is insufficient — the actual mechanism, not just the symptom
@@ -263,6 +283,40 @@ Team-decades that don't clear this gate after the full cohort process stay
 **Extended Archive/Labs-tier** (reachable, clearly labeled as
 lower-coverage, not offered in the default spin pool) — mirrors the
 existing pool-tier concept from master plan §11.6, applied concretely here.
+
+### 4.1b Team-year coverage gate (Phase 5X.7 — new, distinct from 4.1)
+
+The team+**year** redesign direction (product spec's "Manual Review
+Rejection" section; implementation plan's Phase 5X.7 section) needs its
+own, separate coverage gate — a single season is a narrower slice than a
+full decade, so the decade-level 5-candidate floor (Sec 4.1) is not the
+right bar here:
+
+- **Target: 4-8 eligible candidates per supported team-year**, once the
+  expansion executes. Below the 5-candidate decade-level bar is expected
+  and acceptable at the year grain (a real single-season NBA rotation is
+  8-12 players; 4-8 clearing an all-time-relevance filter is a realistic,
+  not aspirational, target for a well-covered season).
+- **Championship and deep-playoff team-years should have major rotation
+  coverage** — not just the 1-3 stars, but the players who were actually
+  meaningful in that specific title/deep-run roster (mirrors Cohort B,
+  Sec 2.2, applied at the year grain specifically rather than decade).
+- **Flag any team-year with fewer than 3 candidates** — an explicit,
+  automated flag (extends `coverage_summary()`'s existing sparse/excluded
+  categories, Phase 5X.5, to a per-year granularity once exact-year
+  entries exist at scale), not merely "does not clear the gate" — fewer
+  than 3 means even cancel/back-and-reselect (Phase 5X.7's UX fix) barely
+  matters, because there's effectively no real choice.
+- **Do not ship global random team-year mode while many team-years are
+  empty or tiny.** This is a hard release gate, not a target to work
+  toward opportunistically: team+year becomes the *default* spin mode
+  only once a defined majority of the launch team-year scope (an
+  Sec 4.2-style curated list, sized for the year grain) clears the 4-8
+  target, with the remainder explicitly Extended Archive/Labs-tier per
+  the pattern already established in Sec 4.1. Until then, team+decade
+  remains the shipped default and team+year (where it exists at all, via
+  the current small `exact_team_season_spins` set) stays the labeled-rare
+  variant it already is today.
 
 ### 4.2 Launch coverage scope (illustrative, not committed)
 

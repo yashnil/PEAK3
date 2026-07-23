@@ -23,6 +23,10 @@ class SelectPlayerRequest(BaseModel):
     idempotency_key: Optional[str] = Field(None)
 
 
+class CancelSelectionRequest(BaseModel):
+    game_id: str
+
+
 class PlaceCardRequest(BaseModel):
     game_id: str
     slot_type: str = Field(..., description="PG | SG | SF | PF | C | bench_1 | bench_2 | bench_3")

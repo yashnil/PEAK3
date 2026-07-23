@@ -68,6 +68,13 @@ export async function selectPlayer(gameId: string, playerSlug: string): Promise<
   });
 }
 
+export async function cancelSelection(gameId: string): Promise<CourtLineupPublicState> {
+  return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ game_id: gameId }),
+  });
+}
+
 export async function placeCard(gameId: string, slotType: SlotType): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/place`, {
     method: "POST",

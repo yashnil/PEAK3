@@ -3,11 +3,13 @@
 **Status:** 5X.1 (Arena IA), 5X.2 (spin ceremony), 5X.3 (position-aware
 slots), and the deferred-reveal contract change originally scoped under
 5X.7 have been implemented, on `phase5-courtbuilder-vertical-slice` /
-PR #3 (still draft). Three further passes -- each self-labeled by the task
-that produced it, and each colliding with an existing number in this
-document's original numbering -- have also shipped on the same branch. See
-the **Phase-label collision log** below for what actually shipped under
-each reused number; do not trust a bare "5X.N" reference anywhere in this
+PR #3 (still draft, and a 2026-07-23 manual review means it stays draft
+for a while yet — see the new "Phase 5X.7 (this session)" section below).
+Four further passes -- each self-labeled by the task that produced it, and
+each colliding with an existing number in this document's original
+numbering -- have also shipped on the same branch. See the
+**Phase-label collision log** below for what actually shipped under each
+reused number; do not trust a bare "5X.N" reference anywhere in this
 document without checking that table first.
 
 **Phase-label collision log** (chronological; read top to bottom):
@@ -16,18 +18,24 @@ document without checking that table first.
 |---|---|---|---|
 | "Phase 5X.4" (1st reuse) | Team+era wheels, real half-court, PEAK-value-first scoring (removed the role-overlap/redundancy penalty entirely) | Player database expansion to 500 | Original meaning: yes, see the renamed "Phase 5X.4 (original)" section below |
 | "Phase 5X.5" (1st reuse) | Wheel-coverage bug fix (2 dead player_slugs silently excluded 2 franchises from the wheel entirely), half-court visual polish, coverage-summary readiness metadata | Improved search/card selection (card-based candidate UI) | Original meaning: yes, see "Phase 5X.5" section below |
-| "Phase 5X.6" (1st reuse, this session) | Product direction reset (durable PEAK3 lineup score concept, working-title options, spinner/imagery/leaderboard design docs), 1000-player expansion target, manual position-override fix (Duncan/Shaq no longer "play PG") | Lineup-fit engine v1 (extend `LineupFitComponents` with position-aware bonus/penalty taxonomy) | Original meaning: yes, see "Phase 5X.6 (original)" section below. Note: the original 5X.6's bonus/penalty taxonomy was already superseded by the 1st "5X.4" reuse's peak-value-first scoring philosophy -- it was never going to be built as originally written regardless of this collision. |
+| "Phase 5X.6" (1st reuse) | Product direction reset (durable PEAK3 lineup score concept, working-title options, spinner/imagery/leaderboard design docs), 1000-player expansion target, manual position-override fix (Duncan/Shaq no longer "play PG") | Lineup-fit engine v1 (extend `LineupFitComponents` with position-aware bonus/penalty taxonomy) | Original meaning: yes, see "Phase 5X.6 (original)" section below. Note: the original 5X.6's bonus/penalty taxonomy was already superseded by the 1st "5X.4" reuse's peak-value-first scoring philosophy -- it was never going to be built as originally written regardless of this collision. |
+| "Phase 5X.7" (1st reuse, this session) | Manual-review rejection response: cancel/back UX fix (shipped), copy honesty fix (shipped), team+year redesign direction, visual-redesign requirements, randomness-audit requirements (all documentation, not shipped) | Result / reveal / share screen (broadcast reveal, loss timeline, share card) | Original meaning: partially — the deferred-reveal contract change shipped early (under the 5X.4 reuse); loss timeline/share card remain planning-only, see "Phase 5X.7 (original)" section below |
 
 Net effect: 5X.1-5X.3 and the deferred-reveal piece of 5X.7 shipped
-close to plan. Everything shipped under a reused "5X.4/5X.5/5X.6" label is
-new, unplanned-in-this-document work; the *original* 5X.4/5X.5/5X.6/5X.8
-scopes remain planning-only under their own renamed headings further down.
-**Phase 5X.6 (product direction reset) itself introduces a NEW numbering
-concern:** it recommends a working title change for the whole mode (Sec
-"Product direction reset" below) and questions whether "82-0" should stay
-the primary framing at all -- future phase numbers referencing "82-0" by
-name should be read as "the mode currently called 82-0 Peak Season,
-pending the naming decision," not as a permanent name commitment.
+close to plan. Everything shipped under a reused "5X.4/5X.5/5X.6/5X.7"
+label is new, unplanned-in-this-document work; the *original*
+5X.4/5X.5/5X.6/5X.7/5X.8 scopes remain planning-only under their own
+renamed headings further down.
+**Phase 5X.6 (product direction reset) introduced a numbering concern that
+still applies:** it recommends a working title change for the whole mode
+and questions whether "82-0" should stay the primary framing at all --
+future phase numbers referencing "82-0" by name should be read as "the
+mode currently called 82-0 Peak Season, pending the naming decision," not
+as a permanent name commitment. **Phase 5X.7 (this session) adds a second,
+more fundamental one:** the manual review that produced it found the
+*execution* (not just individual bugs) is not product-ready — treat every
+"shipped" claim about CourtBuilder's UI/game-feel in this document as
+"functionally correct, not yet fun," not as "done."
 
 **Depends on:** `docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md` (the "what and
 why" — read that first), `docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md`
@@ -293,6 +301,169 @@ high-confidence only):
 - **Everything else in this section is planning only** -- no UI rewrite, no
   1000-player expansion execution, no image ingestion, no leaderboard
   writes, per this task's explicit scope limits.
+
+---
+
+## Phase 5X.7 (this session, 2026-07-23) — CourtBuilder Product Rejection Response
+
+**PR #3 remains draft. Do not mark ready. Do not merge.** See the matching
+"Manual Review Rejection" section at the top of
+`docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md` for the full product framing
+and the round-loop/team+year redesign spec — this section covers the
+implementation-level detail that doc doesn't.
+
+### What shipped this session (small, safe code changes only)
+
+**Cancel/back before placing** — the concrete UX bug fix, full stack:
+- `nba_peak/perfect_season/schemas.py`: no schema change needed (existing
+  `pending_selection_peak_window_id`/`pending_selection_spin_id` fields
+  reused).
+- `apps/api/app/services/perfect_season/state.py`: new
+  `action_cancel_selection(state)` — valid only from `placement_pending`,
+  clears the pending selection, reverts `status` to `selection_pending`
+  for the *same* `current_round` (does not advance the round, does not
+  touch any already-placed slot). `get_public_state()` already re-includes
+  `current_spin.candidates` once `status == selection_pending`, so no
+  serialization change was needed beyond the new action itself.
+- `apps/api/app/models/perfect_season.py`: new `CancelSelectionRequest`.
+- `apps/api/app/api/v1/perfect_season.py`: new
+  `POST /perfect-season/games/{id}/cancel` route, same shape as
+  `select`/`place`/`complete`.
+- `apps/web/src/lib/perfect-season-api.ts`: new `cancelSelection()`.
+- `apps/web/src/components/court/CourtBuilder.tsx`: new "Choose someone
+  else" button (`data-testid="cancel-selection-btn"`) in the Step 2
+  placing banner, calling the new endpoint.
+- Tests: 3 new API tests (cancel reverts state + preserves the full
+  candidate list; select-A/cancel/select-B/place-B ends with B on the
+  roster, not A; cancelling with no pending selection is rejected) + 2 new
+  Playwright tests (cancel returns to the candidate panel with no slot
+  filled; the full select-A/cancel/select-B/place-B flow, asserted via
+  the placing banner naming B not A and the filled slot containing B's
+  name not A's).
+
+**Copy honesty fix** — `position-logic-note` in `CourtBuilder.tsx`
+replaced per the product spec's "Copy fix" section. No test asserted the
+old exact string, so no test changes were needed beyond confirming the
+`position-logic-note` testid still renders (existing test, unchanged).
+
+**Everything else below is documentation only** — no round-loop rewrite,
+no team+year board-generator change, no visual redesign, no randomness-
+audit script, per this task's explicit "do not do the full visual
+redesign yet" / "1000-player expansion... do not add 1000 players yet"
+scope limits.
+
+### Team + year: the architectural work this actually requires (future)
+
+Flipping the default constraint grain from team+decade to team+year is
+**not** a config flag — it requires:
+1. **Data:** the 1000-player expansion's `team_season_roster_member`
+   coverage at the exact-year grain (see the expansion strategy doc's new
+   team-year coverage QA section) — the interim dataset's existing
+   `exact_team_season_spins` entries are a hand-curated proof of concept
+   (4 entries today), not a scalable source.
+2. **Board generator:** `nba_peak/perfect_season/board.py`'s
+   `_select_interim_entries` and `_all_interim_spin_entries` currently
+   treat `team_decade` as the primary spin type and `exact_team_season` as
+   a minority draw (Sec "team+decade spinner redesign" in the product
+   spec's Phase 5X.6 addendum). Making exact-year the default means
+   inverting that weighting once (2) has enough real entries to support
+   it — a real code change, gated on data, not scoped for this pass.
+3. **Frontend:** `SpinStage.tsx`'s era wheel currently cycles fixed decade
+   labels (`config.ERA_LABELS`, 5 entries). An exact-year wheel needs a
+   much larger, data-driven label set (every supported season, not 5
+   fixed strings) — a real component change, also gated on (1).
+4. **Coverage-gate enforcement:** per the expansion strategy doc's new
+   rule, exact-year team+year mode must not ship globally while many
+   team-years are empty/tiny — this needs the coverage-gate check
+   (already precedented by `coverage_summary()`, Phase 5X.5) extended to
+   run per-team-year, not just per-team-decade, and to actually block
+   the default-mode rollout, not just report numbers.
+
+None of this ships until the 1000-player expansion clears the team-year
+coverage gate (expansion strategy doc). Team+decade remains the shipped
+default until then — team+year is a documented target, not a flag to flip.
+
+### Visual redesign requirements (future task, not this pass)
+
+Manual review's finding: floating boxes, awkward spacing, weak basketball
+feel, overlapping text/cards, "not fun or shareable." The half-court
+key/hoop/arc markings shipped under the 5X.5 reuse are real progress and
+still nowhere near sufficient. Full requirements for whoever picks this up
+next:
+
+- **NBA-arena-style card table** — the overall screen should read as "a
+  broadcast desk/card table," not "a form with boxes." This is a layout
+  and depth (shadow/elevation) problem as much as a content problem.
+- **Proper half-court geometry** — beyond the current key/hoop/arc: real
+  proportions, a baseline, sidelines, and enough negative space that
+  player cards don't visually collide with court markings at any
+  supported viewport width (the exact "overlapping text/cards" complaint).
+- **Team-color accents** — safe to build without the asset-strategy
+  licensing gate (color is public information, not a licensed asset) —
+  see `PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md` Sec 3.
+- **Player headshot/silhouette slots** — silhouette/initials fallback is
+  safe to build now (same doc, Sec 3); real headshots are blocked on the
+  Sec 4 licensing decision in that doc.
+- **Team logo reel** — blocked on the same licensing decision; the reel
+  *mechanic* (two-dimension cycling reveal) can and should improve
+  independently of whether logos ever ship (see "spinner is lame" finding
+  above — a better-feeling reel with text-only content is still a real,
+  shippable improvement).
+- **Responsive roster rail** — the bench/starter layout needs to hold up
+  at real mobile widths without the cramped, overlapping feel manual
+  review flagged; current mobile-viewport tests only check for horizontal
+  overflow, not for visual crowding, so this needs new
+  qualitative/visual review, not just a new automated assertion.
+- **Shareable result card** — product spec Sec 3.7's existing design,
+  restated here as part of the visual system this task needs, not a
+  separate concern.
+
+**Explicitly not attempted this pass** — this is a requirements list for
+a future, dedicated visual-redesign task, consistent with this task's own
+"do not do the full visual redesign yet" instruction.
+
+### Randomness audit
+
+Current state: `generate_board()`'s randomness is already seed-
+deterministic (`random.Random(seed + attempt * 997)`, re-derivable from
+the board's own committed `seed` field) and already excludes zero-
+candidate entries outright (Phase 5X.5). What's not yet true, and needs to
+be before team+year (or any future official/ranked CourtBuilder mode)
+ships:
+
+- **Seed:** already true — every board is fully reproducible from
+  `board_seed`, already surfaced in the public state (`board_seed` field).
+- **Visible receipt:** not yet true for the *spin selection* specifically
+  — a player can see the board's overall seed, but there's no per-spin
+  receipt explaining "why this team+era was offered" (e.g. "weighted
+  selection, 3x preference for entries with >=2 candidates" is documented
+  in code comments, not surfaced to the player or in an auditable log).
+  Future work: either a dev-facing audit endpoint or an extension of
+  `scripts/check_courtbuilder_wheel_coverage.py` (see below) to accept a
+  specific seed and print the exact selection trace.
+- **No hidden deterministic bias:** partially auditable today —
+  `scripts/check_courtbuilder_wheel_coverage.py` (Phase 5X.5) already
+  samples many seeds and reports franchise/era distribution, which is
+  exactly the tool for catching a bias regression. **TODO, not built this
+  pass:** extend that script to also report per-exact-year distribution
+  once team+year entries exist in the dataset at meaningful scale, and to
+  fail loudly (non-zero exit) if any playable combination's observed
+  frequency falls outside a documented tolerance band, rather than only
+  printing numbers for a human to read.
+- **Coverage-aware fallback only in prototype:** already true in spirit
+  (the `open_pool` fallback exists specifically because the interim
+  dataset doesn't cover every round) but not yet *labeled* as
+  prototype-only behavior anywhere a player can see — the UI shows
+  "Interim team data — limited coverage" only for team spins, not an
+  equivalent disclosure when a round silently falls back to the open pool
+  instead of a team+era/team+year spin.
+- **Official mode must disclose excluded empty team-years:** not yet
+  applicable (no official/daily mode exists yet, Phase 5X.8), but the
+  requirement is recorded here so it isn't forgotten when that mode is
+  built: if an official board generation excludes any team-year for
+  having too few candidates, that exclusion must be part of the board's
+  own committed metadata (`PerfectSeasonBoard.metadata`, already a dict
+  field, already unused for this), not silently absent.
 
 ---
 
@@ -644,7 +815,14 @@ too much elite talent" invariant.
 
 ---
 
-## Phase 5X.7 — Result / reveal / share screen
+## Phase 5X.7 (original) — Result / reveal / share screen
+
+**Naming collision — see the Phase-label collision log at the top of this
+document.** "Phase 5X.7" was reused for the CourtBuilder product-rejection-
+response pass (2026-07-23). This section's original scope is below; the
+deferred-reveal contract change described here already shipped (under the
+5X.4 reuse, see the Status line at the top of this document) — the
+remaining loss-timeline/share-card pieces are still planning-only.
 
 **Deliverables:**
 - Broadcast reveal sequence (product spec Sec 3.1 step 7): full roster
