@@ -187,7 +187,11 @@ def action_place_card(
     slot.resolved_via_spin_id = state.pending_selection_spin_id
 
     placed_card = resolve_card_by_window_id(state, slot.peak_window_id)
-    slot.role_fit = classify_fit(placed_card.primary_role if placed_card else None, slot_type)
+    slot.role_fit = classify_fit(
+        placed_card.player_slug if placed_card else None,
+        placed_card.primary_role if placed_card else None,
+        slot_type,
+    )
 
     state.pending_selection_peak_window_id = None
     state.pending_selection_spin_id = None
@@ -275,10 +279,10 @@ def get_public_state(state: CourtLineupState) -> dict:
                 "peak_window_id": card.peak_window_id,
                 "player_name": card.player_name,
                 # No score here either -- still not locked into a slot yet.
-                "primary_position": primary_position(card.primary_role),
-                "secondary_positions": list(secondary_positions(card.primary_role)),
+                "primary_position": primary_position(card.player_slug, card.primary_role),
+                "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
                 "fit_by_open_slot": {
-                    slot_type: classify_fit(card.primary_role, slot_type)
+                    slot_type: classify_fit(card.player_slug, card.primary_role, slot_type)
                     for slot_type in get_open_slot_types(state)
                 },
             }
@@ -299,8 +303,8 @@ def get_public_state(state: CourtLineupState) -> dict:
                     # Lets the UI explain an off-position placement ("plays
                     # SF") rather than just flagging it as off-position with
                     # no context (goal: position eligibility clarity).
-                    "primary_position": primary_position(card.primary_role),
-                    "secondary_positions": list(secondary_positions(card.primary_role)),
+                    "primary_position": primary_position(card.player_slug, card.primary_role),
+                    "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
                 })
                 if reveal_scores:
                     entry.update({
@@ -358,6 +362,6 @@ def _candidate_public(player_slug: str, duration_years: int) -> dict:
     return {
         "player_slug": player_slug,
         "player_name": card.player_name,
-        "primary_position": primary_position(card.primary_role),
-        "secondary_positions": list(secondary_positions(card.primary_role)),
+        "primary_position": primary_position(card.player_slug, card.primary_role),
+        "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
     }

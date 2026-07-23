@@ -41,7 +41,7 @@ _INTERIM_TEAMS_CACHE: dict | None = None
 
 def _default_interim_teams_path() -> Path:
     repo_root = Path(__file__).resolve().parent.parent.parent
-    return repo_root / "data" / "game" / "interim" / "courtbuilder_team_seasons.v2.json"
+    return repo_root / "data" / "game" / "interim" / "courtbuilder_team_seasons.v3.json"
 
 
 def _load_interim_teams(path: Path | None = None) -> dict:

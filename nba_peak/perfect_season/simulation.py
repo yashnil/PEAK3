@@ -79,7 +79,7 @@ def compute_fit_components(cards: list[CardProfile], slot_types: list[str]) -> L
     # constraint, never a talent-suppression mechanic.
     starter_slot_types = slot_types[:STARTER_SLOTS]
     fit_points = [
-        _FIT_POINTS.get(classify_fit(card.primary_role, slot), 0.0)
+        _FIT_POINTS.get(classify_fit(card.player_slug, card.primary_role, slot), 0.0)
         for card, slot in zip(starters, starter_slot_types)
     ]
     positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points)))
@@ -104,7 +104,7 @@ def _off_position_starter_slots(cards: list[CardProfile], slot_types: list[str])
     starter_slot_types = slot_types[:STARTER_SLOTS]
     return [
         slot for card, slot in zip(starters, starter_slot_types)
-        if classify_fit(card.primary_role, slot) == "off_position"
+        if classify_fit(card.player_slug, card.primary_role, slot) == "off_position"
     ]
 
 

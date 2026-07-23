@@ -3,18 +3,38 @@
 **Status:** 5X.1 (Arena IA), 5X.2 (spin ceremony), 5X.3 (position-aware
 slots), and the deferred-reveal contract change originally scoped under
 5X.7 have been implemented, on `phase5-courtbuilder-vertical-slice` /
-PR #3 (still draft). A further pass, ALSO called "Phase 5X.4" by the task
-that produced it, has also shipped -- see the naming-collision callout right
-below the sequencing section for what it actually contains (it is NOT the
-player-database-expansion Phase 5X.4 originally scoped in this document).
-5X.5-5X.6, and the rest of 5X.7 (loss timeline, share card) remain
-planning-only. The original player-database-expansion Phase 5X.4 remains
-planning-only too, under its new name (see the collision callout).
+PR #3 (still draft). Three further passes -- each self-labeled by the task
+that produced it, and each colliding with an existing number in this
+document's original numbering -- have also shipped on the same branch. See
+the **Phase-label collision log** below for what actually shipped under
+each reused number; do not trust a bare "5X.N" reference anywhere in this
+document without checking that table first.
+
+**Phase-label collision log** (chronological; read top to bottom):
+
+| Label used | What it actually shipped | This doc's original meaning for that label | Still planning-only? |
+|---|---|---|---|
+| "Phase 5X.4" (1st reuse) | Team+era wheels, real half-court, PEAK-value-first scoring (removed the role-overlap/redundancy penalty entirely) | Player database expansion to 500 | Original meaning: yes, see the renamed "Phase 5X.4 (original)" section below |
+| "Phase 5X.5" (1st reuse) | Wheel-coverage bug fix (2 dead player_slugs silently excluded 2 franchises from the wheel entirely), half-court visual polish, coverage-summary readiness metadata | Improved search/card selection (card-based candidate UI) | Original meaning: yes, see "Phase 5X.5" section below |
+| "Phase 5X.6" (1st reuse, this session) | Product direction reset (durable PEAK3 lineup score concept, working-title options, spinner/imagery/leaderboard design docs), 1000-player expansion target, manual position-override fix (Duncan/Shaq no longer "play PG") | Lineup-fit engine v1 (extend `LineupFitComponents` with position-aware bonus/penalty taxonomy) | Original meaning: yes, see "Phase 5X.6 (original)" section below. Note: the original 5X.6's bonus/penalty taxonomy was already superseded by the 1st "5X.4" reuse's peak-value-first scoring philosophy -- it was never going to be built as originally written regardless of this collision. |
+
+Net effect: 5X.1-5X.3 and the deferred-reveal piece of 5X.7 shipped
+close to plan. Everything shipped under a reused "5X.4/5X.5/5X.6" label is
+new, unplanned-in-this-document work; the *original* 5X.4/5X.5/5X.6/5X.8
+scopes remain planning-only under their own renamed headings further down.
+**Phase 5X.6 (product direction reset) itself introduces a NEW numbering
+concern:** it recommends a working title change for the whole mode (Sec
+"Product direction reset" below) and questions whether "82-0" should stay
+the primary framing at all -- future phase numbers referencing "82-0" by
+name should be read as "the mode currently called 82-0 Peak Season,
+pending the naming decision," not as a permanent name commitment.
+
 **Depends on:** `docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md` (the "what and
 why" — read that first), `docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md`
 (still binding), `docs/architecture/PHASE_5_DATA_MODEL.md` (schema design),
 `docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md` (the parallel data
-track).
+track, now targeting 1000 players not 500), `docs/architecture/PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md`
+(new -- team/player imagery plan).
 **Branch context:** current work is on `phase5-courtbuilder-vertical-slice`
 (PR #3, draft, correctly still draft — see report). This plan does not
 prescribe a specific new branch name; that's a decision for whoever starts
@@ -38,6 +58,241 @@ this plan's original 5X.3 description):**
   deployment (confirmed before starting) — the same reasoning §5X.3's own
   "breaking change" callout already used to justify a direct rewrite over
   a versioned migration.
+
+---
+
+## Phase 5X.6 (this session, 2026-07-22) — Product Direction Reset
+
+**Trigger:** manual review after the wheel-coverage fix (previous "5X.5"
+reuse) found the mode is still far from product-quality: the court isn't
+visually compelling, the spinner lacks the visual hook of comparable
+products (First Down Studio's 17-0/82-0, Sleeper 17-0), and a real
+correctness bug (Tim Duncan/Shaquille O'Neal displaying as "plays PG")
+undermined trust in the position system. Separately: 82-0 alone is
+probably the wrong primary success metric, because many legitimate
+all-time-peak rosters should realistically project near a perfect record --
+a mode whose only outcome is "did you go 82-0" flattens exactly the
+signal (how good is this roster, really) that PEAK3's actual model
+provides.
+
+This section is a **planning pass**, not an implementation pass. Only the
+position-correctness bug fix and the interim-dataset Jrue Holiday
+correction shipped as code this session (see "What changed now" at the
+end); everything else here is direction-setting for future phases.
+
+### Product direction: keep 82-0, add a durable PEAK3 lineup score
+
+**Why 82-0 alone is not enough:** a binary "did you go undefeated" outcome
+can't distinguish a merely-great roster from a truly historic one once
+both are projected near 82-0 -- the ceiling gets crowded and the number
+stops discriminating. It also gives the mode no legible progress metric
+below "did you sweep" (a 60-win roster and a 75-win roster both just read
+as "you lost"), and no natural leaderboard axis once a global ranked layer
+exists (Phase 5X.9) -- "82-0 or not" is a bad sort key, a continuous score
+is a good one.
+
+**Resolution:** 82-0 stays as a **visible, celebrated outcome** (the
+perfect-season framing, loss timeline, etc. from Sec 3.6 of the product
+spec are unchanged), but the **primary durable score becomes a PEAK3
+lineup score**, computed from the same `LineupFitComponents` already
+implemented (`talent_core`, `bench_strength`, `positional_fit`,
+`creation_coverage`, `scoring_coverage`, `postseason_pedigree`,
+`team_context_depth`) via a single weighted composite, analogous to how
+`calibrate_score()` remaps the core model's raw index to a 0-100 display
+value (CLAUDE.md's existing pattern, reused at the game layer, never
+touching the core model itself per ADR-005 Decision 3/4).
+
+**Scale decision: 0-100, not 0-1000.** Reuses the existing `individual_peak_score`
+display convention (`data/web/*.json`, `card_profiles.v3.json`) that
+players already see on every Peak Draft card -- a second, differently-scaled
+number for the same underlying kind of quantity (0-1000 lineup score next
+to 0-100 player scores) would be a confusing, unforced inconsistency. A
+lineup score is not a simple average of 8 player scores (it also reflects
+bench_strength/positional_fit/coverage), so it needs its own composite
+formula, but it stays on the model's existing 0-100 display scale.
+
+**Scoring outputs (result screen + future receipt), superset of what
+`SimulationResultPublic` already returns:**
+- Projected record (`wins`-`losses`) -- unchanged, still shown.
+- **New: PEAK3 lineup score (0-100)** -- the durable, comparable number.
+  Composite of the existing fit components; exact weights are a Phase
+  5X.6-follow-up modeling task, not decided here (do not hand-pick weights
+  to hit a target result for any specific roster -- same anti-overfitting
+  discipline as `OFFICIAL_WEIGHTS` itself).
+- **New: percentile/grade** -- where this lineup score falls relative to
+  other attempts on the same board seed (needs the durable-attempt storage
+  Phase 5X.8 already scopes; cannot ship before that).
+- **New: roster receipt** -- a structured breakdown mirroring Peak Draft's
+  existing `ReceiptItem`/Peak Receipt pattern (`nba_peak/lineup/schemas.py::ReceiptItem`,
+  already proven UI): talent core, bench strength, positional legality per
+  starter, weak/open positions, one-line plain-language summary. Reuses
+  the existing receipt *pattern*, not the existing receipt *data* (Peak
+  Draft's receipt is 5-slot; CourtBuilder's is 8-slot with position
+  identity Peak Draft doesn't have).
+- **Future: leaderboard rank** -- deferred to Phase 5X.8/5X.9 (needs
+  durable history + the schema work already flagged out of scope for
+  Phase 5C). See "Game score and leaderboard design" below for the shape
+  to build toward, not to build now.
+
+**Working title:** kept as **"82-0 Peak Season"** for this phase -- do not
+rename routes, flags, or copy yet. Candidate alternatives considered
+("PEAK Season," "PEAK Dynasty," "Perfect Peak," "PEAK Run") all have merit
+and none is clearly better enough to justify a rename churn before the
+lineup-score concept actually ships and the mode has real usage signal to
+name it against. Revisit naming once the lineup-score result screen exists
+and the mode has been played by more than the internal dev/alpha loop.
+
+### Team + decade spinner redesign
+
+- **Team wheel: all 30 current NBA franchises** should eventually be
+  spinnable (visually -- the actual *resolvable* outcome stays governed by
+  interim-dataset/1000-player coverage, same "never show an impossible
+  outcome" discipline as the current wheel). Historical-alias support
+  (e.g. Seattle SuperSonics -> OKC Thunder, New Orleans Hornets naming
+  history) is a data-modeling detail for the 1000-player expansion's
+  `team_identity` entity (`PHASE_5_DATA_MODEL.md`), not a CourtBuilder UI
+  concern.
+- **Decade wheel:** unchanged, 1980s/1990s/2000s/2010s/2020s
+  (`config.ERA_LABELS`), already implemented as a real second reel.
+- **Visual target:** team logos/icons on the wheel, not just text --
+  blocked on the asset strategy (`PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md`,
+  new doc) resolving a licensing-safe source before any logo image ships.
+  Safe to build the *reel mechanic* improvements (below) without logos
+  first, using the existing team-color-accent + text treatment as the
+  interim visual.
+- **Result stays team + decade by default**, not exact season -- unchanged
+  from current behavior (`spin_type: "team_decade"` is already the
+  majority case; `"exact_team_season"` already exists as the rarer,
+  harder variant per the existing board generator, matching "exact season
+  can become a harder sub-mode later" -- it already effectively is one).
+- **Reroll/lifeline design (new, not yet implemented):**
+  - One team reroll per attempt: re-spins only the team dimension, keeps
+    the era locked, consumes a limited resource (mirrors Peak Draft's
+    existing Hold/Reframe mechanic shape -- `hold_used`/`reframe_used`
+    boolean-flag pattern in `DraftGameState`, directly reusable for
+    CourtBuilder's `CourtLineupState`).
+  - One decade reroll per attempt: same shape, other dimension.
+  - A possible future "scout reveal" (peek at one extra candidate before
+    committing to a pick) is explicitly a **later** idea, not scoped for
+    implementation in this pass -- flagged here so it isn't lost, not
+    because it's ready to build.
+  - None of this is implemented yet. Implementing it requires new
+    game-state fields (`team_reroll_used`/`decade_reroll_used`) and two
+    new state-machine actions, i.e. a real Phase 5X.7-follow-up
+    implementation pass, not a docs-only change.
+
+### Team and player imagery
+
+See new companion doc `docs/architecture/PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md`
+for the full plan (asset manifest shape, fallback badges, licensing
+posture, caching). Summary: build the **asset manifest + fallback-badge
+abstraction now** (safe, no copyrighted assets touch the repo), defer
+actual logo/headshot ingestion until a licensing/usage decision is made
+and documented.
+
+### Position data correctness
+
+Fixed this session -- see `nba_peak/perfect_season/positions.py`'s new
+`POSITION_OVERRIDES` table and module docstring for the full explanation of
+what was wrong (archetype-only fallback classified nearly every elite
+player as `lead_creator`, which maps to PG, regardless of real position)
+and how it's fixed (manual override table, keyed by `player_slug`, takes
+priority over the archetype fallback; covers every player_slug currently
+reachable in the interim team-season dataset). Full strategy (manual v0
+now, source-derived table later) is in
+`PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`'s "Required source tables" section.
+
+### 1000-player expansion
+
+Target raised from 500 to 1000 -- see `PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`
+(updated this session) for the full staged plan, inclusion criteria, source
+tables, and QA checks. Not implemented in this pass (docs only, per this
+task's explicit constraint).
+
+### Game score and leaderboard design (docs-only, not implemented)
+
+Future durable leaderboard entry shape (design target, not a migration):
+
+```text
+peak_lineup_attempt
+  attempt_id            uuid, pk
+  owner_sub             text (anon:<token> or real auth sub, existing pattern)
+  game_mode             "82-0-peak-season" (or renamed mode slug)
+  duration_years        1 | 3 | 5
+  board_seed            int, deterministic
+  board_type            "practice" | "daily" | "challenge" (practice only today)
+  is_official           bool  -- first attempt on an official (daily) board;
+                                 practice attempts never durable-writeable,
+                                 same discipline as Peak Draft's existing
+                                 practice/official split
+  card_pool_version     text  -- pinned at attempt time, not re-resolved
+  board_generator_version, eligibility_ruleset_version, lineup_model_version,
+  simulator_version      -- all pinned, all already computed today, just
+                             not yet persisted anywhere durable
+  wins, losses           int
+  peak_lineup_score      float 0-100  -- the new durable score (see above)
+  fit_components         jsonb        -- full LineupFitComponents snapshot
+  slots                  jsonb        -- 8-slot roster, player identities +
+                                          resolved positions, for replay/audit
+  completed_at           timestamptz
+```
+
+- **Anti-cheat / replay validation:** every field needed to *recompute* the
+  result server-side from scratch already exists (board_seed + slot
+  player_slugs + pinned versions) -- validate on write by recomputing
+  `simulate_season` server-side and rejecting any client-submitted score
+  that doesn't match, never trusting a client-submitted score directly.
+  Exactly the pattern `nba_peak/lineup/board.py`'s solver-side validation
+  already uses for Peak Draft; no new anti-cheat concept needed.
+- **Anonymous vs. authenticated:** reuses the existing `resolve_owner_sub`
+  anon-cookie-or-JWT pattern unchanged (ADR-005 Decision 1, Phase 4.0A) --
+  anonymous attempts are real and gameable into a personal-best comparison,
+  but only claimed/authenticated attempts should count toward a *public*
+  leaderboard (same discipline already documented for ranked).
+- **Share card:** unchanged from the existing Sec 3.7 plan (record, court
+  silhouette, one strength/weakness, board seed, playable link -- never a
+  spoiler list).
+- **Not implemented in this pass.** No new table, no migration, no writes.
+  This is the target shape for whoever picks up Phase 5X.8.
+
+### UI direction (target, not implemented this session)
+
+- Full-width dark arena background (current: `max-w-3xl` centered column --
+  a deliberate future change, not a mistake to fix reflexively; verify
+  against real device testing before widening, mobile-first per below).
+- Polished team logo wheel + decade reel (blocked on asset strategy for
+  the logos specifically; reel mechanics can improve independently).
+- Half-court with real geometry -- already has key/hoop/arc markings
+  (shipped under the "5X.5" reuse); further polish (free-throw lane
+  shading, baseline, sideline) is incremental, not a rewrite.
+- Player cards with headshot-or-silhouette (blocked on asset strategy).
+- Team-color accents -- partially possible without logos (color alone is
+  public information, not a licensing risk the same way an image is; a
+  `team_colors` manifest entry is safe to build now).
+- Stronger typography, mobile-first layout, shareable result card,
+  lightweight+accessible animation, reduced-motion support -- all already
+  partially true (existing reduced-motion discipline, mobile viewport
+  tests) and all get incrementally better with each future pass, not a
+  single rewrite.
+
+### What changed now (Phase 5X.6 actual code diff)
+
+Per this task's own "decide what to change now" constraint (small, safe,
+high-confidence only):
+- `nba_peak/perfect_season/positions.py`: `POSITION_OVERRIDES` manual
+  table, `classify_fit`/`primary_position`/`secondary_positions` now take
+  `player_slug` as their first argument and prefer the override over the
+  archetype fallback.
+- Every call site of those three functions (`state.py`, `simulation.py`)
+  updated to pass `player_slug`.
+- `data/game/interim/courtbuilder_team_seasons.v3.json`: added Jrue
+  Holiday to `celtics-2020s` (see "Jrue Holiday audit" in the expansion
+  strategy doc) -- confirmed via direct data inspection, not assumed.
+- New tests locking in the exact regression case (Duncan/Shaq no longer
+  "play PG") plus the manual-override-wins-over-archetype guarantee.
+- **Everything else in this section is planning only** -- no UI rewrite, no
+  1000-player expansion execution, no image ingestion, no leaderboard
+  writes, per this task's explicit scope limits.
 
 ---
 
@@ -274,7 +529,14 @@ section above.
 
 ---
 
-## Phase 5X.5 — Improved search/card selection
+## Phase 5X.5 (original) — Improved search/card selection
+
+**Naming collision — see the Phase-label collision log at the top of this
+document.** "Phase 5X.5" was reused for a wheel-coverage bug-fix and
+half-court visual-polish pass. This section's original scope is below,
+unchanged, still planning-only (though the card-based candidate UI it
+describes overlaps somewhat with the eligible-player-search polish already
+shipped -- position badges, "Plays X" labels -- under the reused label).
 
 **Deliverables:**
 - Card-based candidate UI (product spec Sec 4.2) replacing the current
@@ -317,7 +579,11 @@ section above.
 
 ---
 
-## Phase 5X.6 — Lineup-fit engine v1
+## Phase 5X.6 (original) — Lineup-fit engine v1
+
+**Naming collision — see the Phase-label collision log at the top of this
+document.** "Phase 5X.6" was reused for an unrelated product-direction-reset
+pass. This section's original scope is below, unchanged, still planning-only.
 
 **Superseded in part by the "Phase 5X.4" pass (see the naming-collision
 callout above):** `LineupFitComponents`/`compute_fit_components` were

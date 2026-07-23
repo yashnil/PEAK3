@@ -44,8 +44,11 @@ from nba_peak.perfect_season.config import (
 from nba_peak.perfect_season.positions import (
     ARCHETYPE_POSITION_MAP,
     BENCH_SLOTS as BENCH_SLOT_NAMES,
+    POSITION_OVERRIDES,
     STARTER_SLOTS as STARTER_SLOT_NAMES,
     classify_fit,
+    primary_position,
+    secondary_positions,
 )
 from nba_peak.perfect_season.simulation import compute_fit_components, simulate_season
 
@@ -216,14 +219,90 @@ def test_every_archetype_maps_to_exactly_one_primary_position():
     ("anchor", "PG", "off_position"),
     (None, "PG", "off_position"),
 ])
-def test_classify_fit_for_starter_slots(archetype, slot, expected):
-    assert classify_fit(archetype, slot) == expected
+def test_classify_fit_archetype_fallback_for_starter_slots(archetype, slot, expected):
+    """Archetype-fallback tier only -- player_slug=None (or any slug not in
+    POSITION_OVERRIDES) so classify_fit falls through to
+    ARCHETYPE_POSITION_MAP. See test_classify_fit_prefers_manual_override_*
+    below for the override tier, which is what actually governs every
+    player reachable in the game today."""
+    assert classify_fit(None, archetype, slot) == expected
 
 
 @pytest.mark.parametrize("archetype", ["lead_creator", "guard_wing", "wing_forward", "forward_big", "anchor", None])
 @pytest.mark.parametrize("slot", BENCH_SLOT_TYPES)
 def test_bench_slots_are_always_flexible_regardless_of_archetype(archetype, slot):
-    assert classify_fit(archetype, slot) == "flexible"
+    assert classify_fit(None, archetype, slot) == "flexible"
+
+
+# ---------------------------------------------------------------------------
+# Manual position overrides (Phase 5X.6): fixes the "Duncan/Shaq play PG"
+# bug -- the archetype fallback alone classified nearly every elite player
+# as lead_creator (-> PG), which is correct for the lineup-archetype model's
+# own purpose but wrong as a position. POSITION_OVERRIDES is the source of
+# truth for every player reachable in the game today; it must always win
+# over the archetype, regardless of what primary_role the card carries.
+# ---------------------------------------------------------------------------
+
+def test_every_player_reachable_in_the_interim_dataset_has_a_manual_override():
+    """Every player_slug named anywhere in the interim team-season dataset
+    must have a real POSITION_OVERRIDES entry -- this is the guarantee that
+    no player actually reachable in CourtBuilder today can display a
+    fabricated position. Reads the dataset directly rather than
+    hardcoding the player list, so it fails loudly if a future dataset
+    edit adds a player without also adding their override."""
+    from nba_peak.perfect_season.board import _default_interim_teams_path
+    data = json.loads(_default_interim_teams_path().read_text())
+    dataset_slugs = set()
+    for e in data["team_decade_spins"] + data["exact_team_season_spins"]:
+        dataset_slugs.update(e["player_slugs"])
+    missing = dataset_slugs - set(POSITION_OVERRIDES.keys())
+    assert not missing, f"Players in the interim dataset with no manual position override: {sorted(missing)}"
+
+
+@pytest.mark.parametrize("slug,expected_primary,expected_secondaries", [
+    # The exact regression case that triggered this audit: both are real
+    # centers/bigs who displayed as "plays PG" under the archetype-only
+    # fallback (their primary_role is lead_creator, which maps to PG).
+    ("shaquille-oneal", "C", ()),
+    ("tim-duncan", "PF", ("C",)),
+    # Explicitly requested examples (Phase 5X.6 task).
+    ("michael-jordan", "SG", ("SF",)),
+    ("lebron-james", "SF", ("PG", "SG", "PF")),
+    ("nikola-jokic", "C", ()),
+    ("luka-doncic", "PG", ("SG",)),
+    ("stephen-curry", "PG", ("SG",)),
+])
+def test_manual_position_overrides_match_documented_real_positions(slug, expected_primary, expected_secondaries):
+    assert primary_position(slug) == expected_primary
+    assert secondary_positions(slug) == expected_secondaries
+
+
+def test_manual_override_wins_over_archetype_even_when_archetype_disagrees(client: TestClient):
+    """The exact bug this section exists to prevent: even though
+    michael-jordan/tim-duncan/shaquille-oneal all carry
+    primary_role='lead_creator' (which the archetype fallback maps to PG),
+    classify_fit must use the manual override, not the archetype, once one
+    exists."""
+    assert classify_fit("shaquille-oneal", "lead_creator", "PG") == "off_position"
+    assert classify_fit("shaquille-oneal", "lead_creator", "C") == "primary"
+    assert classify_fit("tim-duncan", "lead_creator", "PG") == "off_position"
+    assert classify_fit("tim-duncan", "lead_creator", "PF") == "primary"
+    assert classify_fit("tim-duncan", "lead_creator", "C") == "secondary"
+
+
+def test_no_manual_override_ever_claims_a_position_the_player_never_played():
+    """Sanity bound on the override table itself: every primary/secondary
+    position is a real starter slot, no duplicate primary-in-secondary, and
+    no player claims all 5 positions (even LeBron's 4-position entry stops
+    short of C, which is not documented well enough to include per the
+    task's own "optionally C if evidence is documented" instruction)."""
+    for slug, (primary, secondaries) in POSITION_OVERRIDES.items():
+        assert primary in STARTER_SLOT_NAMES, f"{slug}: invalid primary {primary!r}"
+        assert primary not in secondaries, f"{slug}: primary duplicated in secondaries"
+        assert len(set(secondaries)) == len(secondaries), f"{slug}: duplicate secondary positions"
+        for s in secondaries:
+            assert s in STARTER_SLOT_NAMES, f"{slug}: invalid secondary {s!r}"
+        assert 1 + len(secondaries) <= 5
 
 
 def test_off_position_placement_is_never_blocked(client: TestClient):
@@ -720,25 +799,24 @@ def test_cross_era_lineup_is_not_penalized_relative_to_same_era_lineup():
 
 
 def test_dominant_well_positioned_all_time_roster_projects_75_to_82_wins():
-    """Phase 5X.5 rule 6: 'a valid GOAT-heavy roster can project 75-82
+    """Phase 5X.5/5X.6 rule 6: 'a valid GOAT-heavy roster can project 75-82
     wins.' Unlike test_all_time_elite_lineup_projects_as_dominant_not_nerfed
     above (which uses an arbitrary slot order), this roster is deliberately
-    well-positioned: Jordan at PG (primary fit, lead_creator's primary
-    position), LeBron at SG (secondary fit -- lead_creator's secondary
-    position), Moses Malone at PF (primary fit, forward_big), Dwight Howard
-    at C and Steve Nash at SF (both secondary fit -- forward_big's secondary
-    positions include C and SF), with Magic/Shaq/Duncan held on the bench
-    (always "flexible", never off-position) rather than started
-    off-position. This proves the philosophy end to end: elite talent +
-    legal positions -> a historically dominant projection, not a nerf."""
-    starters = ["michael-jordan", "lebron-james", "moses-malone", "dwight-howard", "steve-nash"]
-    bench = ["magic-johnson", "shaquille-oneal", "tim-duncan"]
+    well-positioned using the Phase 5X.6 manual position overrides (real
+    documented positions, not the archetype fallback): Magic at PG, Jordan
+    at SG, LeBron at SF, Duncan at PF, Shaq at C -- every starter at their
+    real, documented primary position (positional_fit=100), with
+    Bird/Kareem/Hakeem on the bench. Proves the philosophy end to end:
+    elite talent + real legal positions -> a historically dominant
+    projection, not a nerf."""
+    starters = ["magic-johnson", "michael-jordan", "lebron-james", "tim-duncan", "shaquille-oneal"]
+    bench = ["larry-bird", "kareem-abdul-jabbar", "hakeem-olajuwon"]
     cards = [resolve_card(slug, 1) for slug in starters + bench]
     assert all(c is not None for c in cards)
 
     result = simulate_season(cards, board_seed=99, slot_types=SLOT_TYPES)
     assert 75 <= result.wins <= 82
-    assert result.fit_components.positional_fit >= 70
+    assert result.fit_components.positional_fit == 100.0
     assert result.fit_components.bench_strength >= 85
 
 

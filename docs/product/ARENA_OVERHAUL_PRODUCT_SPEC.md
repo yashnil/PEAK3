@@ -50,6 +50,45 @@ just unimplemented. Both were rewritten in code and are now corrected here:
   candidate-count table below reflects the pre-5X.4 state; it's kept as the
   historical baseline the fix was measured against, not current behavior.
 
+**Addendum (Phase 5X.6, "Product Direction Reset," 2026-07-22):** a second
+manual review, after the wheel-coverage fix and half-court polish (shipped
+under a reused "Phase 5X.5" label — see the collision log in
+`docs/implementation/PHASE_5X_ARENA_OVERHAUL_PLAN.md`), found two further
+problems this document did not yet address:
+
+1. **A real position-data bug, not just an approximation gap.** Sec 6.4b
+   below already labels the archetype-derived position mapping "an
+   approximation, not ground truth" — but the actual manual-review finding
+   was worse than an approximation being imprecise: Tim Duncan and
+   Shaquille O'Neal, both real centers/bigs, displayed as "plays PG,"
+   because nearly every elite, high-usage player in the pool gets
+   classified `lead_creator` by the *lineup*-archetype model (a "best
+   offensive engine" concept, not a position concept), and
+   `ARCHETYPE_POSITION_MAP` maps `lead_creator` to PG. Fixed with a manual
+   `POSITION_OVERRIDES` table (`nba_peak/perfect_season/positions.py`) that
+   takes priority over the archetype fallback for every player currently
+   reachable in the game. Full strategy — manual v0 now, real
+   source-derived position data as part of the player-pool expansion later
+   — is in `docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`.
+2. **82-0 alone is probably the wrong primary success metric.** Once a
+   roster is built from legitimately elite peaks, many valid rosters
+   should realistically project near a perfect record — a binary "did you
+   sweep" outcome stops discriminating between a merely-great roster and a
+   truly historic one exactly where the model's actual signal is most
+   interesting. Sec 2's north star below (perfect season as the "chase")
+   is **not wrong, but incomplete**: 82-0 stays as a visible, celebrated
+   outcome, but the durable, comparable, leaderboard-ready number becomes a
+   **PEAK3 lineup score (0-100, same display scale as `individual_peak_score`)**,
+   computed from the existing `LineupFitComponents`. Full design (scoring
+   outputs, working-title options, spinner/reroll redesign, team+player
+   imagery plan, leaderboard schema target) is in
+   `docs/implementation/PHASE_5X_ARENA_OVERHAUL_PLAN.md`'s new "Phase 5X.6"
+   section and the new companion doc
+   `docs/architecture/PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md`. Nothing in
+   this addendum is implemented beyond the position-data fix and one
+   interim-dataset correction (Jrue Holiday's Celtics affiliation) — it is
+   direction-setting for future phases, per that task's own scope limits.
+
 ---
 
 ## 0. Why this document exists
@@ -517,6 +556,18 @@ Basketball-Reference as part of the same data-acquisition pass already
 required for team affiliation — until then, this mapping is good enough to
 prove the position-slot mechanic is fun, which is the actual goal of this
 phase.
+
+**Superseded for reachable players (Phase 5X.6 fix):** the table above
+alone produced a real bug, not just an imprecise approximation — nearly
+every elite player's `primary_role` is `lead_creator` (a "best offensive
+engine" classification, not a position one), which this table maps to PG,
+so Tim Duncan and Shaquille O'Neal (both real centers/bigs) displayed as
+"plays PG." `nba_peak/perfect_season/positions.py::POSITION_OVERRIDES` now
+sits in front of this table as a manual, human-verified position for every
+player_slug reachable via the interim team-season dataset; this table is
+still the fallback for anyone not yet covered (i.e. open-pool draws outside
+the curated dataset), and remains exactly as approximate/risky as described
+above for that remaining long tail.
 
 ### 6.5 Era-adjusted roles — explicitly deferred
 

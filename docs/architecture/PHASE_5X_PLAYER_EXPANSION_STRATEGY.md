@@ -1,4 +1,4 @@
-# Phase 5X — Player Database Expansion Strategy (250 → 500)
+# Phase 5X — Player Database Expansion Strategy (250 → 1000)
 
 **Status:** Strategy/design only. No scraping, no data acquisition, no new
 files under `data/generated/`, `data/web/`, or `data/game/` are created by
@@ -7,27 +7,56 @@ model-validated additions — every specific name below is an **illustrative
 candidate for the cohort-review process**, not a committed inclusion.
 **Depends on:** `docs/architecture/PHASE_5_DATA_MODEL.md` (entities 1-4:
 `player_identity`, `team_identity`, `team_season`, `team_season_roster_member`
-— this document operationalizes those entities toward a concrete 500-player
+— this document operationalizes those entities toward a concrete 1000-player
 target; it does not redefine them).
 **Companion:** `docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md` Sec 8,
-`docs/implementation/PHASE_5X_ARENA_OVERHAUL_PLAN.md` Phase 5X.4.
+`docs/implementation/PHASE_5X_ARENA_OVERHAUL_PLAN.md` (Phase 5X.4 original
+scope, and the new Phase 5X.6 "Product Direction Reset" section),
+`docs/architecture/PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md` (team/player
+imagery — photo/icon coverage is one of this document's QA gates, Sec 7).
 
-**Phase 5X.5 audit finding (adds a second, distinct reason expansion is
-needed, beyond Sec 1's "slice depth" argument):** a wheel-coverage audit
-found that two players already named in the interim team-season dataset
-(`data/game/interim/courtbuilder_team_seasons.v2.json`) -- Michael Cooper
-and Jaylen Brown -- have `profile_status='excluded'` for every duration in
-`card_profiles.v3.json`, meaning they were in the 250-player pool's raw
-data but never actually resolvable as a playable candidate. This silently
-starved 3 team-era entries down to a single candidate, and (before a
-separate board-generator fix) made 2 whole franchises essentially never
-appear on the wheel. The dataset fix swapped in real teammates who ARE
-resolvable; the underlying pattern is worth knowing before the 500-player
-expansion executes: **`profile_status='excluded'` rows exist in the current
-pipeline for players who don't clear the model's data-completeness bar,
-and any future team-era interim mapping (or the eventual real
-`team_season_roster_member` data) must cross-check against resolvable
-status, not just "is this player's slug anywhere in card_profiles.v3.json."**
+**Target raised from 500 to 1000 (Phase 5X.6, 2026-07-22).** The 500-player
+figure was never a ceiling, just the first named milestone (Sec 2.3 always
+listed "1,000-player v2" as a later stage) — this revision makes 1000 the
+actual staged target and restructures Sec 2 accordingly. Nothing about the
+inclusion methodology (Sec 2.2's cohorts) changes; the staged targets and
+launch-scope numbers in Sec 2.3/4.2 do.
+
+**Audit findings that motivate this document, in chronological order:**
+
+1. **Phase 5X.5 (wheel-coverage audit):** two players already named in the
+   interim team-season dataset — Michael Cooper and Jaylen Brown — have
+   `profile_status='excluded'` for every duration in `card_profiles.v3.json`,
+   meaning they were in the 250-player pool's raw data but never actually
+   resolvable as a playable candidate. This silently starved 3 team-era
+   entries down to a single candidate, and (before a separate
+   board-generator fix) made 2 whole franchises essentially never appear on
+   the wheel. Fixed by swapping in real, resolvable teammates. **Lesson:**
+   `profile_status='excluded'` rows exist in the current pipeline for
+   players who don't clear the model's data-completeness bar, and any
+   future team-era mapping (interim or the eventual real
+   `team_season_roster_member` data) must cross-check against resolvable
+   status, not just "is this player's slug anywhere in card_profiles.v3.json."
+2. **Phase 5X.6 (Jrue Holiday audit, explicitly requested, inspected not
+   assumed):** does Jrue Holiday exist in the 250-player data, and why does
+   he/doesn't he appear for 2020s Celtics? **Finding, from direct
+   inspection of `card_profiles.v3.json` and the interim dataset:** yes, he
+   exists and is resolvable — `profile_status='verified_data_derived'` at
+   3yr/5yr durations (`excluded` at 1yr/2yr, an honest per-duration gap,
+   not a bug). Before this audit he appeared **only** under `bucks-2020s`
+   in the interim dataset, reflecting his real 2020-2023 Milwaukee tenure
+   and 2021 championship. He was **missing** from `celtics-2020s` even
+   though he was traded to Boston in September 2023 and started for the
+   2024 champion Celtics — a second, equally real team affiliation the
+   dataset simply hadn't captured yet. Fixed by adding him to
+   `celtics-2020s` too (dataset bumped to v3); a player_slug legitimately
+   appearing under more than one team-decade entry in the same decade
+   reflects a real mid-decade trade, not a duplicate-data error. **Lesson:**
+   the interim (and eventual real) team-season data model must support a
+   player having multiple team affiliations within one decade, and manual
+   curation passes need a systematic way to check "did this player change
+   teams mid-decade in a way that matters" rather than relying on whoever
+   is curating that entry to happen to remember.
 
 ---
 
@@ -75,7 +104,34 @@ narrow slices, and the 250-pool was never selected for slice-depth — it
 was selected for absolute peak height.** No UI redesign fixes this; it is
 a content problem, not a presentation problem.
 
-## 2. Target: 500-player v1 expansion
+## 2. Target: staged expansion to 1000 players
+
+### 2.0 Inclusion vision (Phase 5X.6 — restated as explicit, checkable criteria)
+
+Include every player, since the model's starting season, who matches **at
+least one** of:
+
+- averaged 15+ PPG in any season
+- made an All-Star team
+- received MVP votes (any amount, any year)
+- made an All-Defensive team
+- started on a championship team
+- was a key championship role player (meaningful rotation minutes on a
+  title team, even off the bench — "key" is a manual-review judgment call,
+  documented per Sec 6, not automatable)
+- averaged 30+ MPG in any season
+- important manual exceptions for basketball-history relevance (Cohort E,
+  Sec 2.2 below — e.g. a player whose statistical record undersells their
+  historical importance)
+
+This restates and sharpens Sec 2.2's existing Cohort A-D framework (below)
+into criteria that are individually checkable against public box-score/
+award data, rather than only described in prose. The cohort framework
+remains the *process* (how a candidate gets reviewed and documented); this
+list is the *filter* (who becomes a candidate in the first place). Every
+inclusion still requires a cohort assignment and provenance note (Sec 6) —
+matching one of these criteria makes a player a candidate, not an
+automatic inclusion.
 
 ### 2.1 Selection criterion change
 
@@ -128,44 +184,69 @@ silent add.
 
 ### 2.3 Staged targets
 
-- **500-player v1** (this document's actual scope): the near-term release.
-  Prioritize Cohorts A and B first (highest confidence), then run Cohort D
-  specifically against the launch team-decade list (Sec 4) to close
-  coverage gaps, then Cohort C to round out remaining budget, then Cohort E
-  as individually-reviewed additions throughout.
-- **1,000-player v2** (later, not scoped in detail here): broader
-  historical coverage once v1's process is validated in production.
-- **Full team-season roster ingestion** (later, separate project): every
-  rostered player for every team-season in the supported period, primarily
-  for PEAK3 Index research value and Extended Archive/Labs-tier CourtBuilder
-  content — not required for Competitive Core team+decade gameplay to work
-  well, which only needs the 500-player expansion's depth.
+Three stages, each a real gate the next stage depends on, not just a
+milestone number:
 
-## 3. Required new fields (not currently present anywhere in the pipeline)
+1. **250 current (baseline).** The existing all-time top-N pool. Already
+   shipped, already has the "slice depth" problem Sec 1 describes.
+2. **500 — quality gate.** Not a bigger version of 250, a **process
+   validation stage**: prove the Cohort A-E methodology (Sec 2.2), the QA
+   process (Sec 7), and the coverage-gate test (Sec 8) all work correctly
+   at a scale small enough to hand-verify thoroughly (Sec 7 item 6's
+   30-player manual spot-check is ~6% of 500, a defensible sample; it would
+   be ~3% of 1000, a thinner one). Prioritize Cohorts A and B first
+   (highest confidence, award-based), then Cohort D specifically against
+   the launch team-decade list (Sec 4) to close coverage gaps, then Cohort
+   C to round out remaining budget, then Cohort E as individually-reviewed
+   additions throughout. **Gate to clear before proceeding to 1000:** the
+   full Sec 7 QA process passes clean on the 500-player set, with zero
+   unresolved findings (not "findings fixed post-hoc" — clean on first
+   full pass, since the same process runs again, unchanged, at 1000 scale).
+3. **1000 — target.** The actual expansion goal (raised from 500 in Phase
+   5X.6 — see the top-of-document note). Same cohort methodology, same QA
+   process, run again at roughly double the scale, prioritizing broader
+   team-decade coverage (more franchises, more decades clearing the
+   Sec 4.1 candidate-depth gate) over deepening already-well-covered
+   slices further.
+4. **Full team-season roster ingestion** (later, separate project, beyond
+   1000): every rostered player for every team-season in the supported
+   period, primarily for PEAK3 Index research value and Extended
+   Archive/Labs-tier CourtBuilder content — not required for Competitive
+   Core team+decade gameplay to work well, which only needs the
+   1000-player expansion's depth.
 
-Two fields are needed for every expanded player-season, verified absent
-from all current data files this session (extending the same audit
-ADR-005 already ran for team affiliation):
+## 3. Required source tables
 
-1. **Team-season roster membership** — already scoped in
-   `PHASE_5_DATA_MODEL.md` entity 4 (`team_season_roster_member`). Source:
-   Basketball-Reference team-season roster pages, via the existing
-   `nba_peak/data_complete.py` scrape-once/cache pattern.
-2. **Primary/secondary NBA position** — **not previously identified as a
-   gap** in any prior Phase 5 document; surfaced by this overhaul's
-   position-slot redesign (`ARENA_OVERHAUL_PRODUCT_SPEC.md` Sec 6). Source:
-   Basketball-Reference's per-player-season position field, same scrape
-   pattern, same cache discipline. This is a materially simpler field than
-   team-season membership (one categorical value per player-season, no
-   roster-join complexity) and should be sourced in the same scraping pass
-   to avoid two separate acquisition efforts hitting the same source pages.
+Restated (Phase 5X.6) as an explicit table-by-table list, matching what
+the inclusion vision (Sec 2.0) and QA process (Sec 7) actually need to
+check against. All sourced via the existing `nba_peak/data_complete.py`
+scrape-once/cache/never-scrape-at-request-time pattern already established
+for award votes and team shares — no new acquisition mechanism, just more
+tables through the same pipe.
 
-Both fields apply to the **existing 250-pool as well as the expansion** —
-today's 250 players have no position data either, which is why
-`ARENA_OVERHAUL_PRODUCT_SPEC.md` Sec 6.4b specifies a v1 archetype-based
-approximation that doesn't wait on this data. Sourcing real position data
-should eventually replace that approximation for the full pool, not just
-the expansion.
+| Table | Purpose | Status |
+|---|---|---|
+| **Player seasons** | One row per player-season: the base unit everything else joins to | Exists (`data/generated/player_season_context.parquet` and predecessors) |
+| **Team rosters** (`team_season_roster_member`) | Which players were on which team, which season — the core join for team-decade eligibility | Gap, scoped in `PHASE_5_DATA_MODEL.md` entity 4, not yet sourced |
+| **Minutes/game** | Feeds the 30+ MPG inclusion criterion (Sec 2.0) | Partially exists in advanced-metric context; verify per-season coverage before relying on it as an inclusion gate |
+| **Points/game** | Feeds the 15+ PPG inclusion criterion (Sec 2.0) | Exists (traditional box-score stats already power `traditional_production`) |
+| **Awards** (general) | MVP/DPOY/ROY/MIP/6MOY winners and finalists | Exists (already powers `individual_recognition`) |
+| **All-Star selections** | Feeds the All-Star inclusion criterion | Exists |
+| **All-Defense** | Feeds the All-Defensive inclusion criterion | Exists |
+| **MVP votes** | Feeds the "received MVP votes" inclusion criterion — note this is broader than MVP *finalists* (Cohort A originally said "finalists"; Sec 2.0's restated criterion is "received votes," any amount) | Exists (vote-share data already referenced for `individual_recognition`) — confirm any-vote-share granularity, not just top-5/finalist granularity, is actually retained |
+| **Playoff/championship starters** | Feeds "started on a championship team" and the Cohort B championship-rotation criterion | Partially exists (postseason box scores exist; explicit "was this player a starter on a title team" is a derived join, not a stored field yet) |
+| **Team-season membership** | Same as "team rosters" row above — listed twice in the original task enumeration, one table | (see above) |
+| **Positions** (`primary_position`/`secondary_position`) | **Not previously identified as a gap** in any prior Phase 5 document; surfaced by the position-slot redesign (`ARENA_OVERHAUL_PRODUCT_SPEC.md` Sec 6) and sharpened by the Phase 5X.6 "Duncan/Shaq play PG" bug (Sec 0 of this document's predecessor addendum). Source: Basketball-Reference's per-player-season position field, same scrape pattern as team rosters — source in the same pass to avoid two acquisition efforts hitting the same pages. |
+
+**Positions and team rosters apply to the existing 250-pool too, not just
+the expansion** — today's 250 players have no real position data either,
+which is why `nba_peak/perfect_season/positions.py::POSITION_OVERRIDES`
+(Phase 5X.6) is a *manual* stopgap for the ~40 players currently reachable
+in the game, not a substitute for sourcing this table for real. Once this
+table exists, `POSITION_OVERRIDES` is deleted (not migrated — same
+discipline as the interim team-season dataset itself), and every player in
+the pool (not just the manually-covered ones) gets a real, source-derived
+position.
 
 ## 4. Minimum expansion needed for team/decade gameplay to work
 
@@ -273,11 +354,37 @@ successor or a new versioned artifact is wired into `nba_peak/perfect_season/boa
    references a real, resolvable `team_season`; traded-season attribution
    is explicit (primary/secondary team), never ambiguous.
 6. **Manual spot-check** — a human reviews a random sample (suggested: 30
-   players, ~6% of the 500 target) against public records before the
-   expansion is considered launch-ready.
+   players at the 500 quality-gate stage, ~6%; a proportionally larger
+   sample at 1000, since the same 30-player absolute count would drop to
+   ~3% coverage) against public records before the expansion is considered
+   launch-ready.
 7. **Provenance completeness** — every row has a non-empty
    `source_provenance` field (matches the discipline already enforced for
    the interim CourtBuilder dataset's `source_provenance` notes).
+8. **No `profile_status='excluded'` players in eligibility** (Phase 5X.6,
+   directly motivated by the Sec 0 audit finding above) — automated: for
+   every player-season the expansion adds to a team-decade/exact-season
+   interim (or eventual real) mapping, verify its `profile_status` is not
+   `excluded` at the duration(s) that mapping claims to use it at. A player
+   named in a team-era mapping but unresolvable at every duration is
+   exactly the Michael Cooper / Jaylen Brown failure mode this check
+   exists to catch automatically instead of by manual audit next time.
+9. **Photo/icon fallback coverage** (Phase 5X.6, ties to
+   `docs/architecture/PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md`) — every
+   player in the expanded pool resolves to *something* renderable (a real
+   photo if licensed and available, otherwise the initials/silhouette
+   fallback badge) — never a broken image or a blank card. This is a
+   frontend/asset-manifest concern, not a data-correctness one, but belongs
+   in the same pre-launch QA pass since it's checked against the same
+   player list.
+10. **Candidate count per team+decade** — restates the Sec 4.1 coverage
+    gate as an explicit QA-pass line item: re-run `coverage_summary()`
+    (`nba_peak/perfect_season/board.py`, added Phase 5X.5) against the
+    expanded pool for every mode/duration and confirm no Competitive Core
+    team-decade regresses below its prior candidate count. Distinct from
+    item 2 above (which gates the *launch* coverage scope specifically) —
+    this one guards against the expansion accidentally *removing* depth
+    anywhere, not just failing to add enough.
 
 ## 8. Tests needed before using expanded data in gameplay
 
@@ -294,6 +401,11 @@ successor or a new versioned artifact is wired into `nba_peak/perfect_season/boa
   against the launch team-decade list; this becomes a permanent regression
   test (future data corrections must not silently drop a team-decade below
   the 5-candidate floor).
+- **No-excluded-status-in-eligibility tests** — automated version of Sec 7
+  item 8; run in CI against every interim team-era mapping.
+- **Photo/icon fallback coverage tests** — automated version of Sec 7 item
+  9; confirms every player in the pool resolves to a manifest entry or the
+  documented fallback, per `PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md`.
 - **Existing-ranking stability tests** — extends the existing pattern in
   `apps/api/tests/test_regression.py`/`tests/test_leaderboards.py` (rank-1
   and top-10 regression checks) to confirm the expansion never perturbs
@@ -314,5 +426,10 @@ successor or a new versioned artifact is wired into `nba_peak/perfect_season/boa
   scoped, same as the rest of Phase 5's data work per ADR-005 Decision 8).
 - No commitment to any specific named player's inclusion — every name in
   Sec 5 is illustrative of the *process*, not a pre-approved outcome.
-- No 1,000-player or full-roster-ingestion execution plan — those are
-  later-stage targets, mentioned for context (Sec 2.3) but not scoped here.
+- No 1000-player expansion *execution* — this document raises the target
+  from 500 to 1000 (Phase 5X.6) and defines the staged path (Sec 2.3), but
+  running the actual cohort-review/scraping/QA process against real data
+  is future work, not something this revision performs.
+- No full-roster-ingestion execution plan — that remains a later-stage
+  target beyond 1000 (Sec 2.3 item 4), mentioned for context, not scoped
+  here.

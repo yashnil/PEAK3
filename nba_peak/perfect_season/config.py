@@ -24,14 +24,17 @@ from __future__ import annotations
 ELIGIBILITY_RULESET_VERSION = "perfect_season_eligibility_v2"
 
 # Bumped whenever the interim team-season dataset changes (see
-# data/game/interim/courtbuilder_team_seasons.v2.json's own dataset_version).
+# data/game/interim/courtbuilder_team_seasons.v3.json's own dataset_version).
 # v2 (Phase 5X.5): removed two dead player_slugs (michael-cooper, jaylen-brown
 # -- both profile_status='excluded' at every duration, so never actually
 # resolvable as candidates despite being named) and added real, in-pool
 # teammates (derrick-white, al-horford, jamal-murray, brook-lopez) to the
 # entries that dead weight was silently starving -- see board_coverage
-# audit findings in the dataset's own coverage_note.
-INTERIM_TEAM_DATA_VERSION = "courtbuilder_interim_teams.v2"
+# audit findings in the dataset's own coverage_note. v3 (Phase 5X.6 audit):
+# added jrue-holiday to celtics-2020s -- confirmed resolvable in the pool
+# (3yr/5yr) and a real 2024 champion Celtic, previously only attributed to
+# bucks-2020s.
+INTERIM_TEAM_DATA_VERSION = "courtbuilder_interim_teams.v3"
 
 # Bumped whenever board generation (spin sequence assembly) changes. v2
 # (Phase 5X.5): weighted-sampling entry selection, see

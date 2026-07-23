@@ -8,7 +8,7 @@ or does it keep landing on the same few dynasties?" check referenced in
 docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md and the Phase 5X.5 audit that
 found (and fixed) two dead player_slugs silently starving several
 franchises out of the wheel entirely -- see
-data/game/interim/courtbuilder_team_seasons.v2.json's own coverage_note.
+data/game/interim/courtbuilder_team_seasons.v3.json's own coverage_note.
 
 Usage:
     python scripts/check_courtbuilder_wheel_coverage.py [seeds_per_mode]
