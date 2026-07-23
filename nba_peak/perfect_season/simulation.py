@@ -95,7 +95,20 @@ def compute_fit_components(cards: list[CardProfile], slot_types: list[str]) -> L
     )
 
 
-def _decisive_factors(fit: LineupFitComponents) -> list[str]:
+def _off_position_starter_slots(cards: list[CardProfile], slot_types: list[str]) -> list[str]:
+    """Which starter slot_types are off-position for the card placed there --
+    used to name specific weak positions in the result explanation instead
+    of only a vague "several starters" statement (result-credibility goal:
+    open/weak positions if any)."""
+    starters = cards[:STARTER_SLOTS]
+    starter_slot_types = slot_types[:STARTER_SLOTS]
+    return [
+        slot for card, slot in zip(starters, starter_slot_types)
+        if classify_fit(card.primary_role, slot) == "off_position"
+    ]
+
+
+def _decisive_factors(fit: LineupFitComponents, weak_positions: list[str] | None = None) -> list[str]:
     factors: list[str] = []
     if fit.talent_core >= 85:
         factors.append("Elite talent core across the roster")
@@ -107,10 +120,11 @@ def _decisive_factors(fit: LineupFitComponents) -> list[str]:
     elif fit.bench_strength < 40:
         factors.append("Thin bench is the roster's biggest weak spot")
 
-    if fit.positional_fit >= 70:
+    if weak_positions:
+        positions = ", ".join(weak_positions)
+        factors.append(f"Off-position at {positions} -- a real but modest drag, not a talent penalty")
+    elif fit.positional_fit >= 70:
         factors.append("Starters are placed at their natural positions")
-    elif fit.positional_fit < 40:
-        factors.append("Several starters are playing out of position")
 
     if fit.postseason_pedigree >= 75:
         factors.append("Deep postseason pedigree")
@@ -130,6 +144,7 @@ def simulate_season(cards: list[CardProfile], board_seed: int, slot_types: list[
     two different lineups on the same board_seed do not collide.
     """
     fit = compute_fit_components(cards, slot_types)
+    weak_positions = _off_position_starter_slots(cards, slot_types)
 
     # expected_wins: talent-dominated, matching the experimental lineup
     # model's own "talent dominates" hypothesis (nba_peak/lineup/config.py).
@@ -165,7 +180,7 @@ def simulate_season(cards: list[CardProfile], board_seed: int, slot_types: list[
         expected_wins=round(expected_wins, 1),
         expected_wins_low=round(expected_low, 1),
         expected_wins_high=round(expected_high, 1),
-        decisive_factors=_decisive_factors(fit),
+        decisive_factors=_decisive_factors(fit, weak_positions),
         is_perfect_season=(wins >= 82),
         experimental_notice=SIMULATOR_EXPERIMENTAL_NOTICE,
     )

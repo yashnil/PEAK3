@@ -71,7 +71,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
                   className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0"
                   style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
                 >
-                  {positions}
+                  Plays {positions}
                 </span>
               )}
             </button>

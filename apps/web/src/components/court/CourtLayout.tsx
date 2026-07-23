@@ -32,6 +32,7 @@ export default function CourtLayout({ starterSlots, benchSlots, renderSlot }: Pr
   return (
     <div className="flex flex-col gap-3">
       <div data-testid="half-court" className="court-half">
+        <div className="court-hoop" aria-hidden="true" />
         {STARTER_SLOT_TYPES.map((slotType) => {
           const slot = starterSlots.find((s) => s.slot_type === slotType);
           if (!slot) return null;

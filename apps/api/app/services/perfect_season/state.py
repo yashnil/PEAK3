@@ -296,6 +296,11 @@ def get_public_state(state: CourtLineupState) -> dict:
                     "anchor_season": card.anchor_season,
                     "role_fit": slot.role_fit,
                     "resolved_via_spin_id": slot.resolved_via_spin_id,
+                    # Lets the UI explain an off-position placement ("plays
+                    # SF") rather than just flagging it as off-position with
+                    # no context (goal: position eligibility clarity).
+                    "primary_position": primary_position(card.primary_role),
+                    "secondary_positions": list(secondary_positions(card.primary_role)),
                 })
                 if reveal_scores:
                     entry.update({

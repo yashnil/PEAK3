@@ -27,6 +27,7 @@ from app.main import app
 from nba_peak.perfect_season.board import (
     _can_assign_distinct,
     _clear_interim_teams_cache,
+    coverage_summary,
     generate_board,
     interim_team_summary,
     resolve_card,
@@ -37,6 +38,7 @@ from nba_peak.perfect_season.config import (
     PREFERRED_MIN_CANDIDATES,
     SLOT_TYPES,
     STARTER_SLOTS,
+    SUPPORTED_MODES,
     TOTAL_ROUNDS,
 )
 from nba_peak.perfect_season.positions import (
@@ -274,6 +276,31 @@ def test_readiness_endpoint_never_requires_auth(client: TestClient):
     assert resp.status_code == 200
     body = resp.json()
     assert body["courtbuilder_enabled"] is False
+
+
+def test_readiness_endpoint_includes_coverage_summary(client: TestClient):
+    resp = client.get("/api/v1/perfect-season/readiness")
+    assert resp.status_code == 200
+    coverage = resp.json()["coverage"]
+    assert coverage["available"] is True
+    assert coverage["mode"] == "apex_1y"
+    assert coverage["total_combinations"] > 0
+    assert "per_era" in coverage
+    assert "per_team" in coverage
+
+
+def test_readiness_endpoint_respects_mode_query_param(client: TestClient):
+    resp = client.get("/api/v1/perfect-season/readiness?mode=foundation_5y")
+    assert resp.status_code == 200
+    coverage = resp.json()["coverage"]
+    assert coverage["mode"] == "foundation_5y"
+    assert coverage["duration_years"] == 5
+
+
+def test_readiness_endpoint_falls_back_to_apex_1y_for_invalid_mode(client: TestClient):
+    resp = client.get("/api/v1/perfect-season/readiness?mode=not_a_real_mode")
+    assert resp.status_code == 200
+    assert resp.json()["coverage"]["mode"] == "apex_1y"
 
 
 # ---------------------------------------------------------------------------
@@ -690,3 +717,116 @@ def test_cross_era_lineup_is_not_penalized_relative_to_same_era_lineup():
     assert all(c is not None for c in cross_era)
     result = simulate_season(cross_era, board_seed=2, slot_types=SLOT_TYPES)
     assert result.wins >= 65
+
+
+def test_dominant_well_positioned_all_time_roster_projects_75_to_82_wins():
+    """Phase 5X.5 rule 6: 'a valid GOAT-heavy roster can project 75-82
+    wins.' Unlike test_all_time_elite_lineup_projects_as_dominant_not_nerfed
+    above (which uses an arbitrary slot order), this roster is deliberately
+    well-positioned: Jordan at PG (primary fit, lead_creator's primary
+    position), LeBron at SG (secondary fit -- lead_creator's secondary
+    position), Moses Malone at PF (primary fit, forward_big), Dwight Howard
+    at C and Steve Nash at SF (both secondary fit -- forward_big's secondary
+    positions include C and SF), with Magic/Shaq/Duncan held on the bench
+    (always "flexible", never off-position) rather than started
+    off-position. This proves the philosophy end to end: elite talent +
+    legal positions -> a historically dominant projection, not a nerf."""
+    starters = ["michael-jordan", "lebron-james", "moses-malone", "dwight-howard", "steve-nash"]
+    bench = ["magic-johnson", "shaquille-oneal", "tim-duncan"]
+    cards = [resolve_card(slug, 1) for slug in starters + bench]
+    assert all(c is not None for c in cards)
+
+    result = simulate_season(cards, board_seed=99, slot_types=SLOT_TYPES)
+    assert 75 <= result.wins <= 82
+    assert result.fit_components.positional_fit >= 70
+    assert result.fit_components.bench_strength >= 85
+
+
+def test_weaker_midtier_roster_projects_meaningfully_lower_than_elite_roster():
+    """Phase 5X.5 rule 6: 'a weaker/incomplete/position-awkward roster
+    should project lower.' A roster of genuinely mid-tier players (well
+    below the pool's elite tier, individual_peak_score ~50-60) must project
+    a clearly worse record than the dominant all-time roster above -- not
+    because of any redundancy/era penalty, but because the underlying peak
+    talent really is lower. This is the honest contrast case: PEAK3 still
+    differentiates rosters, just on talent and real constraints, not on
+    "too many stars"."""
+    starters = ["jason-terry", "tree-rollins", "kenny-anderson", "rod-strickland", "luol-deng"]
+    bench = ["dale-ellis", "andre-miller", "jermaine-oneal"]
+    cards = [resolve_card(slug, 1) for slug in starters + bench]
+    assert all(c is not None for c in cards)
+
+    result = simulate_season(cards, board_seed=7, slot_types=SLOT_TYPES)
+    assert result.wins <= 55
+    assert result.fit_components.talent_core < 65
+
+
+# ---------------------------------------------------------------------------
+# Wheel coverage / distribution audit (Phase 5X.5 rule 1)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("mode", SUPPORTED_MODES)
+def test_wheel_distribution_does_not_collapse_to_a_few_franchises(mode: str):
+    """Regression test for the exact bug the Phase 5X.5 audit found: two
+    dead player_slugs (michael-cooper, jaylen-brown -- both
+    profile_status='excluded' at every duration in card_profiles.v3.json,
+    so never actually resolvable) silently starved the Celtics-2020s,
+    Bucks-2020s, and Nuggets entries down to 1 candidate, and the
+    board generator's old "fill with >=2-candidate entries first" selection
+    meant those thin entries were excluded from nearly every board -- some
+    franchises (Bucks, Nuggets) never appeared at all across 300 sampled
+    seeds. After the v2 dataset fix (real, in-pool teammates added) and the
+    weighted-sampling fix to _select_interim_entries, every franchise in the
+    dataset must appear at least once across a large seed sample, and no
+    single franchise should dominate more than a third of all spins."""
+    from nba_peak.perfect_season.board import _clear_interim_teams_cache
+    _clear_interim_teams_cache()
+
+    cov = coverage_summary(mode)
+    assert cov["available"] is True
+    all_franchises = set(cov["per_team"].keys())
+
+    franchise_counts: dict[str, int] = {}
+    n_seeds = 150
+    for seed in range(1, n_seeds + 1):
+        board = generate_board(mode=mode, seed=seed, team_spin_enabled=True)
+        for spin in board.spins:
+            if spin.franchise_display_name:
+                franchise_counts[spin.franchise_display_name] = franchise_counts.get(spin.franchise_display_name, 0) + 1
+
+    seen = set(franchise_counts.keys())
+    missing = all_franchises - seen
+    assert not missing, f"Franchises never appeared across {n_seeds} seeds ({mode}): {sorted(missing)}"
+
+    total = sum(franchise_counts.values())
+    for name, count in franchise_counts.items():
+        assert count / total <= 0.35, f"{name} dominated {count / total:.1%} of spins ({mode}) -- distribution collapsed"
+
+
+def test_coverage_summary_reports_total_playable_sparse_and_excluded():
+    cov = coverage_summary("apex_1y")
+    assert cov["available"] is True
+    assert cov["total_combinations"] == cov["playable_combinations"] + cov["excluded_zero_candidate_combinations"]
+    assert cov["sparse_combinations"] <= cov["playable_combinations"]
+    assert cov["excluded_zero_candidate_combinations"] == 0  # v2 dataset: no dead-on-arrival entries remain
+    assert set(cov["per_era"].keys())
+    assert set(cov["per_team"].keys())
+    for breakdown in cov["per_team"].values():
+        assert breakdown["combinations"] == breakdown["playable"] + breakdown["excluded_zero_candidate"]
+
+
+def test_coverage_summary_is_duration_aware():
+    """The same interim entry can be playable at one duration and sparse (or
+    unplayable) at another -- candidate depth genuinely varies by duration,
+    not just by team/era. apex_1y and foundation_5y must not report
+    identical per-team breakdowns for every team (some, like Nuggets, are
+    duration-dependent -- see the v2 dataset's own provenance notes)."""
+    cov_1y = coverage_summary("apex_1y")
+    cov_5y = coverage_summary("foundation_5y")
+    assert cov_1y["duration_years"] == 1
+    assert cov_5y["duration_years"] == 5
+    assert cov_1y["per_team"] != cov_5y["per_team"]
+
+
+def test_coverage_summary_invalid_mode_returns_unavailable():
+    assert coverage_summary("not_a_real_mode")["available"] is False

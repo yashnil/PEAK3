@@ -10,6 +10,19 @@ interface Props {
    * open slot (nba_peak.perfect_season.positions.classify_fit) -- shown as
    * a small badge, never blocking. */
   pendingFit?: RoleFit;
+  /** The pending selection's own primary position, so an off-position badge
+   * can explain WHY ("plays PG") instead of just flagging it. */
+  pendingPrimaryPosition?: string | null;
+}
+
+/** "Off-position" alone doesn't say why -- append the player's own primary
+ * position when known, e.g. "Off-position (plays PG)". Position eligibility
+ * clarity goal: never leave a fit note unexplained. */
+function explainedFitLabel(label: string, roleFit: RoleFit | null | undefined, primaryPosition: string | null | undefined): string {
+  if (roleFit === "off_position" && primaryPosition) {
+    return `${label} (plays ${primaryPosition})`;
+  }
+  return label;
 }
 
 /**
@@ -39,11 +52,15 @@ interface Props {
  * (--bg-surface vs. --bg-elevated) and content ("Open" vs. a player name)
  * alone, both at full opacity.
  */
-export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingFit }: Props) {
+export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingFit, pendingPrimaryPosition }: Props) {
   const isBench = (BENCH_SLOT_TYPES as string[]).includes(slot.slot_type);
   const revealed = slot.individual_peak_score != null;
-  const fitLabel = slot.role_fit ? ROLE_FIT_LABELS[slot.role_fit] : "";
-  const pendingFitLabel = !slot.filled && pendingFit ? ROLE_FIT_LABELS[pendingFit] : "";
+  const fitLabel = slot.role_fit
+    ? explainedFitLabel(ROLE_FIT_LABELS[slot.role_fit], slot.role_fit, slot.primary_position)
+    : "";
+  const pendingFitLabel = !slot.filled && pendingFit
+    ? explainedFitLabel(ROLE_FIT_LABELS[pendingFit], pendingFit, pendingPrimaryPosition)
+    : "";
 
   const content = (
     <>
@@ -108,7 +125,7 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
       background: slot.filled ? "var(--bg-elevated)" : "var(--bg-surface)",
       border: isPendingTarget
         ? "2px dashed var(--peak-accent, #f5c842)"
-        : `1px solid ${isBench ? "var(--border-muted, #333)" : "var(--border-default)"}`,
+        : `1px solid ${isBench ? "var(--border-emphasis)" : "var(--border-default)"}`,
     } as CSSProperties,
   };
 

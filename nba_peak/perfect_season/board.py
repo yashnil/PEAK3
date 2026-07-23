@@ -41,7 +41,7 @@ _INTERIM_TEAMS_CACHE: dict | None = None
 
 def _default_interim_teams_path() -> Path:
     repo_root = Path(__file__).resolve().parent.parent.parent
-    return repo_root / "data" / "game" / "interim" / "courtbuilder_team_seasons.v1.json"
+    return repo_root / "data" / "game" / "interim" / "courtbuilder_team_seasons.v2.json"
 
 
 def _load_interim_teams(path: Path | None = None) -> dict:
@@ -121,6 +121,90 @@ def _candidates_for_entry(entry: dict, duration_pool: list[CardProfile]) -> list
     return [slug for slug in entry.get("player_slugs", []) if slug in pool_slugs]
 
 
+def coverage_summary(mode: str, profiles_path: Path | None = None, interim_teams_path: Path | None = None) -> dict:
+    """Per-mode (duration-aware) coverage audit of the interim dataset.
+
+    Candidate depth is duration-dependent -- the same team-decade entry can
+    be "good" at one duration and "sparse" or entirely unplayable at
+    another (a player's card may only exist for some durations). This makes
+    coverage gaps visible and auditable rather than something only
+    discoverable by reading source code, per the Phase 5X.5 wheel-coverage
+    audit instruction. Used by the readiness endpoint and
+    scripts/check_courtbuilder_wheel_coverage.py.
+
+    Returns {"available": False} if the interim dataset or mode is invalid,
+    rather than raising -- this is a diagnostic, never a 500.
+    """
+    if mode not in MODE_TO_YEARS:
+        return {"available": False}
+    duration = MODE_TO_YEARS[mode]
+    try:
+        data = _load_interim_teams(interim_teams_path)
+    except FileNotFoundError:
+        return {"available": False}
+
+    by_dur = _load_profiles(profiles_path)
+    duration_pool = by_dur.get(duration, [])
+    entries = _all_interim_spin_entries(data)
+
+    per_era: dict[str, dict[str, int]] = {}
+    per_team: dict[str, dict[str, int]] = {}
+    playable = 0
+    sparse = 0
+    excluded_zero = 0
+
+    for entry in entries:
+        candidates = _candidates_for_entry(entry, duration_pool)
+        n = len(candidates)
+        era = entry.get("era_label") or "unknown"
+        team = entry.get("franchise_display_name") or "unknown"
+        era_row = per_era.setdefault(era, {"combinations": 0, "playable": 0, "sparse": 0, "excluded_zero_candidate": 0})
+        team_row = per_team.setdefault(team, {"combinations": 0, "playable": 0, "sparse": 0, "excluded_zero_candidate": 0})
+        era_row["combinations"] += 1
+        team_row["combinations"] += 1
+
+        if n == 0:
+            excluded_zero += 1
+            era_row["excluded_zero_candidate"] += 1
+            team_row["excluded_zero_candidate"] += 1
+            continue
+        playable += 1
+        era_row["playable"] += 1
+        team_row["playable"] += 1
+        if n < PREFERRED_MIN_CANDIDATES:
+            sparse += 1
+            era_row["sparse"] += 1
+            team_row["sparse"] += 1
+
+    return {
+        "available": True,
+        "mode": mode,
+        "duration_years": duration,
+        "total_combinations": len(entries),
+        "playable_combinations": playable,
+        "sparse_combinations": sparse,
+        "excluded_zero_candidate_combinations": excluded_zero,
+        "per_era": per_era,
+        "per_team": per_team,
+    }
+
+
+# Relative selection weight for "good" (>=PREFERRED_MIN_CANDIDATES) vs
+# "sparse" (1 candidate) interim entries -- see _select_interim_entries.
+# 3x, not infinite: a sparse entry should be uncommon, not impossible. An
+# earlier version of this function used a hard good-then-sparse fill order
+# (sparse entries used only as leftover filler), which -- audited this
+# session across many seeds -- meant that any franchise whose ONLY entries
+# were sparse (e.g. a team with just one resolvable player at a given
+# duration) was excluded from essentially every board, even though its
+# entries are legitimate, non-fabricated, playable spins. Weighted sampling
+# without replacement keeps the same "prefer real choice over a 1-name
+# formality" preference while guaranteeing every playable entry has a real,
+# nonzero chance of appearing.
+_GOOD_ENTRY_WEIGHT = 3.0
+_SPARSE_ENTRY_WEIGHT = 1.0
+
+
 def _select_interim_entries(
     entries: list[dict],
     duration_pool: list[CardProfile],
@@ -134,22 +218,25 @@ def _select_interim_entries(
     either" instruction:
       1. Entries that resolve to 0 candidates at this duration are excluded
          outright -- never offered as a spin, not even as a last resort.
-      2. Entries with >= PREFERRED_MIN_CANDIDATES candidates are preferred
-         over thinner (1-candidate) entries whenever enough "good" entries
-         exist to fill `limit` slots on their own. Thin entries are only
-         used as filler when there aren't enough good ones -- honest about
-         sparse coverage (see the interim dataset's own coverage_note)
-         rather than pretending it doesn't exist.
+      2. Entries with >= PREFERRED_MIN_CANDIDATES candidates are weighted
+         _GOOD_ENTRY_WEIGHT:_SPARSE_ENTRY_WEIGHT more likely to be chosen
+         than thinner (1-candidate) entries, via weighted sampling without
+         replacement (Efraimidis-Spirakis: each entry gets a random key
+         `U ** (1/weight)`, sorted descending, top `limit` taken) -- not a
+         hard "fill with good first, sparse only as leftover" split, which
+         made every sparse-only franchise invisible in practice (see the
+         module-level comment above `_GOOD_ENTRY_WEIGHT`).
     """
     resolved = [(e, _candidates_for_entry(e, duration_pool)) for e in entries]
     resolved = [(e, c) for e, c in resolved if len(c) > 0]
 
-    good = [pair for pair in resolved if len(pair[1]) >= PREFERRED_MIN_CANDIDATES]
-    thin = [pair for pair in resolved if len(pair[1]) < PREFERRED_MIN_CANDIDATES]
-    rng.shuffle(good)
-    rng.shuffle(thin)
+    def _weight(pair: tuple[dict, list[str]]) -> float:
+        return _GOOD_ENTRY_WEIGHT if len(pair[1]) >= PREFERRED_MIN_CANDIDATES else _SPARSE_ENTRY_WEIGHT
 
-    return (good + thin)[:limit]
+    keyed = [(rng.random() ** (1.0 / _weight(pair)), pair) for pair in resolved]
+    keyed.sort(key=lambda kp: kp[0], reverse=True)
+
+    return [pair for _, pair in keyed[:limit]]
 
 
 def _can_assign_distinct(round_candidates: list[list[str]]) -> bool:

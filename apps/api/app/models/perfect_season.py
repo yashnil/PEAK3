@@ -72,6 +72,11 @@ class CourtSlotPublic(BaseModel):
     # position/role fit note (nba_peak.perfect_season.positions.classify_fit),
     # set once the slot is filled; never gates placement legality.
     role_fit: Optional[str] = None
+    # The placed player's own v1 archetype-approximated position(s) -- lets
+    # the UI explain an off-position placement ("plays SF") rather than
+    # just flagging it, never a score.
+    primary_position: Optional[str] = None
+    secondary_positions: list[str] = []
     # Withheld until the roster is fully locked and simulated (status ==
     # "result_ready") -- see app/services/perfect_season/state.py::
     # get_public_state's "Deferred reveal" docstring. Always None before
@@ -111,6 +116,22 @@ class PublicCourtStateResponse(BaseModel):
     simulation_result: Optional[SimulationResultPublic] = None
 
 
+class CourtBuilderCoverageSummary(BaseModel):
+    """Per-mode (duration-aware) audit of interim-dataset candidate depth --
+    see nba_peak.perfect_season.board.coverage_summary's docstring. Exists
+    so coverage gaps are an inspectable API response, not something only
+    discoverable by reading the interim dataset or board generator source."""
+    available: bool
+    mode: Optional[str] = None
+    duration_years: Optional[int] = None
+    total_combinations: int = 0
+    playable_combinations: int = 0
+    sparse_combinations: int = 0
+    excluded_zero_candidate_combinations: int = 0
+    per_era: dict[str, dict[str, int]] = {}
+    per_team: dict[str, dict[str, int]] = {}
+
+
 class CourtBuilderReadinessResponse(BaseModel):
     readiness_level: str
     courtbuilder_enabled: bool
@@ -121,3 +142,7 @@ class CourtBuilderReadinessResponse(BaseModel):
     # cycles through exactly this list, never a broader decorative list that
     # includes franchises no spin could ever land on.
     interim_team_franchise_names: list[str] = []
+    # Coverage audit for the requested mode (defaults to apex_1y) -- total/
+    # playable/sparse/excluded combination counts plus per-era and per-team
+    # breakdowns. See CourtBuilderCoverageSummary.
+    coverage: CourtBuilderCoverageSummary

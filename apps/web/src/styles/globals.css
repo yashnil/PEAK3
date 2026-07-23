@@ -216,8 +216,14 @@ html, body {
   position: relative;
   width: 100%;
   aspect-ratio: 4 / 3;
-  border-radius: 16px 16px 4px 4px;
-  background: var(--bg-elevated);
+  border-radius: 18px 18px 6px 6px;
+  /* Warm hardwood-tinted floor gradient (subtle -- this is a dark theme,
+     not a literal wood texture) plus a flat paint/key lane rectangle
+     centered on the baseline, composited as background layers so no extra
+     DOM nodes are needed for them. */
+  background:
+    linear-gradient(var(--bg-surface), var(--bg-surface)) no-repeat center bottom / 34% 44%,
+    linear-gradient(180deg, var(--bg-elevated) 0%, #17130d 100%);
   border: 1px solid var(--border-default);
   overflow: hidden;
 }
@@ -231,7 +237,7 @@ html, body {
   bottom: 8%;
   width: 34%;
   aspect-ratio: 1;
-  border: 2px solid var(--border-muted, #333);
+  border: 2px solid var(--border-emphasis);
   border-radius: 50%;
   transform: translateX(-50%);
   pointer-events: none;
@@ -246,16 +252,48 @@ html, body {
   bottom: -32%;
   width: 92%;
   aspect-ratio: 1;
-  border: 2px solid var(--border-muted, #333);
+  border: 2px solid var(--border-emphasis);
   border-radius: 50%;
   transform: translateX(-50%);
   pointer-events: none;
 }
 
+.court-hoop {
+  /* Rim + backboard marker at the baseline -- purely decorative, aria-hidden. */
+  position: absolute;
+  left: 50%;
+  bottom: 2%;
+  width: 9%;
+  aspect-ratio: 1;
+  border: 2px solid var(--peak-accent-dim);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.court-hoop::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 220%;
+  height: 3px;
+  background: var(--border-emphasis);
+  transform: translateX(-50%);
+}
+
 .court-half-slot {
   position: absolute;
-  width: 19%;
+  width: 21%;
+  min-width: 64px;
   transform: translate(-50%, -50%);
+}
+
+@media (max-width: 420px) {
+  .court-half-slot {
+    width: 23%;
+    min-width: 56px;
+  }
 }
 
 /* ================================================================

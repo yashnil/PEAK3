@@ -34,8 +34,8 @@ function mockState(overrides: Partial<CourtLineupPublicState> = {}): CourtLineup
     slots: mockSlots(0),
     board_seed: 42,
     card_pool_version: "v3",
-    board_generator_version: "perfect_season_board_v1",
-    interim_team_data_version: "courtbuilder_interim_teams.v1",
+    board_generator_version: "perfect_season_board_v2",
+    interim_team_data_version: "courtbuilder_interim_teams.v2",
     simulation_result: null,
     ...overrides,
   };

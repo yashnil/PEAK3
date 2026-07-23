@@ -184,6 +184,37 @@ test.describe("CourtBuilder position-aware slots", () => {
     // pending selection (primary/secondary/off-position -- never blocking).
     await expect(page.locator('[data-testid="pending-fit-badge"]').first()).toBeVisible();
   });
+
+  test("candidate cards show which positions they're eligible for", async ({ page }) => {
+    await startCourtBuilder(page);
+    const badge = page.locator('[data-testid="candidate-position-badge"]').first();
+    await expect(badge).toBeVisible();
+    const text = await badge.innerText();
+    expect(text.toLowerCase()).toContain("plays");
+  });
+
+  test("an off-position fit badge explains which position the player actually plays", async ({ page }) => {
+    await startCourtBuilder(page);
+    // Place the first candidate at Center regardless of archetype -- for
+    // seed 42's first-round pool this reliably produces an off-position
+    // placement (position-eligibility-clarity goal: never just say
+    // "off-position" without saying why).
+    const candidate = page.locator('[data-testid="candidate-card"]').first();
+    await candidate.waitFor({ state: "visible" });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      candidate.click(),
+    ]);
+    const centerSlot = page.locator('[data-testid="court-slot"][data-slot-type="C"]');
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
+      centerSlot.click(),
+    ]);
+    const badgeText = (await centerSlot.locator('[data-testid="role-fit-badge"]').innerText()).toLowerCase();
+    if (badgeText.includes("off-position")) {
+      expect(badgeText).toContain("plays");
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -270,14 +301,16 @@ test.describe("CourtBuilder spin ceremony", () => {
     await expect(page.locator('[data-testid="eligible-count-reveal"]')).toBeVisible();
   });
 
-  test("team wheel and era wheel render as two distinct reels for a team_decade spin", async ({ page }) => {
+  test("team wheel and era wheel render as two distinct reels for a team/era spin", async ({ page }) => {
     await startCourtBuilder(page);
     await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", {
       timeout: 5_000,
     });
-    // Seed 42's first round resolves to a team_decade spin against the
-    // expanded interim dataset -- both reels should be present and showing
-    // real, non-empty text once locked.
+    // Seed 42's first round resolves to a team_decade or exact_team_season
+    // spin against the expanded interim dataset (which one depends on the
+    // board generator's weighted entry selection, not hardcoded here) --
+    // both reels should be present and showing real, non-empty text once
+    // locked, either a decade ("1990s") or an exact season ("2022-23").
     const teamWheel = page.locator('[data-testid="team-wheel"]');
     const eraWheel = page.locator('[data-testid="era-wheel"]');
     await expect(teamWheel).toBeVisible();
@@ -285,7 +318,74 @@ test.describe("CourtBuilder spin ceremony", () => {
     const teamText = (await teamWheel.innerText()).trim();
     const eraText = (await eraWheel.innerText()).trim();
     expect(teamText.length).toBeGreaterThan(0);
-    expect(/19[89]0s|20[012]0s/.test(eraText)).toBe(true);
+    expect(/(19[89]0s|20[012]0s|\d{4}-\d{2})/.test(eraText)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drafting-flow clarity: distinct steps, half-court visual markers
+// ---------------------------------------------------------------------------
+
+test.describe("CourtBuilder drafting flow", () => {
+  test("candidate selection and court placement render as distinct, separately-labeled steps", async ({ page }) => {
+    await startCourtBuilder(page);
+
+    const candidatePanel = page.locator('[data-testid="candidate-panel"]');
+    await expect(candidatePanel).toBeVisible();
+    await expect(candidatePanel).toContainText(/step 1/i);
+
+    const candidate = page.locator('[data-testid="candidate-card"]').first();
+    await candidate.waitFor({ state: "visible" });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      candidate.click(),
+    ]);
+
+    const placingBanner = page.locator('[data-testid="placing-banner"]');
+    await expect(placingBanner).toBeVisible();
+    await expect(placingBanner).toContainText(/step 2/i);
+    // The candidate panel is gone once a pick is pending -- selection and
+    // placement never overlap visually.
+    await expect(candidatePanel).toHaveCount(0);
+  });
+
+  test("the half-court renders visual court markings (hoop, key, arc)", async ({ page }) => {
+    await startCourtBuilder(page);
+    await expect(page.locator('[data-testid="half-court"]')).toBeVisible();
+    await expect(page.locator(".court-hoop")).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Result credibility: peak-value-first reassurance, no "too many stars" framing
+// ---------------------------------------------------------------------------
+
+test.describe("CourtBuilder result credibility", () => {
+  test("the result screen reassures that stacked talent is rewarded, not penalized", async ({ page }) => {
+    await startCourtBuilder(page);
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+    await expect(page.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
+    const reassurance = page.locator('[data-testid="peak-value-reassurance"]');
+    await expect(reassurance).toBeVisible();
+    const text = (await reassurance.innerText()).toLowerCase();
+    // The reassurance copy explicitly says stacked talent is NOT penalized
+    // -- "too many" is fine in a negating sentence ("never docks... for
+    // having too many elite peaks"); what must never appear is framing that
+    // treats redundancy itself as bad.
+    expect(text).not.toContain("redundant");
+    expect(text).not.toContain("role overlap");
+    expect(text).toContain("never");
+    // The revealed roster on the result screen uses the same half-court
+    // layout as the build screen -- consistent visual language.
+    await expect(page.locator('[data-testid="season-result"] [data-testid="half-court"]')).toBeVisible();
   });
 });
 

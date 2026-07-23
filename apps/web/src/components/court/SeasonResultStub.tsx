@@ -2,6 +2,7 @@
 import { CourtLineupPublicState, SimulationResultPublic, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import LineupInsightPanel from "./LineupInsightPanel";
 import PeakCardCourt from "./PeakCardCourt";
+import CourtLayout from "./CourtLayout";
 
 interface Props {
   state: CourtLineupPublicState;
@@ -68,16 +69,11 @@ export default function SeasonResultStub({ state, result }: Props) {
         <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
           Your roster, revealed
         </div>
-        <div className="grid grid-cols-5 gap-2">
-          {starterSlots.map((slot) => (
-            <PeakCardCourt key={slot.slot_type} slot={slot} />
-          ))}
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          {benchSlots.map((slot) => (
-            <PeakCardCourt key={slot.slot_type} slot={slot} />
-          ))}
-        </div>
+        <CourtLayout
+          starterSlots={starterSlots}
+          benchSlots={benchSlots}
+          renderSlot={(slot) => <PeakCardCourt slot={slot} />}
+        />
       </div>
 
       <div className="flex flex-col gap-1">
@@ -89,6 +85,10 @@ export default function SeasonResultStub({ state, result }: Props) {
             <li key={f}>{f}</li>
           ))}
         </ul>
+        <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }} data-testid="peak-value-reassurance">
+          PEAK3 scores this roster mostly on peak talent and real position fit —
+          it never docks a lineup for having too many elite peaks.
+        </p>
       </div>
 
       <LineupInsightPanel result={result} />

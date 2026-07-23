@@ -12,6 +12,23 @@ target; it does not redefine them).
 **Companion:** `docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md` Sec 8,
 `docs/implementation/PHASE_5X_ARENA_OVERHAUL_PLAN.md` Phase 5X.4.
 
+**Phase 5X.5 audit finding (adds a second, distinct reason expansion is
+needed, beyond Sec 1's "slice depth" argument):** a wheel-coverage audit
+found that two players already named in the interim team-season dataset
+(`data/game/interim/courtbuilder_team_seasons.v2.json`) -- Michael Cooper
+and Jaylen Brown -- have `profile_status='excluded'` for every duration in
+`card_profiles.v3.json`, meaning they were in the 250-player pool's raw
+data but never actually resolvable as a playable candidate. This silently
+starved 3 team-era entries down to a single candidate, and (before a
+separate board-generator fix) made 2 whole franchises essentially never
+appear on the wheel. The dataset fix swapped in real teammates who ARE
+resolvable; the underlying pattern is worth knowing before the 500-player
+expansion executes: **`profile_status='excluded'` rows exist in the current
+pipeline for players who don't clear the model's data-completeness bar,
+and any future team-era interim mapping (or the eventual real
+`team_season_roster_member` data) must cross-check against resolvable
+status, not just "is this player's slug anywhere in card_profiles.v3.json."**
+
 ---
 
 ## 1. Why 250 is insufficient — the actual mechanism, not just the symptom

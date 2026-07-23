@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, HTTPException, Response
+from fastapi import APIRouter, Cookie, HTTPException, Query, Response
 
 _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
@@ -35,6 +35,7 @@ from app.core.config import settings
 from app.core.dependencies import CourtLineupRepoDep
 from app.models.perfect_season import (
     CompleteGameRequest,
+    CourtBuilderCoverageSummary,
     CourtBuilderReadinessResponse,
     CreatePerfectSeasonGameRequest,
     PlaceCardRequest,
@@ -43,7 +44,7 @@ from app.models.perfect_season import (
 )
 from app.services.perfect_season import state as state_machine
 from app.services.perfect_season.state import CourtError
-from nba_peak.perfect_season.board import interim_team_summary
+from nba_peak.perfect_season.board import coverage_summary, interim_team_summary
 from nba_peak.perfect_season.config import SUPPORTED_MODES
 
 router = APIRouter()
@@ -79,8 +80,13 @@ def _check_allowlist(owner_sub: str) -> None:
 # ---------------------------------------------------------------------------
 
 @router.get("/perfect-season/readiness", response_model=CourtBuilderReadinessResponse)
-async def get_readiness() -> CourtBuilderReadinessResponse:
+async def get_readiness(
+    mode: str = Query("apex_1y", description="Mode to compute duration-aware coverage for"),
+) -> CourtBuilderReadinessResponse:
     summary = interim_team_summary()
+    if mode not in SUPPORTED_MODES:
+        mode = "apex_1y"
+    coverage = coverage_summary(mode)
     return CourtBuilderReadinessResponse(
         readiness_level=settings.COURTBUILDER_READINESS_LEVEL,
         courtbuilder_enabled=settings.COURTBUILDER_ENABLED,
@@ -88,6 +94,7 @@ async def get_readiness() -> CourtBuilderReadinessResponse:
         interim_team_data_version=summary["dataset_version"] or "unavailable",
         interim_team_franchise_count=summary["franchise_count"],
         interim_team_franchise_names=summary["franchise_names"],
+        coverage=CourtBuilderCoverageSummary(**coverage),
     )
 
 

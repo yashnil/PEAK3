@@ -75,6 +75,10 @@ export interface CourtSlotPublic {
   player_name?: string | null;
   anchor_season?: string | null;
   role_fit?: RoleFit | null;
+  // The placed player's own v1 archetype-approximated position(s) -- used
+  // to explain an off-position placement ("plays SF"), not just flag it.
+  primary_position?: SlotType | null;
+  secondary_positions?: SlotType[];
   // Withheld by the server until status === "result_ready" -- always null
   // for a filled slot before then. See ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.5.
   individual_peak_score?: number | null;
@@ -112,6 +116,28 @@ export interface CourtLineupPublicState {
   simulation_result: SimulationResultPublic | null;
 }
 
+// Duration-aware coverage audit of the interim dataset -- see
+// nba_peak/perfect_season/board.py::coverage_summary. Mainly a diagnostic
+// (dev script / manual review), not currently rendered in the play UI.
+export interface CourtBuilderCoverageBreakdown {
+  combinations: number;
+  playable: number;
+  sparse: number;
+  excluded_zero_candidate: number;
+}
+
+export interface CourtBuilderCoverageSummary {
+  available: boolean;
+  mode?: string;
+  duration_years?: number;
+  total_combinations: number;
+  playable_combinations: number;
+  sparse_combinations: number;
+  excluded_zero_candidate_combinations: number;
+  per_era: Record<string, CourtBuilderCoverageBreakdown>;
+  per_team: Record<string, CourtBuilderCoverageBreakdown>;
+}
+
 export interface CourtBuilderReadiness {
   readiness_level: string;
   courtbuilder_enabled: boolean;
@@ -121,6 +147,7 @@ export interface CourtBuilderReadiness {
   // The actual resolvable team-wheel pool -- the spin ceremony cycles
   // through exactly this list, never a broader decorative/fake list.
   interim_team_franchise_names: string[];
+  coverage: CourtBuilderCoverageSummary;
 }
 
 export const COURT_MODE_LABELS: Record<CourtMode, string> = {

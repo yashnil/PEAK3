@@ -75,6 +75,7 @@ export default function CourtBuilder({ initialGameState, franchiseNames }: Props
         isPendingTarget={phase === "placing" && !slot.filled}
         onClick={phase === "placing" && !slot.filled && !busy ? () => handlePlace(slot.slot_type) : undefined}
         pendingFit={phase === "placing" ? state.pending_selection?.fit_by_open_slot?.[slot.slot_type] : undefined}
+        pendingPrimaryPosition={phase === "placing" ? state.pending_selection?.primary_position : undefined}
       />
     );
   }
@@ -107,6 +108,7 @@ export default function CourtBuilder({ initialGameState, franchiseNames }: Props
 
       {!state.simulation_result && (
         <>
+          {/* Top: the current round's constraint (team + era wheel). */}
           {phase === "spinning" && state.current_spin && (
             <SpinStage
               key={state.current_round}
@@ -118,22 +120,51 @@ export default function CourtBuilder({ initialGameState, franchiseNames }: Props
             />
           )}
 
+          {/* Candidate area: clearly its own panel, separate from the court
+              below -- step 1 of this round (choose), never mixed visually
+              with step 2 (place). */}
           {phase === "spinning" && state.current_spin && ceremonyRevealed && (
-            <EligiblePlayerSearch
-              candidates={state.current_spin.candidates}
-              onSelect={handleSelect}
-              disabled={busy}
-            />
-          )}
-
-          {phase === "placing" && state.pending_selection && (
-            <div className="rounded-xl p-3 text-sm" style={{ background: "var(--bg-elevated)", color: "var(--text-primary)" }}>
-              Placing <strong>{state.pending_selection.player_name}</strong> — choose any open court or bench spot below.
-              Fit for each open spot is shown as a badge, but every spot is a legal placement.
+            <div
+              data-testid="candidate-panel"
+              className="rounded-2xl border p-4 flex flex-col gap-2"
+              style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
+            >
+              <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                Step 1 · Choose a player
+              </div>
+              <EligiblePlayerSearch
+                candidates={state.current_spin.candidates}
+                onSelect={handleSelect}
+                disabled={busy}
+              />
             </div>
           )}
 
-          <div data-testid="court-grid">
+          {phase === "placing" && state.pending_selection && (
+            <div
+              data-testid="placing-banner"
+              className="rounded-xl p-3 text-sm flex flex-col gap-1"
+              style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)", color: "var(--text-primary)" }}
+            >
+              <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--peak-accent, #f5c842)" }}>
+                Step 2 · Place {state.pending_selection.player_name}
+              </div>
+              Choose any open court or bench spot below — the fit badge shows how well
+              they match that spot, but every open spot is a legal placement.
+            </div>
+          )}
+
+          {/* Middle/bottom: the court itself (PG/SG/SF/PF/C) with the bench
+              rail beneath it -- always visible so the roster-in-progress
+              stays legible across both steps. */}
+          <div
+            data-testid="court-grid"
+            className="rounded-2xl border p-3 flex flex-col gap-2"
+            style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}
+          >
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              Your roster
+            </div>
             <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={renderSlot} />
           </div>
 
