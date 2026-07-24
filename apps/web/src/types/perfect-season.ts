@@ -61,6 +61,11 @@ export interface SpinCandidate {
   season?: string | null;
   identity_pool_status?: IdentityPoolStatus | null;
   score_status?: ScoreStatus | null;
+  // Phase 6E Part B: asset-manifest schema readiness -- always null today
+  // (no image URLs are populated anywhere yet), rendered only if a caller
+  // ever supplies a value (see PlayerAvatar's imageUrl prop / fallback
+  // discipline). Never fabricated, never a scraped binary committed here.
+  headshot_url?: string | null;
 }
 
 export interface CurrentSpin {
@@ -155,6 +160,24 @@ export interface SimulationResultPublic {
   lineup_score_status: "complete" | "incomplete";
 }
 
+export interface ProvisionalRecordRange {
+  low_wins: number;
+  high_wins: number;
+}
+
+// Phase 6E Part D: compact mid-run feedback -- never a hidden score, never a
+// "pick this candidate" recommendation. Present only once >=1 slot is
+// filled, on team_year boards, before the roster is fully revealed.
+export interface LiveBuild {
+  placed_count: number;
+  total_rounds: number;
+  scored_count: number;
+  unscored_count: number;
+  identity_tags: string[];
+  needs: string[];
+  provisional_record_range: ProvisionalRecordRange | null;
+}
+
 export interface CourtLineupPublicState {
   game_id: string;
   status: CourtStatus;
@@ -177,6 +200,7 @@ export interface CourtLineupPublicState {
   // team_year boards, which never produce one).
   open_pool_enabled: boolean;
   simulation_result: SimulationResultPublic | null;
+  live_build: LiveBuild | null;
 }
 
 // Duration-aware coverage audit of the interim dataset -- see

@@ -38,6 +38,7 @@ function mockState(overrides: Partial<CourtLineupPublicState> = {}): CourtLineup
     interim_team_data_version: "courtbuilder_interim_teams.v3",
     open_pool_enabled: false,
     simulation_result: null,
+    live_build: null,
     ...overrides,
   };
 }

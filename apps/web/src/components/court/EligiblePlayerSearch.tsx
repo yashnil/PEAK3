@@ -10,8 +10,15 @@ interface Props {
 }
 
 /**
- * Eligible-player candidate cards for the current spin (Phase 6B rebuild:
- * real game cards, not a flat admin-UI list of text rows).
+ * Eligible-player candidate list for the current spin (Phase 6E rebuild).
+ *
+ * Product decision (Phase 6E Part C): single column, one player per row,
+ * scrollable -- not a two-column grid. A grid of ~15 cards read as an admin
+ * roster table, not a game. Order is whatever the backend sends (see
+ * scripts/build_experimental_team_year_dataset.py -- alphabetical by
+ * display name, never minutes/score/star-weighted) and this component does
+ * NOT re-sort it -- re-sorting here would silently reintroduce a star-first
+ * bias the backend was fixed to remove.
  *
  * ADR-005 Decision 6: this component NEVER renders a score or rank for any
  * candidate. `SpinCandidate` (types/perfect-season.ts) has no score field at
@@ -34,7 +41,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
 
   return (
     <div data-testid="eligible-player-search" className="flex flex-col gap-2">
-      {candidates.length > 4 && (
+      {candidates.length > 6 && (
         <input
           type="text"
           placeholder="Search eligible players…"
@@ -49,7 +56,13 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
           aria-label="Search eligible players"
         />
       )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="group" aria-label="Eligible players">
+      <div
+        className="flex flex-col gap-1.5 overflow-y-auto pr-1"
+        style={{ maxHeight: 360 }}
+        role="group"
+        aria-label="Eligible players"
+        data-testid="candidate-list"
+      >
         {filtered.map((c) => {
           const positions = [c.primary_position, ...c.secondary_positions].filter(Boolean).join(" / ");
           const isRosterOnly = c.identity_pool_status === "team_year_roster_only";
@@ -61,61 +74,61 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
               data-player-slug={c.player_slug}
               disabled={disabled}
               onClick={() => onSelect(c.player_slug)}
-              className="candidate-card-v2"
+              className="candidate-row-v3"
               style={{
                 background: "var(--bg-surface)",
                 border: "1px solid var(--border-default)",
                 color: "var(--text-primary)",
               }}
             >
-              {/* DOM order deliberately puts the name text node before the
-                  avatar's initials text node (order:-1 below only reorders
-                  visual/flex layout, not DOM/text order) -- innerText()
-                  returns text in DOM order, and this button's accessible/
-                  extractable name must be the player's name, not the
-                  avatar's initials glyph. */}
-              <div className="min-w-0 flex-1">
+              {/* Name first in DOM order so the button's accessible/
+                  extractable name (innerText()) is the player's name, not
+                  the avatar's initials glyph -- `order:-1` below only
+                  reorders visual/flex layout, not DOM/text order. */}
+              <div className="min-w-0 flex-1 text-left">
                 <div className="text-sm font-bold truncate">{c.player_name}</div>
-                {c.team_name && c.season && (
-                  <div className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="candidate-team-season">
-                    {c.team_name} · {c.season}
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-1 mt-0.5">
+                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
+                  {c.team_name && c.season && (
+                    <span className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="candidate-team-season">
+                      {c.team_name} · {c.season}
+                    </span>
+                  )}
                   {positions && (
                     <span
                       data-testid="candidate-position-badge"
-                      className="inline-block text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
+                      className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
                       style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
                     >
-                      Plays {positions}
+                      {positions}
                     </span>
                   )}
                   {isRosterOnly && (
                     <span
                       data-testid="candidate-roster-only-badge"
-                      className="inline-block text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
+                      className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
                       style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
-                      title="Real roster member; not in the canonical or 1500-player scored pool"
+                      title="Roster Only: a real team-season roster member, not currently part of PEAK3's scored universe."
                     >
-                      Roster-only
+                      Roster Only
                     </span>
                   )}
                   {isUnscored && (
                     <span
                       data-testid="candidate-unscored-badge"
-                      className="inline-block text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
+                      className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
                       style={{ color: "#fb923c", background: "rgba(251,146,60,0.1)" }}
-                      title="No official PEAK3 score for this exact season (below the model's minutes threshold)"
+                      title="Score Pending: exact season score unavailable; the official lineup score may be incomplete."
                     >
-                      Unscored
+                      Score Pending
                     </span>
                   )}
                 </div>
               </div>
+
               <div style={{ order: -1 }}>
-                <PlayerAvatar name={c.player_name} size={38} />
+                <PlayerAvatar name={c.player_name} size={34} />
               </div>
+
               <span
                 aria-hidden="true"
                 className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-full px-2.5 py-1"
@@ -127,7 +140,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
           );
         })}
         {filtered.length === 0 && (
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          <p className="text-sm py-2" style={{ color: "var(--text-muted)" }}>
             No players match &ldquo;{query}&rdquo;.
           </p>
         )}

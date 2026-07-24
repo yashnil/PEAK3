@@ -6,6 +6,7 @@ import { getLeaderboard, getPeaks } from "@/lib/api";
 import type { LeaderboardRow, LeaderboardResponse, PeaksResponse } from "@/types";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import PlayerAvatar from "@/components/court/PlayerAvatar";
 
 const DURATION_OPTIONS = [1, 2, 3, 5] as const;
 const PEAK_WINDOW_OPTIONS = ["1y", "3y", "5y"] as const;
@@ -209,7 +210,12 @@ export default function RankingsPage() {
                     {peaksData.rows.map((row) => (
                       <tr key={row.player_slug + row.window_label} className="border-b border-[var(--border-subtle)] hover:bg-[var(--bg-surface)] transition-colors" data-testid="peak-index-row">
                         <td className="px-4 py-3 text-[var(--text-muted)] score-number font-medium">{row.rank}</td>
-                        <td className="px-4 py-3 font-medium text-[var(--text-primary)]">{row.player_name}</td>
+                        <td className="px-4 py-3 font-medium text-[var(--text-primary)]">
+                          <div className="flex items-center gap-2">
+                            <PlayerAvatar name={row.player_name} size={24} imageUrl={row.headshot_url} />
+                            {row.player_name}
+                          </div>
+                        </td>
                         <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{row.window_label}</td>
                         <td className="px-4 py-3 text-[var(--text-secondary)] text-xs hidden sm:table-cell">{row.team ?? "—"}</td>
                         <td className="px-4 py-3 text-right score-number font-bold text-[var(--peak-accent)]">{row.prime_score.toFixed(1)}</td>
@@ -225,6 +231,14 @@ export default function RankingsPage() {
                   </tbody>
                 </table>
               </div>
+            )}
+            {!loading && !error && peaksData && peaksData.total_available < 1000 && !debouncedSearch && (
+              <p className="px-4 py-2 text-[11px]" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)" }} data-testid="peak-index-eligibility-note">
+                {peaksData.total_available.toLocaleString()} rows for {peakWindow.toUpperCase()} — this is the real count of
+                players with at least one eligible {peakWindow.replace("y", "")}-consecutive-season window in the data, not a
+                cap or a bug. Shorter windows (1Y) have more eligible players than longer ones (5Y needs 5 consecutive
+                qualifying seasons).
+              </p>
             )}
           </div>
         ) : (

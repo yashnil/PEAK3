@@ -57,6 +57,8 @@ class PeakRow(BaseModel):
     team: Optional[str] = None
     prime_score: float
     data_completeness: str
+    # Phase 6E Part B: asset-manifest schema readiness -- always None today.
+    headshot_url: Optional[str] = None
 
 
 class PeaksResponse(BaseModel):

@@ -116,6 +116,8 @@ export interface PeakRow {
   team: string | null;
   prime_score: number;
   data_completeness: string;
+  // Phase 6E Part B: asset-manifest schema readiness, always null today.
+  headshot_url?: string | null;
 }
 
 export interface PeaksResponse {

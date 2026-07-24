@@ -128,9 +128,14 @@ def main() -> int:
     team_seasons = sorted(regular[["team", "season"]].drop_duplicates().itertuples(index=False), key=lambda r: (r.team, r.season))
 
     for team_abbr, season in team_seasons:
+        # Phase 6E product decision: candidate order is ALPHABETICAL by
+        # display name, never minutes/score/star-weighted -- a stars-first
+        # order silently told the user which pick was "best" before they'd
+        # made a choice. `mp` is still used above as the meaningful-
+        # involvement floor, just never for display order.
         rows = regular[
             (regular["team"] == team_abbr) & (regular["season"] == season) & (regular["mp"] >= MEANINGFUL_MINUTES_FLOOR)
-        ].sort_values(["mp", "player_slug"], ascending=[False, True])
+        ].sort_values(["player", "player_slug"], ascending=[True, True])
 
         franchise_display_name = TEAM_ID_TO_NAME.get(team_abbr)
         if franchise_display_name is None:

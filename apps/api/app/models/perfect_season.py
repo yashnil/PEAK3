@@ -60,6 +60,13 @@ class SpinCandidate(BaseModel):
     # never a score/rank itself (ADR-005 Decision 6), only whether one
     # exists.
     score_status: Optional[str] = None
+    # Phase 6E Part B: asset-manifest schema readiness -- always None today
+    # (data/game/assets/player_assets.v1.json exists but is not joined into
+    # any API response yet; no image URLs are populated anywhere in this
+    # codebase). Present so the frontend type/rendering hook
+    # (PlayerAvatar's imageUrl prop) has a stable field to read once a
+    # licensed image source is approved and wired in.
+    headshot_url: Optional[str] = None
 
 
 class CurrentSpinPublic(BaseModel):
@@ -153,6 +160,23 @@ class SimulationResultPublic(BaseModel):
     lineup_score_status: str = "complete"
 
 
+class ProvisionalRecordRange(BaseModel):
+    low_wins: int
+    high_wins: int
+
+
+class LiveBuildPublic(BaseModel):
+    """Phase 6E Part D: compact mid-run feedback. Never includes a hidden
+    score, never names which open-round candidate to pick."""
+    placed_count: int
+    total_rounds: int
+    scored_count: int
+    unscored_count: int
+    identity_tags: list[str] = []
+    needs: list[str] = []
+    provisional_record_range: Optional[ProvisionalRecordRange] = None
+
+
 class PublicCourtStateResponse(BaseModel):
     game_id: str
     status: str
@@ -178,6 +202,7 @@ class PublicCourtStateResponse(BaseModel):
     # open_pool_enabled for consistency.
     open_pool_enabled: bool = False
     simulation_result: Optional[SimulationResultPublic] = None
+    live_build: Optional[LiveBuildPublic] = None
 
 
 class CourtBuilderCoverageSummary(BaseModel):

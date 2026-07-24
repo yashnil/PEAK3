@@ -16,6 +16,12 @@ interface Props {
    * second reel. Never falls back to the decade ERA_LABELS, which would mix
    * a decade string into a round that will resolve to an exact season. */
   seasonLabels: string[];
+  /** Phase 6E Part G: real coverage numbers for confident copy -- replaces
+   * vague "limited coverage" text. 0/null falls back to a plain
+   * "Experimental exact-season mode" label instead of a fabricated number. */
+  rollableTeamSeasonCount?: number;
+  supportedStartSeason?: string | null;
+  supportedEndSeason?: string | null;
   /** Fired once the ceremony finishes and candidates are safe to reveal. */
   onRevealComplete?: () => void;
 }
@@ -60,7 +66,17 @@ function prefersReducedMotion(): boolean {
  * the global prefers-reduced-motion media rule as a second, belt-and-
  * suspenders layer.
  */
-export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNames, seasonLabels, onRevealComplete }: Props) {
+export default function SpinStage({
+  spin,
+  roundNumber,
+  totalRounds,
+  franchiseNames,
+  seasonLabels,
+  rollableTeamSeasonCount = 0,
+  supportedStartSeason = null,
+  supportedEndSeason = null,
+  onRevealComplete,
+}: Props) {
   // Always start in "spinning" for the initial render (server AND client)
   // -- checking prefers-reduced-motion here via a useState initializer
   // would run against `window === undefined` during SSR, and React reuses
@@ -139,13 +155,29 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
         </span>
       </div>
 
+      {phase === "locked" && (
+        <div
+          data-testid="spin-locked-badge"
+          className="self-center text-xs font-black uppercase tracking-[0.3em]"
+          style={{ color: "var(--peak-accent, #f5c842)" }}
+        >
+          Locked
+        </div>
+      )}
+
       {spin.spin_type !== "open_pool" && phase === "revealed" && (
         <span
           data-testid="interim-data-label"
           className="self-start rounded px-2 py-0.5 text-[10px] font-semibold"
           style={{ background: "rgba(245,200,66,0.15)", color: "var(--peak-accent, #f5c842)" }}
         >
-          {isTeamYear ? "Exact-season data — limited coverage" : "Interim team data — limited coverage"}
+          {isTeamYear
+            ? rollableTeamSeasonCount > 0
+              ? `${rollableTeamSeasonCount.toLocaleString()} rollable team-seasons${
+                  supportedStartSeason && supportedEndSeason ? ` · ${supportedStartSeason} to ${supportedEndSeason}` : ""
+                }`
+              : "Experimental exact-season mode"
+            : "Interim team data — limited coverage"}
         </span>
       )}
 

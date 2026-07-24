@@ -311,13 +311,27 @@ html, body {
    court-diagram geometry.
    ================================================================ */
 
+/* Phase 6E -- outer wrapper spanning starters + bench as one visually
+   continuous unit ("visually attached", not a separate floating block).
+   `data-testid="half-court"` stays scoped to the starters panel alone (see
+   below) so the pre-existing "5 slots inside half-court" Playwright
+   assertion is unaffected -- this wrapper is the new, additional
+   `court-panel` landmark. */
+.court-panel-wrapper {
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+
 .roster-board {
   position: relative;
-  border-radius: 16px;
-  padding: 14px 12px 12px;
+  padding: 16px 12px 14px;
+  /* Warm hardwood-tinted floor gradient (subtle -- dark theme, not a
+     literal wood texture) -- CSS-only, no image asset. */
   background:
-    linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-surface) 100%);
-  border: 1px solid var(--border-default);
+    radial-gradient(120% 90% at 50% 0%, rgba(245, 200, 66, 0.05), transparent 60%),
+    linear-gradient(180deg, var(--bg-elevated) 0%, #14110a 100%);
   overflow: hidden;
 }
 
@@ -331,6 +345,19 @@ html, body {
     linear-gradient(var(--court-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--court-line) 1px, transparent 1px);
   background-size: 28px 28px;
+  pointer-events: none;
+}
+
+.roster-board::after {
+  /* Baseline -- the court's bottom edge, where the bench row attaches. */
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 0;
+  height: 2px;
+  background: var(--border-emphasis);
+  opacity: 0.5;
   pointer-events: none;
 }
 
@@ -380,8 +407,8 @@ html, body {
   left: 50%;
   bottom: 2px;
   transform: translateX(-50%);
-  width: 58%;
-  max-width: 220px;
+  width: 62%;
+  max-width: 240px;
   aspect-ratio: 0.95;
   pointer-events: none;
   z-index: 0;
@@ -394,9 +421,9 @@ html, body {
   width: 48%;
   height: 78%;
   transform: translateX(-50%);
-  border: 2px solid var(--border-emphasis);
+  border: 2px solid var(--peak-accent-dim);
   border-bottom: none;
-  opacity: 0.55;
+  opacity: 0.4;
 }
 
 .roster-board-court-markings .roster-board-ft-circle {
@@ -405,10 +432,10 @@ html, body {
   bottom: 76%;
   width: 40%;
   aspect-ratio: 1;
-  border: 2px solid var(--border-emphasis);
+  border: 2px solid var(--peak-accent-dim);
   border-radius: 50%;
   transform: translate(-50%, 50%);
-  opacity: 0.45;
+  opacity: 0.35;
 }
 
 .roster-board-court-markings .roster-board-arc {
@@ -417,11 +444,55 @@ html, body {
   bottom: -22%;
   width: 155%;
   aspect-ratio: 1;
-  border: 2px solid var(--border-emphasis);
+  border: 2px solid var(--peak-accent-dim);
   border-radius: 50%;
   transform: translateX(-50%);
-  opacity: 0.3;
+  opacity: 0.25;
   clip-path: inset(0 0 58% 0);
+}
+
+/* Rim marker -- a literal hoop/rim landmark on the court surface itself
+   (distinct from the small header accent glyph, which keeps its own
+   `.court-hoop` class for the pre-existing visibility check). Sits at the
+   near-basket end of the paint, where a real hoop would be. */
+.roster-board-court-markings .roster-board-rim {
+  position: absolute;
+  left: 50%;
+  bottom: 2%;
+  width: 14%;
+  aspect-ratio: 1;
+  border: 2.5px solid var(--peak-accent, #f5c842);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  opacity: 0.55;
+}
+
+/* Sideline framing -- reinforces "this is a court", not a generic panel. */
+.roster-board-sideline {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  top: 4%;
+  bottom: 4%;
+  border: 1px solid var(--court-line);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.roster-board-bench-row {
+  position: relative;
+  padding: 10px 12px 12px;
+  background: linear-gradient(180deg, #14110a 0%, var(--bg-surface) 100%);
+  border-top: 1px dashed var(--court-line);
+}
+
+.roster-board-bench-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
 }
 
 .roster-board-bench {
@@ -468,6 +539,27 @@ html, body {
   line-height: 1;
 }
 
+/* Phase 6E -- two-line name wrap for court/bench slot cards. A normal-length
+   name ("Stephen Curry", "Shaquille O'Neal", "Alonzo Mourning") must never
+   be cut off on desktop; this wraps to a second line before truncating,
+   instead of single-line `truncate` clipping mid-name. */
+.name-2line {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+/* Softer "valid drop zone" affordance -- replaces the dashed yellow test-UI
+   look with a glow + solid thin border. */
+.court-slot-drop-target {
+  border: 1.5px solid var(--peak-accent, #f5c842) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--peak-accent, #f5c842) 18%, transparent),
+    0 0 16px color-mix(in srgb, var(--peak-accent, #f5c842) 25%, transparent);
+}
+
 /* ================================================================
    Phase 6B -- candidate cards (game cards, not admin-UI list rows)
    ================================================================ */
@@ -493,6 +585,37 @@ html, body {
 }
 
 .candidate-card-v2:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* Phase 6E -- single-column candidate row (replaces the 2-column grid of
+   .candidate-card-v2 for PEAK Season specifically). Whole row is the click
+   target (clear affordance via hover/active state), not just the "Choose"
+   pill -- avoids repeating an oversized action button 10-15 times down the
+   panel. */
+.candidate-row-v3 {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border-radius: 12px;
+  padding: 8px 10px;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.candidate-row-v3:hover:not(:disabled) {
+  border-color: var(--peak-accent-dim) !important;
+  background: var(--bg-surface-hover) !important;
+}
+
+.candidate-row-v3:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.candidate-row-v3:disabled {
   cursor: default;
   opacity: 0.6;
 }

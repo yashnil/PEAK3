@@ -337,6 +337,80 @@ def action_complete_game(state: CourtLineupState) -> CourtLineupState:
 # Public state serialization (never exposes scores for un-locked candidates)
 # ---------------------------------------------------------------------------
 
+_GUARD_POSITIONS = {"PG", "SG"}
+_WING_POSITIONS = {"SF"}
+_BIG_POSITIONS = {"PF", "C"}
+
+# Coarse, server-side-only score buckets for the "star-heavy" identity tag.
+# The underlying season_score is NEVER sent to the client for an unrevealed
+# slot -- only this bucketed label is. Placed cards are already committed
+# choices (not the undecided current round), so describing what's already
+# on the roster is feedback on a decision already made, not a hint that
+# solves the round in progress.
+_STAR_SCORE_FLOOR = 75.0
+
+
+def _compute_live_build(placed_cards: list[PlayerSeasonCard], state: CourtLineupState) -> dict:
+    """Phase 6E Part D: compact mid-run feedback -- roster identity, needs,
+    and a provisional (deliberately coarse) projected record range. Never
+    reveals an exact hidden score and never names which OPEN-round candidate
+    to pick; describes only what's already been placed."""
+    n = len(placed_cards)
+    scored = [c for c in placed_cards if c.score_status == "exact_season_scored" and c.season_score is not None]
+    unscored_count = n - len(scored)
+
+    primaries = []
+    for c in placed_cards:
+        primary, _ = parse_real_position(c.position)
+        if primary:
+            primaries.append(primary)
+    guards = sum(1 for p in primaries if p in _GUARD_POSITIONS)
+    wings = sum(1 for p in primaries if p in _WING_POSITIONS)
+    bigs = sum(1 for p in primaries if p in _BIG_POSITIONS)
+
+    identity_tags: list[str] = []
+    if scored:
+        avg_score = sum(c.season_score for c in scored) / len(scored)
+        if avg_score >= _STAR_SCORE_FLOOR:
+            identity_tags.append("star-heavy")
+    if n >= 3 and guards >= max(2, n // 2):
+        identity_tags.append("guard-heavy")
+    if n >= 3 and wings >= 3:
+        identity_tags.append("wing-rich")
+    if n >= 5 and bigs == 0:
+        identity_tags.append("no true center")
+    if not identity_tags and n >= 3:
+        identity_tags.append("balanced build")
+
+    needs: list[str] = []
+    open_count = TOTAL_ROUNDS - n
+    if open_count > 0:
+        if guards == 0:
+            needs.append("needs a guard")
+        if wings == 0:
+            needs.append("needs a wing")
+        if bigs == 0:
+            needs.append("needs a big")
+
+    provisional_record_range = None
+    if scored:
+        avg_score = sum(c.season_score for c in scored) / len(scored)
+        base = 41.0 + (avg_score - 50.0)
+        low = max(0, int(round(base)) - 8)
+        high = min(82, int(round(base)) + 8)
+        provisional_record_range = {"low_wins": low, "high_wins": high}
+
+    return {
+        "placed_count": n,
+        "total_rounds": TOTAL_ROUNDS,
+        "scored_count": len(scored),
+        "unscored_count": unscored_count,
+        "identity_tags": identity_tags,
+        "needs": needs,
+        "provisional_record_range": provisional_record_range,
+    }
+
+
 def get_public_state(state: CourtLineupState) -> dict:
     """Build the client-visible state.
 
@@ -417,12 +491,14 @@ def get_public_state(state: CourtLineupState) -> dict:
     reveal_scores = state.status == "result_ready"
     slots_public = []
     all_placed_scored = True
+    placed_exact_cards: list[PlayerSeasonCard] = []
     for slot in state.slots:
         filled = slot.peak_window_id is not None or slot.exact_player_season_key is not None
         entry: dict = {"slot_type": slot.slot_type, "filled": filled}
         if slot.exact_player_season_key:
             card = resolve_exact_card_by_key(slot.exact_player_season_key)
             if card:
+                placed_exact_cards.append(card)
                 primary, secondary = parse_real_position(card.position)
                 entry.update({
                     "exact_player_season_key": card.exact_player_season_key,
@@ -511,6 +587,11 @@ def get_public_state(state: CourtLineupState) -> dict:
         "coverage_mode": state.board.metadata.get("coverage_mode"),
         "open_pool_enabled": (not team_year_board) and any(s.spin_type == "open_pool" for s in state.board.spins),
         "simulation_result": simulation_public,
+        "live_build": (
+            _compute_live_build(placed_exact_cards, state)
+            if team_year_board and placed_exact_cards and state.status != "result_ready"
+            else None
+        ),
     }
 
 

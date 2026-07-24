@@ -23,25 +23,33 @@ interface Props {
  * opaque player cards -- decorative, pointer-events:none, never intercepts
  * a click, same discipline as the pre-existing .court-hoop accent below.
  *
- * `data-testid="half-court"` and the `.court-hoop` decorative marker are
- * kept so the existing "half-court renders visual court markings" and
- * "starters render on the half-court" Playwright assertions
- * (courtbuilder.spec.ts) still pass unchanged.
+ * `data-testid="half-court"` (scoped to the starters panel, unchanged) and
+ * the `.court-hoop` decorative marker are kept so the pre-existing
+ * "half-court renders visual court markings" and "starters render on the
+ * half-court" Playwright assertions (courtbuilder.spec.ts) still pass
+ * unchanged. Phase 6E adds `court-panel` (the whole starters+bench unit,
+ * visually one attached board -- see .court-panel-wrapper/.roster-board-
+ * bench-row in globals.css), `court-paint`/`court-arc`/`court-hoop` as
+ * dedicated landmark testids on the real court markings (not just the
+ * small header accent glyph), and moves the bench row directly beneath the
+ * baseline instead of a separate floating block with a visible gap.
  */
 export default function CourtLayout({ starterSlots, benchSlots, renderSlot }: Props) {
   return (
-    <div className="flex flex-col gap-3">
+    <div data-testid="court-panel" className="court-panel-wrapper">
       <div data-testid="half-court" className="roster-board">
         <div className="relative flex items-center gap-2 mb-2">
-          <div className="court-hoop roster-board-hoop-accent" aria-hidden="true" />
+          <div className="court-hoop roster-board-hoop-accent" data-testid="court-hoop" aria-hidden="true" />
           <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
             Starters
           </span>
         </div>
+        <div className="roster-board-sideline" aria-hidden="true" />
         <div className="roster-board-court-markings" aria-hidden="true">
           <div className="roster-board-ft-circle" />
-          <div className="roster-board-paint" />
-          <div className="roster-board-arc" />
+          <div className="roster-board-paint" data-testid="court-paint" />
+          <div className="roster-board-arc" data-testid="court-arc" />
+          <div className="roster-board-rim" />
         </div>
         <div className="roster-board-starters">
           {STARTER_SLOT_TYPES.map((slotType) => {
@@ -55,10 +63,8 @@ export default function CourtLayout({ starterSlots, benchSlots, renderSlot }: Pr
           })}
         </div>
       </div>
-      <div className="flex flex-col gap-1">
-        <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-          Bench
-        </div>
+      <div className="roster-board-bench-row">
+        <div className="roster-board-bench-label">Bench</div>
         <div data-testid="bench-grid" className="roster-board-bench">
           {benchSlots.map((slot) => (
             <div key={slot.slot_type}>{renderSlot(slot)}</div>

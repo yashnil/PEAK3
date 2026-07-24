@@ -23,8 +23,18 @@ const TOTAL_ROUNDS = 8;
  * waitFor timeout already comfortably covers it -- no ceremony-specific
  * wait needed here. */
 async function playOneRound(page: Page): Promise<void> {
-  const candidate = page.locator('[data-testid="candidate-card"]').first();
-  await candidate.waitFor({ state: "visible", timeout: 10_000 });
+  // Phase 6E: candidate order is alphabetical (never star/score-weighted),
+  // so the first candidate in the list is no longer reliably a scored
+  // player. Prefer a scored candidate here so this generic helper (used by
+  // tests that don't care which player, just that the flow completes and
+  // -- for the full-attempt test -- that all 8 slots end up revealed)
+  // stays deterministic; falls back to the first candidate if every one on
+  // this exact roster happens to be unscored.
+  const scoredCandidates = page.locator('[data-testid="candidate-card"]:not(:has([data-testid="candidate-unscored-badge"]))');
+  const anyCandidate = page.locator('[data-testid="candidate-card"]').first();
+  await anyCandidate.waitFor({ state: "visible", timeout: 10_000 });
+  const scoredCount = await scoredCandidates.count();
+  const candidate = scoredCount > 0 ? scoredCandidates.first() : anyCandidate;
   await Promise.all([
     page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
     candidate.click(),
@@ -204,8 +214,11 @@ test.describe("CourtBuilder position-aware slots", () => {
     await startCourtBuilder(page);
     const badge = page.locator('[data-testid="candidate-position-badge"]').first();
     await expect(badge).toBeVisible();
+    // Phase 6E: compact single-row cards show the bare position code(s)
+    // (e.g. "SG" or "PG / SG"), not a verbose "Plays SG" phrase -- assert
+    // it's a real position token, not any particular wording.
     const text = await badge.innerText();
-    expect(text.toLowerCase()).toContain("plays");
+    expect(text.trim()).toMatch(/^(PG|SG|SF|PF|C)( \/ (PG|SG|SF|PF|C))*$/);
   });
 
   test("an off-position fit badge explains which position the player actually plays", async ({ page }) => {
@@ -461,6 +474,84 @@ test.describe("CourtBuilder drafting flow", () => {
     await expect(page.locator('[data-testid="half-court"]')).toBeVisible();
     await expect(page.locator(".court-hoop")).toBeVisible();
   });
+
+  test("Phase 6E: court panel exposes paint/arc/hoop landmarks and stays attached to the bench", async ({ page }) => {
+    await startCourtBuilder(page);
+    await expect(page.locator('[data-testid="court-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="court-hoop"]')).toBeVisible();
+    await expect(page.locator('[data-testid="court-paint"]')).toBeVisible();
+    await expect(page.locator('[data-testid="court-arc"]')).toBeVisible();
+    // Bench lives inside the same court-panel unit as the starters --
+    // "visually attached", not a separate floating block.
+    await expect(page.locator('[data-testid="court-panel"] [data-testid="bench-grid"]')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 6E Part C: candidate list is single-column, alphabetical, and never
+// star/score-ordered.
+// ---------------------------------------------------------------------------
+
+test.describe("CourtBuilder candidate list (Phase 6E)", () => {
+  test("candidate list renders as a single column, not a side-by-side grid", async ({ page }) => {
+    await startCourtBuilder(page);
+    const list = page.locator('[data-testid="candidate-list"]');
+    await expect(list).toBeVisible();
+    const cards = page.locator('[data-testid="candidate-card"]');
+    const count = await cards.count();
+    expect(count).toBeGreaterThan(1);
+    // Single column: every card's left edge (x) matches the first card's,
+    // and cards stack top-to-bottom (increasing y) -- never side-by-side.
+    const firstBox = await cards.nth(0).boundingBox();
+    const secondBox = await cards.nth(1).boundingBox();
+    expect(firstBox).not.toBeNull();
+    expect(secondBox).not.toBeNull();
+    expect(Math.abs((firstBox!.x) - (secondBox!.x))).toBeLessThan(2);
+    expect(secondBox!.y).toBeGreaterThan(firstBox!.y);
+  });
+
+  test("candidate order is alphabetical, not score/rank ordered", async ({ page }) => {
+    await startCourtBuilder(page);
+    const cards = page.locator('[data-testid="candidate-card"]');
+    const count = await cards.count();
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const slug = await cards.nth(i).getAttribute("data-player-slug");
+      names.push(slug ?? "");
+    }
+    const sorted = [...names].sort((a, b) => a.localeCompare(b));
+    expect(names).toEqual(sorted);
+  });
+
+  test("exact team-season is preserved on every candidate row after the alphabetical sort", async ({ page }) => {
+    await startCourtBuilder(page);
+    await page.locator('[data-testid="candidate-card"]').first().waitFor({ state: "visible", timeout: 10_000 });
+    const rollSummary = await page.locator('[data-testid="roll-summary"]').innerText();
+    const teamSeasonLines = page.locator('[data-testid="candidate-team-season"]');
+    const count = await teamSeasonLines.count();
+    expect(count).toBeGreaterThan(0);
+    for (let i = 0; i < count; i++) {
+      const text = await teamSeasonLines.nth(i).innerText();
+      // "You rolled: Team · Season" and each candidate row's "Team · Season"
+      // must reference the same roll -- alphabetical reordering must never
+      // silently swap in a different team-season's roster.
+      expect(rollSummary).toContain(text.trim());
+    }
+  });
+
+  test("humanized status badges render for roster-only and score-pending candidates when present", async ({ page }) => {
+    await startCourtBuilder(page);
+    const rosterOnlyBadges = page.locator('[data-testid="candidate-roster-only-badge"]');
+    const scorePendingBadges = page.locator('[data-testid="candidate-unscored-badge"]');
+    // Not every roll will have one of each, but the badge text itself must
+    // be humanized (never the raw backend enum strings) whenever present.
+    if (await rosterOnlyBadges.count()) {
+      await expect(rosterOnlyBadges.first()).toHaveText(/roster only/i);
+    }
+    if (await scorePendingBadges.count()) {
+      await expect(scorePendingBadges.first()).toHaveText(/score pending/i);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -493,6 +584,36 @@ test.describe("CourtBuilder result credibility", () => {
     // The revealed roster on the result screen uses the same half-court
     // layout as the build screen -- consistent visual language.
     await expect(page.locator('[data-testid="season-result"] [data-testid="half-court"]')).toBeVisible();
+  });
+
+  test("Phase 6E: result screen is a share-card with a tier headline and exact-season wording", async ({ page }) => {
+    await startCourtBuilder(page);
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+    const result = page.locator('[data-testid="season-result"]');
+    await expect(result).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[data-testid="result-tier"]')).toBeVisible();
+    await expect(page.locator('[data-testid="team-identity-phrase"]')).toBeVisible();
+
+    const scoreBlock = page.locator('[data-testid="lineup-peak-score"]');
+    const scoreText = (await scoreBlock.innerText()).toLowerCase();
+    // "Mean of real PEAK3 peak scores" is the wrong wording for exact-season
+    // mode -- must say exact season scores instead.
+    if (!scoreText.includes("incomplete")) {
+      expect(scoreText).toContain("exact season");
+    }
+    // Technical receipt is pushed into a collapsed disclosure, not the
+    // primary reading path.
+    const receipt = page.locator('[data-testid="result-receipt"]');
+    await expect(receipt).toBeVisible();
+    await expect(receipt.locator("summary")).toBeVisible();
   });
 });
 

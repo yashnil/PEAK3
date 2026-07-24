@@ -498,6 +498,9 @@ def test_current_spin_candidates_never_expose_score_or_rank(client: TestClient):
         allowed_candidate_keys = {
             "player_slug", "player_name", "primary_position", "secondary_positions",
             "team_id", "team_name", "season", "identity_pool_status", "score_status",
+            # Phase 6E Part B: asset-manifest schema readiness field, always
+            # null today -- explicitly allowed here, still not a score/rank.
+            "headshot_url",
         }
         for c in candidates:
             assert not (forbidden & set(c.keys()))
@@ -1105,6 +1108,30 @@ def test_team_year_board_draws_from_multiple_teams_and_seasons_across_seeds():
     assert len(seasons_seen) > 5, f"expected many distinct seasons across 20 seeds, got {seasons_seen}"
 
 
+def test_team_year_candidates_are_alphabetical_not_star_weighted():
+    """Phase 6E: candidate order must be alphabetical by display name, never
+    minutes/score/star-weighted -- a stars-first order silently told the
+    user which pick was 'best' before they chose. Exact team-season roster
+    membership must be unchanged by the reorder (same set, different order)."""
+    import json as _json
+    dataset_path = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v2.json"
+    )
+    data = _json.loads(dataset_path.read_text())
+    entry = next(e for e in data["exact_team_year_spins"] if e["team_id"] == "GSW" and e["season_label"] == "2015-16")
+    names = [c["player_name"] for c in entry["candidates"]]
+    assert names == sorted(names), f"expected alphabetical order, got {names}"
+    # Stephen Curry (the 2015-16 MVP, the "obvious star pick") must not be
+    # first in the list purely by virtue of being the best player.
+    assert entry["player_slugs"][0] != "stephen-curry"
+    assert set(entry["player_slugs"]) == {
+        "andre-iguodala", "andrew-bogut", "brandon-rush", "draymond-green", "festus-ezeli",
+        "harrison-barnes", "ian-clark", "james-michael-mcadoo", "klay-thompson",
+        "leandro-barbosa", "marreese-speights", "shaun-livingston", "stephen-curry",
+    }
+
+
 def test_kd_2017_18_warriors_does_not_resolve_to_2013_14_okc():
     """The exact bug this session fixes: selecting a 2017-18 Warriors Kevin
     Durant candidate must never resolve to his 2013-14 OKC career-peak
@@ -1153,6 +1180,50 @@ def test_festus_ezeli_2015_16_is_honestly_roster_only_and_unscored():
     assert card.identity_pool_status == "team_year_roster_only"
     assert card.score_status == "exact_season_unscored"
     assert card.season_score is None
+
+
+def test_okaro_white_is_honestly_roster_only_and_unscored():
+    """Phase 6E Part H: Okaro White (2016-17/2017-18 Miami Heat) is a real,
+    honest team_year_roster_only/exact_season_unscored case -- verified via
+    scripts/review_player_pool_manifest.py --player "Okaro White"."""
+    card = resolve_player_season_card("okaro-white", "MIA", "2016-17")
+    assert card is not None
+    assert card.identity_pool_status == "team_year_roster_only"
+    assert card.score_status == "exact_season_unscored"
+    assert card.season_score is None
+
+
+def test_selecting_unscored_card_yields_incomplete_lineup_score_not_career_peak(team_year_client: TestClient):
+    """Phase 6E Part H, end to end: if an unscored roster-only card is
+    selected and placed, the final PEAK3 Lineup Score must not be presented
+    as fully comparable (lineup_score_status == 'incomplete'), score
+    coverage must be honestly reported, and no career-peak value is ever
+    substituted (season_score stays None for that slot at every stage)."""
+    state = _create(team_year_client, mode="apex_1y", seed=1)
+    game_id = state["game_id"]
+
+    picked_unscored = False
+    for _ in range(TOTAL_ROUNDS):
+        state = team_year_client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+        candidates = state["current_spin"]["candidates"]
+        unscored = next((c for c in candidates if c["score_status"] == "exact_season_unscored"), None)
+        slug = unscored["player_slug"] if (unscored and not picked_unscored) else candidates[0]["player_slug"]
+        if unscored and not picked_unscored:
+            picked_unscored = True
+        _select(team_year_client, game_id, slug)
+        open_slot = [s["slot_type"] for s in state["slots"] if not s["filled"]][0]
+        state = _place(team_year_client, game_id, open_slot)
+
+    result = _complete(team_year_client, game_id)
+    assert picked_unscored, "no unscored candidate appeared across 8 rounds for this seed -- test needs a different seed"
+    assert result["simulation_result"]["lineup_score_status"] == "incomplete"
+    unscored_slots = [s for s in result["slots"] if s.get("score_status") == "exact_season_unscored"]
+    assert len(unscored_slots) >= 1
+    for s in unscored_slots:
+        # No career-peak substitution: an unscored exact-season slot must
+        # never carry a season_score value, revealed or not.
+        assert s.get("season_score") is None
+        assert "individual_peak_score" not in s or s.get("individual_peak_score") is None
 
 
 def test_1500_manifest_v1_exists_and_excludes_festus_ezeli():

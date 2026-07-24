@@ -14,6 +14,7 @@ import EligiblePlayerSearch from "./EligiblePlayerSearch";
 import PeakCardCourt from "./PeakCardCourt";
 import CourtLayout from "./CourtLayout";
 import SeasonResultStub from "./SeasonResultStub";
+import LiveBuildPanel from "./LiveBuildPanel";
 import { getTeamColors } from "@/lib/team-colors";
 
 interface Props {
@@ -23,9 +24,21 @@ interface Props {
    * (readiness endpoint's experimental_team_year_season_labels) -- empty for
    * every non-team_year board. */
   seasonLabels?: string[];
+  /** Coverage numbers for confident spinner copy (Phase 6E Part G) --
+   * replaces vague "limited coverage" text with real figures. */
+  rollableTeamSeasonCount?: number;
+  supportedStartSeason?: string | null;
+  supportedEndSeason?: string | null;
 }
 
-export default function CourtBuilder({ initialGameState, franchiseNames, seasonLabels = [] }: Props) {
+export default function CourtBuilder({
+  initialGameState,
+  franchiseNames,
+  seasonLabels = [],
+  rollableTeamSeasonCount = 0,
+  supportedStartSeason = null,
+  supportedEndSeason = null,
+}: Props) {
   const [state, setState] = useState<CourtLineupPublicState>(initialGameState);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -101,28 +114,28 @@ export default function CourtBuilder({ initialGameState, franchiseNames, seasonL
           className="text-[10px] uppercase tracking-wide rounded px-2 py-1"
           style={{ background: "var(--bg-surface)", color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
         >
-          Prototype
+          Experimental
         </span>
       </div>
       <p className="text-xs -mt-3" style={{ color: "var(--text-muted)" }} data-testid="position-logic-note">
-        Prototype mode: every round is a real team + an exact season, and every
-        card is that exact player-season — never a substituted career peak.
-        Team-season coverage is still limited while it&apos;s being built out.
-        Off-position placements are always allowed, and PEAK3 scores your
-        roster mostly on peak talent, not on penalizing a stacked lineup.
+        Every round is a real team + an exact season, and every card is that
+        exact player-season — never a substituted career peak. Off-position
+        placements are always allowed, and PEAK3 scores your roster mostly
+        on peak talent, not on penalizing a stacked lineup.
       </p>
 
-      <div
-        data-testid="board-receipt"
-        className="text-[10px] flex flex-wrap gap-x-3 gap-y-0.5 -mt-2"
-        style={{ color: "var(--text-muted)" }}
-      >
-        <span>Seed {state.board_seed}</span>
-        <span>{state.card_pool_version}</span>
-        <span>{state.board_generator_version}</span>
-        {state.experimental_team_year_data_version && <span>{state.experimental_team_year_data_version}</span>}
-        {state.coverage_mode && <span data-testid="coverage-mode">{state.coverage_mode}</span>}
-      </div>
+      <details className="text-[10px] -mt-2" style={{ color: "var(--text-muted)" }} data-testid="board-receipt">
+        <summary className="cursor-pointer select-none" style={{ color: "var(--text-secondary)" }}>
+          Data receipt
+        </summary>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1">
+          <span>Seed {state.board_seed}</span>
+          <span>{state.card_pool_version}</span>
+          <span>{state.board_generator_version}</span>
+          {state.experimental_team_year_data_version && <span>{state.experimental_team_year_data_version}</span>}
+          {state.coverage_mode && <span data-testid="coverage-mode">{state.coverage_mode}</span>}
+        </div>
+      </details>
 
       {error && (
         <div role="alert" className="rounded-lg px-3 py-2 text-sm" style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444" }}>
@@ -141,6 +154,9 @@ export default function CourtBuilder({ initialGameState, franchiseNames, seasonL
               totalRounds={state.total_rounds}
               franchiseNames={franchiseNames}
               seasonLabels={seasonLabels}
+              rollableTeamSeasonCount={rollableTeamSeasonCount}
+              supportedStartSeason={supportedStartSeason}
+              supportedEndSeason={supportedEndSeason}
               onRevealComplete={() => setRevealedRound(state.current_round)}
             />
           )}
@@ -215,6 +231,7 @@ export default function CourtBuilder({ initialGameState, franchiseNames, seasonL
             <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
               Your roster
             </div>
+            {state.live_build && <LiveBuildPanel liveBuild={state.live_build} />}
             <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={renderSlot} />
           </div>
 

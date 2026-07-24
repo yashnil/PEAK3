@@ -83,7 +83,18 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
         <div className="flex items-center gap-2 w-full min-w-0">
           <PlayerAvatar name={slot.player_name ?? "?"} size={30} />
           <div className="min-w-0 flex-1">
-            <div className="text-xs font-bold truncate" style={{ color: "var(--text-primary)" }}>
+            <div
+              className="text-xs font-bold name-2line"
+              style={{
+                color: "var(--text-primary)",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+                lineHeight: 1.2,
+                wordBreak: "break-word",
+              } as CSSProperties}
+            >
               {slot.player_name}
             </div>
             {isExactSeason ? (
@@ -130,11 +141,11 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
     "data-testid": "court-slot",
     "data-slot-type": slot.slot_type,
     "data-filled": slot.filled ? "true" : "false",
-    className: "rounded-xl px-2 py-2 flex flex-col items-start justify-center gap-1 min-h-[64px] w-full transition-all",
+    className: `rounded-xl px-2 py-2 flex flex-col items-start justify-center gap-1 min-h-[64px] w-full transition-all ${isPendingTarget ? "court-slot-drop-target" : ""}`,
     style: {
       background: slot.filled ? "var(--bg-elevated)" : "var(--bg-surface)",
       border: isPendingTarget
-        ? "2px dashed var(--peak-accent, #f5c842)"
+        ? undefined
         : `1px solid ${isBench ? "var(--border-emphasis)" : "var(--border-default)"}`,
     } as CSSProperties,
   };

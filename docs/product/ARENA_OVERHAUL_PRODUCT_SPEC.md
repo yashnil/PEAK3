@@ -1,5 +1,178 @@
 # PEAK3 Arena Overhaul — Product Spec
 
+## Phase 6E — Game Feel + Platform Roadmap (this session, 2026-07-24)
+
+### Product decision: PEAK3 is a basketball game PLATFORM, not one mode
+
+82-0 PEAK Season remains the flagship and the only mode being built right
+now -- **do not build any of the modes below yet.** This section documents
+the future direction so data-model decisions made today (player identity,
+player-season, peak-window, team, and the Phase 6E asset-manifest schema)
+don't have to be redone later. Every future mode reuses the same
+underlying databases:
+`nba_peak/perfect_season/exact_season.py` (PlayerSeasonCard),
+`nba_peak/lineup/schemas.py` (CardProfile/PeakWindowCard),
+`data/game/experimental/player_pool_1500/` (identity manifest, team-season
+rosters, top-1000 peaks), and `data/game/assets/` (player/team asset
+manifests, Phase 6E Part B).
+
+### Future Game Modes
+
+**1. 82-0 PEAK Season (current flagship, in progress)**
+Roll team + exact season, pick exact player-season cards, build 5
+starters + 3 bench, chase projected record / PEAK3 Lineup Score /
+(future) leaderboard rank.
+
+**2. Franchise GOAT Builder**
+- *Core loop:* pick or spin a franchise, then spin attribute reels
+  (scoring, shooting, playmaking, handle, defense, rebounding, athleticism,
+  size, clutch/playoffs, longevity), each reel drawing from that
+  franchise's real historical players. Final reveal: "Your [Team] GOAT"
+  with a DNA breakdown and score.
+- *Data dependencies:* player-season/peak-window data already keyed by
+  team (via `PlayerSeasonCard.team_id`); needs a new per-attribute
+  percentile/ranking derived from existing PEAK3 components (statistical
+  impact → scoring/shooting/playmaking splits are not yet broken out at
+  this granularity -- see LineupDNA's "6 aggregate components only" data
+  constraint, `nba_peak/lineup/schemas.py`).
+- *Why addictive:* franchise pride + a build-your-own-legend narrative,
+  same appeal as fantasy "create a player" modes.
+- *MVP scope:* one franchise at a time, single-player, no attribute
+  jittering.
+- *Not yet:* multiplayer, cross-franchise comparisons, real DNA percentile
+  breakdown (needs new derived data, not just new UI).
+
+**3. Global GOAT Attribute Builder**
+- *Core loop:* same attribute-reel mechanic as #2, but spinning across the
+  ENTIRE player universe instead of one franchise (e.g. Jordan scoring +
+  Curry shooting + LeBron playmaking + Hakeem defense + Rodman rebounding).
+- *Data dependencies:* same as #2, at the full 1500-identity scale instead
+  of one franchise.
+- *Why addictive:* the "assemble the perfect player" fantasy, shareable
+  absurd combinations.
+- *MVP scope:* fixed 5-6 attribute reels, no user-chosen weighting.
+- *Not yet:* user-defined attribute sets, era-restricted variants.
+
+**4. Prompted Snake Draft**
+- *Core loop:* 3-5+ players snake-draft under a random prompt ("best
+  lineup of only players who played with LeBron", "no MVPs", "one-team
+  players", "lefties", "all-Rockets"). Solo vs AI, local friends, async
+  multiplayer, ranked.
+- *Data dependencies:* prompt-eligibility filters over the player-season/
+  identity database (teammate graph for "played with X" prompts is NOT
+  yet built -- would need a new derived table from `regular_1980_2026.parquet`
+  team-season co-membership).
+- *Why addictive:* social draft tension (Six Rings/fantasy-draft lineage),
+  replayable via new random prompts.
+- *MVP scope:* solo vs AI only, a small fixed prompt list, no ranked queue.
+- *Not yet:* async multiplayer infra, ranked matchmaking, arbitrary
+  user-authored prompts.
+
+**5. NBA Tier List**
+- *Core loop:* drag-and-drop tier list (all-time, franchise legends,
+  current players, playoff performers, overrated/underrated), export/share
+  card, backed by real PEAK3 stats for context.
+- *Data dependencies:* PEAK Index top-1000 data (already built, Phase 6D)
+  + player asset manifest (Phase 6E Part B) for images.
+- *Why addictive:* takes-and-arguments content is inherently shareable;
+  PEAK3 data gives it a "here's what the model actually says" hook.
+- *MVP scope:* preset categories only, client-side share image.
+- *Not yet:* server-persisted/shareable tier lists, comments, voting.
+
+**6. PEAK Grid / Rarity Game**
+- *Core loop:* Immaculate-Grid-style cross constraints (team × stat ×
+  award × era), rarity score from global guess distribution, PEAK3 twist
+  reveals peak score / season score / "hidden gem" status on answer.
+- *Data dependencies:* team-season roster data (already built, Phase 6D)
+  + award/stat criteria (1500-manifest criteria, already built) + a NEW
+  guess-aggregation/rarity backend (does not exist yet -- needs persistence).
+- *Why addictive:* daily-puzzle habit loop (Wordle-family retention
+  pattern) + basketball trivia rarity flex.
+- *MVP scope:* daily single-player grid, no rarity % (needs volume of
+  guesses first).
+- *Not yet:* rarity scoring (needs real guess volume), multiplayer race
+  mode.
+
+**7. Blind Six-Rings-Style Draft**
+- *Core loop:* hidden PEAK3 impact values, player names shown from a
+  random team/theme but scores hidden until reveal. Lifelines: reveal one
+  score, reroll one shelf, lock one pick, show rarity. Trophy/rings result.
+- *Data dependencies:* same PlayerSeasonCard/PeakWindowCard data PEAK
+  Season already uses; deferred-reveal pattern already exists (ADR-005
+  Decision 6) and is directly reusable.
+- *Why addictive:* the core Six Rings loop this whole product direction is
+  informed by -- proven hidden-value tension + reveal payoff.
+- *MVP scope:* single-player, fixed lifeline set, no rings ladder
+  persistence.
+- *Not yet:* ranked rings ladder, multiplayer race.
+
+**8. Salary Cap / Auction Draft**
+- *Core loop:* build the best lineup under a cap; prices jitter each run,
+  rewarding value discovery over just picking stars.
+- *Data dependencies:* needs a NEW "price" derivation from PEAK3 scores
+  (not yet designed -- pricing a player fairly from a peak score without
+  just recreating the score-ordering problem Phase 6E Part C fixed for
+  PEAK Season needs real product design, not just a formula).
+- *Why addictive:* classic fantasy-auction tension, different skill
+  expression than a straight draft.
+- *MVP scope:* solo vs a fixed cap, no live auction against others.
+- *Not yet:* live multiplayer auction, dynamic pricing from real usage data.
+
+**9. Team Chemistry Challenge**
+- *Core loop:* build a lineup connected by a teammate graph (everyone
+  played with LeBron; everyone played for the Spurs; one chain from Shaq to
+  Curry).
+- *Data dependencies:* needs the same teammate-co-membership derived table
+  as mode #4's "played with X" prompts -- not yet built, but a natural
+  by-product of building it once for both modes.
+- *Why addictive:* trivia-chain puzzles are highly shareable ("can you
+  find the chain?").
+- *MVP scope:* preset chains/prompts only.
+- *Not yet:* arbitrary user-chosen start/end player chain search (a real
+  graph-search feature, more engineering than the preset version).
+
+**10. Daily / Ranked / Multiplayer Layer**
+- *Core loop:* Daily PEAK Season, Daily Grid, Weekly Franchise Challenge,
+  ranked draft duels, 2v2/3-5 player rooms, global leaderboard, friend
+  challenge links, shareable result cards.
+- *Data dependencies:* this is an infrastructure layer (daily seed
+  scheduling, matchmaking, persistence, auth) that every mode above plugs
+  into -- not itself a new data model. Peak Draft's existing daily/ranked
+  infra (`apps/api/app/api/v1/ranked.py`, already shipped) is the template
+  to extend, not reinvent.
+- *Why addictive:* the daily-habit + social-competition loop that turns a
+  single game into a returning-visitor product.
+- *MVP scope:* daily PEAK Season first (reuses Peak Draft's daily
+  infrastructure most directly), global leaderboard second.
+- *Not yet:* everything else in this row, until daily + leaderboard prove
+  out.
+
+### Roadmap prioritization
+
+**Near-term** (this is what "done" means before anything below starts):
+1. Perfect 82-0 PEAK Season (Phase 6E, this session, in progress).
+2. Daily 82-0 challenge (reuses Peak Draft's existing daily infra).
+3. Share cards (Phase 6E Part F laid the share-card-shell groundwork).
+4. Global leaderboard.
+5. PEAK Index polish (Phase 6D built it; Phase 6E Part I polished it).
+
+**Next:**
+6. Blind Six-Rings-style draft (most directly reuses existing
+   deferred-reveal + card infrastructure).
+7. PEAK Grid / rarity.
+8. Franchise GOAT Builder.
+9. Global GOAT Attribute Builder.
+10. Prompted snake draft rooms.
+
+**Later** (real new infrastructure, not just new UI over existing data):
+11. Salary cap draft.
+12. Multiplayer 3-5 player rooms.
+13. Team chemistry graph challenge.
+14. Tier list creator.
+15. Player/team pages with image assets and PEAK histories (once a
+    licensed image provider is approved -- see Phase 6E Part B's asset
+    manifest schema).
+
 ## Phase 6D — Broad Coverage + 1500-Player Universe + PEAK Index (this session, 2026-07-24)
 
 Phase 6C fixed the exact-season CORRECTNESS bug but left the spinner narrow
