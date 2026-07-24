@@ -300,6 +300,16 @@ jobs:
         # PEAK3_COURTBUILDER_* mirrors the same requirement for
         # courtbuilder.spec.ts (Phase 5C) — without these, every
         # /perfect-season/* route 403s with courtbuilder_not_enabled.
+        # PEAK3_COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED was added later
+        # (Phase 6A) and this block was never updated to match — without it,
+        # /perfect-season/games falls back to the legacy team_decade/
+        # exact_team_season board, whose candidates never carry a
+        # per-candidate team_name/season (see
+        # app/services/perfect_season/state.py::_candidate_public vs.
+        # _candidate_public_exact), which silently broke
+        # "exact team-season is preserved on every candidate row after the
+        # alphabetical sort" (candidate-team-season never renders -> count 0)
+        # without touching any frontend code.
         run: npm run test:e2e:ci
         working-directory: apps/web
         env:
@@ -315,6 +325,7 @@ jobs:
           PEAK3_COURTBUILDER_ENABLED: "true"
           PEAK3_COURTBUILDER_TEAM_SPIN_ENABLED: "true"
           PEAK3_COURTBUILDER_READINESS_LEVEL: "internal_dev"
+          PEAK3_COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED: "true"
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4
