@@ -26,6 +26,7 @@ _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
+from nba_peak.perfect_season.assets import get_player_headshot_url, get_team_logo_url
 from nba_peak.perfect_season.board import find_spin, generate_board, generate_team_year_board, resolve_card
 from nba_peak.perfect_season.config import SLOT_TYPES, TOTAL_ROUNDS
 from nba_peak.perfect_season.exact_season import (
@@ -411,7 +412,7 @@ def _compute_live_build(placed_cards: list[PlayerSeasonCard], state: CourtLineup
     }
 
 
-def get_public_state(state: CourtLineupState) -> dict:
+def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) -> dict:
     """Build the client-visible state.
 
     ADR-005 Decision 6, ruthlessly enforced here: the current round's
@@ -440,7 +441,7 @@ def get_public_state(state: CourtLineupState) -> dict:
             "franchise_display_name": spin.franchise_display_name,
             "era_label": spin.era_label,
             "candidates": [
-                (_candidate_public_exact(slug, spin.team_id, spin.era_label)
+                (_candidate_public_exact(slug, spin.team_id, spin.era_label, include_asset_urls)
                  if _is_team_year_spin(spin) else _candidate_public(slug, state.duration_years))
                 for slug in spin.candidate_player_slugs
                 if slug not in _used_player_slugs(state)
@@ -451,6 +452,8 @@ def get_public_state(state: CourtLineupState) -> dict:
             current_spin_public["candidate_source"] = "exact_team_season"
             current_spin_public["data_version"] = state.board.experimental_team_year_data_version
             current_spin_public["coverage_mode"] = state.board.metadata.get("coverage_mode")
+            if include_asset_urls:
+                current_spin_public["team_logo_url"] = get_team_logo_url(spin.team_id)
 
     pending_card_public = None
     if state.pending_selection_exact_season_key:
@@ -473,6 +476,8 @@ def get_public_state(state: CourtLineupState) -> dict:
                     for slot_type in get_open_slot_types(state)
                 },
             }
+            if include_asset_urls:
+                pending_card_public["headshot_url"] = get_player_headshot_url(card.player_slug)
     elif state.pending_selection_peak_window_id:
         card = resolve_card_by_window_id(state, state.pending_selection_peak_window_id)
         if card:
@@ -513,6 +518,8 @@ def get_public_state(state: CourtLineupState) -> dict:
                     "identity_pool_status": card.identity_pool_status,
                     "score_status": card.score_status,
                 })
+                if include_asset_urls:
+                    entry["headshot_url"] = get_player_headshot_url(card.player_slug)
                 if card.score_status != "exact_season_scored":
                     all_placed_scored = False
                 if reveal_scores:
@@ -564,6 +571,8 @@ def get_public_state(state: CourtLineupState) -> dict:
             "lineup_score_status": (
                 ("complete" if all_placed_scored else "incomplete") if team_year_board else "complete"
             ),
+            "best_pick": r.best_pick,
+            "structural_weakness": r.structural_weakness,
         }
 
     return {
@@ -615,12 +624,18 @@ def _candidate_public(player_slug: str, duration_years: int) -> dict:
     }
 
 
-def _candidate_public_exact(player_slug: str, team_id: str, season: str) -> dict:
+def _candidate_public_exact(player_slug: str, team_id: str, season: str, include_asset_urls: bool = False) -> dict:
     """Team-year mode's candidate entry: exact team + exact season + real
     position + identity/score status -- never a score/rank before reveal
     (same ADR-005 Decision 6 discipline as _candidate_public), and never a
     peak-window id (this candidate resolves to a PlayerSeasonCard, not a
-    CardProfile)."""
+    CardProfile).
+
+    Phase 6F Part C: `headshot_url` is populated ONLY when include_asset_urls
+    is true (Settings.ENABLE_EXTERNAL_ASSET_URLS, default off) AND the asset
+    manifest has a resolved entry for this exact player_slug -- see
+    nba_peak.perfect_season.assets. None in every other case; the frontend
+    already falls back to initials for a None/missing URL."""
     card = resolve_player_season_card(player_slug, team_id, season)
     if card is None:
         return {
@@ -629,7 +644,7 @@ def _candidate_public_exact(player_slug: str, team_id: str, season: str) -> dict
             "identity_pool_status": "unresolved", "score_status": "score_unavailable",
         }
     primary, secondary = parse_real_position(card.position)
-    return {
+    entry = {
         "player_slug": player_slug,
         "player_name": card.player_name,
         "team_id": card.team_id,
@@ -640,3 +655,6 @@ def _candidate_public_exact(player_slug: str, team_id: str, season: str) -> dict
         "identity_pool_status": card.identity_pool_status,
         "score_status": card.score_status,
     }
+    if include_asset_urls:
+        entry["headshot_url"] = get_player_headshot_url(player_slug)
+    return entry

@@ -33,7 +33,7 @@ from nba_peak.perfect_season.config import (
     STARTER_SLOTS,
 )
 from nba_peak.perfect_season.exact_season import PlayerSeasonCard, component_percentile
-from nba_peak.perfect_season.positions import classify_fit, classify_fit_from_position
+from nba_peak.perfect_season.positions import classify_fit, classify_fit_from_position, parse_real_position
 from nba_peak.perfect_season.schemas import LineupFitComponents, SimulationResult
 
 TOTAL_GAMES = 82
@@ -278,6 +278,103 @@ def _off_position_starter_slots_exact(cards: list[PlayerSeasonCard], slot_types:
     ]
 
 
+# ---------------------------------------------------------------------------
+# Phase 6F Part F: structural result explanation.
+#
+# Root cause of the "Weakness: Rasheed Wallace" bug this fixes: the OLD
+# explanation picked whichever placed card had the lowest real score, full
+# stop -- on a roster of 8 legends, SOMEONE has the lowest score even though
+# every player is elite, so it randomly blamed a strong player instead of
+# describing the actual problem (off-position starters, no true wing, thin
+# bench). These functions prioritize STRUCTURE over raw score rank, and
+# when a specific player IS named, always with slot/role context (never a
+# bare name).
+# ---------------------------------------------------------------------------
+
+_GUARD_POSITIONS = {"PG", "SG"}
+_WING_POSITIONS = {"SF"}
+_BIG_POSITIONS = {"PF", "C"}
+_THIN_BENCH_FLOOR = 45.0
+
+
+def _best_pick_exact(cards: list[PlayerSeasonCard]) -> str | None:
+    """Highest real exact-season score among placed cards -- unlike
+    "weakness", picking the single best real contributor by score is not a
+    fit problem, so this stays score-based."""
+    scored = [c for c in cards if c.season_score is not None]
+    if not scored:
+        return None
+    best = max(scored, key=lambda c: c.season_score)
+    return best.player_name
+
+
+def _structural_weakness_exact(cards: list[PlayerSeasonCard], slot_types: list[str]) -> str | None:
+    """Prioritized structural weakness description. Order:
+      1. Multiple unscored cards -> score-coverage problem (a real data gap,
+         not a talent judgment).
+      2. Exactly one off-position starter -> name THAT player with their
+         slot and real position (never bare "Weakness: <name>"). Named
+         specifics beat a categorical label -- and since each starter slot
+         maps 1:1 to a position, "0 real SF among starters" and "the SF
+         slot is off-position" are the same fact; the named version is
+         strictly more informative, so it's checked first.
+      3. Multiple off-position starters -> ALL named per-slot ("Position-
+         broken starting five -- X at SG, Y at SF"), never a single
+         scapegoat picked out of the group.
+      4. No true wing / no interior anchor -- reachable only in the
+         (structurally impossible under a fixed 5-slot lineup, kept as a
+         defensive fallback) case where coverage is missing without an
+         off-position starter triggering it above.
+      5. Thin bench (bench average score below a floor).
+      6. Fallback: lowest-scored placed card (only reached when the
+         roster is structurally sound -- score rank alone is a fair
+         "weakness" only once fit/coverage/bench are all fine).
+    """
+    if not cards:
+        return None
+    starters = cards[:STARTER_SLOTS]
+    bench = cards[STARTER_SLOTS:]
+    starter_slot_types = slot_types[:STARTER_SLOTS]
+
+    unscored = [c for c in cards if c.score_status != "exact_season_scored"]
+    if len(unscored) >= 2:
+        return f"{len(unscored)} cards with no PEAK3 score yet -- lineup score is incomplete"
+
+    primaries: list[str] = []
+    off_position: list[tuple[str, str, str | None]] = []
+    for card, slot in zip(starters, starter_slot_types):
+        primary, _ = parse_real_position(card.position)
+        if primary:
+            primaries.append(primary)
+        if classify_fit_from_position(card.position, slot) == "off_position":
+            off_position.append((card.player_name, slot, primary))
+
+    if len(off_position) == 1:
+        name, slot, real_pos = off_position[0]
+        pos_note = f", real position {real_pos}" if real_pos else ""
+        return f"{name} at {slot}{pos_note}"
+    if len(off_position) >= 2:
+        detail = ", ".join(f"{name} at {slot}" for name, slot, _ in off_position)
+        return f"Position-broken starting five -- {detail}"
+
+    wings = sum(1 for p in primaries if p in _WING_POSITIONS)
+    bigs = sum(1 for p in primaries if p in _BIG_POSITIONS)
+    if wings == 0:
+        return "No true wing -- no starter's real position is SF"
+    if bigs == 0:
+        return "No interior anchor -- no starter's real position is PF/C"
+
+    bench_scored = [c.season_score for c in bench if c.season_score is not None]
+    if bench_scored and _avg(bench_scored) < _THIN_BENCH_FLOOR:
+        return "Thin bench -- backups fall well short of the starters"
+
+    scored = [c for c in cards if c.season_score is not None]
+    if scored:
+        worst = min(scored, key=lambda c: c.season_score)
+        return worst.player_name
+    return None
+
+
 def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_types: list[str]) -> SimulationResult:
     """simulate_season()'s counterpart for team-year (exact-season) lineups.
 
@@ -325,4 +422,6 @@ def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_t
         is_perfect_season=(wins >= 82),
         experimental_notice=EXACT_SEASON_SIMULATOR_NOTICE,
         lineup_peak_score=lineup_peak_score,
+        best_pick=_best_pick_exact(cards),
+        structural_weakness=_structural_weakness_exact(cards, slot_types),
     )

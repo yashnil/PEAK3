@@ -512,6 +512,10 @@ def test_current_spin_candidates_never_expose_score_or_rank(client: TestClient):
         assert set(selected["pending_selection"].keys()) <= {
             "peak_window_id", "exact_player_season_key", "player_name", "team_id", "team_name", "season",
             "identity_pool_status", "score_status", "primary_position", "secondary_positions", "fit_by_open_slot",
+            # Phase 6F Part C: asset-manifest headshot field, only populated
+            # when ENABLE_EXTERNAL_ASSET_URLS is true (default off) -- still
+            # not a score/rank.
+            "headshot_url",
         }
         open_slots = [s["slot_type"] for s in selected["slots"] if not s["filled"]]
         _place(client, game_id, open_slots[0])
@@ -1382,3 +1386,97 @@ def test_team_year_game_completes_a_full_practice_attempt(team_year_client: Test
             assert slot["season_score"] is not None
         else:
             assert slot["season_score"] is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 6F Part E/F: simulator ceiling calibration + structural weakness
+# explanation (fixes the "Weakness: Rasheed Wallace" bug -- a strong player
+# was blamed just for having the lowest score among 8 legends, instead of
+# the explanation naming the actual roster-construction problem).
+# ---------------------------------------------------------------------------
+
+from nba_peak.perfect_season.simulation import simulate_exact_season  # noqa: E402
+
+ALL_TIME_CEILING_LINEUP = [
+    ("stephen-curry", "GSW", "2015-16"),
+    ("michael-jordan", "CHI", "1990-91"),
+    ("lebron-james", "MIA", "2012-13"),
+    ("kevin-garnett", "MIN", "2003-04"),
+    ("nikola-jokic", "DEN", "2022-23"),
+    ("shaquille-o-neal", "LAL", "1999-00"),
+    ("kevin-durant", "OKC", "2013-14"),
+    ("tim-duncan", "SAS", "2002-03"),
+]
+
+GIANT_HEAVY_LINEUP = [
+    ("kevin-johnson", "PHO", "1988-89"),
+    ("john-stockton", "UTA", "1988-89"),
+    ("joel-embiid", "PHI", "2022-23"),
+    ("hakeem-olajuwon", "HOU", "1993-94"),
+    ("shaquille-o-neal", "LAL", "1999-00"),
+    ("rasheed-wallace", "POR", "2000-01"),
+    ("walter-davis", "PHO", "1986-87"),
+    ("pau-gasol", "MEM", "2005-06"),
+]
+
+
+def _resolve_lineup(spec: list[tuple[str, str, str]]):
+    cards = [resolve_player_season_card(slug, team, season) for slug, team, season in spec]
+    assert all(c is not None for c in cards), "fixture lineup must fully resolve -- see test setup"
+    return cards
+
+
+def test_all_time_ceiling_lineup_resolves_exact_seasons_never_career_peak():
+    cards = _resolve_lineup(ALL_TIME_CEILING_LINEUP)
+    for (slug, team, season), card in zip(ALL_TIME_CEILING_LINEUP, cards):
+        assert card.player_slug == slug
+        assert card.team_id == team
+        assert card.season == season
+        assert card.score_status == "exact_season_scored"
+        assert card.season_score is not None
+
+
+def test_all_time_ceiling_lineup_reaches_78_wins_minimum():
+    """Part E requirement: a generic near-max-talent, elite-fit, elite-
+    creation/scoring, elite-bench lineup must be able to map to 80-82 wins,
+    minimum acceptable 78. No special-casing -- this calls the exact same
+    simulate_exact_season() the UI uses, with no lineup-specific branch
+    anywhere in the simulator."""
+    cards = _resolve_lineup(ALL_TIME_CEILING_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins >= 78, f"expected >=78 wins for the all-time ceiling lineup, got {result.wins}"
+    assert all(c.score_status == "exact_season_scored" for c in cards)
+
+
+def test_giant_heavy_lineup_is_strong_but_not_forced_to_82():
+    """Part E requirement: a talented-but-position-broken roster should be
+    very strong (well above .500) without being forced to the 82-0 ceiling
+    -- proves the positional-fit penalty has real teeth, generically."""
+    cards = _resolve_lineup(GIANT_HEAVY_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 50 <= result.wins < 78, f"expected a strong-but-not-elite record, got {result.wins} wins"
+
+
+def test_giant_heavy_lineup_weakness_is_structural_not_rasheed():
+    """Regression test for the exact bug reported: 'Weakness: Rasheed
+    Wallace' is wrong -- Rasheed isn't even a starter in this lineup, and
+    the real problem is the position-broken starting five (Stockton at SG,
+    Embiid at SF, Hakeem at PF -- all off their real position)."""
+    cards = _resolve_lineup(GIANT_HEAVY_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.structural_weakness is not None
+    assert "Rasheed Wallace" not in result.structural_weakness
+    # Names the actual off-position starters with slot context.
+    assert "SG" in result.structural_weakness or "SF" in result.structural_weakness or "PF" in result.structural_weakness
+    assert result.best_pick is not None
+
+
+def test_all_time_ceiling_lineup_weakness_has_slot_context_not_bare_name():
+    cards = _resolve_lineup(ALL_TIME_CEILING_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    # Whatever the weakness text is, if it names a player it must include
+    # slot/position context -- never a bare "Weakness: <name>".
+    if result.structural_weakness and result.structural_weakness not in (result.best_pick or ""):
+        for card in cards:
+            if result.structural_weakness == card.player_name:
+                pytest.fail(f"weakness '{result.structural_weakness}' is a bare player name with no role/slot context")

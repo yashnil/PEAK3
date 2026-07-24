@@ -150,6 +150,16 @@ class SimulationResult:
     # simulation.py::simulate_season's own comment for why this, not the
     # noisy 82-0 record, is the "compare across runs" number.
     lineup_peak_score: float = 0.0
+    # Phase 6F Part F: structural result explanation, computed server-side
+    # (single source of truth -- see simulation.py::_best_pick_exact /
+    # _structural_weakness_exact) so the UI never has to re-derive "weakness"
+    # from raw score alone. best_pick is the highest real-score contributor;
+    # structural_weakness prioritizes ROSTER CONSTRUCTION issues (off-position
+    # starters named with their real position, missing wing/big coverage,
+    # thin bench) over "whichever legend happened to score lowest" -- see
+    # module docstring's "never blame a strong player for a fit problem" rule.
+    best_pick: str | None = None
+    structural_weakness: str | None = None
 
 
 @dataclass

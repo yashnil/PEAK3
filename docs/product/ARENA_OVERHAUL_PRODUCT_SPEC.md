@@ -1,5 +1,47 @@
 # PEAK3 Arena Overhaul — Product Spec
 
+## Phase 6F — Asset Resolution, Manual Simulator, Result-Explanation Fix (this session, 2026-07-24)
+
+Manual review of Phase 6E surfaced three product gaps, addressed this pass:
+
+**1. No real player/team imagery.** `scripts/build_espn_asset_manifests.py`
+resolves real ESPN team logos (30/40 franchises) and current-roster player
+headshots (56/250 players) into a versioned manifest, honestly leaving
+retired/historical players unresolved rather than guessing. Rendering is
+wired end-to-end (search results, court cards, team badge) but stays off
+by default behind `PEAK3_ENABLE_EXTERNAL_ASSET_URLS` — see
+`docs/architecture/PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md` Sec 10. The
+licensing question that document's Sec 4 raises is still open; this pass
+only removed the technical blocker, not the rights one.
+
+**2. No developer way to manually test elite lineups.** Product/design
+review of PEAK3 Lineup Score and win-count calibration required building
+specific lineups by hand and seeing the result, without playing through
+the full spin-and-select game loop each time.
+`scripts/simulate_peak_season_lineup.py` (CLI, `--slot`/`--input`/`--json`)
+and a gated dev endpoint (`POST /api/v1/perfect-season/dev/simulate-lineup`,
+`PEAK3_DEV_TOOLS_ENABLED`) both resolve exact `PlayerSeasonCard`s and call
+the same simulator the live game uses. Confirmed: an all-time-ceiling
+lineup (Curry '15-16, Jordan '90-91, LeBron '12-13, Garnett '03-04, Jokic
+'22-23 + Shaq/Durant/Duncan bench) reaches 82-0 / Lineup Score 93.2 with no
+calibration changes — the existing win formula already rewards a true
+ceiling roster correctly.
+
+**3. Result explanation named the wrong problem.** Bug report: Kevin
+Johnson / Stockton / Embiid / Hakeem / Shaq / Rasheed Wallace / Walter
+Davis / Pau Gasol produced 66-16 and blamed "Weakness: Rasheed Wallace" —
+a fine role player, not the actual problem (no true wing, Embiid at SF,
+Stockton at SG). The weakness computation is now server-side and
+structure-aware: it names specific off-position starters with their real
+position (`"John Stockton at SG"`, not just a name), falling back to
+missing-wing/missing-big/thin-bench framing before ever falling back to
+"lowest-scored card." Verified this exact lineup now reports
+`"Position-broken starting five -- John Stockton at SG, Joel Embiid at SF,
+Hakeem Olajuwon at PF"` and never names Rasheed Wallace.
+
+See `docs/implementation/PHASE_5X_ARENA_OVERHAUL_PLAN.md`'s Phase 6F
+section for the full file-level changelog.
+
 ## Phase 6E — Game Feel + Platform Roadmap (this session, 2026-07-24)
 
 ### Product decision: PEAK3 is a basketball game PLATFORM, not one mode

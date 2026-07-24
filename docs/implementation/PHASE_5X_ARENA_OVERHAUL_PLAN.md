@@ -1,5 +1,95 @@
 # Phase 5X — Arena Overhaul Implementation Plan
 
+## Phase 6F (this session, 2026-07-24) — ESPN asset resolution, manual lineup simulator, result-explanation fix
+
+Triggered by manual review of Phase 6E: no real player/team images, no
+developer way to manually test elite lineups, and a real bug report --
+Kevin Johnson / Stockton / Embiid / Hakeem / Shaq / Rasheed Wallace / Walter
+Davis / Pau Gasol produced 66-16 with "Weakness: Rasheed Wallace", which
+misidentified a fine role player as the problem when the actual issue was
+lineup construction (no true wing, Embiid at SF, Stockton at SG).
+
+- **ESPN-backed asset manifests** (`scripts/build_espn_asset_manifests.py`,
+  new). Fetches ESPN's public site API live at generation time (team list +
+  logos + colors for all 30 current franchises; roster + real athlete IDs +
+  headshot URLs for currently-active players only) -- no image binaries are
+  fetched or committed, only metadata/URLs. Historical/retired players (the
+  large majority of the 250-player canonical pool) are honestly marked
+  `resolution_status: "unresolved"` rather than guessed -- there is no
+  reliable ESPN historical-player search endpoint, and fuzzy-matching a
+  20-years-retired player by name risked silently attaching the wrong
+  athlete ID. Ambiguous name collisions are marked `"ambiguous"`, never
+  auto-resolved. Output (v2, superseding Phase 6E's placeholder v1):
+  `data/game/assets/team_assets.v2.json` (30/40 teams resolved),
+  `player_assets.v2.json` (56/250 players resolved, 194 unresolved, 0
+  ambiguous), `asset_sources.v1.json` (provenance registry -- endpoint,
+  fetch timestamp, license caveat), `unresolved_player_assets.v1.json`.
+  Every resolved entry carries `license_status: "unknown_do_not_cache"`
+  pending explicit human legal review -- resolution is not the same as
+  clearance to display.
+- **Image wiring, behind a flag** (`PEAK3_ENABLE_EXTERNAL_ASSET_URLS`,
+  default `False`, `apps/api/app/core/config.py`). When on,
+  `nba_peak/perfect_season/assets.py` (new, pure read-only lookup, no
+  FastAPI dependency) joins `headshot_url`/`team_logo_url` into
+  `SpinCandidate`, `PendingSelectionPublic`, `CourtSlotPublic`, and
+  `CurrentSpinPublic`, and `/api/v1/peaks` rows. Frontend: `PlayerAvatar`
+  (existing `imageUrl` prop from Phase 6E) now actually receives real URLs
+  in `EligiblePlayerSearch.tsx`/`PeakCardCourt.tsx`; `SpinStage.tsx` renders
+  the real team logo with `onError` fallback to the existing colored-
+  initials badge. Off by default -- no behavior change for existing
+  deployments until the flag is explicitly enabled.
+- **Manual lineup simulator** (`scripts/simulate_peak_season_lineup.py`,
+  new dev CLI). Takes either `--slot SLOT:player_slug:season:team`
+  arguments or `--input <json>`, resolves exact `PlayerSeasonCard`s via
+  `nba_peak.perfect_season.exact_season.resolve_player_season_card` (never
+  career-peak substitution), and calls the same
+  `nba_peak.perfect_season.simulation.simulate_exact_season` the API uses
+  -- no duplicated scoring logic. Hard-fails on unresolvable/mismatched/
+  unscored cards unless `--allow-unscored`. `--json` for machine-readable
+  output. Two example fixtures added under `examples/perfect_lineups/`:
+  `all_time_exact_season_ceiling.json` (Curry '15-16, Jordan '90-91, LeBron
+  '12-13 MIA, Garnett '03-04, Jokic '22-23, bench Shaq '99-00/Durant
+  '13-14/Duncan '02-03) and `giant_heavy_position_broken.json` (the exact
+  bug-report lineup above).
+- **Result-explanation fix** (`nba_peak/perfect_season/simulation.py`, new
+  `_best_pick_exact`/`_structural_weakness_exact`). The old client-side
+  `bestAndWorstPick()` in `SeasonResultStub.tsx` named "weakness" as
+  whichever placed card had the lowest raw score, with zero regard for
+  position -- the direct cause of the Rasheed Wallace misdiagnosis. The new
+  server-computed `structural_weakness` is priority-ordered: (1) missing
+  scores, (2) named off-position starter(s) with slot + real position
+  (`"LeBron James at SF, real position PF"`), (3) no true wing / no
+  interior anchor, (4) thin bench, (5) lowest-scored card only as a last
+  resort when the lineup has no structural issue at all. Verified: the
+  bug-report lineup now reports `"Position-broken starting five -- John
+  Stockton at SG, Joel Embiid at SF, Hakeem Olajuwon at PF"` and never
+  mentions Rasheed Wallace. `SimulationResult`/`SimulationResultPublic`
+  gained `best_pick`/`structural_weakness` fields (`None` for legacy
+  peak-window boards, which don't compute them); `SeasonResultStub.tsx`
+  prefers the server fields, falling back to the old client heuristic only
+  when they're null.
+- **Simulator ceiling calibration verified, not changed**. The all-time
+  ceiling fixture already reaches 82-0 / expected_wins 82.0 (range
+  77.0-82.0) / Lineup Score 93.2 with the existing (unmodified) win
+  formula -- no special-casing was needed to hit the 78-minimum/80-82-
+  preferred target. The giant-heavy fixture lands at 74 wins (positional_
+  fit 52.0) via the existing off-position penalty -- strong but correctly
+  not forced to 82, confirming the penalty mechanism generalizes rather
+  than being tuned to one lineup.
+- **Dev-only simulate-lineup endpoint**
+  (`POST /api/v1/perfect-season/dev/simulate-lineup`), gated behind
+  `PEAK3_DEV_TOOLS_ENABLED=true` or `COURTBUILDER_READINESS_LEVEL=
+  internal_dev` (403 otherwise). Same resolve-then-simulate path as the
+  CLI, exposed over HTTP for scripted/manual testing without a full game
+  session.
+
+Tests added (`apps/api/tests/test_perfect_season.py`): both example
+lineups resolve to real exact-season cards (never career-peak); ceiling
+lineup reaches >= 78 wins; giant-heavy lineup lands strictly between 50 and
+78 wins (never forced to 82); giant-heavy weakness names SG/SF/PF structure
+and never contains "Rasheed Wallace"; ceiling lineup's weakness has slot
+context, not a bare name. Full suite: 389 passed, 18 skipped.
+
 ## Phase 6E (this session, 2026-07-24) — game feel + platform roadmap, files changed
 
 Product direction: see `docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md`'s new

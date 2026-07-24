@@ -129,6 +129,24 @@ class Settings(BaseSettings):
     # docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md.
     COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED: bool = False
 
+    # Phase 6F Part C: render real player/team image URLs (ESPN CDN, sourced
+    # from data/game/assets/{player,team}_assets.v2.json -- see
+    # scripts/build_espn_asset_manifests.py) instead of always falling back
+    # to initials/abbreviation badges. Default OFF: no image binaries are
+    # ever downloaded or committed by this repo, and no human has reviewed/
+    # approved ESPN's terms of use for hotlinking in a shipped product yet
+    # (every resolved asset entry's license_status is "unknown_do_not_cache"
+    # until that review happens) -- so the safe default is to never render
+    # an external image unless a developer explicitly opts in locally.
+    ENABLE_EXTERNAL_ASSET_URLS: bool = False
+
+    # Phase 6F Part G: gates the dev-only manual-lineup-simulation endpoint
+    # (POST /api/v1/perfect-season/dev/simulate-lineup). Independent of
+    # COURTBUILDER_READINESS_LEVEL so it can be enabled without changing the
+    # public readiness classification, but internal_dev also enables it (see
+    # the route's own check).
+    DEV_TOOLS_ENABLED: bool = False
+
     # Human-facing readiness classification. Does not itself gate behavior —
     # the booleans above do — but is surfaced on /api/v1/perfect-season/readiness
     # and must be kept consistent with them (validated below).

@@ -293,3 +293,34 @@ before.
 - No changes to `CLAUDE.md`'s existing "no photographs, no logos" design
   principle — this document operates within that constraint and describes
   how it could be revisited later, not a decision to revisit it now.
+
+---
+
+## 10. Phase 6F update (2026-07-24) — ESPN metadata resolved, Sec 4 decision still not made
+
+Phase 6F built `scripts/build_espn_asset_manifests.py`, which fetches
+ESPN's public site API **live at generation time** (team list, logos,
+colors; current-roster athlete IDs and headshot URLs) and writes the URLs
+into `data/game/assets/team_assets.v2.json` / `player_assets.v2.json`. No
+image binaries were fetched, scraped, or committed — only metadata/URL
+strings, and only for entities ESPN's API confirms unambiguously (30/40
+teams; 56/250 players, all currently-active — historical/retired players
+are marked `resolution_status: "unresolved"`, not guessed).
+
+This changes Sec 1's table in one specific way: real team-logo and
+player-headshot **URLs now exist** in the committed manifest, which
+wasn't true before. It does **not** answer Sec 4 — every resolved entry
+still carries `license_status: "unknown_do_not_cache"`, meaning nobody
+has reviewed whether ESPN's terms permit this specific use (a game, not
+ESPN's own editorial context). Rendering is gated behind
+`PEAK3_ENABLE_EXTERNAL_ASSET_URLS`, **default `False`** — so Option A
+(fallback-only, Sec 4) remains what actually ships until that flag is
+explicitly turned on, which should not happen without the same legal
+review Sec 4 already calls for. Turning the flag on is a product/legal
+decision, not a code change — the code change (this pass) only removed
+the *technical* blocker, not the *rights* one.
+
+`data/game/assets/asset_sources.v1.json` (new) records provenance for
+every resolved entry — endpoint URL, fetch timestamp, and this same
+license caveat — so a future reviewer doesn't have to re-derive where a
+given URL came from.

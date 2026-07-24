@@ -81,7 +81,7 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
 
       {slot.filled ? (
         <div className="flex items-center gap-2 w-full min-w-0">
-          <PlayerAvatar name={slot.player_name ?? "?"} size={30} />
+          <PlayerAvatar name={slot.player_name ?? "?"} size={30} imageUrl={slot.headshot_url} />
           <div className="min-w-0 flex-1">
             <div
               className="text-xs font-bold name-2line"

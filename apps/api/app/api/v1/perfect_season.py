@@ -47,7 +47,10 @@ from app.models.perfect_season import (
 from app.services.perfect_season import state as state_machine
 from app.services.perfect_season.state import CourtError
 from nba_peak.perfect_season.board import coverage_summary, experimental_team_year_summary, interim_team_summary
-from nba_peak.perfect_season.config import SUPPORTED_MODES
+from nba_peak.perfect_season.config import SLOT_TYPES, SUPPORTED_MODES
+from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME, resolve_player_season_card
+from nba_peak.perfect_season.simulation import compute_exact_fit_components, simulate_exact_season
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -155,7 +158,7 @@ async def create_game(
     game_state.owner_sub = owner_sub
     game_id = await court_repo.create_lineup(game_state)
     game_state.game_id = game_id
-    return PublicCourtStateResponse(**state_machine.get_public_state(game_state))
+    return PublicCourtStateResponse(**state_machine.get_public_state(game_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +171,7 @@ async def get_game(game_id: str, court_repo: CourtLineupRepoDep) -> PublicCourtS
     game_state = await court_repo.get_lineup(game_id)
     if game_state is None:
         raise HTTPException(status_code=404, detail="Game not found or expired")
-    return PublicCourtStateResponse(**state_machine.get_public_state(game_state))
+    return PublicCourtStateResponse(**state_machine.get_public_state(game_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +198,7 @@ async def select_player(
         raise HTTPException(status_code=400, detail=_error_detail(exc))
 
     await court_repo.save_lineup(new_state)
-    return PublicCourtStateResponse(**state_machine.get_public_state(new_state))
+    return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
 
 
 @router.post("/perfect-season/games/{game_id}/cancel", response_model=PublicCourtStateResponse)
@@ -218,7 +221,7 @@ async def cancel_selection(
         raise HTTPException(status_code=400, detail=_error_detail(exc))
 
     await court_repo.save_lineup(new_state)
-    return PublicCourtStateResponse(**state_machine.get_public_state(new_state))
+    return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
 
 
 @router.post("/perfect-season/games/{game_id}/place", response_model=PublicCourtStateResponse)
@@ -241,7 +244,7 @@ async def place_card(
         raise HTTPException(status_code=400, detail=_error_detail(exc))
 
     await court_repo.save_lineup(new_state)
-    return PublicCourtStateResponse(**state_machine.get_public_state(new_state))
+    return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
 
 
 @router.post("/perfect-season/games/{game_id}/complete", response_model=PublicCourtStateResponse)
@@ -264,4 +267,114 @@ async def complete_game(
         raise HTTPException(status_code=400, detail=_error_detail(exc))
 
     await court_repo.save_lineup(new_state)
-    return PublicCourtStateResponse(**state_machine.get_public_state(new_state))
+    return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
+
+
+# ---------------------------------------------------------------------------
+# Phase 6F Part G: developer-only manual lineup simulator (bypasses the
+# spinner entirely). Gated OFF by default -- never exposed publicly unless a
+# human explicitly sets PEAK3_DEV_TOOLS_ENABLED=true or
+# PEAK3_COURTBUILDER_READINESS_LEVEL=internal_dev. Uses the SAME
+# resolve_player_season_card/simulate_exact_season the real game uses -- no
+# separate/duplicated scoring logic. Prefer scripts/simulate_peak_season_lineup.py
+# for actual calibration work; this endpoint exists for quick in-browser/
+# API-client checks in a local dev environment.
+# ---------------------------------------------------------------------------
+
+class DevSlotInput(BaseModel):
+    slot: str
+    player_slug: str
+    season: str
+    team: str  # team_id (e.g. "GSW") or exact display name (e.g. "Golden State Warriors")
+
+
+class DevSimulateLineupRequest(BaseModel):
+    slots: list[DevSlotInput]
+    allow_unscored: bool = False
+
+
+def _dev_tools_enabled() -> bool:
+    return settings.DEV_TOOLS_ENABLED or settings.COURTBUILDER_READINESS_LEVEL == "internal_dev"
+
+
+def _resolve_dev_team_id(raw: str) -> Optional[str]:
+    if raw.upper() in TEAM_ID_TO_NAME:
+        return raw.upper()
+    key = raw.lower().replace(" ", "-")
+    for team_id, name in TEAM_ID_TO_NAME.items():
+        if name.lower().replace(" ", "-") == key:
+            return team_id
+    return None
+
+
+@router.post("/perfect-season/dev/simulate-lineup")
+async def dev_simulate_lineup(body: DevSimulateLineupRequest) -> dict:
+    if not _dev_tools_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "dev_tools_not_enabled",
+                "message": "Set PEAK3_DEV_TOOLS_ENABLED=true or PEAK3_COURTBUILDER_READINESS_LEVEL=internal_dev "
+                           "to use this endpoint. Prefer scripts/simulate_peak_season_lineup.py for calibration work.",
+            },
+        )
+
+    by_slot = {s.slot: s for s in body.slots}
+    missing = [s for s in SLOT_TYPES if s not in by_slot]
+    if missing:
+        raise HTTPException(status_code=400, detail={"error_code": "missing_slots", "message": f"Missing slot(s): {missing}"})
+
+    cards = []
+    warnings: list[str] = []
+    for slot in SLOT_TYPES:
+        e = by_slot[slot]
+        team_id = _resolve_dev_team_id(e.team)
+        if team_id is None:
+            raise HTTPException(status_code=400, detail={"error_code": "unknown_team", "message": f"Unrecognized team '{e.team}' for slot {slot}"})
+        card = resolve_player_season_card(e.player_slug, team_id, e.season)
+        if card is None:
+            raise HTTPException(
+                status_code=400,
+                detail={"error_code": "unresolvable_card", "message": f"[{slot}] '{e.player_slug}' has no real roster record for {team_id} {e.season}"},
+            )
+        if card.season != e.season or card.team_id != team_id:
+            raise HTTPException(
+                status_code=400,
+                detail={"error_code": "exact_season_mismatch", "message": f"[{slot}] resolved {card.team_id} {card.season} != requested {team_id} {e.season}"},
+            )
+        if card.score_status != "exact_season_scored" and not body.allow_unscored:
+            raise HTTPException(
+                status_code=400,
+                detail={"error_code": "unscored_card", "message": f"[{slot}] {card.player_name} {card.team_id} {card.season} is unscored -- pass allow_unscored=true to include it"},
+            )
+        if card.score_status != "exact_season_scored":
+            warnings.append(f"{slot}: {card.player_name} {card.team_id} {card.season} is unscored ({card.score_status})")
+        cards.append(card)
+
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    scored_count = sum(1 for c in cards if c.score_status == "exact_season_scored")
+
+    return {
+        "cards": [
+            {
+                "slot": slot, "player_slug": c.player_slug, "player_name": c.player_name,
+                "team_id": c.team_id, "team_name": c.team_name, "season": c.season,
+                "position": c.position, "season_score": c.season_score, "score_status": c.score_status,
+            }
+            for slot, c in zip(SLOT_TYPES, cards)
+        ],
+        "fit_components": fit.as_dict(),
+        "wins": result.wins,
+        "losses": result.losses,
+        "expected_wins": result.expected_wins,
+        "expected_wins_low": result.expected_wins_low,
+        "expected_wins_high": result.expected_wins_high,
+        "is_perfect_season": result.is_perfect_season,
+        "lineup_peak_score": result.lineup_peak_score,
+        "score_coverage": f"{scored_count}/{len(cards)}",
+        "best_pick": result.best_pick,
+        "structural_weakness": result.structural_weakness,
+        "decisive_factors": result.decisive_factors,
+        "warnings": warnings,
+    }

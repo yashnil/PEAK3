@@ -57,6 +57,29 @@ uncommitted cache directory — the earlier "Regeneration caveat" note in
 this document (claiming `regular_1980_2026.parquet` was gitignored) was
 itself stale and has been corrected above.
 
+## Phase 6F: ESPN asset manifests (2026-07-24)
+
+`data/game/assets/{player,team}_assets.v2.json`, `asset_sources.v1.json`,
+and `unresolved_player_assets.v1.json`, produced by
+`scripts/build_espn_asset_manifests.py --write`. Unlike the Phase 6D
+generators above, this one **does** require live network access (ESPN's
+public site API) to regenerate — so these are category 1 (canonical
+committed inputs) for the same reason `data/generated/*.csv` is, not
+category 2. CI must never run this script; it only ever reads the
+committed output.
+
+| Path | Category | Why |
+|---|---|---|
+| `team_assets.v2.json` (30/40 teams resolved) | 1 | Read at runtime by `nba_peak/perfect_season/assets.py::get_team_logo_url()`, joined into API responses only when `PEAK3_ENABLE_EXTERNAL_ASSET_URLS=True` (default `False`). Regenerating requires a live call to `site.api.espn.com`. |
+| `player_assets.v2.json` (56/250 players resolved, current rosters only) | 1 | Same runtime path, `get_player_headshot_url()`. Historical/retired players are honestly `resolution_status: "unresolved"` — never guessed. |
+| `asset_sources.v1.json` | 1 | Provenance registry (endpoint, fetch timestamp, license caveat) for every resolved entry — not read by runtime code, but committed so a future reviewer can audit where a URL came from without re-running the fetch. |
+| `unresolved_player_assets.v1.json` | 1 | Audit list of the 194 unresolved players and why — not read at runtime. |
+
+`player_assets.v1.json`/`team_assets.v1.json` (Phase 6E, all-null
+placeholders) remain committed and untouched; the `v2` files supersede
+them for any caller that opts into `PEAK3_ENABLE_EXTERNAL_ASSET_URLS`. No
+image binaries are committed by this generator — URLs and IDs only.
+
 ## `.gitignore` mechanics
 
 `cache/html/` and `cache/processed/` were previously ignored as whole

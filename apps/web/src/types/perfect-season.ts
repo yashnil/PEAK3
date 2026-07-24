@@ -83,6 +83,9 @@ export interface CurrentSpin {
   candidate_source?: string | null; // "exact_team_season" for team_year spins
   data_version?: string | null;
   coverage_mode?: string | null;
+  // Phase 6F Part C: only populated when the backend has
+  // ENABLE_EXTERNAL_ASSET_URLS on (default off).
+  team_logo_url?: string | null;
 }
 
 // Matches an exact-season era_label ("2015-16"), never a decade string.
@@ -105,6 +108,9 @@ export interface PendingSelection {
   // slot_type -> fit note, for every currently open slot -- lets the UI show
   // whether the pending pick fits each open spot before it's placed.
   fit_by_open_slot: Record<string, RoleFit>;
+  // Phase 6F Part C: only populated when the backend has
+  // ENABLE_EXTERNAL_ASSET_URLS on (default off).
+  headshot_url?: string | null;
 }
 
 export interface CourtSlotPublic {
@@ -134,6 +140,9 @@ export interface CourtSlotPublic {
   // (never fabricated, never a career-peak substitute).
   season_score?: number | null;
   resolved_via_spin_id?: string | null;
+  // Phase 6F Part C: only populated when the backend has
+  // ENABLE_EXTERNAL_ASSET_URLS on (default off).
+  headshot_url?: string | null;
 }
 
 export interface SimulationResultPublic {
@@ -158,6 +167,14 @@ export interface SimulationResultPublic {
   // instead of lineup_peak_score in that case (score substitution/
   // backfilling with a career-peak value is forbidden).
   lineup_score_status: "complete" | "incomplete";
+  // Phase 6F Part F: server-computed result explanation (see
+  // nba_peak/perfect_season/simulation.py's _best_pick_exact/
+  // _structural_weakness_exact) -- structural_weakness prioritizes roster
+  // CONSTRUCTION problems (named off-position starters, missing wing/big
+  // coverage, thin bench) over "whichever legend scored lowest". Both null
+  // for legacy peak-window boards.
+  best_pick?: string | null;
+  structural_weakness?: string | null;
 }
 
 export interface ProvisionalRecordRange {

@@ -99,7 +99,16 @@ export default function SeasonResultStub({ state, result }: Props) {
   const benchSlots = state.slots.filter((s) => BENCH_SLOT_TYPES.includes(s.slot_type));
   const isExactSeasonMode = state.experimental_team_year_data_version != null;
   const identity = teamIdentityPhrase(state.slots);
-  const { best, weakness } = bestAndWorstPick(state.slots);
+  // Phase 6F Part F: prefer the server-computed, structure-aware
+  // explanation (nba_peak.perfect_season.simulation._best_pick_exact /
+  // _structural_weakness_exact) -- it names off-position starters with
+  // slot context instead of blaming whichever legend happened to score
+  // lowest (the "Weakness: Rasheed Wallace" bug). Falls back to the older
+  // client-side score-only heuristic only for legacy peak-window boards,
+  // which the server doesn't compute these fields for.
+  const clientFallback = bestAndWorstPick(state.slots);
+  const best = result.best_pick ?? clientFallback.best;
+  const weakness = result.structural_weakness ?? clientFallback.weakness;
   const scoredSlotCount = state.slots.filter((s) => s.score_status === "exact_season_scored").length;
   const filledSlotCount = state.slots.filter((s) => s.filled).length;
 

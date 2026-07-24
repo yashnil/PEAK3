@@ -25,6 +25,9 @@ _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
+from app.core.config import settings  # noqa: E402
+from nba_peak.perfect_season.assets import get_player_headshot_url  # noqa: E402
+
 router = APIRouter()
 
 DATA_PATH = _repo_root / "data" / "game" / "experimental" / "player_pool_1500" / "top_1000_peaks.v1.json"
@@ -90,6 +93,17 @@ async def get_peaks(
         rows = [r for r in rows if q in r["player_name"].lower()]
     total_available = len(rows)
     rows = rows[:limit]
+
+    # Phase 6F Part C: real headshot URLs only behind the explicit,
+    # default-off flag -- see nba_peak.perfect_season.assets module
+    # docstring for the "metadata only, no license grant yet" caveat.
+    if settings.ENABLE_EXTERNAL_ASSET_URLS:
+        enriched_rows = []
+        for r in rows:
+            r = dict(r)
+            r["headshot_url"] = get_player_headshot_url(r["player_slug"])
+            enriched_rows.append(r)
+        rows = enriched_rows
 
     return PeaksResponse(
         window=window,

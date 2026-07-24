@@ -87,6 +87,7 @@ export default function SpinStage({
   const [phase, setPhase] = useState<CeremonyPhase>("spinning");
   const [teamTick, setTeamTick] = useState(0);
   const [secondTick, setSecondTick] = useState(0);
+  const [logoFailed, setLogoFailed] = useState(false);
   const isTwoWheel = spin.spin_type !== "open_pool";
   const isTeamYear = spin.spin_type === "team_year";
   // Defensive fallback only -- every two-wheel spin (team_decade,
@@ -189,21 +190,41 @@ export default function SpinStage({
             data-phase={phase}
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border-muted, #333)", minHeight: 108 }}
           >
-            <div
-              data-testid="team-badge"
-              aria-hidden="true"
-              className={`rounded-full flex items-center justify-center font-black text-base ${phase === "spinning" ? "spin-ceremony-reel-tick" : ""}`}
-              style={{
-                width: 52,
-                height: 52,
-                background: colors.primary,
-                color: colors.secondary,
-                border: `2.5px solid ${colors.secondary}`,
-                boxShadow: phase === "revealed" ? `0 0 0 4px color-mix(in srgb, ${colors.primary} 25%, transparent)` : undefined,
-              }}
-            >
-              {colors.initials}
-            </div>
+            {phase === "revealed" && spin.team_logo_url && !logoFailed ? (
+              // No configured remote-image domain allowlist yet -- see PlayerAvatar's module docstring.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                data-testid="team-badge"
+                src={spin.team_logo_url}
+                alt=""
+                aria-hidden="true"
+                width={52}
+                height={52}
+                style={{
+                  width: 52,
+                  height: 52,
+                  objectFit: "contain",
+                  boxShadow: `0 0 0 4px color-mix(in srgb, ${colors.primary} 25%, transparent)`,
+                }}
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <div
+                data-testid="team-badge"
+                aria-hidden="true"
+                className={`rounded-full flex items-center justify-center font-black text-base ${phase === "spinning" ? "spin-ceremony-reel-tick" : ""}`}
+                style={{
+                  width: 52,
+                  height: 52,
+                  background: colors.primary,
+                  color: colors.secondary,
+                  border: `2.5px solid ${colors.secondary}`,
+                  boxShadow: phase === "revealed" ? `0 0 0 4px color-mix(in srgb, ${colors.primary} 25%, transparent)` : undefined,
+                }}
+              >
+                {colors.initials}
+              </div>
+            )}
             <div className="min-w-0 w-full">
               <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
                 Team

@@ -81,6 +81,9 @@ class CurrentSpinPublic(BaseModel):
     candidate_source: Optional[str] = None  # "exact_team_season" for team_year spins
     data_version: Optional[str] = None
     coverage_mode: Optional[str] = None
+    # Phase 6F Part C: only populated when Settings.ENABLE_EXTERNAL_ASSET_URLS
+    # is true (default off).
+    team_logo_url: Optional[str] = None
 
 
 class PendingSelectionPublic(BaseModel):
@@ -100,6 +103,9 @@ class PendingSelectionPublic(BaseModel):
     # every currently open slot -- lets the UI show whether the pending pick
     # fits each open court/bench spot before it's placed (never blocking).
     fit_by_open_slot: dict[str, str] = {}
+    # Phase 6F Part C: only populated when Settings.ENABLE_EXTERNAL_ASSET_URLS
+    # is true (default off).
+    headshot_url: Optional[str] = None
 
 
 class CourtSlotPublic(BaseModel):
@@ -136,6 +142,9 @@ class CourtSlotPublic(BaseModel):
     # != "exact_season_scored" (not fabricated).
     season_score: Optional[float] = None
     resolved_via_spin_id: Optional[str] = None
+    # Phase 6F Part C: only populated when Settings.ENABLE_EXTERNAL_ASSET_URLS
+    # is true (default off).
+    headshot_url: Optional[str] = None
 
 
 class SimulationResultPublic(BaseModel):
@@ -158,6 +167,14 @@ class SimulationResultPublic(BaseModel):
     # incomplete score is reported as incomplete, never backfilled with a
     # career-peak or approximate value).
     lineup_score_status: str = "complete"
+    # Phase 6F Part F: server-computed result explanation -- best_pick is the
+    # highest real-score contributor; structural_weakness prioritizes roster
+    # CONSTRUCTION issues (named off-position starters, missing wing/big
+    # coverage, thin bench) over "whichever legend scored lowest". None for
+    # legacy peak-window boards (nba_peak.perfect_season.simulation.
+    # simulate_season doesn't compute these -- Peak Draft is unaffected).
+    best_pick: Optional[str] = None
+    structural_weakness: Optional[str] = None
 
 
 class ProvisionalRecordRange(BaseModel):

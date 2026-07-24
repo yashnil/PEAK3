@@ -126,7 +126,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
               </div>
 
               <div style={{ order: -1 }}>
-                <PlayerAvatar name={c.player_name} size={34} />
+                <PlayerAvatar name={c.player_name} size={34} imageUrl={c.headshot_url} />
               </div>
 
               <span
