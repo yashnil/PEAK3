@@ -105,10 +105,11 @@ export default function CourtBuilder({ initialGameState, franchiseNames, seasonL
         </span>
       </div>
       <p className="text-xs -mt-3" style={{ color: "var(--text-muted)" }} data-testid="position-logic-note">
-        Prototype mode: roster eligibility uses interim team-year coverage and
-        manual position checks. Full historical roster expansion is not yet
-        live — off-position placements are always allowed, and PEAK3 scores
-        your roster mostly on peak talent, not on penalizing a stacked lineup.
+        Prototype mode: every round is a real team + an exact season, and every
+        card is that exact player-season — never a substituted career peak.
+        Team-season coverage is still limited while it&apos;s being built out.
+        Off-position placements are always allowed, and PEAK3 scores your
+        roster mostly on peak talent, not on penalizing a stacked lineup.
       </p>
 
       <div

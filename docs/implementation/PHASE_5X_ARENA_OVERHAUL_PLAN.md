@@ -1,5 +1,62 @@
 # Phase 5X — Arena Overhaul Implementation Plan
 
+## Phase 6C (this session, 2026-07-24) — exact-season card fix, files changed
+
+New:
+- `nba_peak/perfect_season/exact_season.py` — `PlayerSeasonCard` dataclass +
+  `resolve_player_season_card()` / `resolve_exact_card_by_key()` /
+  `component_percentile()`, reading `cache/processed/regular_1980_2026.parquet`
+  + `cache/processed/scored_1980_2026.parquet` directly. No network access.
+
+Changed:
+- `nba_peak/perfect_season/board.py` — `generate_team_year_board()` rewritten:
+  candidates are now a team-season's full real roster (not intersected with
+  the career-peak card pool), sampled with replacement across all 8 rounds,
+  never falls back to `open_pool`. New `MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON
+  = 8` gate. `experimental_team_year_summary()` now reports rollability/
+  candidate-count spread.
+- `nba_peak/perfect_season/schemas.py` — `SpinPrompt.team_id`,
+  `CourtSlot.exact_player_season_key`,
+  `CourtLineupState.pending_selection_exact_season_key` added.
+- `nba_peak/perfect_season/positions.py` — `parse_real_position()` /
+  `classify_fit_from_position()` added: real per-season BR position string
+  → primary/secondary, used instead of the archetype fallback for team_year
+  cards (fixes the same "Duncan/Shaq show as PG" class of bug for this path).
+- `nba_peak/perfect_season/simulation.py` — `simulate_exact_season()` +
+  `compute_exact_fit_components()` added (parallel to the existing
+  `simulate_season()`, operating on `PlayerSeasonCard`).
+- `apps/api/app/services/perfect_season/state.py` — `action_select_player`/
+  `action_place_card`/`action_complete_game`/`get_public_state` all branch on
+  `spin.spin_type == "team_year"`; the exact-season-match invariant lives in
+  `action_select_player`.
+- `apps/api/app/models/perfect_season.py` — new optional fields on
+  `SpinCandidate`/`PendingSelectionPublic`/`CourtSlotPublic` (team_id,
+  team_name, season, identity_pool_status, score_status, season_score);
+  `SimulationResultPublic.lineup_score_status`;
+  `PublicCourtStateResponse.open_pool_enabled`; readiness response extended
+  with the exact-season-card-required contract fields.
+- `apps/api/app/api/v1/perfect_season.py` — readiness route passes through
+  the new summary fields.
+- `apps/api/requirements.txt` — added `pandas`/`pyarrow` (state.py now reads
+  `cache/processed/*.parquet` directly for this one mode; the rest of the API
+  remains read-only against `data/web/*.json`).
+- `scripts/build_experimental_team_year_dataset.py` — now emits `team_id`
+  per entry and regenerates
+  `data/game/experimental/player_pool_1500/courtbuilder_team_year.experimental.v1.json`
+  (v0 file superseded).
+- Frontend: `apps/web/src/types/perfect-season.ts`,
+  `components/court/{SpinStage,CourtBuilder,PeakCardCourt,EligiblePlayerSearch,
+  SeasonResultStub,CourtLayout}.tsx`, `styles/globals.css` (new spatial
+  half-court grid: PG top / SG right wing / SF left wing / PF low block / C
+  paint, replacing the Phase 6B plain PG..C row; real key/free-throw-circle/
+  arc markings behind it).
+
+Not done this session (real, substantial follow-up — see
+`PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`'s Phase 6C addendum): scaling
+team-season/1500-identity coverage beyond the 3 existing Golden State
+Warriors seasons, `scripts/review_player_pool_manifest.py`, and the Peak
+section's top-1000 1Y/3Y/5Y pages.
+
 **Status:** 5X.1 (Arena IA), 5X.2 (spin ceremony), 5X.3 (position-aware
 slots), and the deferred-reveal contract change originally scoped under
 5X.7 have been implemented, on `phase5-courtbuilder-vertical-slice` /

@@ -1,5 +1,61 @@
 # PEAK3 Arena Overhaul — Product Spec
 
+## Phase 6C — Exact-Season Card Fix (this session, 2026-07-24)
+
+**Root cause of the second manual-review rejection:** Phase 6A/6B built a
+real team+exact-season SPIN (the wheel correctly rolled "Golden State
+Warriors · 2017-18"), but SELECTING a candidate still resolved through
+`nba_peak.perfect_season.board.resolve_card(player_slug, duration_years)` —
+a lookup keyed only by player + duration against `card_profiles.v3.json`,
+which stores exactly one row per player per duration: that player's single
+best CAREER PEAK window. The rolled season/team were never passed to the
+resolver at all. Result: a 2017-18 Warriors Kevin Durant selection silently
+resolved to his 2013-14 OKC career-peak card — PEAK Season was functionally
+Peak Draft wearing a team+season costume.
+
+**The fix, in one sentence:** team-year mode now has its own resolver,
+`nba_peak.perfect_season.exact_season.resolve_player_season_card(player_slug,
+team_id, season)`, which reads `cache/processed/regular_1980_2026.parquet`
+(roster membership/position) and `cache/processed/scored_1980_2026.parquet`
+(the real, official per-season `prime_score`) directly — never
+`card_profiles.v3.json`. A hard invariant enforced in
+`apps/api/app/services/perfect_season/state.py::action_select_player` raises
+`CourtError("exact_season_mismatch", ...)` if the resolved card's team/season
+ever disagrees with what was rolled. See `PlayerSeasonCard` vs `CardProfile`:
+two distinct, never-interchangeable card types. Peak Draft
+(`nba_peak/lineup/`) and the legacy team+decade CourtBuilder path
+(`generate_board`/`resolve_card`) are completely untouched.
+
+**"Open Pool" removed from team-year mode.** It was the fallback used
+whenever the (3-entry, Warriors-only) team-year dataset couldn't fill all 8
+rounds. `generate_team_year_board` now samples real team-seasons WITH
+replacement (the same team-season can be rolled more than once per board —
+still a real team + exact season each time, never an unconstrained pool) and
+never falls back to `open_pool`. A team-season is only offered at all if it
+has ≥8 real roster candidates (`MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON`).
+
+**Honest score status, not fabrication.** A candidate/card carries
+`identity_pool_status` (`canonical_250` | `qualifies_1500` |
+`team_year_roster_only`) and `score_status` (`exact_season_scored` |
+`exact_season_unscored`) — e.g. Festus Ezeli is a real, selectable 2015-16
+Warriors roster candidate, honestly labeled `team_year_roster_only` /
+`exact_season_unscored` (below the model's minutes threshold that season),
+never silently upgraded or given a substitute score. The result screen shows
+"Prototype score incomplete" instead of a lineup score if any placed card is
+unscored (`score_substitution_allowed=false`, enforced in
+`simulation.py::simulate_exact_season`).
+
+**Still narrow, still honestly labeled as such.** This session fixed the
+*architecture* using the existing 3-entry (Golden State Warriors
+2015-16/2016-17/2017-18) team-year dataset as the proof case — every field
+above is now correct for those 3 seasons, verified end-to-end (backend
+pytest, Playwright, and a live browser session). Scaling team-season/player
+coverage across 1980-2026 (Parts 4/5/7 of the Phase 6C task: 1500-identity
+all-seasons table, broad team-season rosters, iconic-team-season sanity set,
+Peak-section top-1000 pages) is real, substantial follow-up work, not done
+in this session — see `docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`'s
+Phase 6C addendum for what's already available locally to build it from.
+
 ## Manual Review Rejection — Current CourtBuilder Is Not Ready (Phase 5X.7, 2026-07-23)
 
 **PR #3 remains draft. Do not mark it ready. Do not merge.** A manual

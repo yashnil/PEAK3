@@ -41,32 +41,60 @@ export type RoleFit = "primary" | "secondary" | "off_position" | "flexible";
 
 export const TOTAL_ROUNDS = 8;
 
+// identity_pool_status: canonical_250 | qualifies_1500 | team_year_roster_only | unresolved
+// score_status: exact_season_scored | exact_season_unscored | score_unavailable
+export type IdentityPoolStatus = "canonical_250" | "qualifies_1500" | "team_year_roster_only" | "unresolved";
+export type ScoreStatus = "exact_season_scored" | "exact_season_unscored" | "score_unavailable";
+
 export interface SpinCandidate {
   player_slug: string;
   player_name: string;
-  // v1 archetype-approximated position eligibility -- never a score. Shown
-  // during selection so a player can see "allowed positions" before picking.
+  // For legacy peak-window candidates this is the v1 archetype-approximated
+  // position; for team_year candidates it is the player's REAL per-season
+  // position. Never a score either way. Shown during selection so a player
+  // can see "allowed positions" before picking.
   primary_position: SlotType | null;
   secondary_positions: SlotType[];
+  // Phase 6C exact-season fields -- present only for team_year candidates.
+  team_id?: string | null;
+  team_name?: string | null;
+  season?: string | null;
+  identity_pool_status?: IdentityPoolStatus | null;
+  score_status?: ScoreStatus | null;
 }
 
 export interface CurrentSpin {
   round_number: number;
-  // "team_year" (Phase 6A): exact-season spins, e.g. era_label="2015-16" --
-  // never mixed with "team_decade"'s ERA_LABELS decade strings on the same
-  // board (the backend guarantees this; the UI must never assume otherwise).
+  // "team_year": exact-season spins, e.g. era_label="2015-16" -- never mixed
+  // with "team_decade"'s ERA_LABELS decade strings on the same board, and
+  // (Phase 6C) never "open_pool" either -- team_year boards only ever
+  // produce team_year spins now.
   spin_type: "team_decade" | "exact_team_season" | "team_year" | "open_pool";
   franchise_display_name: string | null;
   era_label: string | null;
   candidates: SpinCandidate[];
+  // Phase 6C team_year fields.
+  team_id?: string | null;
+  candidate_source?: string | null; // "exact_team_season" for team_year spins
+  data_version?: string | null;
+  coverage_mode?: string | null;
 }
 
 // Matches an exact-season era_label ("2015-16"), never a decade string.
 export const EXACT_SEASON_RE = /^\d{4}-\d{2}$/;
 
 export interface PendingSelection {
-  peak_window_id: string;
+  // Exactly one of these two is set, matching which card type this pending
+  // selection resolved to -- a PeakWindowCard (peak_window_id) or an exact
+  // PlayerSeasonCard (exact_player_season_key). Never both.
+  peak_window_id?: string | null;
+  exact_player_season_key?: string | null;
   player_name: string;
+  team_id?: string | null;
+  team_name?: string | null;
+  season?: string | null;
+  identity_pool_status?: IdentityPoolStatus | null;
+  score_status?: ScoreStatus | null;
   primary_position: SlotType | null;
   secondary_positions: SlotType[];
   // slot_type -> fit note, for every currently open slot -- lets the UI show
@@ -78,10 +106,17 @@ export interface CourtSlotPublic {
   slot_type: SlotType;
   filled: boolean;
   peak_window_id?: string | null;
+  exact_player_season_key?: string | null;
   player_name?: string | null;
   anchor_season?: string | null;
+  team_id?: string | null;
+  team_name?: string | null;
+  season?: string | null;
+  identity_pool_status?: IdentityPoolStatus | null;
+  score_status?: ScoreStatus | null;
   role_fit?: RoleFit | null;
-  // The placed player's own v1 archetype-approximated position(s) -- used
+  // The placed player's own position(s) -- v1 archetype-approximated for
+  // peak-window cards, real per-season position for team_year cards. Used
   // to explain an off-position placement ("plays SF"), not just flag it.
   primary_position?: SlotType | null;
   secondary_positions?: SlotType[];
@@ -89,6 +124,10 @@ export interface CourtSlotPublic {
   // for a filled slot before then. See ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.5.
   individual_peak_score?: number | null;
   individual_peak_rank?: number | null;
+  // Team-year mode's reveal-only score -- the real, official per-season
+  // PEAK3 prime_score. Null whenever score_status !== "exact_season_scored"
+  // (never fabricated, never a career-peak substitute).
+  season_score?: number | null;
   resolved_via_spin_id?: string | null;
 }
 
@@ -104,10 +143,16 @@ export interface SimulationResultPublic {
   decisive_factors: string[];
   is_perfect_season: boolean;
   experimental_notice: string;
-  // Phase 6A Goal 9: the durable, comparable score (0-100) -- a real mean of
-  // the 8 placed cards' own individual_peak_score values, distinct from the
-  // noisier 82-0 record. See simulation.py::simulate_season's own comment.
+  // The durable, comparable score (0-100) -- a real mean of the 8 placed
+  // cards' own individual_peak_score/season_score values, distinct from the
+  // noisier 82-0 record.
   lineup_peak_score: number;
+  // "complete" | "incomplete" -- team_year boards only. When "incomplete",
+  // at least one placed card has no exact-season score (score_status !==
+  // "exact_season_scored"); the UI MUST show "Prototype score incomplete"
+  // instead of lineup_peak_score in that case (score substitution/
+  // backfilling with a career-peak value is forbidden).
+  lineup_score_status: "complete" | "incomplete";
 }
 
 export interface CourtLineupPublicState {
@@ -128,6 +173,9 @@ export interface CourtLineupPublicState {
   experimental_team_year_data_version?: string | null;
   formula_version?: string | null;
   coverage_mode?: string | null;
+  // True only if this board contains a legacy open_pool spin (never true for
+  // team_year boards, which never produce one).
+  open_pool_enabled: boolean;
   simulation_result: SimulationResultPublic | null;
 }
 
@@ -173,6 +221,23 @@ export interface CourtBuilderReadiness {
   experimental_team_year_franchise_names: string[];
   experimental_team_year_season_count: number;
   experimental_team_year_season_labels: string[];
+  // Phase 6C: exact-season-card-required contract + coverage visibility.
+  supported_start_season: string;
+  supported_end_season: string;
+  target_end_season: string;
+  total_team_season_count: number;
+  rollable_team_season_count: number;
+  min_candidates_per_team_season: number;
+  max_candidates_per_team_season: number;
+  median_candidates_per_team_season: number;
+  open_pool_enabled: boolean;
+  exact_season_card_required: boolean;
+  score_substitution_allowed: boolean;
+  peak_card_substitution_allowed: boolean;
+  sample_supported_team_seasons: string[];
+  low_coverage_team_seasons: string[];
+  season_2025_26_coverage_status: string;
+  warnings: string[];
 }
 
 export const COURT_MODE_LABELS: Record<CourtMode, string> = {

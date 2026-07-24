@@ -116,6 +116,46 @@ POSITION_OVERRIDES: dict[str, tuple[str, tuple[str, ...]]] = {
 # Possible classify_fit() return values, for callers that want the full set.
 ROLE_FIT_VALUES = ("primary", "secondary", "off_position", "flexible")
 
+# Basketball-Reference per-season "Pos" strings use these five tokens, most-
+# played first (e.g. "PG-SG", "SF-PF"). PF-C/C-PF era-specific hybrid labels
+# some older seasons use are not present in this table's `pos` column, but
+# the split is defensive regardless.
+_REAL_POSITION_TOKENS = {"PG", "SG", "SF", "PF", "C"}
+
+
+def parse_real_position(pos: str | None) -> tuple[str | None, tuple[str, ...]]:
+    """Split a real Basketball-Reference `pos` string (e.g. "PG-SG", "C")
+    into (primary, secondary tuple). Unlike POSITION_OVERRIDES/
+    ARCHETYPE_POSITION_MAP (v1 approximations for the career-peak card pool),
+    this reads the player's actual listed position for THAT exact season --
+    used by team-year mode's exact PlayerSeasonCards, which carry a real
+    `position` field (nba_peak.perfect_season.exact_season.PlayerSeasonCard)
+    instead of an archetype. Returns (None, ()) if unparseable."""
+    if not pos:
+        return None, ()
+    tokens = [t.strip().upper() for t in str(pos).split("-") if t.strip().upper() in _REAL_POSITION_TOKENS]
+    if not tokens:
+        return None, ()
+    return tokens[0], tuple(tokens[1:])
+
+
+def classify_fit_from_position(pos: str | None, slot_type: str) -> str:
+    """classify_fit()'s counterpart for a real per-season position string
+    (team-year mode) instead of a player_slug + archetype lookup. Same
+    return contract: "primary" | "secondary" | "off_position" | "flexible".
+    Never gates placement legality -- display/fit-feedback only, exactly
+    like classify_fit()."""
+    if slot_type in BENCH_SLOTS:
+        return "flexible"
+    if slot_type not in STARTER_SLOTS:
+        return "off_position"
+    primary, secondary = parse_real_position(pos)
+    if primary == slot_type:
+        return "primary"
+    if slot_type in secondary:
+        return "secondary"
+    return "off_position"
+
 
 def _position_entry(player_slug: str | None, archetype: str | None) -> tuple[str, tuple[str, ...]] | None:
     """Resolve the (primary, secondaries) tuple for a player: manual

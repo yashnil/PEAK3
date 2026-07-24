@@ -377,22 +377,37 @@ def generate_board(
 
 
 # ---------------------------------------------------------------------------
-# Phase 6A: experimental team+YEAR (exact season) engine
+# Team+YEAR (exact season) engine
 #
 # Purely additive -- generate_board() and its team_decade/exact_team_season
 # path above are completely untouched. This engine reads a separate,
 # independently-versioned dataset (data/game/experimental/player_pool_1500/
-# courtbuilder_team_year.experimental.v0.json) and is only reachable when
+# courtbuilder_team_year.experimental.v1.json) and is only reachable when
 # COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=True. Every spin it produces is
 # spin_type="team_year" with an exact-season era_label (e.g. "2015-16") --
 # never mixed with a team_decade spin in the same board, per the product
 # instruction that the wheel must not mix decade and exact-year labels.
+#
+# Phase 6C fix: candidates are now the exact team-season's FULL real roster
+# (dataset's `player_slugs`, straight from regular_1980_2026.parquet -- see
+# scripts/build_experimental_team_year_dataset.py), not an intersection with
+# the career-peak card pool. Selecting a candidate resolves to an exact
+# nba_peak.perfect_season.exact_season.PlayerSeasonCard (see resolve_
+# exact_season_card below and apps/api/app/services/perfect_season/state.py's
+# action_select_player), never a PeakWindowCard. "Open Pool" no longer exists
+# for this engine: with only a handful of real team-seasons in the dataset,
+# rounds are filled by re-rolling (sampling WITH replacement) from the real
+# team-season entries rather than falling back to an unconstrained pool --
+# every round is still a real team + exact season, even if the same
+# team-season is rolled more than once in one board. A player identity can
+# still only be selected once per board (_can_assign_distinct), so a repeat
+# team-season roll simply offers a different rostermate.
 # ---------------------------------------------------------------------------
 
 
 def _default_experimental_team_year_path() -> Path:
     repo_root = Path(__file__).resolve().parent.parent.parent
-    return repo_root / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v0.json"
+    return repo_root / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v1.json"
 
 
 def _default_experimental_cards_path() -> Path:
@@ -478,14 +493,40 @@ def _merged_duration_pool(duration: int, profiles_path: Path | None, experimenta
 def experimental_team_year_summary(path: Path | None = None) -> dict:
     """Public summary of the experimental team+year dataset, for the
     readiness endpoint. Mirrors interim_team_summary()'s contract exactly
-    (safe diagnostic, never raises, {"available": False} if missing)."""
+    (safe diagnostic, never raises, {"available": False} if missing).
+
+    Phase 6C: also reports rollability (>=MIN_CANDIDATES_PER_ROLLABLE_TEAM_
+    SEASON real candidates) and candidate-count spread, so a coverage gap is
+    an inspectable API field rather than something only discoverable by
+    reading the dataset file directly.
+    """
+    empty = {
+        "available": False, "franchise_count": 0, "dataset_version": None, "franchise_names": [],
+        "season_count": 0, "season_labels": [], "total_team_season_count": 0, "rollable_team_season_count": 0,
+        "min_candidates": 0, "max_candidates": 0, "median_candidates": 0.0,
+        "sample_supported_team_seasons": [], "low_coverage_team_seasons": [],
+        "season_2025_26_coverage_status": "not_covered", "warnings": [],
+    }
     try:
         data = _load_experimental_team_year_dataset(path)
     except FileNotFoundError:
-        return {"available": False, "franchise_count": 0, "dataset_version": None, "franchise_names": [], "season_count": 0, "season_labels": []}
+        return empty
     entries = data.get("exact_team_year_spins", [])
+    if not entries:
+        return {**empty, "available": True, "dataset_version": data.get("dataset_version")}
+
     franchises = {e["franchise_display_name"] for e in entries}
     seasons = {e["season_label"] for e in entries}
+    counts = sorted(len(e.get("player_slugs", [])) for e in entries)
+    rollable = _rollable_team_year_entries(entries)
+    low_coverage = sorted(
+        f"{e['franchise_display_name']} {e['season_label']} ({len(e.get('player_slugs', []))} candidates)"
+        for e in entries if len(e.get("player_slugs", [])) < MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON
+    )
+    n = len(counts)
+    median = counts[n // 2] if n % 2 else (counts[n // 2 - 1] + counts[n // 2]) / 2
+    has_2025_26 = any(e["season_label"] == "2025-26" for e in entries)
+
     return {
         "available": True,
         "franchise_count": len(franchises),
@@ -493,92 +534,99 @@ def experimental_team_year_summary(path: Path | None = None) -> dict:
         "franchise_names": sorted(franchises),
         "season_count": len(entries),
         "season_labels": sorted(seasons),
+        "total_team_season_count": len(entries),
+        "rollable_team_season_count": len(rollable),
+        "min_candidates": counts[0],
+        "max_candidates": counts[-1],
+        "median_candidates": float(median),
+        "sample_supported_team_seasons": sorted(
+            f"{e['franchise_display_name']} {e['season_label']}" for e in rollable
+        )[:25],
+        "low_coverage_team_seasons": low_coverage,
+        "season_2025_26_coverage_status": "covered" if has_2025_26 else "not_covered_in_current_dataset",
+        "warnings": (
+            [] if len(rollable) == len(entries) else
+            [f"{len(entries) - len(rollable)} team-season(s) below the "
+             f"{MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON}-candidate rollability floor -- see low_coverage_team_seasons"]
+        ),
     }
+
+
+MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON = 8
+
+
+def _rollable_team_year_entries(entries: list[dict]) -> list[dict]:
+    """Entries with a real, exact-season roster of at least
+    MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON players. A team-season below
+    this bar is not offered as a spin at all (never padded, never offered
+    with a thin/misleading roster) -- see readiness endpoint's
+    low_coverage_team_seasons for visibility into what got excluded."""
+    return [e for e in entries if len(e.get("player_slugs", [])) >= MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON]
 
 
 def generate_team_year_board(
     mode: str,
     seed: int,
     board_type: str = "practice",
-    profiles_path: Path | None = None,
     experimental_team_year_path: Path | None = None,
-    experimental_cards_path: Path | None = None,
 ) -> PerfectSeasonBoard:
     """Generate a deterministic CourtBuilder board using exact team+season
-    spins (Phase 6A Goal 5), rather than team+decade spins.
+    spins -- every round is a real team + an exact season, and every
+    candidate offered is a real rostermate of that exact team-season.
 
     Raises:
         ValueError: Invalid mode.
         FileNotFoundError: Experimental team+year dataset missing (only
             reachable when COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=True;
             a missing file at that point is a broken checkout).
-        RuntimeError: Could not find a feasible (all-distinct-assignable)
-            board after MAX_BOARD_ATTEMPTS.
+        RuntimeError: No rollable team-season exists, or no feasible
+            (all-distinct-player-assignable) board could be found after
+            MAX_BOARD_ATTEMPTS. Never silently degrades to an unconstrained
+            "open pool" fallback -- see module docstring above.
     """
     if mode not in SUPPORTED_MODES:
         raise ValueError(f"Unsupported mode '{mode}'. Use one of {SUPPORTED_MODES}")
 
     duration = MODE_TO_YEARS[mode]
-    duration_pool = _merged_duration_pool(duration, profiles_path, experimental_cards_path)
-    if not duration_pool:
-        raise RuntimeError(f"No card pool available for duration {duration}yr")
 
     data = _load_experimental_team_year_dataset(experimental_team_year_path)
-    entries = [
+    all_entries = [
         {**e, "spin_type": "team_year", "era_label": e["season_label"]}
         for e in data.get("exact_team_year_spins", [])
     ]
+    entries = _rollable_team_year_entries(all_entries)
+    if not entries:
+        raise RuntimeError(
+            "No rollable team-season available (every entry has fewer than "
+            f"{MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON} real roster candidates). "
+            "This is a real data-coverage gap, not a bug -- see the readiness "
+            "endpoint's low_coverage_team_seasons."
+        )
 
     for attempt in range(MAX_BOARD_ATTEMPTS):
         rng = random.Random(seed + attempt * 997)
 
-        # Every playable team-year entry available (there are far fewer of
-        # these than TOTAL_ROUNDS in this pass's narrow-coverage dataset),
-        # weighted-sampled the same way the decade path prefers deeper
-        # rosters over sparse ones -- reusing _select_interim_entries keeps
-        # the selection rule identical across both engines rather than
-        # forking a second copy of the same weighting logic.
-        chosen = _select_interim_entries(entries, duration_pool, rng, TOTAL_ROUNDS)
-
+        # Sample WITH replacement, TOTAL_ROUNDS independent rolls -- every
+        # round is a real team + exact season, even when the dataset has
+        # fewer distinct team-seasons than TOTAL_ROUNDS. This replaces the
+        # old "open_pool" filler entirely (see module docstring above): a
+        # repeat roll of the same team-season is still a real, non-fabricated
+        # spin, unlike drawing from an unconstrained duration-only pool.
         spins: list[SpinPrompt] = []
         round_candidates: list[list[str]] = []
-        for i, (entry, candidates) in enumerate(chosen, start=1):
+        for i in range(1, TOTAL_ROUNDS + 1):
+            entry = entries[rng.randrange(len(entries))]
+            candidates = list(entry["player_slugs"])
             spins.append(SpinPrompt(
                 round_number=i,
-                spin_type=entry["spin_type"],
+                spin_type="team_year",
                 spin_id=entry["spin_id"],
                 franchise_display_name=entry.get("franchise_display_name"),
                 era_label=entry.get("era_label"),
                 candidate_player_slugs=candidates,
+                team_id=entry.get("team_id"),
             ))
             round_candidates.append(candidates)
-
-        # Narrow coverage in this pass means there may be fewer team-year
-        # entries than TOTAL_ROUNDS -- fill any remaining rounds from the
-        # merged duration pool (canonical + experimental), same fallback
-        # shape as generate_board()'s open_pool rounds, so a board is always
-        # exactly TOTAL_ROUNDS long even while coverage is being built out.
-        remaining_rounds = TOTAL_ROUNDS - len(spins)
-        if remaining_rounds > 0:
-            shuffled_pool = duration_pool.copy()
-            rng.shuffle(shuffled_pool)
-            pool_slugs = [c.player_slug for c in shuffled_pool]
-            chunk_size = FALLBACK_CANDIDATES_PER_ROUND
-            for j in range(remaining_rounds):
-                round_num = len(spins) + 1
-                start = (j * chunk_size) % max(len(pool_slugs), 1)
-                chunk = pool_slugs[start:start + chunk_size]
-                if len(chunk) < chunk_size:
-                    chunk += pool_slugs[: chunk_size - len(chunk)]
-                spins.append(SpinPrompt(
-                    round_number=round_num,
-                    spin_type="open_pool",
-                    spin_id=None,
-                    franchise_display_name=None,
-                    era_label=None,
-                    candidate_player_slugs=chunk,
-                ))
-                round_candidates.append(chunk)
 
         if any(len(c) == 0 for c in round_candidates):
             continue
@@ -602,11 +650,12 @@ def generate_team_year_board(
                 "attempts": attempt + 1,
                 "team_spin_enabled": True,
                 "team_year_enabled": True,
+                "open_pool_enabled": False,
                 "duration_years": duration,
-                "card_pool_size": len(duration_pool),
-                # Receipt fields (Phase 6A Goal 5/9): seed, round-level team+
-                # season are already on each SpinPrompt; these are the
-                # board-level receipt fields.
+                "rollable_team_season_count": len(entries),
+                # Receipt fields: seed, round-level team+season are already
+                # on each SpinPrompt; these are the board-level receipt
+                # fields.
                 "formula_version": EXPERIMENTAL_FORMULA_VERSION,
                 "coverage_mode": EXPERIMENTAL_TEAM_YEAR_COVERAGE_MODE,
                 "data_version": EXPERIMENTAL_TEAM_YEAR_DATA_VERSION,
@@ -615,7 +664,9 @@ def generate_team_year_board(
 
     raise RuntimeError(
         f"Could not generate a feasible CourtBuilder team-year board after "
-        f"{MAX_BOARD_ATTEMPTS} attempts (mode={mode}, seed={seed})"
+        f"{MAX_BOARD_ATTEMPTS} attempts (mode={mode}, seed={seed}) -- the "
+        "rollable team-seasons do not have enough combined distinct real "
+        "players to fill all 8 rounds without repeating an identity."
     )
 
 

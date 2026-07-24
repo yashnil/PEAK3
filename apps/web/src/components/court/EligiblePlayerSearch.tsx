@@ -52,6 +52,8 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="group" aria-label="Eligible players">
         {filtered.map((c) => {
           const positions = [c.primary_position, ...c.secondary_positions].filter(Boolean).join(" / ");
+          const isRosterOnly = c.identity_pool_status === "team_year_roster_only";
+          const isUnscored = c.score_status === "exact_season_unscored";
           return (
             <button
               key={c.player_slug}
@@ -74,15 +76,42 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
                   avatar's initials glyph. */}
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-bold truncate">{c.player_name}</div>
-                {positions && (
-                  <span
-                    data-testid="candidate-position-badge"
-                    className="inline-block text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 mt-0.5"
-                    style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
-                  >
-                    Plays {positions}
-                  </span>
+                {c.team_name && c.season && (
+                  <div className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="candidate-team-season">
+                    {c.team_name} · {c.season}
+                  </div>
                 )}
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {positions && (
+                    <span
+                      data-testid="candidate-position-badge"
+                      className="inline-block text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
+                      style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
+                    >
+                      Plays {positions}
+                    </span>
+                  )}
+                  {isRosterOnly && (
+                    <span
+                      data-testid="candidate-roster-only-badge"
+                      className="inline-block text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
+                      style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
+                      title="Real roster member; not in the canonical or 1500-player scored pool"
+                    >
+                      Roster-only
+                    </span>
+                  )}
+                  {isUnscored && (
+                    <span
+                      data-testid="candidate-unscored-badge"
+                      className="inline-block text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
+                      style={{ color: "#fb923c", background: "rgba(251,146,60,0.1)" }}
+                      title="No official PEAK3 score for this exact season (below the model's minutes threshold)"
+                    >
+                      Unscored
+                    </span>
+                  )}
+                </div>
               </div>
               <div style={{ order: -1 }}>
                 <PlayerAvatar name={c.player_name} size={38} />

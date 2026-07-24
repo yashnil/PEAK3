@@ -9,22 +9,24 @@ interface Props {
 }
 
 /**
- * Compact roster board (Phase 6B rebuild). Previously: 5 starter cards
- * absolutely-positioned on top of a small CSS-shape "half-court" diagram --
- * at mobile widths each slot was a ~70px-wide box holding 4 lines of text,
- * the direct cause of the "cramped labels"/"overlapping cards" finding. A
- * CSS grid cannot overlap by construction, so this rebuild replaces the
- * absolute-position geometry with a proper grid; "court-inspired" now comes
- * from the subtle grid-line texture (.roster-board::before, reusing the
- * existing --court-line token) and the position-ordered PG..C column
- * sequence, plus a small decorative hoop-glyph accent, instead of a literal
- * floating-cards-on-a-court-diagram layout.
+ * Spatial half-court roster board (Phase 6C rebuild). Phase 6B replaced an
+ * earlier absolute-positioned diagram with a plain PG..C grid row to fix
+ * cramped/overlapping labels at mobile widths -- but a flat row of 5 equal
+ * cards reads as a form, not a basketball court (Phase 6C manual review
+ * finding). This version keeps the Phase 6B fix (a named-area CSS grid
+ * cannot overlap by construction, same guarantee as the plain row) while
+ * actually placing each position where it's played: PG top (point, furthest
+ * from the hoop), SG right wing, SF left wing, PF low block, C paint --
+ * see .roster-board-slot-* / .roster-board-starters in globals.css. Real
+ * key/free-throw-circle/three-point-arc markings sit behind the grid
+ * (.roster-board-court-markings), visible only in the gaps between the
+ * opaque player cards -- decorative, pointer-events:none, never intercepts
+ * a click, same discipline as the pre-existing .court-hoop accent below.
  *
- * `data-testid="half-court"` and the `.court-hoop`-equivalent decorative
- * marker are kept so the existing "half-court renders visual court
- * markings" and "starters render on the half-court" Playwright assertions
- * (courtbuilder.spec.ts) still pass unchanged -- this is a visual-density
- * fix, not a data-contract change.
+ * `data-testid="half-court"` and the `.court-hoop` decorative marker are
+ * kept so the existing "half-court renders visual court markings" and
+ * "starters render on the half-court" Playwright assertions
+ * (courtbuilder.spec.ts) still pass unchanged.
  */
 export default function CourtLayout({ starterSlots, benchSlots, renderSlot }: Props) {
   return (
@@ -36,11 +38,20 @@ export default function CourtLayout({ starterSlots, benchSlots, renderSlot }: Pr
             Starters
           </span>
         </div>
+        <div className="roster-board-court-markings" aria-hidden="true">
+          <div className="roster-board-ft-circle" />
+          <div className="roster-board-paint" />
+          <div className="roster-board-arc" />
+        </div>
         <div className="roster-board-starters">
           {STARTER_SLOT_TYPES.map((slotType) => {
             const slot = starterSlots.find((s) => s.slot_type === slotType);
             if (!slot) return null;
-            return <div key={slotType}>{renderSlot(slot)}</div>;
+            return (
+              <div key={slotType} className={`roster-board-slot-${slotType}`}>
+                {renderSlot(slot)}
+              </div>
+            );
           })}
         </div>
       </div>

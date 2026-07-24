@@ -48,7 +48,12 @@ function fitColor(roleFit: RoleFit | null | undefined): string {
  */
 export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingFit, pendingPrimaryPosition }: Props) {
   const isBench = (BENCH_SLOT_TYPES as string[]).includes(slot.slot_type);
-  const revealed = slot.individual_peak_score != null;
+  // Team-year (exact-season) slots carry team_name/season instead of the
+  // legacy peak-window's anchor_season, and reveal season_score instead of
+  // individual_peak_score -- see nba_peak/perfect_season/exact_season.py's
+  // PlayerSeasonCard.
+  const isExactSeason = slot.exact_player_season_key != null;
+  const revealed = isExactSeason ? slot.season_score != null : slot.individual_peak_score != null;
   const fitLabel = slot.role_fit
     ? explainedFitLabel(ROLE_FIT_LABELS[slot.role_fit], slot.role_fit, slot.primary_position)
     : "";
@@ -81,7 +86,17 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
             <div className="text-xs font-bold truncate" style={{ color: "var(--text-primary)" }}>
               {slot.player_name}
             </div>
-            {revealed ? (
+            {isExactSeason ? (
+              <div className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="exact-season-line">
+                {slot.team_name} · {slot.season}
+                {revealed && (
+                  <span data-testid="revealed-score-line"> · {Math.round(slot.season_score ?? 0)} pts</span>
+                )}
+                {!revealed && slot.score_status === "exact_season_unscored" && (
+                  <span data-testid="score-unavailable-note"> · No official score</span>
+                )}
+              </div>
+            ) : revealed ? (
               <div className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="revealed-score-line">
                 {slot.anchor_season} · {Math.round(slot.individual_peak_score ?? 0)} pts · #{slot.individual_peak_rank}
               </div>

@@ -104,6 +104,16 @@ async def get_readiness(
         experimental_team_year_franchise_names=team_year_summary["franchise_names"],
         experimental_team_year_season_count=team_year_summary["season_count"],
         experimental_team_year_season_labels=team_year_summary["season_labels"],
+        total_team_season_count=team_year_summary.get("total_team_season_count", 0),
+        rollable_team_season_count=team_year_summary.get("rollable_team_season_count", 0),
+        min_candidates_per_team_season=team_year_summary.get("min_candidates", 0),
+        max_candidates_per_team_season=team_year_summary.get("max_candidates", 0),
+        median_candidates_per_team_season=team_year_summary.get("median_candidates", 0.0),
+        open_pool_enabled=False,
+        sample_supported_team_seasons=team_year_summary.get("sample_supported_team_seasons", []),
+        low_coverage_team_seasons=team_year_summary.get("low_coverage_team_seasons", []),
+        season_2025_26_coverage_status=team_year_summary.get("season_2025_26_coverage_status", "not_covered"),
+        warnings=team_year_summary.get("warnings", []),
     )
 
 

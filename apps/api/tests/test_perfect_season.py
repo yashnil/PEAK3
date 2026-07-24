@@ -489,19 +489,26 @@ def test_current_spin_candidates_never_expose_score_or_rank(client: TestClient):
         if state["status"] != "selection_pending":
             break
         candidates = state["current_spin"]["candidates"]
+        # Fields that would leak the hidden score/rank -- must never appear,
+        # in either the legacy peak-window shape or the team_year exact-
+        # season shape (which adds team/season/status metadata but still no
+        # score field on SpinCandidate/PendingSelectionPublic -- see
+        # app/models/perfect_season.py).
+        forbidden = {"individual_peak_score", "prime_score", "individual_peak_rank", "season_score"}
+        allowed_candidate_keys = {
+            "player_slug", "player_name", "primary_position", "secondary_positions",
+            "team_id", "team_name", "season", "identity_pool_status", "score_status",
+        }
         for c in candidates:
-            assert "individual_peak_score" not in c
-            assert "prime_score" not in c
-            assert "individual_peak_rank" not in c
-            # Position eligibility is allowed (never a score) -- see rule 7:
-            # "show name, eligible reason, and allowed positions."
-            assert set(c.keys()) == {"player_slug", "player_name", "primary_position", "secondary_positions"}
+            assert not (forbidden & set(c.keys()))
+            assert set(c.keys()) <= allowed_candidate_keys
         player_slug = candidates[0]["player_slug"]
         selected = _select(client, game_id, player_slug)
         # Pending selection (post-select, pre-place) also carries no score.
-        assert "individual_peak_score" not in selected["pending_selection"]
-        assert set(selected["pending_selection"].keys()) == {
-            "peak_window_id", "player_name", "primary_position", "secondary_positions", "fit_by_open_slot",
+        assert not (forbidden & set(selected["pending_selection"].keys()))
+        assert set(selected["pending_selection"].keys()) <= {
+            "peak_window_id", "exact_player_season_key", "player_name", "team_id", "team_name", "season",
+            "identity_pool_status", "score_status", "primary_position", "secondary_positions", "fit_by_open_slot",
         }
         open_slots = [s["slot_type"] for s in selected["slots"] if not s["filled"]]
         _place(client, game_id, open_slots[0])
@@ -987,12 +994,19 @@ def test_coverage_summary_invalid_mode_returns_unavailable():
 
 
 # ---------------------------------------------------------------------------
-# Phase 6A: experimental team+YEAR (exact season) engine
+# Phase 6C: exact-season team+YEAR engine (fixes the career-peak-substitution
+# bug -- see nba_peak/perfect_season/exact_season.py and
+# docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md's Phase 6C note)
 # ---------------------------------------------------------------------------
 
 from nba_peak.perfect_season.board import (  # noqa: E402
+    MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON,
     experimental_team_year_summary,
     generate_team_year_board,
+)
+from nba_peak.perfect_season.exact_season import (  # noqa: E402
+    resolve_exact_card_by_key,
+    resolve_player_season_card,
 )
 
 TEAM_YEAR_SEASON_RE = re.compile(r"^\d{4}-\d{2}$")
@@ -1007,31 +1021,33 @@ def test_team_year_board_is_deterministic_from_seed():
     assert board_a.seed == board_b.seed == 12345
 
 
-def test_team_year_board_never_mixes_decade_and_exact_year_labels():
-    """Goal 5: the wheel must not mix decade and exact-year labels on the
-    same board. Every spin is either spin_type='team_year' with an exact
-    'YYYY-YY' era_label, or the open_pool fallback (era_label=None) -- never
-    'team_decade'/'exact_team_season', and no era_label should ever be one of
-    the decade ERA_LABELS strings."""
+def test_team_year_board_never_produces_open_pool():
+    """Phase 6C: Open Pool no longer exists for team-year mode -- every round
+    is a real team + an exact season, even when the same team-season repeats
+    across rounds (sampling with replacement, see board.py's
+    generate_team_year_board)."""
     for seed in (1, 2, 3, 42, 99):
         board = generate_team_year_board(mode="apex_1y", seed=seed)
         assert len(board.spins) == TOTAL_ROUNDS
         for spin in board.spins:
-            assert spin.spin_type in ("team_year", "open_pool")
-            if spin.spin_type == "team_year":
-                assert spin.era_label not in ERA_LABELS
-                assert TEAM_YEAR_SEASON_RE.match(spin.era_label)
-                assert spin.franchise_display_name is not None
-            else:
-                assert spin.era_label is None
-                assert spin.franchise_display_name is None
+            assert spin.spin_type == "team_year"
+            assert spin.era_label not in ERA_LABELS
+            assert TEAM_YEAR_SEASON_RE.match(spin.era_label)
+            assert spin.franchise_display_name is not None
+            assert spin.team_id is not None
 
 
-def test_team_year_board_all_candidates_resolvable():
+def test_team_year_board_all_candidates_resolve_to_exact_season_card():
+    """Every team-year candidate resolves via resolve_player_season_card to
+    the EXACT team+season that was rolled -- never a different season, never
+    a different team, never a peak-window substitute."""
     board = generate_team_year_board(mode="apex_1y", seed=7)
     for spin in board.spins:
         for slug in spin.candidate_player_slugs:
-            assert resolve_card(slug, 1) is not None, f"unresolvable candidate: {slug}"
+            card = resolve_player_season_card(slug, spin.team_id, spin.era_label)
+            assert card is not None, f"unresolvable exact-season candidate: {slug} {spin.team_id} {spin.era_label}"
+            assert card.season == spin.era_label
+            assert card.team_id == spin.team_id
 
 
 def test_team_year_board_feasibility_all_distinct_assignment_exists():
@@ -1047,22 +1063,73 @@ def test_team_year_board_carries_receipt_fields():
     assert board.metadata["formula_version"]
     assert board.metadata["coverage_mode"]
     assert board.metadata["data_version"] == board.experimental_team_year_data_version
+    assert board.metadata["open_pool_enabled"] is False
 
 
-def test_team_year_board_resolves_real_experimental_extension_players():
-    """Regression for the exact bug fixed this session: a real GSW rostermate
-    who exists only in the experimental card extension (not the canonical
-    250-pool) must resolve to a real, non-null individual_peak_score via
-    resolve_card's experimental-cards fallback."""
+def test_team_year_board_every_rollable_team_season_has_min_candidates():
     board = generate_team_year_board(mode="apex_1y", seed=1)
-    all_slugs = {slug for spin in board.spins for slug in spin.candidate_player_slugs}
-    assert "shaun-livingston" in all_slugs or "zaza-pachulia" in all_slugs or "david-west" in all_slugs
-    for slug in ("shaun-livingston", "zaza-pachulia"):
-        if slug in all_slugs:
-            card = resolve_card(slug, 1)
-            assert card is not None
-            assert card.individual_peak_score is not None
-            assert isinstance(card.individual_peak_score, float)
+    for spin in board.spins:
+        assert len(spin.candidate_player_slugs) >= MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON
+
+
+def test_kd_2017_18_warriors_does_not_resolve_to_2013_14_okc():
+    """The exact bug this session fixes: selecting a 2017-18 Warriors Kevin
+    Durant candidate must never resolve to his 2013-14 OKC career-peak
+    card."""
+    kd_2017 = resolve_player_season_card("kevin-durant", "GSW", "2017-18")
+    kd_2013 = resolve_player_season_card("kevin-durant", "OKC", "2013-14")
+    assert kd_2017 is not None and kd_2013 is not None
+    assert kd_2017.season == "2017-18" and kd_2017.team_id == "GSW"
+    assert kd_2013.season == "2013-14" and kd_2013.team_id == "OKC"
+    assert kd_2017.season_score != kd_2013.season_score
+    # A 2017-18 GSW roll must never resolve KD to his 2013-14 team/season.
+    wrong = resolve_player_season_card("kevin-durant", "GSW", "2013-14")
+    assert wrong is None
+
+
+def test_kd_2016_17_warriors_resolves_to_2016_17_not_another_season():
+    card = resolve_player_season_card("kevin-durant", "GSW", "2016-17")
+    assert card is not None
+    assert card.season == "2016-17" and card.team_id == "GSW"
+
+
+def test_curry_2015_16_warriors_resolves_exactly():
+    card = resolve_player_season_card("stephen-curry", "GSW", "2015-16")
+    assert card is not None
+    assert card.season == "2015-16" and card.team_id == "GSW"
+    assert card.score_status == "exact_season_scored"
+    assert card.season_score is not None
+
+
+def test_iguodala_2015_16_warriors_appears_and_is_scored():
+    """Part 6 requirement: Andre Iguodala must appear for 2015-16 Warriors."""
+    card = resolve_player_season_card("andre-iguodala", "GSW", "2015-16")
+    assert card is not None
+    assert card.season == "2015-16" and card.team_id == "GSW"
+    assert card.score_status == "exact_season_scored"
+    assert card.season_score is not None
+    assert card.identity_pool_status == "canonical_250"
+
+
+def test_festus_ezeli_2015_16_is_honestly_roster_only_and_unscored():
+    """Festus Ezeli must appear as a real 2015-16 GSW roster candidate but
+    must NOT be silently upgraded to canonical_250/qualifies_1500 or given a
+    fabricated score -- see Part 6 of the Phase 6C task."""
+    card = resolve_player_season_card("festus-ezeli", "GSW", "2015-16")
+    assert card is not None
+    assert card.identity_pool_status == "team_year_roster_only"
+    assert card.score_status == "exact_season_unscored"
+    assert card.season_score is None
+
+
+def test_resolve_exact_card_by_key_roundtrips():
+    original = resolve_player_season_card("kevin-durant", "GSW", "2017-18")
+    by_key = resolve_exact_card_by_key(original.exact_player_season_key)
+    assert by_key is not None
+    assert by_key.player_slug == original.player_slug
+    assert by_key.team_id == original.team_id
+    assert by_key.season == original.season
+    assert by_key.season_score == original.season_score
 
 
 def test_experimental_team_year_summary_reports_real_dataset():
@@ -1071,15 +1138,16 @@ def test_experimental_team_year_summary_reports_real_dataset():
     assert summary["franchise_count"] >= 1
     assert summary["season_count"] >= 1
     assert summary["franchise_names"] == sorted(summary["franchise_names"])
+    assert summary["rollable_team_season_count"] <= summary["total_team_season_count"]
+    assert summary["min_candidates"] >= 1
 
 
 def test_experimental_team_year_summary_missing_file_is_safe_diagnostic(tmp_path):
     missing = tmp_path / "does_not_exist.json"
     summary = experimental_team_year_summary(missing)
-    assert summary == {
-        "available": False, "franchise_count": 0, "dataset_version": None,
-        "franchise_names": [], "season_count": 0, "season_labels": [],
-    }
+    assert summary["available"] is False
+    assert summary["franchise_count"] == 0
+    assert summary["dataset_version"] is None
 
 
 def test_old_team_decade_path_unaffected_by_team_year_engine():
@@ -1092,7 +1160,7 @@ def test_old_team_decade_path_unaffected_by_team_year_engine():
 
 
 # ---------------------------------------------------------------------------
-# Phase 6A: experimental team+YEAR engine, API-level
+# Phase 6C: exact-season team+YEAR engine, API-level
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
@@ -1119,12 +1187,40 @@ def test_readiness_reports_team_year_enabled_when_flagged(team_year_client: Test
     assert resp.json()["team_year_enabled"] is True
 
 
+def test_readiness_reports_no_score_or_peak_card_substitution(team_year_client: TestClient):
+    resp = team_year_client.get("/api/v1/perfect-season/readiness")
+    data = resp.json()
+    assert data["open_pool_enabled"] is False
+    assert data["exact_season_card_required"] is True
+    assert data["score_substitution_allowed"] is False
+    assert data["peak_card_substitution_allowed"] is False
+    assert data["supported_end_season"] == "2025-26"
+
+
 def test_create_game_with_team_year_enabled_yields_team_year_spins_and_receipt(team_year_client: TestClient):
     state = _create(team_year_client, mode="apex_1y", seed=42)
-    assert state["current_spin"]["spin_type"] in ("team_year", "open_pool")
+    assert state["current_spin"]["spin_type"] == "team_year"
+    assert state["current_spin"]["candidate_source"] == "exact_team_season"
+    assert state["open_pool_enabled"] is False
     assert state["experimental_team_year_data_version"] is not None
     assert state["formula_version"]
     assert state["coverage_mode"]
+
+
+def test_selected_card_matches_exact_rolled_team_and_season(team_year_client: TestClient):
+    """API-level regression for the core Phase 6C invariant: the pending
+    selection returned after /select must carry the SAME team+season as the
+    round that was rolled, never a substituted one."""
+    state = _create(team_year_client, mode="apex_1y", seed=3)
+    spin = state["current_spin"]
+    slug = spin["candidates"][0]["player_slug"]
+    game_id = state["game_id"]
+    state = _select(team_year_client, game_id, slug)
+    pending = state["pending_selection"]
+    assert pending["team_id"] == spin["team_id"]
+    assert pending["season"] == spin["era_label"]
+    assert pending["peak_window_id"] is None
+    assert pending["exact_player_season_key"] == f"{slug}-{spin['team_id'].lower()}-{spin['era_label'].replace('-', '')}"
 
 
 def test_lineup_peak_score_is_real_mean_of_placed_card_scores():
@@ -1146,7 +1242,7 @@ def test_team_year_game_completes_a_full_practice_attempt(team_year_client: Test
     for _ in range(TOTAL_ROUNDS):
         state = team_year_client.get(f"/api/v1/perfect-season/games/{game_id}").json()
         assert state["status"] == "selection_pending"
-        assert state["current_spin"]["spin_type"] not in ("team_decade", "exact_team_season")
+        assert state["current_spin"]["spin_type"] == "team_year"
         player_slug = state["current_spin"]["candidates"][0]["player_slug"]
         _select(team_year_client, game_id, player_slug)
         open_slots = [s["slot_type"] for s in state["slots"] if not s["filled"]]
@@ -1154,3 +1250,14 @@ def test_team_year_game_completes_a_full_practice_attempt(team_year_client: Test
     result = _complete(team_year_client, game_id)
     assert result["status"] == "result_ready"
     assert result["simulation_result"] is not None
+    assert result["simulation_result"]["lineup_score_status"] in ("complete", "incomplete")
+    for slot in result["slots"]:
+        assert slot["filled"] is True
+        assert slot["team_name"] is not None
+        assert slot["season"] is not None
+        assert slot["peak_window_id"] is None
+        # Score is only revealed once result_ready, and only for scored cards.
+        if slot["score_status"] == "exact_season_scored":
+            assert slot["season_score"] is not None
+        else:
+            assert slot["season_score"] is None

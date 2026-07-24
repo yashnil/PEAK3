@@ -73,12 +73,14 @@ export default function SeasonResultStub({ state, result }: Props) {
         </div>
       </div>
 
-      {/* The durable, comparable score (Phase 6A Goal 9) -- unlike the 82-0
-          record above (seeded RNG noise, capped at a fixed 82-game season),
-          this is a real mean of the 8 placed cards' own calibrated PEAK3
-          individual_peak_score values. Visually secondary to the record
-          (which stays the fun headline outcome) but the number worth
-          comparing across different rosters/runs. */}
+      {/* The durable, comparable score -- unlike the 82-0 record above
+          (seeded RNG noise, capped at a fixed 82-game season), this is a
+          real mean of the 8 placed cards' own calibrated PEAK3 scores.
+          Phase 6C: for team-year (exact-season) boards, this is withheld
+          entirely -- shown as "Prototype score incomplete" -- if even one
+          placed card has no exact-season score, rather than silently
+          backfilling with a career-peak or approximate value
+          (score_substitution_allowed=false). */}
       <div
         data-testid="lineup-peak-score"
         className="rounded-xl p-3 text-center"
@@ -87,15 +89,29 @@ export default function SeasonResultStub({ state, result }: Props) {
         <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
           PEAK3 Lineup Score
         </div>
-        <div className="text-3xl font-black" style={{ color: "var(--text-primary)" }}>
-          {result.lineup_peak_score.toFixed(1)}
-          <span className="text-sm font-normal" style={{ color: "var(--text-muted)" }}>
-            {" "}/ 100
-          </span>
-        </div>
-        <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-          Mean of your 8 cards&apos; real PEAK3 peak scores — the number to compare across runs.
-        </div>
+        {result.lineup_score_status === "incomplete" ? (
+          <>
+            <div className="text-xl font-black" style={{ color: "var(--text-muted)" }} data-testid="lineup-score-incomplete">
+              Prototype score incomplete
+            </div>
+            <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              One or more selected player-seasons has no official PEAK3 score yet (below the
+              model&apos;s minutes threshold) — the lineup score is not shown rather than estimated.
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-3xl font-black" style={{ color: "var(--text-primary)" }}>
+              {result.lineup_peak_score.toFixed(1)}
+              <span className="text-sm font-normal" style={{ color: "var(--text-muted)" }}>
+                {" "}/ 100
+              </span>
+            </div>
+            <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              Mean of your 8 cards&apos; real PEAK3 peak scores — the number to compare across runs.
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">

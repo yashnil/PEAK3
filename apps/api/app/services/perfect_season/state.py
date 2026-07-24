@@ -28,9 +28,22 @@ if str(_repo_root) not in sys.path:
 
 from nba_peak.perfect_season.board import find_spin, generate_board, generate_team_year_board, resolve_card
 from nba_peak.perfect_season.config import SLOT_TYPES, TOTAL_ROUNDS
-from nba_peak.perfect_season.positions import classify_fit, primary_position, secondary_positions
+from nba_peak.perfect_season.exact_season import (
+    PlayerSeasonCard,
+    resolve_exact_card_by_key,
+    resolve_player_season_card,
+)
+from nba_peak.perfect_season.positions import (
+    classify_fit,
+    classify_fit_from_position,
+    parse_real_position,
+    primary_position,
+    secondary_positions,
+)
 from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot
-from nba_peak.perfect_season.simulation import simulate_season
+from nba_peak.perfect_season.simulation import simulate_exact_season, simulate_season
+
+TEAM_YEAR_SPIN_TYPE = "team_year"
 
 VALID_MODES = {"apex_1y": 1, "prime_3y": 3, "foundation_5y": 5}
 
@@ -106,6 +119,10 @@ def _used_player_slugs(state: CourtLineupState) -> set[str]:
             card = resolve_card_by_window_id(state, slot.peak_window_id)
             if card:
                 used.add(card.player_slug)
+        elif slot.exact_player_season_key:
+            card = resolve_exact_card_by_key(slot.exact_player_season_key)
+            if card:
+                used.add(card.player_slug)
     return used
 
 
@@ -116,6 +133,10 @@ def resolve_card_by_window_id(state: CourtLineupState, peak_window_id: str):
         if card.peak_window_id == peak_window_id:
             return card
     return None
+
+
+def _is_team_year_spin(spin) -> bool:
+    return spin is not None and spin.spin_type == TEAM_YEAR_SPIN_TYPE
 
 
 def get_open_slot_types(state: CourtLineupState) -> list[str]:
@@ -156,14 +177,38 @@ def action_select_player(
             f"Player '{player_slug}' is already on this roster",
         )
 
-    card = resolve_card(player_slug, state.duration_years)
-    if card is None:
-        raise CourtError(
-            "card_not_resolvable",
-            f"Player '{player_slug}' has no resolvable card at this duration",
-        )
+    if _is_team_year_spin(spin):
+        # Phase 6C: team-year mode resolves an EXACT player-season, never a
+        # career-peak substitute. Hard invariant, not a best-effort lookup:
+        # the resolved card's team/season must match what was actually
+        # rolled, or this raises rather than silently drifting to a
+        # different season/team (e.g. a 2013-14 OKC card for a 2017-18 GSW
+        # roll).
+        card = resolve_player_season_card(player_slug, spin.team_id, spin.era_label)
+        if card is None:
+            raise CourtError(
+                "card_not_resolvable",
+                f"Player '{player_slug}' has no exact-season roster record for "
+                f"{spin.franchise_display_name} {spin.era_label}",
+            )
+        if card.season != spin.era_label or card.team_id != spin.team_id:
+            raise CourtError(
+                "exact_season_mismatch",
+                f"Resolved card {card.player_name} {card.team_id} {card.season} does not "
+                f"match the rolled team-season {spin.team_id} {spin.era_label}",
+            )
+        state.pending_selection_exact_season_key = card.exact_player_season_key
+        state.pending_selection_peak_window_id = None
+    else:
+        card = resolve_card(player_slug, state.duration_years)
+        if card is None:
+            raise CourtError(
+                "card_not_resolvable",
+                f"Player '{player_slug}' has no resolvable card at this duration",
+            )
+        state.pending_selection_peak_window_id = card.peak_window_id
+        state.pending_selection_exact_season_key = None
 
-    state.pending_selection_peak_window_id = card.peak_window_id
     state.pending_selection_spin_id = spin.spin_id
     state.status = "placement_pending"
     state.last_action_at = datetime.now(timezone.utc).isoformat()
@@ -182,10 +227,12 @@ def action_cancel_selection(state: CourtLineupState) -> CourtLineupState:
     current round's pending, not-yet-placed selection.
     """
     _assert_active(state)
-    if state.status != "placement_pending" or not state.pending_selection_peak_window_id:
+    has_pending = state.pending_selection_peak_window_id or state.pending_selection_exact_season_key
+    if state.status != "placement_pending" or not has_pending:
         raise CourtError("cancel_not_allowed", "No pending selection to cancel")
 
     state.pending_selection_peak_window_id = None
+    state.pending_selection_exact_season_key = None
     state.pending_selection_spin_id = None
     state.status = "selection_pending"
     state.last_action_at = datetime.now(timezone.utc).isoformat()
@@ -203,32 +250,39 @@ def action_place_card(
     round, or to 'rounds_complete' if this was the final slot.
     """
     _assert_active(state)
-    if state.status != "placement_pending" or not state.pending_selection_peak_window_id:
+    has_pending = state.pending_selection_peak_window_id or state.pending_selection_exact_season_key
+    if state.status != "placement_pending" or not has_pending:
         raise CourtError("place_not_allowed", "No pending selection to place")
 
     if slot_type not in SLOT_TYPES:
         raise CourtError("invalid_slot", f"Unknown slot_type '{slot_type}'")
 
     slot = next((s for s in state.slots if s.slot_type == slot_type), None)
-    if slot is None or slot.peak_window_id is not None:
+    if slot is None or slot.peak_window_id is not None or slot.exact_player_season_key is not None:
         raise CourtError("slot_not_open", f"Slot '{slot_type}' is not open")
 
-    slot.peak_window_id = state.pending_selection_peak_window_id
     slot.round_number = state.current_round
     slot.resolved_via_spin_id = state.pending_selection_spin_id
 
-    placed_card = resolve_card_by_window_id(state, slot.peak_window_id)
-    slot.role_fit = classify_fit(
-        placed_card.player_slug if placed_card else None,
-        placed_card.primary_role if placed_card else None,
-        slot_type,
-    )
+    if state.pending_selection_exact_season_key:
+        slot.exact_player_season_key = state.pending_selection_exact_season_key
+        placed_card = resolve_exact_card_by_key(slot.exact_player_season_key)
+        slot.role_fit = classify_fit_from_position(placed_card.position if placed_card else None, slot_type)
+    else:
+        slot.peak_window_id = state.pending_selection_peak_window_id
+        placed_card = resolve_card_by_window_id(state, slot.peak_window_id)
+        slot.role_fit = classify_fit(
+            placed_card.player_slug if placed_card else None,
+            placed_card.primary_role if placed_card else None,
+            slot_type,
+        )
 
     state.pending_selection_peak_window_id = None
+    state.pending_selection_exact_season_key = None
     state.pending_selection_spin_id = None
     state.last_action_at = datetime.now(timezone.utc).isoformat()
 
-    filled = sum(1 for s in state.slots if s.peak_window_id is not None)
+    filled = sum(1 for s in state.slots if s.peak_window_id is not None or s.exact_player_season_key is not None)
     if filled >= TOTAL_ROUNDS:
         state.status = "rounds_complete"
     else:
@@ -248,17 +302,32 @@ def action_complete_game(state: CourtLineupState) -> CourtLineupState:
     if state.status != "rounds_complete":
         raise CourtError("not_ready_to_complete", f"Cannot complete in status '{state.status}'")
 
-    cards = []
-    for slot in state.slots:
-        if not slot.peak_window_id:
-            raise CourtError("incomplete_roster", "Not all slots are filled")
-        card = resolve_card_by_window_id(state, slot.peak_window_id)
-        if card is None:
-            raise CourtError("card_not_resolvable", f"Could not resolve slot card '{slot.peak_window_id}'")
-        cards.append(card)
-
     slot_types = [s.slot_type for s in state.slots]
-    state.simulation_result = simulate_season(cards, state.board.seed, slot_types)
+    team_year_board = state.board.experimental_team_year_data_version is not None
+
+    if team_year_board:
+        exact_cards: list[PlayerSeasonCard] = []
+        for slot in state.slots:
+            if not slot.exact_player_season_key:
+                raise CourtError("incomplete_roster", "Not all slots are filled")
+            card = resolve_exact_card_by_key(slot.exact_player_season_key)
+            if card is None:
+                raise CourtError(
+                    "card_not_resolvable", f"Could not resolve slot card '{slot.exact_player_season_key}'"
+                )
+            exact_cards.append(card)
+        state.simulation_result = simulate_exact_season(exact_cards, state.board.seed, slot_types)
+    else:
+        cards = []
+        for slot in state.slots:
+            if not slot.peak_window_id:
+                raise CourtError("incomplete_roster", "Not all slots are filled")
+            card = resolve_card_by_window_id(state, slot.peak_window_id)
+            if card is None:
+                raise CourtError("card_not_resolvable", f"Could not resolve slot card '{slot.peak_window_id}'")
+            cards.append(card)
+        state.simulation_result = simulate_season(cards, state.board.seed, slot_types)
+
     state.status = "result_ready"
     state.last_action_at = datetime.now(timezone.utc).isoformat()
     return state
@@ -287,6 +356,7 @@ def get_public_state(state: CourtLineupState) -> dict:
     reveal at the end, instead of resolving the suspense once per pick.
     """
     spin = find_spin(state.board, state.current_round) if state.status == "selection_pending" else None
+    team_year_board = state.board.experimental_team_year_data_version is not None
 
     current_spin_public = None
     if spin is not None:
@@ -296,14 +366,40 @@ def get_public_state(state: CourtLineupState) -> dict:
             "franchise_display_name": spin.franchise_display_name,
             "era_label": spin.era_label,
             "candidates": [
-                _candidate_public(slug, state.duration_years)
+                (_candidate_public_exact(slug, spin.team_id, spin.era_label)
+                 if _is_team_year_spin(spin) else _candidate_public(slug, state.duration_years))
                 for slug in spin.candidate_player_slugs
                 if slug not in _used_player_slugs(state)
             ],
         }
+        if _is_team_year_spin(spin):
+            current_spin_public["team_id"] = spin.team_id
+            current_spin_public["candidate_source"] = "exact_team_season"
+            current_spin_public["data_version"] = state.board.experimental_team_year_data_version
+            current_spin_public["coverage_mode"] = state.board.metadata.get("coverage_mode")
 
     pending_card_public = None
-    if state.pending_selection_peak_window_id:
+    if state.pending_selection_exact_season_key:
+        card = resolve_exact_card_by_key(state.pending_selection_exact_season_key)
+        if card:
+            primary, secondary = parse_real_position(card.position)
+            pending_card_public = {
+                "exact_player_season_key": card.exact_player_season_key,
+                "player_name": card.player_name,
+                "team_id": card.team_id,
+                "team_name": card.team_name,
+                "season": card.season,
+                # No score here either -- still not locked into a slot yet.
+                "primary_position": primary,
+                "secondary_positions": list(secondary),
+                "identity_pool_status": card.identity_pool_status,
+                "score_status": card.score_status,
+                "fit_by_open_slot": {
+                    slot_type: classify_fit_from_position(card.position, slot_type)
+                    for slot_type in get_open_slot_types(state)
+                },
+            }
+    elif state.pending_selection_peak_window_id:
         card = resolve_card_by_window_id(state, state.pending_selection_peak_window_id)
         if card:
             pending_card_public = {
@@ -320,9 +416,32 @@ def get_public_state(state: CourtLineupState) -> dict:
 
     reveal_scores = state.status == "result_ready"
     slots_public = []
+    all_placed_scored = True
     for slot in state.slots:
-        entry: dict = {"slot_type": slot.slot_type, "filled": slot.peak_window_id is not None}
-        if slot.peak_window_id:
+        filled = slot.peak_window_id is not None or slot.exact_player_season_key is not None
+        entry: dict = {"slot_type": slot.slot_type, "filled": filled}
+        if slot.exact_player_season_key:
+            card = resolve_exact_card_by_key(slot.exact_player_season_key)
+            if card:
+                primary, secondary = parse_real_position(card.position)
+                entry.update({
+                    "exact_player_season_key": card.exact_player_season_key,
+                    "player_name": card.player_name,
+                    "team_id": card.team_id,
+                    "team_name": card.team_name,
+                    "season": card.season,
+                    "role_fit": slot.role_fit,
+                    "resolved_via_spin_id": slot.resolved_via_spin_id,
+                    "primary_position": primary,
+                    "secondary_positions": list(secondary),
+                    "identity_pool_status": card.identity_pool_status,
+                    "score_status": card.score_status,
+                })
+                if card.score_status != "exact_season_scored":
+                    all_placed_scored = False
+                if reveal_scores:
+                    entry.update({"season_score": card.season_score})
+        elif slot.peak_window_id:
             card = resolve_card_by_window_id(state, slot.peak_window_id)
             if card:
                 entry.update({
@@ -359,7 +478,16 @@ def get_public_state(state: CourtLineupState) -> dict:
             "decisive_factors": r.decisive_factors,
             "is_perfect_season": r.is_perfect_season,
             "experimental_notice": r.experimental_notice,
+            # Phase 6C: for team-year boards, lineup_peak_score is only a
+            # real number when every placed card has an exact-season score
+            # (simulate_exact_season already enforces this and returns 0.0
+            # otherwise) -- lineup_score_status tells the UI which case it
+            # is in, so it can show "Prototype score incomplete" instead of
+            # presenting 0.0 as a real result.
             "lineup_peak_score": r.lineup_peak_score,
+            "lineup_score_status": (
+                ("complete" if all_placed_scored else "incomplete") if team_year_board else "complete"
+            ),
         }
 
     return {
@@ -381,6 +509,7 @@ def get_public_state(state: CourtLineupState) -> dict:
         "experimental_team_year_data_version": state.board.experimental_team_year_data_version,
         "formula_version": state.board.metadata.get("formula_version"),
         "coverage_mode": state.board.metadata.get("coverage_mode"),
+        "open_pool_enabled": (not team_year_board) and any(s.spin_type == "open_pool" for s in state.board.spins),
         "simulation_result": simulation_public,
     }
 
@@ -402,4 +531,31 @@ def _candidate_public(player_slug: str, duration_years: int) -> dict:
         "player_name": card.player_name,
         "primary_position": primary_position(card.player_slug, card.primary_role),
         "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
+    }
+
+
+def _candidate_public_exact(player_slug: str, team_id: str, season: str) -> dict:
+    """Team-year mode's candidate entry: exact team + exact season + real
+    position + identity/score status -- never a score/rank before reveal
+    (same ADR-005 Decision 6 discipline as _candidate_public), and never a
+    peak-window id (this candidate resolves to a PlayerSeasonCard, not a
+    CardProfile)."""
+    card = resolve_player_season_card(player_slug, team_id, season)
+    if card is None:
+        return {
+            "player_slug": player_slug, "player_name": player_slug, "team_id": team_id, "season": season,
+            "primary_position": None, "secondary_positions": [],
+            "identity_pool_status": "unresolved", "score_status": "score_unavailable",
+        }
+    primary, secondary = parse_real_position(card.position)
+    return {
+        "player_slug": player_slug,
+        "player_name": card.player_name,
+        "team_id": card.team_id,
+        "team_name": card.team_name,
+        "season": card.season,
+        "primary_position": primary,
+        "secondary_positions": list(secondary),
+        "identity_pool_status": card.identity_pool_status,
+        "score_status": card.score_status,
     }

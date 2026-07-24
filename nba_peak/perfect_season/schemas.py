@@ -29,6 +29,12 @@ class SpinPrompt:
     franchise_display_name: Optional[str]
     era_label: Optional[str]  # decade_label or season_label, or None for open_pool
     candidate_player_slugs: list[str]
+    # Phase 6C: the exact team-season roll, required for team_year spins so
+    # action_select_player can resolve an exact PlayerSeasonCard (never a
+    # career-peak substitute) via nba_peak.perfect_season.exact_season.
+    # None for team_decade/exact_team_season/open_pool spins (those still
+    # resolve via the legacy CardProfile path).
+    team_id: Optional[str] = None
 
 
 @dataclass
@@ -76,6 +82,12 @@ class CourtSlot:
     # placement time by nba_peak.perfect_season.positions.classify_fit().
     # Display-only; never gates whether a placement is legal.
     role_fit: Optional[str] = None
+    # Phase 6C: set instead of peak_window_id for team_year-mode boards --
+    # an exact_season.PlayerSeasonCard.exact_player_season_key. The two
+    # fields are mutually exclusive per slot (never both set), reflecting
+    # the two entirely distinct card types (PeakWindowCard vs
+    # PlayerSeasonCard) rather than overloading peak_window_id's meaning.
+    exact_player_season_key: Optional[str] = None
 
 
 @dataclass
@@ -160,6 +172,9 @@ class CourtLineupState:
     # The candidate offered for the current round's selection step, before
     # being placed into a slot. Cleared once placed.
     pending_selection_peak_window_id: Optional[str] = None
+    # Phase 6C: set instead of pending_selection_peak_window_id when the
+    # current round is a team_year spin -- see CourtSlot.exact_player_season_key.
+    pending_selection_exact_season_key: Optional[str] = None
     pending_selection_spin_id: Optional[str] = None
     simulation_result: Optional[SimulationResult] = None
     created_at: str = ""

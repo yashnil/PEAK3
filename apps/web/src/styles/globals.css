@@ -334,17 +334,94 @@ html, body {
   pointer-events: none;
 }
 
+/* Phase 6C -- spatial half-court positions (PG top / SG right wing / SF left
+   wing / PF low block / C paint), replacing the Phase 6B plain PG..C row.
+   A named-area CSS grid cannot overlap by construction (same guarantee the
+   Phase 6B row already relied on), so this keeps that fix while actually
+   placing each position where it is played -- the "looks like a form, not a
+   basketball game" finding this pass addresses. */
 .roster-board-starters {
   position: relative;
+  z-index: 1;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-areas:
+    ".   pg  pg  ."
+    "sf  .   .   sg"
+    ".   pf  c   .";
+  gap: 10px;
+  padding-bottom: 6px;
 }
+
+.roster-board-slot-PG { grid-area: pg; }
+.roster-board-slot-SG { grid-area: sg; }
+.roster-board-slot-SF { grid-area: sf; }
+.roster-board-slot-PF { grid-area: pf; }
+.roster-board-slot-C  { grid-area: c; }
 
 @media (max-width: 480px) {
   .roster-board-starters {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "pg  pg"
+      "sf  sg"
+      "pf  c";
   }
+}
+
+/* Decorative key/paint + free-throw circle + three-point arc, layered
+   behind the starters grid (lower z-index; each slot card above it has an
+   opaque background, so the markings only show through the gaps -- the same
+   "decorative, pointer-events:none, never intercepts clicks" discipline as
+   the pre-existing .court-hoop/.court-half::after rules). Approximates a
+   real court's geometry without a licensed/literal diagram. */
+.roster-board-court-markings {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  width: 58%;
+  max-width: 220px;
+  aspect-ratio: 0.95;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.roster-board-court-markings .roster-board-paint {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 48%;
+  height: 78%;
+  transform: translateX(-50%);
+  border: 2px solid var(--border-emphasis);
+  border-bottom: none;
+  opacity: 0.55;
+}
+
+.roster-board-court-markings .roster-board-ft-circle {
+  position: absolute;
+  left: 50%;
+  bottom: 76%;
+  width: 40%;
+  aspect-ratio: 1;
+  border: 2px solid var(--border-emphasis);
+  border-radius: 50%;
+  transform: translate(-50%, 50%);
+  opacity: 0.45;
+}
+
+.roster-board-court-markings .roster-board-arc {
+  position: absolute;
+  left: 50%;
+  bottom: -22%;
+  width: 155%;
+  aspect-ratio: 1;
+  border: 2px solid var(--border-emphasis);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  opacity: 0.3;
+  clip-path: inset(0 0 58% 0);
 }
 
 .roster-board-bench {

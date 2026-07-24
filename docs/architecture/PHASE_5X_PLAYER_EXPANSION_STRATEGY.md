@@ -1,5 +1,58 @@
 # Phase 5X — Player Database Expansion Strategy (250 → 1500)
 
+## Phase 6C addendum (this session, 2026-07-24) — most of this is already local data, not new scraping
+
+An investigation this session found that the raw ingredients for the
+1500-identity/broad-team-season-coverage goal are **already committed
+locally**, spanning the full 1979-80..2025-26 range PEAK3 supports:
+
+- `cache/processed/regular_1980_2026.parquet` (20,573 raw player-seasons,
+  3,793 identities, 1,412 team-seasons) has real per-season `pos`
+  (position), `g`/`mp` (games/total minutes — real `mp/g` gives accurate
+  per-game minutes), and an `awards` string column already encoding
+  All-Star (`AS`), All-NBA (`NBA1`-`NBA3`), All-Defense (`DEF1`/`DEF2`),
+  MVP/DPOY voting rank (`MVP-N`/`DPOY-N`), ROY, 6MOY, MIP.
+- `data/generated/player_season_context.parquet` (20,573 rows × 47 cols)
+  already has derived `championship`, `finals_appearance`, `mvp_rank`,
+  `dpoy_rank`, `all_star`, `all_defense_team`, `all_nba_team` per
+  player-season, sourced per its own provenance table from "Basketball
+  Reference playoff bracket" (confidence 0.97).
+  `cache/processed/scored_1980_2026.parquet` (11,429 scored player-seasons)
+  has the real official per-season `prime_score`.
+- `scripts/audit_player_pool_expansion.py --write-manifest` already produced
+  a 1,885-identity draft manifest (exceeds the 1500 target via primary
+  criteria alone, `fallback_25mpg_count: 0`) at
+  `data/game/experimental/player_pool_1500/candidate_identity_manifest.v0.json`
+  (untracked; not staged this session — see the Phase 6C task's explicit
+  instruction not to stage it without approval).
+
+**Two real, honest gaps found, not yet closed:**
+1. `regular_1980_2026.parquet`'s `pts`/`trb`/`ast`/etc. columns are
+   **per-100-possessions**, not per-game (verified: Stephen Curry's 2015-16
+   row shows `pts=42.5`, which matches the per-100 conversion of his real
+   30.1 PPG at Golden State's pace, not 30.1 itself). The existing
+   `crit_15_ppg` criterion in `audit_player_pool_expansion.py` currently
+   compares this per-100 column directly against `MIN_PPG = 15.0` — likely
+   over-qualifying players relative to a true PPG threshold. Needs either a
+   genuine per-game PPG source column or a documented pace-based conversion
+   before the 15+ PPG criterion is trustworthy.
+2. A player traded mid-season only has a single `2TM`/`3TM` aggregate row in
+   this table (verified on Isaiah Thomas 2017-18, Anderson Varejão/Jason
+   Thompson 2015-16) — no per-team split of games/minutes, so
+   `resolve_player_season_card()` correctly returns `None` for a traded
+   player's specific team-stint rather than guessing. Closing this needs a
+   per-stint source (Basketball-Reference's individual team rows, same
+   domain already scraped — not a new external source).
+
+**Not yet built:** the all-seasons-for-every-qualifying-identity table,
+broad team-season roster coverage beyond the 3 Golden State Warriors
+seasons, `scripts/review_player_pool_manifest.py`, and wiring any of this
+into `courtbuilder_team_year.experimental.v1.json` beyond the current 3
+entries. The resolver and data model built this session
+(`nba_peak/perfect_season/exact_season.py`) are already shaped to consume a
+larger dataset with no further code changes — scaling is a data-generation
+task, not an architecture change.
+
 **Status:** Strategy/design only. No scraping, no data acquisition, no new
 files under `data/generated/`, `data/web/`, or `data/game/` are created by
 this document. No player names in this document represent confirmed,
