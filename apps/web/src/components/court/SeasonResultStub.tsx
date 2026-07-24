@@ -19,36 +19,44 @@ function recordFraming(wins: number, losses: number): string {
 }
 
 /**
- * The broadcast/reveal result screen. This is the ONLY place exact
- * score/rank is ever shown -- the server only includes them in `state.slots`
- * once status is "result_ready" (docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md
- * Sec 3.5/3.1 step 7), so rendering `state.slots` here via the same
- * PeakCardCourt used during roster-building naturally reveals them for the
- * first time -- no separate "reveal" data path to keep in sync.
+ * The broadcast/reveal result screen (Phase 6B: composed as a single
+ * cohesive "share-card" shell, .share-card-shell in globals.css, rather
+ * than a plain unframed vertical stack -- the literal "not shareable"
+ * finding this pass addresses). This is the ONLY place exact score/rank is
+ * ever shown -- the server only includes them in `state.slots` once status
+ * is "result_ready" (docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.5/
+ * 3.1 step 7), so rendering `state.slots` here via the same PeakCardCourt
+ * used during roster-building naturally reveals them for the first time --
+ * no separate "reveal" data path to keep in sync.
  *
- * Explicitly NOT the full broadcast-style presentation (animated count-up,
- * loss timeline, share card) from master plan Sec 13.6 -- those are
- * deferred (PHASE_5X_ARENA_OVERHAUL_PLAN.md Phase 5X.7). This is the
- * record/roster/breakdown moment, not the animated version of it.
+ * Explicitly NOT a real exported/rendered image (canvas/server-render) --
+ * that remains future work (product spec Sec 3.7). This pass makes the
+ * on-screen composition itself read as one self-contained, screenshot-able
+ * unit (bordered shell, PEAK3 accent rail, consistent internal rhythm).
  */
 export default function SeasonResultStub({ state, result }: Props) {
   const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
   const benchSlots = state.slots.filter((s) => BENCH_SLOT_TYPES.includes(s.slot_type));
 
   return (
-    <div data-testid="season-result" className="flex flex-col gap-4">
-      <div
-        className="text-[10px] uppercase tracking-wide rounded px-2 py-1 self-start"
-        style={{ background: "rgba(245,200,66,0.15)", color: "var(--peak-accent, #f5c842)" }}
-        data-testid="v0-simulator-label"
-      >
-        v0 prototype simulator
+    <div data-testid="season-result" className="share-card-shell flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-black uppercase tracking-widest" style={{ color: "var(--peak-accent, #f5c842)" }}>
+          PEAK3 · 82-0 Peak Season
+        </span>
+        <div
+          className="text-[10px] uppercase tracking-wide rounded px-2 py-1"
+          style={{ background: "rgba(245,200,66,0.15)", color: "var(--peak-accent, #f5c842)" }}
+          data-testid="v0-simulator-label"
+        >
+          v0 prototype simulator
+        </div>
       </div>
 
       <div className="text-center">
         <div
           data-testid="season-record"
-          className="text-4xl font-black"
+          className="text-5xl font-black"
           style={{ color: result.is_perfect_season ? "var(--peak-accent, #f5c842)" : "var(--text-primary)" }}
         >
           {result.wins}-{result.losses}
@@ -74,12 +82,12 @@ export default function SeasonResultStub({ state, result }: Props) {
       <div
         data-testid="lineup-peak-score"
         className="rounded-xl p-3 text-center"
-        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--peak-accent-dim)" }}
       >
         <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
           PEAK3 Lineup Score
         </div>
-        <div className="text-2xl font-black" style={{ color: "var(--text-primary)" }}>
+        <div className="text-3xl font-black" style={{ color: "var(--text-primary)" }}>
           {result.lineup_peak_score.toFixed(1)}
           <span className="text-sm font-normal" style={{ color: "var(--text-muted)" }}>
             {" "}/ 100
@@ -130,8 +138,8 @@ export default function SeasonResultStub({ state, result }: Props) {
 
       <div
         data-testid="result-receipt"
-        className="text-[10px] flex flex-wrap gap-x-3 gap-y-0.5"
-        style={{ color: "var(--text-muted)" }}
+        className="text-[10px] flex flex-wrap gap-x-3 gap-y-0.5 pt-1"
+        style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-default)" }}
       >
         <span>Seed {state.board_seed}</span>
         <span>{state.card_pool_version}</span>

@@ -14,6 +14,7 @@ import EligiblePlayerSearch from "./EligiblePlayerSearch";
 import PeakCardCourt from "./PeakCardCourt";
 import CourtLayout from "./CourtLayout";
 import SeasonResultStub from "./SeasonResultStub";
+import { getTeamColors } from "@/lib/team-colors";
 
 interface Props {
   initialGameState: CourtLineupPublicState;
@@ -149,11 +150,25 @@ export default function CourtBuilder({ initialGameState, franchiseNames, seasonL
           {phase === "spinning" && state.current_spin && ceremonyRevealed && (
             <div
               data-testid="candidate-panel"
-              className="rounded-2xl border p-4 flex flex-col gap-2"
+              className="rounded-2xl border p-4 flex flex-col gap-3"
               style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
             >
-              <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                Step 1 · Choose a player
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                  Step 1 · Choose a player
+                </div>
+                {state.current_spin.spin_type !== "open_pool" && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                      aria-hidden="true"
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ background: getTeamColors(state.current_spin.franchise_display_name).primary }}
+                    />
+                    <span className="text-[11px] font-semibold truncate max-w-[180px]" style={{ color: "var(--text-secondary)" }}>
+                      {state.current_spin.franchise_display_name} · {state.current_spin.era_label}
+                    </span>
+                  </div>
+                )}
               </div>
               <EligiblePlayerSearch
                 candidates={state.current_spin.candidates}
@@ -192,12 +207,10 @@ export default function CourtBuilder({ initialGameState, franchiseNames, seasonL
 
           {/* Middle/bottom: the court itself (PG/SG/SF/PF/C) with the bench
               rail beneath it -- always visible so the roster-in-progress
-              stays legible across both steps. */}
-          <div
-            data-testid="court-grid"
-            className="rounded-2xl border p-3 flex flex-col gap-2"
-            style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}
-          >
+              stays legible across both steps. CourtLayout's own
+              .roster-board provides the visual frame (Phase 6B) -- no
+              redundant outer box around it. */}
+          <div data-testid="court-grid" className="flex flex-col gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
               Your roster
             </div>

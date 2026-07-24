@@ -258,8 +258,13 @@ html, body {
   pointer-events: none;
 }
 
-.court-hoop {
-  /* Rim + backboard marker at the baseline -- purely decorative, aria-hidden. */
+/* Scoped to .court-half (the old absolute-position full-court diagram,
+   no longer rendered by any component as of Phase 6B -- see
+   CourtLayout.tsx) so these rules stay inert rather than leaking their
+   absolute-position geometry onto Phase 6B's reuse of the bare
+   `.court-hoop` class for a small inline decorative accent
+   (.roster-board-hoop-accent below controls that usage instead). */
+.court-half .court-hoop {
   position: absolute;
   left: 50%;
   bottom: 2%;
@@ -271,7 +276,7 @@ html, body {
   pointer-events: none;
 }
 
-.court-hoop::after {
+.court-half .court-hoop::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -294,6 +299,214 @@ html, body {
     width: 23%;
     min-width: 56px;
   }
+}
+
+/* ================================================================
+   Phase 6B -- compact roster board (replaces absolute-positioned
+   floating cards on a shape). A CSS grid cannot overlap by
+   construction, which is the direct fix for the "cramped/overlapping
+   labels" finding -- court flavor now comes from the subtle grid-line
+   texture (.court-grid-bg, already existed) plus a thin accent rail and
+   the position-ordered (PG..C) column sequence, not from literal
+   court-diagram geometry.
+   ================================================================ */
+
+.roster-board {
+  position: relative;
+  border-radius: 16px;
+  padding: 14px 12px 12px;
+  background:
+    linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-surface) 100%);
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+.roster-board::before {
+  /* Subtle grid-line court texture, reusing the existing --court-line
+     token -- decorative only, never intercepts clicks. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--court-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--court-line) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+}
+
+.roster-board-starters {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 480px) {
+  .roster-board-starters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.roster-board-bench {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* Small hoop glyph accent, purely decorative (aria-hidden), keeps a
+   literal basketball reference without the absolute-position collision
+   risk of the old full court-diagram approach. */
+.roster-board-hoop-accent {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--peak-accent-dim);
+  flex-shrink: 0;
+}
+
+.roster-board-hoop-accent::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  width: 160%;
+  height: 2px;
+  background: var(--border-emphasis);
+  transform: translateX(-50%);
+}
+
+/* ================================================================
+   Phase 6B -- player avatar shell (initials, no images)
+   ================================================================ */
+
+.player-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-weight: 800;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* ================================================================
+   Phase 6B -- candidate cards (game cards, not admin-UI list rows)
+   ================================================================ */
+
+.candidate-card-v2 {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border-radius: 14px;
+  padding: 10px 12px;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.candidate-card-v2:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--peak-accent-dim) !important;
+}
+
+.candidate-card-v2:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.candidate-card-v2:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* ================================================================
+   Phase 6B -- spin reel (premium reel/reveal feel)
+   ================================================================ */
+
+.spin-reel {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.spin-reel[data-phase="spinning"] {
+  box-shadow: inset 0 0 0 1px var(--border-emphasis);
+}
+
+.spin-reel[data-phase="locked"] {
+  box-shadow: inset 0 0 0 1px var(--peak-accent-dim), 0 0 0 3px rgba(245, 200, 66, 0.12);
+}
+
+.spin-reel[data-phase="revealed"] {
+  box-shadow: inset 0 0 0 1px var(--peak-accent-dim);
+}
+
+/* Faint vertical blur streaks behind the reel content while spinning --
+   pure CSS, no motion asset, neutralized entirely by the global
+   prefers-reduced-motion rule (animation-duration forced to 0.01ms). */
+@keyframes spin-reel-streak {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 -32px; }
+}
+
+.spin-reel-streak-bg[data-phase="spinning"] {
+  background-image: repeating-linear-gradient(
+    180deg,
+    rgba(245, 200, 66, 0.05) 0px,
+    rgba(245, 200, 66, 0.05) 2px,
+    transparent 2px,
+    transparent 16px
+  );
+  animation: spin-reel-streak 0.4s linear infinite;
+}
+
+.round-progress-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.round-progress-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--border-emphasis);
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.round-progress-dot[data-state="done"] {
+  background: var(--peak-accent, #f5c842);
+}
+
+.round-progress-dot[data-state="current"] {
+  background: var(--peak-accent, #f5c842);
+  transform: scale(1.3);
+}
+
+/* ================================================================
+   Phase 6B -- share-card result shell
+   ================================================================ */
+
+.share-card-shell {
+  position: relative;
+  border-radius: 20px;
+  padding: 18px 16px 16px;
+  background: linear-gradient(165deg, var(--bg-elevated) 0%, var(--bg-page) 100%);
+  border: 1px solid var(--border-emphasis);
+  box-shadow: 0 0 0 1px rgba(245, 200, 66, 0.08), 0 24px 48px -24px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.share-card-shell::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--peak-accent, #f5c842), transparent 70%);
+  pointer-events: none;
 }
 
 /* ================================================================

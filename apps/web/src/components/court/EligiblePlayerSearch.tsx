@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { SpinCandidate } from "@/types/perfect-season";
+import PlayerAvatar from "./PlayerAvatar";
 
 interface Props {
   candidates: SpinCandidate[];
@@ -9,14 +10,15 @@ interface Props {
 }
 
 /**
- * Search/browse eligible players for the current spin.
+ * Eligible-player candidate cards for the current spin (Phase 6B rebuild:
+ * real game cards, not a flat admin-UI list of text rows).
  *
  * ADR-005 Decision 6: this component NEVER renders a score or rank for any
  * candidate. `SpinCandidate` (types/perfect-season.ts) has no score field at
  * all, so there is nothing to accidentally render here -- the omission is
  * enforced by the type, not just by discipline in this file.
  *
- * Deliberately a plain list of buttons, not an ARIA listbox
+ * Still deliberately a plain list of buttons, not an ARIA listbox
  * (role="listbox"/"option"): that pattern implies roving-tabindex arrow-key
  * navigation, which this component does not implement, so applying the
  * roles without the behavior would be a misleading promise to assistive
@@ -47,7 +49,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
           aria-label="Search eligible players"
         />
       )}
-      <div className="flex flex-col gap-2" role="group" aria-label="Eligible players">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="group" aria-label="Eligible players">
         {filtered.map((c) => {
           const positions = [c.primary_position, ...c.secondary_positions].filter(Boolean).join(" / ");
           return (
@@ -57,23 +59,41 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
               data-player-slug={c.player_slug}
               disabled={disabled}
               onClick={() => onSelect(c.player_slug)}
-              className="text-left rounded-xl px-4 py-3 font-medium transition-all hover:opacity-90 flex items-center justify-between gap-3"
+              className="candidate-card-v2"
               style={{
                 background: "var(--bg-surface)",
                 border: "1px solid var(--border-default)",
                 color: "var(--text-primary)",
               }}
             >
-              <span>{c.player_name}</span>
-              {positions && (
-                <span
-                  data-testid="candidate-position-badge"
-                  className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 shrink-0"
-                  style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
-                >
-                  Plays {positions}
-                </span>
-              )}
+              {/* DOM order deliberately puts the name text node before the
+                  avatar's initials text node (order:-1 below only reorders
+                  visual/flex layout, not DOM/text order) -- innerText()
+                  returns text in DOM order, and this button's accessible/
+                  extractable name must be the player's name, not the
+                  avatar's initials glyph. */}
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-bold truncate">{c.player_name}</div>
+                {positions && (
+                  <span
+                    data-testid="candidate-position-badge"
+                    className="inline-block text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5 mt-0.5"
+                    style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
+                  >
+                    Plays {positions}
+                  </span>
+                )}
+              </div>
+              <div style={{ order: -1 }}>
+                <PlayerAvatar name={c.player_name} size={38} />
+              </div>
+              <span
+                aria-hidden="true"
+                className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-full px-2.5 py-1"
+                style={{ color: "var(--text-inverse)", background: "var(--peak-accent, #f5c842)" }}
+              >
+                Choose
+              </span>
             </button>
           );
         })}

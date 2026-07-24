@@ -1,6 +1,7 @@
 "use client";
 import type { CSSProperties } from "react";
 import { BENCH_SLOT_TYPES, CourtSlotPublic, ROLE_FIT_LABELS, RoleFit, SLOT_LABELS } from "@/types/perfect-season";
+import PlayerAvatar from "./PlayerAvatar";
 
 interface Props {
   slot: CourtSlotPublic;
@@ -25,32 +26,25 @@ function explainedFitLabel(label: string, roleFit: RoleFit | null | undefined, p
   return label;
 }
 
+function fitColor(roleFit: RoleFit | null | undefined): string {
+  if (roleFit === "off_position") return "#fb923c";
+  if (roleFit === "primary") return "var(--peak-accent, #f5c842)";
+  return "var(--text-secondary)";
+}
+
 /**
- * One court/bench slot. Empty slots show only the slot label -- once a slot
- * is filled, the server withholds `individual_peak_score`/`individual_peak_rank`
- * until the whole roster is locked and simulated (status "result_ready");
- * before that, this card shows only qualitative info ("peak locked" +
- * `anchor_season`, plus a role-fit note) per
- * docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.5. Once the score IS
- * present (post-reveal), the full line renders -- no separate prop needed,
- * this component just renders whatever the slot payload actually contains.
+ * One court/bench slot card (Phase 6B compact-grid rebuild). Same data
+ * contract and reveal discipline as before (server withholds
+ * `individual_peak_score`/`individual_peak_rank` until `result_ready`,
+ * ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.5) -- this pass only changes layout
+ * density (a single-line label/name/detail stack plus a small avatar,
+ * instead of four stacked lines fighting for a ~70px-wide absolutely-
+ * positioned box) so text stops colliding at small viewport widths.
  *
  * Renders as a real <button> only when actionable (onClick provided --
- * i.e. an open slot during the placement step). Filled slots and idle
- * empty slots render as a plain <div> instead of a disabled <button>:
- * a native `disabled` button drops out of the Tab order and some screen
- * readers skip announcing disabled elements in browse mode, which would
- * make an already-drafted player invisible to keyboard/AT users outside
- * the brief window they placed it in. A static div with the same text
- * content stays reachable through normal document reading order.
- *
- * No opacity dimming on idle slots: the previous `opacity: 0.6` (carried
- * over from when this was a disabled <button>) combined with
- * --text-muted's already-modest contrast to fail WCAG AA color-contrast --
- * axe never caught it before because axe exempts disabled controls from
- * the contrast check. Idle vs. filled is now conveyed by background
- * (--bg-surface vs. --bg-elevated) and content ("Open" vs. a player name)
- * alone, both at full opacity.
+ * i.e. an open slot during the placement step); filled/idle slots render
+ * as a plain <div> so already-placed players stay in normal reading/tab
+ * order (see prior version's note on why disabled <button> is avoided).
  */
 export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingFit, pendingPrimaryPosition }: Props) {
   const isBench = (BENCH_SLOT_TYPES as string[]).includes(slot.slot_type);
@@ -64,48 +58,49 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
 
   const content = (
     <>
-      <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-        {SLOT_LABELS[slot.slot_type]}
+      <div className="flex items-center justify-between gap-1 w-full">
+        <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+          {SLOT_LABELS[slot.slot_type]}
+        </span>
+        {slot.filled && fitLabel && (
+          <span
+            className="text-[8px] font-semibold uppercase tracking-wide rounded px-1 py-px shrink-0 truncate max-w-[60%]"
+            style={{ color: fitColor(slot.role_fit), background: "rgba(255,255,255,0.06)" }}
+            data-testid="role-fit-badge"
+            title={fitLabel}
+          >
+            {fitLabel}
+          </span>
+        )}
       </div>
+
       {slot.filled ? (
-        <>
-          <div className="text-sm font-bold text-center" style={{ color: "var(--text-primary)" }}>
-            {slot.player_name}
+        <div className="flex items-center gap-2 w-full min-w-0">
+          <PlayerAvatar name={slot.player_name ?? "?"} size={30} />
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-bold truncate" style={{ color: "var(--text-primary)" }}>
+              {slot.player_name}
+            </div>
+            {revealed ? (
+              <div className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="revealed-score-line">
+                {slot.anchor_season} · {Math.round(slot.individual_peak_score ?? 0)} pts · #{slot.individual_peak_rank}
+              </div>
+            ) : (
+              <div className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="peak-locked-note">
+                {slot.anchor_season} · Peak locked
+              </div>
+            )}
           </div>
-          {revealed ? (
-            <div className="text-xs" style={{ color: "var(--text-secondary)" }} data-testid="revealed-score-line">
-              {slot.anchor_season} · {Math.round(slot.individual_peak_score ?? 0)} pts · #{slot.individual_peak_rank}
-            </div>
-          ) : (
-            <div className="text-xs" style={{ color: "var(--text-secondary)" }} data-testid="peak-locked-note">
-              {slot.anchor_season} · Peak locked
-            </div>
-          )}
-          {fitLabel && (
-            <div
-              className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
-              style={{
-                color: slot.role_fit === "off_position" ? "#fb923c" : "var(--peak-accent, #f5c842)",
-                background: "rgba(255,255,255,0.06)",
-              }}
-              data-testid="role-fit-badge"
-            >
-              {fitLabel}
-            </div>
-          )}
-        </>
+        </div>
       ) : (
-        <div className="flex flex-col items-center gap-0.5">
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+        <div className="flex flex-col items-center justify-center gap-0.5 w-full py-1">
+          <div className="text-[11px] font-semibold" style={{ color: isPendingTarget ? "var(--peak-accent, #f5c842)" : "var(--text-muted)" }}>
             {isPendingTarget ? "Place here" : "Open"}
           </div>
           {pendingFitLabel && (
             <div
-              className="text-[10px] uppercase tracking-wide rounded px-1.5 py-0.5"
-              style={{
-                color: pendingFit === "off_position" ? "#fb923c" : "var(--peak-accent, #f5c842)",
-                background: "rgba(255,255,255,0.06)",
-              }}
+              className="text-[9px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
+              style={{ color: fitColor(pendingFit), background: "rgba(255,255,255,0.06)" }}
               data-testid="pending-fit-badge"
             >
               {pendingFitLabel}
@@ -120,7 +115,7 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
     "data-testid": "court-slot",
     "data-slot-type": slot.slot_type,
     "data-filled": slot.filled ? "true" : "false",
-    className: "rounded-xl p-3 flex flex-col items-center justify-center gap-1 min-h-[92px] transition-all",
+    className: "rounded-xl px-2 py-2 flex flex-col items-start justify-center gap-1 min-h-[64px] w-full transition-all",
     style: {
       background: slot.filled ? "var(--bg-elevated)" : "var(--bg-surface)",
       border: isPendingTarget
