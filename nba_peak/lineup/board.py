@@ -92,7 +92,15 @@ def _clear_profile_cache() -> None:
 # ---------------------------------------------------------------------------
 
 def _can_fill_all_roles(rounds: list[list[CardProfile]]) -> bool:
-    """Check via backtracking that some 1-card-per-round selection fills all 5 roles."""
+    """Check via backtracking that some 1-card-per-round selection fills all 5 roles.
+
+    NOTE: this proves existence of a valid completion, not that the natural
+    "just pick the first eligible thing" path finds it -- see
+    _greedy_playthrough_succeeds below, which is the check board generation
+    actually gates on. Kept as a cheap pre-filter (a board that fails this
+    can't pass the greedy check either) and because it's a useful, simpler
+    invariant on its own.
+    """
     def search(r_idx: int, filled: set[str]) -> bool:
         if r_idx == BOARD_ROUNDS:
             return set(ROLES) == filled
@@ -104,6 +112,38 @@ def _can_fill_all_roles(rounds: list[list[CardProfile]]) -> bool:
         return False
 
     return search(0, set())
+
+
+def _greedy_playthrough_succeeds(rounds: list[list[CardProfile]]) -> bool:
+    """Simulate the natural, no-lookahead path a real player (and the
+    daily-challenge e2e test) actually takes: each round, pick the first
+    offered card with any open-role match, then within that card pick the
+    first eligible role in ROLES order (mirrors DraftScreen.tsx's
+    `current_offers.map` + `data-testid="offer-card"` DOM order, and
+    RoleSelector.tsx's `DRAFT_ROLES.map` fixed-order role buttons -- both
+    "click the first available option" UI flows).
+
+    _can_fill_all_roles only proves SOME assignment exists via unconstrained
+    backtracking search order, which can require picking a *later*-listed
+    card or a *non-first* eligible role in an earlier round specifically to
+    keep a scarce role open for later -- foresight no real player (or this
+    test) has. A board that passes _can_fill_all_roles can still leave the
+    greedy path with zero eligible offers in a later round (the exact
+    "no eligible offer this round" CI failure this function exists to
+    prevent). Board generation gates on this function, not the weaker one.
+    """
+    filled: set[str] = set()
+    for round_offers in rounds:
+        picked_role: str | None = None
+        for card in round_offers:
+            open_matches = {r for r in card.eligible_roles if r not in filled}
+            if open_matches:
+                picked_role = next(r for r in ROLES if r in open_matches)
+                break
+        if picked_role is None:
+            return False
+        filled.add(picked_role)
+    return filled == set(ROLES)
 
 
 # ---------------------------------------------------------------------------
@@ -214,8 +254,13 @@ def generate_board(
         if any(_score_spread(rnd) < MIN_SCORE_SPREAD_WITHIN_ROUND for rnd in rounds_raw):
             continue
 
-        # Check role feasibility: at least one valid 5-role completion
+        # Check role feasibility: at least one valid 5-role completion exists
+        # (cheap pre-filter) AND the natural no-lookahead greedy path a real
+        # player takes actually completes it (the real guarantee -- see
+        # _greedy_playthrough_succeeds' docstring).
         if not _can_fill_all_roles(rounds_raw):
+            continue
+        if not _greedy_playthrough_succeeds(rounds_raw):
             continue
 
         # Build reframe branches
