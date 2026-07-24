@@ -107,12 +107,18 @@ SUPPORTED_MODES: list[str] = ["apex_1y", "prime_3y", "foundation_5y"]
 # Phase 6A: experimental team+YEAR (exact season) engine
 # ---------------------------------------------------------------------------
 # Bumped whenever data/game/experimental/player_pool_1500/courtbuilder_team_
-# year.experimental.v0.json changes -- see that file's own dataset_version.
+# year.experimental.v2.json changes -- see that file's own dataset_version.
 # Deliberately separate from INTERIM_TEAM_DATA_VERSION (the team+decade
 # path); the two engines are independently versioned and independently
 # flag-gated (COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED vs
 # COURTBUILDER_TEAM_SPIN_ENABLED).
-EXPERIMENTAL_TEAM_YEAR_DATA_VERSION = "courtbuilder_team_year.experimental.v0"
+# v1 (Phase 6C): added `team_id` per entry and switched candidates to the
+# team-season's full real roster. v2 (Phase 6D): computed from EVERY
+# team-season in regular_1980_2026.parquet (1,310 rollable team-seasons, 40
+# franchises, 1979-80..2025-26), not a hardcoded Warriors-only list -- see
+# build_experimental_team_year_dataset.py. The v0/v1 files this superseded
+# are both deleted; nothing at runtime reads them anymore.
+EXPERIMENTAL_TEAM_YEAR_DATA_VERSION = "courtbuilder_team_year.experimental.v2"
 
 # Surfaced verbatim in the team-year board's receipt metadata. Never
 # recomputed -- OFFICIAL_WEIGHTS itself lives in peak3.py and is read only,

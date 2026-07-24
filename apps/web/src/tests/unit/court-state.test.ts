@@ -36,6 +36,7 @@ function mockState(overrides: Partial<CourtLineupPublicState> = {}): CourtLineup
     card_pool_version: "v3",
     board_generator_version: "perfect_season_board_v2",
     interim_team_data_version: "courtbuilder_interim_teams.v3",
+    open_pool_enabled: false,
     simulation_result: null,
     ...overrides,
   };
@@ -115,6 +116,7 @@ describe("hasResult", () => {
         is_perfect_season: true,
         experimental_notice: "v0 experimental",
         lineup_peak_score: 92.5,
+        lineup_score_status: "complete",
       },
     });
     expect(hasResult(state)).toBe(true);

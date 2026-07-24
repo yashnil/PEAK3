@@ -31,29 +31,31 @@ this class of gap does not silently reappear.
 | `data/web/` | 2 | Rebuilt by `scripts/build_web_dataset.py` from `leaderboards/*.csv` (already committed, no network). CI's `web-dataset` job does this and passes it downstream as an artifact. Stays gitignored — correctly so. |
 | `cache/processed/` (remaining files) | 2, for future rebuilds | Documented as rebuildable via `peak3.py --build-context`/`--rebuild-data`, which does require network access when the cache is genuinely cold — this is a local-dev/data-refresh concern, not a CI concern, since CI never rebuilds this cache. |
 
-## Phase 6A addition: experimental team-year data (2026-07-23)
+## Phase 6D: experimental team-year + 1500-identity + PEAK Index data (2026-07-24)
 
-Two new generated files exist under
-`data/game/experimental/player_pool_1500/`, produced by
-`scripts/build_experimental_team_year_dataset.py` and
-`scripts/build_experimental_card_extension.py` respectively:
+Generated files under `data/game/experimental/player_pool_1500/`, produced
+by `scripts/build_experimental_team_year_dataset.py`,
+`scripts/audit_player_pool_expansion.py --write-manifest`,
+`scripts/build_top_peaks.py`, and `scripts/build_experimental_card_extension.py`
+respectively. All four generators read `cache/processed/regular_1980_2026.parquet`
+and/or `scored_1980_2026.parquet`, which ARE committed (category 1 — see
+the corrected row above; both were committed in the initial `3e10e29`
+commit, confirmed via `git ls-files`/`git log`), so all four are re-runnable
+on a clean CI checkout with no network access.
 
 | Path | Category | Why |
 |---|---|---|
-| `courtbuilder_team_year.experimental.v0.json` (4.3KB) | 1 (recommended) | Read at runtime by `nba_peak/perfect_season/board.py::_load_experimental_team_year_dataset()` — if `COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=True` and this file is missing, board generation raises `FileNotFoundError`. Same committed-interim-dataset precedent as `data/game/interim/courtbuilder_team_seasons.v3.json` (already category 1). **Not yet committed as of this pass** — see the after-editing report for the commit recommendation. |
-| `card_profiles.experimental.json` (43KB) | 1 (recommended) | Read at runtime by `nba_peak/perfect_season/board.py::_load_experimental_cards()`, the fallback path `resolve_card()` uses to resolve real GSW rostermates who have no canonical `card_profiles.v3.json` entry. Same reasoning as the row above. **Not yet committed as of this pass.** |
-| `candidate_identity_manifest.v0.json` (566KB) | 2 | Written by `scripts/audit_player_pool_expansion.py --write-manifest`, a pure audit/planning snapshot of the Phase 6A 1500-identity feasibility check. **Not read by any runtime code path** (verified: only the audit script itself references this filename) — cheaply regenerable on demand from the already-committed `cache/processed/scored_1980_2026.parquet` (category 1). By the same discipline that keeps `data/web/` gitignored, this large generated artifact should **not** be committed; regenerate via `python scripts/audit_player_pool_expansion.py --write-manifest` when needed. |
+| `courtbuilder_team_year.experimental.v2.json` (4.9MB) | 1 (recommended) | Read at runtime by `nba_peak/perfect_season/board.py::_load_experimental_team_year_dataset()` — if `COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=True` and this file is missing, board generation raises `FileNotFoundError`. Computed from every team-season in `regular_1980_2026.parquet` (1,310 rollable of 1,314 total, 40 franchises, 1979-80..2025-26) — not a hardcoded list. **v0 and v1 (both narrower, Warriors-only) are deleted**; `EXPERIMENTAL_TEAM_YEAR_DATA_VERSION`/`_default_experimental_team_year_path()` point only at v2. |
+| `card_profiles.experimental.json` (43KB) | 1 (recommended) | Read at runtime by `nba_peak/perfect_season/board.py::_load_experimental_cards()`, the fallback path `resolve_card()` uses to resolve real rostermates who have no canonical `card_profiles.v3.json` entry. |
+| `candidate_identity_manifest.v1.json` (1.3MB) | 1 (recommended) | Read at runtime by `nba_peak/perfect_season/exact_season.py::_load_1500_pool_slugs()` for every candidate's `identity_pool_status` classification — **this makes it runtime-load-bearing**, unlike the old v0 draft (which was never read by runtime code and was correctly never committed). 1,510 identities, generated deterministically from committed local data. |
+| `all_seasons_for_identities.v1.json` (4.1MB) | 2 (recommended, not currently read at runtime) | Every locally available regular-season row for every qualifying 1500-pool identity (14,133 rows) — currently a review/audit artifact (`scripts/review_player_pool_manifest.py`), not read by any live gameplay code path. Cheaply regenerable from committed data; commit recommended anyway so CI/review tooling doesn't require a local regeneration step, but not strictly required for CourtBuilder to function. |
+| `top_1000_peaks.v1.json` (877KB) | 1 (recommended) | Read at runtime by `apps/api/app/api/v1/peaks.py` (`GET /api/v1/peaks`) — missing file returns 503, not a crash, but the PEAK Index page needs it to function. |
+| `candidate_identity_manifest.v0.json` (566KB) | — (do not commit) | Superseded draft snapshot from Phase 6A/6C. Not read by any runtime code path. Not staged/committed per explicit instruction. |
 
-**Regeneration caveat:** `build_experimental_team_year_dataset.py` reads
-`cache/processed/regular_1980_2026.parquet`, which this document's own
-table above lists as category 2 ("not referenced by any test directly,"
-gitignored) — meaning that specific *generation script* cannot be re-run
-on a clean CI checkout today. This is not a problem for the two runtime
-JSON outputs themselves (once committed, they load exactly like any other
-category-1 file, never regenerated in CI), but it does mean anyone
-regenerating them locally needs a populated `cache/processed/` (same
-local-dev/data-refresh caveat this document already documents for the
-rest of that directory).
+None of these four generation scripts require network access or an
+uncommitted cache directory — the earlier "Regeneration caveat" note in
+this document (claiming `regular_1980_2026.parquet` was gitignored) was
+itself stale and has been corrected above.
 
 ## `.gitignore` mechanics
 

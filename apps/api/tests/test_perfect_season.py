@@ -1072,6 +1072,39 @@ def test_team_year_board_every_rollable_team_season_has_min_candidates():
         assert len(spin.candidate_player_slugs) >= MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON
 
 
+def test_team_year_dataset_is_not_warriors_only():
+    """Phase 6D: the spinner must roll from broad coverage, not just the 3
+    Golden State Warriors seasons the Phase 6A/6C narrow dataset had."""
+    summary = experimental_team_year_summary()
+    assert summary["franchise_count"] > 1
+    assert summary["season_count"] > 3
+    assert summary["rollable_team_season_count"] > 100
+    assert "Golden State Warriors" in summary["franchise_names"]
+    assert any(name != "Golden State Warriors" for name in summary["franchise_names"])
+
+
+def test_team_year_dataset_covers_full_supported_season_range():
+    summary = experimental_team_year_summary()
+    assert summary["season_2025_26_coverage_status"] == "covered"
+    assert "2025-26" in summary["season_labels"]
+    assert "1979-80" in summary["season_labels"] or min(summary["season_labels"]) <= "1980-81"
+
+
+def test_team_year_board_draws_from_multiple_teams_and_seasons_across_seeds():
+    """Across several different seeds, the board generator must actually use
+    its broad coverage -- not always land on the same team/season by
+    coincidence of RNG or a latent bug that only ever samples one entry."""
+    teams_seen: set[str] = set()
+    seasons_seen: set[str] = set()
+    for seed in range(1, 21):
+        board = generate_team_year_board(mode="apex_1y", seed=seed)
+        for spin in board.spins:
+            teams_seen.add(spin.team_id)
+            seasons_seen.add(spin.era_label)
+    assert len(teams_seen) > 5, f"expected many distinct teams across 20 seeds, got {teams_seen}"
+    assert len(seasons_seen) > 5, f"expected many distinct seasons across 20 seeds, got {seasons_seen}"
+
+
 def test_kd_2017_18_warriors_does_not_resolve_to_2013_14_okc():
     """The exact bug this session fixes: selecting a 2017-18 Warriors Kevin
     Durant candidate must never resolve to his 2013-14 OKC career-peak
@@ -1120,6 +1153,23 @@ def test_festus_ezeli_2015_16_is_honestly_roster_only_and_unscored():
     assert card.identity_pool_status == "team_year_roster_only"
     assert card.score_status == "exact_season_unscored"
     assert card.season_score is None
+
+
+def test_1500_manifest_v1_exists_and_excludes_festus_ezeli():
+    """Direct manifest-file check (not just the live resolver) -- Festus
+    Ezeli must not appear in the 1500-identity manifest at all, and Andre
+    Iguodala must."""
+    import json as _json
+    manifest_path = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "data" / "game" / "experimental" / "player_pool_1500" / "candidate_identity_manifest.v1.json"
+    )
+    assert manifest_path.exists(), "run: python scripts/audit_player_pool_expansion.py --write-manifest"
+    manifest = _json.loads(manifest_path.read_text())
+    assert manifest["final_identity_count"] >= 1500
+    slugs = {i["player_slug"] for i in manifest["identities"]}
+    assert "festus-ezeli" not in slugs
+    assert "andre-iguodala" in slugs
 
 
 def test_resolve_exact_card_by_key_roundtrips():

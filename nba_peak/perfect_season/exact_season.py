@@ -51,7 +51,7 @@ REGULAR_PATH = REPO_ROOT / "cache" / "processed" / "regular_1980_2026.parquet"
 SCORED_PATH = REPO_ROOT / "cache" / "processed" / "scored_1980_2026.parquet"
 FINAL_250_PATH = REPO_ROOT / "data" / "generated" / "final_250_candidates.csv"
 MANIFEST_1500_PATH = (
-    REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500" / "candidate_identity_manifest.v0.json"
+    REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500" / "candidate_identity_manifest.v1.json"
 )
 
 EXACT_SEASON_ROSTER_SOURCE = "cache/processed/regular_1980_2026.parquet"

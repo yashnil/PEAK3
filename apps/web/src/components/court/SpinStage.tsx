@@ -73,7 +73,12 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
   const [secondTick, setSecondTick] = useState(0);
   const isTwoWheel = spin.spin_type !== "open_pool";
   const isTeamYear = spin.spin_type === "team_year";
-  const teamPool = franchiseNames.length > 0 ? franchiseNames : [spin.franchise_display_name ?? "Open Pool"];
+  // Defensive fallback only -- every two-wheel spin (team_decade,
+  // exact_team_season, team_year) always carries a real franchise_display_name
+  // from the backend. If one somehow arrives null, this is a genuine missing-
+  // data state, not a normal "open pool" outcome -- label it honestly as
+  // such rather than with "Open Pool" branding (Phase 6C cleanup).
+  const teamPool = franchiseNames.length > 0 ? franchiseNames : [spin.franchise_display_name ?? "Team-season unavailable"];
   const secondPool = isTeamYear
     ? (seasonLabels.length > 0 ? seasonLabels : [spin.era_label ?? ""])
     : ERA_LABELS;
@@ -110,7 +115,7 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const teamDisplayName = phase === "spinning" ? teamPool[teamTick % teamPool.length] : spin.franchise_display_name ?? "Open Pool";
+  const teamDisplayName = phase === "spinning" ? teamPool[teamTick % teamPool.length] : spin.franchise_display_name ?? "Team-season unavailable";
   const secondDisplay = phase === "spinning" ? secondPool[secondTick % secondPool.length] : spin.era_label ?? "";
   const colors = getTeamColors(phase === "spinning" ? teamDisplayName : spin.franchise_display_name);
 
@@ -200,7 +205,13 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
         <div className="py-3 flex items-center justify-center gap-2" data-testid="spin-ceremony-spinning" role="status" aria-live="polite">
           {phase === "spinning" && <span className="spin-ceremony-dot" aria-hidden="true" />}
           <span className="text-lg font-bold" style={{ color: "var(--text-secondary)" }}>
-            {phase === "spinning" ? "Spinning the open pool…" : "Open Pool"}
+            {/* Legacy team+decade fallback only -- team_year mode never
+                produces spin_type "open_pool" (Phase 6C removed that path
+                entirely for team-year boards). Deliberately not branded
+                "Open Pool" -- describes what it actually is: an
+                unconstrained draw from the full duration pool, not a
+                team+season-constrained roll. */}
+            {phase === "spinning" ? "Spinning the full player pool…" : "Full player pool"}
           </span>
         </div>
       )}

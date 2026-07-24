@@ -1,5 +1,46 @@
 # PEAK3 Arena Overhaul — Product Spec
 
+## Phase 6D — Broad Coverage + 1500-Player Universe + PEAK Index (this session, 2026-07-24)
+
+Phase 6C fixed the exact-season CORRECTNESS bug but left the spinner narrow
+(3 Golden State Warriors seasons). Phase 6D scales it using only already-
+committed local data (`cache/processed/regular_1980_2026.parquet`,
+`scored_1980_2026.parquet`) -- no new scraping.
+
+**Broad team-season spinner (v2):** `courtbuilder_team_year.experimental.v2.json`
+is computed from EVERY team-season in the raw data, not a hardcoded list --
+**1,310 of 1,314 team-seasons are rollable** (≥8 real candidates), spanning
+**40 franchises** and **47 seasons (1979-80..2025-26)**. The 4 unsupported
+team-seasons (Dallas Mavericks 1996-97, New Jersey Nets 2007-08, New York
+Knicks 2008-09/2010-11) have genuinely thin local rosters (5-7 logged
+players) and are excluded rather than padded. Open Pool remains completely
+absent from team-year mode. `EXPERIMENTAL_TEAM_YEAR_DATA_VERSION` now points
+at v2; v0 and v1 are both deleted.
+
+**1500-player identity universe:** `scripts/audit_player_pool_expansion.py
+--write-manifest` produces a **1,510-identity** manifest (exceeds the 1500
+target via primary criteria alone) plus a companion all-seasons table
+(14,133 player-season rows -- every locally available regular-season row,
+rookie/bench/decline/traded seasons included, for every qualifying
+identity, through 2025-26). `scripts/review_player_pool_manifest.py` makes
+per-player/per-criterion status inspectable
+(`--summary` / `--player "Festus Ezeli"` / `--criterion 30_mpg` / `--csv`).
+One real, documented approximation: no genuine per-game points column
+exists anywhere locally (only Basketball-Reference's per-100-possessions
+table was ever scraped), so the "15+ PPG" criterion uses `pts_per75` as a
+labeled proxy, not literal PPG -- see `PPG_CAVEAT` in the generator script.
+
+**PEAK Index (top-1000 1Y/3Y/5Y):** `/rankings` now has a "PEAK Index · Top
+1000" tab alongside the unchanged canonical "Top 250" tab, backed by a new
+`GET /api/v1/peaks?window=1y|3y|5y` endpoint. The underlying data
+(`top_1000_peaks.v1.json`) is produced by re-running the SAME official,
+unmodified `peak3.n_year_windows`/`calibrate_score` functions (via
+`nba_peak.leaderboards.build_leaderboard`) against the full 2,016-player
+scored universe instead of the 250-pool -- zero new scoring logic. Verified
+real: #1 for 1Y is Michael Jordan's 1990-91 season (97.5); 5Y tops out at
+858 rows (not padded to 1000) since fewer players have 5 eligible
+consecutive seasons.
+
 ## Phase 6C — Exact-Season Card Fix (this session, 2026-07-24)
 
 **Root cause of the second manual-review rejection:** Phase 6A/6B built a

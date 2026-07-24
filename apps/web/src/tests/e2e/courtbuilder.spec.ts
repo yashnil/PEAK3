@@ -122,24 +122,39 @@ test.describe("CourtBuilder score-hiding contract", () => {
   test("candidate cards never render a numeric score before selection", async ({ page }) => {
     await startCourtBuilder(page);
     const candidateText = await page.locator('[data-testid="candidate-card"]').first().innerText();
-    // A candidate card renders the player's name and an allowed-positions
-    // badge (letters only, e.g. "PG / SG") -- no digits from a score/rank
-    // should ever appear in its text content.
-    expect(/\d/.test(candidateText)).toBe(false);
+    // A candidate card renders the player's name, allowed-positions badge,
+    // and (team_year mode only) the exact team + season it was rolled from
+    // (e.g. "2015-16") -- real digits, but not a score. What must never
+    // appear is an actual score/rank marker ("pts", "#<rank>", or a
+    // decimal PEAK3-style score).
+    const lower = candidateText.toLowerCase();
+    expect(lower).not.toMatch(/\d+(\.\d+)?\s*pts/);
+    expect(lower).not.toMatch(/#\d+/);
   });
 
-  test("a filled slot shows 'peak locked', never a score, until the roster is fully revealed", async ({ page }) => {
+  test("a filled slot shows 'peak locked' or the exact season, never a score, until the roster is fully revealed", async ({ page }) => {
     await startCourtBuilder(page);
     await playOneRound(page);
     // Exactly one slot is filled at this point (mid-run) -- it must show
-    // the qualitative "peak locked" note, never a revealed score line.
-    await expect(page.locator('[data-testid="peak-locked-note"]')).toHaveCount(1);
+    // the qualitative note (legacy "peak locked", or team_year's exact
+    // team+season line), never a revealed score line.
     await expect(page.locator('[data-testid="revealed-score-line"]')).toHaveCount(0);
-    const lockedText = await page.locator('[data-testid="peak-locked-note"]').innerText();
-    // "Peak locked" text may legitimately contain the season string (e.g.
-    // "1990-91"), which has digits -- so instead of a blanket no-digits
-    // check, assert the literal score-reveal marker text is absent.
-    expect(lockedText.toLowerCase()).toContain("peak locked");
+    const lockedNote = page.locator('[data-testid="peak-locked-note"]');
+    const exactSeasonNote = page.locator('[data-testid="exact-season-line"]');
+    const lockedCount = await lockedNote.count();
+    const exactCount = await exactSeasonNote.count();
+    expect(lockedCount + exactCount).toBe(1);
+    if (lockedCount) {
+      const lockedText = (await lockedNote.innerText()).toLowerCase();
+      // "Peak locked" text may legitimately contain the season string (e.g.
+      // "1990-91"), which has digits -- so instead of a blanket no-digits
+      // check, assert the literal score-reveal marker text is absent.
+      expect(lockedText).toContain("peak locked");
+    } else {
+      const exactText = (await exactSeasonNote.innerText()).toLowerCase();
+      // The exact-season line shows "Team Name · YYYY-YY", never a score.
+      expect(exactText).not.toMatch(/\d+(\.\d+)?\s*pts/);
+    }
   });
 });
 

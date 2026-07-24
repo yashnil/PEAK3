@@ -44,14 +44,36 @@ locally**, spanning the full 1979-80..2025-26 range PEAK3 supports:
    per-stint source (Basketball-Reference's individual team rows, same
    domain already scraped — not a new external source).
 
-**Not yet built:** the all-seasons-for-every-qualifying-identity table,
-broad team-season roster coverage beyond the 3 Golden State Warriors
-seasons, `scripts/review_player_pool_manifest.py`, and wiring any of this
-into `courtbuilder_team_year.experimental.v1.json` beyond the current 3
-entries. The resolver and data model built this session
-(`nba_peak/perfect_season/exact_season.py`) are already shaped to consume a
-larger dataset with no further code changes — scaling is a data-generation
-task, not an architecture change.
+**Update (Phase 6D, 2026-07-24): all of the above is now built.**
+- Manifest bumped to v1: **1,510 identities** (`candidate_identity_manifest.v1.json`,
+  1.3MB), primary criteria alone (no 25+ MPG fallback needed).
+- All-seasons table built: `all_seasons_for_identities.v1.json`, **14,133
+  player-season rows** — every locally available regular-season row
+  (rookie/bench/decline/traded/low-minute seasons included) for every
+  qualifying identity, through 2025-26.
+- `scripts/review_player_pool_manifest.py` built and verified: confirms
+  Festus Ezeli is NOT in the 1500 pool (team-year-roster-only) and Andre
+  Iguodala IS (canonical_250, 8 qualifying criteria, 19 total seasons
+  2004-05..2022-23).
+- Broad team-season coverage built: `courtbuilder_team_year.experimental.v2.json`,
+  **1,310 rollable team-seasons** (of 1,314 total), **40 franchises**, **47
+  seasons (1979-80..2025-26)**, min/max/median candidates 8/23/13.
+- The PPG criterion fix applied: "15+ PPG" now uses `pts_per75` (labeled a
+  proxy, not literal PPG) instead of the v0 manifest's mistaken use of the
+  per-100-possessions `pts` column.
+
+**Gap 1 (per-100-vs-per-game) — addressed, not closed:** relabeled and
+switched to `pts_per75` as an honestly-documented approximation. A genuine
+per-game PPG column still does not exist locally; closing this fully still
+requires a new source (BR's `per_game.html`/`totals.html`, never scraped
+locally).
+
+**Gap 2 (traded-player team-stint splits) — still open, now quantified:**
+1,425 of 14,133 all-seasons rows (10%) are `2TM`/`3TM` aggregate rows that
+cannot be resolved to one exact team. Verified example: Rasheed Wallace's
+2003-04 season (traded 3 times) is absent from the Detroit Pistons 2003-04
+team-year roster for exactly this reason — Ben Wallace (not traded that
+season) is present and correctly attributed. Not fabricated around.
 
 **Status:** Strategy/design only. No scraping, no data acquisition, no new
 files under `data/generated/`, `data/web/`, or `data/game/` are created by

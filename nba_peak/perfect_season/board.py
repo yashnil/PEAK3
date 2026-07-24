@@ -382,7 +382,7 @@ def generate_board(
 # Purely additive -- generate_board() and its team_decade/exact_team_season
 # path above are completely untouched. This engine reads a separate,
 # independently-versioned dataset (data/game/experimental/player_pool_1500/
-# courtbuilder_team_year.experimental.v1.json) and is only reachable when
+# courtbuilder_team_year.experimental.v2.json) and is only reachable when
 # COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=True. Every spin it produces is
 # spin_type="team_year" with an exact-season era_label (e.g. "2015-16") --
 # never mixed with a team_decade spin in the same board, per the product
@@ -407,7 +407,7 @@ def generate_board(
 
 def _default_experimental_team_year_path() -> Path:
     repo_root = Path(__file__).resolve().parent.parent.parent
-    return repo_root / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v1.json"
+    return repo_root / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v2.json"
 
 
 def _default_experimental_cards_path() -> Path:
@@ -506,6 +506,7 @@ def experimental_team_year_summary(path: Path | None = None) -> dict:
         "min_candidates": 0, "max_candidates": 0, "median_candidates": 0.0,
         "sample_supported_team_seasons": [], "low_coverage_team_seasons": [],
         "season_2025_26_coverage_status": "not_covered", "warnings": [],
+        "franchise_ids": [], "seasons_represented": [],
     }
     try:
         data = _load_experimental_team_year_dataset(path)
@@ -515,6 +516,47 @@ def experimental_team_year_summary(path: Path | None = None) -> dict:
     if not entries:
         return {**empty, "available": True, "dataset_version": data.get("dataset_version")}
 
+    # Phase 6D (v2+): the generator already computes coverage stats over the
+    # FULL entry set (rollable + unsupported) at generation time -- prefer
+    # those precomputed fields directly (guaranteed consistent with the file
+    # actually shipped) rather than recomputing from just the rollable
+    # entries this function can see. Falls back to recomputing for older
+    # dataset shapes that don't carry these fields (defensive, not expected
+    # to trigger against the committed v2 file).
+    if "total_team_seasons" in data:
+        franchises = set(data.get("franchise_ids_represented", [e["team_id"] for e in entries]))
+        seasons = set(data.get("seasons_represented", [e["season_label"] for e in entries]))
+        low_coverage = sorted(
+            f"{u['franchise_display_name']} {u['season_label']} ({u['candidate_count']} candidates)"
+            for u in data.get("unsupported_team_seasons", [])
+        )
+        return {
+            "available": True,
+            "franchise_count": data.get("franchise_count", len(franchises)),
+            "dataset_version": data.get("dataset_version"),
+            "franchise_names": sorted({e["franchise_display_name"] for e in entries}),
+            "franchise_ids": sorted(franchises),
+            "season_count": data.get("season_count", len(seasons)),
+            "season_labels": sorted(seasons),
+            "seasons_represented": sorted(seasons),
+            "total_team_season_count": data.get("total_team_seasons", len(entries)),
+            "rollable_team_season_count": data.get("rollable_team_seasons", len(entries)),
+            "min_candidates": data.get("min_candidates_per_rollable_team_season", 0),
+            "max_candidates": data.get("max_candidates_per_rollable_team_season", 0),
+            "median_candidates": data.get("median_candidates_per_rollable_team_season", 0.0),
+            "sample_supported_team_seasons": sorted(
+                f"{e['franchise_display_name']} {e['season_label']}" for e in entries
+            )[:25],
+            "low_coverage_team_seasons": low_coverage,
+            "season_2025_26_coverage_status": data.get("season_2025_26_coverage_status", "not_covered"),
+            "warnings": (
+                [] if not data.get("unsupported_team_seasons") else
+                [f"{len(data['unsupported_team_seasons'])} team-season(s) below the "
+                 f"{MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON}-candidate rollability floor -- see low_coverage_team_seasons"]
+            ),
+        }
+
+    # Older dataset shape (no precomputed coverage fields) -- recompute.
     franchises = {e["franchise_display_name"] for e in entries}
     seasons = {e["season_label"] for e in entries}
     counts = sorted(len(e.get("player_slugs", [])) for e in entries)
@@ -532,8 +574,10 @@ def experimental_team_year_summary(path: Path | None = None) -> dict:
         "franchise_count": len(franchises),
         "dataset_version": data.get("dataset_version"),
         "franchise_names": sorted(franchises),
-        "season_count": len(entries),
+        "franchise_ids": sorted({e.get("team_id", "") for e in entries}),
+        "season_count": len(seasons),
         "season_labels": sorted(seasons),
+        "seasons_represented": sorted(seasons),
         "total_team_season_count": len(entries),
         "rollable_team_season_count": len(rollable),
         "min_candidates": counts[0],

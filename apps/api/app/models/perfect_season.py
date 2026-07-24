@@ -210,11 +210,12 @@ class CourtBuilderReadinessResponse(BaseModel):
     # playable/sparse/excluded combination counts plus per-era and per-team
     # breakdowns. See CourtBuilderCoverageSummary.
     coverage: CourtBuilderCoverageSummary
-    # Phase 6A: experimental team+YEAR (exact season) engine, independent of
-    # the team+decade fields above. season_count is intentionally small in
-    # this pass (see data/game/experimental/player_pool_1500/
-    # courtbuilder_team_year.experimental.v0.json's own coverage_note) --
-    # never presented as broad/official coverage.
+    # Phase 6D: experimental team+YEAR (exact season) engine, independent of
+    # the team+decade fields above. Broad coverage as of v2 (1,310 rollable
+    # team-seasons, 40 franchises, 1979-80..2025-26 -- see
+    # data/game/experimental/player_pool_1500/
+    # courtbuilder_team_year.experimental.v2.json's own coverage_note) --
+    # still labeled experimental, not the canonical/official CourtBuilder mode.
     team_year_enabled: bool = False
     experimental_team_year_data_version: str = "unavailable"
     experimental_team_year_franchise_count: int = 0
@@ -240,3 +241,11 @@ class CourtBuilderReadinessResponse(BaseModel):
     low_coverage_team_seasons: list[str] = []
     season_2025_26_coverage_status: str = "not_covered"
     warnings: list[str] = []
+    # Phase 6D: explicit spinner coverage lists -- teams_represented_in_spinner
+    # is the franchise_ids_represented from the v2 dataset (identical set to
+    # experimental_team_year_franchise_names above, different key name to
+    # match the Phase 6D task's exact field naming); seasons_represented_in_
+    # spinner is every season_label with at least one rollable team-season.
+    supported_franchise_count: int = 0
+    teams_represented_in_spinner: list[str] = []
+    seasons_represented_in_spinner: list[str] = []

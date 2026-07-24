@@ -114,6 +114,9 @@ async def get_readiness(
         low_coverage_team_seasons=team_year_summary.get("low_coverage_team_seasons", []),
         season_2025_26_coverage_status=team_year_summary.get("season_2025_26_coverage_status", "not_covered"),
         warnings=team_year_summary.get("warnings", []),
+        supported_franchise_count=team_year_summary.get("franchise_count", 0),
+        teams_represented_in_spinner=team_year_summary.get("franchise_ids", []),
+        seasons_represented_in_spinner=team_year_summary.get("seasons_represented", []),
     )
 
 
