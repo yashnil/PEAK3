@@ -147,6 +147,25 @@ request time from an unlicensed third-party source (matches the existing
 "never scrape at request time" discipline already binding for statistical
 data, extended to imagery).
 
+**Phase 6A update (2026-07-23):** the team-color fallback badge described
+above shipped, in the CourtBuilder spin ceremony
+(`apps/web/src/components/court/SpinStage.tsx`) — a colored circular badge
+showing team initials over the team's real primary/secondary brand colors,
+with a neutral fallback for any franchise not in the table. **Diverges
+from Sec 2's manifest shape:** rather than a committed, versioned JSON
+file (`data/game/interim/team_identity_manifest.v0.json`), this shipped as
+a static TypeScript constant (`apps/web/src/lib/team-colors.ts`) covering
+all 30 NBA franchises' real brand colors. Simpler for a fixed, small,
+rarely-changing 30-team list that only the frontend needs; if a
+server-driven or per-player manifest is ever needed (e.g. the player
+identity/initials manifest below), Sec 2's JSON shape is still the
+target, not this constant. The **player-card silhouette/initials
+fallback** (as opposed to the wheel's team badge) was not built this
+pass — see `PHASE_5X_ARENA_OVERHAUL_PLAN.md`'s new "Phase 6B" section for
+this as an explicit, still-open target. No logo image, headshot, or any
+other scraped/licensed asset was added — colors and initials only, both
+derived from public, factual, unlicensed information.
+
 ---
 
 ## 4. Licensing decision this document does NOT make

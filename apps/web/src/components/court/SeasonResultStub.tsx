@@ -65,6 +65,31 @@ export default function SeasonResultStub({ state, result }: Props) {
         </div>
       </div>
 
+      {/* The durable, comparable score (Phase 6A Goal 9) -- unlike the 82-0
+          record above (seeded RNG noise, capped at a fixed 82-game season),
+          this is a real mean of the 8 placed cards' own calibrated PEAK3
+          individual_peak_score values. Visually secondary to the record
+          (which stays the fun headline outcome) but the number worth
+          comparing across different rosters/runs. */}
+      <div
+        data-testid="lineup-peak-score"
+        className="rounded-xl p-3 text-center"
+        style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
+      >
+        <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+          PEAK3 Lineup Score
+        </div>
+        <div className="text-2xl font-black" style={{ color: "var(--text-primary)" }}>
+          {result.lineup_peak_score.toFixed(1)}
+          <span className="text-sm font-normal" style={{ color: "var(--text-muted)" }}>
+            {" "}/ 100
+          </span>
+        </div>
+        <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+          Mean of your 8 cards&apos; real PEAK3 peak scores — the number to compare across runs.
+        </div>
+      </div>
+
       <div className="flex flex-col gap-2">
         <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
           Your roster, revealed
@@ -98,8 +123,24 @@ export default function SeasonResultStub({ state, result }: Props) {
         className="text-xs rounded-lg p-3"
         style={{ background: "var(--bg-surface)", color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
       >
-        {result.experimental_notice}
+        {result.experimental_notice} This prototype does not yet write to a global
+        leaderboard — a future release will let you compare your PEAK3 Lineup Score
+        against other runs.
       </p>
+
+      <div
+        data-testid="result-receipt"
+        className="text-[10px] flex flex-wrap gap-x-3 gap-y-0.5"
+        style={{ color: "var(--text-muted)" }}
+      >
+        <span>Seed {state.board_seed}</span>
+        <span>{state.card_pool_version}</span>
+        <span>{result.lineup_model_version}</span>
+        <span>{result.simulator_version}</span>
+        {state.experimental_team_year_data_version && <span>{state.experimental_team_year_data_version}</span>}
+        {state.formula_version && <span>{state.formula_version}</span>}
+        {state.coverage_mode && <span>{state.coverage_mode}</span>}
+      </div>
     </div>
   );
 }

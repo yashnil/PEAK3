@@ -467,6 +467,156 @@ ships:
 
 ---
 
+## Phase 6A (this session, 2026-07-23) — Team+Year Engine v0, 1500-Player Audit, Spinner v1
+
+**PR #3 remains draft. Do not mark ready. Do not merge.** This section is
+the direct follow-up to Phase 5X.7's "Team + year: the architectural work
+this actually requires (future)" and "Visual redesign requirements"
+sections above — read those first for the requirements this pass is
+scored against.
+
+**Target raised from 1000 to 1500 identities** — see
+`PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`'s top-of-document note and Sec 2.3
+for the full rationale. `scripts/audit_player_pool_expansion.py` found
+**1885 identities qualify via the primary inclusion criteria alone**
+(All-Defensive/MVP-vote/DPOY-vote/All-Star/15+PPG/championship-or-Finals-
+meaningful-minutes/30+MPG), comfortably clearing 1500 without needing the
+25+MPG fallback tier at all. This is Stage A (audit) + Stage B (candidate
+manifest) only — no player identities were actually added to the
+canonical 250-pool or any gameplay-reachable dataset this pass.
+
+**Team+year engine — real, but deliberately narrow (Stage C/D/E-lite):**
+`nba_peak/perfect_season/board.py::generate_team_year_board()` is a new,
+purely additive function (the existing `generate_board()`/team+decade path
+is byte-for-byte untouched, all its pre-existing tests still pass
+unmodified). It reads a new, separately-versioned dataset,
+`data/game/experimental/player_pool_1500/courtbuilder_team_year.experimental.v0.json`,
+covering exactly **three exact team-seasons**: Golden State Warriors
+2015-16, 2016-17, 2017-18 — built by
+`scripts/build_experimental_team_year_dataset.py` directly from real
+per-player-season minutes in `cache/processed/regular_1980_2026.parquet`
+(≥50 minutes for that team-season = "meaningfully on the roster," reusing
+the same threshold `nba_peak/context/title_role.py` already uses for
+postseason minutes). A companion experimental card extension
+(`scripts/build_experimental_card_extension.py`,
+`data/game/experimental/player_pool_1500/card_profiles.experimental.json`)
+gives real, non-fabricated 1-year cards to real GSW rostermates who exist
+locally but never had a canonical `card_profiles.v3.json` entry (Shaun
+Livingston, Zaza Pachulia, Festus Ezeli, Leandro Barbosa, Marreese
+Speights, David West, and others) — every score on those cards is the
+player's own real `prime_score`/`contrib_*` values already computed by the
+canonical scoring pipeline in `cache/processed/scored_1980_2026.parquet`,
+never recomputed or approximated.
+
+Net effect: GSW 2015-16 went from **2 resolvable candidates** (Curry,
+Durant — see the Sec 5.1 worked example in the expansion strategy doc,
+now stale, see that doc's own Phase 6A update) to **10**; 2016-17 and
+2017-18 to **11 each**. This clears the 4-8 team-year target (expansion
+strategy doc Sec 4.1b) for these three specific seasons only — it is
+**not** the broad, all-team-all-season coverage that gate requires before
+team+year can become the default/official mode. Gated behind
+`COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED` (default `False`,
+independent of `COURTBUILDER_TEAM_SPIN_ENABLED`), never wired into any
+official/global/ranked path.
+
+**Spinner v1 (partial answer to "the spinner is lame"):** `SpinStage.tsx`
+now shows a real team-color badge (initials + real NBA brand primary/
+secondary colors, `apps/web/src/lib/team-colors.ts` — see the asset
+strategy doc's own Phase 6A note on how this relates to the Sec 2 manifest
+design) next to the team reel, and the second reel switches between "Era"
+(decade label, team+decade path, unchanged) and "Season" (exact-year
+label, team+year path) rather than always saying "Era" — the two label
+sets are never mixed on the same board (enforced at the board-generator
+level, not just the label text). A revealed round now also states "You
+rolled: [Team] · [Season]" explicitly. Round progress, lock/reveal
+states, and reduced-motion handling are unchanged from Phase 5X.2/5X.7.
+
+**PEAK3 Lineup Score, not just 82-0:** the result screen
+(`SeasonResultStub.tsx`) now shows a **PEAK3 Lineup Score (0-100)** —
+computed server-side in `simulation.py::simulate_season()` as the direct
+mean of the 8 placed cards' own real, canonical `individual_peak_score`
+values (no new scoring logic, no client-side computation). The 82-0
+record stays the fun headline outcome (seeded-noise, capped at a fixed
+82-game season, per the product spec's existing chase identity), but the
+Lineup Score is the number meant to be durable and comparable across
+different rosters/runs, per this session's product direction. A small
+receipt strip (seed, `card_pool_version`, `board_generator_version`, and
+— for team+year boards only — `experimental_team_year_data_version`/
+`formula_version`/`coverage_mode`) is now visible on both the in-progress
+board header and the result screen.
+
+**Visual redesign (Phase 5X.7's requirements list above): NOT attempted
+this pass, still fully open.** No court-layout/card-table/roster-rail
+rework was done. This pass had no way to visually verify a redesign (no
+screenshot/browser tool available), so rather than guess at a "product-
+ready" visual system, this work is deferred to **Phase 6B** as its own
+dedicated task — see that section immediately below for the concrete
+target this leaves for whoever picks it up next. Manual review's
+underlying finding ("not fun or shareable," floating boxes, weak
+basketball feel) should be assumed to still hold until someone actually
+looks at the running app and says otherwise.
+
+**Tests added this pass:** 14 new backend tests (determinism, no mixed
+decade/exact-year labels, full candidate resolvability, receipt fields,
+the experimental-card-extension resolve path, a full end-to-end practice
+attempt, `lineup_peak_score` correctness) — see
+`apps/api/tests/test_perfect_season.py`. Full regression confirmed green:
+227 model tests, 105 perfect_season tests (91 original + 14 new), 368/386
+API tests (18 pre-existing skips), 101 frontend unit tests, 20/20
+CourtBuilder Playwright (chromium) + 1/1 (mobile-chrome), 23/23 Peak Draft
+`gameplay.spec.ts` regression. Team+year-specific Playwright coverage was
+deliberately **not** added to the shared CI `webServer` config — flipping
+`COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED` on globally would replace
+the entire wheel with 3 GSW seasons for every existing decade-path
+Playwright test, a disproportionate risk for a feature that must not ship
+as the default mode yet. Backend coverage plus the unaffected regression
+suites above are this pass's verification.
+
+**No scraped images, headshots, or logos were added.** The team-color
+badge is real NBA brand color data (public, factual, not a licensed
+asset — same reasoning already laid out in
+`PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md` Sec 3/7), rendered as CSS
+initials chips, never an image file.
+
+### Phase 6B (not started) — visual system rebuild
+
+Manual review's "not fun or shareable, floating boxes, weak basketball
+feel, overlapping text/cards" finding (Phase 5X.7 above) is **still the
+product-readiness blocker** — this pass explicitly did not resolve it,
+and did not have a way to confirm or deny it visually (no
+screenshot/browser tool in this pass's toolset). Concrete target for the
+next pass that does have visual verification available:
+
+- **Team-color reel** — extend Phase 6A's badge (currently spinner-only)
+  consistently through the rest of the board (result screen, court
+  context), not just the spin ceremony.
+- **Logo/initials badge** — the initials badge is real and shipped
+  (Phase 6A); a licensed logo badge remains blocked on
+  `PHASE_5X_ASSET_AND_IDENTITY_STRATEGY.md` Sec 4's unresolved licensing
+  decision, unchanged.
+- **Player portrait/silhouette card shell** — not built; every card is
+  still text-only. Sec 3 of the asset strategy doc already specifies the
+  initials/silhouette fallback shape — this is the next concrete piece to
+  build from that spec.
+- **Compact roster board** — the current bench/starter layout needs a
+  real pass at mobile and desktop density; existing tests only check for
+  horizontal overflow, not visual crowding.
+- **Cleaner court-inspired slot grid** — evolve the existing CSS-only
+  half-court (hoop/key/arc markings, Phase 5X.5) toward the "broadcast
+  desk/card table" feel Phase 5X.7 specified, not a from-scratch rebuild.
+- **No overlapping card labels** — the literal "overlapping text/cards"
+  complaint from manual review; needs to be re-verified live (screenshot
+  or browser walkthrough), not assumed fixed by any code written so far.
+- **Share-card-ready final result** — product spec Sec 3.7's design,
+  still not implemented; the result screen (Phase 6A) added the Lineup
+  Score and receipt but not a shareable-image/card layout.
+
+This section exists so the next task on this doesn't have to re-derive
+"is the visual system done" from scratch — it explicitly is not, and this
+list is the scoped starting point.
+
+---
+
 ## Sequencing: does database expansion happen before or after the UI overhaul?
 
 **In parallel, with UI/mechanical work (5X.1-5X.3, 5X.5-5X.7) starting

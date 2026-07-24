@@ -102,6 +102,31 @@ SLOT_TYPES: list[str] = [
 # Duration modes reused verbatim from nba_peak.lineup.config.SUPPORTED_MODES
 # -- CourtBuilder does not introduce a second duration taxonomy.
 SUPPORTED_MODES: list[str] = ["apex_1y", "prime_3y", "foundation_5y"]
+
+# ---------------------------------------------------------------------------
+# Phase 6A: experimental team+YEAR (exact season) engine
+# ---------------------------------------------------------------------------
+# Bumped whenever data/game/experimental/player_pool_1500/courtbuilder_team_
+# year.experimental.v0.json changes -- see that file's own dataset_version.
+# Deliberately separate from INTERIM_TEAM_DATA_VERSION (the team+decade
+# path); the two engines are independently versioned and independently
+# flag-gated (COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED vs
+# COURTBUILDER_TEAM_SPIN_ENABLED).
+EXPERIMENTAL_TEAM_YEAR_DATA_VERSION = "courtbuilder_team_year.experimental.v0"
+
+# Surfaced verbatim in the team-year board's receipt metadata. Never
+# recomputed -- OFFICIAL_WEIGHTS itself lives in peak3.py and is read only,
+# never re-derived here (CLAUDE.md: never change scoring without approval).
+EXPERIMENTAL_FORMULA_VERSION = (
+    "peak3_official_weights_v1 (statistical_impact=0.38, traditional_production=0.21, "
+    "recognition=0.20, postseason=0.18, team_achievement=0.03)"
+)
+
+# Human-facing label for the team-year board's receipt -- coverage is
+# deliberately narrow in this pass (see EXPERIMENTAL_TEAM_YEAR_DATA_VERSION's
+# dataset coverage_note), so every board built by this engine says so
+# explicitly rather than presenting itself as broad/official coverage.
+EXPERIMENTAL_TEAM_YEAR_COVERAGE_MODE = "experimental_limited_rosters"
 MODE_TO_YEARS: dict[str, int] = {
     "apex_1y": 1,
     "prime_3y": 3,

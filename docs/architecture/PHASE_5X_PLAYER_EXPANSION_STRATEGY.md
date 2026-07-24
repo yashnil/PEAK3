@@ -1,4 +1,4 @@
-# Phase 5X — Player Database Expansion Strategy (250 → 1000)
+# Phase 5X — Player Database Expansion Strategy (250 → 1500)
 
 **Status:** Strategy/design only. No scraping, no data acquisition, no new
 files under `data/generated/`, `data/web/`, or `data/game/` are created by
@@ -21,6 +21,27 @@ listed "1,000-player v2" as a later stage) — this revision makes 1000 the
 actual staged target and restructures Sec 2 accordingly. Nothing about the
 inclusion methodology (Sec 2.2's cohorts) changes; the staged targets and
 launch-scope numbers in Sec 2.3/4.2 do.
+
+**Target raised from 1000 to 1500 (Phase 6A, 2026-07-23).** Running
+`scripts/audit_player_pool_expansion.py` (Stage A: read-only audit against
+`cache/processed/scored_1980_2026.parquet` and
+`cache/processed/regular_1980_2026.parquet`, no writes to any canonical
+file) against the Sec 2.0 inclusion criteria found **1885 identities**
+qualify via primary criteria alone (All-Defensive=151, MVP-vote-getter=211,
+DPOY-vote-getter=209, All-Star=307, 15+PPG=1854, championship/Finals+
+meaningful-minutes-approx=244/438, 30+MPG=900 — deduplicated union across
+all criteria) — comfortably clearing a 1500 target **without needing the
+25+MPG fallback tier** (0 identities came from the fallback; see Sec 2.0's
+fallback-tier note below). Stage B's candidate manifest
+(`data/game/experimental/player_pool_1500/candidate_identity_manifest.v0.json`,
+not committed — see the manifest's own note on why) records the full
+1885-identity list with per-identity qualifying criteria, career span, and
+local season count, for whoever picks up Stage C-G execution next. **No
+identity was added to the canonical 250-pool or any gameplay-reachable
+dataset by this audit** — this is a target-and-feasibility revision, not
+an expansion execution (Sec 9 still applies). All-Star-runner-up/
+near-selection remains an explicitly **unsupported** criterion (no local
+source table for it), same status as before this revision.
 
 **Audit findings that motivate this document, in chronological order:**
 
@@ -222,18 +243,30 @@ milestone number:
    full Sec 7 QA process passes clean on the 500-player set, with zero
    unresolved findings (not "findings fixed post-hoc" — clean on first
    full pass, since the same process runs again, unchanged, at 1000 scale).
-3. **1000 — target.** The actual expansion goal (raised from 500 in Phase
-   5X.6 — see the top-of-document note). Same cohort methodology, same QA
-   process, run again at roughly double the scale, prioritizing broader
-   team-decade coverage (more franchises, more decades clearing the
-   Sec 4.1 candidate-depth gate) over deepening already-well-covered
-   slices further.
-4. **Full team-season roster ingestion** (later, separate project, beyond
-   1000): every rostered player for every team-season in the supported
+3. **1500 — target** (raised from 1000 in Phase 6A — see the
+   top-of-document note). Same cohort methodology, same QA process,
+   prioritizing broader team-decade *and* team-year coverage (more
+   franchises, more decades/exact-seasons clearing the Sec 4.1/4.1b
+   candidate-depth gates) over deepening already-well-covered slices
+   further. **Feasibility confirmed, not yet executed:** Phase 6A's audit
+   (top-of-document note) found 1885 identities clear the primary
+   criteria — the target is achievable without loosening the inclusion
+   bar, but the actual cohort-review/QA/inclusion pass (Sec 6-8) against
+   those 1885 candidates has not run.
+4. **Every included identity should eventually carry every season of
+   their career within the supported PEAK3 timespan** (1979-80 through
+   present), not just their qualifying season — a player who qualifies via
+   one All-Star season should still show their full career arc (rookie
+   year, decline years, role-player years) once included, matching how
+   the canonical 250-pool already represents every duration/window for
+   each included player. Not yet executed (Sec 9) — recorded here as a
+   requirement for whichever future pass performs Stage C-G execution.
+5. **Full team-season roster ingestion** (later, separate project, beyond
+   1500): every rostered player for every team-season in the supported
    period, primarily for PEAK3 Index research value and Extended
    Archive/Labs-tier CourtBuilder content — not required for Competitive
    Core team+decade gameplay to work well, which only needs the
-   1000-player expansion's depth.
+   1500-player expansion's depth.
 
 ## 3. Required source tables
 
@@ -318,6 +351,20 @@ right bar here:
   the current small `exact_team_season_spins` set) stays the labeled-rare
   variant it already is today.
 
+**Phase 6A update (2026-07-23):** a real, narrow proof of concept now
+exists at `nba_peak/perfect_season/board.py::generate_team_year_board()`,
+covering exactly three team-years (Golden State Warriors 2015-16,
+2016-17, 2017-18) with **10, 11, and 11 resolvable candidates**
+respectively — clearing the 4-8 target above for these three seasons
+specifically, using real roster-membership data
+(`cache/processed/regular_1980_2026.parquet`'s per-player-season minutes,
+≥50 min = meaningfully on the roster) rather than the hand-curated
+`exact_team_season_spins` set. This is **evidence the target is
+achievable, not evidence the gate is cleared** — three seasons for one
+franchise is nowhere near "a defined majority of the launch team-year
+scope." Gated behind `COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED`
+(default off); team+decade remains the shipped default, unchanged.
+
 ### 4.2 Launch coverage scope (illustrative, not committed)
 
 Rather than attempting broad historical coverage in v1, prioritize a
@@ -331,17 +378,33 @@ validate hundreds of slices at once.
 
 ### 5.1 2010s Golden State Warriors
 
-**Currently in pool:** Stephen Curry, Kevin Durant (2 candidates).
+**Currently in the canonical 250-pool (team+decade path, unchanged):**
+Stephen Curry, Kevin Durant (2 candidates).
 
-**Missing, and why they matter for this exact team/era:** Klay Thompson
-(All-NBA, elite two-way wing, core of the dynasty), Draymond Green (DPOY,
-the connective/defensive engine the current bonus taxonomy explicitly wants
-to reward — Sec 6.1's "Defensive Specialist" bench slot and "switchable
-defensive group" bonus in the product spec are close to unusable for this
-team without him), Andre Iguodala (Finals MVP, elite low-usage connector —
-exactly the "complementary usage profile" archetype the fit engine rewards).
-All three are Cohort A (All-NBA/major-award) or Cohort B (Finals MVP,
+**Missing from the canonical pool, and why they matter for this exact
+team/era:** Klay Thompson (All-NBA, elite two-way wing, core of the
+dynasty), Draymond Green (DPOY, the connective/defensive engine the
+current bonus taxonomy explicitly wants to reward — Sec 6.1's "Defensive
+Specialist" bench slot and "switchable defensive group" bonus in the
+product spec are close to unusable for this team without him), Andre
+Iguodala (Finals MVP, elite low-usage connector — exactly the
+"complementary usage profile" archetype the fit engine rewards). All
+three are Cohort A (All-NBA/major-award) or Cohort B (Finals MVP,
 championship rotation) candidates — high-confidence, not speculative.
+
+**Phase 6A update — stale as a "what's missing" example, still accurate
+as a canonical-pool snapshot:** Draymond Green, Andre Iguodala, Andrew
+Bogut, and Jrue Holiday already exist in the canonical pool as of this
+session (unrelated prior work). The experimental, flag-gated team-year
+engine (Sec 4.1b's Phase 6A update above) now separately surfaces 10 real
+GSW 2015-16 candidates — Klay Thompson, Harrison Barnes, Shaun Livingston,
+Leandro Barbosa, Brandon Rush, Marreese Speights, and Festus Ezeli, on top
+of the canonical four — but only when
+`COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED` is on, and only for this one
+franchise/these three seasons. This worked example's underlying point (the
+canonical 250-pool alone under-covers this team/era) still holds; the
+experimental team-year path is a narrow, separate proof of concept, not a
+canonical-pool fix.
 
 ### 5.2 1990s San Antonio Spurs
 
@@ -480,10 +543,18 @@ successor or a new versioned artifact is wired into `nba_peak/perfect_season/boa
   scoped, same as the rest of Phase 5's data work per ADR-005 Decision 8).
 - No commitment to any specific named player's inclusion — every name in
   Sec 5 is illustrative of the *process*, not a pre-approved outcome.
-- No 1000-player expansion *execution* — this document raises the target
-  from 500 to 1000 (Phase 5X.6) and defines the staged path (Sec 2.3), but
-  running the actual cohort-review/scraping/QA process against real data
+- No 1500-player expansion *execution* — this document raises the target
+  from 1000 to 1500 (Phase 6A) and defines the staged path (Sec 2.3), and
+  Phase 6A's audit (top-of-document note) confirms the target is
+  feasible via 1885 qualifying identities, but running the actual
+  cohort-review/QA/inclusion process against those candidates, and
+  backfilling every included player's full career span (Sec 2.3 item 4),
   is future work, not something this revision performs.
 - No full-roster-ingestion execution plan — that remains a later-stage
-  target beyond 1000 (Sec 2.3 item 4), mentioned for context, not scoped
+  target beyond 1500 (Sec 2.3 item 5), mentioned for context, not scoped
   here.
+- Phase 6A's experimental team-year engine and card extension
+  (`data/game/experimental/player_pool_1500/`) are real, working code and
+  real data (not fabricated), but they are a narrow, flag-gated proof of
+  concept for one franchise/three seasons — not the 1500-player expansion
+  itself, and not wired into any canonical or official path.

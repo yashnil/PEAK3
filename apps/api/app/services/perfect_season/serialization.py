@@ -35,6 +35,7 @@ def court_state_from_dict(d: dict) -> CourtLineupState:
         board_generator_version=board_d["board_generator_version"],
         interim_team_data_version=board_d.get("interim_team_data_version"),
         metadata=board_d.get("metadata", {}),
+        experimental_team_year_data_version=board_d.get("experimental_team_year_data_version"),
     )
 
     slots = [CourtSlot(**s) for s in d["slots"]]
@@ -55,6 +56,7 @@ def court_state_from_dict(d: dict) -> CourtLineupState:
             decisive_factors=sim_d["decisive_factors"],
             is_perfect_season=sim_d["is_perfect_season"],
             experimental_notice=sim_d["experimental_notice"],
+            lineup_peak_score=sim_d.get("lineup_peak_score", 0.0),
         )
 
     return CourtLineupState(

@@ -114,6 +114,7 @@ describe("hasResult", () => {
         decisive_factors: ["Elite talent core"],
         is_perfect_season: true,
         experimental_notice: "v0 experimental",
+        lineup_peak_score: 92.5,
       },
     });
     expect(hasResult(state)).toBe(true);

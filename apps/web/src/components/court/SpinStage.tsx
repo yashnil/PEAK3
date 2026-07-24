@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { CurrentSpin, ERA_LABELS } from "@/types/perfect-season";
+import { getTeamColors } from "@/lib/team-colors";
 
 interface Props {
   spin: CurrentSpin;
@@ -10,6 +11,11 @@ interface Props {
    * reel cycles through exactly this list, never a broader decorative list
    * that includes franchises no spin could ever land on. */
   franchiseNames: string[];
+  /** The actual resolvable exact-season pool (readiness endpoint,
+   * experimental_team_year_season_labels) -- used ONLY for team_year spins'
+   * second reel. Never falls back to the decade ERA_LABELS, which would mix
+   * a decade string into a round that will resolve to an exact season. */
+  seasonLabels: string[];
   /** Fired once the ceremony finishes and candidates are safe to reveal. */
   onRevealComplete?: () => void;
 }
@@ -29,7 +35,8 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
- * Team wheel + era wheel spin ceremony: two reels cycle -> lock -> eligible-
+ * Team wheel + second wheel (season for team_year, era/decade for team_decade
+ * and exact_team_season) spin ceremony: two reels cycle -> lock -> eligible-
  * count reveal, THEN (via onRevealComplete) the parent shows actual
  * candidate names.
  *
@@ -40,13 +47,16 @@ function prefersReducedMotion(): boolean {
  * not mount the actual candidate-selection UI until onRevealComplete fires,
  * so nothing leaks early regardless of what's already in memory. The reel
  * cycling itself only ever shows names drawn from `franchiseNames` (the true
- * resolvable set) and the fixed `ERA_LABELS` -- never a name that could not
- * actually be the spin's outcome.
+ * resolvable set) and either the fixed `ERA_LABELS` or the true resolvable
+ * `seasonLabels` set -- never a name that could not actually be the spin's
+ * outcome, and never a decade label mixed into a team_year round or vice
+ * versa (Phase 6A Goal 5/6: the wheel must not mix decade and exact-year
+ * labels).
  *
  * Respects prefers-reduced-motion by skipping straight to "revealed" with
  * no timers at all -- not just faster CSS, genuinely instant.
  */
-export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNames, onRevealComplete }: Props) {
+export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNames, seasonLabels, onRevealComplete }: Props) {
   // Always start in "spinning" for the initial render (server AND client)
   // -- checking prefers-reduced-motion here via a useState initializer
   // would run against `window === undefined` during SSR, and React reuses
@@ -56,9 +66,14 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
   // which only ever runs in the browser after mount.
   const [phase, setPhase] = useState<CeremonyPhase>("spinning");
   const [teamTick, setTeamTick] = useState(0);
-  const [eraTick, setEraTick] = useState(0);
+  const [secondTick, setSecondTick] = useState(0);
   const isTwoWheel = spin.spin_type !== "open_pool";
+  const isTeamYear = spin.spin_type === "team_year";
   const teamPool = franchiseNames.length > 0 ? franchiseNames : [spin.franchise_display_name ?? "Open Pool"];
+  const secondPool = isTeamYear
+    ? (seasonLabels.length > 0 ? seasonLabels : [spin.era_label ?? ""])
+    : ERA_LABELS;
+  const secondWheelLabel = isTeamYear ? "Season" : "Era";
 
   useEffect(() => {
     if (prefersReducedMotion()) {
@@ -70,7 +85,7 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
     if (isTwoWheel) {
       reelInterval = window.setInterval(() => {
         setTeamTick((t) => t + 1);
-        setEraTick((t) => t + 1);
+        setSecondTick((t) => t + 1);
       }, REEL_TICK_MS);
     }
     const t1 = window.setTimeout(() => {
@@ -91,8 +106,9 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const teamDisplay = phase === "spinning" ? teamPool[teamTick % teamPool.length] : spin.franchise_display_name ?? "Open Pool";
-  const eraDisplay = phase === "spinning" ? ERA_LABELS[eraTick % ERA_LABELS.length] : spin.era_label ?? "";
+  const teamDisplayName = phase === "spinning" ? teamPool[teamTick % teamPool.length] : spin.franchise_display_name ?? "Open Pool";
+  const secondDisplay = phase === "spinning" ? secondPool[secondTick % secondPool.length] : spin.era_label ?? "";
+  const colors = getTeamColors(phase === "spinning" ? teamDisplayName : spin.franchise_display_name);
 
   return (
     <div
@@ -111,7 +127,7 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
             className="rounded px-2 py-0.5"
             style={{ background: "rgba(245,200,66,0.15)", color: "var(--peak-accent, #f5c842)" }}
           >
-            Interim team data — limited coverage
+            {isTeamYear ? "Exact-season data — limited coverage" : "Interim team data — limited coverage"}
           </span>
         )}
       </div>
@@ -120,17 +136,33 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
         <div className="flex items-stretch gap-2" role="status" aria-live="polite">
           <div
             data-testid="team-wheel"
-            className={`flex-1 rounded-xl p-3 text-center ${phase === "locked" ? "spin-ceremony-lock-flash" : ""}`}
+            className={`flex-1 rounded-xl p-3 flex items-center gap-2 ${phase === "locked" ? "spin-ceremony-lock-flash" : ""}`}
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border-muted, #333)" }}
           >
-            <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-              Team
-            </div>
             <div
-              className={`text-base font-bold ${phase === "spinning" ? "spin-ceremony-reel-tick" : ""}`}
-              style={{ color: "var(--text-primary)" }}
+              data-testid="team-badge"
+              aria-hidden="true"
+              className={`shrink-0 rounded-full flex items-center justify-center font-black text-[11px] ${phase === "spinning" ? "spin-ceremony-reel-tick" : ""}`}
+              style={{
+                width: 34,
+                height: 34,
+                background: colors.primary,
+                color: colors.secondary,
+                border: `2px solid ${colors.secondary}`,
+              }}
             >
-              {teamDisplay}
+              {colors.initials}
+            </div>
+            <div className="min-w-0 text-left">
+              <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                Team
+              </div>
+              <div
+                className={`text-sm font-bold truncate ${phase === "spinning" ? "spin-ceremony-reel-tick" : ""}`}
+                style={{ color: "var(--text-primary)" }}
+              >
+                {teamDisplayName}
+              </div>
             </div>
           </div>
           <div
@@ -139,13 +171,13 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border-muted, #333)" }}
           >
             <div className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-              Era
+              {secondWheelLabel}
             </div>
             <div
               className={`text-base font-bold ${phase === "spinning" ? "spin-ceremony-reel-tick" : ""}`}
               style={{ color: "var(--text-primary)" }}
             >
-              {eraDisplay}
+              {secondDisplay}
             </div>
           </div>
         </div>
@@ -160,9 +192,15 @@ export default function SpinStage({ spin, roundNumber, totalRounds, franchiseNam
 
       {phase === "revealed" && (
         <p className="text-xs" style={{ color: "var(--text-secondary)" }} data-testid="eligible-count-reveal">
+          {spin.spin_type !== "open_pool" && (
+            <span data-testid="roll-summary" className="block font-semibold mb-0.5" style={{ color: "var(--text-primary)" }}>
+              You rolled: {spin.franchise_display_name} · {spin.era_label}
+            </span>
+          )}
           {spin.candidates.length} eligible player{spin.candidates.length === 1 ? "" : "s"} found
           {spin.spin_type === "team_decade" && " for this team and era — pick one to start."}
           {spin.spin_type === "exact_team_season" && " on this exact roster — pick one to start."}
+          {spin.spin_type === "team_year" && " on this exact roster — pick one to start."}
           {spin.spin_type === "open_pool" && " — pick one to start."}
         </p>
       )}

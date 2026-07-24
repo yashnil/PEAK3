@@ -247,6 +247,21 @@ pools) worse, not better.
   team+decade in the Phase 5X.6 plan doc section, carried forward
   unchanged in spirit).
 
+**Phase 6A update (2026-07-23):** a real, working proof of concept of this
+direction now exists —
+`nba_peak/perfect_season/board.py::generate_team_year_board()`, covering
+exactly three exact team-seasons (Golden State Warriors 2015-16, 2016-17,
+2017-18) with real roster membership and 10-11 resolvable candidates
+each, up from 2. It is gated behind
+`COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED` (default off) and does
+**not** change the shipped default — team+decade remains the default
+mode, exactly as this section already required, because the 1000→1500-
+player expansion coverage gate this section names has not been cleared.
+See `docs/implementation/PHASE_5X_ARENA_OVERHAUL_PLAN.md`'s new "Phase 6A"
+section for full detail, and
+`docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md` for the updated
+1500-identity audit findings.
+
 ## Copy fix (shipped this session)
 
 Sec 6.4b below (and the equivalent in-app copy) said "an early
@@ -501,6 +516,16 @@ runs regardless of overall game status).
   individually. This must be labeled as presentational distribution, not
   as a literal per-game simulation, to avoid overclaiming precision the
   v0 model does not have).
+
+**Phase 6A update (2026-07-23):** the "durable, comparable score" this
+section implies but doesn't name has shipped as **PEAK3 Lineup Score
+(0-100)** — a real mean of the 8 placed cards' own canonical
+`individual_peak_score` values, server-computed, shown on the result
+screen alongside (not replacing) the 82-0 record. 82-0 is still the fun
+headline chase identity described above; the Lineup Score is the number
+meant to survive comparison across different rosters/runs, since the
+82-0 record has seeded noise and a hard 82-game ceiling baked in. No
+global leaderboard writes yet (that remains future work, Sec 3.8/9).
 
 ### 3.7 Shareable result card
 

@@ -171,6 +171,16 @@ def simulate_season(cards: list[CardProfile], board_seed: int, slot_types: list[
     expected_low = max(0.0, expected_wins - 5.0)
     expected_high = min(82.0, expected_wins + 5.0)
 
+    # PEAK3 Lineup Score (Phase 6A Goal 9): the durable, comparable score --
+    # unlike the 82-0 record (which has RNG noise baked in via `rng.uniform`
+    # above and is capped at a fixed 82-game season), this is a direct mean
+    # of the 8 placed cards' own real, canonical `individual_peak_score`
+    # values (already 0-100 calibrated PEAK3 scores -- see
+    # CardProfile.individual_peak_score). No new scoring logic: an average
+    # of numbers PEAK3 already computed, never recomputed or approximated
+    # here (CLAUDE.md: never calculate PEAK3 scores in this layer).
+    lineup_peak_score = round(sum(c.individual_peak_score for c in cards) / len(cards), 1)
+
     return SimulationResult(
         lineup_model_version=LINEUP_MODEL_VERSION,
         simulator_version=SIMULATOR_VERSION,
@@ -183,4 +193,5 @@ def simulate_season(cards: list[CardProfile], board_seed: int, slot_types: list[
         decisive_factors=_decisive_factors(fit, weak_positions),
         is_perfect_season=(wins >= 82),
         experimental_notice=SIMULATOR_EXPERIMENTAL_NOTICE,
+        lineup_peak_score=lineup_peak_score,
     )

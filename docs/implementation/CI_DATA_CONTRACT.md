@@ -30,6 +30,30 @@ this class of gap does not silently reappear.
 | `data/web/` | 2 | Rebuilt by `scripts/build_web_dataset.py` from `leaderboards/*.csv` (already committed, no network). CI's `web-dataset` job does this and passes it downstream as an artifact. Stays gitignored — correctly so. |
 | `cache/processed/` (remaining files) | 2, for future rebuilds | Documented as rebuildable via `peak3.py --build-context`/`--rebuild-data`, which does require network access when the cache is genuinely cold — this is a local-dev/data-refresh concern, not a CI concern, since CI never rebuilds this cache. |
 
+## Phase 6A addition: experimental team-year data (2026-07-23)
+
+Two new generated files exist under
+`data/game/experimental/player_pool_1500/`, produced by
+`scripts/build_experimental_team_year_dataset.py` and
+`scripts/build_experimental_card_extension.py` respectively:
+
+| Path | Category | Why |
+|---|---|---|
+| `courtbuilder_team_year.experimental.v0.json` (4.3KB) | 1 (recommended) | Read at runtime by `nba_peak/perfect_season/board.py::_load_experimental_team_year_dataset()` — if `COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=True` and this file is missing, board generation raises `FileNotFoundError`. Same committed-interim-dataset precedent as `data/game/interim/courtbuilder_team_seasons.v3.json` (already category 1). **Not yet committed as of this pass** — see the after-editing report for the commit recommendation. |
+| `card_profiles.experimental.json` (43KB) | 1 (recommended) | Read at runtime by `nba_peak/perfect_season/board.py::_load_experimental_cards()`, the fallback path `resolve_card()` uses to resolve real GSW rostermates who have no canonical `card_profiles.v3.json` entry. Same reasoning as the row above. **Not yet committed as of this pass.** |
+| `candidate_identity_manifest.v0.json` (566KB) | 2 | Written by `scripts/audit_player_pool_expansion.py --write-manifest`, a pure audit/planning snapshot of the Phase 6A 1500-identity feasibility check. **Not read by any runtime code path** (verified: only the audit script itself references this filename) — cheaply regenerable on demand from the already-committed `cache/processed/scored_1980_2026.parquet` (category 1). By the same discipline that keeps `data/web/` gitignored, this large generated artifact should **not** be committed; regenerate via `python scripts/audit_player_pool_expansion.py --write-manifest` when needed. |
+
+**Regeneration caveat:** `build_experimental_team_year_dataset.py` reads
+`cache/processed/regular_1980_2026.parquet`, which this document's own
+table above lists as category 2 ("not referenced by any test directly,"
+gitignored) — meaning that specific *generation script* cannot be re-run
+on a clean CI checkout today. This is not a problem for the two runtime
+JSON outputs themselves (once committed, they load exactly like any other
+category-1 file, never regenerated in CI), but it does mean anyone
+regenerating them locally needs a populated `cache/processed/` (same
+local-dev/data-refresh caveat this document already documents for the
+rest of that directory).
+
 ## `.gitignore` mechanics
 
 `cache/html/` and `cache/processed/` were previously ignored as whole

@@ -102,6 +102,7 @@ class SimulationResultPublic(BaseModel):
     decisive_factors: list[str]
     is_perfect_season: bool
     experimental_notice: str
+    lineup_peak_score: float = 0.0
 
 
 class PublicCourtStateResponse(BaseModel):
@@ -117,6 +118,11 @@ class PublicCourtStateResponse(BaseModel):
     card_pool_version: str
     board_generator_version: str
     interim_team_data_version: Optional[str] = None
+    # Phase 6A receipt fields -- populated only for generate_team_year_board()
+    # boards (team+YEAR engine); None for team_decade/open_pool boards.
+    experimental_team_year_data_version: Optional[str] = None
+    formula_version: Optional[str] = None
+    coverage_mode: Optional[str] = None
     simulation_result: Optional[SimulationResultPublic] = None
 
 
@@ -150,3 +156,14 @@ class CourtBuilderReadinessResponse(BaseModel):
     # playable/sparse/excluded combination counts plus per-era and per-team
     # breakdowns. See CourtBuilderCoverageSummary.
     coverage: CourtBuilderCoverageSummary
+    # Phase 6A: experimental team+YEAR (exact season) engine, independent of
+    # the team+decade fields above. season_count is intentionally small in
+    # this pass (see data/game/experimental/player_pool_1500/
+    # courtbuilder_team_year.experimental.v0.json's own coverage_note) --
+    # never presented as broad/official coverage.
+    team_year_enabled: bool = False
+    experimental_team_year_data_version: str = "unavailable"
+    experimental_team_year_franchise_count: int = 0
+    experimental_team_year_franchise_names: list[str] = []
+    experimental_team_year_season_count: int = 0
+    experimental_team_year_season_labels: list[str] = []

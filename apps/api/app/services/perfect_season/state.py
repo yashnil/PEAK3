@@ -26,7 +26,7 @@ _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from nba_peak.perfect_season.board import find_spin, generate_board, resolve_card
+from nba_peak.perfect_season.board import find_spin, generate_board, generate_team_year_board, resolve_card
 from nba_peak.perfect_season.config import SLOT_TYPES, TOTAL_ROUNDS
 from nba_peak.perfect_season.positions import classify_fit, primary_position, secondary_positions
 from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot
@@ -53,6 +53,7 @@ def create_perfect_season_game(
     seed: Optional[int],
     team_spin_enabled: bool,
     board_type: str = "practice",
+    team_year_enabled: bool = False,
 ) -> CourtLineupState:
     if mode not in VALID_MODES:
         raise ValueError(f"Invalid mode '{mode}'. Valid: {list(VALID_MODES.keys())}")
@@ -62,7 +63,15 @@ def create_perfect_season_game(
         raise ValueError(f"board_type '{board_type}' is not supported in this phase")
 
     resolved_seed = seed if seed is not None else secrets.randbelow(2 ** 31)
-    board = generate_board(mode=mode, seed=resolved_seed, board_type=board_type, team_spin_enabled=team_spin_enabled)
+    # Phase 6A: team_year_enabled selects the experimental exact-season
+    # engine instead of the team+decade path. Independent of
+    # team_spin_enabled -- when both are set, team_year_enabled wins (the
+    # product direction is exact-year, not decade; the two spin flavors are
+    # never mixed on the same board).
+    if team_year_enabled:
+        board = generate_team_year_board(mode=mode, seed=resolved_seed, board_type=board_type)
+    else:
+        board = generate_board(mode=mode, seed=resolved_seed, board_type=board_type, team_spin_enabled=team_spin_enabled)
 
     now = datetime.now(timezone.utc).isoformat()
     slots = [CourtSlot(slot_type=st) for st in SLOT_TYPES]
@@ -350,6 +359,7 @@ def get_public_state(state: CourtLineupState) -> dict:
             "decisive_factors": r.decisive_factors,
             "is_perfect_season": r.is_perfect_season,
             "experimental_notice": r.experimental_notice,
+            "lineup_peak_score": r.lineup_peak_score,
         }
 
     return {
@@ -365,6 +375,12 @@ def get_public_state(state: CourtLineupState) -> dict:
         "card_pool_version": state.board.card_pool_version,
         "board_generator_version": state.board.board_generator_version,
         "interim_team_data_version": state.board.interim_team_data_version,
+        # Phase 6A receipt fields -- None for every non-team-year board
+        # (team_decade/open_pool), populated for generate_team_year_board()
+        # boards. See board.metadata's own "formula_version"/"coverage_mode".
+        "experimental_team_year_data_version": state.board.experimental_team_year_data_version,
+        "formula_version": state.board.metadata.get("formula_version"),
+        "coverage_mode": state.board.metadata.get("coverage_mode"),
         "simulation_result": simulation_public,
     }
 

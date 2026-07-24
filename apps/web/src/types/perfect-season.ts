@@ -52,11 +52,17 @@ export interface SpinCandidate {
 
 export interface CurrentSpin {
   round_number: number;
-  spin_type: "team_decade" | "exact_team_season" | "open_pool";
+  // "team_year" (Phase 6A): exact-season spins, e.g. era_label="2015-16" --
+  // never mixed with "team_decade"'s ERA_LABELS decade strings on the same
+  // board (the backend guarantees this; the UI must never assume otherwise).
+  spin_type: "team_decade" | "exact_team_season" | "team_year" | "open_pool";
   franchise_display_name: string | null;
   era_label: string | null;
   candidates: SpinCandidate[];
 }
+
+// Matches an exact-season era_label ("2015-16"), never a decade string.
+export const EXACT_SEASON_RE = /^\d{4}-\d{2}$/;
 
 export interface PendingSelection {
   peak_window_id: string;
@@ -98,6 +104,10 @@ export interface SimulationResultPublic {
   decisive_factors: string[];
   is_perfect_season: boolean;
   experimental_notice: string;
+  // Phase 6A Goal 9: the durable, comparable score (0-100) -- a real mean of
+  // the 8 placed cards' own individual_peak_score values, distinct from the
+  // noisier 82-0 record. See simulation.py::simulate_season's own comment.
+  lineup_peak_score: number;
 }
 
 export interface CourtLineupPublicState {
@@ -113,6 +123,11 @@ export interface CourtLineupPublicState {
   card_pool_version: string;
   board_generator_version: string;
   interim_team_data_version: string | null;
+  // Phase 6A receipt fields -- populated only for team+year (generate_team_
+  // year_board) boards; null for team_decade/open_pool boards.
+  experimental_team_year_data_version?: string | null;
+  formula_version?: string | null;
+  coverage_mode?: string | null;
   simulation_result: SimulationResultPublic | null;
 }
 
@@ -148,6 +163,16 @@ export interface CourtBuilderReadiness {
   // through exactly this list, never a broader decorative/fake list.
   interim_team_franchise_names: string[];
   coverage: CourtBuilderCoverageSummary;
+  // Phase 6A: experimental team+YEAR engine, independent of the team+decade
+  // fields above. season_count is deliberately small in this pass -- see
+  // data/game/experimental/player_pool_1500/courtbuilder_team_year.
+  // experimental.v0.json's own coverage_note.
+  team_year_enabled: boolean;
+  experimental_team_year_data_version: string;
+  experimental_team_year_franchise_count: number;
+  experimental_team_year_franchise_names: string[];
+  experimental_team_year_season_count: number;
+  experimental_team_year_season_labels: string[];
 }
 
 export const COURT_MODE_LABELS: Record<CourtMode, string> = {

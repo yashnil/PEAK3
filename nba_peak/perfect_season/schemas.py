@@ -24,7 +24,7 @@ class SpinPrompt:
     already establish for board snapshots.
     """
     round_number: int  # 1..TOTAL_ROUNDS
-    spin_type: str  # "team_decade" | "exact_team_season" | "open_pool"
+    spin_type: str  # "team_decade" | "exact_team_season" | "team_year" | "open_pool"
     spin_id: Optional[str]  # interim dataset spin_id, or None for open_pool
     franchise_display_name: Optional[str]
     era_label: Optional[str]  # decade_label or season_label, or None for open_pool
@@ -52,6 +52,12 @@ class PerfectSeasonBoard:
     board_generator_version: str
     interim_team_data_version: Optional[str]  # None if team spins were disabled
     metadata: dict
+    # Phase 6A: set only for boards built by generate_team_year_board() (the
+    # experimental team+YEAR engine) -- None for every team+decade/open_pool
+    # board from generate_board(). Kept as a distinct field from
+    # interim_team_data_version rather than overloading it, since the two
+    # engines read different, independently-versioned datasets.
+    experimental_team_year_data_version: Optional[str] = None
 
 
 @dataclass
@@ -127,6 +133,11 @@ class SimulationResult:
     decisive_factors: list[str]
     is_perfect_season: bool
     experimental_notice: str
+    # Phase 6A Goal 9: the durable, comparable score -- mean of the 8 placed
+    # cards' real individual_peak_score values (0-100). See
+    # simulation.py::simulate_season's own comment for why this, not the
+    # noisy 82-0 record, is the "compare across runs" number.
+    lineup_peak_score: float = 0.0
 
 
 @dataclass

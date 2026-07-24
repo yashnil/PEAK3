@@ -118,6 +118,17 @@ class Settings(BaseSettings):
     # an anon subject), never requires a signed-in account.
     COURTBUILDER_ALPHA_ALLOWLIST: list[str] = []
 
+    # Phase 6A: experimental team+YEAR (exact season, e.g. "2015-16") spins,
+    # replacing team+decade as the product direction. Independent of
+    # COURTBUILDER_TEAM_SPIN_ENABLED -- gates a separate, narrower-coverage
+    # engine (nba_peak.perfect_season.board.generate_team_year_board) that
+    # reads data/game/experimental/player_pool_1500/courtbuilder_team_year.
+    # experimental.v0.json. Deliberately never used for the official/global
+    # CourtBuilder mode while coverage is this narrow (currently 3 exact
+    # Golden State Warriors seasons only) -- see
+    # docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md.
+    COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED: bool = False
+
     # Human-facing readiness classification. Does not itself gate behavior —
     # the booleans above do — but is surfaced on /api/v1/perfect-season/readiness
     # and must be kept consistent with them (validated below).

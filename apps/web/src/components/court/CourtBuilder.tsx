@@ -18,9 +18,13 @@ import SeasonResultStub from "./SeasonResultStub";
 interface Props {
   initialGameState: CourtLineupPublicState;
   franchiseNames: string[];
+  /** Real, resolvable exact-season pool for team_year spins' second reel
+   * (readiness endpoint's experimental_team_year_season_labels) -- empty for
+   * every non-team_year board. */
+  seasonLabels?: string[];
 }
 
-export default function CourtBuilder({ initialGameState, franchiseNames }: Props) {
+export default function CourtBuilder({ initialGameState, franchiseNames, seasonLabels = [] }: Props) {
   const [state, setState] = useState<CourtLineupPublicState>(initialGameState);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -106,6 +110,18 @@ export default function CourtBuilder({ initialGameState, franchiseNames }: Props
         your roster mostly on peak talent, not on penalizing a stacked lineup.
       </p>
 
+      <div
+        data-testid="board-receipt"
+        className="text-[10px] flex flex-wrap gap-x-3 gap-y-0.5 -mt-2"
+        style={{ color: "var(--text-muted)" }}
+      >
+        <span>Seed {state.board_seed}</span>
+        <span>{state.card_pool_version}</span>
+        <span>{state.board_generator_version}</span>
+        {state.experimental_team_year_data_version && <span>{state.experimental_team_year_data_version}</span>}
+        {state.coverage_mode && <span data-testid="coverage-mode">{state.coverage_mode}</span>}
+      </div>
+
       {error && (
         <div role="alert" className="rounded-lg px-3 py-2 text-sm" style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444" }}>
           {error}
@@ -122,6 +138,7 @@ export default function CourtBuilder({ initialGameState, franchiseNames }: Props
               roundNumber={state.current_round}
               totalRounds={state.total_rounds}
               franchiseNames={franchiseNames}
+              seasonLabels={seasonLabels}
               onRevealComplete={() => setRevealedRound(state.current_round)}
             />
           )}

@@ -1,0 +1,1428 @@
+{
+  "card_pool_version": "experimental_warriors_2010s_v0",
+  "profile_version": "experimental_v0",
+  "status": "experimental -- NOT canonical, NOT wired into CourtBuilder by default, NOT a replacement for card_profiles.v3.json",
+  "generated_at": "2026-07-23T19:07:04.954282+00:00",
+  "generation_command": "python scripts/build_experimental_card_extension.py",
+  "formula_version": "peak3 OFFICIAL_WEIGHTS (statistical_impact=0.38, traditional_production=0.21, recognition=0.20, postseason=0.18, team_achievement=0.03) -- unchanged, read directly from cache/processed/scored_1980_2026.parquet, never recomputed",
+  "source_provenance": {
+    "scored": "cache/processed/scored_1980_2026.parquet",
+    "percentile_basis": "merged with the existing 250-pool's 1yr windows for consistent role classification"
+  },
+  "cards": [
+    {
+      "peak_window_id": "shaun-livingston-1yr-201516",
+      "profile_version": "experimental_v0",
+      "player_id": "shaun-livingston",
+      "player_slug": "shaun-livingston",
+      "player_name": "Shaun Livingston",
+      "duration_years": 1,
+      "start_season": "2015-16",
+      "end_season": "2015-16",
+      "anchor_season": "2015-16",
+      "individual_peak_score": 33.55,
+      "individual_peak_rank": 261,
+      "prime_index": 10.1168,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=2.6<75",
+          "percentiles": {
+            "si_pct": 2.6,
+            "tp_pct": 4.5,
+            "po_pct": 1.5,
+            "team_pct": 67.9,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=2.6<40",
+          "percentiles": {
+            "si_pct": 2.6,
+            "tp_pct": 4.5,
+            "po_pct": 1.5,
+            "team_pct": 67.9,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=2.6<25; tp_pct=4.5<50",
+          "percentiles": {
+            "si_pct": 2.6,
+            "tp_pct": 4.5,
+            "po_pct": 1.5,
+            "team_pct": 67.9,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=4.5<55",
+          "percentiles": {
+            "si_pct": 2.6,
+            "tp_pct": 4.5,
+            "po_pct": 1.5,
+            "team_pct": 67.9,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=2.6<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 2.6,
+            "tp_pct": 4.5,
+            "po_pct": 1.5,
+            "team_pct": 67.9,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 7.23,
+        "scoring_pressure": 16.61,
+        "individual_validation": 0.0,
+        "postseason_translation": 1.65,
+        "team_context": 35.7,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "harrison-barnes-1yr-202122",
+      "profile_version": "experimental_v0",
+      "player_id": "harrison-barnes",
+      "player_slug": "harrison-barnes",
+      "player_name": "Harrison Barnes",
+      "duration_years": 1,
+      "start_season": "2021-22",
+      "end_season": "2021-22",
+      "anchor_season": "2021-22",
+      "individual_peak_score": 38.34,
+      "individual_peak_rank": 259,
+      "prime_index": 12.8923,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=1.9<75",
+          "percentiles": {
+            "si_pct": 1.9,
+            "tp_pct": 12.8,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=1.9<40",
+          "percentiles": {
+            "si_pct": 1.9,
+            "tp_pct": 12.8,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=1.9<25; tp_pct=12.8<50",
+          "percentiles": {
+            "si_pct": 1.9,
+            "tp_pct": 12.8,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=12.8<55",
+          "percentiles": {
+            "si_pct": 1.9,
+            "tp_pct": 12.8,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=1.9<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 1.9,
+            "tp_pct": 12.8,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 6.18,
+        "scoring_pressure": 24.2,
+        "individual_validation": 0.0,
+        "postseason_translation": 14.74,
+        "team_context": 0.0,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "david-west-1yr-201213",
+      "profile_version": "experimental_v0",
+      "player_id": "david-west",
+      "player_slug": "david-west",
+      "player_name": "David West",
+      "duration_years": 1,
+      "start_season": "2012-13",
+      "end_season": "2012-13",
+      "anchor_season": "2012-13",
+      "individual_peak_score": 49.52,
+      "individual_peak_rank": 230,
+      "prime_index": 20.8196,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=39.6<75",
+          "percentiles": {
+            "si_pct": 39.6,
+            "tp_pct": 16.6,
+            "po_pct": 4.5,
+            "team_pct": 69.1,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=39.6<40",
+          "percentiles": {
+            "si_pct": 39.6,
+            "tp_pct": 16.6,
+            "po_pct": 4.5,
+            "team_pct": 69.1,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=16.6<50",
+          "percentiles": {
+            "si_pct": 39.6,
+            "tp_pct": 16.6,
+            "po_pct": 4.5,
+            "team_pct": 69.1,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=16.6<55",
+          "percentiles": {
+            "si_pct": 39.6,
+            "tp_pct": 16.6,
+            "po_pct": 4.5,
+            "team_pct": 69.1,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 39.6,
+            "tp_pct": 16.6,
+            "po_pct": 4.5,
+            "team_pct": 69.1,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 32.96,
+        "scoring_pressure": 26.67,
+        "individual_validation": 0.0,
+        "postseason_translation": 4.55,
+        "team_context": 36.9,
+        "context_completeness": 60.0
+      },
+      "data_completeness": "partial",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "kevon-looney-1yr-202223",
+      "profile_version": "experimental_v0",
+      "player_id": "kevon-looney",
+      "player_slug": "kevon-looney",
+      "player_name": "Kevon Looney",
+      "duration_years": 1,
+      "start_season": "2022-23",
+      "end_season": "2022-23",
+      "anchor_season": "2022-23",
+      "individual_peak_score": 48.81,
+      "individual_peak_rank": 234,
+      "prime_index": 20.2454,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=21.1<75",
+          "percentiles": {
+            "si_pct": 21.1,
+            "tp_pct": 19.2,
+            "po_pct": 50.2,
+            "team_pct": 30.9,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=21.1<40",
+          "percentiles": {
+            "si_pct": 21.1,
+            "tp_pct": 19.2,
+            "po_pct": 50.2,
+            "team_pct": 30.9,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=21.1<25; tp_pct=19.2<50",
+          "percentiles": {
+            "si_pct": 21.1,
+            "tp_pct": 19.2,
+            "po_pct": 50.2,
+            "team_pct": 30.9,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=19.2<55",
+          "percentiles": {
+            "si_pct": 21.1,
+            "tp_pct": 19.2,
+            "po_pct": 50.2,
+            "team_pct": 30.9,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 21.1,
+            "tp_pct": 19.2,
+            "po_pct": 50.2,
+            "team_pct": 30.9,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 26.24,
+        "scoring_pressure": 27.09,
+        "individual_validation": 0.0,
+        "postseason_translation": 18.47,
+        "team_context": 10.2,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "zaza-pachulia-1yr-201617",
+      "profile_version": "experimental_v0",
+      "player_id": "zaza-pachulia",
+      "player_slug": "zaza-pachulia",
+      "player_name": "Zaza Pachulia",
+      "duration_years": 1,
+      "start_season": "2016-17",
+      "end_season": "2016-17",
+      "anchor_season": "2016-17",
+      "individual_peak_score": 38.45,
+      "individual_peak_rank": 258,
+      "prime_index": 12.9667,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=4.9<75",
+          "percentiles": {
+            "si_pct": 4.9,
+            "tp_pct": 9.8,
+            "po_pct": 1.9,
+            "team_pct": 71.3,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=4.9<40",
+          "percentiles": {
+            "si_pct": 4.9,
+            "tp_pct": 9.8,
+            "po_pct": 1.9,
+            "team_pct": 71.3,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=4.9<25; tp_pct=9.8<50",
+          "percentiles": {
+            "si_pct": 4.9,
+            "tp_pct": 9.8,
+            "po_pct": 1.9,
+            "team_pct": 71.3,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=9.8<55",
+          "percentiles": {
+            "si_pct": 4.9,
+            "tp_pct": 9.8,
+            "po_pct": 1.9,
+            "team_pct": 71.3,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=4.9<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 4.9,
+            "tp_pct": 9.8,
+            "po_pct": 1.9,
+            "team_pct": 71.3,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 12.66,
+        "scoring_pressure": 22.11,
+        "individual_validation": 0.0,
+        "postseason_translation": 2.36,
+        "team_context": 39.53,
+        "context_completeness": 60.0
+      },
+      "data_completeness": "partial",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "festus-ezeli-1yr-201213",
+      "profile_version": "experimental_v0",
+      "player_id": "festus-ezeli",
+      "player_slug": "festus-ezeli",
+      "player_name": "Festus Ezeli",
+      "duration_years": 1,
+      "start_season": "2012-13",
+      "end_season": "2012-13",
+      "anchor_season": "2012-13",
+      "individual_peak_score": 16.34,
+      "individual_peak_rank": 265,
+      "prime_index": 0.731,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.0<75",
+          "percentiles": {
+            "si_pct": 0.0,
+            "tp_pct": 1.1,
+            "po_pct": 7.5,
+            "team_pct": 30.9,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.0<40",
+          "percentiles": {
+            "si_pct": 0.0,
+            "tp_pct": 1.1,
+            "po_pct": 7.5,
+            "team_pct": 30.9,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.0<25; tp_pct=1.1<50",
+          "percentiles": {
+            "si_pct": 0.0,
+            "tp_pct": 1.1,
+            "po_pct": 7.5,
+            "team_pct": 30.9,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=1.1<55",
+          "percentiles": {
+            "si_pct": 0.0,
+            "tp_pct": 1.1,
+            "po_pct": 7.5,
+            "team_pct": 30.9,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.0<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 0.0,
+            "tp_pct": 1.1,
+            "po_pct": 7.5,
+            "team_pct": 30.9,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 0.0,
+        "scoring_pressure": 8.83,
+        "individual_validation": 0.0,
+        "postseason_translation": 7.2,
+        "team_context": 10.2,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "leandro-barbosa-1yr-200607",
+      "profile_version": "experimental_v0",
+      "player_id": "leandro-barbosa",
+      "player_slug": "leandro-barbosa",
+      "player_name": "Leandro Barbosa",
+      "duration_years": 1,
+      "start_season": "2006-07",
+      "end_season": "2006-07",
+      "anchor_season": "2006-07",
+      "individual_peak_score": 46.73,
+      "individual_peak_rank": 243,
+      "prime_index": 18.5866,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=13.6<75",
+          "percentiles": {
+            "si_pct": 13.6,
+            "tp_pct": 40.4,
+            "po_pct": 3.4,
+            "team_pct": 45.7,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=13.6<40",
+          "percentiles": {
+            "si_pct": 13.6,
+            "tp_pct": 40.4,
+            "po_pct": 3.4,
+            "team_pct": 45.7,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=13.6<25; tp_pct=40.4<50",
+          "percentiles": {
+            "si_pct": 13.6,
+            "tp_pct": 40.4,
+            "po_pct": 3.4,
+            "team_pct": 45.7,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=40.4<55",
+          "percentiles": {
+            "si_pct": 13.6,
+            "tp_pct": 40.4,
+            "po_pct": 3.4,
+            "team_pct": 45.7,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=13.6<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 13.6,
+            "tp_pct": 40.4,
+            "po_pct": 3.4,
+            "team_pct": 45.7,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 23.56,
+        "scoring_pressure": 37.81,
+        "individual_validation": 0.0,
+        "postseason_translation": 3.7,
+        "team_context": 18.99,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "marreese-speights-1yr-201617",
+      "profile_version": "experimental_v0",
+      "player_id": "marreese-speights",
+      "player_slug": "marreese-speights",
+      "player_name": "Marreese Speights",
+      "duration_years": 1,
+      "start_season": "2016-17",
+      "end_season": "2016-17",
+      "anchor_season": "2016-17",
+      "individual_peak_score": 39.69,
+      "individual_peak_rank": 255,
+      "prime_index": 13.7924,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=4.2<75",
+          "percentiles": {
+            "si_pct": 4.2,
+            "tp_pct": 19.6,
+            "po_pct": 25.3,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=4.2<40",
+          "percentiles": {
+            "si_pct": 4.2,
+            "tp_pct": 19.6,
+            "po_pct": 25.3,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=4.2<25; tp_pct=19.6<50",
+          "percentiles": {
+            "si_pct": 4.2,
+            "tp_pct": 19.6,
+            "po_pct": 25.3,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=19.6<55",
+          "percentiles": {
+            "si_pct": 4.2,
+            "tp_pct": 19.6,
+            "po_pct": 25.3,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=4.2<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 4.2,
+            "tp_pct": 19.6,
+            "po_pct": 25.3,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 10.88,
+        "scoring_pressure": 27.23,
+        "individual_validation": 0.0,
+        "postseason_translation": 12.77,
+        "team_context": 0.0,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "matt-barnes-1yr-201213",
+      "profile_version": "experimental_v0",
+      "player_id": "matt-barnes",
+      "player_slug": "matt-barnes",
+      "player_name": "Matt Barnes",
+      "duration_years": 1,
+      "start_season": "2012-13",
+      "end_season": "2012-13",
+      "anchor_season": "2012-13",
+      "individual_peak_score": 40.98,
+      "individual_peak_rank": 254,
+      "prime_index": 14.651,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=6.4<75",
+          "percentiles": {
+            "si_pct": 6.4,
+            "tp_pct": 4.2,
+            "po_pct": 53.2,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=6.4<40",
+          "percentiles": {
+            "si_pct": 6.4,
+            "tp_pct": 4.2,
+            "po_pct": 53.2,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=6.4<25; tp_pct=4.2<50",
+          "percentiles": {
+            "si_pct": 6.4,
+            "tp_pct": 4.2,
+            "po_pct": 53.2,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=4.2<55",
+          "percentiles": {
+            "si_pct": 6.4,
+            "tp_pct": 4.2,
+            "po_pct": 53.2,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=6.4<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 6.4,
+            "tp_pct": 4.2,
+            "po_pct": 53.2,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 15.55,
+        "scoring_pressure": 16.33,
+        "individual_validation": 0.0,
+        "postseason_translation": 19.55,
+        "team_context": 0.0,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "nick-young-1yr-201617",
+      "profile_version": "experimental_v0",
+      "player_id": "nick-young",
+      "player_slug": "nick-young",
+      "player_name": "Nick Young",
+      "duration_years": 1,
+      "start_season": "2016-17",
+      "end_season": "2016-17",
+      "anchor_season": "2016-17",
+      "individual_peak_score": 32.42,
+      "individual_peak_rank": 262,
+      "prime_index": 9.5,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=1.1<75",
+          "percentiles": {
+            "si_pct": 1.1,
+            "tp_pct": 3.4,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=1.1<40",
+          "percentiles": {
+            "si_pct": 1.1,
+            "tp_pct": 3.4,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=1.1<25; tp_pct=3.4<50",
+          "percentiles": {
+            "si_pct": 1.1,
+            "tp_pct": 3.4,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=3.4<55",
+          "percentiles": {
+            "si_pct": 1.1,
+            "tp_pct": 3.4,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=1.1<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 1.1,
+            "tp_pct": 3.4,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 0.0,
+        "scoring_pressure": 15.84,
+        "individual_validation": 0.0,
+        "postseason_translation": 14.74,
+        "team_context": 0.0,
+        "context_completeness": 60.0
+      },
+      "data_completeness": "partial",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "javale-mcgee-1yr-202122",
+      "profile_version": "experimental_v0",
+      "player_id": "javale-mcgee",
+      "player_slug": "javale-mcgee",
+      "player_name": "JaVale McGee",
+      "duration_years": 1,
+      "start_season": "2021-22",
+      "end_season": "2021-22",
+      "anchor_season": "2021-22",
+      "individual_peak_score": 52.62,
+      "individual_peak_rank": 205,
+      "prime_index": 23.299,
+      "eligible_roles": [
+        "forward_big"
+      ],
+      "primary_role": "forward_big",
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=9.8<75",
+          "percentiles": {
+            "si_pct": 9.8,
+            "tp_pct": 63.0,
+            "po_pct": 78.1,
+            "team_pct": 35.8,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=9.8<40",
+          "percentiles": {
+            "si_pct": 9.8,
+            "tp_pct": 63.0,
+            "po_pct": 78.1,
+            "team_pct": 35.8,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=9.8<25",
+          "percentiles": {
+            "si_pct": 9.8,
+            "tp_pct": 63.0,
+            "po_pct": 78.1,
+            "team_pct": 35.8,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": true,
+          "path_id": "scoring_big",
+          "exclusion_reason": null,
+          "percentiles": {
+            "si_pct": 9.8,
+            "tp_pct": 63.0,
+            "po_pct": 78.1,
+            "team_pct": 35.8,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=9.8<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 9.8,
+            "tp_pct": 63.0,
+            "po_pct": 78.1,
+            "team_pct": 35.8,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 19.97,
+        "scoring_pressure": 48.42,
+        "individual_validation": 0.0,
+        "postseason_translation": 30.73,
+        "team_context": 14.47,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "jermaine-o-neal-1yr-200304",
+      "profile_version": "experimental_v0",
+      "player_id": "jermaine-o-neal",
+      "player_slug": "jermaine-o-neal",
+      "player_name": "Jermaine O'Neal",
+      "duration_years": 1,
+      "start_season": "2003-04",
+      "end_season": "2003-04",
+      "anchor_season": "2003-04",
+      "individual_peak_score": 54.9,
+      "individual_peak_rank": 187,
+      "prime_index": 25.1192,
+      "eligible_roles": [
+        "anchor"
+      ],
+      "primary_role": "anchor",
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=19.2<75",
+          "percentiles": {
+            "si_pct": 19.2,
+            "tp_pct": 24.5,
+            "po_pct": 26.0,
+            "team_pct": 74.0,
+            "rec_pct": 66.8
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=19.2<40",
+          "percentiles": {
+            "si_pct": 19.2,
+            "tp_pct": 24.5,
+            "po_pct": 26.0,
+            "team_pct": 74.0,
+            "rec_pct": 66.8
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=19.2<25; tp_pct=24.5<50",
+          "percentiles": {
+            "si_pct": 19.2,
+            "tp_pct": 24.5,
+            "po_pct": 26.0,
+            "team_pct": 74.0,
+            "rec_pct": 66.8
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=24.5<55",
+          "percentiles": {
+            "si_pct": 19.2,
+            "tp_pct": 24.5,
+            "po_pct": 26.0,
+            "team_pct": 74.0,
+            "rec_pct": 66.8
+          }
+        },
+        "anchor": {
+          "eligible": true,
+          "path_id": "recognition_validated_anchor",
+          "exclusion_reason": null,
+          "percentiles": {
+            "si_pct": 19.2,
+            "tp_pct": 24.5,
+            "po_pct": 26.0,
+            "team_pct": 74.0,
+            "rec_pct": 66.8
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 25.75,
+        "scoring_pressure": 29.72,
+        "individual_validation": 22.57,
+        "postseason_translation": 13.03,
+        "team_context": 41.91,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "brandon-rush-1yr-201112",
+      "profile_version": "experimental_v0",
+      "player_id": "brandon-rush",
+      "player_slug": "brandon-rush",
+      "player_name": "Brandon Rush",
+      "duration_years": 1,
+      "start_season": "2011-12",
+      "end_season": "2011-12",
+      "anchor_season": "2011-12",
+      "individual_peak_score": 39.5,
+      "individual_peak_rank": 256,
+      "prime_index": 13.6643,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=3.0<75",
+          "percentiles": {
+            "si_pct": 3.0,
+            "tp_pct": 18.5,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=3.0<40",
+          "percentiles": {
+            "si_pct": 3.0,
+            "tp_pct": 18.5,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=3.0<25; tp_pct=18.5<50",
+          "percentiles": {
+            "si_pct": 3.0,
+            "tp_pct": 18.5,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=18.5<55",
+          "percentiles": {
+            "si_pct": 3.0,
+            "tp_pct": 18.5,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=3.0<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 3.0,
+            "tp_pct": 18.5,
+            "po_pct": 30.9,
+            "team_pct": 0.0,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 7.68,
+        "scoring_pressure": 26.94,
+        "individual_validation": 0.0,
+        "postseason_translation": 14.74,
+        "team_context": 0.0,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "patrick-mccaw-1yr-201617",
+      "profile_version": "experimental_v0",
+      "player_id": "patrick-mccaw",
+      "player_slug": "patrick-mccaw",
+      "player_name": "Patrick McCaw",
+      "duration_years": 1,
+      "start_season": "2016-17",
+      "end_season": "2016-17",
+      "anchor_season": "2016-17",
+      "individual_peak_score": 21.34,
+      "individual_peak_rank": 264,
+      "prime_index": 3.4572,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.4<75",
+          "percentiles": {
+            "si_pct": 0.4,
+            "tp_pct": 0.0,
+            "po_pct": 61.5,
+            "team_pct": 66.4,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.4<40",
+          "percentiles": {
+            "si_pct": 0.4,
+            "tp_pct": 0.0,
+            "po_pct": 61.5,
+            "team_pct": 66.4,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.4<25; tp_pct=0.0<50",
+          "percentiles": {
+            "si_pct": 0.4,
+            "tp_pct": 0.0,
+            "po_pct": 61.5,
+            "team_pct": 66.4,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 0.4,
+            "tp_pct": 0.0,
+            "po_pct": 61.5,
+            "team_pct": 66.4,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.4<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 0.4,
+            "tp_pct": 0.0,
+            "po_pct": 61.5,
+            "team_pct": 66.4,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 0.0,
+        "scoring_pressure": 0.0,
+        "individual_validation": 0.0,
+        "postseason_translation": 22.18,
+        "team_context": 34.0,
+        "context_completeness": 60.0
+      },
+      "data_completeness": "partial",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    },
+    {
+      "peak_window_id": "ian-clark-1yr-201617",
+      "profile_version": "experimental_v0",
+      "player_id": "ian-clark",
+      "player_slug": "ian-clark",
+      "player_name": "Ian Clark",
+      "duration_years": 1,
+      "start_season": "2016-17",
+      "end_season": "2016-17",
+      "anchor_season": "2016-17",
+      "individual_peak_score": 27.19,
+      "individual_peak_rank": 263,
+      "prime_index": 6.6486,
+      "eligible_roles": [],
+      "primary_role": null,
+      "role_traces": {
+        "lead_creator": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.8<75",
+          "percentiles": {
+            "si_pct": 0.8,
+            "tp_pct": 1.5,
+            "po_pct": 23.0,
+            "team_pct": 77.0,
+            "rec_pct": 0.0
+          }
+        },
+        "guard_wing": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.8<40",
+          "percentiles": {
+            "si_pct": 0.8,
+            "tp_pct": 1.5,
+            "po_pct": 23.0,
+            "team_pct": 77.0,
+            "rec_pct": 0.0
+          }
+        },
+        "wing_forward": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.8<25; tp_pct=1.5<50",
+          "percentiles": {
+            "si_pct": 0.8,
+            "tp_pct": 1.5,
+            "po_pct": 23.0,
+            "team_pct": 77.0,
+            "rec_pct": 0.0
+          }
+        },
+        "forward_big": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: tp_pct=1.5<55",
+          "percentiles": {
+            "si_pct": 0.8,
+            "tp_pct": 1.5,
+            "po_pct": 23.0,
+            "team_pct": 77.0,
+            "rec_pct": 0.0
+          }
+        },
+        "anchor": {
+          "eligible": false,
+          "path_id": null,
+          "exclusion_reason": "no_path_passed; primary: si_pct=0.8<15; rec_pct=0.0<55",
+          "percentiles": {
+            "si_pct": 0.8,
+            "tp_pct": 1.5,
+            "po_pct": 23.0,
+            "team_pct": 77.0,
+            "rec_pct": 0.0
+          }
+        }
+      },
+      "lineup_dna": {
+        "primary_creation": 0.0,
+        "scoring_pressure": 9.96,
+        "individual_validation": 0.0,
+        "postseason_translation": 11.94,
+        "team_context": 46.66,
+        "context_completeness": 100.0
+      },
+      "data_completeness": "complete",
+      "profile_status": "experimental_data_derived",
+      "source_fields": [
+        "cache/processed/scored_1980_2026.parquet: contrib_* columns, prime_index"
+      ],
+      "transform_ids": [
+        "dna_v2_roles_v3 (reused from scripts/build_card_profiles.py, unmodified)"
+      ]
+    }
+  ]
+}

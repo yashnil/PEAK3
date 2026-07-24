@@ -46,7 +46,7 @@ from app.models.perfect_season import (
 )
 from app.services.perfect_season import state as state_machine
 from app.services.perfect_season.state import CourtError
-from nba_peak.perfect_season.board import coverage_summary, interim_team_summary
+from nba_peak.perfect_season.board import coverage_summary, experimental_team_year_summary, interim_team_summary
 from nba_peak.perfect_season.config import SUPPORTED_MODES
 
 router = APIRouter()
@@ -89,6 +89,7 @@ async def get_readiness(
     if mode not in SUPPORTED_MODES:
         mode = "apex_1y"
     coverage = coverage_summary(mode)
+    team_year_summary = experimental_team_year_summary()
     return CourtBuilderReadinessResponse(
         readiness_level=settings.COURTBUILDER_READINESS_LEVEL,
         courtbuilder_enabled=settings.COURTBUILDER_ENABLED,
@@ -97,6 +98,12 @@ async def get_readiness(
         interim_team_franchise_count=summary["franchise_count"],
         interim_team_franchise_names=summary["franchise_names"],
         coverage=CourtBuilderCoverageSummary(**coverage),
+        team_year_enabled=settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED,
+        experimental_team_year_data_version=team_year_summary["dataset_version"] or "unavailable",
+        experimental_team_year_franchise_count=team_year_summary["franchise_count"],
+        experimental_team_year_franchise_names=team_year_summary["franchise_names"],
+        experimental_team_year_season_count=team_year_summary["season_count"],
+        experimental_team_year_season_labels=team_year_summary["season_labels"],
     )
 
 
@@ -127,6 +134,7 @@ async def create_game(
             mode=body.mode,
             seed=body.seed,
             team_spin_enabled=settings.COURTBUILDER_TEAM_SPIN_ENABLED,
+            team_year_enabled=settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED,
         )
     except (ValueError, RuntimeError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc, "board_error"))

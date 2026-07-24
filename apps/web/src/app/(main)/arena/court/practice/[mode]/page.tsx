@@ -26,17 +26,24 @@ export default async function CourtBuilderPracticePage({ params, searchParams }:
 
   let gameState;
   let franchiseNames: string[] = [];
+  let seasonLabels: string[] = [];
   try {
     // Fetched in parallel: the game itself, and the readiness catalog's
-    // franchise-name list, which the spin ceremony's team wheel cycles
-    // through for visual variety (see SpinStage -- always the true
-    // resolvable set, never a broader decorative list).
+    // franchise-name/season-label lists, which the spin ceremony's reels
+    // cycle through for visual variety (see SpinStage -- always the true
+    // resolvable set, never a broader decorative list). When the Phase 6A
+    // team+year engine is enabled, the team reel's pool comes from the
+    // experimental team-year dataset instead of the decade dataset, since
+    // that's the actual resolvable set for this board.
     const [game, readiness] = await Promise.all([
       createCourtGame(mode as CourtMode, seed),
       getCourtBuilderReadiness().catch(() => null),
     ]);
     gameState = game;
-    franchiseNames = readiness?.interim_team_franchise_names ?? [];
+    franchiseNames = readiness?.team_year_enabled
+      ? (readiness?.experimental_team_year_franchise_names ?? [])
+      : (readiness?.interim_team_franchise_names ?? []);
+    seasonLabels = readiness?.experimental_team_year_season_labels ?? [];
   } catch (err) {
     const message =
       err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "courtbuilder_not_enabled"
@@ -49,5 +56,5 @@ export default async function CourtBuilderPracticePage({ params, searchParams }:
     );
   }
 
-  return <CourtBuilder initialGameState={gameState} franchiseNames={franchiseNames} />;
+  return <CourtBuilder initialGameState={gameState} franchiseNames={franchiseNames} seasonLabels={seasonLabels} />;
 }
