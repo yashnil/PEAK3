@@ -139,6 +139,44 @@ def parse_real_position(pos: str | None) -> tuple[str | None, tuple[str, ...]]:
     return tokens[0], tuple(tokens[1:])
 
 
+# Phase 6G Part A: how severe an off-position starter placement actually is,
+# for real per-season positions (team-year mode). Not every off-position
+# placement is an equally bad basketball problem -- a 6'7 SG playing SF is a
+# routine, plausible NBA role; a center playing point guard is not. Used to
+# stop the result explanation from naming a mild, defensible swap as "the"
+# weakness ahead of a much larger talent/context/bench problem (see
+# nba_peak.perfect_season.simulation._structural_weakness_exact).
+#
+# No height/archetype data is available at this layer, so severity is
+# derived from position adjacency alone (never invented/height-inferred) --
+# unlisted pairs default to "severe" since, by construction, they are
+# further apart on the positional spectrum than any listed pair.
+_ADJACENCY_SEVERITY: dict[frozenset[str], str] = {
+    frozenset({"PG", "SG"}): "mild",
+    frozenset({"SG", "SF"}): "mild",
+    frozenset({"PF", "C"}): "mild",
+    frozenset({"SF", "PF"}): "moderate",
+    frozenset({"PG", "SF"}): "moderate",
+    frozenset({"SG", "PF"}): "moderate",
+    frozenset({"C", "SG"}): "severe",
+    frozenset({"C", "PG"}): "severe",
+    frozenset({"C", "SF"}): "severe",
+}
+
+
+def position_fit_severity(slot_type: str, real_primary: str | None) -> str:
+    """"mild" | "moderate" | "severe" -- how big a real basketball problem an
+    off-position starter placement is. Only meaningful for pairs that are
+    already "off_position" per classify_fit_from_position (a primary/
+    secondary match is never "off_position" in the first place, so this is
+    never called to grade those). `real_primary` must be a real, parsed
+    Basketball-Reference position token (see parse_real_position) -- never
+    guessed or height-inferred."""
+    if not real_primary or real_primary == slot_type:
+        return "mild"
+    return _ADJACENCY_SEVERITY.get(frozenset({slot_type, real_primary}), "severe")
+
+
 def classify_fit_from_position(pos: str | None, slot_type: str) -> str:
     """classify_fit()'s counterpart for a real per-season position string
     (team-year mode) instead of a player_slug + archetype lookup. Same

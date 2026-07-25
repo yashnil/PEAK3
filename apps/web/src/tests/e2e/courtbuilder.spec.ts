@@ -226,7 +226,10 @@ test.describe("CourtBuilder position-aware slots", () => {
     // Place the first candidate at Center regardless of archetype -- for
     // seed 42's first-round pool this reliably produces an off-position
     // placement (position-eligibility-clarity goal: never just say
-    // "off-position" without saying why).
+    // "off-slot" without saying why -- Phase 6G Part F shortened the
+    // visible pill to "Off-slot" and moved the "plays X" detail into a
+    // title tooltip, since the old inline "Off-position (plays PG)" text
+    // was overflowing the compact court grid at small sizes).
     const candidate = page.locator('[data-testid="candidate-card"]').first();
     await candidate.waitFor({ state: "visible" });
     await Promise.all([
@@ -238,9 +241,11 @@ test.describe("CourtBuilder position-aware slots", () => {
       page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
       centerSlot.click(),
     ]);
-    const badgeText = (await centerSlot.locator('[data-testid="role-fit-badge"]').innerText()).toLowerCase();
-    if (badgeText.includes("off-position")) {
-      expect(badgeText).toContain("plays");
+    const badge = centerSlot.locator('[data-testid="role-fit-badge"]');
+    const badgeText = (await badge.innerText()).toLowerCase();
+    if (badgeText.includes("off-slot")) {
+      const tooltip = (await badge.getAttribute("title"))?.toLowerCase() ?? "";
+      expect(tooltip).toContain("plays");
     }
   });
 });
@@ -440,6 +445,74 @@ test.describe("CourtBuilder spin ceremony", () => {
     expect(teamText.length).toBeGreaterThan(0);
     expect(/(19[89]0s|20[012]0s|\d{4}-\d{2})/.test(eraText)).toBe(true);
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 6G Part B: "Team + Season Reel Spinner v2" -- coverage proof,
+  // reel-strip test ids, locked state, reduced motion, mobile overflow.
+  // -------------------------------------------------------------------------
+
+  test("spinner renders real coverage text (rollable team-seasons count)", async ({ page }) => {
+    await startCourtBuilder(page);
+    const coverageLine = page.locator('[data-testid="spin-coverage-line"]');
+    await expect(coverageLine).toBeVisible();
+    // Real, non-fabricated coverage count -- proves this isn't a hardcoded
+    // "1,310" string but an actual number from the readiness dataset.
+    await expect(coverageLine).toContainText(/[\d,]+ rollable team-seasons/, { timeout: 5_000 });
+  });
+
+  test("spinner renders the eligible season range 1979-80 to 2025-26", async ({ page }) => {
+    await startCourtBuilder(page);
+    const coverageLine = page.locator('[data-testid="spin-coverage-line"]');
+    await expect(coverageLine).toContainText("1979-80 to 2025-26", { timeout: 5_000 });
+  });
+
+  test("spin stage shows reel-strip test ids while spinning (team and season reels)", async ({ page }) => {
+    // Fresh navigation lands in the "spinning" phase for a moment before
+    // the fixed ceremony timers advance it -- assert the reel strips exist
+    // in that window rather than racing the animation.
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    const strips = page.locator('[data-testid="spin-stage"] .spin-reel-strip');
+    await expect(strips.first()).toBeVisible({ timeout: 3_000 });
+    await expect(strips).toHaveCount(2);
+  });
+
+  test("locked state shows a LOCKED stamp between spinning and reveal", async ({ page }) => {
+    // The "locked" phase is a deliberately brief ~450ms window between the
+    // spinning and revealed phases (see SpinStage.tsx's LOCK_MS). Racing a
+    // fresh navigation against that live transient window is not just slow
+    // -- it is genuinely unreliable: on a slow dev-server compile, the
+    // whole spin->lock->reveal cycle can finish DURING page.goto()'s own
+    // resolution, so Playwright's polling never starts until "locked" has
+    // already passed, no matter how generous the assertion timeout is.
+    // SpinStage.tsx instead exposes a persistent `data-was-locked` flag on
+    // `[data-testid="spin-stage"]` (set true the moment phase first becomes
+    // "locked", never reset) -- asserting on that AFTER the ceremony has
+    // settled into "revealed" proves the locked phase happened without
+    // needing to observe it live.
+    await startCourtBuilder(page);
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-was-locked", "true");
+  });
+
+  test("reduced motion still displays the final roll (team, season, eligible count)", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await startCourtBuilder(page);
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", {
+      timeout: 1_000,
+    });
+    await expect(page.locator('[data-testid="roll-summary"]')).toBeVisible();
+    await expect(page.locator('[data-testid="eligible-count-reveal"]')).toBeVisible();
+    // Stepped reveal, not a continuous cycling animation -- no reel strips
+    // should be mounted for reduced-motion users.
+    await expect(page.locator('[data-testid="spin-stage"] .spin-reel-strip')).toHaveCount(0);
+  });
+
+  test("mobile viewport: spin stage never causes horizontal page overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 740 });
+    await startCourtBuilder(page);
+    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -491,6 +564,74 @@ test.describe("CourtBuilder drafting flow", () => {
 // Phase 6E Part C: candidate list is single-column, alphabetical, and never
 // star/score-ordered.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Phase 6G Part C: respins (team_year mode only).
+// ---------------------------------------------------------------------------
+
+test.describe("CourtBuilder respins", () => {
+  test("respin team button rerolls the roll and decrements the counter", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamBtn = page.locator('[data-testid="respin-team-btn"]');
+    await expect(teamBtn).toBeVisible();
+    await expect(teamBtn).toContainText("3 left");
+
+    const rollSummaryBefore = await page.locator('[data-testid="roll-summary"]').innerText();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+      teamBtn.click(),
+    ]);
+    await expect(teamBtn).toContainText("2 left");
+    const rollSummaryAfter = await page.locator('[data-testid="roll-summary"]').innerText();
+    expect(rollSummaryAfter).not.toBe(rollSummaryBefore);
+    // Candidate list refreshed to the new roll's real roster.
+    await expect(page.locator('[data-testid="candidate-card"]').first()).toBeVisible();
+  });
+
+  test("respin buttons disable at 0 and are independent counters", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamBtn = page.locator('[data-testid="respin-team-btn"]');
+    const seasonBtn = page.locator('[data-testid="respin-season-btn"]');
+
+    for (let i = 0; i < 3; i++) {
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+        teamBtn.click(),
+      ]);
+    }
+    await expect(teamBtn).toBeDisabled();
+    // Season respins are a separate budget -- still fully available.
+    await expect(seasonBtn).toContainText("3 left");
+    await expect(seasonBtn).toBeEnabled();
+  });
+
+  test("respin controls disappear once a player is selected", async ({ page }) => {
+    await startCourtBuilder(page);
+    await expect(page.locator('[data-testid="respin-controls"]')).toBeVisible();
+    const candidate = page.locator('[data-testid="candidate-card"]').first();
+    await candidate.waitFor({ state: "visible" });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      candidate.click(),
+    ]);
+    await expect(page.locator('[data-testid="respin-controls"]')).toHaveCount(0);
+  });
+
+  test("data receipt includes respin history after a respin", async ({ page }) => {
+    await startCourtBuilder(page);
+    // No respin yet -- the receipt's respin-count span shouldn't exist at all.
+    await expect(page.locator('[data-testid="respin-receipt-count"]')).toHaveCount(0);
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-season") && r.status() === 200),
+      page.locator('[data-testid="respin-season-btn"]').click(),
+    ]);
+    const receipt = page.locator('[data-testid="board-receipt"]');
+    await receipt.locator("summary").click();
+    await expect(page.locator('[data-testid="respin-receipt-count"]')).toContainText("1 respin used");
+    await expect(page.locator('[data-testid="respin-receipt-count"]')).toContainText("1 season");
+  });
+});
 
 test.describe("CourtBuilder candidate list (Phase 6E)", () => {
   test("candidate list renders as a single column, not a side-by-side grid", async ({ page }) => {
@@ -614,6 +755,38 @@ test.describe("CourtBuilder result credibility", () => {
     const receipt = page.locator('[data-testid="result-receipt"]');
     await expect(receipt).toBeVisible();
     await expect(receipt.locator("summary")).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 6G Part E: leaderboard submit panel is entirely hidden (not just
+// disabled) when PEAK3_COURTBUILDER_LEADERBOARD_ENABLED is off, which is
+// CI's default env for this suite -- the flag-ON path (sign-in prompt,
+// submit flow) is covered by the API-level pytest suite
+// (test_perfect_season.py's leaderboard tests), which doesn't depend on a
+// real Supabase project.
+// ---------------------------------------------------------------------------
+
+test.describe("CourtBuilder leaderboard (Part E)", () => {
+  test("leaderboard submit panel does not render when the leaderboard feature is off", async ({ page }) => {
+    await startCourtBuilder(page);
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+    await expect(page.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
+    await page.waitForResponse((r) => r.url().includes("/perfect-season/leaderboard"));
+    await expect(page.locator('[data-testid="leaderboard-submit-panel"]')).toHaveCount(0);
+  });
+
+  test("leaderboard page shows a not-enabled message when the feature is off", async ({ page }) => {
+    await page.goto("/arena/court/leaderboard", { waitUntil: "load" });
+    await expect(page.getByText("isn't enabled yet")).toBeVisible({ timeout: 5_000 });
   });
 });
 

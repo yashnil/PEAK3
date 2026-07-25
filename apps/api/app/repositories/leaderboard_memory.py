@@ -1,0 +1,73 @@
+"""In-memory PerfectSeasonLeaderboardRepository (Phase 6G Part E) -- used in
+dev/tests when DATABASE_URL is unset, same discipline as the other
+Memory* repositories in this package."""
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import uuid
+from typing import Optional
+
+from app.repositories.leaderboard_protocols import DuplicateRunSubmission, PerfectSeasonRun
+
+
+def _sort_key(run: PerfectSeasonRun) -> tuple:
+    # wins desc, lineup_score desc, respins used asc, created_at asc --
+    # Python tuple comparison sorts ascending, so wins/lineup_score are
+    # negated to get a descending effect while keeping one sort() call.
+    total_respins = run.team_respins_used + run.season_respins_used
+    return (-run.wins, -run.lineup_score, total_respins, run.created_at.isoformat(), run.id)
+
+
+def _encode_cursor(run: PerfectSeasonRun) -> str:
+    return base64.urlsafe_b64encode(json.dumps(list(_sort_key(run))).encode()).decode()
+
+
+def _decode_cursor(cursor: str) -> tuple:
+    return tuple(json.loads(base64.urlsafe_b64decode(cursor.encode()).decode()))
+
+
+class MemoryPerfectSeasonLeaderboardRepository:
+    def __init__(self) -> None:
+        self._runs: dict[str, PerfectSeasonRun] = {}
+        self._by_game_id: dict[str, str] = {}
+        self._lock = asyncio.Lock()
+
+    async def submit_run(self, run: PerfectSeasonRun) -> PerfectSeasonRun:
+        async with self._lock:
+            if run.game_id in self._by_game_id:
+                raise DuplicateRunSubmission(f"game_id '{run.game_id}' was already submitted")
+            run_id = run.id or str(uuid.uuid4())
+            run.id = run_id
+            self._runs[run_id] = run
+            self._by_game_id[run.game_id] = run_id
+            return run
+
+    async def get_run_by_game_id(self, game_id: str) -> Optional[PerfectSeasonRun]:
+        run_id = self._by_game_id.get(game_id)
+        return self._runs.get(run_id) if run_id else None
+
+    async def get_leaderboard(
+        self, mode: Optional[str], no_respin_only: bool, limit: int, cursor: Optional[str]
+    ) -> list[PerfectSeasonRun]:
+        rows = [r for r in self._runs.values() if r.is_public]
+        if mode:
+            rows = [r for r in rows if r.mode == mode]
+        if no_respin_only:
+            rows = [r for r in rows if r.team_respins_used == 0 and r.season_respins_used == 0]
+        rows.sort(key=_sort_key)
+
+        if cursor:
+            after_key = _decode_cursor(cursor)
+            rows = [r for r in rows if _sort_key(r) > after_key]
+
+        return rows[:limit]
+
+    async def list_runs_for_owner(self, owner_sub: str) -> list[PerfectSeasonRun]:
+        rows = [r for r in self._runs.values() if r.owner_sub == owner_sub]
+        rows.sort(key=lambda r: r.created_at, reverse=True)
+        return rows
+
+
+encode_leaderboard_cursor = _encode_cursor

@@ -56,6 +56,8 @@ from app.repositories.ranked_protocols import (
     RankedMatchmakingRepository,
     RankedRatingRepository,
 )
+from app.repositories.leaderboard_memory import MemoryPerfectSeasonLeaderboardRepository
+from app.repositories.leaderboard_protocols import PerfectSeasonLeaderboardRepository
 
 # ---------------------------------------------------------------------------
 # Singleton in-memory stores (only used when DATABASE_URL is unset in dev)
@@ -80,6 +82,7 @@ _memory_profile_repo = MemoryProfileRepository()
 _memory_ranked_matchmaking_repo = MemoryRankedMatchmakingRepository()
 _memory_ranked_rating_repo = MemoryRankedRatingRepository()
 _memory_ranked_integrity_repo = MemoryRankedIntegrityRepository()
+_memory_perfect_season_leaderboard_repo = MemoryPerfectSeasonLeaderboardRepository()
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +225,21 @@ def get_ranked_integrity_repo(request: Request) -> RankedIntegrityRepository:
     return _memory_ranked_integrity_repo
 
 
+def get_perfect_season_leaderboard_repo(request: Request) -> PerfectSeasonLeaderboardRepository:
+    """Return the active PerfectSeasonLeaderboardRepository (Postgres or
+    in-memory) -- Phase 6G Part E. Same in-memory-fallback discipline as
+    every other repository here; the leaderboard route itself gates on
+    PEAK3_COURTBUILDER_LEADERBOARD_ENABLED (default off) before this is
+    ever reached, so the in-memory fallback in dev/CI is expected, not a
+    misconfiguration."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.leaderboard_postgres import PostgresPerfectSeasonLeaderboardRepository
+        return PostgresPerfectSeasonLeaderboardRepository(pool)
+    _warn_memory_repo("PerfectSeasonLeaderboardRepository")
+    return _memory_perfect_season_leaderboard_repo
+
+
 def _warn_memory_repo(name: str) -> None:
     if not settings.DEBUG:
         raise RuntimeError(
@@ -253,3 +271,6 @@ ProfileRepoDep = Annotated[ProfileRepository, Depends(get_profile_repo)]
 RankedMatchmakingRepoDep = Annotated[RankedMatchmakingRepository, Depends(get_ranked_matchmaking_repo)]
 RankedRatingRepoDep = Annotated[RankedRatingRepository, Depends(get_ranked_rating_repo)]
 RankedIntegrityRepoDep = Annotated[RankedIntegrityRepository, Depends(get_ranked_integrity_repo)]
+PerfectSeasonLeaderboardRepoDep = Annotated[
+    PerfectSeasonLeaderboardRepository, Depends(get_perfect_season_leaderboard_repo)
+]

@@ -194,6 +194,15 @@ class CourtLineupState:
     # Server-resolved only, never client-trusted (PHASE_5_DATA_MODEL.md
     # entity 8; same discipline as DraftGameState.owner_sub post-4.0A fix).
     owner_sub: Optional[str] = None
+    # Phase 6G Part C: up to 3 team respins + 3 season respins per round,
+    # only while the round's status is "selection_pending" (locked the
+    # instant a player is selected -- see action_select_player). Reset to 0
+    # whenever current_round advances (action_place_card). respin_history is
+    # a full receipt of every respin this attempt has ever used, across all
+    # rounds -- never cleared, so the final data receipt can show it.
+    team_respins_used: int = 0
+    season_respins_used: int = 0
+    respin_history: list[dict] = field(default_factory=list)
 
 
 # Re-exported so callers of this module do not need to import

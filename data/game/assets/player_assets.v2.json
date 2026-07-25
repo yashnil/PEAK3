@@ -4,9 +4,9 @@
   "license_policy": "headshot_url values are real ESPN CDN URLs fetched live from current NBA team rosters at generation time -- no image binaries are downloaded or committed. license_status is 'unknown_do_not_cache' for every resolved player until a human reviews ESPN's terms of use and explicitly approves a cache_policy upgrade (see asset_sources.v1.json).",
   "scope_note": "Seeded from the 250-player canonical pool. Only players on a CURRENT ESPN NBA roster at generation time can resolve -- historical/retired players are unresolved by design, not fabricated. See unresolved_player_assets.v1.json.",
   "player_count": 250,
-  "resolved_count": 56,
+  "resolved_count": 61,
   "ambiguous_count": 0,
-  "unresolved_count": 194,
+  "unresolved_count": 189,
   "players": [
     {
       "player_slug": "adrian-dantley",
@@ -491,18 +491,20 @@
     {
       "player_slug": "bradley-beal",
       "player_name": "Bradley Beal",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "6580",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/6580.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/6580",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "fallback_only",
       "fallback_initials": "BB",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
-      "warnings": []
+      "resolution_status": "resolved",
+      "confidence": 0.9,
+      "warnings": [
+        "Resolved via ESPN's broader athlete pool (not a current team roster) -- headshot URL constructed from a verified ID template."
+      ]
     },
     {
       "player_slug": "brandon-roy",
@@ -939,18 +941,20 @@
     {
       "player_slug": "demar-derozan",
       "player_name": "DeMar DeRozan",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "3978",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/3978.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/3978",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "fallback_only",
       "fallback_initials": "DD",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
-      "warnings": []
+      "resolution_status": "resolved",
+      "confidence": 0.9,
+      "warnings": [
+        "Resolved via ESPN's broader athlete pool (not a current team roster) -- headshot URL constructed from a verified ID template."
+      ]
     },
     {
       "player_slug": "demarcus-cousins",
@@ -2347,18 +2351,20 @@
     {
       "player_slug": "kevin-love",
       "player_name": "Kevin Love",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "3449",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/3449.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/3449",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "fallback_only",
       "fallback_initials": "KL",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
-      "warnings": []
+      "resolution_status": "resolved",
+      "confidence": 0.9,
+      "warnings": [
+        "Resolved via ESPN's broader athlete pool (not a current team roster) -- headshot URL constructed from a verified ID template."
+      ]
     },
     {
       "player_slug": "kevin-mchale",
@@ -2443,18 +2449,20 @@
     {
       "player_slug": "kyle-lowry",
       "player_name": "Kyle Lowry",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "3012",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/3012.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/3012",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "fallback_only",
       "fallback_initials": "KL",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
-      "warnings": []
+      "resolution_status": "resolved",
+      "confidence": 0.9,
+      "warnings": [
+        "Resolved via ESPN's broader athlete pool (not a current team roster) -- headshot URL constructed from a verified ID template."
+      ]
     },
     {
       "player_slug": "kyrie-irving",
@@ -3387,18 +3395,20 @@
     {
       "player_slug": "russell-westbrook",
       "player_name": "Russell Westbrook",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "3468",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/3468.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/3468",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "fallback_only",
       "fallback_initials": "RW",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
-      "warnings": []
+      "resolution_status": "resolved",
+      "confidence": 0.9,
+      "warnings": [
+        "Resolved via ESPN's broader athlete pool (not a current team roster) -- headshot URL constructed from a verified ID template."
+      ]
     },
     {
       "player_slug": "sam-cassell",

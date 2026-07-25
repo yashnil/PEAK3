@@ -661,6 +661,58 @@ html, body {
   animation: spin-reel-streak 0.4s linear infinite;
 }
 
+/* Phase 6G Part B -- reel-strip ticker (shows several pool items at once
+   while spinning, proving broad team/season coverage instead of just
+   asserting it). Fixed width/overflow:hidden so it can never cause
+   horizontal page overflow on mobile regardless of label length. */
+.spin-reel-strip {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.spin-reel-strip-item {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  opacity: 0.55;
+  flex-shrink: 0;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spin-reel-strip-active {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Blur/ghosting while the reel is at full speed -- eases off once the ramp
+   drops to "slow", so the strip visually settles before the lock snap.
+   Neutralized entirely under prefers-reduced-motion (that path never
+   mounts this element at all -- see SpinStage.tsx). */
+.spin-reel-strip[data-ramp="fast"] .spin-reel-strip-item,
+.spin-reel-strip[data-ramp="fast"] .spin-reel-strip-active {
+  filter: blur(0.6px);
+}
+
+.spin-locked-stamp {
+  color: var(--peak-accent, #f5c842);
+  padding: 3px 14px;
+  border: 1.5px solid var(--peak-accent, #f5c842);
+  border-radius: 999px;
+  background: rgba(245, 200, 66, 0.1);
+}
+
 .round-progress-dots {
   display: flex;
   align-items: center;

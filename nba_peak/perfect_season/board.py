@@ -608,6 +608,21 @@ def _rollable_team_year_entries(entries: list[dict]) -> list[dict]:
     return [e for e in entries if len(e.get("player_slugs", [])) >= MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON]
 
 
+def get_rollable_team_year_entries(experimental_team_year_path: Path | None = None) -> list[dict]:
+    """Public accessor for the full rollable team-year entry catalogue
+    (Phase 6G Part C) -- used by the CourtBuilder state machine's respin
+    actions, which need to pick a DIFFERENT real team-season for the
+    current round without regenerating the whole board. Same filtering
+    (MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON floor) as generate_team_year_board
+    itself, so a respin can never land on a thin/unplayable roster."""
+    data = _load_experimental_team_year_dataset(experimental_team_year_path)
+    all_entries = [
+        {**e, "spin_type": "team_year", "era_label": e["season_label"]}
+        for e in data.get("exact_team_year_spins", [])
+    ]
+    return _rollable_team_year_entries(all_entries)
+
+
 def generate_team_year_board(
     mode: str,
     seed: int,

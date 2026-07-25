@@ -16,12 +16,18 @@ interface Props {
   pendingPrimaryPosition?: string | null;
 }
 
-/** "Off-position" alone doesn't say why -- append the player's own primary
- * position when known, e.g. "Off-position (plays PG)". Position eligibility
- * clarity goal: never leave a fit note unexplained. */
-function explainedFitLabel(label: string, roleFit: RoleFit | null | undefined, primaryPosition: string | null | undefined): string {
+/** Phase 6G Part F: the visible pill stays short ("Off-slot") -- the WHY
+ * ("plays PG") moves entirely into the title tooltip (fitTooltip below)
+ * instead of being appended inline, which was overflowing/truncating in
+ * the compact court grid ("OFF-POSITION (PLAYS PG)" at 8px). Position
+ * eligibility clarity is preserved via the tooltip, not the badge text. */
+function fitPillLabel(label: string): string {
+  return label;
+}
+
+function fitTooltip(label: string, roleFit: RoleFit | null | undefined, primaryPosition: string | null | undefined): string {
   if (roleFit === "off_position" && primaryPosition) {
-    return `${label} (plays ${primaryPosition})`;
+    return `${label} -- plays ${primaryPosition}`;
   }
   return label;
 }
@@ -54,11 +60,13 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
   // PlayerSeasonCard.
   const isExactSeason = slot.exact_player_season_key != null;
   const revealed = isExactSeason ? slot.season_score != null : slot.individual_peak_score != null;
-  const fitLabel = slot.role_fit
-    ? explainedFitLabel(ROLE_FIT_LABELS[slot.role_fit], slot.role_fit, slot.primary_position)
+  const fitLabel = slot.role_fit ? fitPillLabel(ROLE_FIT_LABELS[slot.role_fit]) : "";
+  const fitLabelTooltip = slot.role_fit
+    ? fitTooltip(ROLE_FIT_LABELS[slot.role_fit], slot.role_fit, slot.primary_position)
     : "";
-  const pendingFitLabel = !slot.filled && pendingFit
-    ? explainedFitLabel(ROLE_FIT_LABELS[pendingFit], pendingFit, pendingPrimaryPosition)
+  const pendingFitLabel = !slot.filled && pendingFit ? fitPillLabel(ROLE_FIT_LABELS[pendingFit]) : "";
+  const pendingFitTooltip = !slot.filled && pendingFit
+    ? fitTooltip(ROLE_FIT_LABELS[pendingFit], pendingFit, pendingPrimaryPosition)
     : "";
 
   const content = (
@@ -72,7 +80,7 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
             className="text-[8px] font-semibold uppercase tracking-wide rounded px-1 py-px shrink-0 truncate max-w-[60%]"
             style={{ color: fitColor(slot.role_fit), background: "rgba(255,255,255,0.06)" }}
             data-testid="role-fit-badge"
-            title={fitLabel}
+            title={fitLabelTooltip}
           >
             {fitLabel}
           </span>
@@ -98,7 +106,12 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
               {slot.player_name}
             </div>
             {isExactSeason ? (
-              <div className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="exact-season-line">
+              <div
+                className="text-[10px] truncate"
+                style={{ color: "var(--text-secondary)" }}
+                data-testid="exact-season-line"
+                title={`${slot.team_name} · ${slot.season}`}
+              >
                 {slot.team_name} · {slot.season}
                 {revealed && (
                   <span data-testid="revealed-score-line"> · {Math.round(slot.season_score ?? 0)} pts</span>
@@ -128,6 +141,7 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
               className="text-[9px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
               style={{ color: fitColor(pendingFit), background: "rgba(255,255,255,0.06)" }}
               data-testid="pending-fit-badge"
+              title={pendingFitTooltip}
             >
               {pendingFitLabel}
             </div>

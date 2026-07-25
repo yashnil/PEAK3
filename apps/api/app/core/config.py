@@ -147,6 +147,12 @@ class Settings(BaseSettings):
     # the route's own check).
     DEV_TOOLS_ENABLED: bool = False
 
+    # Phase 6G Part E: authenticated global leaderboard for PEAK Season.
+    # Default OFF -- submitting/reading requires this AND COURTBUILDER_ENABLED.
+    # Reading is public once enabled; submitting always requires a real
+    # authenticated user (never anonymous, unlike CourtBuilder play itself).
+    COURTBUILDER_LEADERBOARD_ENABLED: bool = False
+
     # Human-facing readiness classification. Does not itself gate behavior —
     # the booleans above do — but is surfaced on /api/v1/perfect-season/readiness
     # and must be kept consistent with them (validated below).

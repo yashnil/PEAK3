@@ -12,15 +12,21 @@ fabricate data, images, or licensing claims).
 Scope, stated honestly (see also unresolved_player_assets.v1.json):
   - TEAMS: all 30 current NBA franchises resolve cleanly (ESPN's public
     `/teams` endpoint is a complete, unambiguous list).
-  - PLAYERS: ESPN's public site API only exposes CURRENT team rosters
-    (`/teams/{id}/roster`) without authentication -- there is no reliable
-    public search endpoint for retired/historical players verified during
-    this pass (tested: `common/v3/search` returns noisy cross-sport,
-    non-NBA-scoped results and is not safe to auto-match against). A
-    player is therefore only resolved here if their exact display name
-    matches a name on a CURRENT NBA roster fetched live in this run.
-    Historical players (the large majority of the 250-pool) are reported
-    as unresolved with an honest reason, never guessed.
+  - PLAYERS: resolved via two ESPN sources, in priority order: (1) CURRENT
+    team rosters (`/teams/{id}/roster`), (2) Phase 6G Part D addition -- a
+    broader athlete-pool endpoint (`sports.core.api.espn.com/.../athletes`)
+    that also includes recently-waived/free-agent players ESPN still
+    tracks but who aren't on any team's roster right now. Neither source
+    has a reliable public search for retired/historical players (tested:
+    `common/v3/search` returns noisy cross-sport, non-NBA-scoped results
+    and is not safe to auto-match against; the broader athlete-pool
+    endpoint itself was verified during this pass to contain only
+    current-or-recent-era players -- 611 total, 72 "inactive", none
+    pre-dating roughly the 2020s). A player is only resolved here if their
+    exact display name matches an entry from one of these two real,
+    live-fetched sources. Historical players (the large majority of the
+    250-pool) are reported as unresolved with an honest reason, never
+    guessed.
 
 License status: this script does not itself grant a license to hotlink
 ESPN's CDN images in a shipped product -- `license_status` is set to
@@ -52,8 +58,26 @@ OUT_DIR = REPO_ROOT / "data" / "game" / "assets"
 
 TEAMS_ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=50"
 ROSTER_ENDPOINT_TMPL = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{espn_id}/roster"
+# Phase 6G Part D: broader athlete pool -- includes players not on a CURRENT
+# roster but still tracked by ESPN (waived/free-agent/recently-inactive
+# within the current league year). VERIFIED to still be current-era only
+# (spot-checked: 611 total athletes as of this pass, 72 "inactive", every
+# name in that inactive set is a recently-active/recently-retired player
+# from the last 1-2 seasons -- e.g. Bradley Beal, DeMar DeRozan, Kevin Love,
+# Kyle Lowry, Russell Westbrook -- never a pre-2020s legend). Used ONLY as a
+# fallback for names the roster fetch above didn't already resolve; never
+# overrides a roster match.
+ATHLETES_LIST_ENDPOINT = "https://sports.core.api.espn.com/v3/sports/basketball/nba/athletes?limit=2000"
 REQUEST_TIMEOUT_S = 10
 ROSTER_FETCH_DELAY_S = 0.15
+
+# Verified against live roster-fetch headshot URLs (see module docstring/
+# commit notes) -- every athlete.headshot.href returned by the roster
+# endpoint follows exactly this template with that same athlete's numeric
+# id. The broader athletes-list endpoint doesn't inline a headshot URL, so
+# this constructs one from a REAL, live-fetched id using the SAME verified
+# template -- not a guess, not a fabricated ID.
+HEADSHOT_URL_TMPL = "https://a.espncdn.com/i/headshots/nba/players/full/{athlete_id}.png"
 
 ASSET_SOURCES_VERSION = "asset_sources.v1"
 TEAM_ASSETS_VERSION = "team_assets.v2"
@@ -149,6 +173,23 @@ def fetch_espn_roster(espn_team_id: str) -> list[dict]:
     return out
 
 
+def fetch_espn_athletes_list() -> list[dict]:
+    """The broader (not just current-roster) athlete pool -- see
+    ATHLETES_LIST_ENDPOINT's comment for what this does and doesn't cover."""
+    print(f"Fetching {ATHLETES_LIST_ENDPOINT} ...")
+    data = _fetch_json(ATHLETES_LIST_ENDPOINT)
+    if not data:
+        return []
+    items = data.get("items", [])
+    out = [
+        {"espn_athlete_id": a.get("id"), "full_name": a.get("fullName") or a.get("displayName")}
+        for a in items
+        if a.get("id") and (a.get("fullName") or a.get("displayName"))
+    ]
+    print(f"  Fetched {len(out)} athletes from the broader pool ({sum(1 for a in items if not a.get('active'))} inactive).")
+    return out
+
+
 def build_team_assets(espn_teams: list[dict]) -> tuple[dict, int]:
     from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME
 
@@ -241,6 +282,19 @@ def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
         if (i + 1) % 10 == 0:
             print(f"  ... {i + 1}/{len(espn_teams)} rosters fetched")
 
+    # Phase 6G Part D: fallback pool for names the current-roster fetch
+    # above didn't resolve (e.g. recently waived/free-agent players still
+    # tracked by ESPN). Never overrides a roster_by_norm_name match.
+    athlete_list_by_norm_name: dict[str, dict] = {}
+    athlete_list_duplicates: set[str] = set()
+    for a in fetch_espn_athletes_list():
+        key = _normalize_name(a["full_name"])
+        if key in roster_by_norm_name:
+            continue  # roster match already covers this name
+        if key in athlete_list_by_norm_name and athlete_list_by_norm_name[key]["espn_athlete_id"] != a["espn_athlete_id"]:
+            athlete_list_duplicates.add(key)
+        athlete_list_by_norm_name[key] = a
+
     players = []
     unresolved = []
     resolved_count = 0
@@ -277,6 +331,42 @@ def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
                 "confidence": 1.0,
                 "warnings": [],
             })
+            continue
+
+        list_match = athlete_list_by_norm_name.get(key)
+        if list_match and key in athlete_list_duplicates:
+            ambiguous_count += 1
+            players.append({
+                "player_slug": slug, "player_name": name, "espn_athlete_id": None,
+                "nba_player_id": None, "basketball_reference_id": None,
+                "headshot_url": None, "image_provider": None, "image_source_url": None,
+                "license_status": "unavailable", "cache_policy": "fallback_only",
+                "fallback_initials": initials, "resolution_status": "ambiguous",
+                "confidence": 0.0,
+                "warnings": ["Multiple ESPN athlete-pool entries matched this exact display name; not auto-resolved."],
+            })
+            unresolved.append({"player_slug": slug, "player_name": name, "reason": "ambiguous_name_match"})
+        elif list_match:
+            resolved_count += 1
+            headshot = HEADSHOT_URL_TMPL.format(athlete_id=list_match["espn_athlete_id"])
+            players.append({
+                "player_slug": slug, "player_name": name,
+                "espn_athlete_id": list_match["espn_athlete_id"],
+                "nba_player_id": None, "basketball_reference_id": None,
+                "headshot_url": headshot, "image_provider": "ESPN",
+                "image_source_url": f"https://www.espn.com/nba/player/_/id/{list_match['espn_athlete_id']}",
+                "license_status": "unknown_do_not_cache", "cache_policy": "fallback_only",
+                "fallback_initials": initials, "resolution_status": "resolved",
+                # Slightly lower confidence than a direct roster match: the
+                # headshot URL is CONSTRUCTED from a real, live-fetched
+                # athlete id using ESPN's verified template (see
+                # HEADSHOT_URL_TMPL), not read directly off a roster
+                # response -- still real, never fabricated, just one step
+                # more indirect.
+                "confidence": 0.9,
+                "warnings": ["Resolved via ESPN's broader athlete pool (not a current team roster) -- "
+                             "headshot URL constructed from a verified ID template."],
+            })
         else:
             players.append({
                 "player_slug": slug, "player_name": name, "espn_athlete_id": None,
@@ -289,9 +379,13 @@ def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
             })
             unresolved.append({
                 "player_slug": slug, "player_name": name,
-                "reason": "not_on_a_current_espn_nba_roster -- ESPN's public API only exposes "
-                          "current rosters; historical/retired-player ID resolution was not "
-                          "attempted this pass (no verified reliable public search endpoint).",
+                "reason": "not_found_in_espn_current_or_recent_athlete_pool -- ESPN's public API "
+                          "has no historical/retired-player search; a player only resolves if "
+                          "ESPN still tracks them as a current-or-recent (within the last "
+                          "1-2 seasons) NBA athlete. Verified during this pass: ESPN's broader "
+                          "athlete-pool endpoint returns 611 total athletes (539 active + 72 "
+                          "recently-inactive), none of which include players who retired "
+                          "before roughly the 2020s.",
             })
 
     player_payload = {

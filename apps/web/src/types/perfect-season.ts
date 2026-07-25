@@ -86,6 +86,23 @@ export interface CurrentSpin {
   // Phase 6F Part C: only populated when the backend has
   // ENABLE_EXTERNAL_ASSET_URLS on (default off).
   team_logo_url?: string | null;
+  // Phase 6G Part C: respin budget for THIS round (resets every round).
+  // Only populated for team_year spins -- respins reroll the team+season
+  // reel, which only team_year mode has.
+  team_respins_used?: number | null;
+  team_respins_max?: number | null;
+  season_respins_used?: number | null;
+  season_respins_max?: number | null;
+}
+
+// Phase 6G Part C: one entry in the full respin receipt.
+export interface RespinHistoryEntry {
+  round: number;
+  kind: "team" | "season";
+  from_team: string | null;
+  from_season: string | null;
+  to_team: string | null;
+  to_season: string | null;
 }
 
 // Matches an exact-season era_label ("2015-16"), never a decade string.
@@ -218,6 +235,8 @@ export interface CourtLineupPublicState {
   open_pool_enabled: boolean;
   simulation_result: SimulationResultPublic | null;
   live_build: LiveBuild | null;
+  // Phase 6G Part C: every respin used this attempt, across all rounds.
+  respin_history: RespinHistoryEntry[];
 }
 
 // Duration-aware coverage audit of the interim dataset -- see
@@ -281,6 +300,37 @@ export interface CourtBuilderReadiness {
   warnings: string[];
 }
 
+// Phase 6G Part E: authenticated global leaderboard for PEAK Season.
+export interface PerfectSeasonRunPublic {
+  id: string;
+  display_name: string;
+  mode: CourtMode;
+  game_type: string;
+  seed: number;
+  wins: number;
+  losses: number;
+  lineup_score: number;
+  score_status: "complete" | "incomplete";
+  exact_cards_scored: number;
+  total_cards: number;
+  team_respins_used: number;
+  season_respins_used: number;
+  data_version: string | null;
+  formula_version: string | null;
+  simulation_version: string | null;
+  created_at: string;
+}
+
+export interface LeaderboardResponse {
+  leaderboard_enabled: boolean;
+  runs: PerfectSeasonRunPublic[];
+  next_cursor: string | null;
+}
+
+export interface MyRunsResponse {
+  runs: PerfectSeasonRunPublic[];
+}
+
 export const COURT_MODE_LABELS: Record<CourtMode, string> = {
   apex_1y: "1Y Apex",
   prime_3y: "3Y Prime",
@@ -301,6 +351,10 @@ export const SLOT_LABELS: Record<SlotType, string> = {
 export const ROLE_FIT_LABELS: Record<RoleFit, string> = {
   primary: "Primary fit",
   secondary: "Secondary fit",
-  off_position: "Off-position",
+  // Phase 6G Part F: shortened from "Off-position" -- the parenthetical
+  // "(plays PG)" suffix (see PeakCardCourt.tsx's fit-label helpers) made
+  // the full pill text too long to read at a glance in the compact court
+  // grid; the shortened pill relies on a title tooltip for the detail.
+  off_position: "Off-slot",
   flexible: "",
 };

@@ -33,7 +33,12 @@ from nba_peak.perfect_season.config import (
     STARTER_SLOTS,
 )
 from nba_peak.perfect_season.exact_season import PlayerSeasonCard, component_percentile
-from nba_peak.perfect_season.positions import classify_fit, classify_fit_from_position, parse_real_position
+from nba_peak.perfect_season.positions import (
+    classify_fit,
+    classify_fit_from_position,
+    parse_real_position,
+    position_fit_severity,
+)
 from nba_peak.perfect_season.schemas import LineupFitComponents, SimulationResult
 
 TOTAL_GAMES = 82
@@ -120,6 +125,16 @@ def _decisive_factors(fit: LineupFitComponents, weak_positions: list[str] | None
         factors.append("Deep, capable bench")
     elif fit.bench_strength < 40:
         factors.append("Thin bench is the roster's biggest weak spot")
+
+    # Phase 6G Part F: align "What decided this" with the same
+    # team_context_depth component _weakest_component_label can name as the
+    # structural weakness on team-year boards -- without this, a roster
+    # whose real problem is a weak supporting cast (Reggie Miller-at-SF bug
+    # report: team_context_depth 35.6) never got that mentioned here at all.
+    if fit.team_context_depth >= 75:
+        factors.append("Strong team context around this roster")
+    elif fit.team_context_depth < 45:
+        factors.append("Team-context depth is a real drag on this roster")
 
     if weak_positions:
         positions = ", ".join(weak_positions)
@@ -291,12 +306,6 @@ def _off_position_starter_slots_exact(cards: list[PlayerSeasonCard], slot_types:
 # bare name).
 # ---------------------------------------------------------------------------
 
-_GUARD_POSITIONS = {"PG", "SG"}
-_WING_POSITIONS = {"SF"}
-_BIG_POSITIONS = {"PF", "C"}
-_THIN_BENCH_FLOOR = 45.0
-
-
 def _best_pick_exact(cards: list[PlayerSeasonCard]) -> str | None:
     """Highest real exact-season score among placed cards -- unlike
     "weakness", picking the single best real contributor by score is not a
@@ -308,65 +317,138 @@ def _best_pick_exact(cards: list[PlayerSeasonCard]) -> str | None:
     return best.player_name
 
 
-def _structural_weakness_exact(cards: list[PlayerSeasonCard], slot_types: list[str]) -> str | None:
-    """Prioritized structural weakness description. Order:
-      1. Multiple unscored cards -> score-coverage problem (a real data gap,
-         not a talent judgment).
-      2. Exactly one off-position starter -> name THAT player with their
-         slot and real position (never bare "Weakness: <name>"). Named
-         specifics beat a categorical label -- and since each starter slot
-         maps 1:1 to a position, "0 real SF among starters" and "the SF
-         slot is off-position" are the same fact; the named version is
-         strictly more informative, so it's checked first.
-      3. Multiple off-position starters -> ALL named per-slot ("Position-
-         broken starting five -- X at SG, Y at SF"), never a single
-         scapegoat picked out of the group.
-      4. No true wing / no interior anchor -- reachable only in the
-         (structurally impossible under a fixed 5-slot lineup, kept as a
-         defensive fallback) case where coverage is missing without an
-         off-position starter triggering it above.
-      5. Thin bench (bench average score below a floor).
-      6. Fallback: lowest-scored placed card (only reached when the
-         roster is structurally sound -- score rank alone is a fair
-         "weakness" only once fit/coverage/bench are all fine).
+# Phase 6G Part A: human-readable labels for the six lineup-fit components,
+# used only when that component is the actual driver of a weak roster (see
+# _weakest_component_label). Never phrased as a player name -- these are
+# always roster-level statements.
+_COMPONENT_LABELS = {
+    "talent_core": "low talent core",
+    "bench_strength": "thin bench depth",
+    "team_context_depth": "low team-context depth",
+    "creation_coverage": "limited shot-creation coverage",
+    "scoring_coverage": "limited scoring coverage",
+    "postseason_pedigree": "thin postseason pedigree",
+}
+# A component only becomes "the weakness" once it's meaningfully below
+# neutral (50) -- otherwise a perfectly fine roster's slightly-below-average
+# component would get needlessly called out.
+_COMPONENT_WEAKNESS_FLOOR = 50.0
+
+
+def _weakest_component_label(fit: LineupFitComponents) -> str | None:
+    """The single lowest of the six major fit components, as a plain-
+    English label -- only returned if it's actually low (below
+    _COMPONENT_WEAKNESS_FLOOR), never just "whichever is smallest" on an
+    otherwise-strong roster. positional_fit is intentionally excluded here:
+    it's graded separately (as named off-position starters), not folded
+    into this generic component check."""
+    values = {
+        "talent_core": fit.talent_core,
+        "bench_strength": fit.bench_strength,
+        "team_context_depth": fit.team_context_depth,
+        "creation_coverage": fit.creation_coverage,
+        "scoring_coverage": fit.scoring_coverage,
+        "postseason_pedigree": fit.postseason_pedigree,
+    }
+    worst_key = min(values, key=lambda k: values[k])
+    if values[worst_key] >= _COMPONENT_WEAKNESS_FLOOR:
+        return None
+    return _COMPONENT_LABELS[worst_key]
+
+
+# Per-slot phrasing for a SEVERE off-position starter -- framed as a missing
+# position GROUP (e.g. "no true wing") rather than just naming the player,
+# since a severe mismatch (a true center at SF, a guard at center) means
+# that slot has no real coverage at all, not just an imperfect one. Keyed by
+# slot_type; the fixed 5-slot starting lineup (STARTER_SLOTS) means each
+# slot has exactly one occupant, so "no true wing" and "the SF starter is
+# severely off-position" are the same fact here -- the severe-only framing
+# just states it as the bigger structural problem it actually is.
+_SEVERE_SLOT_LABEL = {
+    "PG": "no real point guard",
+    "SG": "no real shooting guard",
+    "SF": "no true wing",
+    "PF": "no real power forward",
+    "C": "no interior anchor",
+}
+
+
+def _structural_weakness_exact(
+    cards: list[PlayerSeasonCard], slot_types: list[str], fit: LineupFitComponents
+) -> str | None:
+    """Prioritized structural weakness description. Order (Phase 6G Part A
+    rewrite -- fixes the "Weakness: Reggie Miller at SF" bug, where a mild,
+    entirely plausible SG-at-SF swap outranked a 42.6 talent core / 35.6
+    team-context depth just because it was *an* off-position starter, with
+    no regard for how big a real basketball problem it actually was):
+      1. Multiple unscored cards -> score-coverage problem (a real data
+         gap, not a talent/fit judgment).
+      2. Severe off-position starter(s) (position_fit_severity, e.g. a true
+         center at guard/SF, a guard at center) -- framed as a missing
+         position GROUP ("no true wing"), since a severe mismatch means
+         that slot has no real coverage, which is worse than any single
+         merely-imperfect placement.
+      3. Moderate off-position starter(s) -- named specifically with slot +
+         real position (a real but secondary concern, e.g. a small forward
+         playing power forward).
+      4. The single weakest major fit component (talent_core/bench_strength/
+         team_context_depth/creation_coverage/scoring_coverage/
+         postseason_pedigree), if meaningfully below neutral -- a genuinely
+         weak supporting cast is a bigger problem than a defensible mild
+         positional swap.
+      5. Mild off-position starter(s) -- reached only once nothing larger
+         applies (a 6'7 SG at SF is a real but small drag, not the fatal
+         flaw -- see position_fit_severity's adjacency table).
+      6. Fallback: lowest-scored placed card (only reached when the roster
+         is structurally sound and every component is healthy -- score
+         rank alone is a fair "weakness" only then).
     """
     if not cards:
         return None
     starters = cards[:STARTER_SLOTS]
-    bench = cards[STARTER_SLOTS:]
     starter_slot_types = slot_types[:STARTER_SLOTS]
 
     unscored = [c for c in cards if c.score_status != "exact_season_scored"]
     if len(unscored) >= 2:
         return f"{len(unscored)} cards with no PEAK3 score yet -- lineup score is incomplete"
 
-    primaries: list[str] = []
-    off_position: list[tuple[str, str, str | None]] = []
+    # (player_name, slot, real_primary_position, severity)
+    off_position: list[tuple[str, str, str | None, str]] = []
     for card, slot in zip(starters, starter_slot_types):
         primary, _ = parse_real_position(card.position)
-        if primary:
-            primaries.append(primary)
         if classify_fit_from_position(card.position, slot) == "off_position":
-            off_position.append((card.player_name, slot, primary))
+            off_position.append((card.player_name, slot, primary, position_fit_severity(slot, primary)))
 
-    if len(off_position) == 1:
-        name, slot, real_pos = off_position[0]
-        pos_note = f", real position {real_pos}" if real_pos else ""
-        return f"{name} at {slot}{pos_note}"
-    if len(off_position) >= 2:
-        detail = ", ".join(f"{name} at {slot}" for name, slot, _ in off_position)
+    severe = [o for o in off_position if o[3] == "severe"]
+    if len(severe) == 1:
+        name, slot, real_pos, _sev = severe[0]
+        pos_note = f" -- {name}'s real position is {real_pos}" if real_pos else f" -- {name} is not a real {slot}"
+        return f"{_SEVERE_SLOT_LABEL.get(slot, f'no real {slot}')}{pos_note}"
+    if len(severe) >= 2:
+        detail = ", ".join(f"{name} at {slot}" for name, slot, _, _ in severe)
         return f"Position-broken starting five -- {detail}"
 
-    wings = sum(1 for p in primaries if p in _WING_POSITIONS)
-    bigs = sum(1 for p in primaries if p in _BIG_POSITIONS)
-    if wings == 0:
-        return "No true wing -- no starter's real position is SF"
-    if bigs == 0:
-        return "No interior anchor -- no starter's real position is PF/C"
+    moderate = [o for o in off_position if o[3] == "moderate"]
+    if len(moderate) == 1:
+        name, slot, real_pos, _sev = moderate[0]
+        pos_note = f", real position {real_pos}" if real_pos else ""
+        return f"{name} at {slot}{pos_note}"
+    if len(moderate) >= 2:
+        detail = ", ".join(f"{name} at {slot}" for name, slot, _, _ in moderate)
+        return f"Position-broken starting five -- {detail}"
 
-    bench_scored = [c.season_score for c in bench if c.season_score is not None]
-    if bench_scored and _avg(bench_scored) < _THIN_BENCH_FLOOR:
-        return "Thin bench -- backups fall well short of the starters"
+    weakest_component = _weakest_component_label(fit)
+    if weakest_component:
+        return weakest_component
+
+    mild = [o for o in off_position if o[3] == "mild"]
+    if len(mild) == 1:
+        name, slot, real_pos, _sev = mild[0]
+        pos_note = f", real position {real_pos}" if real_pos else ""
+        return f"{name} at {slot}{pos_note}"
+    if len(mild) >= 2:
+        detail = ", ".join(f"{name} at {slot}" for name, slot, _, _ in mild)
+        return f"Position-broken starting five -- {detail}"
 
     scored = [c for c in cards if c.season_score is not None]
     if scored:
@@ -423,5 +505,5 @@ def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_t
         experimental_notice=EXACT_SEASON_SIMULATOR_NOTICE,
         lineup_peak_score=lineup_peak_score,
         best_pick=_best_pick_exact(cards),
-        structural_weakness=_structural_weakness_exact(cards, slot_types),
+        structural_weakness=_structural_weakness_exact(cards, slot_types, fit),
     )

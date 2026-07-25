@@ -1,6 +1,7 @@
 "use client";
 import { CourtLineupPublicState, CourtSlotPublic, SimulationResultPublic, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import LineupInsightPanel from "./LineupInsightPanel";
+import LeaderboardSubmitPanel from "./LeaderboardSubmitPanel";
 import PeakCardCourt from "./PeakCardCourt";
 import CourtLayout from "./CourtLayout";
 
@@ -236,14 +237,14 @@ export default function SeasonResultStub({ state, result }: Props) {
 
       <LineupInsightPanel result={result} />
 
+      <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} />
+
       <p
         data-testid="experimental-notice"
         className="text-xs rounded-lg p-3"
         style={{ background: "var(--bg-surface)", color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
       >
-        {result.experimental_notice} This prototype does not yet write to a global
-        leaderboard — a future release will let you compare your PEAK3 Lineup Score
-        against other runs.
+        {result.experimental_notice}
       </p>
 
       {/* Technical receipt -- moved out of the primary share-card reading

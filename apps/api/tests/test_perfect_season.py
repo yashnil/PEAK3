@@ -1459,16 +1459,50 @@ def test_giant_heavy_lineup_is_strong_but_not_forced_to_82():
 
 def test_giant_heavy_lineup_weakness_is_structural_not_rasheed():
     """Regression test for the exact bug reported: 'Weakness: Rasheed
-    Wallace' is wrong -- Rasheed isn't even a starter in this lineup, and
-    the real problem is the position-broken starting five (Stockton at SG,
-    Embiid at SF, Hakeem at PF -- all off their real position)."""
+    Wallace' is wrong -- Rasheed isn't even a starter in this lineup. Phase
+    6G Part A: Embiid at SF is a SEVERE mismatch (his real position is C),
+    which is worse than Stockton-at-SG/Hakeem-at-PF (both mild, PG<->SG and
+    PF<->C) -- the severe case wins the priority and is framed as a missing
+    position group ("no true wing"), not a scapegoat name."""
     cards = _resolve_lineup(GIANT_HEAVY_LINEUP)
     result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
     assert result.structural_weakness is not None
     assert "Rasheed Wallace" not in result.structural_weakness
-    # Names the actual off-position starters with slot context.
-    assert "SG" in result.structural_weakness or "SF" in result.structural_weakness or "PF" in result.structural_weakness
+    assert "no true wing" in result.structural_weakness
+    assert "Joel Embiid" in result.structural_weakness
     assert result.best_pick is not None
+
+
+MILD_OFFPOSITION_WEAK_TALENT_LINEUP = [
+    ("travis-best", "MIA", "2002-03"),
+    ("hubert-davis", "DAL", "1998-99"),
+    ("reggie-miller", "IND", "1994-95"),
+    ("carlos-rogers", "TOR", "1995-96"),
+    ("dean-garrett", "DEN", "1997-98"),
+    ("stacey-augmon", "POR", "1997-98"),
+    ("james-bailey", "NYK", "1985-86"),
+    ("john-williams", "LAC", "1992-93"),
+]
+
+
+def test_mild_offposition_does_not_outrank_weak_talent_component():
+    """Phase 6G Part A regression test for the exact bug reported: a roster
+    where Reggie Miller (real SG) starts at SF -- a mild, entirely
+    plausible wing-sized swap -- must NOT be named "the weakness" when the
+    roster's real problem is a much lower component (here, bench_strength
+    ~20, far below the 50 floor). Reggie should be named best_pick, never
+    structural_weakness."""
+    cards = _resolve_lineup(MILD_OFFPOSITION_WEAK_TALENT_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.structural_weakness is not None
+    assert "Reggie Miller" not in result.structural_weakness
+    assert result.best_pick == "Reggie Miller"
+    assert result.fit_components.bench_strength < 50
+    # Names a component-level problem, not a bare/position-flavored phrase.
+    assert result.structural_weakness in {
+        "low talent core", "thin bench depth", "low team-context depth",
+        "limited shot-creation coverage", "limited scoring coverage", "thin postseason pedigree",
+    }
 
 
 def test_all_time_ceiling_lineup_weakness_has_slot_context_not_bare_name():
@@ -1480,3 +1514,467 @@ def test_all_time_ceiling_lineup_weakness_has_slot_context_not_bare_name():
         for card in cards:
             if result.structural_weakness == card.player_name:
                 pytest.fail(f"weakness '{result.structural_weakness}' is a bare player name with no role/slot context")
+
+
+# ---------------------------------------------------------------------------
+# Phase 6G Part C: respins (team_year mode only)
+# ---------------------------------------------------------------------------
+
+def _respin_team(client: TestClient, game_id: str) -> dict:
+    resp = client.post(
+        f"/api/v1/perfect-season/games/{game_id}/respin-team",
+        json={"game_id": game_id},
+    )
+    return resp
+
+
+def _respin_season(client: TestClient, game_id: str) -> dict:
+    resp = client.post(
+        f"/api/v1/perfect-season/games/{game_id}/respin-season",
+        json={"game_id": game_id},
+    )
+    return resp
+
+
+def test_team_respin_changes_team_and_preserves_season(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=42)
+    game_id = state["game_id"]
+    original_team = state["current_spin"]["franchise_display_name"]
+    original_season = state["current_spin"]["era_label"]
+
+    resp = _respin_team(team_year_client, game_id)
+    assert resp.status_code == 200, resp.text
+    new_state = resp.json()
+    assert new_state["current_spin"]["team_respins_used"] == 1
+    assert new_state["current_spin"]["team_respins_max"] == 3
+    # Either the season is preserved with a different team, or (if no other
+    # team had that exact season) a fully independent valid pair -- either
+    # way it must be a REAL, non-empty roster.
+    assert len(new_state["current_spin"]["candidates"]) > 0
+    assert all(c["team_name"] and c["season"] for c in new_state["current_spin"]["candidates"])
+    changed = (
+        new_state["current_spin"]["franchise_display_name"] != original_team
+        or new_state["current_spin"]["era_label"] != original_season
+    )
+    assert changed, "respin_team must actually change something about the roll"
+
+
+def test_season_respin_changes_season_and_preserves_team(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=7)
+    game_id = state["game_id"]
+    original_team = state["current_spin"]["franchise_display_name"]
+    original_season = state["current_spin"]["era_label"]
+
+    resp = _respin_season(team_year_client, game_id)
+    assert resp.status_code == 200, resp.text
+    new_state = resp.json()
+    assert new_state["current_spin"]["season_respins_used"] == 1
+    assert new_state["current_spin"]["season_respins_max"] == 3
+    assert len(new_state["current_spin"]["candidates"]) > 0
+    assert all(c["team_name"] and c["season"] for c in new_state["current_spin"]["candidates"])
+    changed = (
+        new_state["current_spin"]["franchise_display_name"] != original_team
+        or new_state["current_spin"]["era_label"] != original_season
+    )
+    assert changed, "respin_season must actually change something about the roll"
+
+
+def test_respin_max_three_each_independent(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=11)
+    game_id = state["game_id"]
+
+    for i in range(3):
+        resp = _respin_team(team_year_client, game_id)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["current_spin"]["team_respins_used"] == i + 1
+
+    resp = _respin_team(team_year_client, game_id)
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "respin_limit_reached"
+
+    # Season respins are an independent budget -- still 3 available.
+    for i in range(3):
+        resp = _respin_season(team_year_client, game_id)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["current_spin"]["season_respins_used"] == i + 1
+
+    resp = _respin_season(team_year_client, game_id)
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "respin_limit_reached"
+
+
+def test_respin_disabled_after_player_selected(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=13)
+    game_id = state["game_id"]
+    slug = state["current_spin"]["candidates"][0]["player_slug"]
+    _select(team_year_client, game_id, slug)
+
+    resp = _respin_team(team_year_client, game_id)
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "respin_not_allowed"
+
+    resp = _respin_season(team_year_client, game_id)
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "respin_not_allowed"
+
+
+def test_respin_history_recorded_and_resets_next_round(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=17)
+    game_id = state["game_id"]
+
+    resp = _respin_team(team_year_client, game_id)
+    state = resp.json()
+    resp = _respin_season(team_year_client, game_id)
+    state = resp.json()
+
+    assert len(state["respin_history"]) == 2
+    assert state["respin_history"][0]["round"] == 1
+    assert state["respin_history"][0]["kind"] == "team"
+    assert state["respin_history"][1]["kind"] == "season"
+    assert set(state["respin_history"][0].keys()) == {
+        "round", "kind", "from_team", "from_season", "to_team", "to_season",
+    }
+
+    # Advance to round 2 -- counters reset, history is preserved (not
+    # cleared).
+    slug = state["current_spin"]["candidates"][0]["player_slug"]
+    state = _select(team_year_client, game_id, slug)
+    open_slot = next(s["slot_type"] for s in state["slots"] if not s["filled"])
+    state = _place(team_year_client, game_id, open_slot)
+
+    assert state["current_round"] == 2
+    assert state["current_spin"]["team_respins_used"] == 0
+    assert state["current_spin"]["season_respins_used"] == 0
+    assert len(state["respin_history"]) == 2  # unchanged, not cleared
+
+
+def test_respin_never_produces_empty_candidate_list(team_year_client: TestClient):
+    """No-special-casing sweep: respin repeatedly across several seeds and
+    confirm every resulting roll has a real, non-empty candidate list with
+    populated exact team_name/season fields."""
+    for seed in (1, 2, 3, 4, 5):
+        state = _create(team_year_client, mode="apex_1y", seed=seed)
+        game_id = state["game_id"]
+        for _ in range(3):
+            resp = _respin_team(team_year_client, game_id)
+            assert resp.status_code == 200, resp.text
+            candidates = resp.json()["current_spin"]["candidates"]
+            assert len(candidates) > 0
+            assert all(c["team_name"] and c["season"] for c in candidates)
+
+
+# ---------------------------------------------------------------------------
+# Phase 6G Part D: ESPN asset rendering (PEAK3_ENABLE_EXTERNAL_ASSET_URLS)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def team_year_assets_client() -> TestClient:
+    """team_year mode + external asset URLs both on -- dev-mode image
+    rendering, the exact combination Part D audits."""
+    orig_team_year = settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED
+    orig_assets = settings.ENABLE_EXTERNAL_ASSET_URLS
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = True
+    settings.ENABLE_EXTERNAL_ASSET_URLS = True
+    with TestClient(app) as c:
+        yield c
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = orig_team_year
+    settings.ENABLE_EXTERNAL_ASSET_URLS = orig_assets
+
+
+def test_external_assets_disabled_by_default_no_headshot_urls(team_year_client: TestClient):
+    """Default safe production behavior: ENABLE_EXTERNAL_ASSET_URLS is off,
+    so no candidate ever carries a headshot_url, even for a resolved
+    player -- the frontend has nothing to render but initials."""
+    state = _create(team_year_client, mode="apex_1y", seed=1)
+    assert all(c.get("headshot_url") is None for c in state["current_spin"]["candidates"])
+    assert state["current_spin"].get("team_logo_url") is None
+
+
+def test_external_assets_enabled_exposes_real_headshot_urls(team_year_assets_client: TestClient):
+    """When the flag is on, a resolved asset entry's real ESPN CDN URL is
+    exposed on the candidate -- proves the manifest is actually joined into
+    the API response, not just generated and left unused."""
+    # LeBron James is a verified-resolved entry in player_assets.v2.json
+    # (see scripts/build_espn_asset_manifests.py) -- spin directly at his
+    # exact 2012-13 Miami season via the dev simulate endpoint isn't
+    # necessary here; instead confirm the asset lookup function itself
+    # (the same one get_public_state calls) returns a real CDN URL.
+    from nba_peak.perfect_season.assets import get_player_headshot_url, get_team_logo_url
+
+    url = get_player_headshot_url("lebron-james")
+    assert url is not None
+    assert url.startswith("https://a.espncdn.com/")
+
+    logo = get_team_logo_url("MIA")
+    assert logo is not None
+    assert logo.startswith("https://a.espncdn.com/")
+
+    # And it round-trips through a real game's current_spin/team_logo_url
+    # when that round happens to be a resolved team.
+    state = _create(team_year_assets_client, mode="apex_1y", seed=1)
+    assert state["current_spin"]["team_logo_url"] is not None
+    assert state["current_spin"]["team_logo_url"].startswith("https://a.espncdn.com/")
+
+
+def test_unresolved_player_never_gets_a_fabricated_url(team_year_assets_client: TestClient):
+    """A player with no ESPN resolution (e.g. a long-retired legend) must
+    get headshot_url: None even with the flag on -- never a guessed/
+    fabricated URL."""
+    from nba_peak.perfect_season.assets import get_player_headshot_url
+
+    assert get_player_headshot_url("michael-jordan") is None
+    assert get_player_headshot_url("hakeem-olajuwon") is None
+
+
+# ---------------------------------------------------------------------------
+# Phase 6G Part E: authenticated global leaderboard
+# ---------------------------------------------------------------------------
+
+TEST_JWT_SECRET = "e2e-ranked-test-secret-do-not-use-in-prod"
+
+
+def _mint_test_jwt(sub: str, email: str = "test@example.com", is_anonymous: bool = False) -> str:
+    """Mints a Supabase-shaped HS256 JWT for pytest use -- mirrors
+    apps/web/src/tests/e2e/helpers/test-jwt.ts's exact approach (same
+    shared-secret HS256 scheme app.core.auth._decode_jwt verifies), so no
+    live Supabase project is needed to test the authenticated path."""
+    import time
+    import jwt as _jwt
+
+    now = int(time.time())
+    payload = {
+        "sub": sub, "email": email, "is_anonymous": is_anonymous,
+        "aud": "authenticated", "role": "authenticated",
+        "iat": now, "exp": now + 3600,
+    }
+    return _jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
+
+
+def _play_full_scored_game_as(client: TestClient, token: str, seed: int) -> dict:
+    """Like _play_full_game, but always picks a fully-scored candidate each
+    round (never a team_year_roster_only/exact_season_unscored one) so the
+    resulting roster is guaranteed leaderboard-eligible (score_status ==
+    'complete') regardless of which random team-seasons this seed rolls --
+    without this, a seed that happens to roll a roster-only/unscored
+    candidate makes the test's /submit call non-deterministically rejected
+    with incomplete_score_not_eligible, which is a REAL and correct
+    rejection (Part E requires full score coverage to submit) but not what
+    these particular tests are checking. Also attaches the given user's
+    Authorization header from creation through completion, so the game's
+    owner_sub is that real authenticated sub."""
+    client.headers["Authorization"] = f"Bearer {token}"
+    try:
+        state = _create(client, mode="apex_1y", seed=seed)
+        game_id = state["game_id"]
+        for _ in range(8):
+            candidates = state["current_spin"]["candidates"]
+            scored = next((c for c in candidates if c.get("score_status") == "exact_season_scored"), candidates[0])
+            state = _select(client, game_id, scored["player_slug"])
+            open_slot = next(s["slot_type"] for s in state["slots"] if not s["filled"])
+            state = _place(client, game_id, open_slot)
+        resp = client.post(f"/api/v1/perfect-season/games/{game_id}/complete", json={"game_id": game_id})
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+    finally:
+        del client.headers["Authorization"]
+
+
+@pytest.fixture
+def leaderboard_client() -> TestClient:
+    orig_team_year = settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED
+    orig_leaderboard = settings.COURTBUILDER_LEADERBOARD_ENABLED
+    orig_jwt_secret = settings.SUPABASE_JWT_SECRET
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = True
+    settings.COURTBUILDER_LEADERBOARD_ENABLED = True
+    settings.SUPABASE_JWT_SECRET = TEST_JWT_SECRET
+    with TestClient(app) as c:
+        yield c
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = orig_team_year
+    settings.COURTBUILDER_LEADERBOARD_ENABLED = orig_leaderboard
+    settings.SUPABASE_JWT_SECRET = orig_jwt_secret
+
+
+def test_leaderboard_disabled_by_default_returns_disabled_flag(team_year_client: TestClient):
+    resp = team_year_client.get("/api/v1/perfect-season/leaderboard")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["leaderboard_enabled"] is False
+    assert data["runs"] == []
+
+
+def test_unauthenticated_submit_returns_401(leaderboard_client: TestClient):
+    state = _play_full_game(leaderboard_client, seed=101)
+    game_id = state["game_id"]
+    resp = leaderboard_client.post(f"/api/v1/perfect-season/games/{game_id}/submit", json={"game_id": game_id})
+    assert resp.status_code == 401
+
+
+def test_authenticated_submit_succeeds_and_recomputes_from_server_state(leaderboard_client: TestClient):
+    token = _mint_test_jwt("user-abc")
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=102)
+    game_id = state["game_id"]
+
+    # A malicious client tries to smuggle a fabricated win total / score in
+    # the request body -- SubmitRunRequest only has a game_id field at all,
+    # so there is no field for a fake wins/score to even land in.
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id, "wins": 82, "lineup_score": 100.0},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    run = resp.json()
+    # The recorded wins/score must match the server's own simulation_result
+    # from when the game was completed, not the fabricated body fields.
+    assert run["wins"] == state["simulation_result"]["wins"]
+    assert run["lineup_score"] == state["simulation_result"]["lineup_peak_score"]
+    assert run["mode"] == "apex_1y"
+    assert run["team_respins_used"] == 0
+    assert run["season_respins_used"] == 0
+
+
+def test_cannot_submit_someone_elses_game(leaderboard_client: TestClient):
+    state = _play_full_game(leaderboard_client, seed=103)
+    game_id = state["game_id"]
+    token = _mint_test_jwt("a-different-user")
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    # This game was created anonymously (no auth on /games), so its
+    # owner_sub is an anon subject -- never equal to a real signed-in sub.
+    assert resp.status_code == 403
+
+
+def test_anonymous_session_cannot_submit(leaderboard_client: TestClient):
+    state = _play_full_game(leaderboard_client, seed=104)
+    game_id = state["game_id"]
+    token = _mint_test_jwt("anon-user", is_anonymous=True)
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["error_code"] == "sign_in_required"
+
+
+def test_public_leaderboard_read_works_and_is_sorted(leaderboard_client: TestClient):
+    for i, seed in enumerate([201, 202, 203]):
+        token = _mint_test_jwt(f"user-{i}")
+        state = _play_full_scored_game_as(leaderboard_client, token, seed=seed)
+        leaderboard_client.post(
+            f"/api/v1/perfect-season/games/{state['game_id']}/submit",
+            json={"game_id": state["game_id"]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    resp = leaderboard_client.get("/api/v1/perfect-season/leaderboard")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["leaderboard_enabled"] is True
+    assert len(data["runs"]) >= 3
+    wins = [r["wins"] for r in data["runs"]]
+    assert wins == sorted(wins, reverse=True)
+
+
+def test_no_respin_filter_excludes_runs_with_respins(leaderboard_client: TestClient):
+    # Run A: no respins.
+    token_a = _mint_test_jwt("user-a")
+    state_a = _play_full_scored_game_as(leaderboard_client, token_a, seed=301)
+    leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{state_a['game_id']}/submit",
+        json={"game_id": state_a["game_id"]},
+        headers={"Authorization": f"Bearer {token_a}"},
+    )
+
+    # Run B: uses a respin on round 1 before playing it out.
+    token_b = _mint_test_jwt("user-b")
+    leaderboard_client.headers["Authorization"] = f"Bearer {token_b}"
+    state_b = _create(leaderboard_client, mode="apex_1y", seed=302)
+    game_id_b = state_b["game_id"]
+    resp = leaderboard_client.post(f"/api/v1/perfect-season/games/{game_id_b}/respin-team", json={"game_id": game_id_b})
+    state_b = resp.json()
+    for _ in range(8):
+        candidates = state_b["current_spin"]["candidates"]
+        scored = next((c for c in candidates if c.get("score_status") == "exact_season_scored"), candidates[0])
+        state_b = _select(leaderboard_client, game_id_b, scored["player_slug"])
+        open_slot = next(s["slot_type"] for s in state_b["slots"] if not s["filled"])
+        state_b = _place(leaderboard_client, game_id_b, open_slot)
+    resp = leaderboard_client.post(f"/api/v1/perfect-season/games/{game_id_b}/complete", json={"game_id": game_id_b})
+    state_b = resp.json()
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id_b}/submit",
+        json={"game_id": game_id_b},
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    del leaderboard_client.headers["Authorization"]
+    assert resp.json()["team_respins_used"] == 1
+
+    resp = leaderboard_client.get("/api/v1/perfect-season/leaderboard?no_respin=true")
+    data = resp.json()
+    game_ids_with_respins = [r for r in data["runs"] if r["team_respins_used"] > 0 or r["season_respins_used"] > 0]
+    assert game_ids_with_respins == []
+    assert any(r["display_name"] for r in data["runs"])  # at least run A is present
+
+
+def test_me_runs_requires_auth_and_returns_own_runs(leaderboard_client: TestClient):
+    resp = leaderboard_client.get("/api/v1/perfect-season/me/runs")
+    assert resp.status_code == 401
+
+    token = _mint_test_jwt("user-me")
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=401)
+    leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{state['game_id']}/submit",
+        json={"game_id": state["game_id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    resp = leaderboard_client.get("/api/v1/perfect-season/me/runs", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    runs = resp.json()["runs"]
+    assert len(runs) == 1
+
+
+def test_duplicate_submission_is_idempotent_not_duplicated(leaderboard_client: TestClient):
+    token = _mint_test_jwt("user-dup")
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=501)
+    game_id = state["game_id"]
+    resp1 = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    resp2 = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp1.status_code == 200 and resp2.status_code == 200
+    assert resp1.json()["id"] == resp2.json()["id"]
+
+    resp = leaderboard_client.get("/api/v1/perfect-season/me/runs", headers={"Authorization": f"Bearer {token}"})
+    assert len(resp.json()["runs"]) == 1
+
+
+def test_leaderboard_repo_in_memory_fallback_does_not_crash(leaderboard_client: TestClient):
+    """No DATABASE_URL is set in this test environment -- confirms the
+    in-memory fallback repository serves real requests without crashing,
+    per Part E's explicit CI requirement."""
+    resp = leaderboard_client.get("/api/v1/perfect-season/leaderboard")
+    assert resp.status_code == 200
+
+
+def test_rls_migration_has_expected_policies():
+    """The local Supabase migration for the leaderboard tables must define
+    RLS with public-read/owner-insert-only/no-update-delete, matching
+    Part E's spec -- a static content check, not a live Postgres test (no
+    hosted Supabase is touched)."""
+    migration_path = _repo_root / "supabase" / "migrations" / "20260724150000_perfect_season_leaderboard.sql"
+    assert migration_path.exists()
+    sql = migration_path.read_text()
+    assert "ENABLE ROW LEVEL SECURITY" in sql
+    assert "perfect_season_runs_public_read" in sql
+    assert "perfect_season_runs_owner_insert" in sql
+    assert "FOR UPDATE" not in sql
+    assert "FOR DELETE" not in sql

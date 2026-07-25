@@ -16,6 +16,7 @@ computes or approximates the canonical PEAK3 score itself.
 """
 from __future__ import annotations
 
+import random
 import secrets
 import sys
 from datetime import datetime, timezone
@@ -27,7 +28,13 @@ if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
 from nba_peak.perfect_season.assets import get_player_headshot_url, get_team_logo_url
-from nba_peak.perfect_season.board import find_spin, generate_board, generate_team_year_board, resolve_card
+from nba_peak.perfect_season.board import (
+    find_spin,
+    generate_board,
+    generate_team_year_board,
+    get_rollable_team_year_entries,
+    resolve_card,
+)
 from nba_peak.perfect_season.config import SLOT_TYPES, TOTAL_ROUNDS
 from nba_peak.perfect_season.exact_season import (
     PlayerSeasonCard,
@@ -289,7 +296,138 @@ def action_place_card(
     else:
         state.current_round += 1
         state.status = "selection_pending"
+        # Phase 6G Part C: respin counters reset every round -- a fresh 3+3
+        # budget for the new round's team+season roll.
+        state.team_respins_used = 0
+        state.season_respins_used = 0
 
+    return state
+
+
+# ---------------------------------------------------------------------------
+# Respins (Phase 6G Part C) -- up to 3 team respins + 3 season respins per
+# round, team_year mode only (the whole feature is about rerolling the
+# team+season reel, which only team_year spins have -- team_decade/
+# exact_team_season/open_pool rounds reject respin actions outright).
+# ---------------------------------------------------------------------------
+
+MAX_TEAM_RESPINS = 3
+MAX_SEASON_RESPINS = 3
+_MAX_RESPIN_PICK_ATTEMPTS = 30
+
+
+def _respin_rng(state: CourtLineupState, kind: str, count: int) -> random.Random:
+    """Deterministic per-respin seed, derived from the board seed + round +
+    respin kind + how many of that kind have already been used this round --
+    never Python's unseeded global random, and reproducible for the same
+    game/round/respin-number (Part C: 'Deterministic seeded behavior')."""
+    kind_salt = 1 if kind == "team" else 2
+    return random.Random(f"{state.board.seed}:{state.current_round}:{kind}:{kind_salt}:{count}")
+
+
+def _pick_valid_entry(
+    pool: list[dict], used_slugs: set[str], rng: random.Random, fallback_pool: list[dict]
+) -> Optional[dict]:
+    """An entry from `pool` with at least one candidate not already on the
+    roster -- bounded random probing (deterministic given `rng`), falling
+    back to the full entries catalogue if the constrained pool (e.g. "same
+    season, different team") can't produce one. Guarantees a respin never
+    produces an empty AVAILABLE candidate list; returns None only in the
+    practically-unreachable case where even the full catalogue can't (7
+    used players max vs. an 8+-candidate floor per entry across ~1,300+
+    entries)."""
+    for candidates in (pool, fallback_pool):
+        if not candidates:
+            continue
+        for _ in range(min(_MAX_RESPIN_PICK_ATTEMPTS, len(candidates))):
+            entry = candidates[rng.randrange(len(candidates))]
+            if any(slug not in used_slugs for slug in entry["player_slugs"]):
+                return entry
+    return None
+
+
+def _apply_respin_entry(spin, new_entry: dict) -> None:
+    spin.spin_id = new_entry.get("spin_id")
+    spin.franchise_display_name = new_entry.get("franchise_display_name")
+    spin.era_label = new_entry.get("era_label")
+    spin.candidate_player_slugs = list(new_entry["player_slugs"])
+    spin.team_id = new_entry.get("team_id")
+
+
+def _assert_respin_allowed(state: CourtLineupState):
+    _assert_active(state)
+    if state.status != "selection_pending":
+        raise CourtError(
+            "respin_not_allowed",
+            "Respins are only available before a player is selected for this round",
+        )
+    spin = find_spin(state.board, state.current_round)
+    if spin is None or not _is_team_year_spin(spin):
+        raise CourtError(
+            "respin_not_supported",
+            "Respins are only available for exact team+season rounds",
+        )
+    return spin
+
+
+def action_respin_team(state: CourtLineupState) -> CourtLineupState:
+    """Reroll the current round's TEAM, preferring to keep the same season
+    if another team has a rollable roster for it; otherwise rerolls to a
+    fully independent valid team-season pair (Part C: 'same season if valid
+    for new team, or reroll to a valid team-season pair if that team did
+    not exist in that season')."""
+    spin = _assert_respin_allowed(state)
+    if state.team_respins_used >= MAX_TEAM_RESPINS:
+        raise CourtError("respin_limit_reached", "No team respins left this round")
+
+    entries = get_rollable_team_year_entries()
+    same_season_other_team = [
+        e for e in entries if e["era_label"] == spin.era_label and e["team_id"] != spin.team_id
+    ]
+    rng = _respin_rng(state, "team", state.team_respins_used)
+    new_entry = _pick_valid_entry(same_season_other_team, _used_player_slugs(state), rng, entries)
+    if new_entry is None:
+        raise CourtError("respin_no_valid_option", "No valid team-season available for a respin right now")
+
+    from_team, from_season = spin.franchise_display_name, spin.era_label
+    _apply_respin_entry(spin, new_entry)
+    state.team_respins_used += 1
+    state.respin_history.append({
+        "round": state.current_round, "kind": "team",
+        "from_team": from_team, "from_season": from_season,
+        "to_team": spin.franchise_display_name, "to_season": spin.era_label,
+    })
+    state.last_action_at = datetime.now(timezone.utc).isoformat()
+    return state
+
+
+def action_respin_season(state: CourtLineupState) -> CourtLineupState:
+    """Reroll the current round's SEASON, preferring to keep the same team
+    if it has a rollable roster in a different season; otherwise rerolls to
+    a fully independent valid team-season pair (Part C: 'same team if the
+    team has roster data that year')."""
+    spin = _assert_respin_allowed(state)
+    if state.season_respins_used >= MAX_SEASON_RESPINS:
+        raise CourtError("respin_limit_reached", "No season respins left this round")
+
+    entries = get_rollable_team_year_entries()
+    same_team_other_season = [
+        e for e in entries if e["team_id"] == spin.team_id and e["era_label"] != spin.era_label
+    ]
+    rng = _respin_rng(state, "season", state.season_respins_used)
+    new_entry = _pick_valid_entry(same_team_other_season, _used_player_slugs(state), rng, entries)
+    if new_entry is None:
+        raise CourtError("respin_no_valid_option", "No valid team-season available for a respin right now")
+
+    from_team, from_season = spin.franchise_display_name, spin.era_label
+    _apply_respin_entry(spin, new_entry)
+    state.season_respins_used += 1
+    state.respin_history.append({
+        "round": state.current_round, "kind": "season",
+        "from_team": from_team, "from_season": from_season,
+        "to_team": spin.franchise_display_name, "to_season": spin.era_label,
+    })
+    state.last_action_at = datetime.now(timezone.utc).isoformat()
     return state
 
 
@@ -454,6 +592,16 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             current_spin_public["coverage_mode"] = state.board.metadata.get("coverage_mode")
             if include_asset_urls:
                 current_spin_public["team_logo_url"] = get_team_logo_url(spin.team_id)
+            # Phase 6G Part C: respins are only ever offered/consumable
+            # before a player is selected (status == "selection_pending",
+            # same gate action_respin_team/action_respin_season enforce) --
+            # a client seeing state.status != "selection_pending" already
+            # knows respins are locked for this round without needing a
+            # separate flag.
+            current_spin_public["team_respins_used"] = state.team_respins_used
+            current_spin_public["team_respins_max"] = MAX_TEAM_RESPINS
+            current_spin_public["season_respins_used"] = state.season_respins_used
+            current_spin_public["season_respins_max"] = MAX_SEASON_RESPINS
 
     pending_card_public = None
     if state.pending_selection_exact_season_key:
@@ -601,6 +749,11 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             if team_year_board and placed_exact_cards and state.status != "result_ready"
             else None
         ),
+        # Phase 6G Part C: full respin receipt for this attempt (every round,
+        # not just the current one) -- part of the data receipt, and needed
+        # by the leaderboard submission path (Part E) to record respin
+        # counts on a submitted run.
+        "respin_history": state.respin_history,
     }
 
 

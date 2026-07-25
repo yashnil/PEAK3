@@ -24,28 +24,84 @@ interface Props {
   supportedEndSeason?: string | null;
   /** Fired once the ceremony finishes and candidates are safe to reveal. */
   onRevealComplete?: () => void;
+  /** Phase 6G Part C: incremented by the parent on every successful respin
+   * (team or season). SpinStage doesn't replay the full spin ceremony for a
+   * respin (it already happened once for this round) -- it just briefly
+   * flashes the two wheel boxes so a respin still reads as a real, felt
+   * game action rather than a silent text swap. */
+  respinFlashKey?: number;
 }
 
 type CeremonyPhase = "spinning" | "locked" | "revealed";
+type RampStage = "fast" | "slow";
 
 // Total ceremony budget stays well under the 2s ceiling
 // (ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.2).
 const SPIN_MS = 900;
 const LOCK_MS = 450;
 const COUNT_MS = 350;
-const REEL_TICK_MS = 90;
+// Phase 6G Part B: speed ramp -- fast reel ticks for the first ~55% of the
+// spin budget, then a visibly slower "decelerating" tick rate for the rest,
+// so the reel reads as spinning-down-to-a-stop rather than a flat blur that
+// abruptly halts. Two discrete stages (not a continuous easing curve) keeps
+// this trivially cancelable/deterministic -- only ever two live intervals.
+const FAST_TICK_MS = 70;
+const SLOW_TICK_MS = 170;
+const RAMP_SWITCH_MS = Math.round(SPIN_MS * 0.55);
+// Reduced-motion still shows a real, discrete state machine (spinning ->
+// locked -> revealed) instead of one continuous cycling animation -- "simple
+// stepped reveal", not literally nothing -- but with near-zero delays so it
+// stays well under the existing <500ms Playwright budget for this path.
+const REDUCED_MOTION_LOCK_MS = 40;
+const REDUCED_MOTION_REVEAL_MS = 40;
 
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+/** A small horizontal strip of pool items centered on the current tick --
+ * the visual "reel" (Phase 6G Part B: replaces the single centered
+ * name-swap with something that actually looks like it's cycling through
+ * many real options, proving broad team/season coverage rather than just
+ * asserting it in a coverage-count line). Purely cosmetic: the ACTUAL
+ * selection is always `spin.franchise_display_name`/`spin.era_label`,
+ * already resolved server-side before this component ever mounts -- this
+ * strip never drives or previews the real outcome, it only dresses up the
+ * "spinning" phase. */
+function ReelStrip({
+  items,
+  activeIndex,
+  rampStage,
+}: {
+  items: readonly string[];
+  activeIndex: number;
+  rampStage: RampStage;
+}) {
+  const windowSize = 5;
+  const center = Math.floor(windowSize / 2);
+  const visible = Array.from({ length: windowSize }, (_, i) => {
+    const idx = ((activeIndex - center + i) % items.length + items.length) % items.length;
+    return items[idx];
+  });
+  return (
+    <div className="spin-reel-strip" data-phase="spinning" data-ramp={rampStage} aria-hidden="true">
+      {visible.map((label, i) => (
+        <span key={i} className={i === center ? "spin-reel-strip-active" : "spin-reel-strip-item"}>
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Team wheel + second wheel (season for team_year, era/decade for team_decade
- * and exact_team_season) spin ceremony (Phase 6B: premium reel/reveal
- * visual pass over the Phase 6A mechanic) -- two reels cycle -> lock ->
- * eligible-count reveal, THEN (via onRevealComplete) the parent shows
- * actual candidate names.
+ * and exact_team_season) spin ceremony -- "Team + Season Reel Spinner v2"
+ * (Phase 6G Part B: adds a real reel-strip, a fast->slow speed ramp, and
+ * always-visible coverage copy on top of the Phase 6B lock/reveal mechanic)
+ * -- two reels cycle -> lock -> eligible-count reveal, THEN (via
+ * onRevealComplete) the parent shows actual candidate names.
  *
  * The backend already resolved the spin and sent full candidate data the
  * moment this component receives `spin` -- this ceremony is purely
@@ -57,14 +113,13 @@ function prefersReducedMotion(): boolean {
  * resolvable set) and either the fixed `ERA_LABELS` or the true resolvable
  * `seasonLabels` set -- never a name that could not actually be the spin's
  * outcome, and never a decade label mixed into a team_year round or vice
- * versa (Phase 6A Goal 5/6: the wheel must not mix decade and exact-year
- * labels).
+ * versa.
  *
- * Respects prefers-reduced-motion by skipping straight to "revealed" with
- * no timers at all -- not just faster CSS, genuinely instant. The reel
- * streak/lock-flash CSS (globals.css .spin-reel*) is also neutralized by
- * the global prefers-reduced-motion media rule as a second, belt-and-
- * suspenders layer.
+ * Respects prefers-reduced-motion via a stepped (not zero-delay, not
+ * continuously animated) reveal -- see REDUCED_MOTION_*_MS. The reel
+ * streak/lock-flash/reel-strip CSS (globals.css .spin-reel*) is also
+ * neutralized entirely by the global prefers-reduced-motion media rule as a
+ * second, belt-and-suspenders layer.
  */
 export default function SpinStage({
   spin,
@@ -76,6 +131,7 @@ export default function SpinStage({
   supportedStartSeason = null,
   supportedEndSeason = null,
   onRevealComplete,
+  respinFlashKey = 0,
 }: Props) {
   // Always start in "spinning" for the initial render (server AND client)
   // -- checking prefers-reduced-motion here via a useState initializer
@@ -85,9 +141,17 @@ export default function SpinStage({
   // silently ignored. Instead, the check happens inside the effect below,
   // which only ever runs in the browser after mount.
   const [phase, setPhase] = useState<CeremonyPhase>("spinning");
+  // Persists once true (never reset) -- unlike `phase`, this survives past
+  // the brief ~450ms "locked" window so a test asserting after the
+  // ceremony settles can still prove the locked phase actually happened,
+  // without racing a live transient render (see the "locked state" e2e
+  // test's own comment for why that race is real, not just theoretical).
+  const [wasLocked, setWasLocked] = useState(false);
+  const [rampStage, setRampStage] = useState<RampStage>("fast");
   const [teamTick, setTeamTick] = useState(0);
   const [secondTick, setSecondTick] = useState(0);
   const [logoFailed, setLogoFailed] = useState(false);
+  const [justRespun, setJustRespun] = useState(false);
   const isTwoWheel = spin.spin_type !== "open_pool";
   const isTeamYear = spin.spin_type === "team_year";
   // Defensive fallback only -- every two-wheel spin (team_decade,
@@ -103,25 +167,47 @@ export default function SpinStage({
 
   useEffect(() => {
     if (prefersReducedMotion()) {
-      setPhase("revealed");
-      onRevealComplete?.();
-      return;
+      setPhase("locked");
+      setWasLocked(true);
+      const t1 = window.setTimeout(() => setPhase("revealed"), REDUCED_MOTION_LOCK_MS);
+      const t2 = window.setTimeout(
+        () => onRevealComplete?.(),
+        REDUCED_MOTION_LOCK_MS + REDUCED_MOTION_REVEAL_MS,
+      );
+      return () => {
+        window.clearTimeout(t1);
+        window.clearTimeout(t2);
+      };
     }
-    let reelInterval: number | undefined;
+    let fastInterval: number | undefined;
+    let slowInterval: number | undefined;
+    let rampTimer: number | undefined;
     if (isTwoWheel) {
-      reelInterval = window.setInterval(() => {
+      fastInterval = window.setInterval(() => {
         setTeamTick((t) => t + 1);
         setSecondTick((t) => t + 1);
-      }, REEL_TICK_MS);
+      }, FAST_TICK_MS);
+      rampTimer = window.setTimeout(() => {
+        if (fastInterval) window.clearInterval(fastInterval);
+        setRampStage("slow");
+        slowInterval = window.setInterval(() => {
+          setTeamTick((t) => t + 1);
+          setSecondTick((t) => t + 1);
+        }, SLOW_TICK_MS);
+      }, RAMP_SWITCH_MS);
     }
     const t1 = window.setTimeout(() => {
-      if (reelInterval) window.clearInterval(reelInterval);
+      if (fastInterval) window.clearInterval(fastInterval);
+      if (slowInterval) window.clearInterval(slowInterval);
       setPhase("locked");
+      setWasLocked(true);
     }, SPIN_MS);
     const t2 = window.setTimeout(() => setPhase("revealed"), SPIN_MS + LOCK_MS);
     const t3 = window.setTimeout(() => onRevealComplete?.(), SPIN_MS + LOCK_MS + COUNT_MS);
     return () => {
-      if (reelInterval) window.clearInterval(reelInterval);
+      if (fastInterval) window.clearInterval(fastInterval);
+      if (slowInterval) window.clearInterval(slowInterval);
+      if (rampTimer) window.clearTimeout(rampTimer);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearTimeout(t3);
@@ -132,14 +218,30 @@ export default function SpinStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    // Skip the initial mount (respinFlashKey starts at 0 and this effect
+    // fires once on mount regardless) -- only a real increment from a
+    // successful respin should flash.
+    if (respinFlashKey === 0) return;
+    setJustRespun(true);
+    const t = window.setTimeout(() => setJustRespun(false), 350);
+    return () => window.clearTimeout(t);
+  }, [respinFlashKey]);
+
   const teamDisplayName = phase === "spinning" ? teamPool[teamTick % teamPool.length] : spin.franchise_display_name ?? "Team-season unavailable";
   const secondDisplay = phase === "spinning" ? secondPool[secondTick % secondPool.length] : spin.era_label ?? "";
   const colors = getTeamColors(phase === "spinning" ? teamDisplayName : spin.franchise_display_name);
+
+  const coverageNote =
+    isTeamYear && rollableTeamSeasonCount > 0 && supportedStartSeason && supportedEndSeason
+      ? { count: rollableTeamSeasonCount.toLocaleString(), range: `${supportedStartSeason} to ${supportedEndSeason}` }
+      : null;
 
   return (
     <div
       data-testid="spin-stage"
       data-phase={phase}
+      data-was-locked={wasLocked}
       className="spin-reel p-4 flex flex-col gap-3"
       style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)" }}
     >
@@ -156,37 +258,46 @@ export default function SpinStage({
         </span>
       </div>
 
-      {phase === "locked" && (
+      {/* Phase 6G Part B: always-visible coverage line -- proves broad
+          team/season reach instead of only asserting it once, after the
+          fact, in the post-reveal badge. Text changes per phase so it reads
+          as live progress ("spinning through / searching") rather than a
+          static label repeated three times. */}
+      {isTwoWheel && (
         <div
-          data-testid="spin-locked-badge"
-          className="self-center text-xs font-black uppercase tracking-[0.3em]"
-          style={{ color: "var(--peak-accent, #f5c842)" }}
+          data-testid="spin-coverage-line"
+          className="text-[11px] font-semibold text-center"
+          style={{ color: "var(--text-muted)" }}
         >
-          Locked
+          {phase === "spinning" && (
+            <>
+              {coverageNote
+                ? `Spinning through ${coverageNote.count} team-seasons`
+                : "Searching every team"}
+              {" · "}
+              {coverageNote ? `searching ${coverageNote.range}` : "searching all eligible seasons"}
+            </>
+          )}
+          {phase === "locked" && "Locking in your roll…"}
+          {phase === "revealed" &&
+            (coverageNote ? `${coverageNote.count} rollable team-seasons · ${coverageNote.range}` : "Experimental exact-season mode")}
         </div>
       )}
 
-      {spin.spin_type !== "open_pool" && phase === "revealed" && (
-        <span
-          data-testid="interim-data-label"
-          className="self-start rounded px-2 py-0.5 text-[10px] font-semibold"
-          style={{ background: "rgba(245,200,66,0.15)", color: "var(--peak-accent, #f5c842)" }}
+      {phase === "locked" && (
+        <div
+          data-testid="spin-locked-badge"
+          className="spin-locked-stamp self-center text-xs font-black uppercase tracking-[0.3em]"
         >
-          {isTeamYear
-            ? rollableTeamSeasonCount > 0
-              ? `${rollableTeamSeasonCount.toLocaleString()} rollable team-seasons${
-                  supportedStartSeason && supportedEndSeason ? ` · ${supportedStartSeason} to ${supportedEndSeason}` : ""
-                }`
-              : "Experimental exact-season mode"
-            : "Interim team data — limited coverage"}
-        </span>
+          Locked
+        </div>
       )}
 
       {isTwoWheel ? (
         <div className="grid grid-cols-2 gap-3" role="status" aria-live="polite">
           <div
             data-testid="team-wheel"
-            className={`spin-reel-streak-bg rounded-2xl p-4 flex flex-col items-center justify-center gap-2 text-center ${phase === "locked" ? "spin-ceremony-lock-flash" : ""}`}
+            className={`spin-reel-streak-bg rounded-2xl p-4 flex flex-col items-center justify-center gap-2 text-center ${phase === "locked" || justRespun ? "spin-ceremony-lock-flash" : ""}`}
             data-phase={phase}
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border-muted, #333)", minHeight: 108 }}
           >
@@ -229,29 +340,38 @@ export default function SpinStage({
               <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
                 Team
               </div>
-              <div
-                className={`text-sm font-black truncate ${phase === "spinning" ? "spin-ceremony-reel-tick" : ""}`}
-                style={{ color: "var(--text-primary)" }}
-              >
-                {teamDisplayName}
-              </div>
+              {phase === "spinning" ? (
+                <ReelStrip items={teamPool} activeIndex={teamTick} rampStage={rampStage} />
+              ) : (
+                <div
+                  className="text-sm font-black truncate"
+                  style={{ color: "var(--text-primary)" }}
+                  title={teamDisplayName}
+                >
+                  {teamDisplayName}
+                </div>
+              )}
             </div>
           </div>
           <div
             data-testid="era-wheel"
-            className={`spin-reel-streak-bg rounded-2xl p-4 flex flex-col items-center justify-center gap-2 text-center ${phase === "locked" ? "spin-ceremony-lock-flash" : ""}`}
+            className={`spin-reel-streak-bg rounded-2xl p-4 flex flex-col items-center justify-center gap-2 text-center ${phase === "locked" || justRespun ? "spin-ceremony-lock-flash" : ""}`}
             data-phase={phase}
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border-muted, #333)", minHeight: 108 }}
           >
             <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
               {secondWheelLabel}
             </div>
-            <div
-              className={`text-2xl font-black ${phase === "spinning" ? "spin-ceremony-reel-tick" : ""}`}
-              style={{ color: phase === "revealed" ? "var(--peak-accent, #f5c842)" : "var(--text-primary)" }}
-            >
-              {secondDisplay}
-            </div>
+            {phase === "spinning" ? (
+              <ReelStrip items={secondPool} activeIndex={secondTick} rampStage={rampStage} />
+            ) : (
+              <div
+                className="text-2xl font-black"
+                style={{ color: phase === "revealed" ? "var(--peak-accent, #f5c842)" : "var(--text-primary)" }}
+              >
+                {secondDisplay}
+              </div>
+            )}
           </div>
         </div>
       ) : (

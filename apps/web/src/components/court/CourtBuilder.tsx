@@ -4,6 +4,8 @@ import {
   cancelSelection,
   completeCourtGame,
   placeCard,
+  respinSeason,
+  respinTeam,
   selectPlayer,
   PerfectSeasonAPIError,
 } from "@/lib/perfect-season-api";
@@ -52,6 +54,10 @@ export default function CourtBuilder({
   // number directly has no such ordering dependency.
   const [revealedRound, setRevealedRound] = useState<number | null>(null);
   const ceremonyRevealed = revealedRound === state.current_round;
+  // Phase 6G Part C: bumped on every successful respin, purely to drive
+  // SpinStage's brief "just respun" flash -- never affects which round is
+  // considered revealed.
+  const [respinFlashKey, setRespinFlashKey] = useState(0);
 
   const phase = uiPhaseFromStatus(state.status);
 
@@ -84,6 +90,22 @@ export default function CourtBuilder({
     if (next) setState(next);
   }
 
+  async function handleRespinTeam() {
+    const next = await withBusy(() => respinTeam(state.game_id));
+    if (next) {
+      setState(next);
+      setRespinFlashKey((k) => k + 1);
+    }
+  }
+
+  async function handleRespinSeason() {
+    const next = await withBusy(() => respinSeason(state.game_id));
+    if (next) {
+      setState(next);
+      setRespinFlashKey((k) => k + 1);
+    }
+  }
+
   async function handleComplete() {
     const next = await withBusy(() => completeCourtGame(state.game_id));
     if (next) setState(next);
@@ -111,17 +133,15 @@ export default function CourtBuilder({
           82-0 Peak Season
         </h1>
         <span
-          className="text-[10px] uppercase tracking-wide rounded px-2 py-1"
-          style={{ background: "var(--bg-surface)", color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
+          className="text-[9px] uppercase tracking-wide rounded px-1.5 py-0.5"
+          style={{ color: "var(--text-muted)" }}
+          title="v0 experimental simulator -- see the data receipt for version details"
         >
           Experimental
         </span>
       </div>
       <p className="text-xs -mt-3" style={{ color: "var(--text-muted)" }} data-testid="position-logic-note">
-        Every round is a real team + an exact season, and every card is that
-        exact player-season — never a substituted career peak. Off-position
-        placements are always allowed, and PEAK3 scores your roster mostly
-        on peak talent, not on penalizing a stacked lineup.
+        Build eight exact player-season cards from real rosters. PEAK3 rewards talent first, then fit.
       </p>
 
       <details className="text-[10px] -mt-2" style={{ color: "var(--text-muted)" }} data-testid="board-receipt">
@@ -134,6 +154,13 @@ export default function CourtBuilder({
           <span>{state.board_generator_version}</span>
           {state.experimental_team_year_data_version && <span>{state.experimental_team_year_data_version}</span>}
           {state.coverage_mode && <span data-testid="coverage-mode">{state.coverage_mode}</span>}
+          {state.respin_history.length > 0 && (
+            <span data-testid="respin-receipt-count">
+              {state.respin_history.length} respin{state.respin_history.length === 1 ? "" : "s"} used
+              {" "}({state.respin_history.filter((r) => r.kind === "team").length} team,{" "}
+              {state.respin_history.filter((r) => r.kind === "season").length} season)
+            </span>
+          )}
         </div>
       </details>
 
@@ -158,7 +185,43 @@ export default function CourtBuilder({
               supportedStartSeason={supportedStartSeason}
               supportedEndSeason={supportedEndSeason}
               onRevealComplete={() => setRevealedRound(state.current_round)}
+              respinFlashKey={respinFlashKey}
             />
+          )}
+
+          {/* Phase 6G Part C: up to 3 team + 3 season respins, only while
+              this round's player hasn't been picked yet (ceremonyRevealed
+              implies status === "selection_pending" -- the whole block
+              disappears once a player is selected, matching the backend's
+              own "locked after selection" rule). team_year rounds only --
+              legacy team_decade/exact_team_season/open_pool rounds don't
+              have a team+season reel to respin. */}
+          {phase === "spinning" && state.current_spin?.spin_type === "team_year" && ceremonyRevealed && (
+            <div className="flex flex-col items-center gap-1.5" data-testid="respin-controls">
+              <div className="flex items-center gap-2">
+                <button
+                  data-testid="respin-team-btn"
+                  onClick={handleRespinTeam}
+                  disabled={busy || (state.current_spin.team_respins_used ?? 0) >= (state.current_spin.team_respins_max ?? 0)}
+                  className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+                >
+                  Respin Team ({Math.max(0, (state.current_spin.team_respins_max ?? 0) - (state.current_spin.team_respins_used ?? 0))} left)
+                </button>
+                <button
+                  data-testid="respin-season-btn"
+                  onClick={handleRespinSeason}
+                  disabled={busy || (state.current_spin.season_respins_used ?? 0) >= (state.current_spin.season_respins_max ?? 0)}
+                  className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+                >
+                  Respin Season ({Math.max(0, (state.current_spin.season_respins_max ?? 0) - (state.current_spin.season_respins_used ?? 0))} left)
+                </button>
+              </div>
+              <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                Respins reset each round. Leaderboards track respin count.
+              </p>
+            </div>
           )}
 
           {/* Candidate area: clearly its own panel, separate from the court
@@ -181,7 +244,11 @@ export default function CourtBuilder({
                       className="w-2.5 h-2.5 rounded-full"
                       style={{ background: getTeamColors(state.current_spin.franchise_display_name).primary }}
                     />
-                    <span className="text-[11px] font-semibold truncate max-w-[180px]" style={{ color: "var(--text-secondary)" }}>
+                    <span
+                      className="text-[11px] font-semibold truncate max-w-[180px]"
+                      style={{ color: "var(--text-secondary)" }}
+                      title={`${state.current_spin.franchise_display_name} · ${state.current_spin.era_label}`}
+                    >
                       {state.current_spin.franchise_display_name} · {state.current_spin.era_label}
                     </span>
                   </div>

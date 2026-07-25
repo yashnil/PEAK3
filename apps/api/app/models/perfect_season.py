@@ -27,6 +27,14 @@ class CancelSelectionRequest(BaseModel):
     game_id: str
 
 
+class RespinRequest(BaseModel):
+    """Phase 6G Part C: body for both /respin-team and /respin-season --
+    identical shape to CancelSelectionRequest (just a game_id confirmation),
+    kept as its own type so the two respin kinds don't share a request
+    model by coincidence."""
+    game_id: str
+
+
 class PlaceCardRequest(BaseModel):
     game_id: str
     slot_type: str = Field(..., description="PG | SG | SF | PF | C | bench_1 | bench_2 | bench_3")
@@ -35,6 +43,45 @@ class PlaceCardRequest(BaseModel):
 
 class CompleteGameRequest(BaseModel):
     game_id: str
+
+
+class SubmitRunRequest(BaseModel):
+    """Phase 6G Part E: the ONLY client-controlled input to a leaderboard
+    submission is which completed game to submit -- every scored/roster
+    field is recomputed server-side from the saved game state, never taken
+    from the request body (Part E: 'Client must never submit arbitrary
+    wins/score')."""
+    game_id: str
+
+
+class PerfectSeasonRunPublic(BaseModel):
+    id: str
+    display_name: str
+    mode: str
+    game_type: str
+    seed: int
+    wins: int
+    losses: int
+    lineup_score: float
+    score_status: str
+    exact_cards_scored: int
+    total_cards: int
+    team_respins_used: int
+    season_respins_used: int
+    data_version: Optional[str] = None
+    formula_version: Optional[str] = None
+    simulation_version: Optional[str] = None
+    created_at: str
+
+
+class LeaderboardResponse(BaseModel):
+    leaderboard_enabled: bool
+    runs: list[PerfectSeasonRunPublic] = []
+    next_cursor: Optional[str] = None
+
+
+class MyRunsResponse(BaseModel):
+    runs: list[PerfectSeasonRunPublic] = []
 
 
 class SpinCandidate(BaseModel):
@@ -84,6 +131,14 @@ class CurrentSpinPublic(BaseModel):
     # Phase 6F Part C: only populated when Settings.ENABLE_EXTERNAL_ASSET_URLS
     # is true (default off).
     team_logo_url: Optional[str] = None
+    # Phase 6G Part C: respin budget for THIS round only (resets to 0/0 every
+    # round) -- only populated for team_year spins, since respins reroll the
+    # team+season reel that only team_year mode has. None for team_decade/
+    # exact_team_season/open_pool spins, which don't support respins at all.
+    team_respins_used: Optional[int] = None
+    team_respins_max: Optional[int] = None
+    season_respins_used: Optional[int] = None
+    season_respins_max: Optional[int] = None
 
 
 class PendingSelectionPublic(BaseModel):
@@ -220,6 +275,11 @@ class PublicCourtStateResponse(BaseModel):
     open_pool_enabled: bool = False
     simulation_result: Optional[SimulationResultPublic] = None
     live_build: Optional[LiveBuildPublic] = None
+    # Phase 6G Part C: every respin this attempt has used, across all
+    # rounds -- {"round": int, "kind": "team"|"season", "from_team": str,
+    # "from_season": str, "to_team": str, "to_season": str}. Part of the
+    # data receipt; also read by the leaderboard submission path (Part E).
+    respin_history: list[dict] = []
 
 
 class CourtBuilderCoverageSummary(BaseModel):

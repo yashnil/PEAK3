@@ -39,6 +39,7 @@ function mockState(overrides: Partial<CourtLineupPublicState> = {}): CourtLineup
     open_pool_enabled: false,
     simulation_result: null,
     live_build: null,
+    respin_history: [],
     ...overrides,
   };
 }

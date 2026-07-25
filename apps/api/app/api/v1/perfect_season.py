@@ -6,6 +6,8 @@ Routes:
   GET  /api/v1/perfect-season/games/{id}          - get current public state
   POST /api/v1/perfect-season/games/{id}/select   - select a candidate player
   POST /api/v1/perfect-season/games/{id}/cancel   - cancel the pending selection, back to candidates
+  POST /api/v1/perfect-season/games/{id}/respin-team   - reroll the round's team (up to 3x, team_year only)
+  POST /api/v1/perfect-season/games/{id}/respin-season - reroll the round's season (up to 3x, team_year only)
   POST /api/v1/perfect-season/games/{id}/place    - place the pending selection into a slot
   POST /api/v1/perfect-season/games/{id}/complete - run the v0 simulation and freeze the result
 
@@ -31,19 +33,25 @@ _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, resolve_owner_sub
+from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, RequiredAuth, resolve_owner_sub
 from app.core.config import settings
-from app.core.dependencies import CourtLineupRepoDep
+from app.core.dependencies import CourtLineupRepoDep, PerfectSeasonLeaderboardRepoDep, ProfileRepoDep
 from app.models.perfect_season import (
     CancelSelectionRequest,
     CompleteGameRequest,
     CourtBuilderCoverageSummary,
     CourtBuilderReadinessResponse,
     CreatePerfectSeasonGameRequest,
+    LeaderboardResponse,
+    MyRunsResponse,
+    PerfectSeasonRunPublic,
     PlaceCardRequest,
     PublicCourtStateResponse,
+    RespinRequest,
     SelectPlayerRequest,
+    SubmitRunRequest,
 )
+from app.repositories.leaderboard_protocols import DuplicateRunSubmission, PerfectSeasonRun
 from app.services.perfect_season import state as state_machine
 from app.services.perfect_season.state import CourtError
 from nba_peak.perfect_season.board import coverage_summary, experimental_team_year_summary, interim_team_summary
@@ -224,6 +232,52 @@ async def cancel_selection(
     return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
 
 
+@router.post("/perfect-season/games/{game_id}/respin-team", response_model=PublicCourtStateResponse)
+async def respin_team(
+    game_id: str,
+    body: RespinRequest,
+    court_repo: CourtLineupRepoDep,
+) -> PublicCourtStateResponse:
+    _require_courtbuilder_enabled()
+    if body.game_id != game_id:
+        raise HTTPException(status_code=400, detail="game_id in body must match URL")
+
+    game_state = await court_repo.get_lineup(game_id)
+    if game_state is None:
+        raise HTTPException(status_code=404, detail="Game not found or expired")
+
+    try:
+        new_state = state_machine.action_respin_team(game_state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc))
+
+    await court_repo.save_lineup(new_state)
+    return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
+
+
+@router.post("/perfect-season/games/{game_id}/respin-season", response_model=PublicCourtStateResponse)
+async def respin_season(
+    game_id: str,
+    body: RespinRequest,
+    court_repo: CourtLineupRepoDep,
+) -> PublicCourtStateResponse:
+    _require_courtbuilder_enabled()
+    if body.game_id != game_id:
+        raise HTTPException(status_code=400, detail="game_id in body must match URL")
+
+    game_state = await court_repo.get_lineup(game_id)
+    if game_state is None:
+        raise HTTPException(status_code=404, detail="Game not found or expired")
+
+    try:
+        new_state = state_machine.action_respin_season(game_state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc))
+
+    await court_repo.save_lineup(new_state)
+    return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
+
+
 @router.post("/perfect-season/games/{game_id}/place", response_model=PublicCourtStateResponse)
 async def place_card(
     game_id: str,
@@ -268,6 +322,168 @@ async def complete_game(
 
     await court_repo.save_lineup(new_state)
     return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
+
+
+# ---------------------------------------------------------------------------
+# Phase 6G Part E: authenticated global leaderboard. Reading is public once
+# enabled; submitting always requires a REAL signed-in account (never an
+# anonymous CourtBuilder session, even though CourtBuilder play itself is
+# anonymous-friendly by design -- ADR-005 Decision 1). Every scored/roster
+# field on a submission is recomputed from the server-saved game state, never
+# taken from the client (see SubmitRunRequest's own docstring).
+# ---------------------------------------------------------------------------
+
+def _require_leaderboard_enabled() -> None:
+    if not settings.COURTBUILDER_LEADERBOARD_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail={"error_code": "leaderboard_not_enabled", "message": "The PEAK Season leaderboard is not enabled."},
+        )
+
+
+def _run_to_public(run: PerfectSeasonRun) -> PerfectSeasonRunPublic:
+    return PerfectSeasonRunPublic(
+        id=run.id,
+        display_name=run.display_name,
+        mode=run.mode,
+        game_type=run.game_type,
+        seed=run.seed,
+        wins=run.wins,
+        losses=run.losses,
+        lineup_score=run.lineup_score,
+        score_status=run.score_status,
+        exact_cards_scored=run.exact_cards_scored,
+        total_cards=run.total_cards,
+        team_respins_used=run.team_respins_used,
+        season_respins_used=run.season_respins_used,
+        data_version=run.data_version,
+        formula_version=run.formula_version,
+        simulation_version=run.simulation_version,
+        created_at=run.created_at.isoformat() if hasattr(run.created_at, "isoformat") else str(run.created_at),
+    )
+
+
+@router.post("/perfect-season/games/{game_id}/submit", response_model=PerfectSeasonRunPublic)
+async def submit_run(
+    game_id: str,
+    body: SubmitRunRequest,
+    auth: RequiredAuth,
+    court_repo: CourtLineupRepoDep,
+    leaderboard_repo: PerfectSeasonLeaderboardRepoDep,
+    profile_repo: ProfileRepoDep,
+) -> PerfectSeasonRunPublic:
+    _require_courtbuilder_enabled()
+    _require_leaderboard_enabled()
+    if body.game_id != game_id:
+        raise HTTPException(status_code=400, detail="game_id in body must match URL")
+    if auth.is_anonymous:
+        raise HTTPException(
+            status_code=401,
+            detail={"error_code": "sign_in_required", "message": "Sign in with a real account to submit to the leaderboard."},
+        )
+
+    game_state = await court_repo.get_lineup(game_id)
+    if game_state is None:
+        raise HTTPException(status_code=404, detail="Game not found or expired")
+    if game_state.owner_sub != auth.sub:
+        raise HTTPException(status_code=403, detail={"error_code": "not_your_game", "message": "This game belongs to a different account."})
+    if game_state.status != "result_ready" or game_state.simulation_result is None:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "game_not_complete", "message": "This game has not been completed and simulated yet."},
+        )
+
+    existing = await leaderboard_repo.get_run_by_game_id(game_id)
+    if existing is not None:
+        # Idempotent retry: the same game was already submitted -- return
+        # the original immutable record rather than erroring or duplicating.
+        return _run_to_public(existing)
+
+    result = game_state.simulation_result
+    team_year_board = game_state.board.experimental_team_year_data_version is not None
+    lineup_score_status = "complete"
+    if team_year_board:
+        all_scored = all(s.exact_player_season_key and _card_scored(s.exact_player_season_key) for s in game_state.slots)
+        lineup_score_status = "complete" if all_scored else "incomplete"
+        if lineup_score_status == "incomplete":
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": "incomplete_score_not_eligible",
+                    "message": "This roster has one or more cards with no official PEAK3 score yet -- "
+                                "only fully-scored rosters can be submitted to the leaderboard.",
+                },
+            )
+
+    roster_card_keys = [
+        s.exact_player_season_key or s.peak_window_id or "" for s in game_state.slots
+    ]
+    exact_cards_scored = sum(
+        1 for s in game_state.slots if s.exact_player_season_key and _card_scored(s.exact_player_season_key)
+    ) if team_year_board else len(game_state.slots)
+
+    profile = await profile_repo.get_or_create_profile(auth.sub)
+    display_name = profile.display_name or (auth.email.split("@")[0] if auth.email else f"Player-{auth.sub[-6:]}")
+
+    run = PerfectSeasonRun(
+        id="",
+        owner_sub=auth.sub,
+        display_name=display_name,
+        mode=game_state.mode,
+        game_id=game_id,
+        seed=game_state.board.seed,
+        wins=result.wins,
+        losses=result.losses,
+        lineup_score=result.lineup_peak_score,
+        score_status=lineup_score_status,
+        exact_cards_scored=exact_cards_scored,
+        total_cards=len(game_state.slots),
+        team_respins_used=sum(1 for h in game_state.respin_history if h.get("kind") == "team"),
+        season_respins_used=sum(1 for h in game_state.respin_history if h.get("kind") == "season"),
+        roster_card_keys=roster_card_keys,
+        data_version=game_state.board.experimental_team_year_data_version,
+        formula_version=game_state.board.metadata.get("formula_version"),
+        simulation_version=result.simulator_version,
+    )
+    try:
+        saved = await leaderboard_repo.submit_run(run)
+    except DuplicateRunSubmission:
+        existing = await leaderboard_repo.get_run_by_game_id(game_id)
+        if existing is not None:
+            return _run_to_public(existing)
+        raise HTTPException(status_code=409, detail={"error_code": "duplicate_submission", "message": "This game was already submitted."})
+
+    return _run_to_public(saved)
+
+
+def _card_scored(exact_player_season_key: str) -> bool:
+    from nba_peak.perfect_season.exact_season import resolve_exact_card_by_key
+    card = resolve_exact_card_by_key(exact_player_season_key)
+    return card is not None and card.score_status == "exact_season_scored"
+
+
+@router.get("/perfect-season/leaderboard", response_model=LeaderboardResponse)
+async def get_leaderboard(
+    leaderboard_repo: PerfectSeasonLeaderboardRepoDep,
+    mode: Optional[str] = Query(None, description="Filter by mode (apex_1y/prime_3y/foundation_5y)"),
+    no_respin: bool = Query(False, description="Only include runs with zero respins used"),
+    limit: int = Query(50, ge=1, le=100),
+    cursor: Optional[str] = Query(None),
+) -> LeaderboardResponse:
+    if not settings.COURTBUILDER_LEADERBOARD_ENABLED:
+        return LeaderboardResponse(leaderboard_enabled=False, runs=[], next_cursor=None)
+    runs = await leaderboard_repo.get_leaderboard(mode, no_respin, limit, cursor)
+    return LeaderboardResponse(leaderboard_enabled=True, runs=[_run_to_public(r) for r in runs])
+
+
+@router.get("/perfect-season/me/runs", response_model=MyRunsResponse)
+async def get_my_runs(
+    auth: RequiredAuth,
+    leaderboard_repo: PerfectSeasonLeaderboardRepoDep,
+) -> MyRunsResponse:
+    _require_leaderboard_enabled()
+    runs = await leaderboard_repo.list_runs_for_owner(auth.sub)
+    return MyRunsResponse(runs=[_run_to_public(r) for r in runs])
 
 
 # ---------------------------------------------------------------------------
