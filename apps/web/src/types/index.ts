@@ -104,6 +104,34 @@ export interface LeaderboardResponse {
   metadata: DatasetMetadata;
 }
 
+// Phase 6D: Peak section top-1000 (broader universe than the 250-pool
+// LeaderboardRow/LeaderboardResponse above -- deliberately a separate,
+// simpler shape, never merged with the canonical leaderboard types).
+export interface PeakRow {
+  rank: number;
+  player_slug: string;
+  player_name: string;
+  window_label: string;
+  anchor_season: string;
+  team: string | null;
+  prime_score: number;
+  data_completeness: string;
+  // Phase 6E Part B: asset-manifest schema readiness, always null today.
+  headshot_url?: string | null;
+}
+
+export interface PeaksResponse {
+  window: "1y" | "3y" | "5y";
+  duration_years: number;
+  dataset_version: string;
+  formula_version: string;
+  supported_start_season: string;
+  supported_end_season: string;
+  universe_identity_count: number;
+  total_available: number;
+  rows: PeakRow[];
+}
+
 export interface DatasetMetadata {
   schema_version: string;
   model_version: string;

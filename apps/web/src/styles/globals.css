@@ -168,6 +168,600 @@ html, body {
 }
 
 /* ================================================================
+   CourtBuilder spin ceremony (Phase 5X.2)
+   Pure CSS keyframes -- automatically neutralized by the global
+   prefers-reduced-motion rule below. Component-side JS also short-circuits
+   the whole ceremony's timers under reduced motion (see SpinStage.tsx) so
+   no information is delayed behind an animation for those users.
+   ================================================================ */
+
+@keyframes spin-ceremony-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.spin-ceremony-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--peak-accent, #f5c842);
+  animation: spin-ceremony-pulse 0.6s ease-in-out infinite;
+}
+
+@keyframes spin-ceremony-lock {
+  0% { transform: scale(0.92); opacity: 0.5; }
+  60% { transform: scale(1.03); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.spin-ceremony-lock-flash {
+  animation: spin-ceremony-lock 0.35s ease-out;
+}
+
+@keyframes spin-ceremony-reel-tick {
+  0% { opacity: 0.55; transform: translateY(-2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.spin-ceremony-reel-tick {
+  animation: spin-ceremony-reel-tick 0.09s ease-out;
+}
+
+/* ================================================================
+   Half-court layout
+   ================================================================ */
+
+.court-half {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 18px 18px 6px 6px;
+  /* Warm hardwood-tinted floor gradient (subtle -- this is a dark theme,
+     not a literal wood texture) plus a flat paint/key lane rectangle
+     centered on the baseline, composited as background layers so no extra
+     DOM nodes are needed for them. */
+  background:
+    linear-gradient(var(--bg-surface), var(--bg-surface)) no-repeat center bottom / 34% 44%,
+    linear-gradient(180deg, var(--bg-elevated) 0%, #17130d 100%);
+  border: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+.court-half::before {
+  /* Free-throw circle, purely decorative court markings. Never intercepts
+     clicks meant for the absolutely-positioned slot cards above it. */
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  width: 34%;
+  aspect-ratio: 1;
+  border: 2px solid var(--border-emphasis);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.court-half::after {
+  /* Three-point arc, purely decorative court markings. Never intercepts
+     clicks meant for the absolutely-positioned slot cards above it. */
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -32%;
+  width: 92%;
+  aspect-ratio: 1;
+  border: 2px solid var(--border-emphasis);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* Scoped to .court-half (the old absolute-position full-court diagram,
+   no longer rendered by any component as of Phase 6B -- see
+   CourtLayout.tsx) so these rules stay inert rather than leaking their
+   absolute-position geometry onto Phase 6B's reuse of the bare
+   `.court-hoop` class for a small inline decorative accent
+   (.roster-board-hoop-accent below controls that usage instead). */
+.court-half .court-hoop {
+  position: absolute;
+  left: 50%;
+  bottom: 2%;
+  width: 9%;
+  aspect-ratio: 1;
+  border: 2px solid var(--peak-accent-dim);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.court-half .court-hoop::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 220%;
+  height: 3px;
+  background: var(--border-emphasis);
+  transform: translateX(-50%);
+}
+
+.court-half-slot {
+  position: absolute;
+  width: 21%;
+  min-width: 64px;
+  transform: translate(-50%, -50%);
+}
+
+@media (max-width: 420px) {
+  .court-half-slot {
+    width: 23%;
+    min-width: 56px;
+  }
+}
+
+/* ================================================================
+   Phase 6B -- compact roster board (replaces absolute-positioned
+   floating cards on a shape). A CSS grid cannot overlap by
+   construction, which is the direct fix for the "cramped/overlapping
+   labels" finding -- court flavor now comes from the subtle grid-line
+   texture (.court-grid-bg, already existed) plus a thin accent rail and
+   the position-ordered (PG..C) column sequence, not from literal
+   court-diagram geometry.
+   ================================================================ */
+
+/* Phase 6E -- outer wrapper spanning starters + bench as one visually
+   continuous unit ("visually attached", not a separate floating block).
+   `data-testid="half-court"` stays scoped to the starters panel alone (see
+   below) so the pre-existing "5 slots inside half-court" Playwright
+   assertion is unaffected -- this wrapper is the new, additional
+   `court-panel` landmark. */
+.court-panel-wrapper {
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+
+.roster-board {
+  position: relative;
+  padding: 16px 12px 14px;
+  /* Warm hardwood-tinted floor gradient (subtle -- dark theme, not a
+     literal wood texture) -- CSS-only, no image asset. */
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(245, 200, 66, 0.05), transparent 60%),
+    linear-gradient(180deg, var(--bg-elevated) 0%, #14110a 100%);
+  overflow: hidden;
+}
+
+.roster-board::before {
+  /* Subtle grid-line court texture, reusing the existing --court-line
+     token -- decorative only, never intercepts clicks. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--court-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--court-line) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+}
+
+.roster-board::after {
+  /* Baseline -- the court's bottom edge, where the bench row attaches. */
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 0;
+  height: 2px;
+  background: var(--border-emphasis);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Phase 6C -- spatial half-court positions (PG top / SG right wing / SF left
+   wing / PF low block / C paint), replacing the Phase 6B plain PG..C row.
+   A named-area CSS grid cannot overlap by construction (same guarantee the
+   Phase 6B row already relied on), so this keeps that fix while actually
+   placing each position where it is played -- the "looks like a form, not a
+   basketball game" finding this pass addresses. */
+.roster-board-starters {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-areas:
+    ".   pg  pg  ."
+    "sf  .   .   sg"
+    ".   pf  c   .";
+  gap: 10px;
+  padding-bottom: 6px;
+}
+
+.roster-board-slot-PG { grid-area: pg; }
+.roster-board-slot-SG { grid-area: sg; }
+.roster-board-slot-SF { grid-area: sf; }
+.roster-board-slot-PF { grid-area: pf; }
+.roster-board-slot-C  { grid-area: c; }
+
+@media (max-width: 480px) {
+  .roster-board-starters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "pg  pg"
+      "sf  sg"
+      "pf  c";
+  }
+}
+
+/* Decorative key/paint + free-throw circle + three-point arc, layered
+   behind the starters grid (lower z-index; each slot card above it has an
+   opaque background, so the markings only show through the gaps -- the same
+   "decorative, pointer-events:none, never intercepts clicks" discipline as
+   the pre-existing .court-hoop/.court-half::after rules). Approximates a
+   real court's geometry without a licensed/literal diagram. */
+.roster-board-court-markings {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  width: 62%;
+  max-width: 240px;
+  aspect-ratio: 0.95;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.roster-board-court-markings .roster-board-paint {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 48%;
+  height: 78%;
+  transform: translateX(-50%);
+  border: 2px solid var(--peak-accent-dim);
+  border-bottom: none;
+  opacity: 0.4;
+}
+
+.roster-board-court-markings .roster-board-ft-circle {
+  position: absolute;
+  left: 50%;
+  bottom: 76%;
+  width: 40%;
+  aspect-ratio: 1;
+  border: 2px solid var(--peak-accent-dim);
+  border-radius: 50%;
+  transform: translate(-50%, 50%);
+  opacity: 0.35;
+}
+
+.roster-board-court-markings .roster-board-arc {
+  position: absolute;
+  left: 50%;
+  bottom: -22%;
+  width: 155%;
+  aspect-ratio: 1;
+  border: 2px solid var(--peak-accent-dim);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  opacity: 0.25;
+  clip-path: inset(0 0 58% 0);
+}
+
+/* Rim marker -- a literal hoop/rim landmark on the court surface itself
+   (distinct from the small header accent glyph, which keeps its own
+   `.court-hoop` class for the pre-existing visibility check). Sits at the
+   near-basket end of the paint, where a real hoop would be. */
+.roster-board-court-markings .roster-board-rim {
+  position: absolute;
+  left: 50%;
+  bottom: 2%;
+  width: 14%;
+  aspect-ratio: 1;
+  border: 2.5px solid var(--peak-accent, #f5c842);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  opacity: 0.55;
+}
+
+/* Sideline framing -- reinforces "this is a court", not a generic panel. */
+.roster-board-sideline {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  top: 4%;
+  bottom: 4%;
+  border: 1px solid var(--court-line);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.roster-board-bench-row {
+  position: relative;
+  padding: 10px 12px 12px;
+  background: linear-gradient(180deg, #14110a 0%, var(--bg-surface) 100%);
+  border-top: 1px dashed var(--court-line);
+}
+
+.roster-board-bench-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.roster-board-bench {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* Small hoop glyph accent, purely decorative (aria-hidden), keeps a
+   literal basketball reference without the absolute-position collision
+   risk of the old full court-diagram approach. */
+.roster-board-hoop-accent {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--peak-accent-dim);
+  flex-shrink: 0;
+}
+
+.roster-board-hoop-accent::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -4px;
+  width: 160%;
+  height: 2px;
+  background: var(--border-emphasis);
+  transform: translateX(-50%);
+}
+
+/* ================================================================
+   Phase 6B -- player avatar shell (initials, no images)
+   ================================================================ */
+
+.player-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-weight: 800;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* Phase 6E -- two-line name wrap for court/bench slot cards. A normal-length
+   name ("Stephen Curry", "Shaquille O'Neal", "Alonzo Mourning") must never
+   be cut off on desktop; this wraps to a second line before truncating,
+   instead of single-line `truncate` clipping mid-name. */
+.name-2line {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+/* Softer "valid drop zone" affordance -- replaces the dashed yellow test-UI
+   look with a glow + solid thin border. */
+.court-slot-drop-target {
+  border: 1.5px solid var(--peak-accent, #f5c842) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--peak-accent, #f5c842) 18%, transparent),
+    0 0 16px color-mix(in srgb, var(--peak-accent, #f5c842) 25%, transparent);
+}
+
+/* ================================================================
+   Phase 6B -- candidate cards (game cards, not admin-UI list rows)
+   ================================================================ */
+
+.candidate-card-v2 {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border-radius: 14px;
+  padding: 10px 12px;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.candidate-card-v2:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--peak-accent-dim) !important;
+}
+
+.candidate-card-v2:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.candidate-card-v2:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* Phase 6E -- single-column candidate row (replaces the 2-column grid of
+   .candidate-card-v2 for PEAK Season specifically). Whole row is the click
+   target (clear affordance via hover/active state), not just the "Choose"
+   pill -- avoids repeating an oversized action button 10-15 times down the
+   panel. */
+.candidate-row-v3 {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  border-radius: 12px;
+  padding: 8px 10px;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.candidate-row-v3:hover:not(:disabled) {
+  border-color: var(--peak-accent-dim) !important;
+  background: var(--bg-surface-hover) !important;
+}
+
+.candidate-row-v3:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.candidate-row-v3:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* ================================================================
+   Phase 6B -- spin reel (premium reel/reveal feel)
+   ================================================================ */
+
+.spin-reel {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.spin-reel[data-phase="spinning"] {
+  box-shadow: inset 0 0 0 1px var(--border-emphasis);
+}
+
+.spin-reel[data-phase="locked"] {
+  box-shadow: inset 0 0 0 1px var(--peak-accent-dim), 0 0 0 3px rgba(245, 200, 66, 0.12);
+}
+
+.spin-reel[data-phase="revealed"] {
+  box-shadow: inset 0 0 0 1px var(--peak-accent-dim);
+}
+
+/* Faint vertical blur streaks behind the reel content while spinning --
+   pure CSS, no motion asset, neutralized entirely by the global
+   prefers-reduced-motion rule (animation-duration forced to 0.01ms). */
+@keyframes spin-reel-streak {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 -32px; }
+}
+
+.spin-reel-streak-bg[data-phase="spinning"] {
+  background-image: repeating-linear-gradient(
+    180deg,
+    rgba(245, 200, 66, 0.05) 0px,
+    rgba(245, 200, 66, 0.05) 2px,
+    transparent 2px,
+    transparent 16px
+  );
+  animation: spin-reel-streak 0.4s linear infinite;
+}
+
+/* Phase 6G Part B -- reel-strip ticker (shows several pool items at once
+   while spinning, proving broad team/season coverage instead of just
+   asserting it). Fixed width/overflow:hidden so it can never cause
+   horizontal page overflow on mobile regardless of label length. */
+.spin-reel-strip {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.spin-reel-strip-item {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  opacity: 0.55;
+  flex-shrink: 0;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spin-reel-strip-active {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  flex-shrink: 0;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Blur/ghosting while the reel is at full speed -- eases off once the ramp
+   drops to "slow", so the strip visually settles before the lock snap.
+   Neutralized entirely under prefers-reduced-motion (that path never
+   mounts this element at all -- see SpinStage.tsx). */
+.spin-reel-strip[data-ramp="fast"] .spin-reel-strip-item,
+.spin-reel-strip[data-ramp="fast"] .spin-reel-strip-active {
+  filter: blur(0.6px);
+}
+
+.spin-locked-stamp {
+  color: var(--peak-accent, #f5c842);
+  padding: 3px 14px;
+  border: 1.5px solid var(--peak-accent, #f5c842);
+  border-radius: 999px;
+  background: rgba(245, 200, 66, 0.1);
+}
+
+.round-progress-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.round-progress-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--border-emphasis);
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.round-progress-dot[data-state="done"] {
+  background: var(--peak-accent, #f5c842);
+}
+
+.round-progress-dot[data-state="current"] {
+  background: var(--peak-accent, #f5c842);
+  transform: scale(1.3);
+}
+
+/* ================================================================
+   Phase 6B -- share-card result shell
+   ================================================================ */
+
+.share-card-shell {
+  position: relative;
+  border-radius: 20px;
+  padding: 18px 16px 16px;
+  background: linear-gradient(165deg, var(--bg-elevated) 0%, var(--bg-page) 100%);
+  border: 1px solid var(--border-emphasis);
+  box-shadow: 0 0 0 1px rgba(245, 200, 66, 0.08), 0 24px 48px -24px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.share-card-shell::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--peak-accent, #f5c842), transparent 70%);
+  pointer-events: none;
+}
+
+/* ================================================================
    Reduced motion
    ================================================================ */
 

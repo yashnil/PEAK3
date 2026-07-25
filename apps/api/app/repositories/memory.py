@@ -13,6 +13,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 from nba_peak.lineup.schemas import DraftGameState
+from nba_peak.perfect_season.schemas import CourtLineupState
 
 from .protocols import (
     ChallengeRecord,
@@ -241,3 +242,43 @@ class MemoryOwnershipClaimRepository:
     async def get_claim_by_anon(self, anon_subject_id: str) -> OwnershipClaim | None:
         with self._lock:
             return self._claims.get(anon_subject_id)
+
+
+class MemoryCourtLineupRepository:
+    """Thread-safe in-memory CourtBuilder lineup store (Phase 5C)."""
+
+    def __init__(self) -> None:
+        self._lineups: dict[str, CourtLineupState] = {}
+        self._lock = threading.Lock()
+
+    async def create_lineup(self, state: CourtLineupState) -> str:
+        game_id = secrets.token_urlsafe(16)
+        state.game_id = game_id
+        with self._lock:
+            self._lineups[game_id] = state
+        return game_id
+
+    async def get_lineup(self, game_id: str) -> CourtLineupState | None:
+        with self._lock:
+            state = self._lineups.get(game_id)
+        if state is None:
+            return None
+        created = datetime.fromisoformat(state.created_at)
+        if datetime.now(timezone.utc) - created > timedelta(hours=GAME_TTL_HOURS):
+            with self._lock:
+                self._lineups.pop(game_id, None)
+            return None
+        return state
+
+    async def save_lineup(self, state: CourtLineupState) -> None:
+        with self._lock:
+            self._lineups[state.game_id] = state
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        count = 0
+        with self._lock:
+            for state in self._lineups.values():
+                if state.owner_sub == from_sub:
+                    state.owner_sub = to_sub
+                    count += 1
+        return count

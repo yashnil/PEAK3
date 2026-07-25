@@ -1,12 +1,31 @@
 # Phase 5C — CourtBuilder Vertical Slice Implementation Checklist
 
-**Status:** Planning only — no product code written yet. This is the
-implementation checklist for Phase 5C, per
+**Status:** Implemented (PR #3, `phase5-courtbuilder-vertical-slice`,
+behind `COURTBUILDER_ENABLED`, default off) and hardened for review. This
+document originally served as the pre-implementation checklist; it is kept
+as the historical record of that pass's scope, not updated to describe the
+shipped code line-by-line.
+**This is the implementation checklist for Phase 5C**, per
 `docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md` and
 `docs/product/PEAK3_NEXT_AMBITIOUS_STEPS.md` §10 (Phase 5C row).
 **Depends on:** ADR-005 (decisions 1, 2, 3, 4, 5, 6, 7, 8 all apply
 directly) and `docs/architecture/PHASE_5_DATA_MODEL.md` (entities 5, 8, 9,
 10, 11, 12 — the six entities this slice actually touches).
+
+**Read this next:** the shipped vertical slice is a **technical
+scaffold, not a product-complete experience.** It proved the game grammar
+end-to-end (spin → search → select → place → simulate → result) and passed
+every acceptance criterion in §8 below, but a manual product review found
+it is not yet fun: no real spin ceremony, sparse team/decade candidate
+pools (some spins resolve to a single eligible player), fully positionless
+slots, an exact-score reveal immediately after every pick that undercuts
+the suspense the hidden-score mechanic was supposed to create, and weak
+mode identity overall. The redesign response lives in
+`docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md` (product spec),
+`docs/implementation/PHASE_5X_ARENA_OVERHAUL_PLAN.md` (engineering phases
+5X.1-5X.9), and `docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`
+(the 250→500 player database expansion this redesign depends on). Read
+those before extending this vertical slice further.
 
 ---
 
@@ -35,7 +54,7 @@ not out of the source docs, and are binding for this phase:
    Phase 5C's official-result tracking is therefore `games.payload` only —
    a completed attempt is retrievable by `game_id`, but does not appear in
    `/history`, does not write a `ResultSnapshot`, and does not trigger
-   progression/XP. This is deferred to **Phase 5D** ("Daily 82 and result
+   progression/XP. This is deferred to **Phase 5X** ("Daily 82 and result
    sharing" in the roadmap), which is exactly where the actual schema
    change belongs.
 3. **No real team-season data.** The team+decade/exact-team-season spin
@@ -152,7 +171,7 @@ apps/web/src/app/(main)/arena/court/practice/[mode]/page.tsx
 
 `practice` only in this phase — no `daily` variant (§0 item 2: no durable
 completion tracking yet, and Daily requires the settlement/leaderboard
-infrastructure explicitly deferred to Phase 5D). `[mode]` mirrors the
+infrastructure explicitly deferred to Phase 5X). `[mode]` mirrors the
 existing `apex_1y`/`prime_3y`/`foundation_5y` duration convention so the
 same `data/web/peak_windows.json` durations apply.
 
@@ -180,7 +199,7 @@ the existing `apps/web/src/components/draft/`, not inside it):
 presentation (scoreboard, series tracker, win-probability strip) from
 master plan §13.6 — `SeasonResultStub` is a static result screen, not an
 animated broadcast layer. Animation quality is a Phase 5C-follow-up or
-Phase 5D concern, not blocking for proving the game grammar.
+Phase 5X concern, not blocking for proving the game grammar.
 
 ---
 
@@ -291,7 +310,7 @@ weakened, or deleted to make this phase land.
 - **Full team-season data / real eligibility engine** — interim dataset
   only (§4); `PHASE_5_DATA_MODEL.md` entities 2–4, 6 remain design-only.
 - **Daily 82, leaderboards, streaks, achievements for CourtBuilder** —
-  Phase 5D. This slice writes no `ResultSnapshot`, no `DailyCompletion`, no
+  Phase 5X. This slice writes no `ResultSnapshot`, no `DailyCompletion`, no
   progression event.
 - **PEAK3 Forge, attribute engine, `player_attribute_profile` population** —
   Phase 5E. `LineupInsightPanel` in this slice uses lineup-fit heuristics

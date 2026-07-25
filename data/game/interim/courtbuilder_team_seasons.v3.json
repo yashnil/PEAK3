@@ -1,0 +1,143 @@
+{
+  "dataset_version": "courtbuilder_interim_teams.v3",
+  "status": "interim_prototype",
+  "coverage_note": "Hand-curated for CourtBuilder. Covers 11 franchises across all 5 supported decades (1980s-2020s), not the full NBA. Does NOT claim complete team-season rosters -- only lists the subset of each roster that is also present in the existing 250-player PEAK3 card pool (data/game/profiles/card_profiles.v3.json), AND that pool's model actually resolved a card for (profile_status other than 'excluded' -- v1 listed two players, michael-cooper and jaylen-brown, whose card_profiles.v3.json rows are all profile_status='excluded' at every duration, meaning they were never actually reachable as candidates despite being named; a Phase 5X.5 audit caught this and both were removed). v3 (Phase 5X.6 audit): confirmed Jrue Holiday IS resolvable in the 250-player pool (verified_data_derived at 3yr/5yr, excluded at 1yr/2yr) and was previously listed ONLY under bucks-2020s, even though he was traded to the Celtics in September 2023 and started for the 2024 champion Boston Celtics -- a real, documented second team affiliation the dataset was missing. Added to celtics-2020s too; a player_slug legitimately appearing in more than one team-decade entry in the same decade is allowed by this schema and reflects real mid-decade trades, not a duplicate-data bug. Still deliberately narrow: several combos resolve to only 1-2 eligible candidates (Spurs 1990s, Nuggets at 5yr duration) because no other rostermate from that team/era clears the current all-time-peak-score cutoff into the 250-player pool, or has a resolvable card at every duration. This is a content depth problem, not a bug -- see docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md for why a 250->1000 player expansion is required to close these gaps, and why that expansion is about team/era eligibility DEPTH, not about suppressing strong rosters. Not wired into, and not a substitute for, the real team_identity/team_season/team_season_roster_member schema proposed in docs/architecture/PHASE_5_DATA_MODEL.md. Deleted (not migrated) once real team-season data acquisition happens.",
+  "generated_at": "2026-07-22",
+  "team_decade_spins": [
+    {
+      "spin_id": "bulls-1990s",
+      "franchise_display_name": "Chicago Bulls",
+      "decade_label": "1990s",
+      "player_slugs": ["michael-jordan", "scottie-pippen", "dennis-rodman", "horace-grant", "ron-harper"],
+      "source_provenance": "Public record: Bulls' 1991/1992/1993/1996/1997/1998 championship rosters. Rodman joined in 1995, Ron Harper in 1994, both included under the decade tag (1990s), not claimed for any specific season. Horace Grant was a starter 1987-1994, part of the first three-peat. Note: Ron Harper's card only resolves at the 1yr/2yr durations in the current pool (profile_status=excluded at 3yr/5yr) -- an honest per-duration gap, not an error."
+    },
+    {
+      "spin_id": "lakers-1980s",
+      "franchise_display_name": "Los Angeles Lakers",
+      "decade_label": "1980s",
+      "player_slugs": ["magic-johnson", "kareem-abdul-jabbar", "james-worthy"],
+      "source_provenance": "Public record: Lakers 'Showtime' era championship rosters (1980, 1982, 1985, 1987, 1988). Michael Cooper (Defensive Player of the Year, 1987) was part of this roster historically but is deliberately NOT listed here: his card_profiles.v3.json rows are profile_status='excluded' at every duration (insufficient data for a reliable model score), so he is never actually offered as a candidate -- listing him would have been a dead entry, not a real choice."
+    },
+    {
+      "spin_id": "lakers-2000s",
+      "franchise_display_name": "Los Angeles Lakers",
+      "decade_label": "2000s",
+      "player_slugs": ["kobe-bryant", "shaquille-oneal", "pau-gasol"],
+      "source_provenance": "Public record: Lakers 2000/2001/2002 championship rosters (Kobe Bryant, Shaquille O'Neal); Pau Gasol joined February 2008 and was part of the 2009 championship roster, still within the 2000s decade tag."
+    },
+    {
+      "spin_id": "celtics-1980s",
+      "franchise_display_name": "Boston Celtics",
+      "decade_label": "1980s",
+      "player_slugs": ["larry-bird", "kevin-mchale", "robert-parish", "cedric-maxwell"],
+      "source_provenance": "Public record: Celtics 1981/1984/1986 championship rosters (Big Three era). Cedric Maxwell was Finals MVP in 1981 and a rotation starter through 1985."
+    },
+    {
+      "spin_id": "celtics-2000s",
+      "franchise_display_name": "Boston Celtics",
+      "decade_label": "2000s",
+      "player_slugs": ["kevin-garnett", "paul-pierce", "ray-allen", "rajon-rondo"],
+      "source_provenance": "Public record: Celtics 2007-08 championship roster (Garnett/Pierce/Allen 'Big Three'). Rajon Rondo was the starting point guard on that same roster."
+    },
+    {
+      "spin_id": "celtics-2020s",
+      "franchise_display_name": "Boston Celtics",
+      "decade_label": "2020s",
+      "player_slugs": ["jayson-tatum", "derrick-white", "al-horford", "jrue-holiday"],
+      "source_provenance": "Public record: Jayson Tatum, Derrick White (Celtics since 2022), and Al Horford (Celtics since 2021) were all on the 2024 championship roster. Jrue Holiday was traded to the Celtics in September 2023 and started for the 2024 championship team -- added in the Phase 5X.6 audit; he also legitimately appears under bucks-2020s below for his earlier (2020-2023) tenure and 2021 title. Jaylen Brown (2024 Finals MVP, also a real member of this roster) is deliberately NOT listed: his card_profiles.v3.json rows are profile_status='excluded' at every duration, so he is never actually offered -- a v1 dataset bug (see coverage_note) fixed here by swapping in teammates who do resolve."
+    },
+    {
+      "spin_id": "spurs-1990s",
+      "franchise_display_name": "San Antonio Spurs",
+      "decade_label": "1990s",
+      "player_slugs": ["david-robinson"],
+      "source_provenance": "Public record: David Robinson's Spurs tenure, 1989-2003; tagged 1990s only for this prototype. No other 1990s Spurs rostermate currently clears the 250-player pool cutoff -- a direct example of the coverage gap documented in PHASE_5X_PLAYER_EXPANSION_STRATEGY.md. Still genuinely 1-candidate after the Phase 5X.5 audit; no in-pool alternative exists."
+    },
+    {
+      "spin_id": "spurs-2000s",
+      "franchise_display_name": "San Antonio Spurs",
+      "decade_label": "2000s",
+      "player_slugs": ["tim-duncan", "manu-ginobili", "tony-parker"],
+      "source_provenance": "Public record: Spurs 2003/2005/2007 championship rosters (Duncan, Parker, Ginobili -- the full 'Big Three')."
+    },
+    {
+      "spin_id": "warriors-2010s",
+      "franchise_display_name": "Golden State Warriors",
+      "decade_label": "2010s",
+      "player_slugs": ["stephen-curry", "kevin-durant", "klay-thompson"],
+      "source_provenance": "Public record: Warriors 2015/2017/2018 championship rosters (Curry and Thompson throughout; Durant joined July 2016)."
+    },
+    {
+      "spin_id": "nuggets-2020s",
+      "franchise_display_name": "Denver Nuggets",
+      "decade_label": "2020s",
+      "player_slugs": ["nikola-jokic", "jamal-murray"],
+      "source_provenance": "Public record: Nikola Jokic (back-to-back MVP 2021/2022, 2023 Finals MVP) and Jamal Murray (Nuggets since 2016, co-star of the 2023 championship run). Jamal Murray's card resolves at 1yr/3yr durations only (profile_status=excluded at 5yr) -- an honest per-duration gap. At 5yr duration this entry is still 1-candidate (Jokic only)."
+    },
+    {
+      "spin_id": "bucks-2020s",
+      "franchise_display_name": "Milwaukee Bucks",
+      "decade_label": "2020s",
+      "player_slugs": ["giannis-antetokounmpo", "jrue-holiday", "brook-lopez"],
+      "source_provenance": "Public record: Bucks 2021 championship roster -- Giannis Antetokounmpo, Jrue Holiday (Bucks 2020-2023), and Brook Lopez (Bucks starting center since 2018). Jrue Holiday's card resolves at 3yr/5yr only, Brook Lopez's only at 1yr -- together they cover this entry at every supported duration, fixing a v1 gap where the 1yr duration had only Giannis. Jrue Holiday also legitimately appears under celtics-2020s above, for his later (2023-2025) Boston tenure and 2024 title -- both affiliations are real, not a duplicate-data error."
+    },
+    {
+      "spin_id": "suns-2020s",
+      "franchise_display_name": "Phoenix Suns",
+      "decade_label": "2020s",
+      "player_slugs": ["devin-booker", "chris-paul", "kevin-durant"],
+      "source_provenance": "Public record: Devin Booker (Suns throughout the 2020s), Chris Paul (Suns 2020-2023), Kevin Durant (traded to Suns February 2023)."
+    },
+    {
+      "spin_id": "thunder-2020s",
+      "franchise_display_name": "Oklahoma City Thunder",
+      "decade_label": "2020s",
+      "player_slugs": ["shai-gilgeous-alexander", "chet-holmgren"],
+      "source_provenance": "Public record: Shai Gilgeous-Alexander (Thunder since 2019-20) and Chet Holmgren (drafted 2022, debuted 2023-24), core of the Thunder's 2020s rebuild."
+    },
+    {
+      "spin_id": "mavericks-2020s",
+      "franchise_display_name": "Dallas Mavericks",
+      "decade_label": "2020s",
+      "player_slugs": ["luka-doncic", "kyrie-irving"],
+      "source_provenance": "Public record: Luka Doncic (Mavericks 2018-2025) and Kyrie Irving (traded to Mavericks February 2023), co-leads of the 2024 Western Conference champion roster."
+    },
+    {
+      "spin_id": "sixers-2020s",
+      "franchise_display_name": "Philadelphia 76ers",
+      "decade_label": "2020s",
+      "player_slugs": ["joel-embiid", "james-harden"],
+      "source_provenance": "Public record: Joel Embiid (76ers throughout the 2020s, 2023 MVP) and James Harden (traded to 76ers February 2022)."
+    }
+  ],
+  "exact_team_season_spins": [
+    {
+      "spin_id": "bulls-1990-91",
+      "franchise_display_name": "Chicago Bulls",
+      "season_label": "1990-91",
+      "player_slugs": ["michael-jordan", "scottie-pippen"],
+      "source_provenance": "Public record: 1990-91 Chicago Bulls roster (first championship team). Dennis Rodman was on the Detroit Pistons this season, not the Bulls -- deliberately excluded here even though he appears in the 1990s decade spin above."
+    },
+    {
+      "spin_id": "lakers-1986-87",
+      "franchise_display_name": "Los Angeles Lakers",
+      "season_label": "1986-87",
+      "player_slugs": ["magic-johnson", "kareem-abdul-jabbar", "james-worthy"],
+      "source_provenance": "Public record: 1986-87 Los Angeles Lakers championship roster. Michael Cooper (Defensive Player of the Year that same season) is deliberately NOT listed here for the same reason as the lakers-1980s entry above: profile_status='excluded' at every duration, never actually offerable."
+    },
+    {
+      "spin_id": "warriors-2015-16",
+      "franchise_display_name": "Golden State Warriors",
+      "season_label": "2015-16",
+      "player_slugs": ["stephen-curry", "klay-thompson"],
+      "source_provenance": "Public record: 2015-16 Golden State Warriors (73-9) roster. Kevin Durant did not join the Warriors until July 2016 -- deliberately excluded here even though he appears in the 2010s decade spin above."
+    },
+    {
+      "spin_id": "nuggets-2022-23",
+      "franchise_display_name": "Denver Nuggets",
+      "season_label": "2022-23",
+      "player_slugs": ["nikola-jokic", "jamal-murray"],
+      "source_provenance": "Public record: 2022-23 Denver Nuggets championship roster, Jokic's Finals MVP season, with Jamal Murray as his co-star through that exact playoff run. Fixes a v1 gap where this entry was Jokic-only."
+    }
+  ]
+}

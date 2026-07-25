@@ -1,0 +1,13 @@
+{
+  "description": "All-time exact-season ceiling test fixture (Phase 6F Part E calibration). Every card is a real, individually elite peak season -- used to verify the PEAK Season simulator can represent a historically dominant team, not to claim this is 'the' greatest possible lineup.",
+  "slots": [
+    { "slot": "PG", "player_slug": "stephen-curry", "season": "2015-16", "team": "GSW" },
+    { "slot": "SG", "player_slug": "michael-jordan", "season": "1990-91", "team": "CHI" },
+    { "slot": "SF", "player_slug": "lebron-james", "season": "2012-13", "team": "MIA" },
+    { "slot": "PF", "player_slug": "kevin-garnett", "season": "2003-04", "team": "MIN" },
+    { "slot": "C", "player_slug": "nikola-jokic", "season": "2022-23", "team": "DEN" },
+    { "slot": "bench_1", "player_slug": "shaquille-o-neal", "season": "1999-00", "team": "LAL" },
+    { "slot": "bench_2", "player_slug": "kevin-durant", "season": "2013-14", "team": "OKC" },
+    { "slot": "bench_3", "player_slug": "tim-duncan", "season": "2002-03", "team": "SAS" }
+  ]
+}
