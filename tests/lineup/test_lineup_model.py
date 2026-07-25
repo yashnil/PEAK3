@@ -29,7 +29,13 @@ from nba_peak.lineup.talent import compute_talent_score
 from nba_peak.lineup.coverage import compute_coverage_score
 from nba_peak.lineup.synergy import compute_synergy
 from nba_peak.lineup.scoring import evaluate_lineup
-from nba_peak.lineup.board import generate_board, BoardConfig, _can_fill_all_roles, _clear_profile_cache
+from nba_peak.lineup.board import (
+    generate_board,
+    BoardConfig,
+    _can_fill_all_roles,
+    _greedy_playthrough_succeeds,
+    _clear_profile_cache,
+)
 from nba_peak.lineup.solver import solve_board, board_percentile, _assign_roles
 from nba_peak.lineup.config import (
     TALENT_CARD_WEIGHTS, TALENT_WEIGHT, COVERAGE_WEIGHT, SYNERGY_WEIGHT,
@@ -448,6 +454,40 @@ def test_board_feasible_role_path():
     board = generate_board(config, signing_secret="test-secret")
     round_offers = [rnd.offers for rnd in board.rounds]
     assert _can_fill_all_roles(round_offers)
+
+
+def test_board_greedy_playthrough_always_succeeds():
+    """Regression for the CI daily-challenge failure (run 30056612287):
+    _can_fill_all_roles only proves SOME 5-role assignment exists via
+    unconstrained backtracking -- it does not guarantee the natural
+    no-lookahead path a real player (and daily-challenge.spec.ts's
+    playOneRound helper) actually takes -- always pick the first offered
+    card with any open-role match, then the first eligible role in ROLES
+    order -- can complete the board. For the daily board seeded from
+    date="2026-07-24"/mode="apex_1y", the old (pre-fix) generator produced
+    a board where that exact greedy path hit a round-5 dead end (open_roles
+    only had "anchor" left, and none of round 5's three offers were
+    anchor-eligible), even though _can_fill_all_roles said a completion
+    existed (reachable only via a foresighted, non-greedy pick in an
+    earlier round). Swept broadly (many seeds + the specific CI date) to
+    catch a regression at the generator level, not just for one date.
+    """
+    for seed in list(range(1, 60)) + [12345, 99999, 77777, 42, 55]:
+        config = BoardConfig(mode="apex_1y", board_type="practice", date=None, seed=seed)
+        board = generate_board(config, signing_secret="test-secret")
+        round_offers = [rnd.offers for rnd in board.rounds]
+        assert _greedy_playthrough_succeeds(round_offers), f"seed={seed} greedy path failed"
+
+
+def test_board_daily_2026_07_24_greedy_playthrough_succeeds():
+    """Direct regression for the exact CI-reported date/mode combination
+    (daily-challenge.spec.ts, CI run 30056612287) -- locks in that this
+    specific date no longer produces a dead round for the naive
+    always-pick-first-eligible strategy."""
+    config = BoardConfig(mode="apex_1y", board_type="daily", date="2026-07-24", seed=None)
+    board = generate_board(config, signing_secret="test-secret")
+    round_offers = [rnd.offers for rnd in board.rounds]
+    assert _greedy_playthrough_succeeds(round_offers)
 
 
 def test_board_daily_deterministic():

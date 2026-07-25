@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
 
 from nba_peak.lineup.schemas import DraftGameState
+from nba_peak.perfect_season.schemas import CourtLineupState
 
 
 # ---------------------------------------------------------------------------
@@ -159,3 +160,26 @@ class OwnershipClaimRepository(Protocol):
 
     async def record_claim(self, claim: OwnershipClaim) -> None: ...
     async def get_claim_by_anon(self, anon_subject_id: str) -> OwnershipClaim | None: ...
+
+
+@runtime_checkable
+class CourtLineupRepository(Protocol):
+    """CRUD for CourtLineupState objects (Phase 5C CourtBuilder).
+
+    A deliberately separate, narrower protocol from GameRepository -- the
+    court game grammar is a different shape from DraftGameState (soft
+    court/bench slots vs. hard offer-rounds), so reusing GameRepository's
+    signature directly would couple two unrelated schemas (see
+    docs/architecture/PHASE_5_DATA_MODEL.md entity 8's resolved open
+    question). The Postgres implementation still reuses the existing
+    `games` table (board_type = "perfect_season" discriminator) -- no new
+    migration -- it is only the application-facing protocol/typing that is
+    separate, not the storage table.
+    """
+
+    async def create_lineup(self, state: CourtLineupState) -> str: ...
+    async def get_lineup(self, game_id: str) -> CourtLineupState | None: ...
+    async def save_lineup(self, state: CourtLineupState) -> None: ...
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign owner_sub on every lineup owned by from_sub. Returns count."""
+        ...

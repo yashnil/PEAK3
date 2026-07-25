@@ -1,0 +1,13 @@
+{
+  "description": "Giant-heavy, position-broken calibration fixture (Phase 6F Part E). Elite talent at every slot, but multiple starters play out of real position -- expected to be strong (64-72 wins) but not perfect, and the explanation should name the STRUCTURAL problem, not blame a random strong player.",
+  "slots": [
+    { "slot": "PG", "player_slug": "kevin-johnson", "season": "1988-89", "team": "PHO" },
+    { "slot": "SG", "player_slug": "john-stockton", "season": "1988-89", "team": "UTA" },
+    { "slot": "SF", "player_slug": "joel-embiid", "season": "2022-23", "team": "PHI" },
+    { "slot": "PF", "player_slug": "hakeem-olajuwon", "season": "1993-94", "team": "HOU" },
+    { "slot": "C", "player_slug": "shaquille-o-neal", "season": "1999-00", "team": "LAL" },
+    { "slot": "bench_1", "player_slug": "rasheed-wallace", "season": "2000-01", "team": "POR" },
+    { "slot": "bench_2", "player_slug": "walter-davis", "season": "1986-87", "team": "PHO" },
+    { "slot": "bench_3", "player_slug": "pau-gasol", "season": "2005-06", "team": "MEM" }
+  ]
+}

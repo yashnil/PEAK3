@@ -8,3 +8,9 @@ pytest>=8.3.0
 pytest-asyncio>=0.24.0
 PyJWT>=2.9.0
 asyncpg>=0.30.0
+# Phase 6C: apps/services/perfect_season/state.py -> nba_peak.perfect_season.exact_season
+# reads cache/processed/*.parquet directly for exact player-season resolution
+# (team-year CourtBuilder mode only -- the rest of the API remains read-only
+# against data/web/*.json, see CLAUDE.md).
+pandas>=2.2.0
+pyarrow>=17.0.0

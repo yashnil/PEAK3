@@ -90,6 +90,87 @@ class Settings(BaseSettings):
             pass
         return self
 
+    # ---------------------------------------------------------------------------
+    # Phase 5C — CourtBuilder / 82-0 Peak Season feature flags
+    #
+    # Mirrors the RANKED_* pattern above exactly: independent capability
+    # switches, plus a human-facing readiness level validated for internal
+    # consistency. See docs/architecture/ADR-005-arena-pivot-and-courtbuilder.md
+    # and docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md §1.
+    # ---------------------------------------------------------------------------
+
+    # Master switch: CourtBuilder routes/API exist at all.
+    COURTBUILDER_ENABLED: bool = False
+
+    # Whether team+decade/exact-team-season spins are offered, vs. a simpler
+    # duration-only spin fallback. Separately switchable because the interim
+    # team dataset (data/game/interim/courtbuilder_team_seasons.v0.json) is
+    # intentionally narrow — this flag lets the rest of the loop ship even if
+    # team spins need to be turned off independently.
+    COURTBUILDER_TEAM_SPIN_ENABLED: bool = False
+
+    # Closed-cohort allowlist of owner_sub values (real auth sub or signed
+    # anon-cookie subject) permitted to see CourtBuilder while
+    # COURTBUILDER_ENABLED=True but not yet publicly linked from nav. Empty +
+    # enabled = internal engineering only, same semantics as RANKED_ALPHA_ALLOWLIST.
+    # Unlike ranked, CourtBuilder is anonymous-friendly by design (ADR-005
+    # Decision 1), so this allowlist matches against owner_sub (which may be
+    # an anon subject), never requires a signed-in account.
+    COURTBUILDER_ALPHA_ALLOWLIST: list[str] = []
+
+    # Phase 6A: experimental team+YEAR (exact season, e.g. "2015-16") spins,
+    # replacing team+decade as the product direction. Independent of
+    # COURTBUILDER_TEAM_SPIN_ENABLED -- gates a separate, narrower-coverage
+    # engine (nba_peak.perfect_season.board.generate_team_year_board) that
+    # reads data/game/experimental/player_pool_1500/courtbuilder_team_year.
+    # experimental.v0.json. Deliberately never used for the official/global
+    # CourtBuilder mode while coverage is this narrow (currently 3 exact
+    # Golden State Warriors seasons only) -- see
+    # docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md.
+    COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED: bool = False
+
+    # Phase 6F Part C: render real player/team image URLs (ESPN CDN, sourced
+    # from data/game/assets/{player,team}_assets.v2.json -- see
+    # scripts/build_espn_asset_manifests.py) instead of always falling back
+    # to initials/abbreviation badges. Default OFF: no image binaries are
+    # ever downloaded or committed by this repo, and no human has reviewed/
+    # approved ESPN's terms of use for hotlinking in a shipped product yet
+    # (every resolved asset entry's license_status is "unknown_do_not_cache"
+    # until that review happens) -- so the safe default is to never render
+    # an external image unless a developer explicitly opts in locally.
+    ENABLE_EXTERNAL_ASSET_URLS: bool = False
+
+    # Phase 6F Part G: gates the dev-only manual-lineup-simulation endpoint
+    # (POST /api/v1/perfect-season/dev/simulate-lineup). Independent of
+    # COURTBUILDER_READINESS_LEVEL so it can be enabled without changing the
+    # public readiness classification, but internal_dev also enables it (see
+    # the route's own check).
+    DEV_TOOLS_ENABLED: bool = False
+
+    # Phase 6G Part E: authenticated global leaderboard for PEAK Season.
+    # Default OFF -- submitting/reading requires this AND COURTBUILDER_ENABLED.
+    # Reading is public once enabled; submitting always requires a real
+    # authenticated user (never anonymous, unlike CourtBuilder play itself).
+    COURTBUILDER_LEADERBOARD_ENABLED: bool = False
+
+    # Human-facing readiness classification. Does not itself gate behavior —
+    # the booleans above do — but is surfaced on /api/v1/perfect-season/readiness
+    # and must be kept consistent with them (validated below).
+    COURTBUILDER_READINESS_LEVEL: Literal[
+        "disabled", "internal_dev", "internal_alpha", "public_beta"
+    ] = "disabled"
+
+    @model_validator(mode="after")
+    def validate_courtbuilder_readiness(self) -> "Settings":
+        level = self.COURTBUILDER_READINESS_LEVEL
+        if level == "disabled" and self.COURTBUILDER_ENABLED:
+            raise ValueError(
+                "PEAK3_COURTBUILDER_READINESS_LEVEL is 'disabled' but "
+                "COURTBUILDER_ENABLED is set. Set an appropriate readiness "
+                "level or disable the flag."
+            )
+        return self
+
     @model_validator(mode="after")
     def warn_insecure_secret(self) -> "Settings":
         if self.DEBUG and self.SIGNING_SECRET == "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION":

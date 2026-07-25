@@ -3,6 +3,7 @@ import type {
   DailyChallenge,
   EndlessSession,
   LeaderboardResponse,
+  PeaksResponse,
   PlayerSearchResponse,
   PlayerProfile,
   AnswerResponse,
@@ -51,6 +52,19 @@ export async function getLeaderboard(
   if (opts?.offset) params.set("offset", String(opts.offset));
   if (opts?.search) params.set("search", opts.search);
   return apiFetch<LeaderboardResponse>(`/api/v1/leaderboards?${params}`);
+}
+
+// Phase 6D: broader-population (2,016-identity universe, not the 250-pool)
+// top-1000 peaks, one duration at a time -- separate from getLeaderboard,
+// which stays untouched (canonical 250-pool, DO NOT merge these).
+export async function getPeaks(
+  window: "1y" | "3y" | "5y",
+  opts?: { limit?: number; search?: string }
+): Promise<PeaksResponse> {
+  const params = new URLSearchParams({ window });
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  if (opts?.search) params.set("search", opts.search);
+  return apiFetch<PeaksResponse>(`/api/v1/peaks?${params}`);
 }
 
 export async function searchPlayers(

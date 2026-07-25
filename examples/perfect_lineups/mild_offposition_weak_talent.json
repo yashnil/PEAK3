@@ -1,0 +1,13 @@
+{
+  "description": "Phase 6G Part A regression fixture: one MILD off-position starter (a real SG playing SF, a routine wing-sized swap) on a roster whose real problem is weak overall talent/context/bench, not the mild position swap. The structural_weakness must name the weak component, never scapegoat the mildly off-position player.",
+  "slots": [
+    { "slot": "PG", "player_slug": "travis-best", "season": "2002-03", "team": "MIA" },
+    { "slot": "SG", "player_slug": "hubert-davis", "season": "1998-99", "team": "DAL" },
+    { "slot": "SF", "player_slug": "reggie-miller", "season": "1994-95", "team": "IND" },
+    { "slot": "PF", "player_slug": "carlos-rogers", "season": "1995-96", "team": "TOR" },
+    { "slot": "C", "player_slug": "dean-garrett", "season": "1997-98", "team": "DEN" },
+    { "slot": "bench_1", "player_slug": "stacey-augmon", "season": "1997-98", "team": "POR" },
+    { "slot": "bench_2", "player_slug": "james-bailey", "season": "1985-86", "team": "NYK" },
+    { "slot": "bench_3", "player_slug": "john-williams", "season": "1992-93", "team": "LAC" }
+  ]
+}
