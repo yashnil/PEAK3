@@ -155,7 +155,14 @@ _ADJACENCY_SEVERITY: dict[frozenset[str], str] = {
     frozenset({"PG", "SG"}): "mild",
     frozenset({"SG", "SF"}): "mild",
     frozenset({"PF", "C"}): "mild",
-    frozenset({"SF", "PF"}): "moderate",
+    # Phase 7A Part F: downgraded from "moderate" -- a modern combo forward
+    # (the KD-at-PF/LeBron-at-SF pattern) is a routine, defensible NBA
+    # role, not a real structural problem. No height/archetype data exists
+    # to single out "elite 6'9+ forwards" specifically (never invented --
+    # see Part A's original discipline), so this is a general adjacency
+    # recalibration that applies to every SF/PF swap, which is the
+    # honest, non-player-specific way to capture the same product intent.
+    frozenset({"SF", "PF"}): "mild",
     frozenset({"PG", "SF"}): "moderate",
     frozenset({"SG", "PF"}): "moderate",
     frozenset({"C", "SG"}): "severe",

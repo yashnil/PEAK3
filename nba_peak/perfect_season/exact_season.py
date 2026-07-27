@@ -26,14 +26,29 @@ docs/implementation/CI_DATA_CONTRACT.md):
                                               or substituted with a career
                                               peak value.
 
-Known, documented limitation (not silently hidden): regular_1980_2026.parquet
-records a single aggregate "2TM"/"3TM" row for a player traded mid-season,
-without a per-team split of games/minutes. A player in that situation cannot
-be resolved to a single exact team for the traded season from this table
-alone -- resolve_player_season_card() returns None for that (player, team,
-season) combination rather than guessing which team they "really" belonged
-to. See docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md for the
-follow-up plan to close this gap with a per-stint source.
+Phase 7A Part A fix: regular_1980_2026.parquet records a single aggregate
+"2TM"/"3TM" row for a player traded mid-season, without a per-team split of
+games/minutes -- resolve_player_season_card() cannot resolve such a player
+to a single exact team from that table alone. This is now closed with a
+real, live-fetched supplementary source:
+  data/game/experimental/player_pool_1500/traded_player_team_stints.v1.json
+    (scripts/backfill_traded_player_team_stints.py) -- individual per-team
+    rows parsed directly off basketball-reference.com's leaguewide
+    per-game table (which lists both the aggregate AND the per-team splits
+    for a traded player), never fabricated.
+When a (player, team, season) resolves via this supplementary source
+instead of a direct regular_1980_2026.parquet row, the season SCORE is
+still only available at the season-aggregate grain (PEAK3's scoring
+pipeline computes one prime_score per player-season, not a fractional
+team-stint score) -- `score_source` on the resulting card tells the
+caller which case applies:
+  exact_team_stint        -- normal case, a real single-team row exists.
+  exact_season_aggregate   -- real team-stint membership (traded-player
+                              backfill), but the score shown is the whole
+                              season's aggregate score, not team-specific.
+  roster_only_unscored     -- team-stint membership known, but no score
+                              exists at all (below the model's minutes
+                              threshold even in aggregate).
 """
 from __future__ import annotations
 
@@ -52,6 +67,9 @@ SCORED_PATH = REPO_ROOT / "cache" / "processed" / "scored_1980_2026.parquet"
 FINAL_250_PATH = REPO_ROOT / "data" / "generated" / "final_250_candidates.csv"
 MANIFEST_1500_PATH = (
     REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500" / "candidate_identity_manifest.v1.json"
+)
+TRADED_STINTS_PATH = (
+    REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500" / "traded_player_team_stints.v1.json"
 )
 
 EXACT_SEASON_ROSTER_SOURCE = "cache/processed/regular_1980_2026.parquet"
@@ -120,6 +138,8 @@ _REGULAR_CACHE: Optional[pd.DataFrame] = None
 _SCORED_CACHE: Optional[pd.DataFrame] = None
 _CANONICAL_250_CACHE: Optional[set[str]] = None
 _MANIFEST_1500_CACHE: Optional[set[str]] = None
+_SCORED_AGGREGATE_CACHE: Optional[pd.DataFrame] = None
+_TRADED_STINTS_CACHE: Optional[dict[tuple[str, str, str], dict]] = None
 
 
 def _load_regular(path: Path | None = None) -> pd.DataFrame:
@@ -150,6 +170,47 @@ def _load_scored(path: Path | None = None) -> pd.DataFrame:
     if path is None:
         _SCORED_CACHE = df
     return df
+
+
+def _load_scored_aggregate(path: Path | None = None) -> pd.DataFrame:
+    """The OPPOSITE filter from _load_scored(): keeps ONLY the multi-team
+    aggregate rows -- used exclusively as the score fallback for a traded
+    player resolved via the traded-stints supplement (see module docstring's
+    score_source taxonomy). Never used for a normal single-team lookup."""
+    global _SCORED_AGGREGATE_CACHE
+    if path is None and _SCORED_AGGREGATE_CACHE is not None:
+        return _SCORED_AGGREGATE_CACHE
+    load_path = path or SCORED_PATH
+    if not load_path.exists():
+        raise FileNotFoundError(f"{load_path} missing -- broken checkout (this file is committed).")
+    df = pd.read_parquet(load_path)
+    df = df[df["team"].isin(_MULTI_TEAM_CODES)].copy()
+    df["player_slug"] = df["player"].map(slug)
+    if path is None:
+        _SCORED_AGGREGATE_CACHE = df
+    return df
+
+
+def _load_traded_stints(path: Path | None = None) -> dict[tuple[str, str, str], dict]:
+    """(player_slug, team_id, season) -> real per-team stint dict, from
+    scripts/backfill_traded_player_team_stints.py's output. Empty dict
+    (not an error) if the file hasn't been generated yet -- traded-player
+    resolution simply falls back to the pre-existing None-for-unresolvable
+    behavior in that case."""
+    global _TRADED_STINTS_CACHE
+    if path is None and _TRADED_STINTS_CACHE is not None:
+        return _TRADED_STINTS_CACHE
+    load_path = path or TRADED_STINTS_PATH
+    result: dict[tuple[str, str, str], dict] = {}
+    if load_path.exists():
+        data = json.loads(load_path.read_text())
+        for stints in data.get("stints_by_player_season", {}).values():
+            for s in stints:
+                key = (s["player_slug"], s["team_id"], s["season"])
+                result[key] = s
+    if path is None:
+        _TRADED_STINTS_CACHE = result
+    return result
 
 
 def _load_canonical_250_slugs(path: Path | None = None) -> set[str]:
@@ -188,10 +249,13 @@ def _load_1500_pool_slugs(path: Path | None = None) -> set[str]:
 def clear_caches() -> None:
     """Clear all module-level caches (used in tests)."""
     global _REGULAR_CACHE, _SCORED_CACHE, _CANONICAL_250_CACHE, _MANIFEST_1500_CACHE
+    global _SCORED_AGGREGATE_CACHE, _TRADED_STINTS_CACHE
     _REGULAR_CACHE = None
     _SCORED_CACHE = None
     _CANONICAL_250_CACHE = None
     _MANIFEST_1500_CACHE = None
+    _SCORED_AGGREGATE_CACHE = None
+    _TRADED_STINTS_CACHE = None
 
 
 @dataclass(frozen=True)
@@ -218,6 +282,11 @@ class PlayerSeasonCard:
     score_status: str  # exact_season_scored | exact_season_unscored
     season_score: Optional[float]
     source_provenance: str
+    # Phase 7A Part A: exact_team_stint | exact_season_aggregate |
+    # roster_only_unscored -- see module docstring's taxonomy. Always
+    # "exact_team_stint" for every card resolved before this field existed
+    # (the normal, non-traded case).
+    score_source: str = "exact_team_stint"
 
 
 def resolve_player_season_card(
@@ -233,9 +302,21 @@ def resolve_player_season_card(
     different team, never a career-peak substitute.
 
     Returns None if no real roster row exists for (player_slug_value,
-    team_id, season) in regular_1980_2026.parquet -- callers must treat this
-    as "not a real candidate for this exact team-season", never fall back to
-    a different season/team/peak-window card.
+    team_id, season) in EITHER regular_1980_2026.parquet OR the traded-
+    player team-stints supplement -- callers must treat this as "not a
+    real candidate for this exact team-season", never fall back to a
+    different season/team/peak-window card.
+
+    Two resolution paths (see PlayerSeasonCard.score_source and the module
+    docstring's taxonomy):
+      1. A direct regular_1980_2026.parquet row exists (the normal,
+         non-traded case) -- score_source="exact_team_stint".
+      2. No direct row, but the player has a real per-team stint for this
+         exact team-season in traded_player_team_stints.v1.json (Phase 7A
+         Part A) -- the season SCORE (if any) comes from the multi-team
+         aggregate row instead, since PEAK3 only computes one score per
+         player-season -- score_source="exact_season_aggregate" or
+         "roster_only_unscored" if even the aggregate has no score.
     """
     regular = _load_regular(regular_path)
     rows = regular[
@@ -243,36 +324,73 @@ def resolve_player_season_card(
         & (regular["team"] == team_id)
         & (regular["season"] == season)
     ]
-    if rows.empty:
-        return None
-    row = rows.iloc[0]
 
-    games_played = float(row["g"]) if pd.notna(row["g"]) else None
-    minutes_total = float(row["mp"]) if pd.notna(row["mp"]) else None
-    minutes_per_game = (minutes_total / games_played) if (games_played and minutes_total is not None) else None
-    position = str(row["pos"]) if pd.notna(row.get("pos")) else None
+    if not rows.empty:
+        row = rows.iloc[0]
+        games_played = float(row["g"]) if pd.notna(row["g"]) else None
+        minutes_total = float(row["mp"]) if pd.notna(row["mp"]) else None
+        minutes_per_game = (minutes_total / games_played) if (games_played and minutes_total is not None) else None
+        position = str(row["pos"]) if pd.notna(row.get("pos")) else None
+        player_name = str(row["player"])
+        score_source = "exact_team_stint"
 
-    scored = _load_scored(scored_path)
-    srows = scored[
-        (scored["player_slug"] == player_slug_value)
-        & (scored["team"] == team_id)
-        & (scored["season"] == season)
-    ]
-    if not srows.empty:
-        srow = srows.iloc[0]
-        score_status = "exact_season_scored"
-        season_score = float(srow["prime_score"])
-        if pd.notna(srow.get("mpg")):
-            minutes_per_game = float(srow["mpg"])
-        source_provenance = f"{EXACT_SEASON_ROSTER_SOURCE}; {EXACT_SEASON_SCORE_SOURCE}"
+        scored = _load_scored(scored_path)
+        srows = scored[
+            (scored["player_slug"] == player_slug_value)
+            & (scored["team"] == team_id)
+            & (scored["season"] == season)
+        ]
+        if not srows.empty:
+            srow = srows.iloc[0]
+            score_status = "exact_season_scored"
+            season_score = float(srow["prime_score"])
+            if pd.notna(srow.get("mpg")):
+                minutes_per_game = float(srow["mpg"])
+            source_provenance = f"{EXACT_SEASON_ROSTER_SOURCE}; {EXACT_SEASON_SCORE_SOURCE}"
+        else:
+            score_status = "exact_season_unscored"
+            season_score = None
+            source_provenance = (
+                f"{EXACT_SEASON_ROSTER_SOURCE} only -- below the PEAK3 model's minutes "
+                "threshold for this season, so no official score exists (not fabricated, "
+                "not substituted with a career-peak value)."
+            )
     else:
-        score_status = "exact_season_unscored"
-        season_score = None
-        source_provenance = (
-            f"{EXACT_SEASON_ROSTER_SOURCE} only -- below the PEAK3 model's minutes "
-            "threshold for this season, so no official score exists (not fabricated, "
-            "not substituted with a career-peak value)."
-        )
+        stints = _load_traded_stints()
+        stint = stints.get((player_slug_value, team_id, season))
+        if stint is None:
+            return None
+
+        games_played = stint.get("games")
+        minutes_total = stint.get("minutes_total_estimate")
+        minutes_per_game = (minutes_total / games_played) if (games_played and minutes_total) else None
+        position = stint.get("position")
+        player_name = stint["player_name"]
+        score_source = "roster_only_unscored"
+
+        agg_scored = _load_scored_aggregate(scored_path)
+        arows = agg_scored[
+            (agg_scored["player_slug"] == player_slug_value) & (agg_scored["season"] == season)
+        ]
+        if not arows.empty:
+            arow = arows.iloc[0]
+            score_status = "exact_season_scored"
+            season_score = float(arow["prime_score"])
+            score_source = "exact_season_aggregate"
+            source_provenance = (
+                f"traded_player_team_stints.v1.json (real {team_id} stint, {games_played:.0f} games, "
+                f"fetched live from basketball-reference.com's leaguewide per-game table); score is "
+                f"the {season} SEASON AGGREGATE (PEAK3 computes one score per player-season, not a "
+                f"team-specific fraction) -- not {team_id}-specific."
+            )
+        else:
+            score_status = "exact_season_unscored"
+            season_score = None
+            source_provenance = (
+                f"traded_player_team_stints.v1.json (real {team_id} stint, {games_played:.0f} games) -- "
+                "no aggregate season score exists either (below the PEAK3 model's minutes threshold "
+                "even combined across teams)."
+            )
 
     canon = _load_canonical_250_slugs(canonical_250_path)
     pool1500 = _load_1500_pool_slugs(manifest_1500_path)
@@ -289,7 +407,7 @@ def resolve_player_season_card(
     return PlayerSeasonCard(
         exact_player_season_key=exact_key,
         player_slug=player_slug_value,
-        player_name=str(row["player"]),
+        player_name=str(player_name),
         team_id=team_id,
         team_name=TEAM_ID_TO_NAME.get(team_id, team_id),
         season=season,
@@ -301,6 +419,7 @@ def resolve_player_season_card(
         score_status=score_status,
         season_score=season_score,
         source_provenance=source_provenance,
+        score_source=score_source,
     )
 
 
@@ -365,14 +484,32 @@ def component_percentile(player_slug_value: str, team_id: str, season: str, colu
     if column not in scored.columns:
         return None
     if column not in _CONTRIB_PERCENTILE_CACHE:
-        _CONTRIB_PERCENTILE_CACHE[column] = scored[column].rank(pct=True) * 100.0
+        # Ranked against BOTH individual-team rows and multi-team aggregate
+        # rows together (one shared distribution) -- a traded player's
+        # aggregate-row percentile must be comparable to a non-traded
+        # player's individual-row percentile, not ranked against a
+        # different population (Phase 7A Part A).
+        agg_all = _load_scored_aggregate()
+        combined = pd.concat([scored, agg_all]) if column in agg_all.columns else scored
+        ranked = combined[column].rank(pct=True) * 100.0
+        _CONTRIB_PERCENTILE_CACHE[column] = ranked
     rows = scored[
         (scored["player_slug"] == player_slug_value)
         & (scored["team"] == team_id)
         & (scored["season"] == season)
     ]
     if rows.empty:
-        return None
+        # Phase 7A Part A: a traded player's card resolves with
+        # score_source="exact_season_aggregate" (see resolve_player_season_card)
+        # -- its component percentiles come from that same aggregate row
+        # instead of silently dropping out of the lineup-fit average.
+        agg = _load_scored_aggregate()
+        rows = agg[
+            (agg["player_slug"] == player_slug_value)
+            & (agg["season"] == season)
+        ]
+        if rows.empty:
+            return None
     idx = rows.index[0]
     pct = _CONTRIB_PERCENTILE_CACHE[column].get(idx)
     return float(pct) if pct is not None and pd.notna(pct) else None

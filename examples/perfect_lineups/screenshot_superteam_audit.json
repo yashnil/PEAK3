@@ -1,0 +1,13 @@
+{
+  "description": "Phase 7A Part E audit fixture: a representative reconstruction of the reported 'superteam that only got 70-12' bug -- exact seasons chosen for the named legends where the user did not specify one (Magic 1983-84, Moses Malone 1983-84, Garnett 2008-09, Booker 2021-22 were exact; LeBron/Kobe/KD/KAT seasons were reconstructed to match the spirit of the report, including 'Kevin Durant at PF').",
+  "slots": [
+    { "slot": "PG", "player_slug": "magic-johnson", "season": "1983-84", "team": "LAL" },
+    { "slot": "SG", "player_slug": "kobe-bryant", "season": "2005-06", "team": "LAL" },
+    { "slot": "SF", "player_slug": "lebron-james", "season": "2012-13", "team": "MIA" },
+    { "slot": "PF", "player_slug": "kevin-durant", "season": "2013-14", "team": "OKC" },
+    { "slot": "C", "player_slug": "karl-anthony-towns", "season": "2018-19", "team": "MIN" },
+    { "slot": "bench_1", "player_slug": "moses-malone", "season": "1983-84", "team": "PHI" },
+    { "slot": "bench_2", "player_slug": "kevin-garnett", "season": "2008-09", "team": "BOS" },
+    { "slot": "bench_3", "player_slug": "devin-booker", "season": "2021-22", "team": "PHO" }
+  ]
+}

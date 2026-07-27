@@ -40,6 +40,10 @@ function mockState(overrides: Partial<CourtLineupPublicState> = {}): CourtLineup
     simulation_result: null,
     live_build: null,
     respin_history: [],
+    team_respins_used_total: 0,
+    team_respins_remaining_total: 3,
+    season_respins_used_total: 0,
+    season_respins_remaining_total: 3,
     ...overrides,
   };
 }

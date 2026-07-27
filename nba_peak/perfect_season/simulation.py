@@ -317,6 +317,19 @@ def _best_pick_exact(cards: list[PlayerSeasonCard]) -> str | None:
     return best.player_name
 
 
+# Phase 7A Part F: "Weakness" implies something is wrong with the roster;
+# at contender/dynasty win totals (mirrors the frontend's own resultTier()
+# bands in SeasonResultStub.tsx -- Contender starts at 65 wins), nothing
+# about the roster IS wrong -- structural_weakness at that tier describes
+# what's capping the ceiling below 82, not a fault. Below that (rebuild/
+# mid-pack), "Weakness" is the honest word.
+_CEILING_LIMITER_WINS_FLOOR = 65
+
+
+def _weakness_framing(wins: int) -> str:
+    return "ceiling_limiter" if wins >= _CEILING_LIMITER_WINS_FLOOR else "weakness"
+
+
 # Phase 6G Part A: human-readable labels for the six lineup-fit components,
 # used only when that component is the actual driver of a weak roster (see
 # _weakest_component_label). Never phrased as a player name -- these are
@@ -506,4 +519,5 @@ def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_t
         lineup_peak_score=lineup_peak_score,
         best_pick=_best_pick_exact(cards),
         structural_weakness=_structural_weakness_exact(cards, slot_types, fit),
+        weakness_framing=_weakness_framing(wins),
     )

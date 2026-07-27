@@ -64,10 +64,11 @@ REGULAR_PATH = REPO_ROOT / "cache" / "processed" / "regular_1980_2026.parquet"
 SCORED_PATH = REPO_ROOT / "cache" / "processed" / "scored_1980_2026.parquet"
 FINAL_250_PATH = REPO_ROOT / "data" / "generated" / "final_250_candidates.csv"
 MANIFEST_1500_PATH = REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500" / "candidate_identity_manifest.v1.json"
+TRADED_STINTS_PATH = REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500" / "traded_player_team_stints.v1.json"
 OUT_DIR = REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500"
-OUT_PATH = OUT_DIR / "courtbuilder_team_year.experimental.v2.json"
+OUT_PATH = OUT_DIR / "courtbuilder_team_year.experimental.v3.json"
 
-DATASET_VERSION = "courtbuilder_team_year.experimental.v2"
+DATASET_VERSION = "courtbuilder_team_year.experimental.v3"
 SUPPORTED_START_SEASON = "1979-80"
 SUPPORTED_END_SEASON = "2025-26"
 
@@ -88,6 +89,23 @@ def _load_1500_slugs() -> set[str]:
     return {i["player_slug"] for i in data.get("identities", [])}
 
 
+def _load_traded_stints_by_team_season() -> dict[tuple[str, str], list[dict]]:
+    """Phase 7A Part A: (team_id, season) -> list of real per-team stint
+    dicts for traded players, from scripts/backfill_traded_player_team_stints.py.
+    Empty dict if that file hasn't been generated yet -- the roster
+    generation below degrades gracefully to the pre-Phase-7A behavior
+    (traded players simply don't appear) rather than erroring."""
+    if not TRADED_STINTS_PATH.exists():
+        return {}
+    data = json.loads(TRADED_STINTS_PATH.read_text())
+    by_team_season: dict[tuple[str, str], list[dict]] = {}
+    for stints in data.get("stints_by_player_season", {}).values():
+        for s in stints:
+            key = (s["team_id"], s["season"])
+            by_team_season.setdefault(key, []).append(s)
+    return by_team_season
+
+
 def main() -> int:
     if not REGULAR_PATH.exists():
         print(f"ERROR: {REGULAR_PATH} missing -- broken checkout.")
@@ -101,10 +119,19 @@ def main() -> int:
     regular = regular.dropna(subset=["team", "season", "player"])
     regular["player_slug"] = regular["player"].map(_slug)
 
-    scored = pd.read_parquet(SCORED_PATH)
-    scored = scored[~scored["team"].isin(_MULTI_TEAM_CODES)].copy()
-    scored["player_slug"] = scored["player"].map(_slug)
+    scored_raw = pd.read_parquet(SCORED_PATH)
+    scored_raw["player_slug"] = scored_raw["player"].map(_slug)
+    scored = scored_raw[~scored_raw["team"].isin(_MULTI_TEAM_CODES)].copy()
     scored_keys = set(zip(scored["player_slug"], scored["team"], scored["season"]))
+    # Phase 7A Part A: aggregate (2TM/3TM/etc) scored rows -- a traded
+    # player's score_status is derived from THIS, since no team-specific
+    # scored row exists for them (see exact_season.py's score_source
+    # taxonomy). Keyed by (player_slug, season) only -- team is irrelevant
+    # for an aggregate row.
+    scored_agg = scored_raw[scored_raw["team"].isin(_MULTI_TEAM_CODES)].copy()
+    aggregate_scored_keys = set(zip(scored_agg["player_slug"], scored_agg["season"]))
+
+    traded_stints_by_team_season = _load_traded_stints_by_team_season()
 
     canonical_250: set[str] = set()
     if FINAL_250_PATH.exists():
@@ -124,8 +151,12 @@ def main() -> int:
 
     # Deterministic ordering: team_id, then season -- never insertion order
     # from a groupby, which pandas does not guarantee is stable across
-    # versions for this operation.
-    team_seasons = sorted(regular[["team", "season"]].drop_duplicates().itertuples(index=False), key=lambda r: (r.team, r.season))
+    # versions for this operation. Phase 7A Part A: unioned with every
+    # (team_id, season) that has a traded-player stint, so a team-season
+    # whose ONLY meaningful-minutes rostermates are traded players (rare,
+    # but possible) still gets built rather than silently skipped.
+    direct_team_seasons = set(regular[["team", "season"]].drop_duplicates().itertuples(index=False, name=None))
+    team_seasons = sorted(direct_team_seasons | set(traded_stints_by_team_season.keys()))
 
     for team_abbr, season in team_seasons:
         # Phase 6E product decision: candidate order is ALPHABETICAL by
@@ -143,6 +174,7 @@ def main() -> int:
             franchise_display_name = team_abbr
 
         candidates = []
+        seen_slugs: set[str] = set()
         for _, r in rows.iterrows():
             slug = r["player_slug"]
             key = (slug, team_abbr, season)
@@ -152,7 +184,32 @@ def main() -> int:
                 "position": r["pos"] if pd.notna(r.get("pos")) else None,
                 "identity_pool_status": identity_status(slug),
                 "score_status": "exact_season_scored" if key in scored_keys else "exact_season_unscored",
+                "score_source": "exact_team_stint",
             })
+            seen_slugs.add(slug)
+
+        # Phase 7A Part A: traded players who logged a real stint for this
+        # exact team-season (traded_player_team_stints.v1.json) but have no
+        # single-team row in regular_1980_2026.parquet -- see
+        # exact_season.py's score_source taxonomy. Never a duplicate: a
+        # player can't have both a direct row AND a traded-stint row for
+        # the same team-season (mutually exclusive by construction).
+        for stint in traded_stints_by_team_season.get((team_abbr, season), []):
+            slug = stint["player_slug"]
+            if slug in seen_slugs or stint["games"] < 1:
+                continue
+            agg_key = (slug, season)
+            candidates.append({
+                "player_slug": slug,
+                "player_name": stint["player_name"],
+                "position": stint.get("position"),
+                "identity_pool_status": identity_status(slug),
+                "score_status": "exact_season_scored" if agg_key in aggregate_scored_keys else "exact_season_unscored",
+                "score_source": "exact_season_aggregate" if agg_key in aggregate_scored_keys else "roster_only_unscored",
+            })
+            seen_slugs.add(slug)
+
+        candidates.sort(key=lambda c: (c["player_name"], c["player_slug"]))
 
         roster_size = len(candidates)
         spin_id = f"{_slug(franchise_display_name)}-{season.replace('-', '')}"
@@ -169,7 +226,8 @@ def main() -> int:
                 "source_provenance": (
                     f"cache/processed/regular_1980_2026.parquet: every {franchise_display_name} "
                     f"player with team=='{team_abbr}', season=='{season}', mp>={MEANINGFUL_MINUTES_FLOOR:.0f} "
-                    f"({roster_size} players)."
+                    f"({roster_size} players), plus real traded-player stints from "
+                    "traded_player_team_stints.v1.json where applicable."
                 ),
             })
         else:

@@ -156,9 +156,8 @@ export default function CourtBuilder({
           {state.coverage_mode && <span data-testid="coverage-mode">{state.coverage_mode}</span>}
           {state.respin_history.length > 0 && (
             <span data-testid="respin-receipt-count">
-              {state.respin_history.length} respin{state.respin_history.length === 1 ? "" : "s"} used
-              {" "}({state.respin_history.filter((r) => r.kind === "team").length} team,{" "}
-              {state.respin_history.filter((r) => r.kind === "season").length} season)
+              {state.respin_history.length} respin{state.respin_history.length === 1 ? "" : "s"} used this run
+              {" "}({state.team_respins_used_total} team, {state.season_respins_used_total} season)
             </span>
           )}
         </div>
@@ -189,37 +188,40 @@ export default function CourtBuilder({
             />
           )}
 
-          {/* Phase 6G Part C: up to 3 team + 3 season respins, only while
-              this round's player hasn't been picked yet (ceremonyRevealed
-              implies status === "selection_pending" -- the whole block
-              disappears once a player is selected, matching the backend's
-              own "locked after selection" rule). team_year rounds only --
-              legacy team_decade/exact_team_season/open_pool rounds don't
-              have a team+season reel to respin. */}
+          {/* Phase 7A Part C: up to 3 team + 3 season respins for the WHOLE
+              8-round run (never per-round -- Phase 6G's original per-round
+              reset was a bug). Uses the top-level *_total counters, which
+              are always run-level and never reset, rather than
+              current_spin's own copy of the same numbers. Still only
+              shown while this round's player hasn't been picked yet
+              (ceremonyRevealed implies status === "selection_pending" --
+              the whole block disappears once a player is selected).
+              team_year rounds only -- legacy team_decade/exact_team_season/
+              open_pool rounds don't have a team+season reel to respin. */}
           {phase === "spinning" && state.current_spin?.spin_type === "team_year" && ceremonyRevealed && (
             <div className="flex flex-col items-center gap-1.5" data-testid="respin-controls">
               <div className="flex items-center gap-2">
                 <button
                   data-testid="respin-team-btn"
                   onClick={handleRespinTeam}
-                  disabled={busy || (state.current_spin.team_respins_used ?? 0) >= (state.current_spin.team_respins_max ?? 0)}
+                  disabled={busy || state.team_respins_remaining_total <= 0}
                   className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
                 >
-                  Respin Team ({Math.max(0, (state.current_spin.team_respins_max ?? 0) - (state.current_spin.team_respins_used ?? 0))} left)
+                  Respin Team ({state.team_respins_remaining_total} left)
                 </button>
                 <button
                   data-testid="respin-season-btn"
                   onClick={handleRespinSeason}
-                  disabled={busy || (state.current_spin.season_respins_used ?? 0) >= (state.current_spin.season_respins_max ?? 0)}
+                  disabled={busy || state.season_respins_remaining_total <= 0}
                   className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
                 >
-                  Respin Season ({Math.max(0, (state.current_spin.season_respins_max ?? 0) - (state.current_spin.season_respins_used ?? 0))} left)
+                  Respin Season ({state.season_respins_remaining_total} left)
                 </button>
               </div>
               <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                Respins reset each round. Leaderboards track respin count.
+                Three team respins and three season respins per run. Use them wisely.
               </p>
             </div>
           )}

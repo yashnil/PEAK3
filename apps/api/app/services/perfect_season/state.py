@@ -38,6 +38,7 @@ from nba_peak.perfect_season.board import (
 from nba_peak.perfect_season.config import SLOT_TYPES, TOTAL_ROUNDS
 from nba_peak.perfect_season.exact_season import (
     PlayerSeasonCard,
+    component_percentile,
     resolve_exact_card_by_key,
     resolve_player_season_card,
 )
@@ -49,7 +50,7 @@ from nba_peak.perfect_season.positions import (
     secondary_positions,
 )
 from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot
-from nba_peak.perfect_season.simulation import simulate_exact_season, simulate_season
+from nba_peak.perfect_season.simulation import _FIT_POINTS, simulate_exact_season, simulate_season
 
 TEAM_YEAR_SPIN_TYPE = "team_year"
 
@@ -296,19 +297,24 @@ def action_place_card(
     else:
         state.current_round += 1
         state.status = "selection_pending"
-        # Phase 6G Part C: respin counters reset every round -- a fresh 3+3
-        # budget for the new round's team+season roll.
-        state.team_respins_used = 0
-        state.season_respins_used = 0
+        # Phase 7A Part C: respin budgets are PER-RUN, not per-round -- do
+        # NOT reset team_respins_used/season_respins_used here. Once a
+        # player uses all 3 team (or season) respins anywhere in an 8-round
+        # run, that respin type stays disabled for the rest of the run.
+        # (Phase 6G's original per-round reset was the bug this fixes.)
 
     return state
 
 
 # ---------------------------------------------------------------------------
-# Respins (Phase 6G Part C) -- up to 3 team respins + 3 season respins per
-# round, team_year mode only (the whole feature is about rerolling the
-# team+season reel, which only team_year spins have -- team_decade/
-# exact_team_season/open_pool rounds reject respin actions outright).
+# Respins (Phase 7A Part C, replacing Phase 6G's per-round budget) -- up to
+# 3 team respins + 3 season respins for the WHOLE 8-round run, team_year
+# mode only (the whole feature is about rerolling the team+season reel,
+# which only team_year spins have -- team_decade/exact_team_season/
+# open_pool rounds reject respin actions outright). state.team_respins_used
+# / state.season_respins_used are never reset by action_place_card -- once
+# a budget hits MAX_*_RESPINS anywhere in the run, that respin type stays
+# disabled for every remaining round.
 # ---------------------------------------------------------------------------
 
 MAX_TEAM_RESPINS = 3
@@ -318,9 +324,12 @@ _MAX_RESPIN_PICK_ATTEMPTS = 30
 
 def _respin_rng(state: CourtLineupState, kind: str, count: int) -> random.Random:
     """Deterministic per-respin seed, derived from the board seed + round +
-    respin kind + how many of that kind have already been used this round --
-    never Python's unseeded global random, and reproducible for the same
-    game/round/respin-number (Part C: 'Deterministic seeded behavior')."""
+    respin kind + how many of that kind have already been used ACROSS THE
+    WHOLE RUN -- never Python's unseeded global random, and reproducible
+    for the same game/round/respin-number (Part C: 'Deterministic seeded
+    behavior'). `state.current_round` is included only as extra entropy
+    (distinct rounds get distinct rerolls even at the same used-count) --
+    it does not reset or scope the budget itself."""
     kind_salt = 1 if kind == "team" else 2
     return random.Random(f"{state.board.seed}:{state.current_round}:{kind}:{kind_salt}:{count}")
 
@@ -532,12 +541,33 @@ def _compute_live_build(placed_cards: list[PlayerSeasonCard], state: CourtLineup
             needs.append("needs a big")
 
     provisional_record_range = None
-    if scored:
-        avg_score = sum(c.season_score for c in scored) / len(scored)
-        base = 41.0 + (avg_score - 50.0)
-        low = max(0, int(round(base)) - 8)
-        high = min(82, int(round(base)) + 8)
-        provisional_record_range = {"low_wins": low, "high_wins": high}
+    projection_confidence = "early_projection"
+    if n >= TOTAL_ROUNDS:
+        projection_confidence = "ready_to_simulate"
+    elif n >= 5:
+        projection_confidence = "narrowing_projection"
+
+    if n >= TOTAL_ROUNDS and all(s.exact_player_season_key for s in state.slots):
+        # Phase 7A Part E: at 8/8 placed, every input simulate_exact_season
+        # needs is already known and fully deterministic (board_seed + the
+        # 8 exact cards) -- call the REAL simulator directly instead of
+        # approximating, so the "provisional" number always exactly
+        # matches what /complete will return (never a lowball/mismatched
+        # range for a finished roster).
+        exact_cards = [resolve_exact_card_by_key(s.exact_player_season_key) for s in state.slots]
+        if all(c is not None for c in exact_cards):
+            result = simulate_exact_season(exact_cards, state.board.seed, [s.slot_type for s in state.slots])
+            provisional_record_range = {"low_wins": result.wins, "high_wins": result.wins}
+    if provisional_record_range is None and scored:
+        expected_wins = _provisional_expected_wins(state)
+        if expected_wins is not None:
+            # Range narrows as the roster fills in -- a 1-2 card guess is
+            # genuinely uncertain (wide range honestly reflects that); a
+            # 7-card roster is nearly fully determined (narrow range).
+            half_width = {0: 15, 1: 15, 2: 15, 3: 12, 4: 10, 5: 7, 6: 5, 7: 3}.get(n, 2)
+            low = max(0, int(round(expected_wins)) - half_width)
+            high = min(82, int(round(expected_wins)) + half_width)
+            provisional_record_range = {"low_wins": low, "high_wins": high}
 
     return {
         "placed_count": n,
@@ -547,7 +577,78 @@ def _compute_live_build(placed_cards: list[PlayerSeasonCard], state: CourtLineup
         "identity_tags": identity_tags,
         "needs": needs,
         "provisional_record_range": provisional_record_range,
+        # Phase 7A Part E: "early_projection" (< 5 placed) | "narrowing_
+        # projection" (5-7 placed) | "ready_to_simulate" (8/8 placed) --
+        # drives the UI copy so users don't read early-round noise as a
+        # confident prediction.
+        "projection_confidence": projection_confidence,
     }
+
+
+def _provisional_expected_wins(state: CourtLineupState) -> Optional[float]:
+    """Mid-run expected-wins estimate using the SAME weighted formula and
+    component weights as simulate_exact_season (Phase 7A Part E) -- unlike
+    the old flat "avg_score +/- 8" placeholder, this reuses talent_core/
+    bench_strength/positional_fit/creation_coverage/scoring_coverage/
+    postseason_pedigree with their real weights, computed from whichever
+    slots are ALREADY placed (missing slots simply don't contribute,
+    rather than being padded with a fabricated average). team_context_depth
+    is intentionally excluded -- the real win formula never weights it
+    either (see simulation.py's own `base = ...` construction)."""
+    from nba_peak.perfect_season.positions import BENCH_SLOTS as BENCH_SLOT_TYPES, STARTER_SLOTS as STARTER_SLOT_TYPES
+
+    cards_by_slot: dict[str, PlayerSeasonCard] = {}
+    for slot in state.slots:
+        if slot.exact_player_season_key:
+            card = resolve_exact_card_by_key(slot.exact_player_season_key)
+            if card is not None:
+                cards_by_slot[slot.slot_type] = card
+    if not cards_by_slot:
+        return None
+
+    starter_scores = [
+        c.season_score for st in STARTER_SLOT_TYPES
+        if (c := cards_by_slot.get(st)) is not None and c.season_score is not None
+    ]
+    bench_scores = [
+        c.season_score for st in BENCH_SLOT_TYPES
+        if (c := cards_by_slot.get(st)) is not None and c.season_score is not None
+    ]
+    if not starter_scores and not bench_scores:
+        return None
+    talent_core = (
+        (sum(starter_scores) / len(starter_scores)) * 0.8 + (sum(bench_scores) / len(bench_scores)) * 0.2
+        if starter_scores and bench_scores
+        else (sum(starter_scores) / len(starter_scores) if starter_scores else sum(bench_scores) / len(bench_scores))
+    )
+    bench_strength = (sum(bench_scores) / len(bench_scores)) if bench_scores else 50.0
+
+    fit_points = []
+    for slot_type in STARTER_SLOT_TYPES:
+        card = cards_by_slot.get(slot_type)
+        if card is None:
+            continue
+        fit_points.append(_FIT_POINTS.get(classify_fit_from_position(card.position, slot_type), 0.0))
+    positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points))) if fit_points else 50.0
+
+    def _avg_percentile(column: str) -> float:
+        values = [
+            p for c in cards_by_slot.values()
+            if (p := component_percentile(c.player_slug, c.team_id, c.season, column)) is not None
+        ]
+        return (sum(values) / len(values)) if values else 50.0
+
+    creation_coverage = _avg_percentile("contrib_statistical_impact")
+    scoring_coverage = _avg_percentile("contrib_traditional_production")
+    postseason_pedigree = _avg_percentile("contrib_postseason")
+
+    base = 41.0 + (talent_core - 50.0) * 1.0
+    base += (bench_strength - 50.0) * 0.12
+    base += (positional_fit - 50.0) * 0.08
+    base += (creation_coverage - 50.0) * 0.05
+    base += (scoring_coverage - 50.0) * 0.05
+    base += (postseason_pedigree - 50.0) * 0.05
+    return max(15.0, min(82.0, base))
 
 
 def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) -> dict:
@@ -592,12 +693,14 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             current_spin_public["coverage_mode"] = state.board.metadata.get("coverage_mode")
             if include_asset_urls:
                 current_spin_public["team_logo_url"] = get_team_logo_url(spin.team_id)
-            # Phase 6G Part C: respins are only ever offered/consumable
-            # before a player is selected (status == "selection_pending",
-            # same gate action_respin_team/action_respin_season enforce) --
-            # a client seeing state.status != "selection_pending" already
-            # knows respins are locked for this round without needing a
-            # separate flag.
+            # Phase 7A Part C: RUN-LEVEL budget (never resets per round --
+            # see MAX_TEAM_RESPINS's own comment). Respins are only ever
+            # offered/consumable before a player is selected (status ==
+            # "selection_pending", same gate action_respin_team/
+            # action_respin_season enforce) -- a client seeing
+            # state.status != "selection_pending" already knows respins
+            # are locked for THIS round without needing a separate flag,
+            # even though the budget itself carries over.
             current_spin_public["team_respins_used"] = state.team_respins_used
             current_spin_public["team_respins_max"] = MAX_TEAM_RESPINS
             current_spin_public["season_respins_used"] = state.season_respins_used
@@ -619,6 +722,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                 "secondary_positions": list(secondary),
                 "identity_pool_status": card.identity_pool_status,
                 "score_status": card.score_status,
+                "score_source": card.score_source,
                 "fit_by_open_slot": {
                     slot_type: classify_fit_from_position(card.position, slot_type)
                     for slot_type in get_open_slot_types(state)
@@ -665,6 +769,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                     "secondary_positions": list(secondary),
                     "identity_pool_status": card.identity_pool_status,
                     "score_status": card.score_status,
+                    "score_source": card.score_source,
                 })
                 if include_asset_urls:
                     entry["headshot_url"] = get_player_headshot_url(card.player_slug)
@@ -721,6 +826,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             ),
             "best_pick": r.best_pick,
             "structural_weakness": r.structural_weakness,
+            "weakness_framing": r.weakness_framing,
         }
 
     return {
@@ -754,6 +860,16 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
         # by the leaderboard submission path (Part E) to record respin
         # counts on a submitted run.
         "respin_history": state.respin_history,
+        # Phase 7A Part C: explicit RUN-LEVEL counters for the data receipt
+        # -- team_respins_used/season_respins_used on current_spin (below)
+        # are already run-level values (never reset per round), but these
+        # top-level _total fields are always present (even once the round
+        # has advanced past the last team_year spin) and name the budget
+        # unambiguously.
+        "team_respins_used_total": state.team_respins_used,
+        "team_respins_remaining_total": max(0, MAX_TEAM_RESPINS - state.team_respins_used),
+        "season_respins_used_total": state.season_respins_used,
+        "season_respins_remaining_total": max(0, MAX_SEASON_RESPINS - state.season_respins_used),
     }
 
 
@@ -807,6 +923,7 @@ def _candidate_public_exact(player_slug: str, team_id: str, season: str, include
         "secondary_positions": list(secondary),
         "identity_pool_status": card.identity_pool_status,
         "score_status": card.score_status,
+        "score_source": card.score_source,
     }
     if include_asset_urls:
         entry["headshot_url"] = get_player_headshot_url(player_slug)

@@ -160,6 +160,13 @@ class SimulationResult:
     # module docstring's "never blame a strong player for a fit problem" rule.
     best_pick: str | None = None
     structural_weakness: str | None = None
+    # Phase 7A Part F: "weakness" | "ceiling_limiter" -- for a contender/
+    # dynasty-tier result (wins >= 65), the UI should frame
+    # structural_weakness as what's capping the ceiling ("Ceiling limiter:
+    # bench strength"), not as a fault ("Weakness: ..."), since at that win
+    # level nothing about the roster is actually bad. None for legacy
+    # peak-window boards (same scope as best_pick/structural_weakness).
+    weakness_framing: str | None = None
 
 
 @dataclass
@@ -194,12 +201,15 @@ class CourtLineupState:
     # Server-resolved only, never client-trusted (PHASE_5_DATA_MODEL.md
     # entity 8; same discipline as DraftGameState.owner_sub post-4.0A fix).
     owner_sub: Optional[str] = None
-    # Phase 6G Part C: up to 3 team respins + 3 season respins per round,
-    # only while the round's status is "selection_pending" (locked the
-    # instant a player is selected -- see action_select_player). Reset to 0
-    # whenever current_round advances (action_place_card). respin_history is
-    # a full receipt of every respin this attempt has ever used, across all
-    # rounds -- never cleared, so the final data receipt can show it.
+    # Phase 7A Part C: up to 3 team respins + 3 season respins for the
+    # WHOLE 8-round run (never per-round -- Phase 6G's original per-round
+    # reset was a bug), only usable while the current round's status is
+    # "selection_pending" (locked the instant a player is selected -- see
+    # action_select_player). NEVER reset by action_place_card -- once a
+    # budget hits its max anywhere in the run, it stays disabled for every
+    # remaining round. respin_history is a full receipt of every respin
+    # this attempt has ever used, across all rounds -- never cleared, so
+    # the final data receipt can show it.
     team_respins_used: int = 0
     season_respins_used: int = 0
     respin_history: list[dict] = field(default_factory=list)
