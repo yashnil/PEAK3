@@ -110,6 +110,15 @@ export default function SeasonResultStub({ state, result }: Props) {
   const clientFallback = bestAndWorstPick(state.slots);
   const best = result.best_pick ?? clientFallback.best;
   const weakness = result.structural_weakness ?? clientFallback.weakness;
+  // Phase 7A Part F: "Weakness" implies a fault -- at contender/dynasty win
+  // totals nothing about the roster IS wrong, so the label switches to
+  // "Ceiling limiter" (what's capping the ceiling below 82, not a flaw).
+  // Falls back to the same wins>=65 threshold client-side (matching
+  // resultTier's own "Contender" band) for legacy boards the server
+  // doesn't compute weakness_framing for.
+  const weaknessLabel = result.weakness_framing
+    ? (result.weakness_framing === "ceiling_limiter" ? "Ceiling limiter" : "Weakness")
+    : (result.wins >= 65 ? "Ceiling limiter" : "Weakness");
   const scoredSlotCount = state.slots.filter((s) => s.score_status === "exact_season_scored").length;
   const filledSlotCount = state.slots.filter((s) => s.filled).length;
 
@@ -160,8 +169,12 @@ export default function SeasonResultStub({ state, result }: Props) {
           <span className="rounded-full px-2.5 py-1" style={{ background: "rgba(52,211,153,0.1)", color: "#34d399" }}>
             Best pick: {best}
           </span>
-          <span className="rounded-full px-2.5 py-1" style={{ background: "rgba(251,146,60,0.1)", color: "#fb923c" }}>
-            Weakness: {weakness}
+          <span
+            className="rounded-full px-2.5 py-1"
+            style={{ background: "rgba(251,146,60,0.1)", color: "#fb923c" }}
+            data-testid="weakness-label"
+          >
+            {weaknessLabel}: {weakness}
           </span>
         </div>
       )}

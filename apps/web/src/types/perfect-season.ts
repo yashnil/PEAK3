@@ -45,6 +45,11 @@ export const TOTAL_ROUNDS = 8;
 // score_status: exact_season_scored | exact_season_unscored | score_unavailable
 export type IdentityPoolStatus = "canonical_250" | "qualifies_1500" | "team_year_roster_only" | "unresolved";
 export type ScoreStatus = "exact_season_scored" | "exact_season_unscored" | "score_unavailable";
+// Phase 7A Part A: exact_team_stint (normal case) | exact_season_aggregate
+// (traded player -- real team-stint membership, but the score shown is the
+// whole season's aggregate, not team-specific) | roster_only_unscored (team
+// stint known, no score exists at all).
+export type ScoreSource = "exact_team_stint" | "exact_season_aggregate" | "roster_only_unscored";
 
 export interface SpinCandidate {
   player_slug: string;
@@ -61,6 +66,7 @@ export interface SpinCandidate {
   season?: string | null;
   identity_pool_status?: IdentityPoolStatus | null;
   score_status?: ScoreStatus | null;
+  score_source?: ScoreSource | null;
   // Phase 6E Part B: asset-manifest schema readiness -- always null today
   // (no image URLs are populated anywhere yet), rendered only if a caller
   // ever supplies a value (see PlayerAvatar's imageUrl prop / fallback
@@ -120,6 +126,7 @@ export interface PendingSelection {
   season?: string | null;
   identity_pool_status?: IdentityPoolStatus | null;
   score_status?: ScoreStatus | null;
+  score_source?: ScoreSource | null;
   primary_position: SlotType | null;
   secondary_positions: SlotType[];
   // slot_type -> fit note, for every currently open slot -- lets the UI show
@@ -142,6 +149,7 @@ export interface CourtSlotPublic {
   season?: string | null;
   identity_pool_status?: IdentityPoolStatus | null;
   score_status?: ScoreStatus | null;
+  score_source?: ScoreSource | null;
   role_fit?: RoleFit | null;
   // The placed player's own position(s) -- v1 archetype-approximated for
   // peak-window cards, real per-season position for team_year cards. Used
@@ -192,6 +200,8 @@ export interface SimulationResultPublic {
   // for legacy peak-window boards.
   best_pick?: string | null;
   structural_weakness?: string | null;
+  // Phase 7A Part F: "weakness" | "ceiling_limiter"
+  weakness_framing?: string | null;
 }
 
 export interface ProvisionalRecordRange {
@@ -210,6 +220,8 @@ export interface LiveBuild {
   identity_tags: string[];
   needs: string[];
   provisional_record_range: ProvisionalRecordRange | null;
+  // Phase 7A Part E: "early_projection" | "narrowing_projection" | "ready_to_simulate"
+  projection_confidence: "early_projection" | "narrowing_projection" | "ready_to_simulate";
 }
 
 export interface CourtLineupPublicState {
@@ -237,6 +249,12 @@ export interface CourtLineupPublicState {
   live_build: LiveBuild | null;
   // Phase 6G Part C: every respin used this attempt, across all rounds.
   respin_history: RespinHistoryEntry[];
+  // Phase 7A Part C: explicit run-level respin counters -- always present,
+  // never reset per round.
+  team_respins_used_total: number;
+  team_respins_remaining_total: number;
+  season_respins_used_total: number;
+  season_respins_remaining_total: number;
 }
 
 // Duration-aware coverage audit of the interim dataset -- see

@@ -16,7 +16,7 @@ from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 ASSETS_DIR = REPO_ROOT / "data" / "game" / "assets"
-PLAYER_ASSETS_PATH = ASSETS_DIR / "player_assets.v2.json"
+PLAYER_ASSETS_PATH = ASSETS_DIR / "player_assets.v3.json"  # Phase 7A Part B: v2 -> v3 (NBA_CDN provider added)
 TEAM_ASSETS_PATH = ASSETS_DIR / "team_assets.v2.json"
 
 _PLAYER_CACHE: Optional[dict[str, dict]] = None

@@ -119,6 +119,14 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
                 {!revealed && slot.score_status === "exact_season_unscored" && (
                   <span data-testid="score-unavailable-note"> · No official score</span>
                 )}
+                {slot.score_source === "exact_season_aggregate" && (
+                  <span
+                    data-testid="season-aggregate-note"
+                    title="Traded mid-season -- score is the whole-season total, not specific to this exact team stint."
+                  >
+                    {" "}· Season Aggregate
+                  </span>
+                )}
               </div>
             ) : revealed ? (
               <div className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="revealed-score-line">

@@ -3,18 +3,19 @@ import { useState } from "react";
 
 /**
  * Player headshot-or-initials shell (Phase 6E Part B: fallback rendering
- * hook for the asset-manifest strategy in data/game/assets/player_assets.v1.json).
+ * hook for the asset-manifest strategy in data/game/assets/player_assets.v3.json).
  *
  * Renders a real `<img>` ONLY when `imageUrl` is a non-empty, safe URL
  * (i.e. the caller already resolved a license_status the runtime is allowed
  * to render -- this component does not itself check licensing, callers must
  * only ever pass a URL for entries with a renderable license_status).
- * Falls back to the initials/color shell -- unchanged from the pre-Phase-6E
- * behavior -- if `imageUrl` is absent OR the image fails to load
- * (`onError`), so a missing/broken image can never break layout or show a
- * broken-image icon. No image URLs are populated anywhere in this codebase
- * yet (CLAUDE.md / every prior phase: no scraped headshots) -- this is
- * schema/rendering readiness, not an active image source.
+ * Falls back to the initials/color shell if `imageUrl` is absent OR the
+ * image fails to load (`onError`), so a missing/broken image can never
+ * break layout or show a broken-image icon. Real ESPN/NBA_CDN URLs ARE
+ * populated (Phase 6F/7A) but only ever reach this component when a human
+ * has explicitly opted in locally via PEAK3_ENABLE_EXTERNAL_ASSET_URLS
+ * (default off) -- see nba_peak/perfect_season/assets.py and
+ * scripts/build_espn_asset_manifests.py.
  */
 
 const PALETTE = [

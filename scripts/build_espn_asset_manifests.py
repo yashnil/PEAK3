@@ -34,9 +34,18 @@ ESPN's CDN images in a shipped product -- `license_status` is set to
 reviews ESPN's terms of use and approves a cache_policy upgrade. See
 asset_sources.v1.json's own `license_status`/warnings for the full caveat.
 
+Phase 7A Part B: added a second, independent provider -- NBA_CDN
+(cdn.nba.com's public headshot CDN) -- for players who have a real NBA.com
+person_id available in a local crosswalk file. See
+NBA_PLAYER_ID_CROSSWALK_PATH's own comment below for why this resolves 0
+players this run (no such crosswalk exists locally, and NBA.com's API
+was not reliably reachable from this environment to build one) -- the
+provider is real, tested code, not a stub, just currently unused.
+
 Usage:
     python scripts/build_espn_asset_manifests.py --dry-run
     python scripts/build_espn_asset_manifests.py --write
+    python scripts/build_espn_asset_manifests.py --write --online-validate
 """
 from __future__ import annotations
 
@@ -79,10 +88,33 @@ ROSTER_FETCH_DELAY_S = 0.15
 # template -- not a guess, not a fabricated ID.
 HEADSHOT_URL_TMPL = "https://a.espncdn.com/i/headshots/nba/players/full/{athlete_id}.png"
 
-ASSET_SOURCES_VERSION = "asset_sources.v1"
+ASSET_SOURCES_VERSION = "asset_sources.v2"
 TEAM_ASSETS_VERSION = "team_assets.v2"
-PLAYER_ASSETS_VERSION = "player_assets.v2"
-UNRESOLVED_VERSION = "unresolved_player_assets.v1"
+PLAYER_ASSETS_VERSION = "player_assets.v3"
+UNRESOLVED_VERSION = "unresolved_player_assets.v2"
+
+# Phase 7A Part B: NBA CDN provider -- a SECOND image source, independent
+# of ESPN, for players who have a real NBA.com person_id. Verified pattern
+# (this is NBA.com's own public headshot CDN, the same one nba.com's site
+# uses): https://cdn.nba.com/headshots/nba/latest/1040x760/{person_id}.png
+#
+# IMPORTANT scope limitation, stated honestly rather than worked around:
+# neither cache/processed/*.parquet, data/generated/final_250_candidates.csv,
+# nor any other locally committed file contains an NBA.com person_id for any
+# player (verified by inspecting every column in both) -- our data pipeline
+# is Basketball-Reference-sourced end to end and has never carried this ID.
+# stats.nba.com and cdn.nba.com's JSON endpoints were also tested live from
+# this environment and are not reliably reachable (stats.nba.com refused the
+# connection outright; cdn.nba.com's static player-index JSON returned 403).
+# Per this task's explicit instruction ("If local data has nba_player_id/
+# person_id, generate... do not invent it" if not), this provider is
+# implemented and ready to activate but resolves ZERO players this run --
+# _load_nba_player_id_crosswalk() reads an optional local file
+# (data/game/assets/nba_player_id_crosswalk.json) that does not currently
+# exist; if a future pass adds a real, verified crosswalk there (e.g. from
+# a licensed data provider), this code path picks it up with no changes.
+NBA_CDN_HEADSHOT_URL_TMPL = "https://cdn.nba.com/headshots/nba/latest/1040x760/{nba_player_id}.png"
+NBA_PLAYER_ID_CROSSWALK_PATH = REPO_ROOT / "data" / "game" / "assets" / "nba_player_id_crosswalk.json"
 
 # Our internal team_id (Basketball-Reference-style abbreviation, matches
 # nba_peak.perfect_season.exact_season.TEAM_ID_TO_NAME) -> ESPN's team
@@ -173,6 +205,36 @@ def fetch_espn_roster(espn_team_id: str) -> list[dict]:
     return out
 
 
+def _load_nba_player_id_crosswalk() -> dict[str, str]:
+    """player_slug -> real NBA.com person_id, from an OPTIONAL local file.
+    See NBA_PLAYER_ID_CROSSWALK_PATH's module-level comment -- this file
+    does not exist in this repo today (no verified ID source was
+    available), so this always returns {} right now. Never invents an ID:
+    if the file is present but malformed/empty, this still returns {}
+    rather than guessing."""
+    if not NBA_PLAYER_ID_CROSSWALK_PATH.exists():
+        return {}
+    try:
+        data = json.loads(NBA_PLAYER_ID_CROSSWALK_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return {k: str(v) for k, v in data.get("player_slug_to_nba_person_id", {}).items()}
+
+
+def _validate_url_online(url: str) -> bool:
+    """HEAD request to confirm a constructed URL actually resolves (200) --
+    ONLY called in --online-validate mode (Part B: 'Verify URL status only
+    in --online-validate mode'). Never used to grant a license -- a 200
+    response only means the image exists at that URL, not that hotlinking
+    it is licensed for this product."""
+    try:
+        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "PEAK3-asset-metadata-script/1.0"})
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+        return False
+
+
 def fetch_espn_athletes_list() -> list[dict]:
     """The broader (not just current-roster) athlete pool -- see
     ATHLETES_LIST_ENDPOINT's comment for what this does and doesn't cover."""
@@ -213,7 +275,7 @@ def build_team_assets(espn_teams: list[dict]) -> tuple[dict, int]:
                 "image_provider": "ESPN",
                 "image_source_url": f"https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{espn['espn_team_id']}",
                 "license_status": "unknown_do_not_cache",
-                "cache_policy": "fallback_only",
+                "cache_policy": "dev_hotlink_preview_only",
                 "primary_color": f"#{espn['color']}" if espn.get("color") else None,
                 "secondary_color": f"#{espn['alternate_color']}" if espn.get("alternate_color") else None,
                 "fallback_abbreviation_badge": team_id,
@@ -232,7 +294,7 @@ def build_team_assets(espn_teams: list[dict]) -> tuple[dict, int]:
                 "image_provider": None,
                 "image_source_url": None,
                 "license_status": "unavailable",
-                "cache_policy": "fallback_only",
+                "cache_policy": "dev_hotlink_preview_only",
                 "primary_color": None,
                 "secondary_color": None,
                 "fallback_abbreviation_badge": team_id,
@@ -257,7 +319,7 @@ def build_team_assets(espn_teams: list[dict]) -> tuple[dict, int]:
     return payload, resolved_count
 
 
-def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
+def build_player_assets(espn_teams: list[dict], online_validate: bool = False) -> tuple[dict, dict, dict]:
     if not FINAL_250_PATH.exists():
         print(f"ERROR: {FINAL_250_PATH} missing -- broken checkout.")
         sys.exit(1)
@@ -281,6 +343,10 @@ def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
         time.sleep(ROSTER_FETCH_DELAY_S)
         if (i + 1) % 10 == 0:
             print(f"  ... {i + 1}/{len(espn_teams)} rosters fetched")
+
+    nba_crosswalk = _load_nba_player_id_crosswalk()
+    print(f"NBA CDN player-ID crosswalk: {len(nba_crosswalk)} entries "
+          f"({'none -- no local ID source available, see module docstring' if not nba_crosswalk else 'loaded'})")
 
     # Phase 6G Part D: fallback pool for names the current-roster fetch
     # above didn't resolve (e.g. recently waived/free-agent players still
@@ -312,7 +378,7 @@ def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
                 "player_slug": slug, "player_name": name, "espn_athlete_id": None,
                 "nba_player_id": None, "basketball_reference_id": None,
                 "headshot_url": None, "image_provider": None, "image_source_url": None,
-                "license_status": "unavailable", "cache_policy": "fallback_only",
+                "license_status": "unavailable", "cache_policy": "dev_hotlink_preview_only",
                 "fallback_initials": initials, "resolution_status": "ambiguous",
                 "confidence": 0.0,
                 "warnings": ["Multiple current-roster athletes matched this exact display name; not auto-resolved."],
@@ -326,7 +392,7 @@ def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
                 "nba_player_id": None, "basketball_reference_id": None,
                 "headshot_url": match["headshot_url"], "image_provider": "ESPN",
                 "image_source_url": f"https://www.espn.com/nba/player/_/id/{match['espn_athlete_id']}",
-                "license_status": "unknown_do_not_cache", "cache_policy": "fallback_only",
+                "license_status": "unknown_do_not_cache", "cache_policy": "dev_hotlink_preview_only",
                 "fallback_initials": initials, "resolution_status": "resolved",
                 "confidence": 1.0,
                 "warnings": [],
@@ -340,7 +406,7 @@ def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
                 "player_slug": slug, "player_name": name, "espn_athlete_id": None,
                 "nba_player_id": None, "basketball_reference_id": None,
                 "headshot_url": None, "image_provider": None, "image_source_url": None,
-                "license_status": "unavailable", "cache_policy": "fallback_only",
+                "license_status": "unavailable", "cache_policy": "dev_hotlink_preview_only",
                 "fallback_initials": initials, "resolution_status": "ambiguous",
                 "confidence": 0.0,
                 "warnings": ["Multiple ESPN athlete-pool entries matched this exact display name; not auto-resolved."],
@@ -355,7 +421,7 @@ def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
                 "nba_player_id": None, "basketball_reference_id": None,
                 "headshot_url": headshot, "image_provider": "ESPN",
                 "image_source_url": f"https://www.espn.com/nba/player/_/id/{list_match['espn_athlete_id']}",
-                "license_status": "unknown_do_not_cache", "cache_policy": "fallback_only",
+                "license_status": "unknown_do_not_cache", "cache_policy": "dev_hotlink_preview_only",
                 "fallback_initials": initials, "resolution_status": "resolved",
                 # Slightly lower confidence than a direct roster match: the
                 # headshot URL is CONSTRUCTED from a real, live-fetched
@@ -367,25 +433,56 @@ def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
                 "warnings": ["Resolved via ESPN's broader athlete pool (not a current team roster) -- "
                              "headshot URL constructed from a verified ID template."],
             })
+        elif slug in nba_crosswalk:
+            # Phase 7A Part B: NBA CDN fallback -- only reachable if a real
+            # local ID crosswalk exists (it doesn't today, see module
+            # docstring), so this branch is inert until one is added.
+            nba_id = nba_crosswalk[slug]
+            headshot = NBA_CDN_HEADSHOT_URL_TMPL.format(nba_player_id=nba_id)
+            validated = _validate_url_online(headshot) if online_validate else None
+            if online_validate and not validated:
+                players.append({
+                    "player_slug": slug, "player_name": name, "espn_athlete_id": None,
+                    "nba_player_id": nba_id, "basketball_reference_id": None,
+                    "headshot_url": None, "image_provider": None, "image_source_url": None,
+                    "license_status": "unavailable", "cache_policy": "dev_hotlink_preview_only",
+                    "fallback_initials": initials, "resolution_status": "unresolved",
+                    "confidence": 0.0,
+                    "warnings": [f"NBA CDN URL for person_id {nba_id} did not validate (--online-validate); not resolved."],
+                })
+                unresolved.append({"player_slug": slug, "player_name": name, "reason": "nba_cdn_url_failed_online_validation"})
+            else:
+                resolved_count += 1
+                players.append({
+                    "player_slug": slug, "player_name": name, "espn_athlete_id": None,
+                    "nba_player_id": nba_id, "basketball_reference_id": None,
+                    "headshot_url": headshot, "image_provider": "NBA_CDN",
+                    "image_source_url": headshot,
+                    "license_status": "unknown_do_not_cache", "cache_policy": "dev_hotlink_preview_only",
+                    "fallback_initials": initials, "resolution_status": "resolved",
+                    "confidence": 0.85 if validated else 0.6,
+                    "warnings": [] if validated else ["URL constructed from a local ID crosswalk but not verified online (run with --online-validate to confirm)."],
+                })
         else:
             players.append({
                 "player_slug": slug, "player_name": name, "espn_athlete_id": None,
                 "nba_player_id": None, "basketball_reference_id": None,
                 "headshot_url": None, "image_provider": None, "image_source_url": None,
-                "license_status": "no_public_image", "cache_policy": "fallback_only",
+                "license_status": "no_public_image", "cache_policy": "dev_hotlink_preview_only",
                 "fallback_initials": initials, "resolution_status": "unresolved",
                 "confidence": 0.0,
                 "warnings": [],
             })
             unresolved.append({
                 "player_slug": slug, "player_name": name,
-                "reason": "not_found_in_espn_current_or_recent_athlete_pool -- ESPN's public API "
-                          "has no historical/retired-player search; a player only resolves if "
-                          "ESPN still tracks them as a current-or-recent (within the last "
-                          "1-2 seasons) NBA athlete. Verified during this pass: ESPN's broader "
-                          "athlete-pool endpoint returns 611 total athletes (539 active + 72 "
-                          "recently-inactive), none of which include players who retired "
-                          "before roughly the 2020s.",
+                "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- "
+                          "ESPN's public API has no historical/retired-player search (verified: its "
+                          "broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 "
+                          "recently-inactive, none pre-dating roughly the 2020s), and no local "
+                          "NBA.com person_id crosswalk exists for this player (see "
+                          "NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com "
+                          "were also tested live from this environment and are not reliably reachable "
+                          "here). Not guessed.",
             })
 
     player_payload = {
@@ -419,16 +516,17 @@ def build_player_assets(espn_teams: list[dict]) -> tuple[dict, dict, dict]:
 
 
 def build_asset_sources() -> dict:
+    nba_crosswalk_count = len(_load_nba_player_id_crosswalk())
     return {
         "source_registry_version": ASSET_SOURCES_VERSION,
-        "provider": "ESPN",
+        "provider": "ESPN + NBA_CDN",
         "sources": [
             {
                 "asset_type": "team_logo",
                 "endpoint_pattern": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams",
                 "retrieval_command": "python scripts/build_espn_asset_manifests.py --write",
                 "license_status": "unknown_do_not_cache",
-                "cache_policy": "fallback_only",
+                "cache_policy": "dev_hotlink_preview_only",
                 "warnings": [
                     "Public, unauthenticated endpoint. No explicit license grant to hotlink "
                     "team logos in a shipped product has been reviewed/approved -- treat as "
@@ -440,7 +538,7 @@ def build_asset_sources() -> dict:
                 "endpoint_pattern": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{espn_team_id}/roster",
                 "retrieval_command": "python scripts/build_espn_asset_manifests.py --write",
                 "license_status": "unknown_do_not_cache",
-                "cache_policy": "fallback_only",
+                "cache_policy": "dev_hotlink_preview_only",
                 "warnings": [
                     "Only exposes CURRENT team rosters -- no reliable public search endpoint "
                     "for historical/retired players was found during this pass (ESPN's "
@@ -449,6 +547,27 @@ def build_asset_sources() -> dict:
                     "No explicit license grant to hotlink player headshots in a shipped "
                     "product has been reviewed/approved -- treat as metadata-only until a "
                     "human signs off.",
+                ],
+            },
+            {
+                "asset_type": "player_headshot",
+                "image_provider": "NBA_CDN",
+                "endpoint_pattern": "https://cdn.nba.com/headshots/nba/latest/1040x760/{nba_player_id}.png",
+                "retrieval_command": "python scripts/build_espn_asset_manifests.py --write [--online-validate]",
+                "license_status": "unknown_do_not_cache",
+                "cache_policy": "dev_hotlink_preview_only",
+                "local_id_crosswalk_entries": nba_crosswalk_count,
+                "warnings": [
+                    "INERT this run -- resolves 0 players. Requires a local player_slug -> "
+                    "NBA.com person_id crosswalk (data/game/assets/nba_player_id_crosswalk.json), "
+                    "which does not exist in this repo (no locally committed data source carries "
+                    "an NBA.com ID -- verified by inspecting every column of every committed "
+                    "parquet/CSV). stats.nba.com and cdn.nba.com's JSON player-index endpoints "
+                    "were tested live from this environment and are not reliably reachable, so no "
+                    "crosswalk could be built this pass either. Ready to activate the moment a "
+                    "real, verified crosswalk is added -- never guesses an ID.",
+                    "No explicit license grant to hotlink NBA.com headshots in a shipped product "
+                    "has been reviewed/approved either, same as ESPN.",
                 ],
             },
         ],
@@ -465,6 +584,12 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true", help="Fetch + report, write nothing.")
     parser.add_argument("--write", action="store_true", help="Fetch + write manifest files.")
+    parser.add_argument(
+        "--online-validate", action="store_true",
+        help="HEAD-request every NBA CDN URL constructed from the local ID crosswalk to confirm it "
+             "actually resolves before marking it resolved (Part B). Optional and offline-safe when "
+             "omitted -- ESPN resolution never depends on this flag.",
+    )
     args = parser.parse_args()
     if not args.dry_run and not args.write:
         parser.print_help()
@@ -478,7 +603,7 @@ def main() -> int:
         return 1
 
     team_payload, team_resolved = build_team_assets(espn_teams)
-    player_payload, unresolved_payload, player_counts = build_player_assets(espn_teams)
+    player_payload, unresolved_payload, player_counts = build_player_assets(espn_teams, online_validate=args.online_validate)
     sources_payload = build_asset_sources()
 
     image_url_count = team_resolved + player_counts["resolved"]
@@ -496,12 +621,12 @@ def main() -> int:
 
     if args.write:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
-        (OUT_DIR / "asset_sources.v1.json").write_text(json.dumps(sources_payload, indent=2))
+        (OUT_DIR / "asset_sources.v2.json").write_text(json.dumps(sources_payload, indent=2))
         (OUT_DIR / "team_assets.v2.json").write_text(json.dumps(team_payload, indent=2))
-        (OUT_DIR / "player_assets.v2.json").write_text(json.dumps(player_payload, indent=2))
-        (OUT_DIR / "unresolved_player_assets.v1.json").write_text(json.dumps(unresolved_payload, indent=2))
-        print(f"\nWrote asset_sources.v1.json, team_assets.v2.json, player_assets.v2.json, "
-              f"unresolved_player_assets.v1.json -> {OUT_DIR.relative_to(REPO_ROOT)}")
+        (OUT_DIR / "player_assets.v3.json").write_text(json.dumps(player_payload, indent=2))
+        (OUT_DIR / "unresolved_player_assets.v2.json").write_text(json.dumps(unresolved_payload, indent=2))
+        print(f"\nWrote asset_sources.v2.json, team_assets.v2.json, player_assets.v3.json, "
+              f"unresolved_player_assets.v2.json -> {OUT_DIR.relative_to(REPO_ROOT)}")
     else:
         print("\n(--dry-run: no files written)")
 

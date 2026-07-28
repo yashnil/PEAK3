@@ -118,7 +118,7 @@ SUPPORTED_MODES: list[str] = ["apex_1y", "prime_3y", "foundation_5y"]
 # franchises, 1979-80..2025-26), not a hardcoded Warriors-only list -- see
 # build_experimental_team_year_dataset.py. The v0/v1 files this superseded
 # are both deleted; nothing at runtime reads them anymore.
-EXPERIMENTAL_TEAM_YEAR_DATA_VERSION = "courtbuilder_team_year.experimental.v2"
+EXPERIMENTAL_TEAM_YEAR_DATA_VERSION = "courtbuilder_team_year.experimental.v3"
 
 # Surfaced verbatim in the team-year board's receipt metadata. Never
 # recomputed -- OFFICIAL_WEIGHTS itself lives in peak3.py and is read only,

@@ -631,6 +631,32 @@ test.describe("CourtBuilder respins", () => {
     await expect(page.locator('[data-testid="respin-receipt-count"]')).toContainText("1 respin used");
     await expect(page.locator('[data-testid="respin-receipt-count"]')).toContainText("1 season");
   });
+
+  test("Phase 7A Part C: respin budget carries over to the next round, not reset", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamBtn = page.locator('[data-testid="respin-team-btn"]');
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+      teamBtn.click(),
+    ]);
+    await expect(teamBtn).toContainText("2 left");
+
+    // Complete round 1 (select + place).
+    const candidate = page.locator('[data-testid="candidate-card"]').first();
+    await candidate.waitFor({ state: "visible" });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      candidate.click(),
+    ]);
+    const openSlot = page.locator('[data-testid="court-slot"][data-filled="false"]').first();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
+      openSlot.click(),
+    ]);
+
+    // Round 2: the team respin button must still show 2 left, not reset to 3.
+    await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("2 left", { timeout: 10_000 });
+  });
 });
 
 test.describe("CourtBuilder candidate list (Phase 6E)", () => {
@@ -780,8 +806,13 @@ test.describe("CourtBuilder leaderboard (Part E)", () => {
       completeBtn.click(),
     ]);
     await expect(page.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
-    await page.waitForResponse((r) => r.url().includes("/perfect-season/leaderboard"));
-    await expect(page.locator('[data-testid="leaderboard-submit-panel"]')).toHaveCount(0);
+    // LeaderboardSubmitPanel's own leaderboard-enabled check fires as soon
+    // as the result screen mounts -- by the time season-result is visible,
+    // that fetch may have already resolved, so waiting for a NEW response
+    // here is a race (it sometimes never arrives, timing the test out).
+    // toHaveCount's own polling is enough: it re-checks the DOM until the
+    // panel either never appears or is confirmed absent.
+    await expect(page.locator('[data-testid="leaderboard-submit-panel"]')).toHaveCount(0, { timeout: 5_000 });
   });
 
   test("leaderboard page shows a not-enabled message when the feature is off", async ({ page }) => {

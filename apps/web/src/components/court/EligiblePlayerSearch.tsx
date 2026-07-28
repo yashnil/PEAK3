@@ -67,6 +67,11 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
           const positions = [c.primary_position, ...c.secondary_positions].filter(Boolean).join(" / ");
           const isRosterOnly = c.identity_pool_status === "team_year_roster_only";
           const isUnscored = c.score_status === "exact_season_unscored";
+          // Phase 7A Part A: traded player whose score is the whole
+          // season's aggregate, not team-specific (see exact_season.py's
+          // score_source taxonomy) -- shown so it's clear the number isn't
+          // this exact team stint's own performance.
+          const isSeasonAggregate = c.score_source === "exact_season_aggregate";
           return (
             <button
               key={c.player_slug}
@@ -120,6 +125,16 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
                       title="Score Pending: exact season score unavailable; the official lineup score may be incomplete."
                     >
                       Score Pending
+                    </span>
+                  )}
+                  {isSeasonAggregate && (
+                    <span
+                      data-testid="candidate-season-aggregate-badge"
+                      className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
+                      style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
+                      title="Season Aggregate: this player was traded mid-season -- the score shown is their whole-season total, not specific to this exact team stint."
+                    >
+                      Season Aggregate
                     </span>
                   )}
                 </div>

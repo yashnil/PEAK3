@@ -107,12 +107,13 @@ class SpinCandidate(BaseModel):
     # never a score/rank itself (ADR-005 Decision 6), only whether one
     # exists.
     score_status: Optional[str] = None
-    # Phase 6E Part B: asset-manifest schema readiness -- always None today
-    # (data/game/assets/player_assets.v1.json exists but is not joined into
-    # any API response yet; no image URLs are populated anywhere in this
-    # codebase). Present so the frontend type/rendering hook
-    # (PlayerAvatar's imageUrl prop) has a stable field to read once a
-    # licensed image source is approved and wired in.
+    # Phase 7A Part A: exact_team_stint | exact_season_aggregate | roster_only_unscored
+    score_source: Optional[str] = None
+    # Phase 6F/7A: populated from data/game/assets/player_assets.v3.json
+    # (ESPN + NBA_CDN providers) ONLY when Settings.ENABLE_EXTERNAL_ASSET_URLS
+    # is true (default off) -- None otherwise, and the frontend falls back
+    # to initials for a None/missing URL either way (PlayerAvatar's
+    # imageUrl prop).
     headshot_url: Optional[str] = None
 
 
@@ -131,10 +132,11 @@ class CurrentSpinPublic(BaseModel):
     # Phase 6F Part C: only populated when Settings.ENABLE_EXTERNAL_ASSET_URLS
     # is true (default off).
     team_logo_url: Optional[str] = None
-    # Phase 6G Part C: respin budget for THIS round only (resets to 0/0 every
-    # round) -- only populated for team_year spins, since respins reroll the
-    # team+season reel that only team_year mode has. None for team_decade/
-    # exact_team_season/open_pool spins, which don't support respins at all.
+    # Phase 7A Part C: RUN-LEVEL respin budget (never resets per round --
+    # 3 team + 3 season for the whole 8-round attempt) -- only populated
+    # for team_year spins, since respins reroll the team+season reel that
+    # only team_year mode has. None for team_decade/exact_team_season/
+    # open_pool spins, which don't support respins at all.
     team_respins_used: Optional[int] = None
     team_respins_max: Optional[int] = None
     season_respins_used: Optional[int] = None
@@ -152,6 +154,8 @@ class PendingSelectionPublic(BaseModel):
     season: Optional[str] = None
     identity_pool_status: Optional[str] = None
     score_status: Optional[str] = None
+    # Phase 7A Part A: exact_team_stint | exact_season_aggregate | roster_only_unscored
+    score_source: Optional[str] = None
     primary_position: Optional[str] = None
     secondary_positions: list[str] = []
     # slot_type -> "primary" | "secondary" | "off_position" | "flexible" for
@@ -175,6 +179,8 @@ class CourtSlotPublic(BaseModel):
     season: Optional[str] = None
     identity_pool_status: Optional[str] = None
     score_status: Optional[str] = None
+    # Phase 7A Part A: exact_team_stint | exact_season_aggregate | roster_only_unscored
+    score_source: Optional[str] = None
     # "primary" | "secondary" | "off_position" | "flexible" -- display-only
     # position/role fit note (nba_peak.perfect_season.positions.classify_fit
     # / classify_fit_from_position), set once the slot is filled; never
@@ -230,6 +236,9 @@ class SimulationResultPublic(BaseModel):
     # simulate_season doesn't compute these -- Peak Draft is unaffected).
     best_pick: Optional[str] = None
     structural_weakness: Optional[str] = None
+    # Phase 7A Part F: "weakness" | "ceiling_limiter" -- drives whether the
+    # UI prefixes structural_weakness with "Weakness:" or "Ceiling limiter:".
+    weakness_framing: Optional[str] = None
 
 
 class ProvisionalRecordRange(BaseModel):
@@ -247,6 +256,10 @@ class LiveBuildPublic(BaseModel):
     identity_tags: list[str] = []
     needs: list[str] = []
     provisional_record_range: Optional[ProvisionalRecordRange] = None
+    # Phase 7A Part E: "early_projection" | "narrowing_projection" |
+    # "ready_to_simulate" -- drives the UI copy so a wide early-round
+    # range never reads as a confident prediction.
+    projection_confidence: str = "early_projection"
 
 
 class PublicCourtStateResponse(BaseModel):
@@ -280,6 +293,13 @@ class PublicCourtStateResponse(BaseModel):
     # "from_season": str, "to_team": str, "to_season": str}. Part of the
     # data receipt; also read by the leaderboard submission path (Part E).
     respin_history: list[dict] = []
+    # Phase 7A Part C: explicit run-level counters for the data receipt --
+    # always present (unlike current_spin.team_respins_used, which is only
+    # set while a team_year spin is active).
+    team_respins_used_total: int = 0
+    team_respins_remaining_total: int = 3
+    season_respins_used_total: int = 0
+    season_respins_remaining_total: int = 3
 
 
 class CourtBuilderCoverageSummary(BaseModel):
@@ -316,7 +336,7 @@ class CourtBuilderReadinessResponse(BaseModel):
     # the team+decade fields above. Broad coverage as of v2 (1,310 rollable
     # team-seasons, 40 franchises, 1979-80..2025-26 -- see
     # data/game/experimental/player_pool_1500/
-    # courtbuilder_team_year.experimental.v2.json's own coverage_note) --
+    # courtbuilder_team_year.experimental.v3.json's own coverage_note) --
     # still labeled experimental, not the canonical/official CourtBuilder mode.
     team_year_enabled: bool = False
     experimental_team_year_data_version: str = "unavailable"

@@ -16,8 +16,14 @@ interface Props {
  * candidate for the open round -- this describes what's already been
  * placed, not what to pick next.
  */
+const CONFIDENCE_LABEL: Record<string, string> = {
+  early_projection: "Early projection",
+  narrowing_projection: "Narrowing projection",
+  ready_to_simulate: "Ready to simulate",
+};
+
 export default function LiveBuildPanel({ liveBuild }: Props) {
-  const { placed_count, total_rounds, scored_count, unscored_count, identity_tags, needs, provisional_record_range } = liveBuild;
+  const { placed_count, total_rounds, scored_count, unscored_count, identity_tags, needs, provisional_record_range, projection_confidence } = liveBuild;
   const scoreLabel =
     unscored_count === 0
       ? `${scored_count}/${placed_count} scored`
@@ -40,12 +46,20 @@ export default function LiveBuildPanel({ liveBuild }: Props) {
 
       {provisional_record_range && (
         <div className="text-sm" data-testid="live-build-record-range">
-          <span className="font-bold" style={{ color: "var(--peak-accent, #f5c842)" }}>
-            {provisional_record_range.low_wins}-{82 - provisional_record_range.low_wins}
-            {" "}to{" "}
-            {provisional_record_range.high_wins}-{82 - provisional_record_range.high_wins}
-          </span>{" "}
-          <span style={{ color: "var(--text-muted)" }}>projected record (provisional)</span>
+          {provisional_record_range.low_wins === provisional_record_range.high_wins ? (
+            <span className="font-bold" style={{ color: "var(--peak-accent, #f5c842)" }}>
+              {provisional_record_range.low_wins}-{82 - provisional_record_range.low_wins}
+            </span>
+          ) : (
+            <span className="font-bold" style={{ color: "var(--peak-accent, #f5c842)" }}>
+              {provisional_record_range.low_wins}-{82 - provisional_record_range.low_wins}
+              {" "}to{" "}
+              {provisional_record_range.high_wins}-{82 - provisional_record_range.high_wins}
+            </span>
+          )}{" "}
+          <span style={{ color: "var(--text-muted)" }} data-testid="live-build-confidence">
+            {CONFIDENCE_LABEL[projection_confidence] ?? "Provisional"}
+          </span>
         </div>
       )}
 

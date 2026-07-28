@@ -382,7 +382,7 @@ def generate_board(
 # Purely additive -- generate_board() and its team_decade/exact_team_season
 # path above are completely untouched. This engine reads a separate,
 # independently-versioned dataset (data/game/experimental/player_pool_1500/
-# courtbuilder_team_year.experimental.v2.json) and is only reachable when
+# courtbuilder_team_year.experimental.v3.json) and is only reachable when
 # COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=True. Every spin it produces is
 # spin_type="team_year" with an exact-season era_label (e.g. "2015-16") --
 # never mixed with a team_decade spin in the same board, per the product
@@ -407,7 +407,7 @@ def generate_board(
 
 def _default_experimental_team_year_path() -> Path:
     repo_root = Path(__file__).resolve().parent.parent.parent
-    return repo_root / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v2.json"
+    return repo_root / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v3.json"
 
 
 def _default_experimental_cards_path() -> Path:
