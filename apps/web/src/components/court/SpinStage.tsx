@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { CurrentSpin, ERA_LABELS } from "@/types/perfect-season";
 import { getTeamColors } from "@/lib/team-colors";
 
@@ -60,6 +60,11 @@ const RAMP_SWITCH_MS = Math.round(SPIN_MS * 0.45);
 // stays well under the existing <500ms Playwright budget for this path.
 const REDUCED_MOTION_LOCK_MS = 40;
 const REDUCED_MOTION_REVEAL_MS = 40;
+// Phase 8 pre-loop polish: how long a respin's reel-ticking flourish runs
+// before settling on the new roll -- short and snappy (unlike the first
+// roll of a round) since the player already knows what they're waiting
+// for and shouldn't have to wait through a full ceremony a second time.
+const RESPIN_REROLL_MS = 480;
 
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
@@ -158,6 +163,18 @@ export default function SpinStage({
   const [secondTick, setSecondTick] = useState(0);
   const [logoFailed, setLogoFailed] = useState(false);
   const [justRespun, setJustRespun] = useState(false);
+  // Phase 8 pre-loop polish: a respin previously only flashed the wheel
+  // boxes' border for 350ms while the text silently swapped underneath --
+  // playtest finding #1 was that this doesn't read as "a new roll is
+  // happening". `respinning` briefly shows the reel actually ticking again
+  // (same ReelStrip used for the first roll of the round) before settling
+  // on the new team/season, so a respin looks and feels like a real re-roll
+  // instead of a text swap. `phase` itself is never touched by this -- a
+  // respin only fires once phase is already "revealed" (see
+  // CourtBuilder.tsx's respin-controls gate), so this is a purely additive
+  // overlay state, not a re-entry into the spinning/locked state machine.
+  const [respinning, setRespinning] = useState(false);
+  const [respinTick, setRespinTick] = useState(0);
   const isTwoWheel = spin.spin_type !== "open_pool";
   const isTeamYear = spin.spin_type === "team_year";
   // Defensive fallback only -- every two-wheel spin (team_decade,
@@ -230,13 +247,32 @@ export default function SpinStage({
     // successful respin should flash.
     if (respinFlashKey === 0) return;
     setJustRespun(true);
-    const t = window.setTimeout(() => setJustRespun(false), 350);
-    return () => window.clearTimeout(t);
+    if (prefersReducedMotion()) {
+      // Reduced motion: keep the brief border flash only, never the
+      // ticking reel -- same discipline as the main ceremony effect above.
+      const t = window.setTimeout(() => setJustRespun(false), 350);
+      return () => window.clearTimeout(t);
+    }
+    setRespinning(true);
+    const tickInterval = window.setInterval(() => {
+      setRespinTick((t) => t + 1);
+    }, FAST_TICK_MS);
+    const t1 = window.setTimeout(() => {
+      window.clearInterval(tickInterval);
+      setRespinning(false);
+    }, RESPIN_REROLL_MS);
+    const t2 = window.setTimeout(() => setJustRespun(false), RESPIN_REROLL_MS + 100);
+    return () => {
+      window.clearInterval(tickInterval);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
   }, [respinFlashKey]);
 
-  const teamDisplayName = phase === "spinning" ? teamPool[teamTick % teamPool.length] : spin.franchise_display_name ?? "Team-season unavailable";
-  const secondDisplay = phase === "spinning" ? secondPool[secondTick % secondPool.length] : spin.era_label ?? "";
-  const colors = getTeamColors(phase === "spinning" ? teamDisplayName : spin.franchise_display_name);
+  const isTicking = phase === "spinning" || respinning;
+  const teamDisplayName = isTicking ? teamPool[(respinning ? respinTick : teamTick) % teamPool.length] : spin.franchise_display_name ?? "Team-season unavailable";
+  const secondDisplay = isTicking ? secondPool[(respinning ? respinTick : secondTick) % secondPool.length] : spin.era_label ?? "";
+  const colors = getTeamColors(isTicking ? teamDisplayName : spin.franchise_display_name);
 
   const coverageNote =
     isTeamYear && rollableTeamSeasonCount > 0 && supportedStartSeason && supportedEndSeason
@@ -299,15 +335,27 @@ export default function SpinStage({
         </div>
       )}
 
+      {respinning && (
+        <div className="respin-banner text-center" data-testid="respin-banner">
+          Respinning…
+        </div>
+      )}
+
       {isTwoWheel ? (
         <div className="grid grid-cols-2 gap-3" role="status" aria-live="polite">
           <div
             data-testid="team-wheel"
-            className={`spin-reel-streak-bg rounded-2xl p-4 flex flex-col items-center justify-center gap-2 text-center ${phase === "locked" || justRespun ? "spin-ceremony-lock-flash" : ""}`}
-            data-phase={phase}
-            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-muted, #333)", minHeight: 108 }}
+            data-respinning={justRespun}
+            className={`spin-wheel-box spin-reel-streak-bg rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 text-center ${phase === "locked" || justRespun ? "spin-ceremony-lock-flash" : ""}`}
+            data-phase={respinning ? "spinning" : phase}
+            style={{
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-muted, #333)",
+              minHeight: 128,
+              "--slot-accent": colors.primary,
+            } as CSSProperties}
           >
-            {phase === "revealed" && spin.team_logo_url && !logoFailed ? (
+            {phase === "revealed" && !respinning && spin.team_logo_url && !logoFailed ? (
               // No configured remote-image domain allowlist yet -- see PlayerAvatar's module docstring.
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -315,11 +363,11 @@ export default function SpinStage({
                 src={spin.team_logo_url}
                 alt=""
                 aria-hidden="true"
-                width={52}
-                height={52}
+                width={60}
+                height={60}
                 style={{
-                  width: 52,
-                  height: 52,
+                  width: 60,
+                  height: 60,
                   objectFit: "contain",
                   boxShadow: `0 0 0 4px color-mix(in srgb, ${colors.primary} 25%, transparent)`,
                 }}
@@ -329,14 +377,14 @@ export default function SpinStage({
               <div
                 data-testid="team-badge"
                 aria-hidden="true"
-                className={`rounded-full flex items-center justify-center font-black text-base ${phase === "spinning" ? "spin-ceremony-reel-tick" : ""}`}
+                className={`rounded-full flex items-center justify-center font-black text-lg ${isTicking ? "spin-ceremony-reel-tick" : ""}`}
                 style={{
-                  width: 52,
-                  height: 52,
+                  width: 60,
+                  height: 60,
                   background: colors.primary,
                   color: colors.secondary,
                   border: `2.5px solid ${colors.secondary}`,
-                  boxShadow: phase === "revealed" ? `0 0 0 4px color-mix(in srgb, ${colors.primary} 25%, transparent)` : undefined,
+                  boxShadow: phase === "revealed" && !respinning ? `0 0 0 4px color-mix(in srgb, ${colors.primary} 25%, transparent)` : undefined,
                 }}
               >
                 {colors.initials}
@@ -346,13 +394,12 @@ export default function SpinStage({
               <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
                 Team
               </div>
-              {phase === "spinning" ? (
-                <ReelStrip items={teamPool} activeIndex={teamTick} rampStage={rampStage} />
+              {isTicking ? (
+                <ReelStrip items={teamPool} activeIndex={respinning ? respinTick : teamTick} rampStage={respinning ? "slow" : rampStage} />
               ) : (
                 <div
-                  className="text-sm font-black truncate"
+                  className="text-base font-black name-2line"
                   style={{ color: "var(--text-primary)" }}
-                  title={teamDisplayName}
                 >
                   {teamDisplayName}
                 </div>
@@ -361,15 +408,21 @@ export default function SpinStage({
           </div>
           <div
             data-testid="era-wheel"
-            className={`spin-reel-streak-bg rounded-2xl p-4 flex flex-col items-center justify-center gap-2 text-center ${phase === "locked" || justRespun ? "spin-ceremony-lock-flash" : ""}`}
-            data-phase={phase}
-            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-muted, #333)", minHeight: 108 }}
+            data-respinning={justRespun}
+            className={`spin-wheel-box spin-reel-streak-bg rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 text-center ${phase === "locked" || justRespun ? "spin-ceremony-lock-flash" : ""}`}
+            data-phase={respinning ? "spinning" : phase}
+            style={{
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-muted, #333)",
+              minHeight: 128,
+              "--slot-accent": colors.primary,
+            } as CSSProperties}
           >
             <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
               {secondWheelLabel}
             </div>
-            {phase === "spinning" ? (
-              <ReelStrip items={secondPool} activeIndex={secondTick} rampStage={rampStage} />
+            {isTicking ? (
+              <ReelStrip items={secondPool} activeIndex={respinning ? respinTick : secondTick} rampStage={respinning ? "slow" : rampStage} />
             ) : (
               <div
                 className="text-2xl font-black"
@@ -395,7 +448,7 @@ export default function SpinStage({
         </div>
       )}
 
-      {phase === "revealed" && (
+      {phase === "revealed" && !respinning && (
         <div className="text-xs" style={{ color: "var(--text-secondary)" }} data-testid="eligible-count-reveal">
           {spin.spin_type !== "open_pool" && (
             <div data-testid="roll-summary" className="text-sm font-bold mb-0.5" style={{ color: "var(--text-primary)" }}>

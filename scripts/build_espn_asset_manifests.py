@@ -54,6 +54,7 @@ import json
 import re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -144,15 +145,41 @@ BR_TO_ESPN_ABBR: dict[str, str] = {
 
 
 def _slug(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-")
+    """Must produce the SAME slug the rest of the codebase already uses for
+    this player (nba_peak's own player_slug generation, and
+    scripts/backfill_traded_player_team_stints.py's identical fix) --
+    without ASCII-folding first, a diacritic name like "Luka Dončić" would
+    slugify to "luka-don-i" here instead of the real "luka-doncic" every
+    other slug for this player uses, silently writing an entry under a key
+    nothing in the running game ever looks up (verified against the
+    committed team-year dataset: both "Luka Doncic" and "Luka Dončić"
+    already resolve to player_slug "luka-doncic" there)."""
+    folded = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "-", folded.lower()).strip("-")
 
 
 def _normalize_name(name: str) -> str:
-    """Loose match key: lowercase, strip periods/apostrophes, collapse
-    whitespace. Used ONLY to match a full display name against a live ESPN
-    roster entry -- never a fuzzy/partial match (no substring matching, no
-    Levenshtein), so a wrong match can't silently slip through."""
+    """Loose match key: lowercase, strip periods/apostrophes, fold
+    diacritics, drop a trailing generational suffix, collapse whitespace.
+    Used ONLY to match a full display name against a live ESPN roster
+    entry -- never a fuzzy/partial match (no substring matching, no
+    Levenshtein), so a wrong match can't silently slip through; the
+    ambiguous-match handling in build_player_assets() already guards
+    against two different players ever colliding onto the same key,
+    diacritic-folded or not.
+
+    Phase 8B finding: our local pool carries real diacritics ("Luka
+    Dončić", "Nikola Vučević", ...) while ESPN's own API returns the
+    plain-ASCII spelling for the same players ("Luka Doncic") -- without
+    folding both sides the same way, these real current stars matched
+    nothing and fell back to initials. Verified this pass: folding
+    diacritics + stripping a trailing Jr./Sr./II/III/IV resolves 10
+    additional real players (Vučević, Bogdanović, Valančiūnas, Porziņģis,
+    Schröder, Nurkić, Dončić, Krejčí, Tillman Sr., Jackson II) with zero
+    new network calls -- pure normalization, not a new data source."""
     n = re.sub(r"[.'’]", "", name.lower())
+    n = unicodedata.normalize("NFKD", n).encode("ascii", "ignore").decode("ascii")
+    n = re.sub(r"\s+(jr|sr|ii|iii|iv|v)$", "", n)
     n = re.sub(r"\s+", " ", n).strip()
     return n
 

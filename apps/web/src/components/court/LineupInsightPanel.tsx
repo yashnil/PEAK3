@@ -30,10 +30,16 @@ export default function LineupInsightPanel({ result }: { result: SimulationResul
               <span>{COMPONENT_LABELS[key] ?? key}</span>
               <span>{value.toFixed(1)}</span>
             </div>
-            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--bg-surface)" }}>
+            <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-surface)" }}>
               <div
-                className="h-full rounded-full"
-                style={{ width: `${pct}%`, background: value < 0 ? "#ef4444" : "var(--peak-accent, #f5c842)" }}
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${pct}%`,
+                  background: value < 0
+                    ? "#ef4444"
+                    : "linear-gradient(90deg, color-mix(in srgb, var(--peak-accent, #f5c842) 70%, transparent), var(--peak-accent, #f5c842))",
+                  boxShadow: value >= 70 ? "0 0 8px -1px color-mix(in srgb, var(--peak-accent, #f5c842) 70%, transparent)" : undefined,
+                }}
               />
             </div>
           </div>

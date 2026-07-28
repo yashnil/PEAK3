@@ -2,6 +2,7 @@
 import type { CSSProperties } from "react";
 import { BENCH_SLOT_TYPES, CourtSlotPublic, ROLE_FIT_LABELS, RoleFit, SLOT_LABELS } from "@/types/perfect-season";
 import PlayerAvatar from "./PlayerAvatar";
+import { getTeamColors } from "@/lib/team-colors";
 
 interface Props {
   slot: CourtSlotPublic;
@@ -88,11 +89,11 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
       </div>
 
       {slot.filled ? (
-        <div className="flex items-center gap-2 w-full min-w-0">
-          <PlayerAvatar name={slot.player_name ?? "?"} size={30} imageUrl={slot.headshot_url} />
+        <div className="flex items-center gap-2.5 w-full min-w-0">
+          <PlayerAvatar name={slot.player_name ?? "?"} size={38} imageUrl={slot.headshot_url} />
           <div className="min-w-0 flex-1">
             <div
-              className="text-xs font-bold name-2line"
+              className="text-sm font-bold name-2line"
               style={{
                 color: "var(--text-primary)",
                 display: "-webkit-box",
@@ -107,10 +108,9 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
             </div>
             {isExactSeason ? (
               <div
-                className="text-[10px] truncate"
+                className="text-[11px] name-2line"
                 style={{ color: "var(--text-secondary)" }}
                 data-testid="exact-season-line"
-                title={`${slot.team_name} · ${slot.season}`}
               >
                 {slot.team_name} · {slot.season}
                 {revealed && (
@@ -129,11 +129,11 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
                 )}
               </div>
             ) : revealed ? (
-              <div className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="revealed-score-line">
+              <div className="text-[11px] name-2line" style={{ color: "var(--text-secondary)" }} data-testid="revealed-score-line">
                 {slot.anchor_season} · {Math.round(slot.individual_peak_score ?? 0)} pts · #{slot.individual_peak_rank}
               </div>
             ) : (
-              <div className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="peak-locked-note">
+              <div className="text-[11px] name-2line" style={{ color: "var(--text-secondary)" }} data-testid="peak-locked-note">
                 {slot.anchor_season} · Peak locked
               </div>
             )}
@@ -159,16 +159,24 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
     </>
   );
 
+  // Phase 8B: real team-color accent rail on filled slots (colors +
+  // initials only, never a logo -- see team-colors.ts's own licensing
+  // rationale). Bare team_id (legacy peak-window slots) has no team_name,
+  // so this quietly no-ops to the plain accent gold via getTeamColors'
+  // own null fallback.
+  const teamAccent = slot.filled ? getTeamColors(slot.team_name).primary : null;
+
   const sharedProps = {
     "data-testid": "court-slot",
     "data-slot-type": slot.slot_type,
     "data-filled": slot.filled ? "true" : "false",
-    className: `rounded-xl px-2 py-2 flex flex-col items-start justify-center gap-1 min-h-[64px] w-full transition-all ${isPendingTarget ? "court-slot-drop-target" : ""}`,
+    className: `rounded-xl px-2.5 py-2.5 flex flex-col items-start justify-center gap-1 min-h-[72px] w-full transition-all ${isPendingTarget ? "court-slot-drop-target" : ""} ${slot.filled ? "roster-board-slot-card-filled" : ""}`,
     style: {
       background: slot.filled ? "var(--bg-elevated)" : "var(--bg-surface)",
       border: isPendingTarget
         ? undefined
         : `1px solid ${isBench ? "var(--border-emphasis)" : "var(--border-default)"}`,
+      ...(teamAccent ? ({ "--slot-accent": teamAccent } as CSSProperties) : {}),
     } as CSSProperties,
   };
 

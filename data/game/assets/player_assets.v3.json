@@ -4,9 +4,9 @@
   "license_policy": "headshot_url values are real ESPN CDN URLs fetched live from current NBA team rosters at generation time -- no image binaries are downloaded or committed. license_status is 'unknown_do_not_cache' for every resolved player until a human reviews ESPN's terms of use and explicitly approves a cache_policy upgrade (see asset_sources.v1.json).",
   "scope_note": "Phase 8: seeded from the union of the 250-player canonical pool AND every player name reachable as a PEAK Season team-year roster candidate (courtbuilder_team_year.experimental.v3.json) -- the actual card pool the game deals from, not just the all-time-top-250 list. Only players on a CURRENT ESPN NBA roster (or ESPN's broader recently-active athlete pool) at generation time can resolve -- historical/retired players are unresolved by design, not fabricated. See unresolved_player_assets.v2.json.",
   "player_count": 3494,
-  "resolved_count": 511,
+  "resolved_count": 534,
   "ambiguous_count": 0,
-  "unresolved_count": 2983,
+  "unresolved_count": 2960,
   "players": [
     {
       "player_slug": "a-c-green",
@@ -1387,7 +1387,7 @@
       "warnings": []
     },
     {
-      "player_slug": "alexis-ajin-a",
+      "player_slug": "alexis-ajinca",
       "player_name": "Alexis Ajin\u00e7a",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -1933,7 +1933,7 @@
       "warnings": []
     },
     {
-      "player_slug": "anderson-varej-o",
+      "player_slug": "anderson-varejao",
       "player_name": "Anderson Varej\u00e3o",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -2495,7 +2495,7 @@
       "warnings": []
     },
     {
-      "player_slug": "andr-s-nocioni",
+      "player_slug": "andres-nocioni",
       "player_name": "Andr\u00e9s Nocioni",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -5081,7 +5081,7 @@
       "warnings": []
     },
     {
-      "player_slug": "boban-marjanovi",
+      "player_slug": "boban-marjanovic",
       "player_name": "Boban Marjanovi\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -5257,19 +5257,19 @@
       "warnings": []
     },
     {
-      "player_slug": "bogdan-bogdanovi",
+      "player_slug": "bogdan-bogdanovic",
       "player_name": "Bogdan Bogdanovi\u0107",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "3037789",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/3037789.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/3037789",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "BB",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -5289,7 +5289,7 @@
       "warnings": []
     },
     {
-      "player_slug": "bojan-bogdanovi",
+      "player_slug": "bojan-bogdanovic",
       "player_name": "Bojan Bogdanovi\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -5417,7 +5417,7 @@
       "warnings": []
     },
     {
-      "player_slug": "bo-tjan-nachbar",
+      "player_slug": "bostjan-nachbar",
       "player_name": "Bo\u0161tjan Nachbar",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -6591,7 +6591,7 @@
       "warnings": []
     },
     {
-      "player_slug": "bruno-undov",
+      "player_slug": "bruno-sundov",
       "player_name": "Bruno \u0160undov",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -8017,7 +8017,7 @@
       "warnings": []
     },
     {
-      "player_slug": "cezary-tryba-ski",
+      "player_slug": "cezary-trybanski",
       "player_name": "Cezary Tryba\u0144ski",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -10885,17 +10885,17 @@
     {
       "player_slug": "daron-holmes",
       "player_name": "DaRon Holmes",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4433607",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4433607.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4433607",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "DH",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -11895,7 +11895,7 @@
       "warnings": []
     },
     {
-      "player_slug": "dant-exum",
+      "player_slug": "dante-exum",
       "player_name": "Dant\u00e9 Exum",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -11943,7 +11943,7 @@
       "warnings": []
     },
     {
-      "player_slug": "dario-ari",
+      "player_slug": "dario-saric",
       "player_name": "Dario \u0160ari\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -12105,7 +12105,7 @@
       "warnings": []
     },
     {
-      "player_slug": "darko-mili-i",
+      "player_slug": "darko-milicic",
       "player_name": "Darko Mili\u010di\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -13755,19 +13755,19 @@
       "warnings": []
     },
     {
-      "player_slug": "dennis-schr-der",
+      "player_slug": "dennis-schroder",
       "player_name": "Dennis Schr\u00f6der",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "3032979",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/3032979.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/3032979",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "DS",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -15647,7 +15647,7 @@
       "warnings": []
     },
     {
-      "player_slug": "dra-en-petrovi",
+      "player_slug": "drazen-petrovic",
       "player_name": "Dra\u017een Petrovi\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -16197,7 +16197,7 @@
       "warnings": []
     },
     {
-      "player_slug": "d-vis-bert-ns",
+      "player_slug": "davis-bertans",
       "player_name": "D\u0101vis Bert\u0101ns",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -16741,7 +16741,7 @@
       "warnings": []
     },
     {
-      "player_slug": "eduardo-n-jera",
+      "player_slug": "eduardo-najera",
       "player_name": "Eduardo N\u00e1jera",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -17605,7 +17605,7 @@
       "warnings": []
     },
     {
-      "player_slug": "ersan-i-lyasova",
+      "player_slug": "ersan-ilyasova",
       "player_name": "Ersan \u0130lyasova",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -17893,7 +17893,7 @@
       "warnings": []
     },
     {
-      "player_slug": "felipe-l-pez",
+      "player_slug": "felipe-lopez",
       "player_name": "Felipe L\u00f3pez",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -17973,7 +17973,7 @@
       "warnings": []
     },
     {
-      "player_slug": "filip-petru-ev",
+      "player_slug": "filip-petrusev",
       "player_name": "Filip Petru\u0161ev",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -18037,7 +18037,7 @@
       "warnings": []
     },
     {
-      "player_slug": "francisco-garc-a",
+      "player_slug": "francisco-garcia",
       "player_name": "Francisco Garc\u00eda",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -18407,17 +18407,17 @@
     {
       "player_slug": "gg-jackson-ii",
       "player_name": "GG Jackson II",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "5105550",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/5105550.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/5105550",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "GI",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -18731,18 +18731,20 @@
     {
       "player_slug": "gary-payton",
       "player_name": "Gary Payton",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "3134903",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/3134903.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/3134903",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "GP",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
-      "warnings": []
+      "resolution_status": "resolved",
+      "confidence": 0.9,
+      "warnings": [
+        "Resolved via ESPN's broader athlete pool (not a current team roster) -- headshot URL constructed from a verified ID template."
+      ]
     },
     {
       "player_slug": "gary-payton-ii",
@@ -18781,17 +18783,17 @@
     {
       "player_slug": "gary-trent",
       "player_name": "Gary Trent",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4277843",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4277843.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4277843",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "GT",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -19003,7 +19005,7 @@
       "warnings": []
     },
     {
-      "player_slug": "george-z-dek",
+      "player_slug": "george-zidek",
       "player_name": "George Z\u00eddek",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -19467,7 +19469,7 @@
       "warnings": []
     },
     {
-      "player_slug": "goran-dragi",
+      "player_slug": "goran-dragic",
       "player_name": "Goran Dragi\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -19499,7 +19501,7 @@
       "warnings": []
     },
     {
-      "player_slug": "gordan-giri-ek",
+      "player_slug": "gordan-giricek",
       "player_name": "Gordan Giri\u010dek",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -20011,7 +20013,7 @@
       "warnings": []
     },
     {
-      "player_slug": "greivis-v-squez",
+      "player_slug": "greivis-vasquez",
       "player_name": "Greivis V\u00e1squez",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -20139,7 +20141,7 @@
       "warnings": []
     },
     {
-      "player_slug": "gustavo-ay-n",
+      "player_slug": "gustavo-ayon",
       "player_name": "Gustavo Ay\u00f3n",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -20571,7 +20573,7 @@
       "warnings": []
     },
     {
-      "player_slug": "hedo-t-rko-lu",
+      "player_slug": "hedo-turkoglu",
       "player_name": "Hedo T\u00fcrko\u011flu",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -21997,17 +21999,17 @@
     {
       "player_slug": "jabari-smith",
       "player_name": "Jabari Smith",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4432639",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4432639.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4432639",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "JS",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -23659,7 +23661,7 @@
       "warnings": []
     },
     {
-      "player_slug": "jan-vesel",
+      "player_slug": "jan-vesely",
       "player_name": "Jan Vesel\u00fd",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -23901,17 +23903,17 @@
     {
       "player_slug": "jaren-jackson",
       "player_name": "Jaren Jackson",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4277961",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4277961.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4277961",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "JJ",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -26209,17 +26211,17 @@
     {
       "player_slug": "jimmy-butler",
       "player_name": "Jimmy Butler",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "6430",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/6430.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/6430",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "JB",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -26271,7 +26273,7 @@
       "warnings": []
     },
     {
-      "player_slug": "ji-welsch",
+      "player_slug": "jiri-welsch",
       "player_name": "Ji\u0159\u00ed Welsch",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -27973,20 +27975,22 @@
       ]
     },
     {
-      "player_slug": "jonas-valan-i-nas",
+      "player_slug": "jonas-valanciunas",
       "player_name": "Jonas Valan\u010di\u016bnas",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "6477",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/6477.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/6477",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "JV",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
-      "warnings": []
+      "resolution_status": "resolved",
+      "confidence": 0.9,
+      "warnings": [
+        "Resolved via ESPN's broader athlete pool (not a current team roster) -- headshot URL constructed from a verified ID template."
+      ]
     },
     {
       "player_slug": "jonathan-bender",
@@ -28471,7 +28475,7 @@
       "warnings": []
     },
     {
-      "player_slug": "jorge-guti-rrez",
+      "player_slug": "jorge-gutierrez",
       "player_name": "Jorge Guti\u00e9rrez",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -28953,7 +28957,7 @@
       "warnings": []
     },
     {
-      "player_slug": "jos-calder-n",
+      "player_slug": "jose-calderon",
       "player_name": "Jos\u00e9 Calder\u00f3n",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -29049,7 +29053,7 @@
       "warnings": []
     },
     {
-      "player_slug": "juancho-hernang-mez",
+      "player_slug": "juancho-hernangomez",
       "player_name": "Juancho Hernang\u00f3mez",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -29611,19 +29615,19 @@
       "warnings": []
     },
     {
-      "player_slug": "jusuf-nurki",
+      "player_slug": "jusuf-nurkic",
       "player_name": "Jusuf Nurki\u0107",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "3102530",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/3102530.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/3102530",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "JN",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -29659,7 +29663,7 @@
       "warnings": []
     },
     {
-      "player_slug": "j-r-me-mo-so",
+      "player_slug": "jerome-moiso",
       "player_name": "J\u00e9r\u00f4me Mo\u00efso",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -31573,17 +31577,17 @@
     {
       "player_slug": "kevin-porter",
       "player_name": "Kevin Porter",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4397140",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4397140.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4397140",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "KP",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -32229,7 +32233,7 @@
       "warnings": []
     },
     {
-      "player_slug": "korn-l-d-vid",
+      "player_slug": "kornel-david",
       "player_name": "Korn\u00e9l D\u00e1vid",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -32373,19 +32377,19 @@
       "warnings": []
     },
     {
-      "player_slug": "kristaps-porzi-is",
+      "player_slug": "kristaps-porzingis",
       "player_name": "Kristaps Porzi\u0146\u0123is",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "3102531",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/3102531.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/3102531",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "KP",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -33227,17 +33231,17 @@
     {
       "player_slug": "larry-nance",
       "player_name": "Larry Nance",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "2580365",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/2580365.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/2580365",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "LN",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -33883,7 +33887,7 @@
       "warnings": []
     },
     {
-      "player_slug": "lester-qui-ones",
+      "player_slug": "lester-quinones",
       "player_name": "Lester Qui\u00f1ones",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -34591,19 +34595,19 @@
       "warnings": []
     },
     {
-      "player_slug": "luka-don-i",
+      "player_slug": "luka-doncic",
       "player_name": "Luka Don\u010di\u0107",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "3945274",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/3945274.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/3945274",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "LD",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -36677,7 +36681,7 @@
       "warnings": []
     },
     {
-      "player_slug": "martin-m-rsepp",
+      "player_slug": "martin-muursepp",
       "player_name": "Martin M\u00fc\u00fcrsepp",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -38121,7 +38125,7 @@
       "warnings": []
     },
     {
-      "player_slug": "micka-l-pi-trus",
+      "player_slug": "mickael-pietrus",
       "player_name": "Micka\u00ebl Pi\u00e9trus",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -39001,7 +39005,7 @@
       "warnings": []
     },
     {
-      "player_slug": "mirsad-t-rkcan",
+      "player_slug": "mirsad-turkcan",
       "player_name": "Mirsad T\u00fcrkcan",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -40089,7 +40093,7 @@
       "warnings": []
     },
     {
-      "player_slug": "nenad-krsti",
+      "player_slug": "nenad-krstic",
       "player_name": "Nenad Krsti\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -40121,7 +40125,7 @@
       "warnings": []
     },
     {
-      "player_slug": "nen",
+      "player_slug": "nene",
       "player_name": "Nen\u00ea",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -40447,7 +40451,7 @@
       "warnings": []
     },
     {
-      "player_slug": "nicol-melli",
+      "player_slug": "nicolo-melli",
       "player_name": "Nicol\u00f2 Melli",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -40575,7 +40579,7 @@
       "warnings": []
     },
     {
-      "player_slug": "nikola-miroti",
+      "player_slug": "nikola-mirotic",
       "player_name": "Nikola Miroti\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -40639,19 +40643,19 @@
       "warnings": []
     },
     {
-      "player_slug": "nikola-vu-evi",
+      "player_slug": "nikola-vucevic",
       "player_name": "Nikola Vu\u010devi\u0107",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "6478",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/6478.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/6478",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "NV",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -42343,7 +42347,7 @@
       "warnings": []
     },
     {
-      "player_slug": "peja-stojakovi",
+      "player_slug": "peja-stojakovic",
       "player_name": "Peja Stojakovi\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -42375,7 +42379,7 @@
       "warnings": []
     },
     {
-      "player_slug": "pepe-s-nchez",
+      "player_slug": "pepe-sanchez",
       "player_name": "Pepe S\u00e1nchez",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -42889,7 +42893,7 @@
       "warnings": []
     },
     {
-      "player_slug": "primo-brezec",
+      "player_slug": "primoz-brezec",
       "player_name": "Primo\u017e Brezec",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -45243,17 +45247,17 @@
     {
       "player_slug": "robert-williams",
       "player_name": "Robert Williams",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4066211",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4066211.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4066211",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "RW",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -45771,17 +45775,17 @@
     {
       "player_slug": "ron-harper",
       "player_name": "Ron Harper",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4397251",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4397251.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4397251",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "RH",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -46265,7 +46269,7 @@
       "warnings": []
     },
     {
-      "player_slug": "rub-n-garc-s",
+      "player_slug": "ruben-garces",
       "player_name": "Rub\u00e9n Garc\u00e9s",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -47163,7 +47167,7 @@
       "warnings": []
     },
     {
-      "player_slug": "sasha-danilovi",
+      "player_slug": "sasha-danilovic",
       "player_name": "Sasha Danilovi\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -47211,7 +47215,7 @@
       "warnings": []
     },
     {
-      "player_slug": "sasha-pavlovi",
+      "player_slug": "sasha-pavlovic",
       "player_name": "Sasha Pavlovi\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -47259,7 +47263,7 @@
       "warnings": []
     },
     {
-      "player_slug": "sasha-vuja-i",
+      "player_slug": "sasha-vujacic",
       "player_name": "Sasha Vuja\u010di\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -47963,7 +47967,7 @@
       "warnings": []
     },
     {
-      "player_slug": "sergio-rodr-guez",
+      "player_slug": "sergio-rodriguez",
       "player_name": "Sergio Rodr\u00edguez",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -48685,7 +48689,7 @@
       "warnings": []
     },
     {
-      "player_slug": "skal-labissi-re",
+      "player_slug": "skal-labissiere",
       "player_name": "Skal Labissi\u00e8re",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -49757,7 +49761,7 @@
       "warnings": []
     },
     {
-      "player_slug": "st-phane-lasme",
+      "player_slug": "stephane-lasme",
       "player_name": "St\u00e9phane Lasme",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -50849,7 +50853,7 @@
       "warnings": []
     },
     {
-      "player_slug": "th-o-maledon",
+      "player_slug": "theo-maledon",
       "player_name": "Th\u00e9o Maledon",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -50995,17 +50999,17 @@
     {
       "player_slug": "tim-hardaway",
       "player_name": "Tim Hardaway",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "2528210",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/2528210.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/2528210",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "TH",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -51201,7 +51205,7 @@
       "warnings": []
     },
     {
-      "player_slug": "timoth-luwawu-cabarrot",
+      "player_slug": "timothe-luwawu-cabarrot",
       "player_name": "Timoth\u00e9 Luwawu-Cabarrot",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -51731,7 +51735,7 @@
       "warnings": []
     },
     {
-      "player_slug": "tom-satoransk",
+      "player_slug": "tomas-satoransky",
       "player_name": "Tom\u00e1\u0161 Satoransk\u00fd",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -51779,7 +51783,7 @@
       "warnings": []
     },
     {
-      "player_slug": "toni-kuko",
+      "player_slug": "toni-kukoc",
       "player_name": "Toni Kuko\u010d",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -52745,17 +52749,17 @@
     {
       "player_slug": "trey-jemison",
       "player_name": "Trey Jemison",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4395623",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4395623.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4395623",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "TJ",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -53675,7 +53679,7 @@
       "warnings": []
     },
     {
-      "player_slug": "vasilije-mici",
+      "player_slug": "vasilije-micic",
       "player_name": "Vasilije Mici\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -54123,7 +54127,7 @@
       "warnings": []
     },
     {
-      "player_slug": "vladimir-radmanovi",
+      "player_slug": "vladimir-radmanovic",
       "player_name": "Vladimir Radmanovi\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -54219,19 +54223,19 @@
       "warnings": []
     },
     {
-      "player_slug": "v-t-krej",
+      "player_slug": "vit-krejci",
       "player_name": "V\u00edt Krej\u010d\u00ed",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4578893",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4578893.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4578893",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "VK",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -54413,17 +54417,17 @@
     {
       "player_slug": "walter-clayton",
       "player_name": "Walter Clayton",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4896372",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4896372.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4896372",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "WC",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
+      "resolution_status": "resolved",
+      "confidence": 1.0,
       "warnings": []
     },
     {
@@ -55179,7 +55183,7 @@
       "warnings": []
     },
     {
-      "player_slug": "willy-hernang-mez",
+      "player_slug": "willy-hernangomez",
       "player_name": "Willy Hernang\u00f3mez",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -55405,18 +55409,20 @@
     {
       "player_slug": "xavier-tillman-sr",
       "player_name": "Xavier Tillman Sr.",
-      "espn_athlete_id": null,
+      "espn_athlete_id": "4277964",
       "nba_player_id": null,
       "basketball_reference_id": null,
-      "headshot_url": null,
-      "image_provider": null,
-      "image_source_url": null,
-      "license_status": "no_public_image",
+      "headshot_url": "https://a.espncdn.com/i/headshots/nba/players/full/4277964.png",
+      "image_provider": "ESPN",
+      "image_source_url": "https://www.espn.com/nba/player/_/id/4277964",
+      "license_status": "unknown_do_not_cache",
       "cache_policy": "dev_hotlink_preview_only",
       "fallback_initials": "XS",
-      "resolution_status": "unresolved",
-      "confidence": 0.0,
-      "warnings": []
+      "resolution_status": "resolved",
+      "confidence": 0.9,
+      "warnings": [
+        "Resolved via ESPN's broader athlete pool (not a current team roster) -- headshot URL constructed from a verified ID template."
+      ]
     },
     {
       "player_slug": "yakhouba-diawara",
@@ -55917,7 +55923,7 @@
       "warnings": []
     },
     {
-      "player_slug": "zoran-dragi",
+      "player_slug": "zoran-dragic",
       "player_name": "Zoran Dragi\u0107",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -55981,7 +55987,7 @@
       "warnings": []
     },
     {
-      "player_slug": "ar-nas-jasikevi-ius",
+      "player_slug": "sarunas-jasikevicius",
       "player_name": "\u0160ar\u016bnas Jasikevi\u010dius",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -55997,7 +56003,7 @@
       "warnings": []
     },
     {
-      "player_slug": "an-tabak",
+      "player_slug": "zan-tabak",
       "player_name": "\u017dan Tabak",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -56013,7 +56019,7 @@
       "warnings": []
     },
     {
-      "player_slug": "arko-abarkapa",
+      "player_slug": "zarko-cabarkapa",
       "player_name": "\u017darko \u010cabarkapa",
       "espn_athlete_id": null,
       "nba_player_id": null,
@@ -56029,7 +56035,7 @@
       "warnings": []
     },
     {
-      "player_slug": "eljko-rebra-a",
+      "player_slug": "zeljko-rebraca",
       "player_name": "\u017deljko Rebra\u010da",
       "espn_athlete_id": null,
       "nba_player_id": null,

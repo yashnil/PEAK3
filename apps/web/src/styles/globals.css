@@ -322,6 +322,15 @@ html, body {
   overflow: hidden;
   border: 1px solid var(--border-default);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  /* Phase 8B: a container query context, not just a viewport one. This
+     same component renders inside a full-width mobile column, a ~400px
+     desktop sticky rail (.arena-shell-rail), AND a ~672px result-screen
+     card -- three very different available widths at the SAME viewport
+     size. A `max-width: 480px` viewport media query can't tell those
+     apart (the 400px rail only ever exists on a >=1024px viewport, so it
+     would never match); querying this wrapper's own inline size does. */
+  container-type: inline-size;
+  container-name: court-panel;
 }
 
 .roster-board {
@@ -393,6 +402,49 @@ html, body {
       "pg  pg"
       "sf  sg"
       "pf  c";
+  }
+}
+
+/* Phase 8B: same 2-column collapse as the viewport rule above, but keyed
+   off the court panel's own rendered width (see .court-panel-wrapper's
+   container-type) -- covers the desktop sticky rail (.arena-shell-rail,
+   ~400px) AND the result-screen share card (~640px), neither of which the
+   old viewport-only media query above ever caught (both render at a wide,
+   >=1024px viewport). The corner slots (SF/SG) in the 4-column diagonal
+   layout only get ~1/4 of the container's width -- fine at the old
+   max-w-3xl (768px) single-column width this was tuned for, but at 640px
+   or 400px it's not enough room for "Carlos Clark" + "Boston Celtics ·
+   1983-84" without either character-level wrapping or clipping the season
+   off a 2-line clamp (Phase 8 playtest finding #5). The threshold is set
+   above every width this component currently renders at (900px), so the
+   4-column "spread" layout is reserved for a genuinely wide container if
+   one exists in the future -- readability wins over the diagonal court
+   silhouette at every width actually in use today. */
+@container court-panel (max-width: 900px) {
+  .roster-board-starters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "pg  pg"
+      "sf  sg"
+      "pf  c";
+  }
+}
+
+/* Phase 8B: on a real phone-width container, even 2 columns (~155px) isn't
+   enough room for "Los Angeles Clippers · 2022-23" without clipping the
+   season off the 2-line clamp. One full-width column trades the last of
+   the court silhouette for the thing the user actually asked to be able
+   to read -- every starter card gets the panel's full width, same as the
+   bench does below 460px. */
+@container court-panel (max-width: 380px) {
+  .roster-board-starters {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "pg"
+      "sf"
+      "sg"
+      "pf"
+      "c";
   }
 }
 
@@ -500,6 +552,19 @@ html, body {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+/* Phase 8B: same container-width problem as the starters grid -- 3 equal
+   columns gives each bench card only ~110px in the ~400px rail or on a
+   phone viewport, breaking names into single-character lines. Collapse to
+   one full-width column below that. The ~640px result-screen card and any
+   container above this stay 3-column (already comfortable, see
+   .court-panel-wrapper's container-type comment for the three widths this
+   component actually renders at). */
+@container court-panel (max-width: 460px) {
+  .roster-board-bench {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Small hoop glyph accent, purely decorative (aria-hidden), keeps a
@@ -806,4 +871,168 @@ html, body {
 .score-number {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+/* ================================================================
+   Phase 8B -- PEAK Season "Arena" wide-desktop shell
+   ================================================================
+   The build flow was trapped in a max-w-3xl (768px) centered column at
+   every viewport, wasting most of a desktop screen. Per the blueprint's
+   own desktop guidance ("three-card comparison, full lineup rail") and
+   wide-desktop guidance ("never stretch body copy indefinitely -- use
+   additional room for persistent comparison panels, not larger line
+   lengths"), this introduces a two-column layout at lg+ (>=1024px): the
+   spin/candidate flow stays a comfortable reading-width column on the
+   left, and the roster ("Your roster, in progress") becomes a persistent
+   sticky rail on the right -- visible while picking, not just scrolled
+   past. Below lg, both stack in the original single column (no behavior
+   change on phone/tablet). */
+.arena-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (min-width: 1024px) {
+  .arena-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 400px;
+    align-items: start;
+    gap: 28px;
+  }
+}
+
+.arena-shell-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (min-width: 1024px) {
+  .arena-shell-rail {
+    position: sticky;
+    top: 24px;
+  }
+}
+
+/* ================================================================
+   Phase 8B -- richer roster-board court surface
+   ================================================================ */
+
+.roster-board {
+  /* Stronger arena-floor treatment: a warmer radial "spotlight" over the
+     paint plus a slightly more saturated hardwood gradient -- still no
+     image asset, CSS-only. */
+  background:
+    radial-gradient(85% 60% at 50% 8%, rgba(245, 200, 66, 0.10), transparent 65%),
+    radial-gradient(60% 45% at 50% 100%, rgba(245, 200, 66, 0.05), transparent 70%),
+    linear-gradient(180deg, var(--bg-elevated) 0%, #17130a 65%, #14110a 100%);
+}
+
+.roster-board-court-markings .roster-board-paint,
+.roster-board-court-markings .roster-board-ft-circle,
+.roster-board-court-markings .roster-board-arc {
+  opacity: 0.55;
+}
+
+.roster-board-court-markings .roster-board-rim {
+  opacity: 0.8;
+  box-shadow: 0 0 12px rgba(245, 200, 66, 0.35);
+}
+
+/* Per-slot team-color accent (Phase 8B) -- filled starter/bench cards get a
+   left accent rail in the real team's primary color (nba team-colors.ts;
+   colors + initials only, never a logo -- see that module's own docstring
+   for the licensing rationale). Applied via inline style custom property
+   `--slot-accent` (set per-card in PeakCardCourt.tsx) so this stays a pure
+   CSS hook, not a hardcoded palette. */
+.roster-board-slot-card-filled {
+  border-left: 3px solid var(--slot-accent, var(--peak-accent, #f5c842)) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), 0 2px 10px -4px rgba(0, 0, 0, 0.5);
+}
+
+/* ================================================================
+   Phase 8B -- spinner: bigger, more suspenseful reel + a visibly
+   distinct "respinning" re-roll state
+   ================================================================ */
+
+.spin-reel {
+  border-radius: 20px;
+}
+
+.spin-wheel-box {
+  position: relative;
+  border-radius: 18px;
+  transition: box-shadow 200ms ease, transform 200ms ease;
+}
+
+/* Once a roll is revealed, the wheel box picks up a soft glow in the
+   rolled team's own color (--slot-accent, set inline from getTeamColors)
+   -- real team identity used consistently, without a logo. */
+.spin-wheel-box[data-phase="revealed"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 45%, transparent),
+    0 0 28px -6px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 55%, transparent);
+}
+
+/* Top/bottom fade mask on the reel strip -- gives the ticking pool items a
+   real slot-machine "window" depth instead of a flat clipped list. */
+.spin-reel-strip {
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, black 20%, black 80%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0%, black 20%, black 80%, transparent 100%);
+}
+
+/* Respin-specific re-roll flourish (distinct from the first roll of a
+   round): a brief, energetic pulse + label so clicking "Respin" reads as a
+   real new roll happening, not a silent text swap (Phase 8 playtest
+   finding #1). Neutralized under prefers-reduced-motion like every other
+   animation in this file (global rule below still applies). */
+@keyframes respin-pulse-ring {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--peak-accent, #f5c842) 55%, transparent); }
+  100% { box-shadow: 0 0 0 14px color-mix(in srgb, var(--peak-accent, #f5c842) 0%, transparent); }
+}
+
+.spin-wheel-box[data-respinning="true"] {
+  animation: respin-pulse-ring 550ms ease-out;
+}
+
+.respin-banner {
+  color: var(--peak-accent, #f5c842);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 11px;
+  animation: respin-banner-fade 700ms ease-out;
+}
+
+@keyframes respin-banner-fade {
+  0% { opacity: 0; transform: translateY(-2px); }
+  15% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; }
+}
+
+/* ================================================================
+   Phase 8B -- result screen tier glow
+   ================================================================
+   Escalating (not re-hued) accent intensity by result tier -- stays
+   within the existing single peak-accent identity (blueprint principle:
+   "selective high-energy accents", not a rainbow tier-coding system).
+   Set via the `data-tier-glow` attribute (SeasonResultStub.tsx). */
+.result-hero[data-tier-glow="none"] { --tier-glow-opacity: 0; --tier-glow-blur: 0px; }
+.result-hero[data-tier-glow="low"] { --tier-glow-opacity: 0.12; --tier-glow-blur: 40px; }
+.result-hero[data-tier-glow="mid"] { --tier-glow-opacity: 0.20; --tier-glow-blur: 56px; }
+.result-hero[data-tier-glow="high"] { --tier-glow-opacity: 0.30; --tier-glow-blur: 72px; }
+.result-hero[data-tier-glow="max"] { --tier-glow-opacity: 0.42; --tier-glow-blur: 96px; }
+
+.result-hero {
+  position: relative;
+}
+
+.result-hero::before {
+  content: "";
+  position: absolute;
+  inset: -20px;
+  z-index: -1;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--peak-accent, #f5c842) calc(var(--tier-glow-opacity, 0) * 100%), transparent), transparent 75%);
+  filter: blur(var(--tier-glow-blur, 0px));
+  pointer-events: none;
 }

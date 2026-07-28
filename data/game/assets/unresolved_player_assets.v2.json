@@ -1,7 +1,7 @@
 {
   "report_version": "unresolved_player_assets.v2",
   "generation_command": "python scripts/build_espn_asset_manifests.py --write",
-  "unresolved_count": 2983,
+  "unresolved_count": 2960,
   "entries": [
     {
       "player_slug": "a-c-green",
@@ -359,7 +359,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "alexis-ajin-a",
+      "player_slug": "alexis-ajinca",
       "player_name": "Alexis Ajin\u00e7a",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -504,7 +504,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "anderson-varej-o",
+      "player_slug": "anderson-varejao",
       "player_name": "Anderson Varej\u00e3o",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -659,7 +659,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "andr-s-nocioni",
+      "player_slug": "andres-nocioni",
       "player_name": "Andr\u00e9s Nocioni",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -1359,7 +1359,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "boban-marjanovi",
+      "player_slug": "boban-marjanovic",
       "player_name": "Boban Marjanovi\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -1404,17 +1404,12 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "bogdan-bogdanovi",
-      "player_name": "Bogdan Bogdanovi\u0107",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "bojan-bogdanovic",
       "player_name": "Bojan Bogdanovic",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "bojan-bogdanovi",
+      "player_slug": "bojan-bogdanovic",
       "player_name": "Bojan Bogdanovi\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -1449,7 +1444,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "bo-tjan-nachbar",
+      "player_slug": "bostjan-nachbar",
       "player_name": "Bo\u0161tjan Nachbar",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -1759,7 +1754,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "bruno-undov",
+      "player_slug": "bruno-sundov",
       "player_name": "Bruno \u0160undov",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -2124,7 +2119,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "cezary-tryba-ski",
+      "player_slug": "cezary-trybanski",
       "player_name": "Cezary Tryba\u0144ski",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -2919,11 +2914,6 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "daron-holmes",
-      "player_name": "DaRon Holmes",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "daequan-cook",
       "player_name": "Daequan Cook",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
@@ -3194,7 +3184,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "dant-exum",
+      "player_slug": "dante-exum",
       "player_name": "Dant\u00e9 Exum",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -3209,7 +3199,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "dario-ari",
+      "player_slug": "dario-saric",
       "player_name": "Dario \u0160ari\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -3249,7 +3239,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "darko-mili-i",
+      "player_slug": "darko-milicic",
       "player_name": "Darko Mili\u010di\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -3691,11 +3681,6 @@
     {
       "player_slug": "dennis-rodman",
       "player_name": "Dennis Rodman",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "dennis-schr-der",
-      "player_name": "Dennis Schr\u00f6der",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -4189,7 +4174,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "dra-en-petrovi",
+      "player_slug": "drazen-petrovic",
       "player_name": "Dra\u017een Petrovi\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -4319,7 +4304,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "d-vis-bert-ns",
+      "player_slug": "davis-bertans",
       "player_name": "D\u0101vis Bert\u0101ns",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -4484,7 +4469,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "eduardo-n-jera",
+      "player_slug": "eduardo-najera",
       "player_name": "Eduardo N\u00e1jera",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -4744,7 +4729,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "ersan-i-lyasova",
+      "player_slug": "ersan-ilyasova",
       "player_name": "Ersan \u0130lyasova",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -4824,7 +4809,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "felipe-l-pez",
+      "player_slug": "felipe-lopez",
       "player_name": "Felipe L\u00f3pez",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -4849,7 +4834,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "filip-petru-ev",
+      "player_slug": "filip-petrusev",
       "player_name": "Filip Petru\u0161ev",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -4869,7 +4854,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "francisco-garc-a",
+      "player_slug": "francisco-garcia",
       "player_name": "Francisco Garc\u00eda",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -4974,11 +4959,6 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "gg-jackson-ii",
-      "player_name": "GG Jackson II",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "gabe-pruitt",
       "player_name": "Gabe Pruitt",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
@@ -5059,18 +5039,8 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "gary-payton",
-      "player_name": "Gary Payton",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "gary-plummer",
       "player_name": "Gary Plummer",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "gary-trent",
-      "player_name": "Gary Trent",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -5134,7 +5104,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "george-z-dek",
+      "player_slug": "george-zidek",
       "player_name": "George Z\u00eddek",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -5269,7 +5239,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "goran-dragi",
+      "player_slug": "goran-dragic",
       "player_name": "Goran Dragi\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -5279,7 +5249,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "gordan-giri-ek",
+      "player_slug": "gordan-giricek",
       "player_name": "Gordan Giri\u010dek",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -5424,7 +5394,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "greivis-v-squez",
+      "player_slug": "greivis-vasquez",
       "player_name": "Greivis V\u00e1squez",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -5454,7 +5424,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "gustavo-ay-n",
+      "player_slug": "gustavo-ayon",
       "player_name": "Gustavo Ay\u00f3n",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -5579,7 +5549,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "hedo-t-rko-lu",
+      "player_slug": "hedo-turkoglu",
       "player_name": "Hedo T\u00fcrko\u011flu",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -5941,11 +5911,6 @@
     {
       "player_slug": "jabari-parker",
       "player_name": "Jabari Parker",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "jabari-smith",
-      "player_name": "Jabari Smith",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -6329,7 +6294,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "jan-vesel",
+      "player_slug": "jan-vesely",
       "player_name": "Jan Vesel\u00fd",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -6391,11 +6356,6 @@
     {
       "player_slug": "jarell-martin",
       "player_name": "Jarell Martin",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "jaren-jackson",
-      "player_name": "Jaren Jackson",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -7009,11 +6969,6 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "jimmy-butler",
-      "player_name": "Jimmy Butler",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "jimmy-king",
       "player_name": "Jimmy King",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
@@ -7029,7 +6984,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "ji-welsch",
+      "player_slug": "jiri-welsch",
       "player_name": "Ji\u0159\u00ed Welsch",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -7509,11 +7464,6 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "jonas-valan-i-nas",
-      "player_name": "Jonas Valan\u010di\u016bnas",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "jonathan-bender",
       "player_name": "Jonathan Bender",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
@@ -7614,7 +7564,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "jorge-guti-rrez",
+      "player_slug": "jorge-gutierrez",
       "player_name": "Jorge Guti\u00e9rrez",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -7729,7 +7679,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "jos-calder-n",
+      "player_slug": "jose-calderon",
       "player_name": "Jos\u00e9 Calder\u00f3n",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -7754,7 +7704,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "juancho-hernang-mez",
+      "player_slug": "juancho-hernangomez",
       "player_name": "Juancho Hernang\u00f3mez",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -7889,11 +7839,6 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "jusuf-nurki",
-      "player_name": "Jusuf Nurki\u0107",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "juwan-howard",
       "player_name": "Juwan Howard",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
@@ -7904,7 +7849,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "j-r-me-mo-so",
+      "player_slug": "jerome-moiso",
       "player_name": "J\u00e9r\u00f4me Mo\u00efso",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -8389,11 +8334,6 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "kevin-porter",
-      "player_name": "Kevin Porter",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "kevin-pritchard",
       "player_name": "Kevin Pritchard",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
@@ -8539,7 +8479,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "korn-l-d-vid",
+      "player_slug": "kornel-david",
       "player_name": "Korn\u00e9l D\u00e1vid",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -8566,11 +8506,6 @@
     {
       "player_slug": "kris-joseph",
       "player_name": "Kris Joseph",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "kristaps-porzi-is",
-      "player_name": "Kristaps Porzi\u0146\u0123is",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -8784,11 +8719,6 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "larry-nance",
-      "player_name": "Larry Nance",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "larry-owens",
       "player_name": "Larry Owens",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
@@ -8964,7 +8894,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "lester-qui-ones",
+      "player_slug": "lester-quinones",
       "player_name": "Lester Qui\u00f1ones",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -9156,11 +9086,6 @@
     {
       "player_slug": "luis-scola",
       "player_name": "Luis Scola",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "luka-don-i",
-      "player_name": "Luka Don\u010di\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -9744,7 +9669,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "martin-m-rsepp",
+      "player_slug": "martin-muursepp",
       "player_name": "Martin M\u00fc\u00fcrsepp",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -10139,7 +10064,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "micka-l-pi-trus",
+      "player_slug": "mickael-pietrus",
       "player_name": "Micka\u00ebl Pi\u00e9trus",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -10394,7 +10319,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "mirsad-t-rkcan",
+      "player_slug": "mirsad-turkcan",
       "player_name": "Mirsad T\u00fcrkcan",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -10654,7 +10579,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "nenad-krsti",
+      "player_slug": "nenad-krstic",
       "player_name": "Nenad Krsti\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -10664,7 +10589,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "nen",
+      "player_slug": "nene",
       "player_name": "Nen\u00ea",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -10739,7 +10664,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "nicol-melli",
+      "player_slug": "nicolo-melli",
       "player_name": "Nicol\u00f2 Melli",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -10769,18 +10694,13 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "nikola-miroti",
+      "player_slug": "nikola-mirotic",
       "player_name": "Nikola Miroti\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
       "player_slug": "nikola-pekovic",
       "player_name": "Nikola Pekovic",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "nikola-vu-evi",
-      "player_name": "Nikola Vu\u010devi\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -11169,12 +11089,12 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "peja-stojakovi",
+      "player_slug": "peja-stojakovic",
       "player_name": "Peja Stojakovi\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "pepe-s-nchez",
+      "player_slug": "pepe-sanchez",
       "player_name": "Pepe S\u00e1nchez",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -11314,7 +11234,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "primo-brezec",
+      "player_slug": "primoz-brezec",
       "player_name": "Primo\u017e Brezec",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -11999,11 +11919,6 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "robert-williams",
-      "player_name": "Robert Williams",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "robin-lopez",
       "player_name": "Robin Lopez",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
@@ -12164,11 +12079,6 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "ron-harper",
-      "player_name": "Ron Harper",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "ron-holland",
       "player_name": "Ron Holland",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
@@ -12309,7 +12219,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "rub-n-garc-s",
+      "player_slug": "ruben-garces",
       "player_name": "Rub\u00e9n Garc\u00e9s",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -12529,7 +12439,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "sasha-danilovi",
+      "player_slug": "sasha-danilovic",
       "player_name": "Sasha Danilovi\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -12544,7 +12454,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "sasha-pavlovi",
+      "player_slug": "sasha-pavlovic",
       "player_name": "Sasha Pavlovi\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -12559,7 +12469,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "sasha-vuja-i",
+      "player_slug": "sasha-vujacic",
       "player_name": "Sasha Vuja\u010di\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -12764,7 +12674,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "sergio-rodr-guez",
+      "player_slug": "sergio-rodriguez",
       "player_name": "Sergio Rodr\u00edguez",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -12954,7 +12864,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "skal-labissi-re",
+      "player_slug": "skal-labissiere",
       "player_name": "Skal Labissi\u00e8re",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -13269,7 +13179,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "st-phane-lasme",
+      "player_slug": "stephane-lasme",
       "player_name": "St\u00e9phane Lasme",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -13554,7 +13464,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "th-o-maledon",
+      "player_slug": "theo-maledon",
       "player_name": "Th\u00e9o Maledon",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -13591,11 +13501,6 @@
     {
       "player_slug": "tim-frazier",
       "player_name": "Tim Frazier",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "tim-hardaway",
-      "player_name": "Tim Hardaway",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -13654,7 +13559,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "timoth-luwawu-cabarrot",
+      "player_slug": "timothe-luwawu-cabarrot",
       "player_name": "Timoth\u00e9 Luwawu-Cabarrot",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -13804,7 +13709,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "tom-satoransk",
+      "player_slug": "tomas-satoransky",
       "player_name": "Tom\u00e1\u0161 Satoransk\u00fd",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -13819,7 +13724,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "toni-kuko",
+      "player_slug": "toni-kukoc",
       "player_name": "Toni Kuko\u010d",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -14069,11 +13974,6 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "trey-jemison",
-      "player_name": "Trey Jemison",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
       "player_slug": "trey-johnson",
       "player_name": "Trey Johnson",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
@@ -14269,7 +14169,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "vasilije-mici",
+      "player_slug": "vasilije-micic",
       "player_name": "Vasilije Mici\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -14399,7 +14299,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "vladimir-radmanovi",
+      "player_slug": "vladimir-radmanovic",
       "player_name": "Vladimir Radmanovi\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -14426,11 +14326,6 @@
     {
       "player_slug": "voshon-lenard",
       "player_name": "Voshon Lenard",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "v-t-krej",
-      "player_name": "V\u00edt Krej\u010d\u00ed",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -14481,11 +14376,6 @@
     {
       "player_slug": "walter-bond",
       "player_name": "Walter Bond",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "walter-clayton",
-      "player_name": "Walter Clayton",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -14704,7 +14594,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "willy-hernang-mez",
+      "player_slug": "willy-hernangomez",
       "player_name": "Willy Hernang\u00f3mez",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -14771,11 +14661,6 @@
     {
       "player_slug": "xavier-sneed",
       "player_name": "Xavier Sneed",
-      "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
-    },
-    {
-      "player_slug": "xavier-tillman-sr",
-      "player_name": "Xavier Tillman Sr.",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
@@ -14879,7 +14764,7 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "zoran-dragi",
+      "player_slug": "zoran-dragic",
       "player_name": "Zoran Dragi\u0107",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
@@ -14899,22 +14784,22 @@
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "ar-nas-jasikevi-ius",
+      "player_slug": "sarunas-jasikevicius",
       "player_name": "\u0160ar\u016bnas Jasikevi\u010dius",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "an-tabak",
+      "player_slug": "zan-tabak",
       "player_name": "\u017dan Tabak",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "arko-abarkapa",
+      "player_slug": "zarko-cabarkapa",
       "player_name": "\u017darko \u010cabarkapa",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     },
     {
-      "player_slug": "eljko-rebra-a",
+      "player_slug": "zeljko-rebraca",
       "player_name": "\u017deljko Rebra\u010da",
       "reason": "not_found_in_espn_current_or_recent_athlete_pool_or_nba_cdn_crosswalk -- ESPN's public API has no historical/retired-player search (verified: its broader athlete-pool endpoint returns 611 total athletes, 539 active + 72 recently-inactive, none pre-dating roughly the 2020s), and no local NBA.com person_id crosswalk exists for this player (see NBA_PLAYER_ID_CROSSWALK_PATH's module docstring -- stats.nba.com/cdn.nba.com were also tested live from this environment and are not reliably reachable here). Not guessed."
     }

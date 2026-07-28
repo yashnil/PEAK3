@@ -91,10 +91,10 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
                   the avatar's initials glyph -- `order:-1` below only
                   reorders visual/flex layout, not DOM/text order. */}
               <div className="min-w-0 flex-1 text-left">
-                <div className="text-sm font-bold truncate">{c.player_name}</div>
+                <div className="text-sm font-bold" style={{ wordBreak: "break-word" }}>{c.player_name}</div>
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
                   {c.team_name && c.season && (
-                    <span className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="candidate-team-season">
+                    <span className="text-[10px]" style={{ color: "var(--text-secondary)" }} data-testid="candidate-team-season">
                       {c.team_name} · {c.season}
                     </span>
                   )}

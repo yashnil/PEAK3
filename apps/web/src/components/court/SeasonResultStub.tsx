@@ -29,6 +29,21 @@ function recordFraming(wins: number, losses: number): string {
   return "A rebuilding season";
 }
 
+// Phase 8B: escalating glow intensity behind the hero record, tracking
+// resultTier() -- a "wow" moment that scales with real achievement instead
+// of a flat, identical presentation for a 16-66 rebuild and an 82-0 perfect
+// season. Stays within the single existing --peak-accent identity (see
+// .result-hero in globals.css) rather than introducing a new tier-color
+// system -- the blueprint's own principle is "selective high-energy
+// accents", not a rainbow-coded scoreboard.
+function tierGlow(wins: number): "none" | "low" | "mid" | "high" | "max" {
+  if (wins >= 82) return "max";
+  if (wins >= 75) return "high";
+  if (wins >= 65) return "mid";
+  if (wins >= 45) return "low";
+  return "none";
+}
+
 const GUARD_POSITIONS = new Set(["PG", "SG"]);
 const WING_POSITIONS = new Set(["SF"]);
 const BIG_POSITIONS = new Set(["PF", "C"]);
@@ -137,7 +152,7 @@ export default function SeasonResultStub({ state, result }: Props) {
         </div>
       </div>
 
-      <div className="text-center">
+      <div className="text-center result-hero" data-tier-glow={tierGlow(result.wins)} data-testid="result-hero">
         <div
           data-testid="result-tier"
           className="text-xs font-bold uppercase tracking-[0.2em] mb-1"
@@ -147,7 +162,7 @@ export default function SeasonResultStub({ state, result }: Props) {
         </div>
         <div
           data-testid="season-record"
-          className="text-5xl font-black"
+          className="text-6xl font-black"
           style={{ color: result.is_perfect_season ? "var(--peak-accent, #f5c842)" : "var(--text-primary)" }}
         >
           {result.wins}-{result.losses}
