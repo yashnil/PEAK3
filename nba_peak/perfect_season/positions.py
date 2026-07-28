@@ -171,6 +171,30 @@ _ADJACENCY_SEVERITY: dict[frozenset[str], str] = {
 }
 
 
+# Phase 7A Part F follow-up: elite/big wings who legitimately and commonly
+# play both forward spots within a single season (small-ball 4, modern combo
+# forward, or a classic tweener great) -- e.g. LeBron James's 2012-13 Miami
+# season lists PF as the primary Basketball-Reference position while Kevin
+# Durant's 2013-14 OKC season lists SF, even though both are the same
+# "big wing" role. For these specific, human-verified players, a real-season
+# SF<->PF swap is treated as "secondary" fit (never "off_position", never
+# fit-point penalized), regardless of which forward slot that exact season's
+# `pos` field lists. A curated, human-verified list, not a height/archetype
+# inference -- same sourcing discipline as POSITION_OVERRIDES; never expand
+# this by guessing, only by verifying a player's real forward flexibility.
+FLEXIBLE_FORWARD_SLUGS: frozenset[str] = frozenset({
+    "lebron-james",
+    "kevin-durant",
+    "larry-bird",
+    "giannis-antetokounmpo",
+    "kawhi-leonard",
+    "jayson-tatum",
+    "paul-george",
+    "julius-erving",
+    "carmelo-anthony",
+})
+
+
 def position_fit_severity(slot_type: str, real_primary: str | None) -> str:
     """"mild" | "moderate" | "severe" -- how big a real basketball problem an
     off-position starter placement is. Only meaningful for pairs that are
@@ -184,12 +208,17 @@ def position_fit_severity(slot_type: str, real_primary: str | None) -> str:
     return _ADJACENCY_SEVERITY.get(frozenset({slot_type, real_primary}), "severe")
 
 
-def classify_fit_from_position(pos: str | None, slot_type: str) -> str:
+def classify_fit_from_position(pos: str | None, slot_type: str, player_slug: str | None = None) -> str:
     """classify_fit()'s counterpart for a real per-season position string
     (team-year mode) instead of a player_slug + archetype lookup. Same
     return contract: "primary" | "secondary" | "off_position" | "flexible".
     Never gates placement legality -- display/fit-feedback only, exactly
-    like classify_fit()."""
+    like classify_fit().
+
+    `player_slug` is optional (defaults to None for backward-compatible
+    callers that don't have it handy) and only ever used to check
+    FLEXIBLE_FORWARD_SLUGS -- an SF<->PF swap for one of those specific
+    players is "secondary", never "off_position"."""
     if slot_type in BENCH_SLOTS:
         return "flexible"
     if slot_type not in STARTER_SLOTS:
@@ -198,6 +227,12 @@ def classify_fit_from_position(pos: str | None, slot_type: str) -> str:
     if primary == slot_type:
         return "primary"
     if slot_type in secondary:
+        return "secondary"
+    if (
+        player_slug in FLEXIBLE_FORWARD_SLUGS
+        and primary in ("SF", "PF")
+        and slot_type in ("SF", "PF")
+    ):
         return "secondary"
     return "off_position"
 

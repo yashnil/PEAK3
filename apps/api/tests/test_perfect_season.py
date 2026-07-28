@@ -2349,6 +2349,25 @@ def test_kd_at_pf_on_a_strong_team_uses_ceiling_limiter_not_weakness():
     assert result.structural_weakness is not None
 
 
+def test_lebron_at_sf_and_kd_at_pf_are_never_named_position_broken():
+    """Phase 7A Part F follow-up regression: LeBron James's 2012-13 season
+    lists PF and Kevin Durant's 2013-14 season lists SF -- both are real
+    'big wing' players who legitimately play either forward spot, so this
+    exact roster (LeBron at SF, KD at PF) must never be described as
+    'Position-broken' or off-position at all, and positional_fit must be
+    meaningfully higher than the pre-fix value of 68."""
+    cards = _resolve_lineup(SUPERTEAM_AUDIT_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.structural_weakness is not None
+    assert "Position-broken" not in result.structural_weakness
+    assert "LeBron James at SF" not in result.structural_weakness
+    assert "Kevin Durant at PF" not in result.structural_weakness
+    assert result.fit_components.positional_fit > 68, (
+        f"expected positional_fit meaningfully above the pre-fix 68, got {result.fit_components.positional_fit}"
+    )
+    assert 70 <= result.wins <= 76, f"expected a believable contender-tier record, got {result.wins}"
+
+
 def test_sf_pf_swap_is_mild_not_the_dominant_weakness_when_components_are_healthy():
     """LeBron-at-SF / KD-at-PF (both real SF<->PF swaps) must not be
     reported ahead of a genuinely low component -- and since SF<->PF is now
@@ -2357,6 +2376,31 @@ def test_sf_pf_swap_is_mild_not_the_dominant_weakness_when_components_are_health
     from nba_peak.perfect_season.positions import position_fit_severity
     assert position_fit_severity("SF", "PF") == "mild"
     assert position_fit_severity("PF", "SF") == "mild"
+
+
+def test_flexible_forward_slugs_never_classified_off_position_between_sf_pf():
+    """Named elite/big wings (LeBron, KD, Bird, Giannis, Kawhi, Tatum, PG,
+    Dr. J, Carmelo) get 'secondary' fit for a real-season SF<->PF swap --
+    never 'off_position', regardless of which forward slot that season's
+    real position lists."""
+    from nba_peak.perfect_season.positions import classify_fit_from_position, FLEXIBLE_FORWARD_SLUGS
+    for slug in FLEXIBLE_FORWARD_SLUGS:
+        assert classify_fit_from_position("SF", "PF", slug) == "secondary"
+        assert classify_fit_from_position("PF", "SF", slug) == "secondary"
+    # A player NOT on the curated list still gets the general 'mild'
+    # adjacency treatment (off_position, but only mild severity) -- the
+    # curated list only ever makes things MORE lenient, never less.
+    assert classify_fit_from_position("SF", "PF", "some-unlisted-player") == "off_position"
+
+
+def test_guard_at_center_or_center_at_guard_still_severe():
+    """The curated flexible-forward exception is scoped to SF<->PF only --
+    a guard playing center (or vice versa) remains a severe mismatch."""
+    from nba_peak.perfect_season.positions import position_fit_severity
+    assert position_fit_severity("C", "PG") == "severe"
+    assert position_fit_severity("PG", "C") == "severe"
+    assert position_fit_severity("C", "SG") == "severe"
+    assert position_fit_severity("SG", "C") == "severe"
 
 
 def test_weak_team_still_uses_weakness_not_ceiling_limiter():

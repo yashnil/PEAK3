@@ -276,7 +276,11 @@ def action_place_card(
     if state.pending_selection_exact_season_key:
         slot.exact_player_season_key = state.pending_selection_exact_season_key
         placed_card = resolve_exact_card_by_key(slot.exact_player_season_key)
-        slot.role_fit = classify_fit_from_position(placed_card.position if placed_card else None, slot_type)
+        slot.role_fit = classify_fit_from_position(
+            placed_card.position if placed_card else None,
+            slot_type,
+            placed_card.player_slug if placed_card else None,
+        )
     else:
         slot.peak_window_id = state.pending_selection_peak_window_id
         placed_card = resolve_card_by_window_id(state, slot.peak_window_id)
@@ -628,7 +632,7 @@ def _provisional_expected_wins(state: CourtLineupState) -> Optional[float]:
         card = cards_by_slot.get(slot_type)
         if card is None:
             continue
-        fit_points.append(_FIT_POINTS.get(classify_fit_from_position(card.position, slot_type), 0.0))
+        fit_points.append(_FIT_POINTS.get(classify_fit_from_position(card.position, slot_type, card.player_slug), 0.0))
     positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points))) if fit_points else 50.0
 
     def _avg_percentile(column: str) -> float:
@@ -724,7 +728,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                 "score_status": card.score_status,
                 "score_source": card.score_source,
                 "fit_by_open_slot": {
-                    slot_type: classify_fit_from_position(card.position, slot_type)
+                    slot_type: classify_fit_from_position(card.position, slot_type, card.player_slug)
                     for slot_type in get_open_slot_types(state)
                 },
             }
