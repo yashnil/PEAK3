@@ -236,6 +236,13 @@ class SimulationResultPublic(BaseModel):
     # simulate_season doesn't compute these -- Peak Draft is unaffected).
     best_pick: Optional[str] = None
     structural_weakness: Optional[str] = None
+    # Phase 8 pre-loop polish: one-sentence explainer for structural_weakness
+    # (see nba_peak.perfect_season.simulation._COMPONENT_EXPLAINERS) -- e.g.
+    # clarifies that "thin bench depth" is relative to the starters' own
+    # 0-100 all-time-peak scores, not a real-world judgment on the players.
+    # None when the weakness text is already self-explanatory or for legacy
+    # peak-window boards (same scope as structural_weakness itself).
+    structural_weakness_detail: Optional[str] = None
     # Phase 7A Part F: "weakness" | "ceiling_limiter" -- drives whether the
     # UI prefixes structural_weakness with "Weakness:" or "Ceiling limiter:".
     weakness_framing: Optional[str] = None

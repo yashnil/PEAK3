@@ -63,6 +63,19 @@ import pandas as pd
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FINAL_250_PATH = REPO_ROOT / "data" / "generated" / "final_250_candidates.csv"
+# Phase 8 pre-loop polish: PEAK Season's actual card pool is this file (every
+# player who can appear as a team-year roster candidate -- 3,494 unique
+# names as of this pass), not just the 250-player all-time canonical pool.
+# Most PEAK Season rosters draw heavily from the larger pool (traded/role
+# players, non-top-250 stars in a given exact season), which is why image
+# coverage felt sparse even after Phase 7A's expansion -- the manifest was
+# never attempting to resolve most of the players the game actually deals.
+# Widening the name list costs zero extra network calls: team rosters and
+# the broader athlete-pool endpoint are already fetched in full regardless
+# of how many names this script tries to match against them below.
+TEAM_YEAR_DATASET_PATH = (
+    REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v3.json"
+)
 OUT_DIR = REPO_ROOT / "data" / "game" / "assets"
 
 TEAMS_ENDPOINT = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams?limit=50"
@@ -205,6 +218,28 @@ def fetch_espn_roster(espn_team_id: str) -> list[dict]:
     return out
 
 
+def _load_team_year_player_names() -> set[str]:
+    """Every distinct player_name that can appear as a PEAK Season team-year
+    roster candidate -- see TEAM_YEAR_DATASET_PATH's module-level comment.
+    Returns an empty set (never crashes) if the dataset file is missing,
+    so this script still works against a bare checkout that hasn't
+    regenerated the experimental dataset yet -- it just falls back to the
+    250-player pool alone in that case."""
+    if not TEAM_YEAR_DATASET_PATH.exists():
+        return set()
+    try:
+        data = json.loads(TEAM_YEAR_DATASET_PATH.read_text())
+    except (json.JSONDecodeError, OSError):
+        return set()
+    names: set[str] = set()
+    for spin in data.get("exact_team_year_spins", []):
+        for candidate in spin.get("candidates", []):
+            name = candidate.get("player_name")
+            if name:
+                names.add(str(name))
+    return names
+
+
 def _load_nba_player_id_crosswalk() -> dict[str, str]:
     """player_slug -> real NBA.com person_id, from an OPTIONAL local file.
     See NBA_PLAYER_ID_CROSSWALK_PATH's module-level comment -- this file
@@ -323,7 +358,11 @@ def build_player_assets(espn_teams: list[dict], online_validate: bool = False) -
     if not FINAL_250_PATH.exists():
         print(f"ERROR: {FINAL_250_PATH} missing -- broken checkout.")
         sys.exit(1)
-    names = sorted(set(pd.read_csv(FINAL_250_PATH)["player"].astype(str).tolist()))
+    names_250 = set(pd.read_csv(FINAL_250_PATH)["player"].astype(str).tolist())
+    team_year_names = _load_team_year_player_names()
+    names = sorted(names_250 | team_year_names)
+    print(f"Player name pool: {len(names_250)} from the 250-canonical pool, "
+          f"{len(team_year_names)} from the team-year candidate pool, {len(names)} unique total.")
 
     print(f"Fetching rosters for {len(espn_teams)} ESPN teams (current active players only) ...")
     roster_by_norm_name: dict[str, dict] = {}
@@ -496,9 +535,12 @@ def build_player_assets(espn_teams: list[dict], online_validate: bool = False) -
             "upgrade (see asset_sources.v1.json)."
         ),
         "scope_note": (
-            "Seeded from the 250-player canonical pool. Only players on a CURRENT ESPN NBA "
-            "roster at generation time can resolve -- historical/retired players are "
-            "unresolved by design, not fabricated. See unresolved_player_assets.v1.json."
+            "Phase 8: seeded from the union of the 250-player canonical pool AND every player "
+            "name reachable as a PEAK Season team-year roster candidate (courtbuilder_team_year."
+            "experimental.v3.json) -- the actual card pool the game deals from, not just the "
+            "all-time-top-250 list. Only players on a CURRENT ESPN NBA roster (or ESPN's broader "
+            "recently-active athlete pool) at generation time can resolve -- historical/retired "
+            "players are unresolved by design, not fabricated. See unresolved_player_assets.v2.json."
         ),
         "player_count": len(players),
         "resolved_count": resolved_count,

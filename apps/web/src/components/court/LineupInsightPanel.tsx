@@ -39,6 +39,10 @@ export default function LineupInsightPanel({ result }: { result: SimulationResul
           </div>
         );
       })}
+      <p className="text-[11px] mt-1" style={{ color: "var(--text-muted)" }} data-testid="fit-components-scale-note">
+        Every component here is measured on the same 0-100 all-time-peak scale used everywhere in
+        PEAK3 -- a moderate score (40s-60s) is a normal, real-season contribution, not a weak one.
+      </p>
     </div>
   );
 }

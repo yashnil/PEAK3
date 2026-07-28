@@ -179,6 +179,21 @@ export default function SeasonResultStub({ state, result }: Props) {
         </div>
       )}
 
+      {/* Phase 8 pre-loop polish: a bare label like "thin bench depth" reads
+          as a real basketball insult on its own -- this clarifies it's
+          relative to PEAK3's 0-100 all-time-peak scale, not an absolute
+          real-world judgment on the players. Only shown when the server
+          actually has a detail sentence for this weakness. */}
+      {result.structural_weakness_detail && (
+        <p
+          className="text-xs text-center -mt-2"
+          style={{ color: "var(--text-muted)" }}
+          data-testid="weakness-detail"
+        >
+          {result.structural_weakness_detail}
+        </p>
+      )}
+
       {/* The durable, comparable score -- unlike the 82-0 record above
           (seeded RNG noise, capped at a fixed 82-game season), this is a
           real mean of the placed cards' own calibrated PEAK3 scores. For

@@ -2355,7 +2355,13 @@ def test_lebron_at_sf_and_kd_at_pf_are_never_named_position_broken():
     'big wing' players who legitimately play either forward spot, so this
     exact roster (LeBron at SF, KD at PF) must never be described as
     'Position-broken' or off-position at all, and positional_fit must be
-    meaningfully higher than the pre-fix value of 68."""
+    meaningfully higher than the pre-fix value of 68.
+
+    Win bound widened for Phase 8's weighted-starter-talent recalibration
+    (this fixture's 5 starters are Magic/Kobe/LeBron/KD/KAT -- three of them
+    80+ PEAK3 -- so a higher win total than the original 70-76 band is the
+    correct, intended outcome of fixing "elite starters under-rewarded by a
+    flat average", not a regression)."""
     cards = _resolve_lineup(SUPERTEAM_AUDIT_LINEUP)
     result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
     assert result.structural_weakness is not None
@@ -2365,7 +2371,7 @@ def test_lebron_at_sf_and_kd_at_pf_are_never_named_position_broken():
     assert result.fit_components.positional_fit > 68, (
         f"expected positional_fit meaningfully above the pre-fix 68, got {result.fit_components.positional_fit}"
     )
-    assert 70 <= result.wins <= 76, f"expected a believable contender-tier record, got {result.wins}"
+    assert 75 <= result.wins <= 81, f"expected a believable dynasty-tier record, got {result.wins}"
 
 
 def test_sf_pf_swap_is_mild_not_the_dominant_weakness_when_components_are_healthy():
@@ -2430,6 +2436,96 @@ def test_decisive_factors_mention_the_same_component_the_weakness_names():
     result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
     assert result.structural_weakness == "thin bench depth"
     assert any("bench" in f.lower() for f in result.decisive_factors)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 pre-loop polish: weighted starter talent, weakness explainer
+# copy, and "elite starters" positive feedback.
+# ---------------------------------------------------------------------------
+
+# A reconstruction of the reported "roster felt too strong to only be
+# 65-17" case: three near-all-time-peak starters (Hakeem, LeBron, Bird) plus
+# a merely-decent floor general (Rondo) and two role-player-tier guards on
+# the bench (Lowry, Granger, English) rounding it out. Real exact seasons,
+# real positions -- Rondo/Lowry both PG (only one can start), no natural SG
+# on this roster (mirrors the reported build).
+UNDER_REWARDED_STARTERS_LINEUP = [
+    ("rajon-rondo", "BOS", "2012-13"),
+    ("kawhi-leonard", "LAC", "2022-23"),
+    ("lebron-james", "CLE", "2016-17"),
+    ("larry-bird", "BOS", "1983-84"),
+    ("hakeem-olajuwon", "HOU", "1992-93"),
+    ("danny-granger", "IND", "2008-09"),
+    ("kyle-lowry", "HOU", "2011-12"),
+    ("alex-english", "DEN", "1980-81"),
+]
+
+
+def test_weighted_starter_talent_rewards_elite_top_end_over_flat_average():
+    """Phase 8 regression for the exact complaint: a roster with three
+    80+-PEAK3 starters (Hakeem, LeBron, Bird) and one much weaker starter
+    (Rondo, ~35) should have a talent_core meaningfully above what a flat
+    5-way average of the starters would produce -- a flat average let one
+    merely-good starter drag elite ones down by as much as it took to
+    credit them, which is exactly what this recalibration fixes."""
+    cards = _resolve_lineup(UNDER_REWARDED_STARTERS_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    starters = cards[:5]
+    flat_avg = sum(c.season_score for c in starters) / len(starters)
+    assert result.fit_components.talent_core > flat_avg, (
+        f"expected weighted talent_core ({result.fit_components.talent_core}) to exceed the flat "
+        f"starter average ({flat_avg:.2f})"
+    )
+    # Believable, not automatic-82 -- Rondo's real drag and the modest bench
+    # still matter, just not as harshly as an unweighted average.
+    assert 68 <= result.wins <= 78, f"expected a believable strong-but-not-elite record, got {result.wins}"
+
+
+def test_bench_strength_weakness_gets_a_scale_clarifying_detail_sentence():
+    """Regression for the exact complaint: 'thin bench depth' alone reads
+    as a real insult to Granger/Lowry/English, who are not weak NBA
+    players. When bench_strength is the named ceiling limiter, the API
+    must also return a detail sentence clarifying it's relative to PEAK3's
+    0-100 all-time-peak scale, not an absolute judgment."""
+    cards = _resolve_lineup(UNDER_REWARDED_STARTERS_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.structural_weakness == "thin bench depth"
+    assert result.structural_weakness_detail is not None
+    assert "0-100" in result.structural_weakness_detail
+    assert "not a weak one" in result.structural_weakness_detail
+
+
+def test_elite_starter_count_surfaces_as_a_positive_decisive_factor():
+    """A roster with 2+ starters graded 80+ PEAK3 should get a specific,
+    exciting positive callout in decisive_factors -- not just a generic
+    'balanced lineup' or a purely negative framing, even when the result
+    isn't 82-0."""
+    cards = _resolve_lineup(UNDER_REWARDED_STARTERS_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert any("all-time peak" in f for f in result.decisive_factors), result.decisive_factors
+
+
+def test_ceiling_limiter_generic_fallback_has_a_detail_sentence():
+    """When a contender/dynasty roster has no positional issue and every
+    component is healthy, the generic 'not every star is in their peak
+    season' fallback must still come with an explanatory detail sentence,
+    not a bare unexplained phrase."""
+    from nba_peak.perfect_season.simulation import (
+        _CEILING_LIMITER_GENERIC_DETAIL,
+        _structural_weakness_exact,
+    )
+    from nba_peak.perfect_season.schemas import LineupFitComponents
+
+    # Every component comfortably healthy, no off-position starters --
+    # forces the function past every earlier branch to the final fallback.
+    healthy_fit = LineupFitComponents(
+        talent_core=90, bench_strength=80, positional_fit=100,
+        creation_coverage=90, scoring_coverage=90, postseason_pedigree=90, team_context_depth=80,
+    )
+    cards = _resolve_lineup(ALL_TIME_CEILING_LINEUP)
+    text, detail = _structural_weakness_exact(cards, SLOT_TYPES, healthy_fit, wins=79)
+    assert text == "not every star is in their peak season"
+    assert detail == _CEILING_LIMITER_GENERIC_DETAIL
 
 
 # ---------------------------------------------------------------------------

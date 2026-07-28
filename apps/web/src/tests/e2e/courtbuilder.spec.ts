@@ -396,8 +396,10 @@ test.describe("CourtBuilder spin ceremony", () => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await startCourtBuilder(page);
     // Under reduced motion the ceremony's JS timers (SpinStage.tsx's
-    // SPIN_MS/LOCK_MS/COUNT_MS sequence, ~1.7s total for normal-motion
-    // users) are skipped entirely -- the effect flips phase straight to
+    // SPIN_MS/LOCK_MS/COUNT_MS sequence, ~1.95s total for normal-motion
+    // users -- Phase 8 slowed it down for more suspense, still under the
+    // product spec's 2s hard ceiling) are skipped entirely -- the effect
+    // flips phase straight to
     // "revealed" on mount, no timers at all. Assert on that observable
     // state directly, with a tight timeout, rather than bracketing a
     // Date.now() measurement around page load: the old assertion measured
@@ -477,7 +479,7 @@ test.describe("CourtBuilder spin ceremony", () => {
   });
 
   test("locked state shows a LOCKED stamp between spinning and reveal", async ({ page }) => {
-    // The "locked" phase is a deliberately brief ~450ms window between the
+    // The "locked" phase is a deliberately brief ~400ms window between the
     // spinning and revealed phases (see SpinStage.tsx's LOCK_MS). Racing a
     // fresh navigation against that live transient window is not just slow
     // -- it is genuinely unreliable: on a slow dev-server compile, the

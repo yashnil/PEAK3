@@ -200,6 +200,11 @@ export interface SimulationResultPublic {
   // for legacy peak-window boards.
   best_pick?: string | null;
   structural_weakness?: string | null;
+  // Phase 8 pre-loop polish: one-sentence explainer for structural_weakness
+  // (e.g. clarifies that "thin bench depth" is relative to the starters'
+  // own 0-100 all-time-peak scores, not a real-world judgment). Null when
+  // the weakness text is already self-explanatory.
+  structural_weakness_detail?: string | null;
   // Phase 7A Part F: "weakness" | "ceiling_limiter"
   weakness_framing?: string | null;
 }

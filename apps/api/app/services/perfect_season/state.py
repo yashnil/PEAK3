@@ -50,7 +50,7 @@ from nba_peak.perfect_season.positions import (
     secondary_positions,
 )
 from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot
-from nba_peak.perfect_season.simulation import _FIT_POINTS, simulate_exact_season, simulate_season
+from nba_peak.perfect_season.simulation import _FIT_POINTS, _weighted_starter_talent, simulate_exact_season, simulate_season
 
 TEAM_YEAR_SPIN_TYPE = "team_year"
 
@@ -620,10 +620,15 @@ def _provisional_expected_wins(state: CourtLineupState) -> Optional[float]:
     ]
     if not starter_scores and not bench_scores:
         return None
+    # Phase 8: reuse the same peak-weighted starter aggregate as the real
+    # simulator (simulation.py::_weighted_starter_talent) -- keeping this
+    # mid-run estimate on the exact same formula as the final result is the
+    # whole point of this function (see docstring above).
+    starter_talent = _weighted_starter_talent(starter_scores)
     talent_core = (
-        (sum(starter_scores) / len(starter_scores)) * 0.8 + (sum(bench_scores) / len(bench_scores)) * 0.2
+        starter_talent * 0.8 + (sum(bench_scores) / len(bench_scores)) * 0.2
         if starter_scores and bench_scores
-        else (sum(starter_scores) / len(starter_scores) if starter_scores else sum(bench_scores) / len(bench_scores))
+        else (starter_talent if starter_scores else sum(bench_scores) / len(bench_scores))
     )
     bench_strength = (sum(bench_scores) / len(bench_scores)) if bench_scores else 50.0
 
@@ -830,6 +835,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             ),
             "best_pick": r.best_pick,
             "structural_weakness": r.structural_weakness,
+            "structural_weakness_detail": r.structural_weakness_detail,
             "weakness_framing": r.weakness_framing,
         }
 

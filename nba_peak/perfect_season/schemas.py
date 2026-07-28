@@ -160,6 +160,15 @@ class SimulationResult:
     # module docstring's "never blame a strong player for a fit problem" rule.
     best_pick: str | None = None
     structural_weakness: str | None = None
+    # Phase 8 pre-loop polish: one-sentence plain-English explainer for
+    # structural_weakness -- see simulation.py::_COMPONENT_EXPLAINERS. Exists
+    # because a bare label like "thin bench depth" reads as a real basketball
+    # insult on its own; the detail clarifies it's relative to PEAK3's 0-100
+    # all-time-peak scale, not an absolute real-world judgment. None when the
+    # weakness text is already fully self-explanatory (a named off-position
+    # starter, a data-coverage gap, or the below-contender bare-name
+    # fallback) or for legacy peak-window boards (same scope as best_pick).
+    structural_weakness_detail: str | None = None
     # Phase 7A Part F: "weakness" | "ceiling_limiter" -- for a contender/
     # dynasty-tier result (wins >= 65), the UI should frame
     # structural_weakness as what's capping the ceiling ("Ceiling limiter:

@@ -35,19 +35,25 @@ interface Props {
 type CeremonyPhase = "spinning" | "locked" | "revealed";
 type RampStage = "fast" | "slow";
 
-// Total ceremony budget stays well under the 2s ceiling
-// (ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.2).
-const SPIN_MS = 900;
-const LOCK_MS = 450;
-const COUNT_MS = 350;
-// Phase 6G Part B: speed ramp -- fast reel ticks for the first ~55% of the
-// spin budget, then a visibly slower "decelerating" tick rate for the rest,
-// so the reel reads as spinning-down-to-a-stop rather than a flat blur that
-// abruptly halts. Two discrete stages (not a continuous easing curve) keeps
-// this trivially cancelable/deterministic -- only ever two live intervals.
-const FAST_TICK_MS = 70;
-const SLOW_TICK_MS = 170;
-const RAMP_SWITCH_MS = Math.round(SPIN_MS * 0.55);
+// Total ceremony budget stays under the 2s hard ceiling
+// (ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.2: "under 2 seconds") -- Phase 8
+// pre-loop polish pushes the budget much closer to that ceiling (was ~1.7s
+// total, felt fast/mechanical) for a more deliberate, suspenseful ceremony,
+// while still leaving real margin under 2000ms.
+const SPIN_MS = 1250;
+const LOCK_MS = 400;
+const COUNT_MS = 300;
+// Phase 6G Part B (Phase 8: ramp switch moved earlier, from 55% to 45% of
+// the spin budget, so more of the ceremony is spent in the dramatic,
+// visibly-decelerating "slow" stage rather than the blurry "fast" one) --
+// fast reel ticks for the first ~45% of the spin budget, then a visibly
+// slower "decelerating" tick rate for the rest, so the reel reads as
+// spinning-down-to-a-stop rather than a flat blur that abruptly halts. Two
+// discrete stages (not a continuous easing curve) keeps this trivially
+// cancelable/deterministic -- only ever two live intervals.
+const FAST_TICK_MS = 90;
+const SLOW_TICK_MS = 220;
+const RAMP_SWITCH_MS = Math.round(SPIN_MS * 0.45);
 // Reduced-motion still shows a real, discrete state machine (spinning ->
 // locked -> revealed) instead of one continuous cycling animation -- "simple
 // stepped reveal", not literally nothing -- but with near-zero delays so it
