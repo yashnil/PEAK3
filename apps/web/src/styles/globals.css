@@ -625,6 +625,21 @@ html, body {
     0 0 16px color-mix(in srgb, var(--peak-accent, #f5c842) 25%, transparent);
 }
 
+/* Phase 8C: empty slots as "draft targets" rather than inert blank boxes
+   (playtest finding #3: "improve empty slots too; they should feel like
+   draft targets, not blank boxes"). A pending target (the slot the current
+   selection can be placed into) gets a slow breathing pulse -- draws the
+   eye without being frantic. Neutralized by the existing global
+   prefers-reduced-motion override. */
+@keyframes draft-target-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--peak-accent, #f5c842) 22%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--peak-accent, #f5c842) 0%, transparent); }
+}
+
+.draft-target[data-pending="true"] {
+  animation: draft-target-pulse 1.8s ease-in-out infinite;
+}
+
 /* ================================================================
    Phase 6B -- candidate cards (game cards, not admin-UI list rows)
    ================================================================ */
@@ -899,6 +914,26 @@ html, body {
     grid-template-columns: minmax(0, 1fr) 400px;
     align-items: start;
     gap: 28px;
+    /* Phase 8C: animate the column swap into placement mode below --
+       grid-template-columns interpolates smoothly in every evergreen
+       browser as long as both sides have the same track count (they do:
+       always 2 tracks here). Neutralized by the existing global
+       prefers-reduced-motion override (globals.css: forces every
+       transition-duration to 0.01ms), no extra gating needed. */
+    transition: grid-template-columns 320ms ease;
+  }
+
+  /* Phase 8C: "placement mode" -- once a player is selected (step 2 of a
+     round), the court becomes the dominant surface instead of a fixed
+     400px rail (playtest finding #2: "the court should become the main
+     interaction, not a small side rail"). The candidate/spin column
+     (mostly just the compact "Step 2" banner at this point -- SpinStage
+     and the candidate list are already hidden during placement) shrinks
+     to a secondary strip. Widening the court's own container also feeds
+     Phase 8B's container-query breakpoints on .court-panel-wrapper, so
+     the court itself reflows to a roomier layout at the same time. */
+  .arena-shell[data-mode="place"] {
+    grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
   }
 }
 

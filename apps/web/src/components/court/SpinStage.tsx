@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState, type CSSProperties } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import { Lock } from "lucide-react";
 import { CurrentSpin, ERA_LABELS } from "@/types/perfect-season";
 import { getTeamColors } from "@/lib/team-colors";
 
@@ -30,6 +32,11 @@ interface Props {
    * flashes the two wheel boxes so a respin still reads as a real, felt
    * game action rather than a silent text swap. */
   respinFlashKey?: number;
+  /** Phase 8C: which axis the most recent respin actually rerolled. Only
+   * that wheel re-ticks; the other renders a visibly "locked" state
+   * (playtest finding: team-only/season-only respins weren't visually
+   * distinct). null outside of an active respin. */
+  respinKind?: "team" | "season" | null;
 }
 
 type CeremonyPhase = "spinning" | "locked" | "revealed";
@@ -143,7 +150,17 @@ export default function SpinStage({
   supportedEndSeason = null,
   onRevealComplete,
   respinFlashKey = 0,
+  respinKind = null,
 }: Props) {
+  // Phase 8C: explicit gate for every new `motion.*` animation added this
+  // pass -- the project's existing global CSS `prefers-reduced-motion`
+  // override (globals.css) only neutralizes CSS @keyframes/transitions, not
+  // motion's WAAPI/RAF-driven animations, so it does not cover these by
+  // itself (confirmed against motion.dev's own docs). The JS ceremony-timer
+  // paths below already skip ticking entirely under reduced motion; this
+  // hook additionally simplifies the per-tick/lock motion flourishes to
+  // instant, no-transform state changes.
+  const reduceMotion = useReducedMotion();
   // Always start in "spinning" for the initial render (server AND client)
   // -- checking prefers-reduced-motion here via a useState initializer
   // would run against `window === undefined` during SSR, and React reuses
@@ -269,10 +286,17 @@ export default function SpinStage({
     };
   }, [respinFlashKey]);
 
-  const isTicking = phase === "spinning" || respinning;
-  const teamDisplayName = isTicking ? teamPool[(respinning ? respinTick : teamTick) % teamPool.length] : spin.franchise_display_name ?? "Team-season unavailable";
-  const secondDisplay = isTicking ? secondPool[(respinning ? respinTick : secondTick) % secondPool.length] : spin.era_label ?? "";
-  const colors = getTeamColors(isTicking ? teamDisplayName : spin.franchise_display_name);
+  // Phase 8C: per-wheel ticking/locked state, replacing the single
+  // combined `isTicking` both wheels shared before -- during the FIRST
+  // roll of a round both wheels tick together (unchanged); during a
+  // respin, only the respun axis ticks and the other renders locked.
+  const teamIsTicking = respinning ? respinKind === "team" : phase === "spinning";
+  const seasonIsTicking = respinning ? respinKind === "season" : phase === "spinning";
+  const teamIsLocked = respinning && respinKind === "season";
+  const seasonIsLocked = respinning && respinKind === "team";
+  const teamDisplayName = teamIsTicking ? teamPool[(respinning ? respinTick : teamTick) % teamPool.length] : spin.franchise_display_name ?? "Team-season unavailable";
+  const secondDisplay = seasonIsTicking ? secondPool[(respinning ? respinTick : secondTick) % secondPool.length] : spin.era_label ?? "";
+  const colors = getTeamColors(teamIsTicking ? teamDisplayName : spin.franchise_display_name);
 
   const coverageNote =
     isTeamYear && rollableTeamSeasonCount > 0 && supportedStartSeason && supportedEndSeason
@@ -346,15 +370,31 @@ export default function SpinStage({
           <div
             data-testid="team-wheel"
             data-respinning={justRespun}
-            className={`spin-wheel-box spin-reel-streak-bg rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 text-center ${phase === "locked" || justRespun ? "spin-ceremony-lock-flash" : ""}`}
-            data-phase={respinning ? "spinning" : phase}
+            data-locked={teamIsLocked}
+            className={`spin-wheel-box spin-reel-streak-bg rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 text-center ${phase === "locked" || (justRespun && !teamIsLocked) ? "spin-ceremony-lock-flash" : ""}`}
+            data-phase={respinning ? (teamIsTicking ? "spinning" : "revealed") : phase}
             style={{
               background: "var(--bg-surface)",
               border: "1px solid var(--border-muted, #333)",
               minHeight: 128,
+              opacity: teamIsLocked ? 0.55 : 1,
               "--slot-accent": colors.primary,
             } as CSSProperties}
           >
+            <AnimatePresence>
+              {teamIsLocked && (
+                <motion.div
+                  data-testid="team-wheel-locked-badge"
+                  className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest"
+                  style={{ color: "var(--text-muted)" }}
+                  initial={reduceMotion ? false : { opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.2 }}
+                >
+                  <Lock size={11} aria-hidden="true" /> Locked
+                </motion.div>
+              )}
+            </AnimatePresence>
             {phase === "revealed" && !respinning && spin.team_logo_url && !logoFailed ? (
               // No configured remote-image domain allowlist yet -- see PlayerAvatar's module docstring.
               // eslint-disable-next-line @next/next/no-img-element
@@ -377,7 +417,7 @@ export default function SpinStage({
               <div
                 data-testid="team-badge"
                 aria-hidden="true"
-                className={`rounded-full flex items-center justify-center font-black text-lg ${isTicking ? "spin-ceremony-reel-tick" : ""}`}
+                className={`rounded-full flex items-center justify-center font-black text-lg ${teamIsTicking ? "spin-ceremony-reel-tick" : ""}`}
                 style={{
                   width: 60,
                   height: 60,
@@ -394,42 +434,66 @@ export default function SpinStage({
               <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
                 Team
               </div>
-              {isTicking ? (
+              {teamIsTicking ? (
                 <ReelStrip items={teamPool} activeIndex={respinning ? respinTick : teamTick} rampStage={respinning ? "slow" : rampStage} />
               ) : (
-                <div
+                <motion.div
+                  key={teamDisplayName}
                   className="text-base font-black name-2line"
                   style={{ color: "var(--text-primary)" }}
+                  initial={reduceMotion ? false : { opacity: 0, scale: 0.92 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.22, ease: "easeOut" }}
                 >
                   {teamDisplayName}
-                </div>
+                </motion.div>
               )}
             </div>
           </div>
           <div
             data-testid="era-wheel"
             data-respinning={justRespun}
-            className={`spin-wheel-box spin-reel-streak-bg rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 text-center ${phase === "locked" || justRespun ? "spin-ceremony-lock-flash" : ""}`}
-            data-phase={respinning ? "spinning" : phase}
+            data-locked={seasonIsLocked}
+            className={`spin-wheel-box spin-reel-streak-bg rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 text-center ${phase === "locked" || (justRespun && !seasonIsLocked) ? "spin-ceremony-lock-flash" : ""}`}
+            data-phase={respinning ? (seasonIsTicking ? "spinning" : "revealed") : phase}
             style={{
               background: "var(--bg-surface)",
               border: "1px solid var(--border-muted, #333)",
               minHeight: 128,
+              opacity: seasonIsLocked ? 0.55 : 1,
               "--slot-accent": colors.primary,
             } as CSSProperties}
           >
+            <AnimatePresence>
+              {seasonIsLocked && (
+                <motion.div
+                  data-testid="era-wheel-locked-badge"
+                  className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest"
+                  style={{ color: "var(--text-muted)" }}
+                  initial={reduceMotion ? false : { opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: reduceMotion ? 0 : 0.2 }}
+                >
+                  <Lock size={11} aria-hidden="true" /> Locked
+                </motion.div>
+              )}
+            </AnimatePresence>
             <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
               {secondWheelLabel}
             </div>
-            {isTicking ? (
+            {seasonIsTicking ? (
               <ReelStrip items={secondPool} activeIndex={respinning ? respinTick : secondTick} rampStage={respinning ? "slow" : rampStage} />
             ) : (
-              <div
+              <motion.div
+                key={secondDisplay}
                 className="text-2xl font-black"
                 style={{ color: phase === "revealed" ? "var(--peak-accent, #f5c842)" : "var(--text-primary)" }}
+                initial={reduceMotion ? false : { opacity: 0, scale: 0.92 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: reduceMotion ? 0 : 0.22, ease: "easeOut" }}
               >
                 {secondDisplay}
-              </div>
+              </motion.div>
             )}
           </div>
         </div>

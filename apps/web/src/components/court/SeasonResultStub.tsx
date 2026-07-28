@@ -1,4 +1,5 @@
 "use client";
+import { motion, useReducedMotion } from "motion/react";
 import { CourtLineupPublicState, CourtSlotPublic, SimulationResultPublic, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import LineupInsightPanel from "./LineupInsightPanel";
 import LeaderboardSubmitPanel from "./LeaderboardSubmitPanel";
@@ -20,7 +21,12 @@ function resultTier(wins: number): string {
   return "Rebuild";
 }
 
-function recordFraming(wins: number, losses: number): string {
+function recordFraming(wins: number, losses: number, isIncomplete: boolean): string {
+  // Phase 8C: an incomplete-score roster never gets the confident "PERFECT
+  // SEASON" framing, even if the noisy win formula happened to clamp to
+  // 82 -- one or more cards have no official PEAK3 score, so a "perfect
+  // season" claim would overstate precision the data doesn't support.
+  if (isIncomplete) return "Provisional record — not all cards are officially scored";
   if (wins >= 82) return "PERFECT SEASON";
   if (losses === 1) return "One loss from perfect";
   if (losses <= 3) return "So close to perfect";
@@ -111,10 +117,27 @@ function bestAndWorstPick(slots: CourtSlotPublic[]): { best: string | null; weak
  * unit (bordered shell, PEAK3 accent rail, consistent internal rhythm).
  */
 export default function SeasonResultStub({ state, result }: Props) {
+  const reduceMotion = useReducedMotion();
   const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
   const benchSlots = state.slots.filter((s) => BENCH_SLOT_TYPES.includes(s.slot_type));
   const isExactSeasonMode = state.experimental_team_year_data_version != null;
+  // Phase 8C: an incomplete-score run must never present with the same
+  // confident, official-looking precision as a fully-scored one -- the
+  // record itself is a real number either way, but the FRAMING around it
+  // (perfect-season gold treatment, "PERFECT SEASON" copy) is withheld
+  // until every card has a real PEAK3 score. This mirrors the backend's
+  // own leaderboard gate (incomplete_score_not_eligible) on the display
+  // side, not just the submission side.
+  const isIncomplete = result.lineup_score_status === "incomplete";
+  const showPerfectStyling = result.is_perfect_season && !isIncomplete;
   const identity = teamIdentityPhrase(state.slots);
+  // Staggered broadcast-reveal timing -- each section's own delay, gated
+  // by reduced motion (instant, no stagger, for anyone who prefers it).
+  const reveal = (index: number) => ({
+    initial: reduceMotion ? false : { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    transition: reduceMotion ? { duration: 0 } : { duration: 0.35, delay: index * 0.08, ease: "easeOut" as const },
+  });
   // Phase 6F Part F: prefer the server-computed, structure-aware
   // explanation (nba_peak.perfect_season.simulation._best_pick_exact /
   // _structural_weakness_exact) -- it names off-position starters with
@@ -152,7 +175,12 @@ export default function SeasonResultStub({ state, result }: Props) {
         </div>
       </div>
 
-      <div className="text-center result-hero" data-tier-glow={tierGlow(result.wins)} data-testid="result-hero">
+      <motion.div
+        {...reveal(0)}
+        className="text-center result-hero"
+        data-tier-glow={isIncomplete ? "none" : tierGlow(result.wins)}
+        data-testid="result-hero"
+      >
         <div
           data-testid="result-tier"
           className="text-xs font-bold uppercase tracking-[0.2em] mb-1"
@@ -160,27 +188,42 @@ export default function SeasonResultStub({ state, result }: Props) {
         >
           {resultTier(result.wins)}
         </div>
-        <div
-          data-testid="season-record"
-          className="text-6xl font-black"
-          style={{ color: result.is_perfect_season ? "var(--peak-accent, #f5c842)" : "var(--text-primary)" }}
-        >
-          {result.wins}-{result.losses}
+        <div className="flex items-center justify-center gap-2">
+          <div
+            data-testid="season-record"
+            className="text-6xl font-black"
+            style={{ color: showPerfectStyling ? "var(--peak-accent, #f5c842)" : "var(--text-primary)" }}
+          >
+            {result.wins}-{result.losses}
+          </div>
+          {/* Phase 8C: never present an incomplete-score run's record with
+              the same official-looking precision as a fully-scored one --
+              a visible "Estimated" tag, not just a footnote. */}
+          {isIncomplete && (
+            <span
+              className="text-[10px] font-bold uppercase tracking-wide rounded-full px-2 py-1 self-start mt-2"
+              style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.08)" }}
+              data-testid="estimated-record-badge"
+              title="One or more cards have no official PEAK3 score yet -- this record uses a prototype approximation for those cards."
+            >
+              Estimated
+            </span>
+          )}
         </div>
         <div
           className="text-sm font-bold uppercase tracking-wide"
-          style={{ color: result.is_perfect_season ? "var(--peak-accent, #f5c842)" : "var(--text-secondary)" }}
+          style={{ color: showPerfectStyling ? "var(--peak-accent, #f5c842)" : "var(--text-secondary)" }}
           data-testid="record-framing"
         >
-          {recordFraming(result.wins, result.losses)}
+          {recordFraming(result.wins, result.losses, isIncomplete)}
         </div>
         <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }} data-testid="team-identity-phrase">
           {identity}
         </div>
-      </div>
+      </motion.div>
 
       {best && (
-        <div className="flex gap-2 text-xs justify-center" data-testid="best-and-weakness">
+        <motion.div {...reveal(1)} className="flex gap-2 text-xs justify-center" data-testid="best-and-weakness">
           <span className="rounded-full px-2.5 py-1" style={{ background: "rgba(52,211,153,0.1)", color: "#34d399" }}>
             Best pick: {best}
           </span>
@@ -191,7 +234,7 @@ export default function SeasonResultStub({ state, result }: Props) {
           >
             {weaknessLabel}: {weakness}
           </span>
-        </div>
+        </motion.div>
       )}
 
       {/* Phase 8 pre-loop polish: a bare label like "thin bench depth" reads
@@ -216,7 +259,8 @@ export default function SeasonResultStub({ state, result }: Props) {
           shown as score-incomplete -- if even one placed card has no
           exact-season score, rather than silently backfilling with a
           career-peak or approximate value (score_substitution_allowed=false). */}
-      <div
+      <motion.div
+        {...reveal(2)}
         data-testid="lineup-peak-score"
         className="rounded-xl p-3 text-center"
         style={{ background: "var(--bg-surface)", border: "1px solid var(--peak-accent-dim)" }}
@@ -250,9 +294,9 @@ export default function SeasonResultStub({ state, result }: Props) {
             </div>
           </>
         )}
-      </div>
+      </motion.div>
 
-      <div className="flex flex-col gap-2">
+      <motion.div {...reveal(3)} className="flex flex-col gap-2">
         <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
           Your roster, revealed
         </div>
@@ -261,9 +305,9 @@ export default function SeasonResultStub({ state, result }: Props) {
           benchSlots={benchSlots}
           renderSlot={(slot) => <PeakCardCourt slot={slot} />}
         />
-      </div>
+      </motion.div>
 
-      <div className="flex flex-col gap-1">
+      <motion.div {...reveal(4)} className="flex flex-col gap-1">
         <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
           What decided this
         </div>
@@ -276,11 +320,11 @@ export default function SeasonResultStub({ state, result }: Props) {
           PEAK3 scores this roster mostly on peak talent and real position fit —
           it never docks a lineup for having too many elite peaks.
         </p>
-      </div>
+      </motion.div>
 
       <LineupInsightPanel result={result} />
 
-      <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} />
+      <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} lineupScoreStatus={result.lineup_score_status} />
 
       <p
         data-testid="experimental-notice"

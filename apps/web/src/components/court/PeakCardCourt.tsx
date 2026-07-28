@@ -1,5 +1,6 @@
 "use client";
 import type { CSSProperties } from "react";
+import { Lock, Target } from "lucide-react";
 import { BENCH_SLOT_TYPES, CourtSlotPublic, ROLE_FIT_LABELS, RoleFit, SLOT_LABELS } from "@/types/perfect-season";
 import PlayerAvatar from "./PlayerAvatar";
 import { getTeamColors } from "@/lib/team-colors";
@@ -90,7 +91,19 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
 
       {slot.filled ? (
         <div className="flex items-center gap-2.5 w-full min-w-0">
-          <PlayerAvatar name={slot.player_name ?? "?"} size={38} imageUrl={slot.headshot_url} />
+          {/* Phase 8C: portrait "medallion" -- a colored ring in the
+              player's real team color (never a logo) instead of a plain
+              inline avatar, so the card reads as a collectible object with
+              a real identity anchor, not a label with a small icon. */}
+          <div
+            className="rounded-full shrink-0 flex items-center justify-center"
+            style={{
+              padding: 2,
+              background: `color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 55%, transparent)`,
+            }}
+          >
+            <PlayerAvatar name={slot.player_name ?? "?"} size={42} imageUrl={slot.headshot_url} />
+          </div>
           <div className="min-w-0 flex-1">
             <div
               className="text-sm font-bold name-2line"
@@ -112,12 +125,22 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
                 style={{ color: "var(--text-secondary)" }}
                 data-testid="exact-season-line"
               >
+                {/* Small team-color dot -- the same real team identity as
+                    the medallion ring above, reinforced on the team/season
+                    line itself. */}
+                <span
+                  aria-hidden="true"
+                  className="inline-block rounded-full mr-1"
+                  style={{ width: 6, height: 6, background: "var(--slot-accent, var(--peak-accent))" }}
+                />
                 {slot.team_name} · {slot.season}
                 {revealed && (
                   <span data-testid="revealed-score-line"> · {Math.round(slot.season_score ?? 0)} pts</span>
                 )}
                 {!revealed && slot.score_status === "exact_season_unscored" && (
-                  <span data-testid="score-unavailable-note"> · No official score</span>
+                  <span data-testid="score-unavailable-note" className="inline-flex items-center gap-0.5">
+                    {" · "}<Lock size={9} aria-hidden="true" /> No official score
+                  </span>
                 )}
                 {slot.score_source === "exact_season_aggregate" && (
                   <span
@@ -133,14 +156,22 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
                 {slot.anchor_season} · {Math.round(slot.individual_peak_score ?? 0)} pts · #{slot.individual_peak_rank}
               </div>
             ) : (
-              <div className="text-[11px] name-2line" style={{ color: "var(--text-secondary)" }} data-testid="peak-locked-note">
-                {slot.anchor_season} · Peak locked
+              <div className="text-[11px] name-2line inline-flex items-center gap-0.5" style={{ color: "var(--text-secondary)" }} data-testid="peak-locked-note">
+                {slot.anchor_season} · <Lock size={9} aria-hidden="true" /> Peak locked
               </div>
             )}
           </div>
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center gap-0.5 w-full py-1">
+        <div
+          className="flex flex-col items-center justify-center gap-1 w-full py-1.5 draft-target"
+          data-pending={isPendingTarget ? "true" : "false"}
+        >
+          <Target
+            size={16}
+            aria-hidden="true"
+            style={{ color: isPendingTarget ? "var(--peak-accent, #f5c842)" : "var(--text-muted)", opacity: isPendingTarget ? 1 : 0.5 }}
+          />
           <div className="text-[11px] font-semibold" style={{ color: isPendingTarget ? "var(--peak-accent, #f5c842)" : "var(--text-muted)" }}>
             {isPendingTarget ? "Place here" : "Open"}
           </div>
@@ -173,9 +204,11 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
     className: `rounded-xl px-2.5 py-2.5 flex flex-col items-start justify-center gap-1 min-h-[72px] w-full transition-all ${isPendingTarget ? "court-slot-drop-target" : ""} ${slot.filled ? "roster-board-slot-card-filled" : ""}`,
     style: {
       background: slot.filled ? "var(--bg-elevated)" : "var(--bg-surface)",
+      // Phase 8C: empty slots get a dashed border -- reads as an active
+      // draft target waiting for a card, not an inert disabled box.
       border: isPendingTarget
         ? undefined
-        : `1px solid ${isBench ? "var(--border-emphasis)" : "var(--border-default)"}`,
+        : `1px ${slot.filled ? "solid" : "dashed"} ${isBench ? "var(--border-emphasis)" : "var(--border-default)"}`,
       ...(teamAccent ? ({ "--slot-accent": teamAccent } as CSSProperties) : {}),
     } as CSSProperties,
   };

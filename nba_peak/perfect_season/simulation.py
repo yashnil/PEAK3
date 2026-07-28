@@ -614,6 +614,84 @@ def _structural_weakness_exact(
     return None, None
 
 
+
+# ---------------------------------------------------------------------------
+# Phase 8C: conditional catastrophe win floor.
+#
+# Root cause of the reported "13-69" result: expected_wins had a FLAT 15.0
+# floor applied before noise, but the final noisy `wins` was only clamped to
+# [0, 82] -- so a merely-bad roster (expected_wins pinned at the 15 floor)
+# could still get unlucky and land at 13. That's an accident of clamp
+# ordering, not a deliberate catastrophe outcome, and it also meant a truly
+# disastrous roster (no star, no creator, no scoring engine, mostly
+# unscored/low-minute cards) was ARTIFICIALLY PROPPED UP to the same 15
+# floor as an ordinary bad-but-real roster -- the model could never tell the
+# two apart.
+#
+# Fix: two floors, chosen deliberately rather than one accidental one.
+#   - _NORMAL_BAD_WINS_FLOOR (15.0, unchanged): an ordinary bad roster --
+#     real NBA-caliber talent that just doesn't fit together well -- still
+#     lands in a believable ~15-25 range. This is the floor every roster
+#     gets by default.
+#   - _CATASTROPHE_WINS_FLOOR (5.0): reached ONLY when the roster fails on
+#     every real axis at once (see _is_catastrophe_roster below) -- no
+#     talent, no shot creation, no scoring, and multiple cards that aren't
+#     even real contributors (unscored or genuinely low-minute). For
+#     reference, the worst 82-game-equivalent pace in real NBA history is
+#     the 2011-12 Bobcats (7-59 in a 66-game lockout season, a .106 clip --
+#     ~9 wins over 82 games); 5.0 sits below that on purpose, because this
+#     is a HYPOTHETICAL constructed roster that can genuinely be worse than
+#     any real team ever fielded (a real team always has real replacement-
+#     level NBA players in every minute; a constructed disaster roster here
+#     might not). This is not a "make bad teams look worse" nerf -- it's
+#     removing the artificial prop-up that kept the linear formula's own
+#     (already very negative) result from ever showing through.
+# Both floors apply to `expected_wins` (the pre-noise projection) only; the
+# final noisy `wins` keeps a small separate absolute floor (1.0, see below)
+# so a result is never literally 0-82, which would read as a bug rather
+# than a feature.
+# ---------------------------------------------------------------------------
+
+_NORMAL_BAD_WINS_FLOOR = 15.0
+_CATASTROPHE_WINS_FLOOR = 5.0
+_MIN_FINAL_WINS = 1.0
+
+# A component only counts toward "catastrophe" once it's this bad -- these
+# are deliberately strict (well below the generic _COMPONENT_WEAKNESS_FLOOR
+# of 50 used for weakness-explanation text) so an ordinary bad roster with,
+# say, a 35 talent_core never accidentally triggers the catastrophe floor.
+_CATASTROPHE_TALENT_CORE_CEILING = 30.0
+_CATASTROPHE_CREATION_CEILING = 30.0
+_CATASTROPHE_SCORING_CEILING = 30.0
+# A card counts as "not a real contributor" if it has no official PEAK3
+# score yet, OR it does have a score but was on the floor so little that
+# the number barely means anything (real minutes-per-game data from the
+# card itself, never inferred).
+_CATASTROPHE_LOW_MINUTES_CEILING = 15.0
+_CATASTROPHE_MIN_WEAK_CARDS = 2
+
+
+def _is_weak_contributor(card: PlayerSeasonCard) -> bool:
+    if card.score_status != "exact_season_scored":
+        return True
+    return card.minutes_per_game is not None and card.minutes_per_game < _CATASTROPHE_LOW_MINUTES_CEILING
+
+
+def _is_catastrophe_roster(cards: list[PlayerSeasonCard], fit: LineupFitComponents) -> bool:
+    """True only when EVERY axis fails at once -- no real talent, no real
+    shot creation, no real scoring, AND multiple cards that aren't real
+    contributors. Any one of these alone (e.g. a real, if unremarkable,
+    roster that's simply unscored on a couple of deep-bench spots) stays on
+    the normal 15-win floor -- catastrophe is reserved for a roster with no
+    redeeming real-basketball axis left, not for a merely bad one."""
+    return (
+        fit.talent_core < _CATASTROPHE_TALENT_CORE_CEILING
+        and fit.creation_coverage < _CATASTROPHE_CREATION_CEILING
+        and fit.scoring_coverage < _CATASTROPHE_SCORING_CEILING
+        and sum(1 for c in cards if _is_weak_contributor(c)) >= _CATASTROPHE_MIN_WEAK_CARDS
+    )
+
+
 def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_types: list[str]) -> SimulationResult:
     """simulate_season()'s counterpart for team-year (exact-season) lineups.
 
@@ -633,12 +711,14 @@ def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_t
     base += (fit.creation_coverage - 50.0) * 0.05
     base += (fit.scoring_coverage - 50.0) * 0.05
     base += (fit.postseason_pedigree - 50.0) * 0.05
-    expected_wins = max(15.0, min(82.0, base))
+    is_catastrophe = _is_catastrophe_roster(cards, fit)
+    wins_floor = _CATASTROPHE_WINS_FLOOR if is_catastrophe else _NORMAL_BAD_WINS_FLOOR
+    expected_wins = max(wins_floor, min(82.0, base))
 
     card_key = ",".join(sorted(c.exact_player_season_key for c in cards))
     rng = random.Random(f"{board_seed}:{card_key}")
     noise = rng.uniform(-2.5, 2.5)
-    wins = int(round(max(0.0, min(82.0, expected_wins + noise))))
+    wins = int(round(max(_MIN_FINAL_WINS, min(82.0, expected_wins + noise))))
     losses = TOTAL_GAMES - wins
 
     expected_low = max(0.0, expected_wins - 5.0)

@@ -607,6 +607,60 @@ test.describe("CourtBuilder respins", () => {
     await expect(seasonBtn).toBeEnabled();
   });
 
+  // -------------------------------------------------------------------------
+  // Phase 8C: axis-independent respins -- respinning team must leave season
+  // visually locked (and unchanged), and vice versa. Playtest finding #1
+  // was that a team-only and season-only respin looked identical; this
+  // proves both the visual "Locked" badge on the untouched wheel AND that
+  // its actual displayed value doesn't change once the respin settles.
+  // -------------------------------------------------------------------------
+
+  test("Phase 8C: team-only respin locks the era wheel and its value is unchanged", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamBtn = page.locator('[data-testid="respin-team-btn"]');
+    // The respin button only renders once the ceremony has revealed (see
+    // CourtBuilder.tsx's respin-controls gate) -- waiting for it here is
+    // the real synchronization point; startCourtBuilder itself only waits
+    // for the court, not for the spin ceremony to finish ticking.
+    await expect(teamBtn).toBeVisible();
+    const eraBefore = await page.locator('[data-testid="era-wheel"]').innerText();
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+      teamBtn.click(),
+    ]);
+    // The era wheel shows the locked badge; the team wheel (the one
+    // actually respinning) never does.
+    await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toBeVisible();
+    await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toHaveCount(0);
+
+    // Once the brief respin flourish settles, the era wheel's own value
+    // must be exactly what it was before -- not just visually "locked",
+    // actually unchanged (proves frontend display matches backend's
+    // same-season-different-team respin behavior).
+    await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toHaveCount(0, { timeout: 2_000 });
+    const eraAfter = await page.locator('[data-testid="era-wheel"]').innerText();
+    expect(eraAfter).toBe(eraBefore);
+  });
+
+  test("Phase 8C: season-only respin locks the team wheel and its value is unchanged", async ({ page }) => {
+    await startCourtBuilder(page);
+    const seasonBtn = page.locator('[data-testid="respin-season-btn"]');
+    await expect(seasonBtn).toBeVisible();
+    const teamBefore = await page.locator('[data-testid="team-wheel"]').innerText();
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-season") && r.status() === 200),
+      seasonBtn.click(),
+    ]);
+    await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toBeVisible();
+    await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toHaveCount(0);
+
+    await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toHaveCount(0, { timeout: 2_000 });
+    const teamAfter = await page.locator('[data-testid="team-wheel"]').innerText();
+    expect(teamAfter).toBe(teamBefore);
+  });
+
   test("respin controls disappear once a player is selected", async ({ page }) => {
     await startCourtBuilder(page);
     await expect(page.locator('[data-testid="respin-controls"]')).toBeVisible();

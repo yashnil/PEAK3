@@ -58,6 +58,12 @@ export default function CourtBuilder({
   // SpinStage's brief "just respun" flash -- never affects which round is
   // considered revealed.
   const [respinFlashKey, setRespinFlashKey] = useState(0);
+  // Phase 8C: which axis the most recent respin actually rerolled -- lets
+  // SpinStage animate ONLY that wheel and show the other as visibly locked
+  // (playtest finding: "team-only respin and season-only respin are not
+  // visually clear enough"). Set alongside respinFlashKey on every respin,
+  // read once by SpinStage's effect (see its own respinFlashKey comment).
+  const [respinKind, setRespinKind] = useState<"team" | "season" | null>(null);
 
   const phase = uiPhaseFromStatus(state.status);
 
@@ -94,6 +100,7 @@ export default function CourtBuilder({
     const next = await withBusy(() => respinTeam(state.game_id));
     if (next) {
       setState(next);
+      setRespinKind("team");
       setRespinFlashKey((k) => k + 1);
     }
   }
@@ -102,6 +109,7 @@ export default function CourtBuilder({
     const next = await withBusy(() => respinSeason(state.game_id));
     if (next) {
       setState(next);
+      setRespinKind("season");
       setRespinFlashKey((k) => k + 1);
     }
   }
@@ -178,7 +186,7 @@ export default function CourtBuilder({
            trapped in one centered mobile-width column at every viewport.
            Both columns simply stack in original document order below
            1024px -- no separate mobile markup branch to maintain. */
-        <div className="arena-shell">
+        <div className="arena-shell" data-mode={phase === "placing" ? "place" : "select"} data-testid="arena-shell">
           <div className="flex flex-col gap-5 min-w-0">
             {/* Top: the current round's constraint (team + era wheel). */}
             {phase === "spinning" && state.current_spin && (
@@ -194,6 +202,7 @@ export default function CourtBuilder({
                 supportedEndSeason={supportedEndSeason}
                 onRevealComplete={() => setRevealedRound(state.current_round)}
                 respinFlashKey={respinFlashKey}
+                respinKind={respinKind}
               />
             )}
 

@@ -1405,7 +1405,11 @@ def test_team_year_game_completes_a_full_practice_attempt(team_year_client: Test
 # the explanation naming the actual roster-construction problem).
 # ---------------------------------------------------------------------------
 
-from nba_peak.perfect_season.simulation import simulate_exact_season  # noqa: E402
+from nba_peak.perfect_season.simulation import (  # noqa: E402
+    compute_exact_fit_components,
+    simulate_exact_season,
+    _is_catastrophe_roster,
+)
 
 ALL_TIME_CEILING_LINEUP = [
     ("stephen-curry", "GSW", "2015-16"),
@@ -2319,6 +2323,111 @@ def test_low_lineup_score_does_not_reach_82_wins():
     result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
     assert result.lineup_peak_score < 50
     assert result.wins < 40
+
+
+# ---------------------------------------------------------------------------
+# Phase 8C: conditional catastrophe win floor.
+#
+# Root cause fixed here: expected_wins had a single flat 15.0 floor applied
+# before noise, so a merely-bad roster and a truly disastrous one were
+# indistinguishable -- both got propped up to the same floor. All three
+# fixtures below are real 2011-12 Charlotte Bobcats players (7-59 that real
+# season, the worst 82-game-equivalent pace in NBA history) -- chosen
+# specifically so the "disaster" fixture isn't a contrived worst-case, it's
+# an actual historically-terrible bench.
+# ---------------------------------------------------------------------------
+
+# All 8 real, SCORED (never unscored) Bobcats bench/rotation players -- weak
+# talent across the board, but every card is a real, minutes-earning,
+# officially-scored NBA season. This must stay on the NORMAL 15-win floor,
+# not the catastrophe floor, even though the talent itself is bad.
+NORMAL_BAD_LINEUP = [
+    ("d-j-augustin", "CHA", "2011-12"),
+    ("gerald-henderson", "CHA", "2011-12"),
+    ("corey-maggette", "CHA", "2011-12"),
+    ("tyrus-thomas", "CHA", "2011-12"),
+    ("bismack-biyombo", "CHA", "2011-12"),
+    ("byron-mullens", "CHA", "2011-12"),
+    ("d-j-white", "CHA", "2011-12"),
+    ("derrick-brown", "CHA", "2011-12"),
+]
+
+# Same bad-talent tier, but 3 of the 8 cards are unscored deep-bench/
+# fringe-roster players (Cory Higgins, DeSagana Diop, Eduardo Najera) --
+# crosses every catastrophe threshold (talent_core, creation_coverage,
+# scoring_coverage all deeply below their ceilings, AND >=2 cards that
+# aren't real contributors).
+DISASTER_LINEUP = [
+    ("d-j-augustin", "CHA", "2011-12"),
+    ("gerald-henderson", "CHA", "2011-12"),
+    ("corey-maggette", "CHA", "2011-12"),
+    ("tyrus-thomas", "CHA", "2011-12"),
+    ("bismack-biyombo", "CHA", "2011-12"),
+    ("cory-higgins", "CHA", "2011-12"),
+    ("desagana-diop", "CHA", "2011-12"),
+    ("eduardo-najera", "CHA", "2011-12"),
+]
+
+# The extreme end: only 2 of 8 cards are even scored, the other 6 are
+# unscored/roster-only fringe players. Tests that a heavily-incomplete
+# roster still degrades gracefully (no crash, lineup_peak_score honestly
+# reported as 0.0/incomplete rather than a fabricated precise number) while
+# ALSO correctly triggering the catastrophe floor.
+INCOMPLETE_DISASTER_LINEUP = [
+    ("tyrus-thomas", "CHA", "2011-12"),
+    ("byron-mullens", "CHA", "2011-12"),
+    ("jamario-moon", "CHA", "2011-12"),
+    ("matt-carroll", "CHA", "2011-12"),
+    ("reggie-williams", "CHA", "2011-12"),
+    ("cory-higgins", "CHA", "2011-12"),
+    ("desagana-diop", "CHA", "2011-12"),
+    ("eduardo-najera", "CHA", "2011-12"),
+]
+
+
+def test_normal_bad_roster_stays_on_the_15_win_floor_not_catastrophe():
+    """A real, fully-scored bad-talent roster (no unscored cards) must NOT
+    trigger the catastrophe floor -- catastrophe is reserved for rosters
+    that fail on every axis at once, not for ordinary bad talent."""
+    cards = _resolve_lineup(NORMAL_BAD_LINEUP)
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    assert _is_catastrophe_roster(cards, fit) is False
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 10 <= result.wins <= 25, f"expected a normal-bad record near the 15-win floor, got {result.wins}"
+
+
+def test_disaster_roster_falls_into_the_catastrophe_range():
+    """No star, no creator, no scoring engine, and multiple unscored cards
+    -- must fall meaningfully below the normal 15-win floor, into a
+    historically-awful range. Real 2011-12 Bobcats players (7-59 that
+    season, an 82-game-equivalent pace of ~9 wins)."""
+    cards = _resolve_lineup(DISASTER_LINEUP)
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    assert _is_catastrophe_roster(cards, fit) is True
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 3 <= result.wins <= 12, f"expected a catastrophe-range record, got {result.wins}"
+    assert result.wins < 15, "a real disaster roster must fall below the normal 15-win floor"
+
+
+def test_incomplete_score_disaster_roster_degrades_gracefully():
+    """A heavily-unscored disaster roster (6 of 8 cards unscored) must still
+    trigger the catastrophe floor, never crash, and never present the
+    incomplete lineup_peak_score as if it were a real precise number."""
+    cards = _resolve_lineup(INCOMPLETE_DISASTER_LINEUP)
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    assert _is_catastrophe_roster(cards, fit) is True
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 1 <= result.wins <= 12, f"expected a catastrophe-range record, got {result.wins}"
+    assert result.lineup_peak_score == 0.0, "incomplete lineup score must be reported as 0.0/incomplete, never estimated"
+
+
+def test_elite_roster_unaffected_by_catastrophe_floor_change():
+    """Regression: the catastrophe floor change must not touch the elite
+    end of the formula -- the all-time-ceiling fixture still hits 82-0."""
+    cards = _resolve_lineup(ALL_TIME_CEILING_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins == 82
+    assert result.is_perfect_season is True
 
 
 # ---------------------------------------------------------------------------
