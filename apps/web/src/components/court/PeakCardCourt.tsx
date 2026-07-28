@@ -201,9 +201,8 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
     "data-testid": "court-slot",
     "data-slot-type": slot.slot_type,
     "data-filled": slot.filled ? "true" : "false",
-    className: `rounded-xl px-2.5 py-2.5 flex flex-col items-start justify-center gap-1 min-h-[72px] w-full transition-all ${isPendingTarget ? "court-slot-drop-target" : ""} ${slot.filled ? "roster-board-slot-card-filled" : ""}`,
+    className: `rounded-xl px-2.5 py-2.5 flex flex-col items-start justify-center gap-1 min-h-[72px] w-full transition-all ${isPendingTarget ? "court-slot-drop-target" : ""} ${slot.filled ? "roster-board-slot-card-filled" : "roster-board-slot-card-open"}`,
     style: {
-      background: slot.filled ? "var(--bg-elevated)" : "var(--bg-surface)",
       // Phase 8C: empty slots get a dashed border -- reads as an active
       // draft target waiting for a card, not an inert disabled box.
       border: isPendingTarget

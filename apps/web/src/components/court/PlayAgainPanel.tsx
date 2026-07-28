@@ -97,6 +97,25 @@ export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, on
           )}
         </div>
       )}
+      {/* Phase 8E: signed-out users get an explicit save-your-best prompt
+          instead of the comparison line just silently never appearing --
+          matches LeaderboardSubmitPanel's own !user branch exactly (same
+          copy tone, same /signin destination) so the two end-of-run panels
+          read as one consistent product, not two different auth patterns.
+          Hidden entirely when the leaderboard feature itself is off --
+          signing in wouldn't unlock anything in that case. */}
+      {!user && leaderboardEnabled && (
+        <div data-testid="play-again-signin-prompt" className="flex items-center justify-between gap-3">
+          <span style={{ color: "var(--text-secondary)" }}>Sign in to save your best run and track it here.</span>
+          <a
+            href="/signin"
+            className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
+            style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+          >
+            Sign in
+          </a>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3">
         <span style={{ color: "var(--text-muted)" }}>
           {wins}-{losses} this run. Ready to run it back?

@@ -131,6 +131,21 @@ html, body {
   background-size: 48px 48px;
 }
 
+/* Phase 8E: homepage hero -- same restrained "arena lighting" language as
+   the court/spinner (Phase 8D: two low-opacity corner glows + a court-line
+   grid texture), scaled up for a full hero section. Gives the front door
+   the same premium arena atmosphere as the game itself instead of a plain
+   flat panel, without drifting into a busy/gaudy look (every glow stays
+   under 12% alpha, same discipline as .roster-board's). */
+.home-hero-glow {
+  background-image:
+    radial-gradient(45% 60% at 12% 0%, rgba(245, 200, 66, 0.10), transparent 70%),
+    radial-gradient(45% 60% at 88% 0%, rgba(96, 165, 250, 0.07), transparent 70%),
+    linear-gradient(var(--court-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--court-line) 1px, transparent 1px);
+  background-size: auto, auto, 48px 48px, 48px 48px;
+}
+
 /* ================================================================
    Card surfaces
    ================================================================ */
@@ -828,6 +843,18 @@ html, body {
   border: 1.5px solid var(--peak-accent, #f5c842);
   border-radius: 999px;
   background: rgba(245, 200, 66, 0.1);
+  /* Phase 8E: a real "stamp down" snap instead of appearing statically --
+     this is the single clearest "the roll just got decided" beat in the
+     whole ceremony, so it earns its own punchier entrance than the
+     surrounding wheel-box flash. Neutralized by the global
+     prefers-reduced-motion rule like every other keyframe in this file. */
+  animation: spin-locked-stamp-snap 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes spin-locked-stamp-snap {
+  0% { transform: scale(1.6) rotate(-8deg); opacity: 0; }
+  60% { transform: scale(0.96) rotate(1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
 }
 
 .round-progress-dots {
@@ -1023,6 +1050,17 @@ html, body {
 .roster-board-slot-card-filled {
   border-left: 3px solid var(--slot-accent, var(--peak-accent, #f5c842)) !important;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), 0 2px 10px -4px rgba(0, 0, 0, 0.5);
+  /* Phase 8E: a filled slot now carries a faint wash of its own team color
+     (same --slot-accent the rail/medallion already use), not just a flat
+     --bg-elevated fill -- a populated court should read as "colored in" by
+     the actual roster, not just outlined in team color at the edge. Kept
+     very low alpha (8%) so player-name/score text never loses contrast. */
+  background: var(--bg-elevated);
+  background-image: radial-gradient(140% 160% at 0% 50%, color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 8%, transparent), transparent 70%);
+}
+
+.roster-board-slot-card-open {
+  background: var(--bg-surface);
 }
 
 /* ================================================================

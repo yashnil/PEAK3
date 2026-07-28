@@ -36,6 +36,23 @@ export default function DailyHubPage() {
       className="max-w-4xl mx-auto px-4 py-8"
       style={{ background: "var(--bg-page)" }}
     >
+      {/* Phase 8E: this is the legacy Peak Draft daily hub, not the current
+          flagship -- a visible way out to 82-0 Peak Season instead of a
+          dead end, for anyone who lands here from an old link/bookmark
+          rather than the (now-fixed) homepage/nav routing. */}
+      <Link
+        href="/arena/court/practice/apex_1y"
+        className="mb-6 flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm transition-all hover:opacity-90"
+        style={{ background: "var(--bg-elevated)", borderColor: "var(--peak-accent, #f5c842)" }}
+      >
+        <span style={{ color: "var(--text-primary)" }}>
+          <strong style={{ color: "var(--peak-accent, #f5c842)" }}>New:</strong> build a roster and chase an 82-0 season in 82-0 Peak Season.
+        </span>
+        <span className="font-semibold shrink-0" style={{ color: "var(--peak-accent, #f5c842)" }}>
+          Try it →
+        </span>
+      </Link>
+
       {/* Header */}
       <div className="mb-8">
         <h1

@@ -8,9 +8,9 @@ import {
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 
 export const metadata: Metadata = {
-  title: "Arena — Peak Draft | PEAK3",
+  title: "Arena — 82-0 Peak Season | PEAK3",
   description:
-    "Draft your all-time 5-player lineup from NBA history windows. An experimental lineup model rates your selections.",
+    "Spin a team and era, build a position-aware roster from real NBA peak windows, and chase a perfect 82-0 season.",
 };
 
 const MODES: DraftMode[] = ["apex_1y", "prime_3y", "foundation_5y"];

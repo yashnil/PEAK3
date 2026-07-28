@@ -68,6 +68,35 @@ describe("PlayAgainPanel", () => {
     expect(screen.queryByTestId("personal-best-compare")).not.toBeInTheDocument();
   });
 
+  it("shows a sign-in-to-save prompt when signed out and the leaderboard feature is on", async () => {
+    mockUser.mockReturnValue(null);
+    mockGetLeaderboard.mockResolvedValue({ leaderboard_enabled: true, runs: [] });
+    render(<PlayAgainPanel mode="apex_1y" wins={70} losses={12} lineupPeakScore={80} onPlayAgain={vi.fn()} busy={false} />);
+
+    const prompt = await screen.findByTestId("play-again-signin-prompt");
+    expect(prompt).toHaveTextContent(/sign in to save your best run/i);
+    expect(screen.getByRole("link", { name: /sign in/i })).toHaveAttribute("href", "/signin");
+  });
+
+  it("hides the sign-in prompt when the leaderboard feature is off, even signed out", async () => {
+    mockUser.mockReturnValue(null);
+    mockGetLeaderboard.mockResolvedValue({ leaderboard_enabled: false, runs: [] });
+    render(<PlayAgainPanel mode="apex_1y" wins={70} losses={12} lineupPeakScore={80} onPlayAgain={vi.fn()} busy={false} />);
+
+    await screen.findByTestId("play-again-btn");
+    expect(screen.queryByTestId("play-again-signin-prompt")).not.toBeInTheDocument();
+  });
+
+  it("hides the sign-in prompt once the user is signed in", async () => {
+    mockUser.mockReturnValue({ id: "u1" });
+    mockGetLeaderboard.mockResolvedValue({ leaderboard_enabled: true, runs: [] });
+    mockGetMyRuns.mockResolvedValue({ runs: [] });
+    render(<PlayAgainPanel mode="apex_1y" wins={70} losses={12} lineupPeakScore={80} onPlayAgain={vi.fn()} busy={false} />);
+
+    await screen.findByTestId("personal-best-compare");
+    expect(screen.queryByTestId("play-again-signin-prompt")).not.toBeInTheDocument();
+  });
+
   it("disables Play Again while busy", async () => {
     mockUser.mockReturnValue(null);
     mockGetLeaderboard.mockResolvedValue({ leaderboard_enabled: false, runs: [] });

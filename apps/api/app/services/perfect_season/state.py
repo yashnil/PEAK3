@@ -690,7 +690,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             "era_label": spin.era_label,
             "candidates": [
                 (_candidate_public_exact(slug, spin.team_id, spin.era_label, include_asset_urls)
-                 if _is_team_year_spin(spin) else _candidate_public(slug, state.duration_years))
+                 if _is_team_year_spin(spin) else _candidate_public(slug, state.duration_years, include_asset_urls))
                 for slug in spin.candidate_player_slugs
                 if slug not in _used_player_slugs(state)
             ],
@@ -753,6 +753,14 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                     for slot_type in get_open_slot_types(state)
                 },
             }
+            # Phase 8E: this peak-window pending-selection branch was missing
+            # headshot_url entirely (the exact-season branch just above it,
+            # for state.pending_selection_exact_season_key, already had it)
+            # -- same class of gap as _candidate_public's, just one call site
+            # over. get_player_headshot_url is a pure slug lookup, so it
+            # resolves identically regardless of peak-window vs exact-season.
+            if include_asset_urls:
+                pending_card_public["headshot_url"] = get_player_headshot_url(card.player_slug)
 
     reveal_scores = state.status == "result_ready"
     slots_public = []
@@ -801,6 +809,11 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                     "primary_position": primary_position(card.player_slug, card.primary_role),
                     "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
                 })
+                # Phase 8E: same gap as pending_card_public's peak-window
+                # branch -- the exact-season filled-slot branch above (line
+                # ~783) already had this, the peak-window one never did.
+                if include_asset_urls:
+                    entry["headshot_url"] = get_player_headshot_url(card.player_slug)
                 if reveal_scores:
                     entry.update({
                         "individual_peak_score": card.individual_peak_score,
@@ -888,19 +901,36 @@ def _display_name_for_slug(player_slug: str, duration_years: int) -> str:
     return card.player_name if card else player_slug
 
 
-def _candidate_public(player_slug: str, duration_years: int) -> dict:
+def _candidate_public(player_slug: str, duration_years: int, include_asset_urls: bool = False) -> dict:
     """Public candidate entry: name + v1 position eligibility hint, never a
     score/rank (ADR-005 Decision 6 -- SpinCandidate has no score field at
-    all, enforced at the Pydantic layer too)."""
+    all, enforced at the Pydantic layer too).
+
+    Phase 8E: `include_asset_urls` was missing entirely from this function's
+    signature until now -- every non-team_year spin (team_decade,
+    exact_team_season, open_pool) routed candidates through here (see the
+    `_is_team_year_spin` branch above) and could therefore NEVER show a
+    headshot regardless of Settings.ENABLE_EXTERNAL_ASSET_URLS or whether
+    the asset manifest actually had a resolved entry for that exact player
+    -- verified live (a fresh exact_team_season board for 2024-25 Nuggets
+    returned `headshot_url: null` for Nikola Jokic/Jamal Murray even with
+    the flag on, despite both being `resolution_status: "resolved"` in
+    data/game/assets/player_assets.v3.json with real ESPN URLs). Mirrors
+    _candidate_public_exact's own identical gating exactly: same
+    conditional, same get_player_headshot_url() lookup, same None-in-every-
+    other-case contract the frontend already handles."""
     card = resolve_card(player_slug, duration_years)
     if card is None:
         return {"player_slug": player_slug, "player_name": player_slug, "primary_position": None, "secondary_positions": []}
-    return {
+    entry = {
         "player_slug": player_slug,
         "player_name": card.player_name,
         "primary_position": primary_position(card.player_slug, card.primary_role),
         "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
     }
+    if include_asset_urls:
+        entry["headshot_url"] = get_player_headshot_url(player_slug)
+    return entry
 
 
 def _candidate_public_exact(player_slug: str, team_id: str, season: str, include_asset_urls: bool = False) -> dict:

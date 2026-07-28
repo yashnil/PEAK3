@@ -1800,6 +1800,71 @@ def test_unresolved_player_never_gets_a_fabricated_url(team_year_assets_client: 
     assert get_player_headshot_url("hakeem-olajuwon") is None
 
 
+@pytest.fixture
+def assets_client() -> TestClient:
+    """Phase 8E: assets on, team_year mode at its PRODUCTION default (off)
+    -- i.e. real candidates flow through the interim engine's
+    exact_team_season spin type, not team_year. Every prior assets test
+    used team_year_assets_client (team_year explicitly ON), which routes
+    candidates through `_candidate_public_exact` -- a code path this repo's
+    tests never actually exercised for the branch real deployments use by
+    default: `_candidate_public` (team_decade/exact_team_season/open_pool
+    spins). That untested branch was missing headshot_url/include_asset_urls
+    entirely until Phase 8E -- verified live against a real running API
+    (POST /perfect-season/games with ENABLE_EXTERNAL_ASSET_URLS=true
+    returned headshot_url: null for Nikola Jokic/Jamal Murray despite both
+    being resolved in player_assets.v3.json) before being fixed in
+    app/services/perfect_season/state.py's _candidate_public,
+    pending_card_public's peak-window branch, and the filled peak-window
+    slot branch. This fixture/these tests are the regression coverage for
+    that fix."""
+    orig_assets = settings.ENABLE_EXTERNAL_ASSET_URLS
+    settings.ENABLE_EXTERNAL_ASSET_URLS = True
+    with TestClient(app) as c:
+        yield c
+    settings.ENABLE_EXTERNAL_ASSET_URLS = orig_assets
+
+
+def test_candidate_headshot_url_exposed_outside_team_year_mode(assets_client: TestClient):
+    """Phase 8E regression: a resolved candidate's headshot_url must render
+    for the DEFAULT (non-team_year) engine too, not just team_year mode.
+    Seed 7 / apex_1y is a fixed, deterministic board whose exact_team_season
+    roll includes Stephen Curry, a real resolved ESPN entry in
+    data/game/assets/player_assets.v3.json."""
+    from nba_peak.perfect_season.assets import get_player_headshot_url
+
+    state = _create(assets_client, mode="apex_1y", seed=7)
+    assert state["current_spin"]["spin_type"] != "team_year"
+    candidates = {c["player_slug"]: c for c in state["current_spin"]["candidates"]}
+    assert "stephen-curry" in candidates
+    expected_url = get_player_headshot_url("stephen-curry")
+    assert expected_url is not None
+    assert candidates["stephen-curry"]["headshot_url"] == expected_url
+
+
+def test_pending_selection_and_filled_slot_headshot_url_outside_team_year_mode(assets_client: TestClient):
+    """Phase 8E regression: the SAME resolved headshot must carry through
+    both later stages of the round -- pending_selection (step 2, "place
+    this player") and the final filled court slot -- not just the initial
+    candidate list. Each of these is backed by a separate code path in
+    get_public_state, and only the candidate-list path was ever covered by
+    an existing test for non-team_year mode."""
+    from nba_peak.perfect_season.assets import get_player_headshot_url
+
+    state = _create(assets_client, mode="apex_1y", seed=7)
+    game_id = state["game_id"]
+    expected_url = get_player_headshot_url("stephen-curry")
+    assert expected_url is not None
+
+    selected = _select(assets_client, game_id, "stephen-curry")
+    assert selected["pending_selection"]["headshot_url"] == expected_url
+
+    open_slot = selected["pending_selection"]["primary_position"] or "BENCH1"
+    placed = _place(assets_client, game_id, open_slot)
+    filled = next(s for s in placed["slots"] if s["filled"])
+    assert filled["headshot_url"] == expected_url
+
+
 # ---------------------------------------------------------------------------
 # Phase 6G Part E: authenticated global leaderboard
 # ---------------------------------------------------------------------------
