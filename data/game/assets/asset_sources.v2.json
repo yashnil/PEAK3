@@ -1,0 +1,42 @@
+{
+  "source_registry_version": "asset_sources.v2",
+  "provider": "ESPN + NBA_CDN",
+  "sources": [
+    {
+      "asset_type": "team_logo",
+      "endpoint_pattern": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams",
+      "retrieval_command": "python scripts/build_espn_asset_manifests.py --write",
+      "license_status": "unknown_do_not_cache",
+      "cache_policy": "dev_hotlink_preview_only",
+      "warnings": [
+        "Public, unauthenticated endpoint. No explicit license grant to hotlink team logos in a shipped product has been reviewed/approved -- treat as metadata-only until a human signs off."
+      ]
+    },
+    {
+      "asset_type": "player_headshot",
+      "endpoint_pattern": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{espn_team_id}/roster",
+      "retrieval_command": "python scripts/build_espn_asset_manifests.py --write",
+      "license_status": "unknown_do_not_cache",
+      "cache_policy": "dev_hotlink_preview_only",
+      "warnings": [
+        "Only exposes CURRENT team rosters -- no reliable public search endpoint for historical/retired players was found during this pass (ESPN's common/v3/search endpoint returns cross-sport, non-NBA-scoped noise and is not safe for unattended name matching).",
+        "No explicit license grant to hotlink player headshots in a shipped product has been reviewed/approved -- treat as metadata-only until a human signs off."
+      ]
+    },
+    {
+      "asset_type": "player_headshot",
+      "image_provider": "NBA_CDN",
+      "endpoint_pattern": "https://cdn.nba.com/headshots/nba/latest/1040x760/{nba_player_id}.png",
+      "retrieval_command": "python scripts/build_espn_asset_manifests.py --write [--online-validate]",
+      "license_status": "unknown_do_not_cache",
+      "cache_policy": "dev_hotlink_preview_only",
+      "local_id_crosswalk_entries": 0,
+      "warnings": [
+        "INERT this run -- resolves 0 players. Requires a local player_slug -> NBA.com person_id crosswalk (data/game/assets/nba_player_id_crosswalk.json), which does not exist in this repo (no locally committed data source carries an NBA.com ID -- verified by inspecting every column of every committed parquet/CSV). stats.nba.com and cdn.nba.com's JSON player-index endpoints were tested live from this environment and are not reliably reachable, so no crosswalk could be built this pass either. Ready to activate the moment a real, verified crosswalk is added -- never guesses an ID.",
+        "No explicit license grant to hotlink NBA.com headshots in a shipped product has been reviewed/approved either, same as ESPN."
+      ]
+    }
+  ],
+  "default_cache_policy": "do_not_cache_unless_license_approved",
+  "notes": "This registry documents WHERE asset metadata comes from, not a license grant. Runtime rendering must gate on cache_policy -- see apps/api's PEAK3_ENABLE_EXTERNAL_ASSET_URLS flag (default off)."
+}

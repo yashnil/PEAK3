@@ -268,7 +268,7 @@ def compute_exact_fit_components(cards: list[PlayerSeasonCard], slot_types: list
 
     starter_slot_types = slot_types[:STARTER_SLOTS]
     fit_points = [
-        _FIT_POINTS.get(classify_fit_from_position(card.position, slot), 0.0)
+        _FIT_POINTS.get(classify_fit_from_position(card.position, slot, card.player_slug), 0.0)
         for card, slot in zip(starters, starter_slot_types)
     ]
     positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points)))
@@ -289,7 +289,7 @@ def _off_position_starter_slots_exact(cards: list[PlayerSeasonCard], slot_types:
     starter_slot_types = slot_types[:STARTER_SLOTS]
     return [
         slot for card, slot in zip(starters, starter_slot_types)
-        if classify_fit_from_position(card.position, slot) == "off_position"
+        if classify_fit_from_position(card.position, slot, card.player_slug) == "off_position"
     ]
 
 
@@ -317,6 +317,19 @@ def _best_pick_exact(cards: list[PlayerSeasonCard]) -> str | None:
     return best.player_name
 
 
+# Phase 7A Part F: "Weakness" implies something is wrong with the roster;
+# at contender/dynasty win totals (mirrors the frontend's own resultTier()
+# bands in SeasonResultStub.tsx -- Contender starts at 65 wins), nothing
+# about the roster IS wrong -- structural_weakness at that tier describes
+# what's capping the ceiling below 82, not a fault. Below that (rebuild/
+# mid-pack), "Weakness" is the honest word.
+_CEILING_LIMITER_WINS_FLOOR = 65
+
+
+def _weakness_framing(wins: int) -> str:
+    return "ceiling_limiter" if wins >= _CEILING_LIMITER_WINS_FLOOR else "weakness"
+
+
 # Phase 6G Part A: human-readable labels for the six lineup-fit components,
 # used only when that component is the actual driver of a weak roster (see
 # _weakest_component_label). Never phrased as a player name -- these are
@@ -335,13 +348,20 @@ _COMPONENT_LABELS = {
 _COMPONENT_WEAKNESS_FLOOR = 50.0
 
 
-def _weakest_component_label(fit: LineupFitComponents) -> str | None:
+def _weakest_component_label(fit: LineupFitComponents, *, require_below_floor: bool = True) -> str | None:
     """The single lowest of the six major fit components, as a plain-
-    English label -- only returned if it's actually low (below
+    English label. By default only returned if it's actually low (below
     _COMPONENT_WEAKNESS_FLOOR), never just "whichever is smallest" on an
     otherwise-strong roster. positional_fit is intentionally excluded here:
     it's graded separately (as named off-position starters), not folded
-    into this generic component check."""
+    into this generic component check.
+
+    `require_below_floor=False` (used for the ceiling_limiter tier -- see
+    _structural_weakness_exact) drops the floor: on a contender/dynasty
+    roster nothing is genuinely "wrong", but the relatively-weakest
+    component is still the honest answer to "what's capping the ceiling
+    below 82", which is a more useful explanation than naming a bare
+    player as "the weakness"."""
     values = {
         "talent_core": fit.talent_core,
         "bench_strength": fit.bench_strength,
@@ -351,7 +371,7 @@ def _weakest_component_label(fit: LineupFitComponents) -> str | None:
         "postseason_pedigree": fit.postseason_pedigree,
     }
     worst_key = min(values, key=lambda k: values[k])
-    if values[worst_key] >= _COMPONENT_WEAKNESS_FLOOR:
+    if require_below_floor and values[worst_key] >= _COMPONENT_WEAKNESS_FLOOR:
         return None
     return _COMPONENT_LABELS[worst_key]
 
@@ -374,7 +394,7 @@ _SEVERE_SLOT_LABEL = {
 
 
 def _structural_weakness_exact(
-    cards: list[PlayerSeasonCard], slot_types: list[str], fit: LineupFitComponents
+    cards: list[PlayerSeasonCard], slot_types: list[str], fit: LineupFitComponents, wins: int
 ) -> str | None:
     """Prioritized structural weakness description. Order (Phase 6G Part A
     rewrite -- fixes the "Weakness: Reggie Miller at SF" bug, where a mild,
@@ -393,18 +413,28 @@ def _structural_weakness_exact(
          playing power forward).
       4. The single weakest major fit component (talent_core/bench_strength/
          team_context_depth/creation_coverage/scoring_coverage/
-         postseason_pedigree), if meaningfully below neutral -- a genuinely
-         weak supporting cast is a bigger problem than a defensible mild
-         positional swap.
+         postseason_pedigree). On a contender/dynasty roster (wins >=
+         _CEILING_LIMITER_WINS_FLOOR) this is always reported (no floor --
+         see _weakest_component_label) since nothing needs to be "wrong"
+         for it to be the honest answer to "what's capping the ceiling
+         below 82". Below that tier, only reported if meaningfully below
+         neutral -- a genuinely weak supporting cast is a bigger problem
+         than a defensible mild positional swap, but a slight dip on an
+         otherwise fine roster isn't worth naming.
       5. Mild off-position starter(s) -- reached only once nothing larger
          applies (a 6'7 SG at SF is a real but small drag, not the fatal
          flaw -- see position_fit_severity's adjacency table).
-      6. Fallback: lowest-scored placed card (only reached when the roster
-         is structurally sound and every component is healthy -- score
-         rank alone is a fair "weakness" only then).
+      6. Fallback: on a contender/dynasty roster, a generic "not every
+         star is in their absolute peak season" note (every component is
+         healthy and no positional issue exists -- the only thing left
+         capping the ceiling is that this is a real-season roster, not a
+         hand-picked all-time-peak one). Below that tier, the lowest-
+         scored placed card (score rank alone is a fair "weakness" only
+         when the roster is otherwise structurally sound).
     """
     if not cards:
         return None
+    is_ceiling_limiter = wins >= _CEILING_LIMITER_WINS_FLOOR
     starters = cards[:STARTER_SLOTS]
     starter_slot_types = slot_types[:STARTER_SLOTS]
 
@@ -416,7 +446,7 @@ def _structural_weakness_exact(
     off_position: list[tuple[str, str, str | None, str]] = []
     for card, slot in zip(starters, starter_slot_types):
         primary, _ = parse_real_position(card.position)
-        if classify_fit_from_position(card.position, slot) == "off_position":
+        if classify_fit_from_position(card.position, slot, card.player_slug) == "off_position":
             off_position.append((card.player_name, slot, primary, position_fit_severity(slot, primary)))
 
     severe = [o for o in off_position if o[3] == "severe"]
@@ -437,10 +467,15 @@ def _structural_weakness_exact(
         detail = ", ".join(f"{name} at {slot}" for name, slot, _, _ in moderate)
         return f"Position-broken starting five -- {detail}"
 
-    weakest_component = _weakest_component_label(fit)
+    weakest_component = _weakest_component_label(fit, require_below_floor=not is_ceiling_limiter)
     if weakest_component:
         return weakest_component
 
+    # Phase 7A Part F follow-up: "mild" is, by construction (see
+    # position_fit_severity's adjacency table), a routine and defensible
+    # placement -- e.g. a small forward playing power forward. Never phrase
+    # this as "Position-broken", which implies a real structural problem;
+    # that framing is reserved for the severe/moderate branches above.
     mild = [o for o in off_position if o[3] == "mild"]
     if len(mild) == 1:
         name, slot, real_pos, _sev = mild[0]
@@ -448,7 +483,10 @@ def _structural_weakness_exact(
         return f"{name} at {slot}{pos_note}"
     if len(mild) >= 2:
         detail = ", ".join(f"{name} at {slot}" for name, slot, _, _ in mild)
-        return f"Position-broken starting five -- {detail}"
+        return f"Minor positional flexibility -- {detail}"
+
+    if is_ceiling_limiter:
+        return "not every star is in their peak season"
 
     scored = [c for c in cards if c.season_score is not None]
     if scored:
@@ -505,5 +543,6 @@ def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_t
         experimental_notice=EXACT_SEASON_SIMULATOR_NOTICE,
         lineup_peak_score=lineup_peak_score,
         best_pick=_best_pick_exact(cards),
-        structural_weakness=_structural_weakness_exact(cards, slot_types, fit),
+        structural_weakness=_structural_weakness_exact(cards, slot_types, fit, wins),
+        weakness_framing=_weakness_framing(wins),
     )

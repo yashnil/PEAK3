@@ -501,6 +501,10 @@ def test_current_spin_candidates_never_expose_score_or_rank(client: TestClient):
             # Phase 6E Part B: asset-manifest schema readiness field, always
             # null today -- explicitly allowed here, still not a score/rank.
             "headshot_url",
+            # Phase 7A Part A: exact_team_stint | exact_season_aggregate |
+            # roster_only_unscored -- provenance of the score, never the
+            # score/rank itself.
+            "score_source",
         }
         for c in candidates:
             assert not (forbidden & set(c.keys()))
@@ -516,6 +520,7 @@ def test_current_spin_candidates_never_expose_score_or_rank(client: TestClient):
             # when ENABLE_EXTERNAL_ASSET_URLS is true (default off) -- still
             # not a score/rank.
             "headshot_url",
+            "score_source",
         }
         open_slots = [s["slot_type"] for s in selected["slots"] if not s["filled"]]
         _place(client, game_id, open_slots[0])
@@ -1012,6 +1017,7 @@ from nba_peak.perfect_season.board import (  # noqa: E402
     generate_team_year_board,
 )
 from nba_peak.perfect_season.exact_season import (  # noqa: E402
+    TEAM_ID_TO_NAME,
     resolve_exact_card_by_key,
     resolve_player_season_card,
 )
@@ -1120,7 +1126,7 @@ def test_team_year_candidates_are_alphabetical_not_star_weighted():
     import json as _json
     dataset_path = (
         Path(__file__).resolve().parent.parent.parent.parent
-        / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v2.json"
+        / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v3.json"
     )
     data = _json.loads(dataset_path.read_text())
     entry = next(e for e in data["exact_team_year_spins"] if e["team_id"] == "GSW" and e["season_label"] == "2015-16")
@@ -1129,10 +1135,14 @@ def test_team_year_candidates_are_alphabetical_not_star_weighted():
     # Stephen Curry (the 2015-16 MVP, the "obvious star pick") must not be
     # first in the list purely by virtue of being the best player.
     assert entry["player_slugs"][0] != "stephen-curry"
+    # Phase 7A Part A: anderson-varejao (signed after a Portland buyout,
+    # Feb 2016) and jason-thompson (traded from Sacramento, Feb 2016) are
+    # real mid-season additions to this roster, now correctly included via
+    # the traded-player-stint backfill -- previously missing entirely.
     assert set(entry["player_slugs"]) == {
-        "andre-iguodala", "andrew-bogut", "brandon-rush", "draymond-green", "festus-ezeli",
-        "harrison-barnes", "ian-clark", "james-michael-mcadoo", "klay-thompson",
-        "leandro-barbosa", "marreese-speights", "shaun-livingston", "stephen-curry",
+        "anderson-varejao", "andre-iguodala", "andrew-bogut", "brandon-rush", "draymond-green",
+        "festus-ezeli", "harrison-barnes", "ian-clark", "james-michael-mcadoo", "jason-thompson",
+        "klay-thompson", "leandro-barbosa", "marreese-speights", "shaun-livingston", "stephen-curry",
     }
 
 
@@ -1618,7 +1628,10 @@ def test_respin_disabled_after_player_selected(team_year_client: TestClient):
     assert resp.json()["detail"]["error_code"] == "respin_not_allowed"
 
 
-def test_respin_history_recorded_and_resets_next_round(team_year_client: TestClient):
+def test_respin_history_recorded_and_budget_carries_over_next_round(team_year_client: TestClient):
+    """Phase 7A Part C: respins are a RUN-level budget, not a per-round one
+    -- using one team + one season respin in round 1 must still count
+    against the SAME budget in round 2, never reset."""
     state = _create(team_year_client, mode="apex_1y", seed=17)
     game_id = state["game_id"]
 
@@ -1634,18 +1647,74 @@ def test_respin_history_recorded_and_resets_next_round(team_year_client: TestCli
     assert set(state["respin_history"][0].keys()) == {
         "round", "kind", "from_team", "from_season", "to_team", "to_season",
     }
+    assert state["team_respins_used_total"] == 1
+    assert state["team_respins_remaining_total"] == 2
+    assert state["season_respins_used_total"] == 1
+    assert state["season_respins_remaining_total"] == 2
 
-    # Advance to round 2 -- counters reset, history is preserved (not
-    # cleared).
+    # Advance to round 2 -- budget carries over (NOT reset), history is
+    # preserved.
     slug = state["current_spin"]["candidates"][0]["player_slug"]
     state = _select(team_year_client, game_id, slug)
     open_slot = next(s["slot_type"] for s in state["slots"] if not s["filled"])
     state = _place(team_year_client, game_id, open_slot)
 
     assert state["current_round"] == 2
-    assert state["current_spin"]["team_respins_used"] == 0
-    assert state["current_spin"]["season_respins_used"] == 0
+    assert state["current_spin"]["team_respins_used"] == 1
+    assert state["current_spin"]["season_respins_used"] == 1
+    assert state["team_respins_used_total"] == 1
+    assert state["season_respins_used_total"] == 1
     assert len(state["respin_history"]) == 2  # unchanged, not cleared
+
+
+def test_using_all_team_respins_in_round_1_stays_disabled_in_round_2(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=21)
+    game_id = state["game_id"]
+
+    for i in range(3):
+        resp = _respin_team(team_year_client, game_id)
+        assert resp.status_code == 200, resp.text
+        state = resp.json()
+    assert state["team_respins_remaining_total"] == 0
+
+    slug = state["current_spin"]["candidates"][0]["player_slug"]
+    state = _select(team_year_client, game_id, slug)
+    open_slot = next(s["slot_type"] for s in state["slots"] if not s["filled"])
+    state = _place(team_year_client, game_id, open_slot)
+    assert state["current_round"] == 2
+    assert state["team_respins_remaining_total"] == 0
+    assert state["current_spin"]["team_respins_used"] == 3
+
+    resp = _respin_team(team_year_client, game_id)
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "respin_limit_reached"
+
+    # Season respins are an independent budget -- still fully available in
+    # round 2.
+    assert state["season_respins_remaining_total"] == 3
+
+
+def test_using_all_season_respins_in_round_1_stays_disabled_in_round_2(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=22)
+    game_id = state["game_id"]
+
+    for i in range(3):
+        resp = _respin_season(team_year_client, game_id)
+        assert resp.status_code == 200, resp.text
+        state = resp.json()
+    assert state["season_respins_remaining_total"] == 0
+
+    slug = state["current_spin"]["candidates"][0]["player_slug"]
+    state = _select(team_year_client, game_id, slug)
+    open_slot = next(s["slot_type"] for s in state["slots"] if not s["filled"])
+    state = _place(team_year_client, game_id, open_slot)
+    assert state["current_round"] == 2
+    assert state["season_respins_remaining_total"] == 0
+
+    resp = _respin_season(team_year_client, game_id)
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "respin_limit_reached"
+    assert state["team_respins_remaining_total"] == 3
 
 
 def test_respin_never_produces_empty_candidate_list(team_year_client: TestClient):
@@ -1978,3 +2047,456 @@ def test_rls_migration_has_expected_policies():
     assert "perfect_season_runs_owner_insert" in sql
     assert "FOR UPDATE" not in sql
     assert "FOR DELETE" not in sql
+
+
+# ---------------------------------------------------------------------------
+# Phase 7A Part A: traded-player / team-stint roster coverage
+# ---------------------------------------------------------------------------
+
+def _load_team_year_dataset() -> dict:
+    import json as _json
+    dataset_path = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "data" / "game" / "experimental" / "player_pool_1500" / "courtbuilder_team_year.experimental.v3.json"
+    )
+    return _json.loads(dataset_path.read_text())
+
+
+def test_boogie_appears_for_2016_17_kings_candidates():
+    data = _load_team_year_dataset()
+    entry = next(e for e in data["exact_team_year_spins"] if e["team_id"] == "SAC" and e["season_label"] == "2016-17")
+    assert "demarcus-cousins" in entry["player_slugs"]
+    card = next(c for c in entry["candidates"] if c["player_slug"] == "demarcus-cousins")
+    assert card["score_source"] == "exact_season_aggregate"
+    assert card["score_status"] == "exact_season_scored"
+
+
+def test_boogie_appears_for_2016_17_pelicans_candidates():
+    data = _load_team_year_dataset()
+    entry = next(e for e in data["exact_team_year_spins"] if e["team_id"] == "NOP" and e["season_label"] == "2016-17")
+    assert "demarcus-cousins" in entry["player_slugs"]
+    card = next(c for c in entry["candidates"] if c["player_slug"] == "demarcus-cousins")
+    assert card["score_source"] == "exact_season_aggregate"
+
+
+def test_no_duplicate_player_within_one_team_season_candidate_list():
+    data = _load_team_year_dataset()
+    for entry in data["exact_team_year_spins"]:
+        slugs = entry["player_slugs"]
+        assert len(slugs) == len(set(slugs)), f"duplicate in {entry['team_id']} {entry['season_label']}: {slugs}"
+
+
+def test_traded_player_candidate_row_has_exact_team_and_season():
+    """A traded player's candidate row must show the SLOT's exact team/season
+    (e.g. "Sacramento Kings"/"2016-17"), never a different team, even though
+    the underlying score is a season aggregate."""
+    from nba_peak.perfect_season.exact_season import resolve_player_season_card, clear_caches
+    clear_caches()
+    sac_card = resolve_player_season_card("demarcus-cousins", "SAC", "2016-17")
+    assert sac_card is not None
+    assert sac_card.team_id == "SAC"
+    assert sac_card.team_name == "Sacramento Kings"
+    assert sac_card.season == "2016-17"
+
+    nop_card = resolve_player_season_card("demarcus-cousins", "NOP", "2016-17")
+    assert nop_card is not None
+    assert nop_card.team_id == "NOP"
+    assert nop_card.team_name == "New Orleans Pelicans"
+    assert nop_card.season == "2016-17"
+
+    # Both real team-stints share the same underlying aggregate score --
+    # honest, not a fabricated per-team split.
+    assert sac_card.season_score == nop_card.season_score
+
+
+def test_traded_player_never_resolves_to_a_team_he_did_not_play_for():
+    from nba_peak.perfect_season.exact_season import resolve_player_season_card, clear_caches
+    clear_caches()
+    assert resolve_player_season_card("demarcus-cousins", "GSW", "2016-17") is None
+    assert resolve_player_season_card("demarcus-cousins", "LAL", "2016-17") is None
+
+
+def test_team_year_candidate_lists_remain_alphabetical_with_traded_players():
+    data = _load_team_year_dataset()
+    entry = next(e for e in data["exact_team_year_spins"] if e["team_id"] == "SAC" and e["season_label"] == "2016-17")
+    names = [c["player_name"] for c in entry["candidates"]]
+    assert names == sorted(names)
+
+
+def test_no_empty_candidate_lists_after_traded_player_backfill():
+    data = _load_team_year_dataset()
+    for entry in data["exact_team_year_spins"]:
+        assert len(entry["player_slugs"]) >= 8, f"{entry['team_id']} {entry['season_label']} has too few candidates"
+    assert data.get("unsupported_team_seasons", []) is not None  # present, even if empty -- never silently dropped
+
+
+def test_must_fix_traded_players_all_resolve():
+    """Every player_slug the user explicitly flagged as a must-fix example."""
+    from nba_peak.perfect_season.exact_season import resolve_player_season_card, clear_caches
+    clear_caches()
+    cases = [
+        ("demarcus-cousins", "SAC", "2016-17"),
+        ("demarcus-cousins", "NOP", "2016-17"),
+        ("rasheed-wallace", "DET", "2003-04"),
+        ("buddy-hield", "SAC", "2016-17"),
+        ("tyreke-evans", "SAC", "2016-17"),
+        ("kevin-durant", "PHO", "2022-23"),
+        ("kyrie-irving", "DAL", "2022-23"),
+        ("james-harden", "PHI", "2021-22"),
+        ("russell-westbrook", "LAC", "2022-23"),
+    ]
+    for slug, team, season in cases:
+        card = resolve_player_season_card(slug, team, season)
+        assert card is not None, f"{slug} {team} {season} failed to resolve"
+        assert card.team_id == team
+        assert card.season == season
+
+
+# ---------------------------------------------------------------------------
+# Phase 7A Part D: spinner randomness audit (real, not just eyeballed)
+# ---------------------------------------------------------------------------
+
+def test_first_1000_seeds_hit_a_reasonable_number_of_teams_and_seasons():
+    """A much stronger version of test_team_year_board_draws_from_multiple_teams_
+    and_seasons_across_seeds -- over 1000 seeds (8000 rounds), the spinner
+    must exercise a real fraction of the 40-franchise / 47-season space,
+    not cluster into a handful of favorites."""
+    teams_seen: set[str] = set()
+    seasons_seen: set[str] = set()
+    for seed in range(1000):
+        board = generate_team_year_board(mode="apex_1y", seed=seed)
+        for spin in board.spins:
+            teams_seen.add(spin.team_id)
+            seasons_seen.add(spin.era_label)
+    assert len(teams_seen) >= 35, f"expected most of the 40 franchises to appear, got {len(teams_seen)}"
+    assert len(seasons_seen) >= 40, f"expected most of the 47 seasons to appear, got {len(seasons_seen)}"
+
+
+def test_no_single_team_or_season_dominates_the_spinner():
+    """No team or season should appear far more often than a uniform draw
+    would predict -- a generous 3x-uniform-rate ceiling (not an exact
+    statistical bound, just a sanity check against a real weighting bug)."""
+    from collections import Counter
+    team_counter: Counter = Counter()
+    season_counter: Counter = Counter()
+    n_seeds = 500
+    for seed in range(n_seeds):
+        board = generate_team_year_board(mode="apex_1y", seed=seed)
+        for spin in board.spins:
+            team_counter[spin.team_id] += 1
+            season_counter[spin.era_label] += 1
+
+    total_rolls = n_seeds * 8
+    n_teams = len(TEAM_ID_TO_NAME)
+    uniform_team_rate = 1.0 / n_teams
+    most_common_team, most_common_team_count = team_counter.most_common(1)[0]
+    assert most_common_team_count / total_rolls < uniform_team_rate * 3, (
+        f"{most_common_team} dominates the spinner: {most_common_team_count}/{total_rolls} rolls"
+    )
+
+    most_common_season, most_common_season_count = season_counter.most_common(1)[0]
+    n_seasons = 47
+    uniform_season_rate = 1.0 / n_seasons
+    assert most_common_season_count / total_rolls < uniform_season_rate * 3, (
+        f"{most_common_season} dominates the spinner: {most_common_season_count}/{total_rolls} rolls"
+    )
+
+
+def test_spinner_same_seed_always_gives_the_same_roll():
+    board_a = generate_team_year_board(mode="apex_1y", seed=777)
+    board_b = generate_team_year_board(mode="apex_1y", seed=777)
+    assert [s.team_id for s in board_a.spins] == [s.team_id for s in board_b.spins]
+    assert [s.era_label for s in board_a.spins] == [s.era_label for s in board_b.spins]
+
+
+def test_spinner_different_seeds_usually_produce_different_rolls():
+    round1_rolls = set()
+    for seed in range(50):
+        board = generate_team_year_board(mode="apex_1y", seed=seed)
+        round1_rolls.add((board.spins[0].team_id, board.spins[0].era_label))
+    # 50 different seeds should not collapse to a small handful of outcomes.
+    assert len(round1_rolls) >= 30, f"expected broad round-1 diversity across 50 seeds, got {len(round1_rolls)}"
+
+
+def test_spinner_samples_uniformly_over_team_season_pairs_not_team_then_season():
+    """Documents (and verifies, not just asserts) the actual sampling
+    strategy: nba_peak.perfect_season.board.generate_team_year_board draws
+    directly from the flat list of rollable (team, season) PAIRS --
+    `entries[rng.randrange(len(entries))]` -- never team-first-then-season,
+    which would bias toward teams with many seasons in the pool. If this
+    ever changes, this test (and the sampling_method field in
+    scripts/audit_peak_season_spinner_randomness.py's report) must be
+    updated to match, per Part D's explicit 'document or fix' instruction."""
+    import inspect
+    from nba_peak.perfect_season import board as board_module
+    source = inspect.getsource(board_module.generate_team_year_board)
+    assert "entries[rng.randrange(len(entries))]" in source, (
+        "generate_team_year_board's sampling strategy changed -- re-verify whether it is "
+        "still a uniform draw over team-season PAIRS (the documented, intended behavior) "
+        "and update this test + the audit script's sampling_method field accordingly."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 7A Part E: live projection vs final calibration consistency
+# ---------------------------------------------------------------------------
+
+def test_live_projection_at_8_of_8_exactly_matches_final_simulation(team_year_client: TestClient):
+    """The exact bug reported: a strong roster's live panel showed a wildly
+    different range (e.g. 49-65) from the eventual final result (70-12).
+    At 8/8 placed, the provisional range must match the final simulation
+    exactly (both come from the same simulate_exact_season call)."""
+    state = _create(team_year_client, mode="apex_1y", seed=31)
+    game_id = state["game_id"]
+    last_state = state
+    for _ in range(8):
+        candidates = last_state["current_spin"]["candidates"]
+        scored = next((c for c in candidates if c.get("score_status") == "exact_season_scored"), candidates[0])
+        last_state = _select(team_year_client, game_id, scored["player_slug"])
+        open_slot = next(s["slot_type"] for s in last_state["slots"] if not s["filled"])
+        last_state = _place(team_year_client, game_id, open_slot)
+
+    assert last_state["status"] == "rounds_complete"
+    live_build = last_state["live_build"]
+    assert live_build is not None
+    assert live_build["projection_confidence"] == "ready_to_simulate"
+    provisional_range = live_build["provisional_record_range"]
+    assert provisional_range is not None
+
+    final_state = _complete(team_year_client, game_id)
+    final_wins = final_state["simulation_result"]["wins"]
+
+    assert provisional_range["low_wins"] == final_wins
+    assert provisional_range["high_wins"] == final_wins
+    # Range width <= 2 wins (here: exactly 0, the strongest form of the requirement).
+    assert provisional_range["high_wins"] - provisional_range["low_wins"] <= 2
+
+
+def test_live_projection_confidence_labels_by_placed_count(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=33)
+    game_id = state["game_id"]
+    last_state = state
+    confidences = []
+    for _ in range(8):
+        candidates = last_state["current_spin"]["candidates"]
+        scored = next((c for c in candidates if c.get("score_status") == "exact_season_scored"), candidates[0])
+        last_state = _select(team_year_client, game_id, scored["player_slug"])
+        open_slot = next(s["slot_type"] for s in last_state["slots"] if not s["filled"])
+        last_state = _place(team_year_client, game_id, open_slot)
+        if last_state["live_build"]:
+            confidences.append((last_state["live_build"]["placed_count"], last_state["live_build"]["projection_confidence"]))
+
+    for placed_count, confidence in confidences:
+        if placed_count < 5:
+            assert confidence == "early_projection", f"expected early_projection at {placed_count}, got {confidence}"
+        elif placed_count < 8:
+            assert confidence == "narrowing_projection", f"expected narrowing_projection at {placed_count}, got {confidence}"
+        else:
+            assert confidence == "ready_to_simulate"
+
+
+def test_all_time_ceiling_lineup_still_returns_82_0():
+    """Regression: Phase 7A's traded-player/live-projection changes must
+    not have touched the win-formula calibration -- the dev fixture that
+    already hit 82-0 must still hit 82-0."""
+    cards = _resolve_lineup(ALL_TIME_CEILING_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins == 82
+    assert result.is_perfect_season is True
+
+
+def test_strong_but_not_perfect_roster_lands_in_a_believable_range():
+    """The giant-heavy fixture (talented but position-broken) should land
+    in a strong-but-not-elite band, not 82 -- proves the formula isn't
+    saturating to the ceiling for every talented roster."""
+    cards = _resolve_lineup(GIANT_HEAVY_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 60 <= result.wins <= 78, f"expected a believable strong-team win total, got {result.wins}"
+
+
+def test_low_lineup_score_does_not_reach_82_wins():
+    cards = _resolve_lineup(MILD_OFFPOSITION_WEAK_TALENT_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.lineup_peak_score < 50
+    assert result.wins < 40
+
+
+# ---------------------------------------------------------------------------
+# Phase 7A Part F: weakness wording round 2 -- "Ceiling limiter" for strong
+# teams, SF<->PF adjacency downgraded to mild (modern combo forwards).
+# ---------------------------------------------------------------------------
+
+SUPERTEAM_AUDIT_LINEUP = [
+    ("magic-johnson", "LAL", "1983-84"),
+    ("kobe-bryant", "LAL", "2005-06"),
+    ("lebron-james", "MIA", "2012-13"),
+    ("kevin-durant", "OKC", "2013-14"),
+    ("karl-anthony-towns", "MIN", "2018-19"),
+    ("moses-malone", "PHI", "1983-84"),
+    ("kevin-garnett", "BOS", "2008-09"),
+    ("devin-booker", "PHO", "2021-22"),
+]
+
+
+def test_kd_at_pf_on_a_strong_team_uses_ceiling_limiter_not_weakness():
+    """Regression for the exact complaint: 'Weakness: Kevin Durant at PF'
+    on a 70-plus-win team feels wrong. At contender-tier wins, the framing
+    must be 'ceiling_limiter', never 'weakness'."""
+    cards = _resolve_lineup(SUPERTEAM_AUDIT_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins >= 65, f"fixture assumption changed -- got {result.wins} wins"
+    assert result.weakness_framing == "ceiling_limiter"
+    assert result.structural_weakness is not None
+
+
+def test_lebron_at_sf_and_kd_at_pf_are_never_named_position_broken():
+    """Phase 7A Part F follow-up regression: LeBron James's 2012-13 season
+    lists PF and Kevin Durant's 2013-14 season lists SF -- both are real
+    'big wing' players who legitimately play either forward spot, so this
+    exact roster (LeBron at SF, KD at PF) must never be described as
+    'Position-broken' or off-position at all, and positional_fit must be
+    meaningfully higher than the pre-fix value of 68."""
+    cards = _resolve_lineup(SUPERTEAM_AUDIT_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.structural_weakness is not None
+    assert "Position-broken" not in result.structural_weakness
+    assert "LeBron James at SF" not in result.structural_weakness
+    assert "Kevin Durant at PF" not in result.structural_weakness
+    assert result.fit_components.positional_fit > 68, (
+        f"expected positional_fit meaningfully above the pre-fix 68, got {result.fit_components.positional_fit}"
+    )
+    assert 70 <= result.wins <= 76, f"expected a believable contender-tier record, got {result.wins}"
+
+
+def test_sf_pf_swap_is_mild_not_the_dominant_weakness_when_components_are_healthy():
+    """LeBron-at-SF / KD-at-PF (both real SF<->PF swaps) must not be
+    reported ahead of a genuinely low component -- and since SF<->PF is now
+    'mild' adjacency, it must never win over a 'moderate' or 'severe' issue
+    if one exists."""
+    from nba_peak.perfect_season.positions import position_fit_severity
+    assert position_fit_severity("SF", "PF") == "mild"
+    assert position_fit_severity("PF", "SF") == "mild"
+
+
+def test_flexible_forward_slugs_never_classified_off_position_between_sf_pf():
+    """Named elite/big wings (LeBron, KD, Bird, Giannis, Kawhi, Tatum, PG,
+    Dr. J, Carmelo) get 'secondary' fit for a real-season SF<->PF swap --
+    never 'off_position', regardless of which forward slot that season's
+    real position lists."""
+    from nba_peak.perfect_season.positions import classify_fit_from_position, FLEXIBLE_FORWARD_SLUGS
+    for slug in FLEXIBLE_FORWARD_SLUGS:
+        assert classify_fit_from_position("SF", "PF", slug) == "secondary"
+        assert classify_fit_from_position("PF", "SF", slug) == "secondary"
+    # A player NOT on the curated list still gets the general 'mild'
+    # adjacency treatment (off_position, but only mild severity) -- the
+    # curated list only ever makes things MORE lenient, never less.
+    assert classify_fit_from_position("SF", "PF", "some-unlisted-player") == "off_position"
+
+
+def test_guard_at_center_or_center_at_guard_still_severe():
+    """The curated flexible-forward exception is scoped to SF<->PF only --
+    a guard playing center (or vice versa) remains a severe mismatch."""
+    from nba_peak.perfect_season.positions import position_fit_severity
+    assert position_fit_severity("C", "PG") == "severe"
+    assert position_fit_severity("PG", "C") == "severe"
+    assert position_fit_severity("C", "SG") == "severe"
+    assert position_fit_severity("SG", "C") == "severe"
+
+
+def test_weak_team_still_uses_weakness_not_ceiling_limiter():
+    cards = _resolve_lineup(MILD_OFFPOSITION_WEAK_TALENT_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins < 65
+    assert result.weakness_framing == "weakness"
+
+
+def test_giant_heavy_lineup_still_identifies_frontcourt_overload_not_rasheed():
+    """Re-verified after the SF<->PF adjacency downgrade -- giant-heavy's
+    real problem (Embiid, a true C, starting at SF) is a SEVERE mismatch,
+    untouched by the SF<->PF mild recalibration (that only affects real
+    SF/PF players swapping between those two slots)."""
+    cards = _resolve_lineup(GIANT_HEAVY_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert "Rasheed Wallace" not in result.structural_weakness
+    assert "no true wing" in result.structural_weakness
+    assert "Joel Embiid" in result.structural_weakness
+
+
+def test_decisive_factors_mention_the_same_component_the_weakness_names():
+    """'What decided this' bullets must be consistent with structural_weakness
+    -- if the weakness is a low component, that same component's factor
+    text should appear among decisive_factors."""
+    cards = _resolve_lineup(MILD_OFFPOSITION_WEAK_TALENT_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.structural_weakness == "thin bench depth"
+    assert any("bench" in f.lower() for f in result.decisive_factors)
+
+
+# ---------------------------------------------------------------------------
+# Phase 7A Part B: expanded image coverage (NBA CDN provider abstraction)
+# ---------------------------------------------------------------------------
+
+def test_resolved_player_renders_headshot_url_in_dev_mode(team_year_assets_client: TestClient):
+    from nba_peak.perfect_season.assets import get_player_headshot_url, clear_caches
+    clear_caches()
+    url = get_player_headshot_url("lebron-james")
+    assert url is not None
+    assert url.startswith("https://")
+
+
+def test_unresolved_historical_player_falls_back_to_none_never_fabricated():
+    from nba_peak.perfect_season.assets import get_player_headshot_url, clear_caches
+    clear_caches()
+    for slug in ["michael-jordan", "magic-johnson", "larry-bird", "kobe-bryant",
+                 "tim-duncan", "kevin-garnett", "hakeem-olajuwon", "reggie-miller",
+                 "paul-pierce", "dirk-nowitzki"]:
+        assert get_player_headshot_url(slug) is None, f"{slug} should be unresolved (no fabricated URL)"
+
+
+def test_nba_cdn_provider_is_wired_but_currently_resolves_zero_players():
+    """Honest scope check: the NBA_CDN provider exists in the manifest
+    (image_provider field, asset_sources.v2.json entry) but resolves 0
+    players this run because no local NBA.com person_id crosswalk exists.
+    This test fails loudly (not silently) if that ever changes without a
+    corresponding update to the Part B report/docs."""
+    import json as _json
+    player_assets_path = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "data" / "game" / "assets" / "player_assets.v3.json"
+    )
+    data = _json.loads(player_assets_path.read_text())
+    nba_cdn_resolved = [p for p in data["players"] if p.get("image_provider") == "NBA_CDN"]
+    assert nba_cdn_resolved == []
+
+    sources_path = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "data" / "game" / "assets" / "asset_sources.v2.json"
+    )
+    sources = _json.loads(sources_path.read_text())
+    nba_cdn_source = next(s for s in sources["sources"] if s.get("image_provider") == "NBA_CDN")
+    assert nba_cdn_source["local_id_crosswalk_entries"] == 0
+
+
+def test_image_urls_are_never_required_for_gameplay(team_year_client: TestClient):
+    """A game must be fully playable (select/place/complete) with
+    ENABLE_EXTERNAL_ASSET_URLS off -- images are cosmetic only."""
+    state = _create(team_year_client, mode="apex_1y", seed=41)
+    game_id = state["game_id"]
+    for _ in range(8):
+        candidates = state["current_spin"]["candidates"]
+        assert all(c.get("headshot_url") is None for c in candidates)
+        scored = next((c for c in candidates if c.get("score_status") == "exact_season_scored"), candidates[0])
+        state = _select(team_year_client, game_id, scored["player_slug"])
+        open_slot = next(s["slot_type"] for s in state["slots"] if not s["filled"])
+        state = _place(team_year_client, game_id, open_slot)
+    resp = team_year_client.post(f"/api/v1/perfect-season/games/{game_id}/complete", json={"game_id": game_id})
+    assert resp.status_code == 200
+
+
+def test_no_image_binaries_committed_in_assets_directory():
+    """Only .json metadata files may exist in data/game/assets/ -- no image
+    binaries (png/jpg/etc) are ever committed, per the hard constraint."""
+    assets_dir = Path(__file__).resolve().parent.parent.parent.parent / "data" / "game" / "assets"
+    binary_extensions = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico"}
+    offenders = [p for p in assets_dir.iterdir() if p.suffix.lower() in binary_extensions]
+    assert offenders == [], f"image binaries found in data/game/assets/: {offenders}"
