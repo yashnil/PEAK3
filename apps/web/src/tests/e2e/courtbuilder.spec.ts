@@ -16,12 +16,15 @@ import { test, expect, Page } from "@playwright/test";
 const TOTAL_ROUNDS = 8;
 
 /** Play one full round: select the first candidate, place into the first
- * open slot. Registers waitForResponse BEFORE each click, matching the
- * Promise.all pattern already established in gameplay.spec.ts to avoid a
- * response/registration race. The spin ceremony's ~1.6s timer sequence
- * happens before the candidate card becomes visible; the existing 10s
- * waitFor timeout already comfortably covers it -- no ceremony-specific
- * wait needed here. */
+ * open slot. The select click still races its network response via
+ * Promise.all (candidate buttons use a real `disabled` attribute while
+ * `busy`, which Playwright's own actionability checks already wait out
+ * correctly -- see EligiblePlayerSearch.tsx). The place click does NOT use
+ * that pattern (see the comment on `openSlot` below for why an open
+ * court-slot needed a different fix, not just a different wait). The spin
+ * ceremony's ~1.6s timer sequence happens before the candidate card becomes
+ * visible; the existing 10s waitFor timeout already comfortably covers it
+ * -- no ceremony-specific wait needed here. */
 async function playOneRound(page: Page): Promise<void> {
   // Phase 6E: candidate order is alphabetical (never star/score-weighted),
   // so the first candidate in the list is no longer reliably a scored
@@ -40,12 +43,40 @@ async function playOneRound(page: Page): Promise<void> {
     candidate.click(),
   ]);
 
-  const openSlot = page.locator('[data-testid="court-slot"][data-filled="false"]').first();
+  // Root cause of the CI flake this replaces (verified from the actual
+  // failing run's server log: a real "select" 200 response arrives, then
+  // NO "place" request is ever sent -- the click itself succeeds, it just
+  // hits a dead element): CourtBuilder.tsx only attaches onClick to an
+  // open slot once `phase === "placing" && !busy`; until then,
+  // PeakCardCourt renders that exact same testid/data-filled combination
+  // as a plain, non-interactive <div> (see PeakCardCourt.tsx -- `onClick`
+  // present -> <button>, absent -> <div>). A <div> has no `disabled`
+  // concept, so Playwright's actionability checks (visible/stable/
+  // enabled/receives-events) are perfectly satisfied and it clicks the
+  // dead element without complaint -- no request is ever sent, so any
+  // `waitForResponse("/place")` after it just times out. This is a narrow,
+  // pre-existing timing window (the moment between the select response
+  // landing and React finishing the resulting re-render); Phase 8C's
+  // heavier placement-mode DOM/motion made it wide enough to occasionally
+  // surface in CI. Fix: target the `<button>` tag specifically, so the
+  // wait itself is what closes the race -- Playwright will keep waiting
+  // until the slot actually becomes the interactive element, exactly like
+  // it already does for the (real, attribute-based) `disabled` candidate
+  // buttons above.
+  const openSlot = page.locator('button[data-testid="court-slot"][data-filled="false"]').first();
   await openSlot.waitFor({ state: "visible", timeout: 10_000 });
-  await Promise.all([
-    page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
-    openSlot.click(),
-  ]);
+
+  // Authoritative outcome, not a specific network URL: proves the
+  // placement actually landed (server round-trip + re-render), immune to
+  // any future endpoint rename and to the "response already resolved
+  // before the listener attached" race the old
+  // Promise.all([waitForResponse(...), click()]) pattern was prone to. A
+  // genuine placement failure (client-side click miss OR a real server
+  // error) still fails this assertion with a clear "count never changed"
+  // timeout, so real regressions are still caught.
+  const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
+  await openSlot.click();
+  await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(filledBefore + 1, { timeout: 10_000 });
 }
 
 async function startCourtBuilder(page: Page, mode = "apex_1y", seed = 42): Promise<void> {
@@ -313,12 +344,16 @@ test.describe("CourtBuilder cancel/back", () => {
     // cleared the old pending selection rather than just hiding it.
     await expect(page.locator('[data-testid="placing-banner"]')).toContainText(nameB);
 
-    // Place B into the first open slot.
-    const openSlot = page.locator('[data-testid="court-slot"][data-filled="false"]').first();
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
-      openSlot.click(),
-    ]);
+    // Place B into the first open slot. Targets the `<button>` tag
+    // specifically (not just the testid) -- see playOneRound's own
+    // comment for why an open court-slot only becomes the real,
+    // interactive element once phase/busy actually settle, and a plain
+    // testid-only locator can click a dead <div> with no listener
+    // attached. The toHaveCount(1) assertion right below is the
+    // authoritative proof placement landed, replacing a fragile
+    // Promise.all([waitForResponse("/place"), click()]) race.
+    const openSlot = page.locator('button[data-testid="court-slot"][data-filled="false"]').first();
+    await openSlot.click();
 
     // Exactly one slot is filled, and it holds B's name, not A's.
     const filledSlot = page.locator('[data-testid="court-slot"][data-filled="true"]');
@@ -375,13 +410,15 @@ test.describe("CourtBuilder keyboard navigation", () => {
       page.keyboard.press("Enter"),
     ]);
 
-    const openSlot = page.locator('[data-testid="court-slot"][data-filled="false"]').first();
+    // Targets the `<button>` tag specifically -- a non-interactive slot
+    // renders as a plain <div> (not focusable at all without a real
+    // tabindex/button element), so waiting for the real button is both
+    // the accessible-correctness check AND what closes the same
+    // busy/phase timing race documented on playOneRound's `openSlot`.
+    const openSlot = page.locator('button[data-testid="court-slot"][data-filled="false"]').first();
     await openSlot.waitFor({ state: "visible" });
     await openSlot.focus();
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
-      page.keyboard.press("Enter"),
-    ]);
+    await page.keyboard.press("Enter");
 
     await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(1);
   });
@@ -704,11 +741,11 @@ test.describe("CourtBuilder respins", () => {
       page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
       candidate.click(),
     ]);
-    const openSlot = page.locator('[data-testid="court-slot"][data-filled="false"]').first();
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
-      openSlot.click(),
-    ]);
+    // Button tag scoped, plus an authoritative filled-count wait instead
+    // of racing a network URL -- see playOneRound's own comment for why.
+    const openSlot = page.locator('button[data-testid="court-slot"][data-filled="false"]').first();
+    await openSlot.click();
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(1, { timeout: 10_000 });
 
     // Round 2: the team respin button must still show 2 left, not reset to 3.
     await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("2 left", { timeout: 10_000 });
