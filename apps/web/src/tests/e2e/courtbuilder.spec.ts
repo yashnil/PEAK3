@@ -126,6 +126,38 @@ test.describe("CourtBuilder full attempt", () => {
     // check of this specific contract.
   });
 
+  test("Phase 8D: Play Again starts a fresh game in the same mode without a page reload", async ({ page }) => {
+    await startCourtBuilder(page);
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+    await expect(page.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
+    const finishedGameUrl = page.url();
+
+    const playAgainBtn = page.locator('[data-testid="play-again-btn"]');
+    await expect(playAgainBtn).toBeVisible();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/perfect-season/games") && r.request().method() === "POST" && r.status() === 200),
+      playAgainBtn.click(),
+    ]);
+
+    // Back to a live round 1 -- no navigation happened (still the same
+    // practice-mode URL, not a reload), the result screen is gone, and the
+    // court is empty again with a brand-new spin ceremony for round 1.
+    expect(page.url()).toBe(finishedGameUrl);
+    await expect(page.locator('[data-testid="season-result"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+    const roundText = await page.locator('[data-testid="spin-stage"]').getByText(/Round 1 \/ 8/).count();
+    expect(roundText).toBeGreaterThan(0);
+  });
+
   test("court grid always shows all 8 slots, filled and open together", async ({ page }) => {
     await startCourtBuilder(page);
     await playOneRound(page);
@@ -311,6 +343,49 @@ test.describe("CourtBuilder cancel/back", () => {
     // Back to the candidate list -- no slot got filled by the cancelled pick.
     await expect(page.locator('[data-testid="candidate-panel"]')).toBeVisible();
     await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(0);
+  });
+
+  test("Phase 8D: reselecting within the same round does not replay the spin ceremony", async ({ page }) => {
+    // Root-cause regression test: CourtBuilder used to only mount
+    // <SpinStage> while phase === "spinning", so cancelling a selection
+    // (back to spinning, SAME round) remounted it fresh and reran the
+    // mount-only ceremony effect -- the spinner visibly re-spun even
+    // though the team/season roll never changed. SpinStage now stays
+    // mounted for the whole round (only collapsing to a compact summary
+    // while placing), so the ceremony must have already finished --
+    // data-phase="revealed" and data-was-locked="true" -- BEFORE the
+    // cancel, and must still read that way immediately after, with no
+    // second "spinning"/"locked" phase ever observed in between.
+    await startCourtBuilder(page);
+    const spinStage = page.locator('[data-testid="spin-stage"]');
+    await expect(spinStage).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+    await expect(spinStage).toHaveAttribute("data-was-locked", "true");
+    const rolledTeamSeason = await page.locator('[data-testid="roll-summary"]').innerText();
+
+    const firstCandidate = page.locator('[data-testid="candidate-card"]').first();
+    await firstCandidate.waitFor({ state: "visible" });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      firstCandidate.click(),
+    ]);
+
+    // Now placing -- SpinStage collapses to the compact locked-in summary
+    // but must remain the SAME mounted element (still revealed/locked),
+    // never a fresh "spinning" one.
+    await expect(spinStage).toHaveAttribute("data-collapsed", "true");
+    await expect(spinStage).toHaveAttribute("data-phase", "revealed");
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/cancel") && r.status() === 200),
+      page.locator('[data-testid="cancel-selection-btn"]').click(),
+    ]);
+
+    // Back in "spinning" (candidate-choosing) UI for the SAME round: no
+    // ceremony replay -- the roll is instantly still the same team/season,
+    // never re-entering a "spinning" or "locked" data-phase.
+    await expect(spinStage).not.toHaveAttribute("data-collapsed", "true");
+    await expect(spinStage).toHaveAttribute("data-phase", "revealed");
+    await expect(page.locator('[data-testid="roll-summary"]')).toHaveText(rolledTeamSeason);
   });
 
   test("select A, cancel, select a different candidate B, and place B", async ({ page }) => {

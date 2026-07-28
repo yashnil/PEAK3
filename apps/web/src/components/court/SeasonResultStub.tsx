@@ -3,12 +3,19 @@ import { motion, useReducedMotion } from "motion/react";
 import { CourtLineupPublicState, CourtSlotPublic, SimulationResultPublic, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import LineupInsightPanel from "./LineupInsightPanel";
 import LeaderboardSubmitPanel from "./LeaderboardSubmitPanel";
+import PlayAgainPanel from "./PlayAgainPanel";
 import PeakCardCourt from "./PeakCardCourt";
 import CourtLayout from "./CourtLayout";
 
 interface Props {
   state: CourtLineupPublicState;
   result: SimulationResultPublic;
+  /** Phase 8D: starts a brand-new game in the same mode without a page
+   * reload -- undefined only for any caller that doesn't wire up the loop
+   * (there are none left in this codebase, but this keeps the prop honest
+   * rather than assuming every future caller wants it). */
+  onPlayAgain?: () => void;
+  playAgainBusy?: boolean;
 }
 
 // Part F: named result tiers, most-impressive first.
@@ -116,7 +123,7 @@ function bestAndWorstPick(slots: CourtSlotPublic[]): { best: string | null; weak
  * on-screen composition itself read as one self-contained, screenshot-able
  * unit (bordered shell, PEAK3 accent rail, consistent internal rhythm).
  */
-export default function SeasonResultStub({ state, result }: Props) {
+export default function SeasonResultStub({ state, result, onPlayAgain, playAgainBusy = false }: Props) {
   const reduceMotion = useReducedMotion();
   const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
   const benchSlots = state.slots.filter((s) => BENCH_SLOT_TYPES.includes(s.slot_type));
@@ -222,8 +229,21 @@ export default function SeasonResultStub({ state, result }: Props) {
         </div>
       </motion.div>
 
+      {onPlayAgain && (
+        <motion.div {...reveal(1)}>
+          <PlayAgainPanel
+            mode={state.mode}
+            wins={result.wins}
+            losses={result.losses}
+            lineupPeakScore={result.lineup_score_status === "complete" ? result.lineup_peak_score : null}
+            onPlayAgain={onPlayAgain}
+            busy={playAgainBusy}
+          />
+        </motion.div>
+      )}
+
       {best && (
-        <motion.div {...reveal(1)} className="flex gap-2 text-xs justify-center" data-testid="best-and-weakness">
+        <motion.div {...reveal(2)} className="flex gap-2 text-xs justify-center" data-testid="best-and-weakness">
           <span className="rounded-full px-2.5 py-1" style={{ background: "rgba(52,211,153,0.1)", color: "#34d399" }}>
             Best pick: {best}
           </span>
@@ -260,7 +280,7 @@ export default function SeasonResultStub({ state, result }: Props) {
           exact-season score, rather than silently backfilling with a
           career-peak or approximate value (score_substitution_allowed=false). */}
       <motion.div
-        {...reveal(2)}
+        {...reveal(3)}
         data-testid="lineup-peak-score"
         className="rounded-xl p-3 text-center"
         style={{ background: "var(--bg-surface)", border: "1px solid var(--peak-accent-dim)" }}
@@ -296,7 +316,7 @@ export default function SeasonResultStub({ state, result }: Props) {
         )}
       </motion.div>
 
-      <motion.div {...reveal(3)} className="flex flex-col gap-2">
+      <motion.div {...reveal(4)} className="flex flex-col gap-2">
         <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
           Your roster, revealed
         </div>
@@ -307,7 +327,7 @@ export default function SeasonResultStub({ state, result }: Props) {
         />
       </motion.div>
 
-      <motion.div {...reveal(4)} className="flex flex-col gap-1">
+      <motion.div {...reveal(5)} className="flex flex-col gap-1">
         <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
           What decided this
         </div>

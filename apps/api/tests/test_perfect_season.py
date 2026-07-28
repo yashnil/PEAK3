@@ -1409,6 +1409,7 @@ from nba_peak.perfect_season.simulation import (  # noqa: E402
     compute_exact_fit_components,
     simulate_exact_season,
     _is_catastrophe_roster,
+    _is_generational_core,
 )
 
 ALL_TIME_CEILING_LINEUP = [
@@ -2428,6 +2429,118 @@ def test_elite_roster_unaffected_by_catastrophe_floor_change():
     result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
     assert result.wins == 82
     assert result.is_perfect_season is True
+
+
+# ---------------------------------------------------------------------------
+# Generational-elite win floor: a lineup with 4+ starters individually
+# scoring 85+ must land 80-82 wins regardless of bench strength, per the
+# explicit product acceptance anchor: "2015-16 Curry, 1987-88 Jordan,
+# 2012-13 LeBron, 2003-04 Garnett, 2022-23 Jokic should essentially be an
+# 82-0 caliber team, or at worst around 81-1/80-2." Good-but-not-elite
+# ("good contender") rosters must stay completely unaffected.
+# ---------------------------------------------------------------------------
+
+# The exact product-specified anchor lineup, paired with a real, modest
+# (not superstar) bench on purpose -- proves the floor carries the result
+# even when the bench doesn't help.
+GENERATIONAL_ANCHOR_LINEUP = [
+    ("stephen-curry", "GSW", "2015-16"),
+    ("michael-jordan", "CHI", "1987-88"),
+    ("lebron-james", "MIA", "2012-13"),
+    ("kevin-garnett", "MIN", "2003-04"),
+    ("nikola-jokic", "DEN", "2022-23"),
+    ("marcus-smart", "BOS", "2021-22"),
+    ("al-horford", "BOS", "2023-24"),
+    ("derrick-white", "BOS", "2023-24"),
+]
+
+# Exactly 4 generational starters (Jokic swapped for a real but much
+# weaker 5th starter) plus the same modest bench -- must still land in the
+# 80-82 band ("4 OR 5 genuinely generational peak starters").
+FOUR_GENERATIONAL_LINEUP = [
+    ("stephen-curry", "GSW", "2015-16"),
+    ("michael-jordan", "CHI", "1987-88"),
+    ("lebron-james", "MIA", "2012-13"),
+    ("kevin-garnett", "MIN", "2003-04"),
+    ("rajon-rondo", "BOS", "2012-13"),
+    ("marcus-smart", "BOS", "2021-22"),
+    ("al-horford", "BOS", "2023-24"),
+    ("derrick-white", "BOS", "2023-24"),
+]
+
+# Only 3 generational-tier starters -- must NOT trigger the floor. A strong
+# "Dynasty"-tier result is expected, not an artificial elevation to
+# juggernaut territory.
+THREE_GENERATIONAL_LINEUP = [
+    ("stephen-curry", "GSW", "2015-16"),
+    ("michael-jordan", "CHI", "1987-88"),
+    ("lebron-james", "MIA", "2012-13"),
+    ("rajon-rondo", "BOS", "2012-13"),
+    ("alex-english", "DEN", "1980-81"),
+    ("marcus-smart", "BOS", "2021-22"),
+    ("al-horford", "BOS", "2023-24"),
+    ("derrick-white", "BOS", "2023-24"),
+]
+
+# A plausible "good contender" roster (no all-time-generational starters at
+# all) -- must land in a normal strong-but-not-elite band and be completely
+# untouched by the new floor, per the explicit "don't flatten everything
+# upward" direction.
+GOOD_CONTENDER_LINEUP = [
+    ("devin-booker", "PHO", "2021-22"),
+    ("klay-thompson", "GSW", "2015-16"),
+    ("jayson-tatum", "BOS", "2023-24"),
+    ("draymond-green", "GSW", "2015-16"),
+    ("rudy-gobert", "UTA", "2018-19"),
+    ("derrick-white", "BOS", "2023-24"),
+    ("al-horford", "BOS", "2023-24"),
+    ("marcus-smart", "BOS", "2021-22"),
+]
+
+
+def test_generational_anchor_lineup_lands_80_to_82_across_seeds():
+    """The exact product-specified 5-starter anchor lineup, with a modest
+    (not superstar) bench -- must land in the 80-82 band across many board
+    seeds, never dipping into merely-great territory."""
+    cards = _resolve_lineup(GENERATIONAL_ANCHOR_LINEUP)
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    assert _is_generational_core(cards) is True
+    for seed in range(1, 11):
+        result = simulate_exact_season(cards, board_seed=seed, slot_types=SLOT_TYPES)
+        assert 80 <= result.wins <= 82, (
+            f"seed {seed}: expected the generational anchor lineup to land 80-82, got {result.wins} "
+            f"(talent_core={fit.talent_core})"
+        )
+
+
+def test_four_generational_starters_still_lands_extremely_close_to_82():
+    """4 (not 5) generational starters, same modest bench -- still must
+    land 80-82, per the explicit '4 or 5' product direction."""
+    cards = _resolve_lineup(FOUR_GENERATIONAL_LINEUP)
+    assert _is_generational_core(cards) is True
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 80 <= result.wins <= 82, f"expected 80-82 for a 4-generational-starter core, got {result.wins}"
+
+
+def test_three_generational_starters_does_not_trigger_the_floor():
+    """Only 3 generational-tier starters -- a strong Dynasty-tier result is
+    right, but the floor must not artificially elevate it to 80-82."""
+    cards = _resolve_lineup(THREE_GENERATIONAL_LINEUP)
+    assert _is_generational_core(cards) is False
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins < 80, f"3 generational starters should not reach the elite floor, got {result.wins}"
+    assert result.wins >= 55, f"expected a genuinely strong record, got {result.wins}"
+
+
+def test_good_contender_roster_is_unaffected_by_the_generational_floor():
+    """A plausible good-contender roster with zero all-time-generational
+    starters must land in a normal strong band, completely untouched by
+    the new floor -- proves elite calibration didn't flatten the middle of
+    the distribution upward."""
+    cards = _resolve_lineup(GOOD_CONTENDER_LINEUP)
+    assert _is_generational_core(cards) is False
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 45 <= result.wins <= 72, f"expected a good-contender-band record, got {result.wins}"
 
 
 # ---------------------------------------------------------------------------

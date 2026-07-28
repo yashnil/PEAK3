@@ -692,6 +692,58 @@ def _is_catastrophe_roster(cards: list[PlayerSeasonCard], fit: LineupFitComponen
     )
 
 
+# ---------------------------------------------------------------------------
+# Generational-elite win floor -- a third, symmetric tier alongside the two
+# above (normal-bad 15 / catastrophe 5). Product-directed acceptance anchor:
+# a lineup built around 2015-16 Curry, 1987-88 Jordan, 2012-13 LeBron,
+# 2003-04 Garnett, and 2022-23 Jokic must land 82-0, or at worst 81-1/80-2 --
+# "more generally, rosters with 4 or 5 genuinely generational peak starters
+# should land extremely close to 82-0."
+#
+# Verified empirically before adding this: with a merely-solid bench, the
+# existing linear formula ALREADY clamps that exact lineup to 82-0 (talent_core
+# is 80% weighted toward the top starters, and 5 real 89-96-rated seasons
+# push `base` in the 90s before the min(82, ...) clamp). The gap is the
+# WORST case -- a weak/unscored bench, or a merely-good (not full 82+
+# already) `base` -- where nothing guaranteed the result stayed close to 82.
+# This floor closes that gap the same way the catastrophe floor closes the
+# opposite one: a roster-composition check, not a change to the linear
+# formula's own weights.
+#
+# Deliberately scoped so it can NEVER fire for a "good contender" roster
+# (Section: "some rosters really are just strong contenders... don't
+# flatten everything upward") -- 85+ is a real, high bar (see
+# _ELITE_STARTER_SCORE_FLOOR = 80.0 used elsewhere for the more modest
+# "genuine all-time peak" decisive-factor callout); requiring FOUR starters
+# to individually clear it is what keeps this from ever triggering on a
+# roster with only one or two true legends.
+_GENERATIONAL_STARTER_SCORE_FLOOR = 85.0
+_GENERATIONAL_MIN_STARTER_COUNT = 4
+_GENERATIONAL_ELITE_WINS_FLOOR = 81.0
+# Noise stays tight for a genuinely stacked core -- an all-time roster is
+# not "iffy," it's dominant; the normal +/-2.5 uniform noise band exists to
+# express real uncertainty in a formula that is NOT that confident for
+# ordinary rosters, not to occasionally make a legendary lineup look shaky.
+_GENERATIONAL_NOISE_RANGE = 1.0
+_NORMAL_NOISE_RANGE = 2.5
+
+
+def _generational_starter_count(cards: list[PlayerSeasonCard]) -> int:
+    starters = cards[:STARTER_SLOTS]
+    return sum(
+        1 for c in starters
+        if c.season_score is not None and c.season_score >= _GENERATIONAL_STARTER_SCORE_FLOOR
+    )
+
+
+def _is_generational_core(cards: list[PlayerSeasonCard]) -> bool:
+    """True when 4 or more STARTERS (not bench) individually clear the
+    generational-peak bar. Never looks at bench, fit, or any other
+    component -- a real generational core carries a roster regardless of
+    the other 3 slots, which is exactly the product direction given."""
+    return _generational_starter_count(cards) >= _GENERATIONAL_MIN_STARTER_COUNT
+
+
 def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_types: list[str]) -> SimulationResult:
     """simulate_season()'s counterpart for team-year (exact-season) lineups.
 
@@ -712,12 +764,19 @@ def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_t
     base += (fit.scoring_coverage - 50.0) * 0.05
     base += (fit.postseason_pedigree - 50.0) * 0.05
     is_catastrophe = _is_catastrophe_roster(cards, fit)
-    wins_floor = _CATASTROPHE_WINS_FLOOR if is_catastrophe else _NORMAL_BAD_WINS_FLOOR
+    is_generational = _is_generational_core(cards)
+    if is_catastrophe:
+        wins_floor = _CATASTROPHE_WINS_FLOOR
+    elif is_generational:
+        wins_floor = _GENERATIONAL_ELITE_WINS_FLOOR
+    else:
+        wins_floor = _NORMAL_BAD_WINS_FLOOR
     expected_wins = max(wins_floor, min(82.0, base))
 
     card_key = ",".join(sorted(c.exact_player_season_key for c in cards))
     rng = random.Random(f"{board_seed}:{card_key}")
-    noise = rng.uniform(-2.5, 2.5)
+    noise_range = _GENERATIONAL_NOISE_RANGE if is_generational else _NORMAL_NOISE_RANGE
+    noise = rng.uniform(-noise_range, noise_range)
     wins = int(round(max(_MIN_FINAL_WINS, min(82.0, expected_wins + noise))))
     losses = TOTAL_GAMES - wins
 

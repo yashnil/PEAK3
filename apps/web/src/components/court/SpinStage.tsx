@@ -37,6 +37,19 @@ interface Props {
    * (playtest finding: team-only/season-only respins weren't visually
    * distinct). null outside of an active respin. */
   respinKind?: "team" | "season" | null;
+  /** Phase 8D: render the compact "locked in" summary instead of the full
+   * two-wheel ceremony card. Used while the player is placing their already-
+   * chosen card on the court (step 2 of the round) -- the roll itself
+   * already happened and finished revealing, so the full ceremony card would
+   * just be dead weight competing with the court for space. Critically, this
+   * prop does NOT gate whether SpinStage mounts (the parent keeps it mounted
+   * for the entire round, spinning through placing, keyed only on
+   * `roundNumber`) -- it only changes what the already-settled ceremony
+   * renders. That's what fixes the "spinner replays when you reselect a
+   * player" bug: previously the parent unmounted this component entirely
+   * during placement, so canceling a selection (back to spinning, SAME
+   * round) remounted it fresh and re-ran the mount-only ceremony effect. */
+  collapsed?: boolean;
 }
 
 type CeremonyPhase = "spinning" | "locked" | "revealed";
@@ -91,10 +104,12 @@ function ReelStrip({
   items,
   activeIndex,
   rampStage,
+  reduceMotion,
 }: {
   items: readonly string[];
   activeIndex: number;
   rampStage: RampStage;
+  reduceMotion: boolean;
 }) {
   const windowSize = 5;
   const center = Math.floor(windowSize / 2);
@@ -102,13 +117,52 @@ function ReelStrip({
     const idx = ((activeIndex - center + i) % items.length + items.length) % items.length;
     return items[idx];
   });
+  // Phase 8D: a real slot-reel needs the center item to visibly SLIDE into
+  // place each tick, not just swap text (playtest finding: "still feels
+  // more like styled text changes than a real game mechanic"). The side
+  // items get a static scale/opacity falloff by distance from center --
+  // cheap, safe, and gives the strip a "drum" curvature instead of a flat
+  // row of equal-weight labels.
+  const tickDuration = rampStage === "fast" ? 0.075 : 0.16;
   return (
     <div className="spin-reel-strip" data-phase="spinning" data-ramp={rampStage} aria-hidden="true">
-      {visible.map((label, i) => (
-        <span key={i} className={i === center ? "spin-reel-strip-active" : "spin-reel-strip-item"}>
-          {label}
-        </span>
-      ))}
+      {visible.map((label, i) => {
+        const distance = Math.abs(i - center);
+        if (i === center) {
+          return (
+            <span key={i} className="spin-reel-strip-active-window">
+              {reduceMotion ? (
+                <span className="spin-reel-strip-active">{label}</span>
+              ) : (
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span
+                    key={`${label}-${activeIndex}`}
+                    className="spin-reel-strip-active"
+                    initial={{ y: 16, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: -16, opacity: 0 }}
+                    transition={{ duration: tickDuration, ease: "easeOut" }}
+                  >
+                    {label}
+                  </motion.span>
+                </AnimatePresence>
+              )}
+            </span>
+          );
+        }
+        return (
+          <span
+            key={i}
+            className="spin-reel-strip-item"
+            style={{
+              transform: reduceMotion ? undefined : `scale(${1 - distance * 0.16}) translateY(${distance * 3}px)`,
+              opacity: Math.max(0.2, 1 - distance * 0.32),
+            }}
+          >
+            {label}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -151,6 +205,7 @@ export default function SpinStage({
   onRevealComplete,
   respinFlashKey = 0,
   respinKind = null,
+  collapsed = false,
 }: Props) {
   // Phase 8C: explicit gate for every new `motion.*` animation added this
   // pass -- the project's existing global CSS `prefers-reduced-motion`
@@ -303,13 +358,58 @@ export default function SpinStage({
       ? { count: rollableTeamSeasonCount.toLocaleString(), range: `${supportedStartSeason} to ${supportedEndSeason}` }
       : null;
 
+  // Phase 8D: collapsed only ever renders once the roll has already settled
+  // (CourtBuilder only enters "placing" after a candidate is chosen, which
+  // itself requires the ceremony to have already revealed) -- so this is a
+  // pure readout of the already-locked spin.franchise_display_name/era_label,
+  // never a state the ticking/reel logic above needs to drive.
+  if (collapsed) {
+    return (
+      <div
+        data-testid="spin-stage"
+        data-phase={phase}
+        data-collapsed="true"
+        className="spin-reel-collapsed flex items-center justify-between gap-2.5 rounded-xl px-3.5 py-2.5"
+        style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)" }}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[10px] font-bold shrink-0" style={{ color: "var(--text-muted)" }}>
+            Rd {roundNumber}/{totalRounds}
+          </span>
+          {isTwoWheel ? (
+            <>
+              <span
+                aria-hidden="true"
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ background: colors.primary }}
+              />
+              <span className="text-xs font-black truncate" style={{ color: "var(--text-primary)" }}>
+                {spin.franchise_display_name} · {spin.era_label}
+              </span>
+            </>
+          ) : (
+            <span className="text-xs font-black" style={{ color: "var(--text-primary)" }}>
+              Full player pool
+            </span>
+          )}
+        </div>
+        <span
+          className="text-[9px] font-bold uppercase tracking-widest flex items-center gap-1 shrink-0"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <Lock size={10} aria-hidden="true" /> Locked
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid="spin-stage"
       data-phase={phase}
       data-was-locked={wasLocked}
       className="spin-reel p-4 flex flex-col gap-3"
-      style={{ background: "var(--bg-elevated)", border: "1px solid var(--border-default)" }}
+      style={{ "--reel-accent": colors.primary } as CSSProperties}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="round-progress-dots" aria-hidden="true">
@@ -435,7 +535,7 @@ export default function SpinStage({
                 Team
               </div>
               {teamIsTicking ? (
-                <ReelStrip items={teamPool} activeIndex={respinning ? respinTick : teamTick} rampStage={respinning ? "slow" : rampStage} />
+                <ReelStrip items={teamPool} activeIndex={respinning ? respinTick : teamTick} rampStage={respinning ? "slow" : rampStage} reduceMotion={!!reduceMotion} />
               ) : (
                 <motion.div
                   key={teamDisplayName}
@@ -482,7 +582,7 @@ export default function SpinStage({
               {secondWheelLabel}
             </div>
             {seasonIsTicking ? (
-              <ReelStrip items={secondPool} activeIndex={respinning ? respinTick : secondTick} rampStage={respinning ? "slow" : rampStage} />
+              <ReelStrip items={secondPool} activeIndex={respinning ? respinTick : secondTick} rampStage={respinning ? "slow" : rampStage} reduceMotion={!!reduceMotion} />
             ) : (
               <motion.div
                 key={secondDisplay}

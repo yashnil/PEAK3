@@ -1,8 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   cancelSelection,
   completeCourtGame,
+  createCourtGame,
   placeCard,
   respinSeason,
   respinTeam,
@@ -10,7 +11,7 @@ import {
   PerfectSeasonAPIError,
 } from "@/lib/perfect-season-api";
 import { uiPhaseFromStatus } from "@/lib/court-state";
-import { CourtLineupPublicState, CourtSlotPublic, SlotType, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
+import { CourtLineupPublicState, CourtSlotPublic, CurrentSpin, SlotType, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import SpinStage from "./SpinStage";
 import EligiblePlayerSearch from "./EligiblePlayerSearch";
 import PeakCardCourt from "./PeakCardCourt";
@@ -67,6 +68,21 @@ export default function CourtBuilder({
 
   const phase = uiPhaseFromStatus(state.status);
 
+  // Phase 8D: the API only sends `current_spin` while status ===
+  // "selection_pending" (see state.py's `find_spin` gate) -- it goes back
+  // to null the instant a player is selected, which is exactly the round
+  // SpinStage needs to STAY mounted through (see the SpinStage `collapsed`
+  // prop comment for why remounting it replays the ceremony). Cache the
+  // most recent non-null spin in a ref so it survives that gap; safe to
+  // write during render (a standard "derived cache" ref pattern, not a
+  // side effect visible to this render) because it only ever overwrites
+  // with a genuinely newer value and every round starts by handing back a
+  // fresh non-null current_spin, so the cache can never leak a stale round
+  // into the next one.
+  const lastSpinRef = useRef<CurrentSpin | null>(null);
+  if (state.current_spin) lastSpinRef.current = state.current_spin;
+  const roundSpin = state.current_spin ?? lastSpinRef.current;
+
   async function withBusy<T>(fn: () => Promise<T>): Promise<T | undefined> {
     setBusy(true);
     setError(null);
@@ -117,6 +133,25 @@ export default function CourtBuilder({
   async function handleComplete() {
     const next = await withBusy(() => completeCourtGame(state.game_id));
     if (next) setState(next);
+  }
+
+  // Phase 8D: "Play Again" -- starts a fresh, unseeded game in the SAME
+  // mode without a page reload (reuses the exact createCourtGame call the
+  // initial practice page itself makes server-side -- no parallel "new
+  // game" path). Resets every piece of local ceremony-tracking state back
+  // to its own initial value so the new game's round 1 gets a real,
+  // un-skipped spin ceremony rather than inheriting stale state from the
+  // finished game (e.g. revealedRound already matching round 1 would skip
+  // straight to "revealed" with no ceremony at all).
+  async function handlePlayAgain() {
+    const next = await withBusy(() => createCourtGame(state.mode));
+    if (next) {
+      setState(next);
+      setRevealedRound(null);
+      setRespinFlashKey(0);
+      setRespinKind(null);
+      lastSpinRef.current = null;
+    }
   }
 
   const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
@@ -178,21 +213,28 @@ export default function CourtBuilder({
       )}
 
       {!state.simulation_result && (
-        /* Phase 8B: wide-desktop arena shell (see .arena-shell in
-           globals.css) -- the spin/candidate flow stays a comfortable
-           reading-width column, and the in-progress roster becomes a
-           persistent sticky rail on lg+ screens (blueprint desktop
-           guidance: "full lineup rail"), instead of the whole game being
-           trapped in one centered mobile-width column at every viewport.
-           Both columns simply stack in original document order below
-           1024px -- no separate mobile markup branch to maintain. */
-        <div className="arena-shell" data-mode={phase === "placing" ? "place" : "select"} data-testid="arena-shell">
-          <div className="flex flex-col gap-5 min-w-0">
-            {/* Top: the current round's constraint (team + era wheel). */}
-            {phase === "spinning" && state.current_spin && (
+        /* Phase 8D: the arena shell is now ONE consistent layout at every
+           game phase (see .arena-shell in globals.css) -- the court is
+           always the dominant column and the spin/candidate panel is
+           always the same fixed-width companion, from first paint. There
+           is no more mode-dependent resize (Phase 8B/8C's tiny-rail ->
+           big-court swap read as an unstable morph, partly because it also
+           crossed .court-panel-wrapper's own container-query breakpoint
+           mid-transition). Both columns simply stack in document order
+           below 1024px -- no separate mobile markup branch to maintain. */
+        <div className="arena-shell" data-testid="arena-shell">
+          <div className="flex flex-col gap-5 min-w-0 arena-shell-main">
+            {/* Top: the current round's constraint (team + era wheel).
+                Phase 8D: mounted for the WHOLE round (spinning through
+                placing), never conditionally removed -- keyed only on
+                current_round, so canceling a selection and returning to
+                "spinning" in the SAME round no longer remounts it and
+                replays the ceremony. `collapsed` swaps it to a compact
+                locked-in readout once placement starts. */}
+            {(phase === "spinning" || phase === "placing") && roundSpin && (
               <SpinStage
                 key={state.current_round}
-                spin={state.current_spin}
+                spin={roundSpin}
                 roundNumber={state.current_round}
                 totalRounds={state.total_rounds}
                 franchiseNames={franchiseNames}
@@ -203,6 +245,7 @@ export default function CourtBuilder({
                 onRevealComplete={() => setRevealedRound(state.current_round)}
                 respinFlashKey={respinFlashKey}
                 respinKind={respinKind}
+                collapsed={phase === "placing"}
               />
             )}
 
@@ -340,7 +383,12 @@ export default function CourtBuilder({
 
       {state.simulation_result && (
         <div className="mx-auto max-w-2xl w-full">
-          <SeasonResultStub state={state} result={state.simulation_result} />
+          <SeasonResultStub
+            state={state}
+            result={state.simulation_result}
+            onPlayAgain={handlePlayAgain}
+            playAgainBusy={busy}
+          />
         </div>
       )}
     </div>
