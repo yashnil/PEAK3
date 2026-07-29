@@ -168,6 +168,9 @@ export interface CourtSlotPublic {
   // Phase 6F Part C: only populated when the backend has
   // ENABLE_EXTERNAL_ASSET_URLS on (default off).
   headshot_url?: string | null;
+  // Phase 8F: the placed card's real team logo -- exact-season slots only
+  // (peak-window slots have no single team attached). Same asset-flag gate.
+  team_logo_url?: string | null;
 }
 
 export interface SimulationResultPublic {

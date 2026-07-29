@@ -206,6 +206,10 @@ class CourtSlotPublic(BaseModel):
     # Phase 6F Part C: only populated when Settings.ENABLE_EXTERNAL_ASSET_URLS
     # is true (default off).
     headshot_url: Optional[str] = None
+    # Phase 8F: the placed card's real team logo (team_year/exact-season
+    # slots only -- peak-window slots have no single team attached). Same
+    # ENABLE_EXTERNAL_ASSET_URLS gate as headshot_url.
+    team_logo_url: Optional[str] = None
 
 
 class SimulationResultPublic(BaseModel):

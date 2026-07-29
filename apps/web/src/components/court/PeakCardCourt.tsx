@@ -1,5 +1,5 @@
 "use client";
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { Lock, Target } from "lucide-react";
 import { BENCH_SLOT_TYPES, CourtSlotPublic, ROLE_FIT_LABELS, RoleFit, SLOT_LABELS } from "@/types/perfect-season";
 import PlayerAvatar from "./PlayerAvatar";
@@ -55,6 +55,7 @@ function fitColor(roleFit: RoleFit | null | undefined): string {
  * order (see prior version's note on why disabled <button> is avoided).
  */
 export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingFit, pendingPrimaryPosition }: Props) {
+  const [logoFailed, setLogoFailed] = useState(false);
   const isBench = (BENCH_SLOT_TYPES as string[]).includes(slot.slot_type);
   // Team-year (exact-season) slots carry team_name/season instead of the
   // legacy peak-window's anchor_season, and reveal season_score instead of
@@ -125,14 +126,30 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
                 style={{ color: "var(--text-secondary)" }}
                 data-testid="exact-season-line"
               >
-                {/* Small team-color dot -- the same real team identity as
-                    the medallion ring above, reinforced on the team/season
-                    line itself. */}
-                <span
-                  aria-hidden="true"
-                  className="inline-block rounded-full mr-1"
-                  style={{ width: 6, height: 6, background: "var(--slot-accent, var(--peak-accent))" }}
-                />
+                {/* Phase 8F: real team logo when the asset flag resolved
+                    one, same graceful onError fallback to the color dot
+                    as every other logo/headshot spot in this codebase --
+                    reinforces the same real team identity as the medallion
+                    ring above, now with an actual picture, not just color. */}
+                {slot.team_logo_url && !logoFailed ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    data-testid="slot-team-logo"
+                    src={slot.team_logo_url}
+                    alt=""
+                    aria-hidden="true"
+                    width={12}
+                    height={12}
+                    style={{ width: 12, height: 12, objectFit: "contain", display: "inline-block", verticalAlign: "-2px", marginRight: 4 }}
+                    onError={() => setLogoFailed(true)}
+                  />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="inline-block rounded-full mr-1"
+                    style={{ width: 6, height: 6, background: "var(--slot-accent, var(--peak-accent))" }}
+                  />
+                )}
                 {slot.team_name} · {slot.season}
                 {revealed && (
                   <span data-testid="revealed-score-line"> · {Math.round(slot.season_score ?? 0)} pts</span>

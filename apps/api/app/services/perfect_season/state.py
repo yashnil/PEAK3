@@ -27,7 +27,7 @@ _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from nba_peak.perfect_season.assets import get_player_headshot_url, get_team_logo_url
+from nba_peak.perfect_season.assets import get_player_headshot_url, get_team_logo_url, get_team_logo_url_by_name
 from nba_peak.perfect_season.board import (
     find_spin,
     generate_board,
@@ -695,13 +695,26 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                 if slug not in _used_player_slugs(state)
             ],
         }
+        # Phase 8F: team_logo_url used to be set ONLY inside the team_year
+        # branch below (via team_id, which only team_year spins carry) --
+        # the DEFAULT engine's spins (team_decade/exact_team_season, what
+        # CourtBuilder actually runs by default) never got a logo at all,
+        # even with the asset flag on, because they have no team_id (the
+        # interim dataset only carries franchise_display_name). Resolved by
+        # name instead for every non-team_year spin type -- same real,
+        # already-verified team_assets.v2.json entries, just a second
+        # lookup key (get_team_logo_url_by_name). open_pool spins have no
+        # real team at all, so this correctly stays None for those.
+        if include_asset_urls and spin.spin_type != "open_pool":
+            current_spin_public["team_logo_url"] = (
+                get_team_logo_url(spin.team_id) if _is_team_year_spin(spin)
+                else get_team_logo_url_by_name(spin.franchise_display_name)
+            )
         if _is_team_year_spin(spin):
             current_spin_public["team_id"] = spin.team_id
             current_spin_public["candidate_source"] = "exact_team_season"
             current_spin_public["data_version"] = state.board.experimental_team_year_data_version
             current_spin_public["coverage_mode"] = state.board.metadata.get("coverage_mode")
-            if include_asset_urls:
-                current_spin_public["team_logo_url"] = get_team_logo_url(spin.team_id)
             # Phase 7A Part C: RUN-LEVEL budget (never resets per round --
             # see MAX_TEAM_RESPINS's own comment). Respins are only ever
             # offered/consumable before a player is selected (status ==
@@ -790,6 +803,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                 })
                 if include_asset_urls:
                     entry["headshot_url"] = get_player_headshot_url(card.player_slug)
+                    entry["team_logo_url"] = get_team_logo_url(card.team_id)
                 if card.score_status != "exact_season_scored":
                     all_placed_scored = False
                 if reveal_scores:

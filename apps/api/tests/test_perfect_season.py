@@ -48,6 +48,7 @@ from nba_peak.perfect_season.positions import (
     POSITION_OVERRIDES,
     STARTER_SLOTS as STARTER_SLOT_NAMES,
     classify_fit,
+    classify_fit_severity,
     primary_position,
     secondary_positions,
 )
@@ -267,9 +268,12 @@ def test_every_player_reachable_in_the_interim_dataset_has_a_manual_override():
     ("shaquille-oneal", "C", ()),
     ("tim-duncan", "PF", ("C",)),
     # Explicitly requested examples (Phase 5X.6 task).
-    ("michael-jordan", "SG", ("SF",)),
-    ("lebron-james", "SF", ("PG", "SG", "PF")),
-    ("nikola-jokic", "C", ()),
+    # Phase 8F: Jordan/LeBron/Jokic secondaries broadened per explicit
+    # product direction ("Michael Jordan at PG/SG/SF", "LeBron James at
+    # PG/SF/PF/C depending on lineup context", "Nikola Jokic at PF/C").
+    ("michael-jordan", "SG", ("SF", "PG")),
+    ("lebron-james", "SF", ("PG", "SG", "PF", "C")),
+    ("nikola-jokic", "C", ("PF",)),
     ("luka-doncic", "PG", ("SG",)),
     ("stephen-curry", "PG", ("SG",)),
 ])
@@ -1866,6 +1870,68 @@ def test_pending_selection_and_filled_slot_headshot_url_outside_team_year_mode(a
 
 
 # ---------------------------------------------------------------------------
+# Phase 8F: team logo/image support -- same class of gap as the headshot_url
+# bug above, but for team logos. team_logo_url used to be set ONLY inside
+# the team_year branch of get_public_state (via a real team_id, which only
+# team_year SpinPrompts carry) -- the DEFAULT engine's spins
+# (team_decade/exact_team_season) never got a logo at all, even with the
+# asset flag on, because the interim dataset only carries
+# franchise_display_name, never a team_id. Fixed via a new
+# get_team_logo_url_by_name lookup (nba_peak.perfect_season.assets) keyed
+# off the same real, already-verified team_assets.v2.json entries.
+# ---------------------------------------------------------------------------
+
+def test_team_logo_url_exposed_outside_team_year_mode(assets_client: TestClient):
+    """Seed 7 / apex_1y rolls Golden State Warriors (see
+    test_candidate_headshot_url_exposed_outside_team_year_mode) -- a
+    resolved team logo must render for the DEFAULT (non-team_year) engine
+    too, not just team_year mode."""
+    from nba_peak.perfect_season.assets import get_team_logo_url_by_name
+
+    state = _create(assets_client, mode="apex_1y", seed=7)
+    assert state["current_spin"]["spin_type"] != "team_year"
+    franchise = state["current_spin"]["franchise_display_name"]
+    expected_url = get_team_logo_url_by_name(franchise)
+    assert expected_url is not None, f"expected a resolved logo for {franchise}"
+    assert state["current_spin"]["team_logo_url"] == expected_url
+
+
+def test_team_logo_url_null_by_default_outside_team_year_mode(team_year_client: TestClient):
+    """Default safe production behavior: ENABLE_EXTERNAL_ASSET_URLS is off,
+    so team_logo_url is never populated, even for a resolved franchise."""
+    state = _create(team_year_client, mode="apex_1y", seed=7)
+    assert state["current_spin"].get("team_logo_url") is None
+
+
+def test_filled_slot_has_no_team_logo_outside_team_year_mode(assets_client: TestClient):
+    """Honest architectural finding from this audit, not a bug: outside
+    team_year mode, action_select_player ALWAYS resolves via resolve_card()
+    (a peak_window_id CardProfile -- the player's own best-ever season,
+    never tied to one specific team), even for an exact_team_season/
+    team_decade spin -- see state.py's action_select_player, which only
+    branches to the exact PlayerSeasonCard path for _is_team_year_spin.
+    A peak-window card has no single team attached (CardProfile carries no
+    team field at all), so a filled slot in this mode can never show a team
+    logo -- only the SPIN itself (which draws candidates from a real
+    roster) has team identity, and that's what
+    test_team_logo_url_exposed_outside_team_year_mode covers. This is a
+    real, structural "no team to attach a logo to" state, not a missed
+    wiring gap like the ones this audit found and fixed elsewhere."""
+    state = _create(assets_client, mode="apex_1y", seed=7)
+    game_id = state["game_id"]
+
+    selected = _select(assets_client, game_id, "stephen-curry")
+    assert selected["pending_selection"]["peak_window_id"] is not None
+    assert selected["pending_selection"].get("exact_player_season_key") is None
+
+    open_slot = selected["pending_selection"]["primary_position"] or "BENCH1"
+    placed = _place(assets_client, game_id, open_slot)
+    filled = next(s for s in placed["slots"] if s["filled"])
+    assert filled["peak_window_id"] is not None
+    assert filled.get("team_logo_url") is None
+
+
+# ---------------------------------------------------------------------------
 # Phase 6G Part E: authenticated global leaderboard
 # ---------------------------------------------------------------------------
 
@@ -2606,6 +2672,170 @@ def test_good_contender_roster_is_unaffected_by_the_generational_floor():
     assert _is_generational_core(cards) is False
     result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
     assert 45 <= result.wins <= 72, f"expected a good-contender-band record, got {result.wins}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 8F: position-model redesign -- the Moncrief-at-SG trust bug and the
+# broader "flexible shifts should be free/near-free, only structurally
+# broken basketball gets meaningfully penalized" direction.
+#
+# Root cause of the reported bug: Sidney Moncrief has no POSITION_OVERRIDES
+# entry, so the archetype fallback drove his position -- and a SEPARATE,
+# confirmed-live bug (Alonzo Mourning, a real center, had no override either
+# and fell back to a "lead_creator" archetype -> PG primary) meant a
+# legitimate center could be scored as badly-off-position at C. Fixed by
+# adding missing overrides (moncrief, mourning, hakeem, dirk, stockton, ja
+# morant) and broadening existing ones (jordan +PG, lebron +C, durant +SG,
+# jokic +PF, ray allen +SF) per explicit product direction, AND by replacing
+# the old flat off_position=-6 fit-point penalty with a severity-graded
+# scale (mild=free, moderate=real-but-limited, severe=meaningfully worse
+# than before) so a merely-adjacent swap (e.g. a real PG playing SF) is
+# never scored the same as a structurally broken one (a small guard at C).
+# ---------------------------------------------------------------------------
+
+def test_moncrief_at_sg_is_a_valid_near_free_placement():
+    """The exact reported bug: Moncrief at SG must never be scored as
+    off-position -- his real position is SG (primary), so this must be
+    "primary", not "secondary" or "off_position"."""
+    assert primary_position("sidney-moncrief") == "SG"
+    assert classify_fit("sidney-moncrief", "lead_creator", "SG") == "primary"
+    assert classify_fit_severity("sidney-moncrief", "lead_creator", "SG") is None
+
+
+def test_mourning_at_center_is_primary_not_a_broken_point_guard():
+    """A second, confirmed-live bug found during the same audit: Mourning
+    (a real center) had no override and fell back to a "lead_creator"
+    archetype, scoring him as badly off-position AT HIS OWN REAL POSITION.
+    Verified live before this fix: apex_1y roster with Mourning at C had
+    positional_fit=78 (a severe PG-at-C penalty); after the fix it's 100."""
+    assert primary_position("alonzo-mourning") == "C"
+    assert classify_fit("alonzo-mourning", "lead_creator", "C") == "primary"
+
+
+@pytest.mark.parametrize("slug,archetype,slot", [
+    ("stephen-curry", "lead_creator", "SG"),
+    ("hakeem-olajuwon", "anchor", "PF"),
+    ("kevin-durant", "wing_forward", "SG"),
+    ("nikola-jokic", "anchor", "PF"),
+    ("ray-allen", "guard_wing", "SF"),
+    ("dirk-nowitzki", "forward_big", "C"),
+    ("michael-jordan", "lead_creator", "PG"),
+])
+def test_flexible_shifts_are_never_off_position(slug, archetype, slot):
+    """Every shift explicitly named in the product direction as a normal,
+    plausible NBA role (Curry at SG, Hakeem at PF, Durant at SG, Jokic at
+    PF, Ray Allen at SF, Dirk at C, Jordan at PG) must resolve to
+    primary/secondary -- never off_position, and therefore never
+    penalized at all in positional_fit."""
+    label = classify_fit(slug, archetype, slot)
+    assert label in ("primary", "secondary"), f"{slug} at {slot} should be a valid fit, got {label}"
+    assert classify_fit_severity(slug, archetype, slot) is None
+
+
+def test_lebron_at_center_is_not_automatically_punished():
+    """Explicit acceptance criterion: 'LeBron James at C is not
+    automatically punished if lineup context supports it.' Verifies C is
+    now a real secondary position for him (added in this pass)."""
+    assert "C" in secondary_positions("lebron-james")
+    assert classify_fit("lebron-james", "wing_forward", "C") == "secondary"
+
+
+@pytest.mark.parametrize("slug,archetype,slot", [
+    ("stephen-curry", "lead_creator", "C"),
+    ("shaquille-oneal", "anchor", "PG"),
+    ("chris-paul", "lead_creator", "C"),
+    ("kareem-abdul-jabbar", "anchor", "PG"),
+])
+def test_absurd_position_shifts_are_still_severely_penalized(slug, archetype, slot):
+    """Explicit acceptance criterion: 'small guards at C and traditional
+    centers at guard are still punished.' These pairings must stay
+    off_position AND severe -- the new severity scale must not accidentally
+    soften genuinely broken basketball along with the plausible shifts."""
+    assert classify_fit(slug, archetype, slot) == "off_position"
+    assert classify_fit_severity(slug, archetype, slot) == "severe"
+
+
+def test_off_position_severity_points_are_graded_not_flat():
+    """The core scoring fix: mild off-position costs nothing, moderate costs
+    a real but limited amount, and severe costs meaningfully more than the
+    old flat -6 penalty every off-position placement used to cost."""
+    from nba_peak.perfect_season.simulation import _OFF_POSITION_SEVERITY_POINTS
+    assert _OFF_POSITION_SEVERITY_POINTS["mild"] == 0.0
+    assert _OFF_POSITION_SEVERITY_POINTS["moderate"] < 0.0
+    assert _OFF_POSITION_SEVERITY_POINTS["severe"] < _OFF_POSITION_SEVERITY_POINTS["moderate"]
+    assert _OFF_POSITION_SEVERITY_POINTS["severe"] < -6.0
+
+
+def test_result_copy_never_says_off_position_for_a_mild_or_flexible_shift():
+    """The exact reported trust bug, end to end through the real API/state
+    layer: a roster built with Moncrief at SG must never produce
+    'off-position' language in decisive_factors -- his fit is primary, so
+    he shouldn't be named in any weakness bullet at all."""
+    from nba_peak.perfect_season.simulation import simulate_season, compute_fit_components
+    from nba_peak.lineup.board import _load_profiles
+
+    profiles = _load_profiles()[1]
+    by_slug = {c.player_slug: c for c in profiles}
+    starters = ["john-stockton", "sidney-moncrief", "lebron-james", "kevin-garnett", "alonzo-mourning"]
+    bench = ["ray-allen", "ja-morant", "dirk-nowitzki"]
+    cards = [by_slug[s] for s in starters] + [by_slug[s] for s in bench]
+    fit = compute_fit_components(cards, list(SLOT_TYPES))
+    # Every starter now resolves to primary/secondary -- positional_fit is
+    # the maximum possible score, and no starter should ever be named in a
+    # "structural mismatch" / "role stretch" bullet.
+    assert fit.positional_fit == 100.0
+    result = simulate_season(cards, board_seed=1, slot_types=list(SLOT_TYPES))
+    joined = " ".join(result.decisive_factors)
+    assert "off-position" not in joined.lower()
+    assert "off position" not in joined.lower()
+    assert "Moncrief" not in joined
+
+
+# ---------------------------------------------------------------------------
+# Phase 8F: the three-tier win floor (catastrophe/normal/generational),
+# ported to simulate_season (CardProfile / career-peak-window path) -- the
+# path CourtBuilder actually runs by default, since
+# COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED defaults off. The exact-season
+# equivalents above (test_generational_anchor_lineup_lands_80_to_82_across_seeds
+# etc.) only ever exercised simulate_exact_season, which most real games
+# never reach.
+# ---------------------------------------------------------------------------
+
+def _resolve_legacy_lineup(slugs: list[str], duration_years: int):
+    from nba_peak.lineup.board import _load_profiles
+    profiles = _load_profiles()[duration_years]
+    by_slug = {c.player_slug: c for c in profiles}
+    cards = [by_slug[s] for s in slugs if s in by_slug]
+    assert len(cards) == len(slugs), f"fixture lineup must fully resolve at duration {duration_years}"
+    return cards
+
+
+def test_legacy_path_generational_core_lands_80_to_82():
+    """simulate_season's own generational floor -- peak-window Curry/Jordan/
+    LeBron/Garnett/Jokic (apex_1y, each player's own best-ever season) with
+    a modest bench must land 80-82, mirroring the exact-season anchor for
+    the path CourtBuilder actually runs by default."""
+    from nba_peak.perfect_season.simulation import simulate_season, _is_generational_core_legacy
+    starters = ["stephen-curry", "michael-jordan", "lebron-james", "kevin-garnett", "nikola-jokic"]
+    bench = ["al-horford", "derrick-white"]
+    cards = _resolve_legacy_lineup(starters + bench, duration_years=1)
+    assert _is_generational_core_legacy(cards) is True
+    for seed in range(1, 6):
+        result = simulate_season(cards, board_seed=seed, slot_types=list(SLOT_TYPES))
+        assert 80 <= result.wins <= 82, f"seed {seed}: expected 80-82, got {result.wins}"
+
+
+def test_legacy_path_good_contender_not_flattened_to_82():
+    """A real, decent-but-not-generational apex_1y roster must NOT be
+    swept up into the generational floor -- proves the legacy-path floor
+    port didn't flatten the middle of the distribution upward."""
+    from nba_peak.perfect_season.simulation import simulate_season, _is_generational_core_legacy
+    starters = ["devin-booker", "klay-thompson", "jayson-tatum", "draymond-green", "rudy-gobert"]
+    bench = ["derrick-white", "al-horford", "mike-conley"]
+    cards = _resolve_legacy_lineup(starters + bench, duration_years=1)
+    assert _is_generational_core_legacy(cards) is False
+    result = simulate_season(cards, board_seed=1, slot_types=list(SLOT_TYPES))
+    assert result.wins < 80, f"expected a good-contender band result, got {result.wins}"
 
 
 # ---------------------------------------------------------------------------

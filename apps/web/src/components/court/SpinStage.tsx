@@ -378,11 +378,29 @@ export default function SpinStage({
           </span>
           {isTwoWheel ? (
             <>
-              <span
-                aria-hidden="true"
-                className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ background: colors.primary }}
-              />
+              {/* Phase 8F: real team logo when the asset flag resolved one,
+                  same graceful onError fallback to the color dot as the
+                  full ceremony's own team badge below -- team pictures are
+                  explicitly asked for in "at least... locked spin summary". */}
+              {spin.team_logo_url && !logoFailed ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  data-testid="team-logo-collapsed"
+                  src={spin.team_logo_url}
+                  alt=""
+                  aria-hidden="true"
+                  width={16}
+                  height={16}
+                  style={{ width: 16, height: 16, objectFit: "contain", flexShrink: 0 }}
+                  onError={() => setLogoFailed(true)}
+                />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ background: colors.primary }}
+                />
+              )}
               <span className="text-xs font-black truncate" style={{ color: "var(--text-primary)" }}>
                 {spin.franchise_display_name} · {spin.era_label}
               </span>

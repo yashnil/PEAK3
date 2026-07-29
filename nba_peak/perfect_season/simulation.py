@@ -36,8 +36,10 @@ from nba_peak.perfect_season.exact_season import PlayerSeasonCard, component_per
 from nba_peak.perfect_season.positions import (
     classify_fit,
     classify_fit_from_position,
+    classify_fit_severity,
     parse_real_position,
     position_fit_severity,
+    primary_position,
 )
 from nba_peak.perfect_season.schemas import LineupFitComponents, SimulationResult
 
@@ -46,7 +48,25 @@ TOTAL_GAMES = 82
 # positional_fit contribution per starter, by classify_fit() outcome. Modest
 # and symmetric around 0 -- this rewards/penalizes REAL position placement,
 # never how many strong players are on the roster (see module docstring).
-_FIT_POINTS = {"primary": 10.0, "secondary": 4.0, "off_position": -6.0}
+#
+# Phase 8F: replaced the old flat off_position=-6.0 (every off-position
+# placement penalized the same, regardless of how big a real basketball
+# problem it actually was) with a severity-graded scale. Product direction:
+# "normal flexible shifts should be free or nearly free... meaningful
+# penalties should apply only to structurally broken basketball." A mild
+# swap (SG playing SF, PF playing C) now costs nothing; a severe one (a
+# small guard at center, a traditional center at guard) costs MORE than the
+# old flat penalty did, since that combination genuinely breaks a lineup.
+_FIT_POINTS = {"primary": 10.0, "secondary": 4.0}
+_OFF_POSITION_SEVERITY_POINTS = {"mild": 0.0, "moderate": -5.0, "severe": -14.0}
+
+
+def _fit_points(label: str, severity: str | None) -> float:
+    if label in _FIT_POINTS:
+        return _FIT_POINTS[label]
+    if label == "off_position":
+        return _OFF_POSITION_SEVERITY_POINTS.get(severity or "severe", -14.0)
+    return 0.0  # "flexible" (bench slots) -- never scored.
 
 
 def _avg(values: list[float]) -> float:
@@ -115,7 +135,10 @@ def compute_fit_components(cards: list[CardProfile], slot_types: list[str]) -> L
     # constraint, never a talent-suppression mechanic.
     starter_slot_types = slot_types[:STARTER_SLOTS]
     fit_points = [
-        _FIT_POINTS.get(classify_fit(card.player_slug, card.primary_role, slot), 0.0)
+        _fit_points(
+            classify_fit(card.player_slug, card.primary_role, slot),
+            classify_fit_severity(card.player_slug, card.primary_role, slot),
+        )
         for card, slot in zip(starters, starter_slot_types)
     ]
     positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points)))
@@ -131,17 +154,22 @@ def compute_fit_components(cards: list[CardProfile], slot_types: list[str]) -> L
     )
 
 
-def _off_position_starter_slots(cards: list[CardProfile], slot_types: list[str]) -> list[str]:
-    """Which starter slot_types are off-position for the card placed there --
-    used to name specific weak positions in the result explanation instead
-    of only a vague "several starters" statement (result-credibility goal:
-    open/weak positions if any)."""
+def _off_position_starter_slots(cards: list[CardProfile], slot_types: list[str]) -> list[tuple[str, str, str]]:
+    """Which starter slots are off-position for the card placed there, with
+    severity and the player's real primary position -- (slot, severity,
+    player_name) tuples, moderate/severe only (Phase 8F: a mild swap is a
+    near-free, unremarkable placement and should never be surfaced as a
+    "weakness" -- see module docstring's flexible-shift philosophy). Used
+    to name specific problem positions in the result explanation instead of
+    a vague "several starters" statement."""
     starters = cards[:STARTER_SLOTS]
     starter_slot_types = slot_types[:STARTER_SLOTS]
-    return [
-        slot for card, slot in zip(starters, starter_slot_types)
-        if classify_fit(card.player_slug, card.primary_role, slot) == "off_position"
-    ]
+    out: list[tuple[str, str, str]] = []
+    for card, slot in zip(starters, starter_slot_types):
+        severity = classify_fit_severity(card.player_slug, card.primary_role, slot)
+        if severity in ("moderate", "severe"):
+            out.append((slot, severity, card.player_name))
+    return out
 
 
 # Phase 8 pre-loop polish: a starter graded 80+ on PEAK3's 0-100 all-time-
@@ -154,8 +182,19 @@ def _off_position_starter_slots(cards: list[CardProfile], slot_types: list[str])
 _ELITE_STARTER_SCORE_FLOOR = 80.0
 
 
+# Phase 8F: a roster with no real shot creation anywhere is a genuine
+# structural problem ("no viable creation" -- explicit product ask), not
+# just a middling component score. Deliberately much stricter than
+# _COMPONENT_WEAKNESS_FLOOR (50) -- this is reserved for a roster that
+# truly has nobody who creates, not one that's merely below its own
+# ceiling on creation.
+_NO_CREATION_FLOOR = 30.0
+
+
 def _decisive_factors(
-    fit: LineupFitComponents, weak_positions: list[str] | None = None, elite_starter_count: int = 0
+    fit: LineupFitComponents,
+    weak_positions: list[tuple[str, str, str]] | None = None,
+    elite_starter_count: int = 0,
 ) -> list[str]:
     factors: list[str] = []
     # Reported first (when it applies) -- a specific, exciting statement
@@ -186,11 +225,30 @@ def _decisive_factors(
     elif fit.team_context_depth < 45:
         factors.append("Team-context depth is a real drag on this roster")
 
-    if weak_positions:
-        positions = ", ".join(weak_positions)
-        factors.append(f"Off-position at {positions} -- a real but modest drag, not a talent penalty")
-    elif fit.positional_fit >= 70:
-        factors.append("Starters are placed at their natural positions")
+    # Phase 8F: severity-tiered positional-fit copy, replacing the old
+    # single "Off-position at X -- a real but modest drag" bucket that
+    # treated every off-position placement the same regardless of how big
+    # a real basketball problem it actually was (the Moncrief-at-SG trust
+    # bug: a routine guard swap read exactly the same as a genuinely broken
+    # placement). Mild swaps are never surfaced here at all -- see
+    # _off_position_starter_slots/_exact, which already filter to
+    # moderate/severe only. "structural mismatch" is reserved for severe
+    # (a small guard at center, a traditional center at guard); "role
+    # stretch" is the honest, softer word for a real-but-limited moderate
+    # swap (e.g. a point guard sliding to small forward).
+    severe_slots = [(slot, name) for slot, sev, name in (weak_positions or []) if sev == "severe"]
+    moderate_slots = [(slot, name) for slot, sev, name in (weak_positions or []) if sev == "moderate"]
+    if severe_slots:
+        named = ", ".join(f"{name} at {slot}" for slot, name in severe_slots)
+        factors.append(f"Structural mismatch -- {named}")
+    if moderate_slots:
+        named = ", ".join(f"{name} at {slot}" for slot, name in moderate_slots)
+        factors.append(f"Role stretch -- {named}, a real but modest drag")
+    if not weak_positions and fit.positional_fit >= 70:
+        factors.append("Starters are placed at flexible, natural positions")
+
+    if fit.creation_coverage < _NO_CREATION_FLOOR:
+        factors.append("No viable primary creation on this roster")
 
     if fit.postseason_pedigree >= 75:
         factors.append("Deep postseason pedigree")
@@ -229,12 +287,34 @@ def simulate_season(cards: list[CardProfile], board_seed: int, slot_types: list[
     base += (fit.creation_coverage - 50.0) * 0.05
     base += (fit.scoring_coverage - 50.0) * 0.05
     base += (fit.postseason_pedigree - 50.0) * 0.05
-    expected_wins = max(15.0, min(82.0, base))
+    # Phase 8F: this path (career-peak-window mode: apex_1y/prime_3y/
+    # foundation_5y) is what COURTBUILDER ACTUALLY RUNS BY DEFAULT --
+    # COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED defaults off, so nearly
+    # every real game reaches simulate_season, not simulate_exact_season.
+    # The three-tier win-floor system (catastrophe/normal/generational) was
+    # added to simulate_exact_season in Phase 8C/8D but never ported here --
+    # verified empirically that a generational-caliber peak-window roster
+    # (peak Curry/Jordan/LeBron/Garnett/Jokic + a merely-solid bench)
+    # already lands 80-82 under the plain linear formula with no floor at
+    # all, exactly like the exact-season path's own "already works with a
+    # decent bench" finding -- so this closes the same worst-case gap
+    # (weak/unscored bench, or a merely-good base) the exact-season floor
+    # closes, for parity across both paths.
+    is_catastrophe = _is_catastrophe_roster_legacy(cards, fit)
+    is_generational = _is_generational_core_legacy(cards)
+    if is_catastrophe:
+        wins_floor = _CATASTROPHE_WINS_FLOOR
+    elif is_generational:
+        wins_floor = _GENERATIONAL_ELITE_WINS_FLOOR
+    else:
+        wins_floor = _NORMAL_BAD_WINS_FLOOR
+    expected_wins = max(wins_floor, min(82.0, base))
 
     card_key = ",".join(sorted(c.peak_window_id for c in cards))
     rng = random.Random(f"{board_seed}:{card_key}")
-    noise = rng.uniform(-2.5, 2.5)
-    wins = int(round(max(0.0, min(82.0, expected_wins + noise))))
+    noise_range = _GENERATIONAL_NOISE_RANGE if is_generational else _NORMAL_NOISE_RANGE
+    noise = rng.uniform(-noise_range, noise_range)
+    wins = int(round(max(_MIN_FINAL_WINS, min(82.0, expected_wins + noise))))
     losses = TOTAL_GAMES - wins
 
     expected_low = max(0.0, expected_wins - 5.0)
@@ -322,7 +402,10 @@ def compute_exact_fit_components(cards: list[PlayerSeasonCard], slot_types: list
 
     starter_slot_types = slot_types[:STARTER_SLOTS]
     fit_points = [
-        _FIT_POINTS.get(classify_fit_from_position(card.position, slot, card.player_slug), 0.0)
+        _fit_points(
+            classify_fit_from_position(card.position, slot, card.player_slug),
+            position_fit_severity(slot, parse_real_position(card.position)[0]),
+        )
         for card, slot in zip(starters, starter_slot_types)
     ]
     positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points)))
@@ -338,13 +421,20 @@ def compute_exact_fit_components(cards: list[PlayerSeasonCard], slot_types: list
     )
 
 
-def _off_position_starter_slots_exact(cards: list[PlayerSeasonCard], slot_types: list[str]) -> list[str]:
+def _off_position_starter_slots_exact(cards: list[PlayerSeasonCard], slot_types: list[str]) -> list[tuple[str, str, str]]:
+    """Exact-season counterpart to _off_position_starter_slots -- see its
+    docstring. (slot, severity, player_name) tuples, moderate/severe only."""
     starters = cards[:STARTER_SLOTS]
     starter_slot_types = slot_types[:STARTER_SLOTS]
-    return [
-        slot for card, slot in zip(starters, starter_slot_types)
-        if classify_fit_from_position(card.position, slot, card.player_slug) == "off_position"
-    ]
+    out: list[tuple[str, str, str]] = []
+    for card, slot in zip(starters, starter_slot_types):
+        if classify_fit_from_position(card.position, slot, card.player_slug) != "off_position":
+            continue
+        real_primary, _ = parse_real_position(card.position)
+        severity = position_fit_severity(slot, real_primary)
+        if severity in ("moderate", "severe"):
+            out.append((slot, severity, card.player_name))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -579,10 +669,10 @@ def _structural_weakness_exact(
     if len(moderate) == 1:
         name, slot, real_pos, _sev = moderate[0]
         pos_note = f", real position {real_pos}" if real_pos else ""
-        return f"{name} at {slot}{pos_note}", None
+        return f"Role stretch -- {name} at {slot}{pos_note}", None
     if len(moderate) >= 2:
         names_joined = ", ".join(f"{name} at {slot}" for name, slot, _, _ in moderate)
-        return f"Position-broken starting five -- {names_joined}", None
+        return f"Role stretch across the starting five -- {names_joined}", None
 
     weakest_key = _weakest_component_key(
         fit, require_below_floor=not is_ceiling_limiter, min_gap_below_others=6.0 if is_ceiling_limiter else 0.0
@@ -599,10 +689,10 @@ def _structural_weakness_exact(
     if len(mild) == 1:
         name, slot, real_pos, _sev = mild[0]
         pos_note = f", real position {real_pos}" if real_pos else ""
-        return f"{name} at {slot}{pos_note}", None
+        return f"Minor role stretch -- {name} at {slot}{pos_note}", None
     if len(mild) >= 2:
         names_joined = ", ".join(f"{name} at {slot}" for name, slot, _, _ in mild)
-        return f"Minor positional flexibility -- {names_joined}", None
+        return f"Flexible alignment -- {names_joined}", None
 
     if is_ceiling_limiter:
         return "not every star is in their peak season", _CEILING_LIMITER_GENERIC_DETAIL
@@ -690,6 +780,43 @@ def _is_catastrophe_roster(cards: list[PlayerSeasonCard], fit: LineupFitComponen
         and fit.scoring_coverage < _CATASTROPHE_SCORING_CEILING
         and sum(1 for c in cards if _is_weak_contributor(c)) >= _CATASTROPHE_MIN_WEAK_CARDS
     )
+
+
+# Phase 8F: CardProfile (career-peak-window) counterparts of the two checks
+# above, for simulate_season -- the path COURTBUILDER ACTUALLY RUNS BY
+# DEFAULT (see simulate_season's own comment). CardProfile has no
+# score_status/minutes_per_game (every card reaching the simulator already
+# passed board.py's own "exclude incomplete profiles" filter -- there is no
+# "unscored" state at this grain), so "not a real contributor" is adapted
+# to mean a low individual_peak_score instead -- the honest equivalent for
+# this card shape, not a guess.
+_CATASTROPHE_LEGACY_LOW_SCORE_CEILING = 30.0
+
+
+def _is_weak_contributor_legacy(card: CardProfile) -> bool:
+    return card.individual_peak_score < _CATASTROPHE_LEGACY_LOW_SCORE_CEILING
+
+
+def _is_catastrophe_roster_legacy(cards: list[CardProfile], fit: LineupFitComponents) -> bool:
+    return (
+        fit.talent_core < _CATASTROPHE_TALENT_CORE_CEILING
+        and fit.creation_coverage < _CATASTROPHE_CREATION_CEILING
+        and fit.scoring_coverage < _CATASTROPHE_SCORING_CEILING
+        and sum(1 for c in cards if _is_weak_contributor_legacy(c)) >= _CATASTROPHE_MIN_WEAK_CARDS
+    )
+
+
+def _generational_starter_count_legacy(cards: list[CardProfile]) -> int:
+    starters = cards[:STARTER_SLOTS]
+    return sum(1 for c in starters if c.individual_peak_score >= _GENERATIONAL_STARTER_SCORE_FLOOR)
+
+
+def _is_generational_core_legacy(cards: list[CardProfile]) -> bool:
+    """CardProfile counterpart of _is_generational_core -- see that
+    function's docstring and the module-level comment above
+    _GENERATIONAL_STARTER_SCORE_FLOOR for the product direction this
+    implements."""
+    return _generational_starter_count_legacy(cards) >= _GENERATIONAL_MIN_STARTER_COUNT
 
 
 # ---------------------------------------------------------------------------

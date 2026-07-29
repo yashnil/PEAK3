@@ -69,6 +69,7 @@ ARCHETYPE_POSITION_MAP: dict[str, tuple[str, tuple[str, ...]]] = {
 # used for the team-season dataset itself.
 POSITION_OVERRIDES: dict[str, tuple[str, tuple[str, ...]]] = {
     "al-horford": ("PF", ("C",)),
+    "alonzo-mourning": ("C", ()),
     "brook-lopez": ("C", ("PF",)),
     "cedric-maxwell": ("PF", ()),
     "chet-holmgren": ("C", ("PF",)),
@@ -77,16 +78,23 @@ POSITION_OVERRIDES: dict[str, tuple[str, tuple[str, ...]]] = {
     "dennis-rodman": ("PF", ("C",)),
     "derrick-white": ("SG", ("PG",)),
     "devin-booker": ("SG", ("PG",)),
+    "dirk-nowitzki": ("PF", ("C",)),
     "giannis-antetokounmpo": ("PF", ("SF", "C")),
+    "hakeem-olajuwon": ("C", ("PF",)),
     "horace-grant": ("PF", ()),
+    "ja-morant": ("PG", ("SG",)),
     "jamal-murray": ("PG", ("SG",)),
     "james-harden": ("SG", ("PG",)),
     "james-worthy": ("SF", ()),
     "jayson-tatum": ("SF", ("PF",)),
     "joel-embiid": ("C", ("PF",)),
+    "john-stockton": ("PG", ()),
     "jrue-holiday": ("PG", ("SG",)),
     "kareem-abdul-jabbar": ("C", ()),
-    "kevin-durant": ("SF", ("PF",)),
+    # Phase 8F: Durant has legitimately played all three -- SG in his early
+    # Seattle/OKC seasons, SF as his primary career position, PF in
+    # small-ball Golden State lineups. Was missing SG entirely.
+    "kevin-durant": ("SF", ("PF", "SG")),
     "kevin-garnett": ("PF", ("C",)),
     "kevin-mchale": ("PF", ("C",)),
     "klay-thompson": ("SG", ()),
@@ -94,20 +102,28 @@ POSITION_OVERRIDES: dict[str, tuple[str, tuple[str, ...]]] = {
     "kyrie-irving": ("PG", ("SG",)),
     "larry-bird": ("SF", ("PF",)),
     "luka-doncic": ("PG", ("SG",)),
-    "lebron-james": ("SF", ("PG", "SG", "PF")),
+    # Phase 8F: added C -- LeBron has legitimately anchored small-ball-5
+    # lineups (2017-18 Cavs playoffs, several Lakers stretches). Product
+    # direction: "LeBron at C is not automatically punished if lineup
+    # context supports it."
+    "lebron-james": ("SF", ("PG", "SG", "PF", "C")),
     "magic-johnson": ("PG", ("SG",)),
     "manu-ginobili": ("SG", ("PG",)),
-    "michael-jordan": ("SG", ("SF",)),
-    "nikola-jokic": ("C", ()),
+    # Phase 8F: added PG -- Jordan ran point for stretches (most notably his
+    # 1989-90 season averaging 8.0 apg with real point-guard duties) on top
+    # of his SG/SF career shape.
+    "michael-jordan": ("SG", ("SF", "PG")),
+    "nikola-jokic": ("C", ("PF",)),
     "pau-gasol": ("PF", ("C",)),
     "paul-pierce": ("SF", ("SG",)),
     "rajon-rondo": ("PG", ()),
-    "ray-allen": ("SG", ()),
+    "ray-allen": ("SG", ("SF",)),
     "robert-parish": ("C", ()),
     "ron-harper": ("SG", ("PG",)),
     "scottie-pippen": ("SF", ("SG", "PG")),
     "shai-gilgeous-alexander": ("PG", ("SG",)),
     "shaquille-oneal": ("C", ()),
+    "sidney-moncrief": ("SG", ("PG",)),
     "stephen-curry": ("PG", ("SG",)),
     "tim-duncan": ("PF", ("C",)),
     "tony-parker": ("PG", ()),
@@ -198,14 +214,35 @@ FLEXIBLE_FORWARD_SLUGS: frozenset[str] = frozenset({
 def position_fit_severity(slot_type: str, real_primary: str | None) -> str:
     """"mild" | "moderate" | "severe" -- how big a real basketball problem an
     off-position starter placement is. Only meaningful for pairs that are
-    already "off_position" per classify_fit_from_position (a primary/
-    secondary match is never "off_position" in the first place, so this is
-    never called to grade those). `real_primary` must be a real, parsed
-    Basketball-Reference position token (see parse_real_position) -- never
-    guessed or height-inferred."""
+    already "off_position" per classify_fit_from_position/classify_fit (a
+    primary/secondary match is never "off_position" in the first place, so
+    this is never called to grade those).
+
+    Phase 8F: `real_primary` was originally documented as "must be a real,
+    parsed Basketball-Reference position token" (team-year mode only) --
+    but this function only ever compares two position-token strings, so it
+    is equally valid called with an archetype-derived primary position
+    (see classify_fit_severity below, used by the legacy/peak-window path
+    that most CourtBuilder games actually run today since
+    COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED defaults off). Either way,
+    the token itself is never guessed or height-inferred -- it always comes
+    from parse_real_position or primary_position/POSITION_OVERRIDES."""
     if not real_primary or real_primary == slot_type:
         return "mild"
     return _ADJACENCY_SEVERITY.get(frozenset({slot_type, real_primary}), "severe")
+
+
+def classify_fit_severity(player_slug: str | None, archetype: str | None, slot_type: str) -> str | None:
+    """position_fit_severity()'s counterpart for the archetype/legacy path
+    (classify_fit) -- returns None when the placement isn't "off_position"
+    at all (severity is only meaningful for off-position placements), else
+    "mild"/"moderate"/"severe". Phase 8F: added so the legacy path (the one
+    most CourtBuilder games actually run) can grade off-position severity
+    the same way team-year mode already could, instead of treating every
+    off-position placement as equally bad."""
+    if classify_fit(player_slug, archetype, slot_type) != "off_position":
+        return None
+    return position_fit_severity(slot_type, primary_position(player_slug, archetype))
 
 
 def classify_fit_from_position(pos: str | None, slot_type: str, player_slug: str | None = None) -> str:
