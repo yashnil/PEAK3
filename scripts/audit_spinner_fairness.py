@@ -14,24 +14,28 @@ Two engines exist and are audited separately, because they use genuinely
 different sampling strategies (this is not a bug in either -- see each
 section's own findings):
 
-  1. DEFAULT engine (nba_peak.perfect_season.board.generate_board,
-     COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=False -- what CourtBuilder
-     actually runs today unless a developer opts in locally). Uses
-     _select_interim_entries: deliberate 3x weighted sampling WITHOUT
-     replacement, favoring entries with >= PREFERRED_MIN_CANDIDATES
-     candidates over thin ("sparse") ones. This is a documented, deliberate
-     design choice (see board.py's own comment above _GOOD_ENTRY_WEIGHT),
-     not something this script assumes should be uniform.
+  1. FLAGSHIP engine (generate_team_year_board / get_rollable_team_year_entries
+     -- COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED, default TRUE as of
+     Phase 8F). This is what the flagship 82-0 Peak Season route actually
+     runs today. Uses plain `entries[rng.randrange(len(entries))]`, WITH
+     replacement, over the full ~1,314-entry rollable team-season catalogue
+     -- uniform by construction. Respins (action_respin_team/
+     action_respin_season in apps/api/app/services/perfect_season/state.py)
+     are ALSO uniform within their constrained pool (same-season-different-
+     team, or same-team-different-season) via the same rng.randrange
+     pattern.
 
-  2. team_year engine (generate_team_year_board /
-     get_rollable_team_year_entries -- reachable once
-     COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=True). Uses plain
-     `entries[rng.randrange(len(entries))]`, WITH replacement -- uniform
-     over every rollable team-season entry by construction. Respins
-     (action_respin_team/action_respin_season in
-     apps/api/app/services/perfect_season/state.py) are ALSO uniform within
-     their constrained pool (same-season-different-team, or
-     same-team-different-season) via the same rng.randrange pattern.
+  2. LEGACY engine (nba_peak.perfect_season.board.generate_board,
+     COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=False -- an explicit,
+     clearly secondary opt-out; NOT the flagship path since Phase 8F fixed
+     the "flagship route silently falls back to the tiny interim catalogue"
+     regression). Uses _select_interim_entries: deliberate 3x weighted
+     sampling WITHOUT replacement, favoring entries with >=
+     PREFERRED_MIN_CANDIDATES candidates over thin ("sparse") ones, drawn
+     from a ~19-entry catalogue. This is a documented, deliberate design
+     choice for this smaller engine (see board.py's own comment above
+     _GOOD_ENTRY_WEIGHT), not something this script assumes should be
+     uniform -- and not what a normal flagship playthrough exercises.
 
 Never forces or injects an artificial "bad spin" into gameplay -- this
 script only OBSERVES what the existing generators already produce across
@@ -83,9 +87,9 @@ def _print_top_bottom(counter: collections.Counter, label: str, n: int = 8) -> N
 
 def audit_default_engine(mode: str, n_seeds: int) -> None:
     print("=" * 78)
-    print(f"DEFAULT ENGINE (generate_board, team_spin_enabled=True) -- mode={mode}")
-    print("This is what CourtBuilder runs today unless a developer sets")
-    print("PEAK3_COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=true locally.")
+    print(f"LEGACY ENGINE (generate_board, team_spin_enabled=True) -- mode={mode}")
+    print("NOT the flagship path since Phase 8F -- only reachable if a developer")
+    print("explicitly sets PEAK3_COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=false.")
     print("=" * 78)
 
     duration = MODE_TO_YEARS[mode]
@@ -177,8 +181,9 @@ def audit_default_engine(mode: str, n_seeds: int) -> None:
 
 def audit_team_year_engine(mode: str, n_seeds: int) -> None:
     print("\n" + "=" * 78)
-    print(f"TEAM_YEAR ENGINE (generate_team_year_board) -- mode={mode}")
-    print("Reachable once PEAK3_COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=true.")
+    print(f"FLAGSHIP ENGINE (generate_team_year_board) -- mode={mode}")
+    print("This is the default flagship 82-0 Peak Season engine since Phase 8F")
+    print("(PEAK3_COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED default is now true).")
     print("Sampling is `entries[rng.randrange(len(entries))]`, WITH replacement,")
     print("uniform by construction -- this section verifies that claim empirically")
     print("rather than trusting the code comment.")

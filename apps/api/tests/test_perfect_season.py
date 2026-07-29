@@ -65,11 +65,19 @@ def _courtbuilder_enabled_and_isolated():
         settings.COURTBUILDER_TEAM_SPIN_ENABLED,
         settings.COURTBUILDER_ALPHA_ALLOWLIST,
         settings.COURTBUILDER_READINESS_LEVEL,
+        settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED,
     )
     settings.COURTBUILDER_ENABLED = True
     settings.COURTBUILDER_TEAM_SPIN_ENABLED = True
     settings.COURTBUILDER_ALPHA_ALLOWLIST = []
     settings.COURTBUILDER_READINESS_LEVEL = "internal_dev"
+    # Phase 8F: this is now the real, shipped default (config.py) -- pinned
+    # explicitly here rather than left to inherit whatever's ambiently true
+    # at import time, so the test baseline can never silently drift from
+    # production. Tests that specifically want the legacy interim engine
+    # (team_decade/exact_team_season, ~19 curated entries) set this False
+    # themselves via their own fixture (see legacy_engine_client below).
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = True
 
     _memory_court_lineup_repo._lineups.clear()
     _clear_interim_teams_cache()
@@ -81,6 +89,7 @@ def _courtbuilder_enabled_and_isolated():
         settings.COURTBUILDER_TEAM_SPIN_ENABLED,
         settings.COURTBUILDER_ALPHA_ALLOWLIST,
         settings.COURTBUILDER_READINESS_LEVEL,
+        settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED,
     ) = original
     _memory_court_lineup_repo._lineups.clear()
     _clear_interim_teams_cache()
@@ -90,6 +99,22 @@ def _courtbuilder_enabled_and_isolated():
 def client() -> TestClient:
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def legacy_engine_client() -> TestClient:
+    """Phase 8F: explicitly forces the OLD interim team_decade/
+    exact_team_season/open_pool engine (COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED
+    = False) regardless of the ambient default -- for tests that
+    specifically exercise peak-window-only fields (anchor_season,
+    individual_peak_score/individual_peak_rank) or team_decade/open_pool
+    spin_type behavior, which the flagship team_year engine (the default
+    since Phase 8F) does not produce at all."""
+    original = settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = False
+    with TestClient(app) as c:
+        yield c
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = original
 
 
 # ---------------------------------------------------------------------------
@@ -530,13 +555,22 @@ def test_current_spin_candidates_never_expose_score_or_rank(client: TestClient):
         _place(client, game_id, open_slots[0])
 
 
-def test_filled_slots_withhold_score_and_rank_until_result_ready(client: TestClient):
+def test_filled_slots_withhold_score_and_rank_until_result_ready(legacy_engine_client: TestClient):
     """The core Phase 5X.7 contract change: placing a card into a slot does
     NOT reveal its score/rank immediately -- only qualitative info (name,
     anchor_season, role_fit) is visible while status is selection_pending /
     placement_pending / rounds_complete. Exact score/rank appear only once
     status == result_ready. This is the opposite of what this test asserted
-    before the deferred-reveal change."""
+    before the deferred-reveal change.
+
+    Phase 8F: uses legacy_engine_client -- anchor_season/individual_peak_score/
+    individual_peak_rank are peak-window-only fields the flagship team_year
+    engine (the default since Phase 8F) never populates at all (team_year
+    cards use season/season_score instead) -- see
+    test_team_year_game_completes_a_full_practice_attempt for the
+    team_year-engine's own equivalent deferred-reveal assertion
+    (season_score None until result_ready)."""
+    client = legacy_engine_client
     state = _create(client, mode="apex_1y", seed=44)
     game_id = state["game_id"]
     state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
@@ -565,7 +599,7 @@ def test_filled_slots_withhold_score_and_rank_until_result_ready(client: TestCli
         assert s["individual_peak_rank"] is not None
 
 
-def test_score_withheld_at_rounds_complete_before_explicit_complete_call(client: TestClient):
+def test_score_withheld_at_rounds_complete_before_explicit_complete_call(legacy_engine_client: TestClient):
     """Distinguishes 'all 8 slots filled' (rounds_complete) from 'simulated'
     (result_ready) -- score/rank must stay hidden through rounds_complete,
     only appearing after the explicit /complete call.
@@ -577,7 +611,12 @@ def test_score_withheld_at_rounds_complete_before_explicit_complete_call(client:
     later round's candidate list is entirely already-used identities (a
     property of the small interim dataset + greedy picking, not a product
     bug -- see docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md).
-    """
+
+    Phase 8F: uses legacy_engine_client -- individual_peak_score/
+    individual_peak_rank are peak-window-only fields; asserting this same
+    deferred-reveal contract for the flagship team_year engine belongs to
+    test_team_year_game_completes_a_full_practice_attempt instead."""
+    client = legacy_engine_client
     state = _create(client, mode="apex_1y", seed=42)
     game_id = state["game_id"]
 
@@ -787,7 +826,12 @@ def test_position_mismatched_lineup_remains_completable(client: TestClient):
 # Team/era wheels expose both dimensions separately (Phase 5X.4 rule 1)
 # ---------------------------------------------------------------------------
 
-def test_team_decade_spin_exposes_franchise_and_era_as_separate_fields(client: TestClient):
+def test_team_decade_spin_exposes_franchise_and_era_as_separate_fields(legacy_engine_client: TestClient):
+    # Phase 8F: team_decade spins only exist in the legacy interim engine
+    # (the flagship team_year engine, the default since Phase 8F, only ever
+    # produces team_year spins) -- forced explicitly rather than relying on
+    # the ambient default.
+    client = legacy_engine_client
     state = _create(client, mode="apex_1y", seed=42)
     game_id = state["game_id"]
     saw_team_decade = False
@@ -1311,13 +1355,108 @@ def team_year_client() -> TestClient:
     settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = original
 
 
-def test_readiness_reports_team_year_disabled_by_default(client: TestClient):
+def test_readiness_reports_team_year_enabled_by_default(client: TestClient):
+    """Phase 8F: COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED's own default
+    flipped to True -- the flagship 82-0 Peak Season route must use the
+    broad, ~1,314-team-season engine out of the box, not require a hidden
+    local flag (see the Phase 8F root-cause report: a normal dev run with
+    only COURTBUILDER_ENABLED/COURTBUILDER_TEAM_SPIN_ENABLED set used to
+    silently fall back to the tiny ~19-entry interim engine)."""
     resp = client.get("/api/v1/perfect-season/readiness")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["team_year_enabled"] is False
+    assert data["team_year_enabled"] is True
     assert data["experimental_team_year_franchise_count"] >= 1
     assert data["experimental_team_year_season_count"] >= 1
+
+
+def test_readiness_reports_team_year_disabled_when_legacy_engine_forced(legacy_engine_client: TestClient):
+    """The legacy interim engine remains reachable (an explicit, clearly
+    secondary opt-out), it's just no longer the default."""
+    resp = legacy_engine_client.get("/api/v1/perfect-season/readiness")
+    assert resp.status_code == 200
+    assert resp.json()["team_year_enabled"] is False
+
+
+# ---------------------------------------------------------------------------
+# Phase 8F follow-up: real-user regression report -- a normal dev run with
+# only COURTBUILDER_ENABLED/COURTBUILDER_TEAM_SPIN_ENABLED set produced
+# "Boston Celtics . 1980s" with only 4 candidates (Bird/McHale/Parish/
+# Maxwell) and the UI still called it "Experimental exact-season mode" --
+# the flagship route was silently running the tiny ~19-entry legacy
+# engine, not the flagship ~1,314-team-season one. These tests assert the
+# actual GAME CREATION path (not just the readiness summary) defaults to
+# the flagship engine and never regresses back to a decade-level spin
+# with a curated-legends-only candidate pool.
+# ---------------------------------------------------------------------------
+
+def test_default_game_creation_uses_flagship_team_year_engine_not_legacy_fallback(client: TestClient):
+    """The actual /perfect-season/games creation path (not just readiness)
+    must default to the flagship engine -- every round's spin_type must be
+    "team_year", never "team_decade"/"exact_team_season"/"open_pool"."""
+    state = _create(client, mode="apex_1y", seed=1)
+    assert state["current_spin"]["spin_type"] == "team_year"
+    game_id = state["game_id"]
+    for _ in range(TOTAL_ROUNDS):
+        state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+        if state["status"] != "selection_pending":
+            break
+        spin = state["current_spin"]
+        assert spin["spin_type"] == "team_year", (
+            f"flagship route regressed to legacy engine spin_type={spin['spin_type']!r}"
+        )
+        # The exact reported symptom: a decade label ("1980s") instead of a
+        # real exact season ("1985-86") in the flagship experience.
+        assert re.fullmatch(r"\d{4}-\d{2}", spin["era_label"]), (
+            f"flagship route produced a non-exact-season era_label: {spin['era_label']!r}"
+        )
+        player_slug = spin["candidates"][0]["player_slug"]
+        _select(client, game_id, player_slug)
+        open_slots = [s["slot_type"] for s in state["slots"] if not s["filled"]]
+        _place(client, game_id, open_slots[0])
+
+
+def test_flagship_candidate_pool_is_broad_roster_scale_not_curated_legends(client: TestClient):
+    """Candidate count sanity for the flagship route: a real NBA roster has
+    far more than 4 players. Sampled across many seeds (deterministic, no
+    network) so this doesn't depend on landing a specific team-season --
+    the MEDIAN candidate count across real team-year rolls must be
+    roster-scale, matching the ~1,314-entry dataset's own reported
+    min/max/median (see readiness), not the tiny curated-legends-only
+    fallback (2-5 candidates per entry)."""
+    counts = []
+    for seed in range(1, 21):
+        state = _create(client, mode="apex_1y", seed=seed)
+        assert state["current_spin"]["spin_type"] == "team_year"
+        counts.append(len(state["current_spin"]["candidates"]))
+    counts.sort()
+    median = counts[len(counts) // 2]
+    assert median >= 8, f"expected roster-scale candidate counts, got median={median} across {counts}"
+
+
+def test_legacy_engine_forced_shows_the_reported_regression_shape(legacy_engine_client: TestClient):
+    """Documents (and pins) the OLD behavior this whole follow-up is about
+    -- proves the legacy engine really is the smaller, decade-capable,
+    curated-legends catalogue the bug report described, so the flagship
+    default fix above is verifiably fixing a real, reproduced difference,
+    not a hypothetical one."""
+    client = legacy_engine_client
+    saw_small_pool = False
+    state = _create(client, mode="apex_1y", seed=42)
+    game_id = state["game_id"]
+    for _ in range(TOTAL_ROUNDS):
+        state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+        if state["status"] != "selection_pending":
+            break
+        spin = state["current_spin"]
+        assert spin["spin_type"] in ("team_decade", "exact_team_season", "open_pool")
+        if len(spin["candidates"]) <= 5:
+            saw_small_pool = True
+        player_slug = spin["candidates"][0]["player_slug"]
+        _select(client, game_id, player_slug)
+        open_slots = [s["slot_type"] for s in state["slots"] if not s["filled"]]
+        _place(client, game_id, open_slots[0])
+    assert saw_small_pool, "expected the legacy engine's known small-catalogue shape to appear at seed=42"
 
 
 def test_readiness_reports_team_year_enabled_when_flagged(team_year_client: TestClient):
@@ -1806,13 +1945,13 @@ def test_unresolved_player_never_gets_a_fabricated_url(team_year_assets_client: 
 
 @pytest.fixture
 def assets_client() -> TestClient:
-    """Phase 8E: assets on, team_year mode at its PRODUCTION default (off)
-    -- i.e. real candidates flow through the interim engine's
-    exact_team_season spin type, not team_year. Every prior assets test
-    used team_year_assets_client (team_year explicitly ON), which routes
-    candidates through `_candidate_public_exact` -- a code path this repo's
-    tests never actually exercised for the branch real deployments use by
-    default: `_candidate_public` (team_decade/exact_team_season/open_pool
+    """Phase 8E: assets on, team_year mode EXPLICITLY off -- i.e. real
+    candidates flow through the interim engine's exact_team_season spin
+    type, not team_year. Every prior assets test used team_year_assets_client
+    (team_year explicitly ON), which routes candidates through
+    `_candidate_public_exact` -- a code path this repo's tests never
+    actually exercised for the branch real deployments used by default at
+    the time: `_candidate_public` (team_decade/exact_team_season/open_pool
     spins). That untested branch was missing headshot_url/include_asset_urls
     entirely until Phase 8E -- verified live against a real running API
     (POST /perfect-season/games with ENABLE_EXTERNAL_ASSET_URLS=true
@@ -1821,12 +1960,24 @@ def assets_client() -> TestClient:
     app/services/perfect_season/state.py's _candidate_public,
     pending_card_public's peak-window branch, and the filled peak-window
     slot branch. This fixture/these tests are the regression coverage for
-    that fix."""
+    that fix.
+
+    Phase 8F: COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED's own default
+    flipped to True (the interim engine was never meant to be the flagship
+    long-term, and its ~19-entry catalogue was a real regression once
+    treated as the default -- see the Phase 8F root-cause report). This
+    fixture now sets team_year OFF explicitly rather than relying on
+    whatever the ambient default happens to be, so it keeps testing the
+    exact legacy code path it was built for regardless of future default
+    changes."""
     orig_assets = settings.ENABLE_EXTERNAL_ASSET_URLS
+    orig_team_year = settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED
     settings.ENABLE_EXTERNAL_ASSET_URLS = True
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = False
     with TestClient(app) as c:
         yield c
     settings.ENABLE_EXTERNAL_ASSET_URLS = orig_assets
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = orig_team_year
 
 
 def test_candidate_headshot_url_exposed_outside_team_year_mode(assets_client: TestClient):

@@ -464,7 +464,18 @@ export default function SpinStage({
           )}
           {phase === "locked" && "Locking in your roll…"}
           {phase === "revealed" &&
-            (coverageNote ? `${coverageNote.count} rollable team-seasons · ${coverageNote.range}` : "Experimental exact-season mode")}
+            (coverageNote
+              ? `${coverageNote.count} rollable team-seasons · ${coverageNote.range}`
+              // Phase 8F: this fallback used to unconditionally say
+              // "Experimental exact-season mode" even for a team_decade
+              // (whole-decade, not a specific season) spin -- honest,
+              // spin_type-aware labels instead. Only ever shown at all
+              // once a developer explicitly disables the flagship team_year
+              // engine (COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=false)
+              // -- not reachable in the default flagship configuration.
+              : spin.spin_type === "team_decade"
+                ? "Legacy era-based fallback mode"
+                : "Legacy roster fallback mode")}
         </div>
       )}
 
