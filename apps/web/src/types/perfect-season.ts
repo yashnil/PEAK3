@@ -197,10 +197,11 @@ export interface SimulationResultPublic {
   lineup_score_status: "complete" | "incomplete";
   // Phase 6F Part F: server-computed result explanation (see
   // nba_peak/perfect_season/simulation.py's _best_pick_exact/
-  // _structural_weakness_exact) -- structural_weakness prioritizes roster
-  // CONSTRUCTION problems (named off-position starters, missing wing/big
-  // coverage, thin bench) over "whichever legend scored lowest". Both null
-  // for legacy peak-window boards.
+  // _structural_weakness_exact, and (Phase 8H) their legacy-engine
+  // counterparts _best_pick/_structural_weakness) -- structural_weakness
+  // prioritizes roster CONSTRUCTION problems (named off-position starters,
+  // missing wing/big coverage, thin bench) over "whichever legend scored
+  // lowest". Computed for both engines since Phase 8H.
   best_pick?: string | null;
   structural_weakness?: string | null;
   // Phase 8 pre-loop polish: one-sentence explainer for structural_weakness
@@ -210,6 +211,21 @@ export interface SimulationResultPublic {
   structural_weakness_detail?: string | null;
   // Phase 7A Part F: "weakness" | "ceiling_limiter"
   weakness_framing?: string | null;
+  // Phase 8H: "what PEAK3 would have picked" post-run recap -- one entry
+  // per round, computed only once the roster is complete (never leaks
+  // scores before a pick is made -- see state.py::_compute_peak_picks_recap
+  // for the full contract). Null until then.
+  peak_picks_recap?: PeakPickRecapEntry[] | null;
+}
+
+export interface PeakPickRecapEntry {
+  round_number: number;
+  slot_type: string;
+  picked_player_name: string | null;
+  picked_score: number | null;
+  peak_pick_player_name: string | null;
+  peak_pick_score: number | null;
+  matched: boolean;
 }
 
 export interface ProvisionalRecordRange {

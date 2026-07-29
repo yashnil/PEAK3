@@ -181,13 +181,25 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
         </div>
       ) : (
         <div
-          className="flex flex-col items-center justify-center gap-1 w-full py-1.5 draft-target"
+          className="relative flex flex-col items-center justify-center gap-1 w-full py-1.5 draft-target"
           data-pending={isPendingTarget ? "true" : "false"}
         >
+          {/* Phase 8H: a large, near-invisible position-letter watermark --
+              court-density fix. An empty slot used to be just a small icon
+              + "Open" text centered in a lot of flat dark space; this gives
+              the card a designed silhouette (like a real trading-card slot
+              waiting to be filled) instead of reading as dead/blank area,
+              without adding any real visual noise (opacity stays under 10%
+              even on hover). Bench slots skip it (no single position). */}
+          {!isBench && (
+            <span aria-hidden="true" className="roster-board-slot-watermark">
+              {slot.slot_type}
+            </span>
+          )}
           <Target
-            size={16}
+            size={18}
             aria-hidden="true"
-            style={{ color: isPendingTarget ? "var(--peak-accent, #f5c842)" : "var(--text-muted)", opacity: isPendingTarget ? 1 : 0.5 }}
+            style={{ color: isPendingTarget ? "var(--peak-accent, #f5c842)" : "var(--text-muted)", opacity: isPendingTarget ? 1 : 0.55 }}
           />
           <div className="text-[11px] font-semibold" style={{ color: isPendingTarget ? "var(--peak-accent, #f5c842)" : "var(--text-muted)" }}>
             {isPendingTarget ? "Place here" : "Open"}

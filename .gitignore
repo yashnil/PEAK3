@@ -16,7 +16,7 @@ cache/processed/*
 !cache/processed/regular_1980_2026.parquet
 !cache/processed/playoffs_1980_2026.parquet
 !cache/processed/teams_1980_2026.parquet
-results/
+/results/
 context_build.log
 
 # NOTE: data/generated/ is intentionally TRACKED (committed candidate

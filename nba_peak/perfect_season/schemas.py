@@ -176,6 +176,17 @@ class SimulationResult:
     # level nothing about the roster is actually bad. None for legacy
     # peak-window boards (same scope as best_pick/structural_weakness).
     weakness_framing: str | None = None
+    # Phase 8H: "what PEAK3 would have picked" recap -- one entry per round,
+    # computed post-completion only (result_ready already reveals every
+    # placed card's real score; this extends the same reveal to the
+    # UNPICKED candidates from each round, which is new information but
+    # never shown before the roster is locked -- see
+    # state.py::_compute_peak_picks_recap). None for a game that hasn't
+    # completed. Each entry is a plain dict (not a further-nested dataclass,
+    # matching LineupFitComponents.as_dict()'s existing plain-dict-at-the-
+    # API-boundary convention): round_number, slot_type, picked_player_name,
+    # picked_score, peak_pick_player_name, peak_pick_score, matched (bool).
+    peak_picks_recap: list[dict] | None = None
 
 
 @dataclass

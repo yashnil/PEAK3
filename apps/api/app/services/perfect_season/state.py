@@ -444,6 +444,83 @@ def action_respin_season(state: CourtLineupState) -> CourtLineupState:
     return state
 
 
+def _compute_peak_picks_recap(state: CourtLineupState, team_year_board: bool) -> list[dict]:
+    """Phase 8H: "what PEAK3 would have picked" -- for each round, the
+    highest-scored candidate actually AVAILABLE at that moment (excluding
+    whatever earlier rounds already used), compared against what the
+    player actually picked. Only ever called once the roster is complete
+    (action_complete_game, after the real reveal gate has already opened),
+    so this is an honest extension of the same reveal, never a pre-pick
+    leak -- ADR-005 Decision 6 is about withholding scores from the
+    CURRENT round's own live candidate list before a pick is made; this
+    runs only after every card's real score is already being shown.
+
+    Never fabricates a reason -- the "why" is always the real, computed
+    metric (highest score among the round's then-available candidates),
+    stated plainly rather than inventing narrative flavor text the model
+    didn't actually compute."""
+    recap: list[dict] = []
+    used_slugs: set[str] = set()
+    slots_by_spin = {s.resolved_via_spin_id: s for s in state.slots if s.resolved_via_spin_id}
+
+    for spin in sorted(state.board.spins, key=lambda s: s.round_number):
+        slot = slots_by_spin.get(spin.spin_id)
+        if slot is None:
+            continue
+
+        if team_year_board:
+            picked_card = resolve_exact_card_by_key(slot.exact_player_season_key) if slot.exact_player_season_key else None
+            picked_name = picked_card.player_name if picked_card else None
+            picked_score = picked_card.season_score if picked_card else None
+            picked_slug = picked_card.player_slug if picked_card else None
+
+            best_slug, best_name, best_score = None, None, None
+            for slug in spin.candidate_player_slugs:
+                if slug in used_slugs:
+                    continue
+                card = resolve_player_season_card(slug, spin.team_id, spin.era_label)
+                if card is None or card.season_score is None:
+                    continue
+                if best_score is None or card.season_score > best_score:
+                    best_slug, best_name, best_score = slug, card.player_name, card.season_score
+        else:
+            picked_card = resolve_card_by_window_id(state, slot.peak_window_id) if slot.peak_window_id else None
+            picked_name = picked_card.player_name if picked_card else None
+            picked_score = picked_card.individual_peak_score if picked_card else None
+            picked_slug = picked_card.player_slug if picked_card else None
+
+            best_slug, best_name, best_score = None, None, None
+            for slug in spin.candidate_player_slugs:
+                if slug in used_slugs:
+                    continue
+                card = resolve_card(slug, state.duration_years)
+                if card is None:
+                    continue
+                if best_score is None or card.individual_peak_score > best_score:
+                    best_slug, best_name, best_score = slug, card.player_name, card.individual_peak_score
+
+        if picked_slug:
+            used_slugs.add(picked_slug)
+
+        if best_slug is None:
+            # No scored candidate was available this round (e.g. every
+            # option was roster-only/unscored) -- an honest data gap, not
+            # a fabricated recommendation.
+            continue
+
+        recap.append({
+            "round_number": spin.round_number,
+            "slot_type": slot.slot_type,
+            "picked_player_name": picked_name,
+            "picked_score": round(picked_score, 1) if picked_score is not None else None,
+            "peak_pick_player_name": best_name,
+            "peak_pick_score": round(best_score, 1) if best_score is not None else None,
+            "matched": best_slug == picked_slug,
+        })
+
+    return recap
+
+
 def action_complete_game(state: CourtLineupState) -> CourtLineupState:
     """Run the v0 simulation and freeze the result. Idempotent -- calling
     this again on an already-result_ready state returns the same result
@@ -469,6 +546,7 @@ def action_complete_game(state: CourtLineupState) -> CourtLineupState:
                 )
             exact_cards.append(card)
         state.simulation_result = simulate_exact_season(exact_cards, state.board.seed, slot_types)
+        state.simulation_result.peak_picks_recap = _compute_peak_picks_recap(state, team_year_board=True)
     else:
         cards = []
         for slot in state.slots:
@@ -479,6 +557,7 @@ def action_complete_game(state: CourtLineupState) -> CourtLineupState:
                 raise CourtError("card_not_resolvable", f"Could not resolve slot card '{slot.peak_window_id}'")
             cards.append(card)
         state.simulation_result = simulate_season(cards, state.board.seed, slot_types)
+        state.simulation_result.peak_picks_recap = _compute_peak_picks_recap(state, team_year_board=False)
 
     state.status = "result_ready"
     state.last_action_at = datetime.now(timezone.utc).isoformat()
@@ -864,6 +943,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             "structural_weakness": r.structural_weakness,
             "structural_weakness_detail": r.structural_weakness_detail,
             "weakness_framing": r.weakness_framing,
+            "peak_picks_recap": r.peak_picks_recap,
         }
 
     return {

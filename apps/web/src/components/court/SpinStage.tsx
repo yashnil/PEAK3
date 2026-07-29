@@ -100,6 +100,24 @@ function prefersReducedMotion(): boolean {
  * already resolved server-side before this component ever mounts -- this
  * strip never drives or previews the real outcome, it only dresses up the
  * "spinning" phase. */
+/** Phase 8H: rebuilt as a real VERTICAL slot reel -- the single biggest
+ * remaining gap from the "still doesn't feel like a real wheel" feedback.
+ * The previous version only slid the CENTER item (a fade/pop swap); the
+ * side items just sat at static offsets, so the strip as a whole never
+ * read as one continuously-scrolling reel. This version keys every
+ * visible item by its POOL INDEX (not its slot position) and lets
+ * motion/react's `layout` prop do the actual sliding: when a tick shifts
+ * every item up one slot, each element's key stays attached to the same
+ * pool entry, so framer-motion computes a real FLIP position transition
+ * for the whole column at once -- a genuine scroll, not five independent
+ * animations pretending to be one. AnimatePresence handles the item that
+ * scrolls off the top and the new one entering from the bottom.
+ *
+ * Known, accepted edge case: for a short pool (e.g. the 9-entry decade
+ * ERA_LABELS list), a pool index can recur within one ~10-14-tick spin,
+ * which very occasionally reorders instead of sliding for that one tick.
+ * Harmless and rare -- never happens for the much larger team pool, and
+ * the reduced-motion path (which never ticks at all) is unaffected. */
 function ReelStrip({
   items,
   activeIndex,
@@ -115,54 +133,32 @@ function ReelStrip({
   const center = Math.floor(windowSize / 2);
   const visible = Array.from({ length: windowSize }, (_, i) => {
     const idx = ((activeIndex - center + i) % items.length + items.length) % items.length;
-    return items[idx];
+    return { poolIndex: idx, label: items[idx], slot: i };
   });
-  // Phase 8D: a real slot-reel needs the center item to visibly SLIDE into
-  // place each tick, not just swap text (playtest finding: "still feels
-  // more like styled text changes than a real game mechanic"). The side
-  // items get a static scale/opacity falloff by distance from center --
-  // cheap, safe, and gives the strip a "drum" curvature instead of a flat
-  // row of equal-weight labels.
-  const tickDuration = rampStage === "fast" ? 0.075 : 0.16;
+  const tickDuration = rampStage === "fast" ? 0.09 : 0.19;
+
   return (
     <div className="spin-reel-strip" data-phase="spinning" data-ramp={rampStage} aria-hidden="true">
-      {visible.map((label, i) => {
-        const distance = Math.abs(i - center);
-        if (i === center) {
+      <AnimatePresence initial={false} mode="popLayout">
+        {visible.map(({ poolIndex, label, slot }) => {
+          const distance = Math.abs(slot - center);
+          const isActive = slot === center;
           return (
-            <span key={i} className="spin-reel-strip-active-window">
-              {reduceMotion ? (
-                <span className="spin-reel-strip-active">{label}</span>
-              ) : (
-                <AnimatePresence mode="popLayout" initial={false}>
-                  <motion.span
-                    key={`${label}-${activeIndex}`}
-                    className="spin-reel-strip-active"
-                    initial={{ y: 16, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    exit={{ y: -16, opacity: 0 }}
-                    transition={{ duration: tickDuration, ease: "easeOut" }}
-                  >
-                    {label}
-                  </motion.span>
-                </AnimatePresence>
-              )}
-            </span>
+            <motion.div
+              key={poolIndex}
+              layout={!reduceMotion}
+              initial={reduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: Math.max(0.22, 1 - distance * 0.3) }}
+              exit={reduceMotion ? undefined : { opacity: 0 }}
+              transition={{ duration: reduceMotion ? 0 : tickDuration, ease: "easeOut" }}
+              className={isActive ? "spin-reel-strip-active" : "spin-reel-strip-item"}
+              style={{ transform: reduceMotion ? undefined : `scale(${1 - distance * 0.14})` }}
+            >
+              {label}
+            </motion.div>
           );
-        }
-        return (
-          <span
-            key={i}
-            className="spin-reel-strip-item"
-            style={{
-              transform: reduceMotion ? undefined : `scale(${1 - distance * 0.16}) translateY(${distance * 3}px)`,
-              opacity: Math.max(0.2, 1 - distance * 0.32),
-            }}
-          >
-            {label}
-          </span>
-        );
-      })}
+        })}
+      </AnimatePresence>
     </div>
   );
 }

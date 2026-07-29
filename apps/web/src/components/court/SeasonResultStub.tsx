@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
 import { CourtLineupPublicState, CourtSlotPublic, SimulationResultPublic, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import LineupInsightPanel from "./LineupInsightPanel";
@@ -6,6 +7,8 @@ import LeaderboardSubmitPanel from "./LeaderboardSubmitPanel";
 import PlayAgainPanel from "./PlayAgainPanel";
 import PeakCardCourt from "./PeakCardCourt";
 import CourtLayout from "./CourtLayout";
+import PeakPicksRecap from "./PeakPicksRecap";
+import ShareRunPanel from "./ShareRunPanel";
 
 interface Props {
   state: CourtLineupPublicState;
@@ -16,10 +19,15 @@ interface Props {
    * rather than assuming every future caller wants it). */
   onPlayAgain?: () => void;
   playAgainBusy?: boolean;
+  /** Phase 8H: true when viewing someone ELSE's shared result link
+   * (/arena/court/results/[id]) -- hides account-specific actions
+   * (leaderboard submit, which the backend would 403 as "not your game"
+   * anyway) in favor of a clean view + a CTA to start your own run. */
+  readOnly?: boolean;
 }
 
 // Part F: named result tiers, most-impressive first.
-function resultTier(wins: number): string {
+export function resultTier(wins: number): string {
   if (wins >= 82) return "82-0 Immortal";
   if (wins >= 75) return "Dynasty";
   if (wins >= 65) return "Contender";
@@ -123,7 +131,7 @@ function bestAndWorstPick(slots: CourtSlotPublic[]): { best: string | null; weak
  * on-screen composition itself read as one self-contained, screenshot-able
  * unit (bordered shell, PEAK3 accent rail, consistent internal rhythm).
  */
-export default function SeasonResultStub({ state, result, onPlayAgain, playAgainBusy = false }: Props) {
+export default function SeasonResultStub({ state, result, onPlayAgain, playAgainBusy = false, readOnly = false }: Props) {
   const reduceMotion = useReducedMotion();
   const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
   const benchSlots = state.slots.filter((s) => BENCH_SLOT_TYPES.includes(s.slot_type));
@@ -342,9 +350,34 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
         </p>
       </motion.div>
 
+      {result.peak_picks_recap && result.peak_picks_recap.length > 0 && (
+        <motion.div {...reveal(6)}>
+          <PeakPicksRecap recap={result.peak_picks_recap} />
+        </motion.div>
+      )}
+
       <LineupInsightPanel result={result} />
 
-      <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} lineupScoreStatus={result.lineup_score_status} />
+      {readOnly ? (
+        <div
+          className="rounded-xl p-3 flex items-center justify-between gap-3 text-sm"
+          style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
+        >
+          <span style={{ color: "var(--text-secondary)" }}>Think you can build a better roster?</span>
+          <Link
+            href="/arena/court/practice/apex_1y"
+            className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
+            style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+          >
+            Build your own
+          </Link>
+        </div>
+      ) : (
+        <>
+          <ShareRunPanel state={state} result={result} />
+          <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} lineupScoreStatus={result.lineup_score_status} />
+        </>
+      )}
 
       <p
         data-testid="experimental-notice"

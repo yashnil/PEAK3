@@ -330,6 +330,12 @@ def simulate_season(cards: list[CardProfile], board_seed: int, slot_types: list[
     # here (CLAUDE.md: never calculate PEAK3 scores in this layer).
     lineup_peak_score = round(sum(c.individual_peak_score for c in cards) / len(cards), 1)
 
+    # Phase 8H: give the legacy career-peak-window path the same explanation
+    # depth the exact-season path already had -- best_pick/structural_weakness/
+    # weakness_framing were never computed here before, even though
+    # _decisive_factors (the positive side) was always shared.
+    weakness_text, weakness_detail = _structural_weakness(cards, slot_types, fit, wins)
+
     return SimulationResult(
         lineup_model_version=LINEUP_MODEL_VERSION,
         simulator_version=SIMULATOR_VERSION,
@@ -343,6 +349,10 @@ def simulate_season(cards: list[CardProfile], board_seed: int, slot_types: list[
         is_perfect_season=(wins >= 82),
         experimental_notice=SIMULATOR_EXPERIMENTAL_NOTICE,
         lineup_peak_score=lineup_peak_score,
+        best_pick=_best_pick(cards),
+        structural_weakness=weakness_text,
+        structural_weakness_detail=weakness_detail,
+        weakness_framing=_weakness_framing(wins),
     )
 
 
@@ -458,6 +468,17 @@ def _best_pick_exact(cards: list[PlayerSeasonCard]) -> str | None:
     if not scored:
         return None
     best = max(scored, key=lambda c: c.season_score)
+    return best.player_name
+
+
+def _best_pick(cards: list[CardProfile]) -> str | None:
+    """CardProfile (career-peak-window) counterpart of _best_pick_exact --
+    every CardProfile reaching the simulator is already scored (no
+    "unscored" state at this grain), so this never has an empty-scored
+    edge case, but stays defensive for consistency."""
+    if not cards:
+        return None
+    best = max(cards, key=lambda c: c.individual_peak_score)
     return best.player_name
 
 
@@ -703,6 +724,74 @@ def _structural_weakness_exact(
         return worst.player_name, None
     return None, None
 
+
+def _structural_weakness(
+    cards: list[CardProfile], slot_types: list[str], fit: LineupFitComponents, wins: int
+) -> tuple[str | None, str | None]:
+    """CardProfile (career-peak-window) counterpart of _structural_weakness_exact
+    -- same prioritized severe/moderate/weakest-component/mild/fallback
+    cascade, adapted for archetype-based fit (classify_fit/
+    classify_fit_severity/primary_position) instead of real per-season
+    position data. Phase 8H: this path (simulate_season, what CourtBuilder
+    runs when the legacy engine is explicitly selected) never had this
+    explanation depth at all before -- only simulate_exact_season did,
+    even though _decisive_factors (the positive-side explanation) was
+    always shared between both paths. No unscored-card check here (every
+    CardProfile reaching the simulator is already scored -- no
+    "score_status" concept at this grain)."""
+    if not cards:
+        return None, None
+    is_ceiling_limiter = wins >= _CEILING_LIMITER_WINS_FLOOR
+    starters = cards[:STARTER_SLOTS]
+    starter_slot_types = slot_types[:STARTER_SLOTS]
+
+    off_position: list[tuple[str, str, str | None, str]] = []
+    for card, slot in zip(starters, starter_slot_types):
+        severity = classify_fit_severity(card.player_slug, card.primary_role, slot)
+        if severity is not None:
+            real_pos = primary_position(card.player_slug, card.primary_role)
+            off_position.append((card.player_name, slot, real_pos, severity))
+
+    severe = [o for o in off_position if o[3] == "severe"]
+    if len(severe) == 1:
+        name, slot, real_pos, _sev = severe[0]
+        pos_note = f" -- {name}'s real position is {real_pos}" if real_pos else f" -- {name} is not a real {slot}"
+        return f"{_SEVERE_SLOT_LABEL.get(slot, f'no real {slot}')}{pos_note}", None
+    if len(severe) >= 2:
+        names_joined = ", ".join(f"{name} at {slot}" for name, slot, _, _ in severe)
+        return f"Position-broken starting five -- {names_joined}", None
+
+    moderate = [o for o in off_position if o[3] == "moderate"]
+    if len(moderate) == 1:
+        name, slot, real_pos, _sev = moderate[0]
+        pos_note = f", real position {real_pos}" if real_pos else ""
+        return f"Role stretch -- {name} at {slot}{pos_note}", None
+    if len(moderate) >= 2:
+        names_joined = ", ".join(f"{name} at {slot}" for name, slot, _, _ in moderate)
+        return f"Role stretch across the starting five -- {names_joined}", None
+
+    weakest_key = _weakest_component_key(
+        fit, require_below_floor=not is_ceiling_limiter, min_gap_below_others=6.0 if is_ceiling_limiter else 0.0
+    )
+    if weakest_key:
+        return _COMPONENT_LABELS[weakest_key], _COMPONENT_EXPLAINERS.get(weakest_key)
+
+    mild = [o for o in off_position if o[3] == "mild"]
+    if len(mild) == 1:
+        name, slot, real_pos, _sev = mild[0]
+        pos_note = f", real position {real_pos}" if real_pos else ""
+        return f"Minor role stretch -- {name} at {slot}{pos_note}", None
+    if len(mild) >= 2:
+        names_joined = ", ".join(f"{name} at {slot}" for name, slot, _, _ in mild)
+        return f"Flexible alignment -- {names_joined}", None
+
+    if is_ceiling_limiter:
+        return "not every star is in their peak season", _CEILING_LIMITER_GENERIC_DETAIL
+
+    if cards:
+        worst = min(cards, key=lambda c: c.individual_peak_score)
+        return worst.player_name, None
+    return None, None
 
 
 # ---------------------------------------------------------------------------

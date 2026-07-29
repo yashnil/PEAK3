@@ -106,8 +106,9 @@ export default async function ArenaPage() {
           </h1>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
             Spin a team and era, build a position-aware 5+3 roster from
-            exact NBA peak windows, and chase a perfect season. Exact
-            ratings stay hidden until the final reveal.
+            exact NBA player-seasons, and chase a perfect season. Ratings
+            stay hidden until the final reveal, then you get a full receipt
+            — including what PEAK3 itself would have picked each round.
           </p>
           <Link
             href="/arena/court/practice/apex_1y"

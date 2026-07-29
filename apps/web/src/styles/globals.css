@@ -779,53 +779,43 @@ html, body {
   animation: spin-reel-streak 0.4s linear infinite;
 }
 
-/* Phase 6G Part B -- reel-strip ticker (shows several pool items at once
-   while spinning, proving broad team/season coverage instead of just
-   asserting it). Fixed width/overflow:hidden so it can never cause
-   horizontal page overflow on mobile regardless of label length. */
+/* Phase 8H: rebuilt as a real VERTICAL slot reel (was a horizontal row
+   with only the center item animating) -- see SpinStage.tsx's ReelStrip
+   docstring for the full "why". Fixed height/overflow:hidden so it can
+   never cause page overflow regardless of label length, and so the
+   motion/react `layout` FLIP animation has a stable window to scroll
+   inside of. */
 .spin-reel-strip {
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 2px;
   width: 100%;
+  height: 92px;
   overflow: hidden;
-  white-space: nowrap;
 }
 
 .spin-reel-strip-item {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
-  opacity: 0.55;
-  flex-shrink: 0;
-  max-width: 64px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
 }
 
 .spin-reel-strip-active {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 800;
   color: var(--text-primary);
-  flex-shrink: 0;
-  max-width: 96px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* Phase 8D: fixed-height clipping window around the active reel item --
-   without this, each tick's slide-in/slide-out motion (SpinStage.tsx's
-   ReelStrip, via motion/react) would jostle the surrounding layout instead
-   of reading as a real windowed slot-reel. */
-.spin-reel-strip-active-window {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 20px;
-  overflow: hidden;
-  max-width: 96px;
+  white-space: nowrap;
+  text-align: center;
 }
 
 /* Blur/ghosting while the reel is at full speed -- eases off once the ramp
@@ -1060,7 +1050,33 @@ html, body {
 }
 
 .roster-board-slot-card-open {
+  position: relative;
+  overflow: hidden;
   background: var(--bg-surface);
+  /* Phase 8H: court-density fix -- a subtle radial glow so an empty slot
+     still reads as part of the arena's lit surface rather than a flat
+     gray cutout waiting to be filled. */
+  background-image: radial-gradient(120% 140% at 50% 0%, rgba(245, 200, 66, 0.05), transparent 70%);
+}
+
+/* Phase 8H: large, near-invisible position-letter watermark inside an
+   empty slot -- see PeakCardCourt.tsx's own comment for the rationale.
+   Absolutely positioned so it never affects the icon/label's own layout;
+   clipped by the parent's overflow:hidden so it can never leak past the
+   card's rounded corners. */
+.roster-board-slot-watermark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  opacity: 0.045;
+  pointer-events: none;
+  line-height: 1;
 }
 
 /* ================================================================

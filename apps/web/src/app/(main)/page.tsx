@@ -7,7 +7,7 @@ import { getTeamColors } from "@/lib/team-colors";
 export const metadata: Metadata = {
   title: "PEAK3 Arena — Build a Perfect Season",
   description:
-    "Spin a team and era, draft real NBA peak seasons onto a position-aware court, and chase an 82-0 season. A basketball strategy arcade built on a transparent, open-weight rating formula.",
+    "Spin a team and era, draft exact NBA player-season cards onto a position-aware court, and chase an 82-0 season. A basketball strategy arcade built on a transparent, open-weight rating formula — with receipts on every pick.",
 };
 
 const HOW_IT_WORKS: { icon: typeof Dices; title: string; body: string; team: string }[] = [
@@ -20,13 +20,13 @@ const HOW_IT_WORKS: { icon: typeof Dices; title: string; body: string; team: str
   {
     icon: Users,
     title: "Draft",
-    body: "Pick from that exact roster and place each card on a position-aware court. Exact ratings stay hidden until reveal.",
+    body: "Pick from that exact roster — real player-seasons, real constraints — and place each card on a position-aware court. Ratings stay hidden until reveal.",
     team: "Denver Nuggets",
   },
   {
     icon: Trophy,
     title: "Simulate",
-    body: "Lock your 5+3 roster and reveal the season. Chase 82-0, then run it back against your own best.",
+    body: "Lock your 5+3 roster and reveal the season. Chase 82-0, see what PEAK3 would have picked each round, then run it back against your own best.",
     team: "Golden State Warriors",
   },
 ];
@@ -74,9 +74,10 @@ export default async function HomePage() {
           </h1>
 
           <p className="mt-6 text-lg text-[var(--text-secondary)] max-w-xl mx-auto leading-relaxed">
-            Spin a team and era, draft real NBA peak seasons onto a position-aware court, and simulate
-            the season. PEAK3 rates every card with a transparent five-component formula — no
-            hand-picked winners, no fabricated data.
+            Spin a real team and era, draft exact NBA player-season cards onto a position-aware
+            court, and simulate the year. Every result comes with receipts — the same open
+            five-component formula behind every card, plus a round-by-round look at what PEAK3
+            itself would have picked.
           </p>
 
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
@@ -168,8 +169,9 @@ export default async function HomePage() {
                   82-0 Peak Season
                 </h3>
                 <p className="mt-1 text-sm max-w-xl" style={{ color: "var(--text-secondary)" }}>
-                  Spin a team and era, draft a position-aware 5+3 roster from exact NBA peak windows,
-                  and chase a perfect season against your own best run.
+                  Spin a team and era, draft a position-aware 5+3 roster from exact NBA player-seasons,
+                  and chase a perfect season — with a full receipt on every rating and a round-by-round
+                  comparison to what PEAK3 itself would have picked.
                 </p>
               </div>
               <span

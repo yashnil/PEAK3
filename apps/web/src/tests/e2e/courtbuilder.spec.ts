@@ -950,6 +950,68 @@ test.describe("CourtBuilder result credibility", () => {
     await expect(receipt).toBeVisible();
     await expect(receipt.locator("summary")).toBeVisible();
   });
+
+  test("Phase 8H: result screen shows the PEAK3 pick recap and a working share panel", async ({ page }) => {
+    await startCourtBuilder(page);
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    const [resp] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+    await expect(page.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
+
+    // AI-pick recap: one row per round, each naming both the real pick and
+    // PEAK3's own top-rated available option that round.
+    const recap = page.locator('[data-testid="peak-picks-recap"]');
+    await expect(recap).toBeVisible();
+    await expect(page.locator('[data-testid="peak-picks-recap-row"]')).toHaveCount(TOTAL_ROUNDS);
+    await expect(page.locator('[data-testid="peak-picks-match-count"]')).toBeVisible();
+
+    // Never leaked before the roster was complete -- the API response
+    // itself only carries the recap once result_ready.
+    const body = await resp.json();
+    expect(body.simulation_result.peak_picks_recap).toHaveLength(TOTAL_ROUNDS);
+
+    // Share panel: real, working actions (copy summary / copy link),
+    // using the standard Clipboard API -- no fabricated capability.
+    const share = page.locator('[data-testid="share-run-panel"]');
+    await expect(share).toBeVisible();
+    await expect(page.locator('[data-testid="share-run-copy-link-btn"]')).toBeEnabled();
+    await expect(page.locator('[data-testid="share-run-copy-text-btn"]')).toBeEnabled();
+  });
+
+  test("Phase 8H: a shared results URL renders a read-only scorecard, never the owner's leaderboard actions", async ({ page, context }) => {
+    await startCourtBuilder(page);
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    const [resp] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+    const gameId = (await resp.json()).game_id as string;
+
+    const sharedPage = await context.newPage();
+    await sharedPage.goto(`/arena/court/results/${gameId}`, { waitUntil: "load" });
+    await expect(sharedPage.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
+    // A shared/viewed run must never show account-specific actions --
+    // submitting it would 403 server-side anyway (not the viewer's game),
+    // so the UI never offers a button that would just fail.
+    await expect(sharedPage.locator('[data-testid="leaderboard-submit-panel"]')).toHaveCount(0);
+    await expect(sharedPage.getByText("Build your own")).toBeVisible();
+  });
+
+  test("Phase 8H: a nonexistent shared results link shows a clean not-found state", async ({ page }) => {
+    await page.goto("/arena/court/results/this-game-id-does-not-exist", { waitUntil: "load" });
+    await expect(page.getByText(/run not found/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/build your own roster/i)).toBeVisible();
+  });
 });
 
 // ---------------------------------------------------------------------------

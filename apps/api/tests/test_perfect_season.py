@@ -2825,6 +2825,54 @@ def test_good_contender_roster_is_unaffected_by_the_generational_floor():
     assert 45 <= result.wins <= 72, f"expected a good-contender-band record, got {result.wins}"
 
 
+# Phase 8H: a THIRD, personnel-distinct generational-core fixture (zero
+# player overlap with GENERATIONAL_ANCHOR_LINEUP/ALL_TIME_CEILING_LINEUP)
+# -- "at least 3 unique lineups can hit 80-82 or exact 82-0" was an
+# explicit acceptance bar, and the two pre-existing elite fixtures share 4
+# of 5 starters (both are built around the same Curry/Jordan/LeBron/
+# Garnett/Jokic core). This one is an entirely different generation/style
+# of core: Magic/Bird/Duncan/Shaq (all real 89+ season_scores), not a
+# variation on the same anchor.
+THIRD_ELITE_LINEUP = [
+    ("magic-johnson", "LAL", "1986-87"),
+    ("ray-allen", "MIL", "2000-01"),
+    ("larry-bird", "BOS", "1985-86"),
+    ("tim-duncan", "SAS", "2002-03"),
+    ("shaquille-o-neal", "LAL", "1999-00"),
+    ("hakeem-olajuwon", "HOU", "1993-94"),
+    ("derrick-white", "BOS", "2023-24"),
+    ("al-horford", "BOS", "2023-24"),
+]
+
+
+def test_at_least_three_personnel_distinct_lineups_reach_elite_80_to_82():
+    """Explicit Phase 8H acceptance bar: at least 3 UNIQUE lineups can hit
+    80-82 / exact 82-0 -- not the same core with a shuffled bench. Verifies
+    three fixtures with meaningfully different personnel all clear the bar
+    across multiple seeds, and that they are, in fact, personnel-distinct
+    (no fixture is a strict subset of another's starters)."""
+    fixtures = {
+        "generational_anchor": GENERATIONAL_ANCHOR_LINEUP,
+        "all_time_ceiling": ALL_TIME_CEILING_LINEUP,
+        "third_elite_core": THIRD_ELITE_LINEUP,
+    }
+    starter_sets = {name: {slug for slug, _, _ in spec[:5]} for name, spec in fixtures.items()}
+    assert starter_sets["generational_anchor"] != starter_sets["third_elite_core"]
+    assert starter_sets["all_time_ceiling"] != starter_sets["third_elite_core"]
+    # third_elite_core shares zero starters with the other two -- a
+    # genuinely different generation of talent, not a bench reshuffle.
+    assert not (starter_sets["third_elite_core"] & starter_sets["generational_anchor"])
+    assert not (starter_sets["third_elite_core"] & starter_sets["all_time_ceiling"])
+
+    for name, spec in fixtures.items():
+        cards = _resolve_lineup(spec)
+        for seed in range(1, 6):
+            result = simulate_exact_season(cards, board_seed=seed, slot_types=SLOT_TYPES)
+            assert 80 <= result.wins <= 82, (
+                f"{name} seed={seed}: expected 80-82, got {result.wins}"
+            )
+
+
 # ---------------------------------------------------------------------------
 # Phase 8F: position-model redesign -- the Moncrief-at-SG trust bug and the
 # broader "flexible shifts should be free/near-free, only structurally
@@ -2940,6 +2988,41 @@ def test_result_copy_never_says_off_position_for_a_mild_or_flexible_shift():
     assert "off-position" not in joined.lower()
     assert "off position" not in joined.lower()
     assert "Moncrief" not in joined
+
+
+def test_kd_at_sg_is_never_surfaced_as_a_meaningful_weakness():
+    """Phase 8H explicit acceptance bar: 'KD at SG should not be flagged as
+    a meaningful weakness.' End to end through the real exact-season
+    result pipeline -- KD's real position (SF for this season) placed at
+    SG is a mild SF<->SG adjacency, which must never appear in
+    decisive_factors and must never be the reported structural_weakness on
+    an otherwise-fine roster (it should fall through to a genuine
+    ceiling-limiter/strength-led explanation instead)."""
+    # SLOT_TYPES order is [PG, SG, SF, PF, C, bench...] -- index 1 (SG) is
+    # Durant (real position SF), the sole deliberate mismatch under test.
+    # Everyone else sits at their real position, or a curated flexible one
+    # (LeBron's real 2012-13 position is PF; FLEXIBLE_FORWARD_SLUGS makes
+    # his SF placement "secondary", never off_position).
+    spec = [
+        ("john-stockton", "UTA", "1989-90"),  # PG -- real position PG
+        ("kevin-durant", "OKC", "2013-14"),   # SG -- real position SF (the mild swap under test)
+        ("lebron-james", "MIA", "2012-13"),   # SF -- real position PF, flexible-forward secondary
+        ("kevin-garnett", "MIN", "2003-04"),  # PF -- real position PF
+        ("nikola-jokic", "DEN", "2022-23"),   # C -- real position C
+        ("tim-duncan", "SAS", "2002-03"),
+        ("derrick-white", "BOS", "2023-24"),
+        ("al-horford", "BOS", "2023-24"),
+    ]
+    cards = _resolve_lineup(spec)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    joined_factors = " ".join(result.decisive_factors)
+    assert "durant" not in joined_factors.lower()
+    assert "off-position" not in joined_factors.lower()
+    assert "off position" not in joined_factors.lower()
+    if result.structural_weakness:
+        assert "durant" not in result.structural_weakness.lower(), (
+            f"KD-at-SG mild swap should never be THE reported weakness, got: {result.structural_weakness!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

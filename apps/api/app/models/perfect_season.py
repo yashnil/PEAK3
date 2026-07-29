@@ -235,9 +235,11 @@ class SimulationResultPublic(BaseModel):
     # Phase 6F Part F: server-computed result explanation -- best_pick is the
     # highest real-score contributor; structural_weakness prioritizes roster
     # CONSTRUCTION issues (named off-position starters, missing wing/big
-    # coverage, thin bench) over "whichever legend scored lowest". None for
-    # legacy peak-window boards (nba_peak.perfect_season.simulation.
-    # simulate_season doesn't compute these -- Peak Draft is unaffected).
+    # coverage, thin bench) over "whichever legend scored lowest". Phase 8H:
+    # now computed for BOTH the exact-season and legacy career-peak-window
+    # paths (nba_peak.perfect_season.simulation._structural_weakness is the
+    # legacy-path counterpart of _structural_weakness_exact) -- previously
+    # only the exact-season path had this depth.
     best_pick: Optional[str] = None
     structural_weakness: Optional[str] = None
     # Phase 8 pre-loop polish: one-sentence explainer for structural_weakness
@@ -250,6 +252,12 @@ class SimulationResultPublic(BaseModel):
     # Phase 7A Part F: "weakness" | "ceiling_limiter" -- drives whether the
     # UI prefixes structural_weakness with "Weakness:" or "Ceiling limiter:".
     weakness_framing: Optional[str] = None
+    # Phase 8H: "what PEAK3 would have picked" post-run recap -- see
+    # nba_peak.perfect_season.schemas.SimulationResult.peak_picks_recap and
+    # state.py::_compute_peak_picks_recap for the full contract. Only ever
+    # populated once result_ready (the same reveal gate as every other
+    # score-bearing field here).
+    peak_picks_recap: Optional[list[dict]] = None
 
 
 class ProvisionalRecordRange(BaseModel):
