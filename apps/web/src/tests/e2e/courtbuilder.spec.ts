@@ -984,7 +984,38 @@ test.describe("CourtBuilder result credibility", () => {
     await expect(page.locator('[data-testid="share-run-copy-text-btn"]')).toBeEnabled();
   });
 
+  // Runs BEFORE the heavier read-only-scorecard test below on purpose: both
+  // tests are the first hits in this file on the /arena/court/results/[id]
+  // dynamic route, and in Playwright's dev-mode webServer (see
+  // playwright.config.ts -- `npm run dev`, not a production build) the
+  // *first* request to any route pays a real one-time Next.js JIT-compile
+  // cost (observed locally: ~300ms+, more under CI's slower/shared
+  // runners). This cheap not-found test has huge timeout headroom (a single
+  // goto + two text assertions), so it is the one that should absorb that
+  // one-time cost -- not the test below, which already spends its budget on
+  // a full 8-round draft, a `/complete` round-trip, and a second full page
+  // load.
+  test("Phase 8H: a nonexistent shared results link shows a clean not-found state", async ({ page }) => {
+    await page.goto("/arena/court/results/this-game-id-does-not-exist", { waitUntil: "load" });
+    await expect(page.getByText(/run not found/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/build your own roster/i)).toBeVisible();
+  });
+
   test("Phase 8H: a shared results URL renders a read-only scorecard, never the owner's leaderboard actions", async ({ page, context }) => {
+    // Root cause of the CI timeout this replaces: this test does strictly
+    // more real, necessary work than any sibling in the file -- a full
+    // 8-round draft (each round pays the real spin-ceremony timer sequence,
+    // see playOneRound above), a `/complete` round-trip, AND a full second
+    // page load in a fresh tab. Measured locally (fast, uncontested
+    // machine, services already warm): ~30s, right at Playwright's 30000ms
+    // default per-test timeout with zero slack -- CI's shared/slower
+    // runners tip it over. The route-compile part of that cost is now paid
+    // by the not-found test above instead (see its comment); this explicit
+    // budget covers the rest of the inherent, unavoidable sequential work
+    // (not a symptom being papered over -- every wait below still asserts
+    // real, authoritative state, not a fixed sleep).
+    test.setTimeout(60_000);
+
     await startCourtBuilder(page);
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
       await playOneRound(page);
@@ -1005,12 +1036,6 @@ test.describe("CourtBuilder result credibility", () => {
     // so the UI never offers a button that would just fail.
     await expect(sharedPage.locator('[data-testid="leaderboard-submit-panel"]')).toHaveCount(0);
     await expect(sharedPage.getByText("Build your own")).toBeVisible();
-  });
-
-  test("Phase 8H: a nonexistent shared results link shows a clean not-found state", async ({ page }) => {
-    await page.goto("/arena/court/results/this-game-id-does-not-exist", { waitUntil: "load" });
-    await expect(page.getByText(/run not found/i)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/build your own roster/i)).toBeVisible();
   });
 });
 
