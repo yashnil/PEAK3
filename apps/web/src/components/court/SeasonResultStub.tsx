@@ -358,7 +358,12 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
 
       <LineupInsightPanel result={result} />
 
-      {readOnly ? (
+      {/* Phase 8I: share/copy/copy-link/download are all fine for anyone
+          viewing an already-public-by-id run, owner or not -- only
+          LeaderboardSubmitPanel is genuinely owner-gated (the backend 403s
+          "not_your_game" for anyone else), so that's the only piece that
+          stays behind the readOnly check. */}
+      {readOnly && (
         <div
           className="rounded-xl p-3 flex items-center justify-between gap-3 text-sm"
           style={{ background: "var(--bg-surface)", border: "1px solid var(--border-default)" }}
@@ -372,11 +377,10 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
             Build your own
           </Link>
         </div>
-      ) : (
-        <>
-          <ShareRunPanel state={state} result={result} />
-          <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} lineupScoreStatus={result.lineup_score_status} />
-        </>
+      )}
+      <ShareRunPanel state={state} result={result} />
+      {!readOnly && (
+        <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} lineupScoreStatus={result.lineup_score_status} />
       )}
 
       <p

@@ -340,6 +340,10 @@ export interface CourtBuilderReadiness {
   low_coverage_team_seasons: string[];
   season_2025_26_coverage_status: string;
   warnings: string[];
+  // Phase 8I: franchise_display_name -> resolved logo URL, empty whenever
+  // the asset gate is off. Not every rollable name is guaranteed a key --
+  // the spin reel falls back to the initials badge for names not present.
+  team_logo_urls: Record<string, string>;
 }
 
 // Phase 6G Part E: authenticated global leaderboard for PEAK Season.

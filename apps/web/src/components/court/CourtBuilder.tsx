@@ -32,6 +32,12 @@ interface Props {
   rollableTeamSeasonCount?: number;
   supportedStartSeason?: string | null;
   supportedEndSeason?: string | null;
+  /** Phase 8I: franchise_display_name -> resolved logo URL (readiness
+   * endpoint's team_logo_urls), so the spin reel can show a real team logo
+   * on every visible item while it's ticking, not just the landed team.
+   * Empty whenever the asset gate is off -- SpinStage falls back to the
+   * initials badge for any name missing from this map. */
+  teamLogoUrls?: Record<string, string>;
 }
 
 export default function CourtBuilder({
@@ -41,6 +47,7 @@ export default function CourtBuilder({
   rollableTeamSeasonCount = 0,
   supportedStartSeason = null,
   supportedEndSeason = null,
+  teamLogoUrls = {},
 }: Props) {
   const [state, setState] = useState<CourtLineupPublicState>(initialGameState);
   const [error, setError] = useState<string | null>(null);
@@ -239,6 +246,7 @@ export default function CourtBuilder({
                 totalRounds={state.total_rounds}
                 franchiseNames={franchiseNames}
                 seasonLabels={seasonLabels}
+                teamLogoUrls={teamLogoUrls}
                 rollableTeamSeasonCount={rollableTeamSeasonCount}
                 supportedStartSeason={supportedStartSeason}
                 supportedEndSeason={supportedEndSeason}

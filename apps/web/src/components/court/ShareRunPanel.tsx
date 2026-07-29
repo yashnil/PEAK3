@@ -1,8 +1,9 @@
 "use client";
 import { useState } from "react";
-import { Copy, Check, Share2, Link as LinkIcon } from "lucide-react";
+import { Copy, Check, Share2, Link as LinkIcon, Download } from "lucide-react";
 import { CourtLineupPublicState, SimulationResultPublic } from "@/types/perfect-season";
 import { resultTier } from "./SeasonResultStub";
+import { downloadScorecardPng } from "@/lib/scorecard-export";
 
 interface Props {
   state: CourtLineupPublicState;
@@ -45,6 +46,7 @@ function buildShareText(state: CourtLineupPublicState, result: SimulationResultP
 export default function ShareRunPanel({ state, result }: Props) {
   const [copied, setCopied] = useState<"text" | "link" | null>(null);
   const [shared, setShared] = useState(false);
+  const [downloadState, setDownloadState] = useState<"idle" | "busy" | "done" | "failed">("idle");
 
   const shareUrl =
     typeof window !== "undefined"
@@ -85,6 +87,17 @@ export default function ShareRunPanel({ state, result }: Props) {
     } else {
       handleCopyText();
     }
+  }
+
+  async function handleDownload() {
+    setDownloadState("busy");
+    try {
+      const ok = await downloadScorecardPng(state, result, shareUrl);
+      setDownloadState(ok ? "done" : "failed");
+    } catch {
+      setDownloadState("failed");
+    }
+    window.setTimeout(() => setDownloadState("idle"), 2000);
   }
 
   return (
@@ -128,6 +141,21 @@ export default function ShareRunPanel({ state, result }: Props) {
         >
           {copied === "link" ? <Check size={13} aria-hidden="true" /> : <LinkIcon size={13} aria-hidden="true" />}
           {copied === "link" ? "Copied!" : "Copy link"}
+        </button>
+        <button
+          type="button"
+          data-testid="share-run-download-btn"
+          aria-label="Download scorecard image"
+          onClick={handleDownload}
+          disabled={downloadState === "busy"}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 disabled:opacity-60"
+          style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+        >
+          {downloadState === "done" ? <Check size={13} aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
+          {downloadState === "busy" && "Preparing…"}
+          {downloadState === "done" && "Downloaded!"}
+          {downloadState === "failed" && "Couldn't export"}
+          {downloadState === "idle" && "Download Image"}
         </button>
       </div>
     </div>

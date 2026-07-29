@@ -50,41 +50,50 @@ interface Props {
    * during placement, so canceling a selection (back to spinning, SAME
    * round) remounted it fresh and re-ran the mount-only ceremony effect. */
   collapsed?: boolean;
+  /** Phase 8I: franchise_display_name -> resolved logo URL (readiness
+   * endpoint's team_logo_urls). Passed straight through to the team reel so
+   * every visible item can show its real logo while ticking, not just the
+   * team that ends up landed -- falls back to the initials badge per-item
+   * when a name has no entry (asset gate off, or that team unresolved). */
+  teamLogoUrls?: Record<string, string>;
 }
 
 type CeremonyPhase = "spinning" | "locked" | "revealed";
-type RampStage = "fast" | "slow";
+type RampStage = "fast" | "medium" | "slow";
 
-// Total ceremony budget stays under the 2s hard ceiling
-// (ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.2: "under 2 seconds") -- Phase 8
-// pre-loop polish pushes the budget much closer to that ceiling (was ~1.7s
-// total, felt fast/mechanical) for a more deliberate, suspenseful ceremony,
-// while still leaving real margin under 2000ms.
-const SPIN_MS = 1250;
+// Phase 8I: user playtest feedback was explicit -- "the spinner is still too
+// fast" / "should spend a little more time as a reveal event, but not
+// become annoying". This supersedes the older ARENA_OVERHAUL_PRODUCT_SPEC.md
+// Sec 3.2 "under 2 seconds" TOTAL-ceremony guidance that shaped the previous
+// 1250/400/300 split -- SPIN_MS alone now targets the product's own
+// "roughly 1.6-2.4s" guidance for the initial spin, LOCK_MS/COUNT_MS
+// unchanged (the landing beat was already reading as intentional; the
+// complaint was specifically about the reel itself feeling rushed).
+const SPIN_MS = 2000;
 const LOCK_MS = 400;
 const COUNT_MS = 300;
-// Phase 6G Part B (Phase 8: ramp switch moved earlier, from 55% to 45% of
-// the spin budget, so more of the ceremony is spent in the dramatic,
-// visibly-decelerating "slow" stage rather than the blurry "fast" one) --
-// fast reel ticks for the first ~45% of the spin budget, then a visibly
-// slower "decelerating" tick rate for the rest, so the reel reads as
-// spinning-down-to-a-stop rather than a flat blur that abruptly halts. Two
-// discrete stages (not a continuous easing curve) keeps this trivially
-// cancelable/deterministic -- only ever two live intervals.
-const FAST_TICK_MS = 90;
-const SLOW_TICK_MS = 220;
-const RAMP_SWITCH_MS = Math.round(SPIN_MS * 0.45);
+// Three discrete stages instead of two (fast -> medium -> slow) spreads the
+// deceleration across more perceptible steps for a smoother spin-down feel,
+// while staying deterministic/trivially cancelable -- same reasoning as the
+// original two-stage design, just one more step given the longer SPIN_MS
+// budget now has room for it.
+const FAST_TICK_MS = 85;
+const MEDIUM_TICK_MS = 150;
+const SLOW_TICK_MS = 260;
+const RAMP_TO_MEDIUM_MS = Math.round(SPIN_MS * 0.4);
+const RAMP_TO_SLOW_MS = Math.round(SPIN_MS * 0.72);
 // Reduced-motion still shows a real, discrete state machine (spinning ->
 // locked -> revealed) instead of one continuous cycling animation -- "simple
 // stepped reveal", not literally nothing -- but with near-zero delays so it
 // stays well under the existing <500ms Playwright budget for this path.
 const REDUCED_MOTION_LOCK_MS = 40;
 const REDUCED_MOTION_REVEAL_MS = 40;
-// Phase 8 pre-loop polish: how long a respin's reel-ticking flourish runs
-// before settling on the new roll -- short and snappy (unlike the first
-// roll of a round) since the player already knows what they're waiting
-// for and shouldn't have to wait through a full ceremony a second time.
-const RESPIN_REROLL_MS = 480;
+// Phase 8I: bumped from 480ms (product guidance: respin should read as a
+// real re-roll, target ~1.0-1.6s) -- still meaningfully shorter than the
+// first roll of a round (the player already knows what they're waiting
+// for), just no longer so short it barely registers as a reel scroll.
+const RESPIN_REROLL_MS = 1200;
+const RESPIN_RAMP_TO_SLOW_MS = Math.round(RESPIN_REROLL_MS * 0.55);
 
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
@@ -123,11 +132,15 @@ function ReelStrip({
   activeIndex,
   rampStage,
   reduceMotion,
+  logoUrls,
 }: {
   items: readonly string[];
   activeIndex: number;
   rampStage: RampStage;
   reduceMotion: boolean;
+  /** Phase 8I: team name -> logo URL, team reel only -- the season/era reel
+   * simply never passes this, so it renders text-only exactly as before. */
+  logoUrls?: Record<string, string>;
 }) {
   const windowSize = 5;
   const center = Math.floor(windowSize / 2);
@@ -135,7 +148,7 @@ function ReelStrip({
     const idx = ((activeIndex - center + i) % items.length + items.length) % items.length;
     return { poolIndex: idx, label: items[idx], slot: i };
   });
-  const tickDuration = rampStage === "fast" ? 0.09 : 0.19;
+  const tickDuration = rampStage === "fast" ? 0.075 : rampStage === "medium" ? 0.13 : 0.22;
 
   return (
     <div className="spin-reel-strip" data-phase="spinning" data-ramp={rampStage} aria-hidden="true">
@@ -143,6 +156,8 @@ function ReelStrip({
         {visible.map(({ poolIndex, label, slot }) => {
           const distance = Math.abs(slot - center);
           const isActive = slot === center;
+          const colors = logoUrls ? getTeamColors(label) : null;
+          const logoUrl = logoUrls?.[label];
           return (
             <motion.div
               key={poolIndex}
@@ -151,10 +166,33 @@ function ReelStrip({
               animate={{ opacity: Math.max(0.22, 1 - distance * 0.3) }}
               exit={reduceMotion ? undefined : { opacity: 0 }}
               transition={{ duration: reduceMotion ? 0 : tickDuration, ease: "easeOut" }}
-              className={isActive ? "spin-reel-strip-active" : "spin-reel-strip-item"}
+              className={`spin-reel-strip-row ${isActive ? "spin-reel-strip-active" : "spin-reel-strip-item"}`}
               style={{ transform: reduceMotion ? undefined : `scale(${1 - distance * 0.14})` }}
             >
-              {label}
+              {colors && (
+                <span className="spin-reel-strip-logo-wrap" aria-hidden="true">
+                  <span
+                    data-testid="reel-logo-fallback"
+                    className="spin-reel-strip-logo-fallback"
+                    style={{ background: colors.primary, color: colors.secondary }}
+                  >
+                    {colors.initials}
+                  </span>
+                  {logoUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      data-testid="reel-logo-img"
+                      src={logoUrl}
+                      alt=""
+                      className="spin-reel-strip-logo-img"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  )}
+                </span>
+              )}
+              <span className="spin-reel-strip-label">{label}</span>
             </motion.div>
           );
         })}
@@ -202,6 +240,7 @@ export default function SpinStage({
   respinFlashKey = 0,
   respinKind = null,
   collapsed = false,
+  teamLogoUrls = {},
 }: Props) {
   // Phase 8C: explicit gate for every new `motion.*` animation added this
   // pass -- the project's existing global CSS `prefers-reduced-motion`
@@ -243,6 +282,7 @@ export default function SpinStage({
   // overlay state, not a re-entry into the spinning/locked state machine.
   const [respinning, setRespinning] = useState(false);
   const [respinTick, setRespinTick] = useState(0);
+  const [respinRampStage, setRespinRampStage] = useState<RampStage>("fast");
   const isTwoWheel = spin.spin_type !== "open_pool";
   const isTeamYear = spin.spin_type === "team_year";
   // Defensive fallback only -- every two-wheel spin (team_decade,
@@ -271,24 +311,35 @@ export default function SpinStage({
       };
     }
     let fastInterval: number | undefined;
+    let mediumInterval: number | undefined;
     let slowInterval: number | undefined;
-    let rampTimer: number | undefined;
+    let rampToMediumTimer: number | undefined;
+    let rampToSlowTimer: number | undefined;
     if (isTwoWheel) {
       fastInterval = window.setInterval(() => {
         setTeamTick((t) => t + 1);
         setSecondTick((t) => t + 1);
       }, FAST_TICK_MS);
-      rampTimer = window.setTimeout(() => {
+      rampToMediumTimer = window.setTimeout(() => {
         if (fastInterval) window.clearInterval(fastInterval);
+        setRampStage("medium");
+        mediumInterval = window.setInterval(() => {
+          setTeamTick((t) => t + 1);
+          setSecondTick((t) => t + 1);
+        }, MEDIUM_TICK_MS);
+      }, RAMP_TO_MEDIUM_MS);
+      rampToSlowTimer = window.setTimeout(() => {
+        if (mediumInterval) window.clearInterval(mediumInterval);
         setRampStage("slow");
         slowInterval = window.setInterval(() => {
           setTeamTick((t) => t + 1);
           setSecondTick((t) => t + 1);
         }, SLOW_TICK_MS);
-      }, RAMP_SWITCH_MS);
+      }, RAMP_TO_SLOW_MS);
     }
     const t1 = window.setTimeout(() => {
       if (fastInterval) window.clearInterval(fastInterval);
+      if (mediumInterval) window.clearInterval(mediumInterval);
       if (slowInterval) window.clearInterval(slowInterval);
       setPhase("locked");
       setWasLocked(true);
@@ -297,8 +348,10 @@ export default function SpinStage({
     const t3 = window.setTimeout(() => onRevealComplete?.(), SPIN_MS + LOCK_MS + COUNT_MS);
     return () => {
       if (fastInterval) window.clearInterval(fastInterval);
+      if (mediumInterval) window.clearInterval(mediumInterval);
       if (slowInterval) window.clearInterval(slowInterval);
-      if (rampTimer) window.clearTimeout(rampTimer);
+      if (rampToMediumTimer) window.clearTimeout(rampToMediumTimer);
+      if (rampToSlowTimer) window.clearTimeout(rampToSlowTimer);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearTimeout(t3);
@@ -322,16 +375,29 @@ export default function SpinStage({
       return () => window.clearTimeout(t);
     }
     setRespinning(true);
-    const tickInterval = window.setInterval(() => {
+    setRespinRampStage("fast");
+    let fastInterval: number | undefined = window.setInterval(() => {
       setRespinTick((t) => t + 1);
     }, FAST_TICK_MS);
+    let slowInterval: number | undefined;
+    const rampTimer = window.setTimeout(() => {
+      if (fastInterval) window.clearInterval(fastInterval);
+      fastInterval = undefined;
+      setRespinRampStage("slow");
+      slowInterval = window.setInterval(() => {
+        setRespinTick((t) => t + 1);
+      }, SLOW_TICK_MS);
+    }, RESPIN_RAMP_TO_SLOW_MS);
     const t1 = window.setTimeout(() => {
-      window.clearInterval(tickInterval);
+      if (fastInterval) window.clearInterval(fastInterval);
+      if (slowInterval) window.clearInterval(slowInterval);
       setRespinning(false);
     }, RESPIN_REROLL_MS);
     const t2 = window.setTimeout(() => setJustRespun(false), RESPIN_REROLL_MS + 100);
     return () => {
-      window.clearInterval(tickInterval);
+      window.clearTimeout(rampTimer);
+      if (fastInterval) window.clearInterval(fastInterval);
+      if (slowInterval) window.clearInterval(slowInterval);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
@@ -560,7 +626,7 @@ export default function SpinStage({
                 Team
               </div>
               {teamIsTicking ? (
-                <ReelStrip items={teamPool} activeIndex={respinning ? respinTick : teamTick} rampStage={respinning ? "slow" : rampStage} reduceMotion={!!reduceMotion} />
+                <ReelStrip items={teamPool} activeIndex={respinning ? respinTick : teamTick} rampStage={respinning ? respinRampStage : rampStage} reduceMotion={!!reduceMotion} logoUrls={teamLogoUrls} />
               ) : (
                 <motion.div
                   key={teamDisplayName}
@@ -607,7 +673,7 @@ export default function SpinStage({
               {secondWheelLabel}
             </div>
             {seasonIsTicking ? (
-              <ReelStrip items={secondPool} activeIndex={respinning ? respinTick : secondTick} rampStage={respinning ? "slow" : rampStage} reduceMotion={!!reduceMotion} />
+              <ReelStrip items={secondPool} activeIndex={respinning ? respinTick : secondTick} rampStage={respinning ? respinRampStage : rampStage} reduceMotion={!!reduceMotion} />
             ) : (
               <motion.div
                 key={secondDisplay}

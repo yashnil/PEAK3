@@ -15,6 +15,20 @@ import { test, expect, Page } from "@playwright/test";
 
 const TOTAL_ROUNDS = 8;
 
+// Phase 8I: the spin ceremony's own timing was deliberately slowed down
+// (SpinStage.tsx's SPIN_MS 1250ms -> 2000ms, per explicit product feedback
+// that the spinner felt too fast) -- across a full TOTAL_ROUNDS-round draft
+// that alone adds ~6s of real, unavoidable sequential time
+// (750ms x 8 rounds) on top of each round's own select/place network
+// round-trips, pushing every full-draft test right up against (and, on a
+// real run, past) Playwright's 30000ms default per-test timeout with zero
+// slack left. This is not test inefficiency to fix by reordering (unlike
+// the earlier /arena/court/results/[id] JIT-compile case) -- it's a fixed,
+// known cost from a deliberate product change, so every test that plays a
+// full TOTAL_ROUNDS-round draft calls `test.setTimeout(FULL_DRAFT_TIMEOUT_MS)`
+// as its first line.
+const FULL_DRAFT_TIMEOUT_MS = 60_000;
+
 /** Play one full round: select the first candidate, place into the first
  * open slot. The select click still races its network response via
  * Promise.all (candidate buttons use a real `disabled` attribute while
@@ -91,6 +105,7 @@ async function startCourtBuilder(page: Page, mode = "apex_1y", seed = 42): Promi
 
 test.describe("CourtBuilder full attempt", () => {
   test("completes all 8 rounds and shows a result", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await startCourtBuilder(page);
 
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
@@ -127,6 +142,7 @@ test.describe("CourtBuilder full attempt", () => {
   });
 
   test("Phase 8D: Play Again starts a fresh game in the same mode without a page reload", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await startCourtBuilder(page);
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
       await playOneRound(page);
@@ -590,6 +606,27 @@ test.describe("CourtBuilder spin ceremony", () => {
     await expect(strips).toHaveCount(2);
   });
 
+  test("Phase 8I: team reel shows a logo or initials fallback on every visible item while spinning", async ({ page }) => {
+    // Phase 8I product ask: team logos during the spin itself, not only
+    // after landing. CI runs with ENABLE_EXTERNAL_ASSET_URLS off (no asset
+    // env var set in the Playwright CI job), so the deterministic,
+    // always-true assertion here is that the initials FALLBACK badge
+    // renders for every visible team-reel row -- the real <img> only
+    // additionally appears when the asset gate is on and that specific
+    // team resolved a logo, which is exactly why the fallback exists (see
+    // ReelStrip in SpinStage.tsx and .spin-reel-strip-logo-* in
+    // globals.css). The season/era reel never gets a logoUrls prop, so it
+    // correctly renders none of these.
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    const fallbacks = page.locator('[data-testid="spin-stage"] [data-testid="reel-logo-fallback"]');
+    await expect(fallbacks.first()).toBeVisible({ timeout: 3_000 });
+    const count = await fallbacks.count();
+    expect(count).toBeGreaterThanOrEqual(1);
+    // Every fallback badge shows real team initials text, never blank.
+    const firstText = (await fallbacks.first().innerText()).trim();
+    expect(firstText.length).toBeGreaterThan(0);
+  });
+
   test("locked state shows a LOCKED stamp between spinning and reveal", async ({ page }) => {
     // The "locked" phase is a deliberately brief ~400ms window between the
     // spinning and revealed phases (see SpinStage.tsx's LOCK_MS). Racing a
@@ -749,8 +786,12 @@ test.describe("CourtBuilder respins", () => {
     // Once the brief respin flourish settles, the era wheel's own value
     // must be exactly what it was before -- not just visually "locked",
     // actually unchanged (proves frontend display matches backend's
-    // same-season-different-team respin behavior).
-    await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toHaveCount(0, { timeout: 2_000 });
+    // same-season-different-team respin behavior). Phase 8I bumped the
+    // respin flourish itself from ~480ms to ~1.2s (product ask: respin
+    // should read as a real re-roll) plus a ~200ms exit transition, so this
+    // window is widened to keep the same real safety margin, not just
+    // barely cover the new duration.
+    await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toHaveCount(0, { timeout: 3_500 });
     const eraAfter = await page.locator('[data-testid="era-wheel"]').innerText();
     expect(eraAfter).toBe(eraBefore);
   });
@@ -768,7 +809,9 @@ test.describe("CourtBuilder respins", () => {
     await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toBeVisible();
     await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toHaveCount(0);
 
-    await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toHaveCount(0, { timeout: 2_000 });
+    // Phase 8I: same widened window as the team-only respin test above --
+    // the respin flourish itself now runs ~1.2s, not ~480ms.
+    await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toHaveCount(0, { timeout: 3_500 });
     const teamAfter = await page.locator('[data-testid="team-wheel"]').innerText();
     expect(teamAfter).toBe(teamBefore);
   });
@@ -895,6 +938,7 @@ test.describe("CourtBuilder candidate list (Phase 6E)", () => {
 
 test.describe("CourtBuilder result credibility", () => {
   test("the result screen reassures that stacked talent is rewarded, not penalized", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await startCourtBuilder(page);
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
       await playOneRound(page);
@@ -922,6 +966,7 @@ test.describe("CourtBuilder result credibility", () => {
   });
 
   test("Phase 6E: result screen is a share-card with a tier headline and exact-season wording", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await startCourtBuilder(page);
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
       await playOneRound(page);
@@ -952,6 +997,7 @@ test.describe("CourtBuilder result credibility", () => {
   });
 
   test("Phase 8H: result screen shows the PEAK3 pick recap and a working share panel", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await startCourtBuilder(page);
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
       await playOneRound(page);
@@ -982,6 +1028,16 @@ test.describe("CourtBuilder result credibility", () => {
     await expect(share).toBeVisible();
     await expect(page.locator('[data-testid="share-run-copy-link-btn"]')).toBeEnabled();
     await expect(page.locator('[data-testid="share-run-copy-text-btn"]')).toBeEnabled();
+
+    // Phase 8I: "Download Image" -- a real file, not just a button that
+    // exists. Playwright's download event only fires for a genuine browser
+    // download, so this is a real, deterministic assertion (canvas.toBlob
+    // -> object URL -> synthetic <a download> click, no fixed sleeps).
+    const downloadBtn = page.locator('[data-testid="share-run-download-btn"]');
+    await expect(downloadBtn).toBeVisible();
+    await expect(downloadBtn).toHaveAccessibleName(/download/i);
+    const [download] = await Promise.all([page.waitForEvent("download"), downloadBtn.click()]);
+    expect(download.suggestedFilename()).toMatch(/^peak3-82-0-run-\d+-\d+\.png$/);
   });
 
   // Runs BEFORE the heavier read-only-scorecard test below on purpose: both
@@ -1013,8 +1069,10 @@ test.describe("CourtBuilder result credibility", () => {
     // by the not-found test above instead (see its comment); this explicit
     // budget covers the rest of the inherent, unavoidable sequential work
     // (not a symptom being papered over -- every wait below still asserts
-    // real, authoritative state, not a fixed sleep).
-    test.setTimeout(60_000);
+    // real, authoritative state, not a fixed sleep). Same FULL_DRAFT_TIMEOUT_MS
+    // budget as every other full-8-round-draft test in this file (see its
+    // own comment) plus headroom for the second page load.
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
 
     await startCourtBuilder(page);
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
@@ -1036,6 +1094,14 @@ test.describe("CourtBuilder result credibility", () => {
     // so the UI never offers a button that would just fail.
     await expect(sharedPage.locator('[data-testid="leaderboard-submit-panel"]')).toHaveCount(0);
     await expect(sharedPage.getByText("Build your own")).toBeVisible();
+
+    // Phase 8I: download must also work on a shared/read-only run -- it's
+    // the same public-by-id state, and downloading a scorecard isn't an
+    // owner-only action the way submitting to the leaderboard is.
+    const downloadBtn = sharedPage.locator('[data-testid="share-run-download-btn"]');
+    await expect(downloadBtn).toBeVisible();
+    const [download] = await Promise.all([sharedPage.waitForEvent("download"), downloadBtn.click()]);
+    expect(download.suggestedFilename()).toMatch(/^peak3-82-0-run-\d+-\d+\.png$/);
   });
 });
 
@@ -1050,6 +1116,7 @@ test.describe("CourtBuilder result credibility", () => {
 
 test.describe("CourtBuilder leaderboard (Part E)", () => {
   test("leaderboard submit panel does not render when the leaderboard feature is off", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await startCourtBuilder(page);
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
       await playOneRound(page);

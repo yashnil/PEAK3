@@ -796,35 +796,120 @@ html, body {
   overflow: hidden;
 }
 
-.spin-reel-strip-item {
+/* Phase 8I: each row is now a logo + label pair (team reel only -- the
+   season/era reel never gets a logoUrls prop, so it just never renders the
+   `.spin-reel-strip-logo-wrap` span and reads exactly as before). */
+.spin-reel-strip-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.spin-reel-strip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  min-width: 0;
+}
+
+.spin-reel-strip-item .spin-reel-strip-label {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
 }
 
-.spin-reel-strip-active {
+.spin-reel-strip-active .spin-reel-strip-label {
   font-size: 16px;
   font-weight: 800;
   color: var(--text-primary);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
 }
 
-/* Blur/ghosting while the reel is at full speed -- eases off once the ramp
-   drops to "slow", so the strip visually settles before the lock snap.
-   Neutralized entirely under prefers-reduced-motion (that path never
-   mounts this element at all -- see SpinStage.tsx). */
+/* Phase 8I: a "payline" highlight band behind the center row -- the row the
+   reel is actually pointing at, not just the biggest text -- tinted with
+   the currently-cycling team's own color (--reel-accent, already set on
+   the outer .spin-reel wrapper) for a touch more liveliness without adding
+   any new layout or a redesign. */
+.spin-reel-strip-active {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--reel-accent, var(--peak-accent)) 14%, transparent),
+    transparent
+  );
+  border-radius: 8px;
+  padding: 3px 6px;
+  margin: 0 -6px;
+}
+
+/* Logo (or initials fallback) shown on every visible reel row while
+   spinning -- "team-branded while moving", not just after landing. The
+   fallback badge always renders; the real logo <img> sits on top of it and
+   simply hides itself via onError if the URL 404s or the asset gate is off,
+   so a missing logo degrades to the initials badge with no broken-image
+   flash and no extra render/state cost. */
+.spin-reel-strip-logo-wrap {
+  /* Must be a sized box, not the default inline `<span>` -- width/height
+     are no-ops on non-replaced inline elements, which was silently letting
+     the absolutely-positioned <img> inside fall back to its raw intrinsic
+     size (the source ESPN logos are 500x500) instead of the tiny reel
+     badge size set below. */
+  display: inline-flex;
+  position: relative;
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.spin-reel-strip-item .spin-reel-strip-logo-wrap {
+  width: 15px;
+  height: 15px;
+}
+
+.spin-reel-strip-active .spin-reel-strip-logo-wrap {
+  width: 24px;
+  height: 24px;
+}
+
+.spin-reel-strip-logo-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.spin-reel-strip-active .spin-reel-strip-logo-fallback {
+  font-size: 10px;
+}
+
+.spin-reel-strip-logo-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--bg-surface);
+}
+
+/* Blur/ghosting while the reel is at full speed -- eases off through
+   "medium" and clears entirely by "slow", so the strip visually settles in
+   stages before the lock snap rather than snapping from blurred to sharp in
+   one jump. Neutralized entirely under prefers-reduced-motion (that path
+   never mounts this element at all -- see SpinStage.tsx). */
 .spin-reel-strip[data-ramp="fast"] .spin-reel-strip-item,
 .spin-reel-strip[data-ramp="fast"] .spin-reel-strip-active {
   filter: blur(0.6px);
+}
+
+.spin-reel-strip[data-ramp="medium"] .spin-reel-strip-item,
+.spin-reel-strip[data-ramp="medium"] .spin-reel-strip-active {
+  filter: blur(0.25px);
 }
 
 .spin-locked-stamp {
@@ -1100,6 +1185,15 @@ html, body {
 .spin-wheel-box[data-phase="revealed"] {
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 45%, transparent),
     0 0 28px -6px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 55%, transparent);
+}
+
+/* Phase 8I: a much lighter version of the same glow while still spinning
+   (--slot-accent already tracks whichever team the reel is currently
+   ticking through, not just the final landed one) -- the box no longer
+   sits visually inert until the very end of the ceremony. */
+.spin-wheel-box[data-phase="spinning"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 20%, transparent),
+    0 0 16px -8px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 35%, transparent);
 }
 
 /* Top/bottom fade mask on the reel strip -- gives the ticking pool items a

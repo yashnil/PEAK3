@@ -390,3 +390,15 @@ class CourtBuilderReadinessResponse(BaseModel):
     supported_franchise_count: int = 0
     teams_represented_in_spinner: list[str] = []
     seasons_represented_in_spinner: list[str] = []
+
+    # Phase 8I: franchise_display_name -> resolved logo URL, for every name
+    # in interim_team_franchise_names / experimental_team_year_franchise_names
+    # that actually has one -- lets the spin ceremony's reel show a real team
+    # logo on EVERY visible item while it's ticking, not just the one team
+    # that ends up landed (see SpinStage.tsx's ReelStrip). Same resolved-only,
+    # never-fabricated contract as the existing per-spin team_logo_url, and
+    # empty whenever Settings.ENABLE_EXTERNAL_ASSET_URLS is off -- names with
+    # no resolved entry are simply absent from this map, never given a
+    # placeholder/broken URL (the frontend already has a premium initials
+    # fallback for exactly this case).
+    team_logo_urls: dict[str, str] = {}
