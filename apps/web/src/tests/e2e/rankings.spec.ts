@@ -29,6 +29,28 @@ async function gotoRankings(page: Page): Promise<void> {
   await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
 }
 
+/** Wait for the explanation modal's entrance animation to finish.
+ *
+ *  Needed because `toBeVisible()` ignores opacity: it resolves the instant the
+ *  panel mounts at `initial={{ opacity: 0 }}`, while the panel is still fading
+ *  in over 180ms (see ScoreExplainModal). Anything that samples rendered
+ *  colours in that window sees modal text blended with the rankings table
+ *  behind it. That made the axe check below fail intermittently -- roughly two
+ *  runs in three inside the full suite, and never in isolation, because a
+ *  warm/idle machine mounts and analyses faster than the animation completes.
+ *  The reported "serious: color-contrast" was real; it just described a frame
+ *  no user ever interacts with. */
+async function waitForModalOpaque(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector('[data-testid="score-explain-modal"]');
+      return !!el && getComputedStyle(el).opacity === "1";
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
+}
+
 /** Sortable column keys, matching board-model.ts's RankingSortKey. */
 const SORT_KEYS = [
   "total",
@@ -313,6 +335,7 @@ test.describe("Rankings — accessibility", () => {
     await page.locator('[data-testid="rankings-row"]').first().click();
     await expect(page.locator('[data-testid="score-explain-modal"]')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('[data-testid="component-breakdown"]')).toBeVisible();
+    await waitForModalOpaque(page);
 
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
     const serious = results.violations.filter(

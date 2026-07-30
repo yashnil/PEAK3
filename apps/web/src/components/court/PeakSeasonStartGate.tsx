@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { createCourtGame, getCourtGame, PerfectSeasonAPIError } from "@/lib/perfect-season-api";
-import { CourtLineupPublicState, COURT_MODE_LABELS, CourtMode } from "@/types/perfect-season";
+import { CourtLineupPublicState, CourtMode } from "@/types/perfect-season";
 import CourtBuilder from "./CourtBuilder";
 
 interface Props {
@@ -97,7 +97,7 @@ export default function PeakSeasonStartGate({
       const code = e instanceof PerfectSeasonAPIError ? e.code : undefined;
       setError(
         code === "courtbuilder_not_enabled"
-          ? "82-0 Peak Season is not enabled in this environment yet."
+          ? "82-0 PEAK Season is not enabled in this environment yet."
           : code === "invalid_challenge_date"
             ? "That isn't a valid challenge date. Try today's Daily PEAK Season instead."
             : "Could not start a run. Is the API running?",
@@ -139,16 +139,34 @@ export default function PeakSeasonStartGate({
                 : { background: "rgba(245,200,66,0.15)", color: "var(--peak-accent, #f5c842)" }
             }
           >
-            {isDaily ? "Daily PEAK Season" : "82-0 Peak Season"}
+            {isDaily ? "Daily PEAK Season" : "82-0 PEAK Season"}
           </span>
-          <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-            {COURT_MODE_LABELS[mode] ?? mode}
-          </span>
+          {/* Phase 10C: no board-variant chip here on purpose.
+              This gate used to print COURT_MODE_LABELS[mode] beside the badge,
+              which rendered "1Y Apex" -- retired game-mode branding, on the
+              screen that is now the destination of both the navbar "Play" link
+              and the homepage CTA. It read as a mode selection the user had
+              somehow already made.
+              It also had nothing to say: `mode` reaches this gate from the
+              route segment and only ever affects the board's recorded
+              `duration_years` and the daily seed, never which cards can be
+              drafted (see the COURT_MODE_LABELS docstring). The variant is
+              still surfaced where it genuinely distinguishes one saved run
+              from another -- run history and the leaderboard filter. */}
         </div>
 
         <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
-          {isDaily ? "Today's shared challenge" : "Build a perfect season"}
+          {isDaily ? "Today's shared challenge" : "82-0 PEAK Season"}
         </h1>
+
+        {/* Phase 10C: this gate is now the destination of BOTH the navbar
+            "Play" link and the homepage CTA, so it has to introduce the
+            PRODUCT, not just this particular run. The numbered steps below
+            still carry the detail. */}
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          Spin a real NBA team-season, draft exact player-season cards, place them on the court, and
+          chase 82-0 with receipts.
+        </p>
 
         <ol className="flex flex-col gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
           <li className="flex gap-2.5">

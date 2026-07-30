@@ -6,19 +6,37 @@ import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 
-// Phase 8E: "Play" used to point straight at /arena/daily -- the legacy
-// Peak Draft daily hub -- so reaching the flagship 82-0 Peak Season mode
-// from the persistent header always required an extra, unlabeled "Back to
-// Arena" detour. /arena (the hub) already puts the CourtBuilder flagship
-// front and center (server-checked via courtBuilderEnabled, gracefully
-// degrades to the legacy modes list if it's off) -- one real click, no
-// dead end, from every page in the app.
-const NAV_LINKS = [
-  { href: "/arena", label: "Play" },
+// Phase 10C: "Play" now points at the flagship 82-0 PEAK Season run itself,
+// not at the /arena hub.
+//
+// History, because the destination has moved twice: originally /arena/daily
+// (the legacy Peak Draft daily hub), then /arena (the hub, which put the
+// CourtBuilder flagship at the top but still listed the legacy 1Y/3Y/5Y draft
+// modes underneath). That second hop was the reported bug -- "Play" and the
+// homepage CTA both landed users on a page whose lower half advertised the old
+// 5-player draft as if it were the product, so the main path never
+// unambiguously led into 82-0.
+//
+// Pointing straight at the practice route is safe (and does NOT start a game):
+// since Phase 9B that route renders PeakSeasonStartGate, so the user lands on
+// an explicit "Begin 82-0 Run" screen and no run is created until they press
+// it. See PeakSeasonStartGate's own docstring for why creation moved out of the
+// route's server component.
+const NAV_LINKS: { href: string; label: string; activePrefix?: string }[] = [
+  // activePrefix keeps "Play" highlighted across the whole arena section --
+  // the daily route, run history, results, the hub -- even though the link
+  // itself deep-links to the flagship run. Without it the plain
+  // startsWith(href) check would light up only on the exact practice route.
+  { href: "/arena/court/practice/apex_1y", label: "Play", activePrefix: "/arena" },
   { href: "/rankings", label: "Rankings" },
   { href: "/methodology", label: "Methodology" },
   { href: "/about", label: "About" },
 ];
+
+function isActive(pathname: string, link: { href: string; activePrefix?: string }): boolean {
+  const base = link.activePrefix ?? link.href;
+  return pathname === base || pathname.startsWith(base + "/");
+}
 
 export function Nav() {
   const pathname = usePathname();
@@ -86,7 +104,7 @@ export function Nav() {
                   href={link.href}
                   className={cn(
                     "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                    pathname === link.href || pathname.startsWith(link.href + "/")
+                    isActive(pathname, link)
                       ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
                       : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
                   )}
@@ -157,7 +175,7 @@ export function Nav() {
                     href={link.href}
                     className={cn(
                       "block py-2.5 px-3 rounded-md text-sm font-medium transition-colors",
-                      pathname === link.href || pathname.startsWith(link.href + "/")
+                      isActive(pathname, link)
                         ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
                         : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
                     )}
