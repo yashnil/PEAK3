@@ -627,6 +627,100 @@ test.describe("CourtBuilder spin ceremony", () => {
     expect(firstText.length).toBeGreaterThan(0);
   });
 
+  // -------------------------------------------------------------------------
+  // Phase 8J: deterministic reel landing -- root-cause fix for a real
+  // trust-breaking bug (reel visibly slowed through 2014-15 -> 2015-16 ->
+  // 2016-17, then the actual result became 1999-00). SpinStage.tsx's old
+  // ticking model was an unbounded counter with no destination, completely
+  // decoupled from the real backend-selected spin.franchise_display_name/
+  // era_label swapped in once the ceremony's fixed timers ran out -- these
+  // tests prove the NEW model (computeReelTarget, see its own docstring)
+  // can never show a different final value than the real result.
+  // -------------------------------------------------------------------------
+
+  test("Phase 8J: initial spin lands the reel exactly on the backend-selected team and season", async ({ page }) => {
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const selectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    expect(selectedTeam).toBeTruthy();
+    expect(selectedSeason).toBeTruthy();
+
+    // The centered reel item's own displayed value (data-final-value) --
+    // read from whichever element currently carries the testid (ticking
+    // ReelStrip row or the settled view, see SpinStage.tsx) -- must be the
+    // literal same string as the real backend result, not merely similar.
+    const teamCenterVal = await page.locator('[data-testid="spin-team-reel-center"]').last().getAttribute("data-final-value");
+    const seasonCenterVal = await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value");
+    expect(teamCenterVal).toBe(selectedTeam);
+    expect(seasonCenterVal).toBe(selectedSeason);
+  });
+
+  test("Phase 8J: the reel never visually shows one season and then resolves to a different one", async ({ page }) => {
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    // SpinStage.tsx's SPIN_MS is a fixed 2000ms -- the deterministic ticking
+    // model (computeReelTarget) is scheduled to already be sitting on the
+    // real target with 1-2 ticks of margin to spare well before that timer
+    // fires (see INITIAL_SPIN_TRAVEL_TICKS's own comment), so sampling at
+    // 1700ms (85% through the fixed budget) catches the reel either still
+    // ticking-but-already-converged, or already settled -- either way it
+    // must already equal the final backend result, proving there is no
+    // late jump/swap at the very end of the ceremony.
+    await page.waitForTimeout(1700);
+    const midSpinTeam = await page.locator('[data-testid="spin-team-reel-center"]').last().getAttribute("data-final-value");
+    const midSpinSeason = await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value");
+
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const selectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+
+    expect(midSpinTeam).toBe(selectedTeam);
+    expect(midSpinSeason).toBe(selectedSeason);
+  });
+
+  test("Phase 8J: team-only respin lands exactly on the new backend-selected team, season stays locked", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamBtn = page.locator('[data-testid="respin-team-btn"]');
+    await expect(teamBtn).toBeVisible();
+    const seasonBefore = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+      teamBtn.click(),
+    ]);
+    // Respin's RESPIN_REROLL_MS is a fixed 1200ms with the same margin-to-
+    // spare guarantee as the initial spin (see RESPIN_TRAVEL_TICKS).
+    await page.waitForTimeout(1400);
+
+    const newSelectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const seasonAfter = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    const teamCenterVal = await page.locator('[data-testid="spin-team-reel-center"]').last().getAttribute("data-final-value");
+
+    expect(teamCenterVal).toBe(newSelectedTeam);
+    expect(seasonAfter).toBe(seasonBefore);
+  });
+
+  test("Phase 8J: season-only respin lands exactly on the new backend-selected season, team stays locked", async ({ page }) => {
+    await startCourtBuilder(page);
+    const seasonBtn = page.locator('[data-testid="respin-season-btn"]');
+    await expect(seasonBtn).toBeVisible();
+    const teamBefore = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-season") && r.status() === 200),
+      seasonBtn.click(),
+    ]);
+    await page.waitForTimeout(1400);
+
+    const newSelectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    const teamAfter = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const seasonCenterVal = await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value");
+
+    expect(seasonCenterVal).toBe(newSelectedSeason);
+    expect(teamAfter).toBe(teamBefore);
+  });
+
   test("locked state shows a LOCKED stamp between spinning and reveal", async ({ page }) => {
     // The "locked" phase is a deliberately brief ~400ms window between the
     // spinning and revealed phases (see SpinStage.tsx's LOCK_MS). Racing a
@@ -655,6 +749,16 @@ test.describe("CourtBuilder spin ceremony", () => {
     // Stepped reveal, not a continuous cycling animation -- no reel strips
     // should be mounted for reduced-motion users.
     await expect(page.locator('[data-testid="spin-stage"] .spin-reel-strip')).toHaveCount(0);
+    // Phase 8J: no ticking ever happens under reduced motion, so there is
+    // no mismatch to even be possible -- but assert the actual displayed
+    // result matches the backend-selected value anyway, directly, rather
+    // than assuming it.
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const selectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    const teamCenterVal = await page.locator('[data-testid="spin-team-reel-center"]').getAttribute("data-final-value");
+    const seasonCenterVal = await page.locator('[data-testid="spin-season-reel-center"]').getAttribute("data-final-value");
+    expect(teamCenterVal).toBe(selectedTeam);
+    expect(seasonCenterVal).toBe(selectedSeason);
   });
 
   test("mobile viewport: spin stage never causes horizontal page overflow", async ({ page }) => {

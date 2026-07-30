@@ -50,7 +50,14 @@ from nba_peak.perfect_season.positions import (
     secondary_positions,
 )
 from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot
-from nba_peak.perfect_season.simulation import _FIT_POINTS, _weighted_starter_talent, simulate_exact_season, simulate_season
+from nba_peak.perfect_season.simulation import (
+    _FIT_POINTS,
+    _weighted_starter_talent,
+    provisional_unscored_impact,
+    provisional_unscored_percentile,
+    simulate_exact_season,
+    simulate_season,
+)
 
 TEAM_YEAR_SPIN_TYPE = "team_year"
 
@@ -689,13 +696,20 @@ def _provisional_expected_wins(state: CourtLineupState) -> Optional[float]:
     if not cards_by_slot:
         return None
 
+    # Phase 8K: an unscored placed card still contributes a conservative
+    # provisional impact here, same as the final simulate_exact_season() --
+    # otherwise this mid-run estimate would read as more optimistic than
+    # the real result it's supposed to preview (see simulation.py's
+    # provisional_unscored_impact for the full rationale).
     starter_scores = [
-        c.season_score for st in STARTER_SLOT_TYPES
-        if (c := cards_by_slot.get(st)) is not None and c.season_score is not None
+        c.season_score if c.season_score is not None else provisional_unscored_impact(c)
+        for st in STARTER_SLOT_TYPES
+        if (c := cards_by_slot.get(st)) is not None
     ]
     bench_scores = [
-        c.season_score for st in BENCH_SLOT_TYPES
-        if (c := cards_by_slot.get(st)) is not None and c.season_score is not None
+        c.season_score if c.season_score is not None else provisional_unscored_impact(c)
+        for st in BENCH_SLOT_TYPES
+        if (c := cards_by_slot.get(st)) is not None
     ]
     if not starter_scores and not bench_scores:
         return None
@@ -719,11 +733,14 @@ def _provisional_expected_wins(state: CourtLineupState) -> Optional[float]:
         fit_points.append(_FIT_POINTS.get(classify_fit_from_position(card.position, slot_type, card.player_slug), 0.0))
     positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points))) if fit_points else 50.0
 
+    # Phase 8K: same provisional-percentile fallback as compute_exact_fit_
+    # components -- an unscored placed card contributes a conservative
+    # estimate here too, rather than vanishing from the average.
     def _avg_percentile(column: str) -> float:
-        values = [
-            p for c in cards_by_slot.values()
-            if (p := component_percentile(c.player_slug, c.team_id, c.season, column)) is not None
-        ]
+        values = []
+        for c in cards_by_slot.values():
+            p = component_percentile(c.player_slug, c.team_id, c.season, column) if c.season_score is not None else None
+            values.append(p if p is not None else provisional_unscored_percentile(c))
         return (sum(values) / len(values)) if values else 50.0
 
     creation_coverage = _avg_percentile("contrib_statistical_impact")

@@ -3347,3 +3347,229 @@ def test_no_image_binaries_committed_in_assets_directory():
     binary_extensions = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico"}
     offenders = [p for p in assets_dir.iterdir() if p.suffix.lower() in binary_extensions]
     assert offenders == [], f"image binaries found in data/game/assets/: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 8K: unscored / low-minute / roster-only cards must honestly drag the
+# PROJECTED RECORD instead of being excluded from talent_core/bench_strength
+# (and the creation/scoring/postseason/team-context coverage components) as
+# if they didn't exist. Root cause of the reported trust bug: an unscored
+# card contributed neither positive nor negative weight to any of the
+# lineup-fit components, so a real 6-game, 0-start roster-only season (Chuck
+# Nevitt 1982-83 HOU) was mathematically indistinguishable from an empty
+# slot. See simulation.py's provisional_unscored_impact/
+# provisional_unscored_percentile and the module comment above them for the
+# full tiering rationale. The official PEAK3 Lineup Score is NEVER affected
+# by any of this -- it stays "incomplete" exactly as before whenever any
+# placed card lacks an official score.
+# ---------------------------------------------------------------------------
+
+from nba_peak.perfect_season.simulation import (  # noqa: E402
+    _provisional_impact_tier,
+    provisional_unscored_impact,
+    provisional_unscored_percentile,
+)
+
+# The exact reported bug lineup: Lillard/Carter/Kyrie/White/Cooper are real
+# scored cards; Jalen Smith (29 games, 13.2 mpg, roster-only-unscored),
+# Chuck Nevitt (6 games, 0 starts, 10.7 mpg -- a real but token roster
+# appearance), and Kemba Walker (37 games, 25.6 mpg, real rotation minutes
+# but below the model's scoring threshold, AND a severe PG-at-C mismatch)
+# are all unscored. The old exclusion-based average let this read as a
+# fringe-playoff ~39-42 win team.
+UNSCORED_TRUST_BUG_LINEUP = [
+    ("damian-lillard", "POR", "2013-14"),   # PG, scored 54.5
+    ("jalen-smith", "PHO", "2021-22"),      # SG, unscored, low-minute
+    ("vince-carter", "TOR", "2002-03"),     # SF, scored 46.4
+    ("chuck-nevitt", "HOU", "1982-83"),     # PF, unscored, tiny-sample
+    ("kemba-walker", "NYK", "2021-22"),     # C, unscored, meaningful rotation + severe mismatch
+    ("kyrie-irving", "CLE", "2013-14"),     # bench, scored 49.0
+    ("derrick-white", "BOS", "2025-26"),    # bench, scored 45.5
+    ("wayne-cooper", "UTA", "1980-81"),     # bench, scored 15.8
+]
+
+
+def test_unscored_trust_bug_lineup_no_longer_reads_as_fringe_playoff():
+    """The exact reported bug: with 3 of 8 cards unscored (one of them a
+    genuine 6-game/0-start roster-only season, one a severe position
+    mismatch), the projected record must land meaningfully below the old
+    ~39-42 fringe-playoff range -- lottery-team territory, not catastrophe
+    (the roster does have three real, decently-scored contributors)."""
+    cards = _resolve_lineup(UNSCORED_TRUST_BUG_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins <= 32, f"expected a lottery-range record well below the old fringe-playoff result, got {result.wins}"
+    assert result.wins >= 10, f"a roster with three real ~45-55 scored contributors should not be catastrophe-tier, got {result.wins}"
+
+
+def test_unscored_trust_bug_lineup_official_score_stays_incomplete():
+    """Requirement: the official PEAK3 Lineup Score must never be fabricated
+    -- it stays 0.0/incomplete regardless of how the projected record
+    changes, exactly like before this fix."""
+    cards = _resolve_lineup(UNSCORED_TRUST_BUG_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.lineup_peak_score == 0.0
+
+
+def test_unscored_trust_bug_explanation_names_tiny_sample_and_mismatch():
+    """The result explanation must mention BOTH the provisional-impact
+    limitation and, specifically, Chuck Nevitt's tiny real sample and
+    Kemba Walker's severe position mismatch -- not just a generic 'score
+    incomplete' notice that reads as if those cards were ignored."""
+    cards = _resolve_lineup(UNSCORED_TRUST_BUG_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.structural_weakness_detail is not None
+    assert "provisional impact" in result.structural_weakness_detail
+    assert "Chuck Nevitt" in result.structural_weakness_detail
+    assert "6-game" in result.structural_weakness_detail
+    assert "roster-only depth" in result.structural_weakness_detail
+    assert "Kemba Walker" in result.structural_weakness_detail
+    assert "structural mismatch" in result.structural_weakness_detail
+
+
+def test_chuck_nevitt_is_near_replacement_tier_kemba_walker_is_not():
+    """Requirement: tiers must be graded by real sample size, not a flat
+    'unscored = zero' rule. Chuck Nevitt's real 1982-83 HOU season (6
+    games, 0 starts) is near-replacement; Kemba Walker's 2021-22 NYK season
+    (37 games, 25.6 mpg) is a real, if unscored, rotation player and must
+    NOT be auto-zeroed to the same tier."""
+    nevitt = resolve_player_season_card("chuck-nevitt", "HOU", "1982-83")
+    kemba = resolve_player_season_card("kemba-walker", "NYK", "2021-22")
+    assert nevitt.season_score is None and kemba.season_score is None
+    assert _provisional_impact_tier(nevitt) == "near_replacement"
+    assert _provisional_impact_tier(kemba) == "meaningful_rotation"
+    assert provisional_unscored_impact(nevitt) < 10.0
+    assert provisional_unscored_impact(kemba) > provisional_unscored_impact(nevitt)
+    assert provisional_unscored_impact(kemba) > 0.0, "a real rotation player must never be auto-zeroed"
+    assert provisional_unscored_percentile(kemba) > provisional_unscored_percentile(nevitt)
+
+
+def test_jalen_smith_is_low_minute_tier_not_near_replacement_or_meaningful():
+    """A real, if unscored, low-minute bench role (29 games, 13.2 mpg)
+    should sit strictly between the near-replacement and meaningful-
+    rotation tiers -- neither auto-zeroed nor treated as a real rotation
+    player."""
+    jalen_smith = resolve_player_season_card("jalen-smith", "PHO", "2021-22")
+    assert jalen_smith.season_score is None
+    assert _provisional_impact_tier(jalen_smith) == "low_minute"
+    assert 0.0 < provisional_unscored_impact(jalen_smith) < provisional_unscored_impact(
+        resolve_player_season_card("kemba-walker", "NYK", "2021-22")
+    )
+
+
+# Shared 5-card "tail" (PF/C starters + full bench) used to isolate the
+# starter-vs-bench placement effect for the SAME unscored tiny-sample card
+# (Chuck Nevitt) -- only the C/bench_1 assignment differs between the two
+# fixtures below, so any wins difference is attributable to placement
+# weight (starters count 0.8 toward talent_core via the peak-weighted
+# average; bench counts 0.2 via a flat average), not to anything else
+# changing about the roster.
+_NEVITT_PLACEMENT_PG = ("kevin-johnson", "PHO", "1988-89")
+_NEVITT_PLACEMENT_SG = ("john-stockton", "UTA", "1988-89")
+_NEVITT_PLACEMENT_SF = ("rasheed-wallace", "POR", "2000-01")
+_NEVITT_PLACEMENT_PF = ("walter-davis", "PHO", "1986-87")
+_NEVITT_PLACEMENT_C_ALT = ("joel-embiid", "PHI", "2022-23")  # real C, swaps with Nevitt
+_NEVITT_PLACEMENT_BENCH_23 = [("hakeem-olajuwon", "HOU", "1993-94"), ("shaquille-o-neal", "LAL", "1999-00")]
+
+NEVITT_AS_STARTER_LINEUP = [
+    _NEVITT_PLACEMENT_PG, _NEVITT_PLACEMENT_SG, _NEVITT_PLACEMENT_SF, _NEVITT_PLACEMENT_PF,
+    ("chuck-nevitt", "HOU", "1982-83"),  # C starter
+    _NEVITT_PLACEMENT_C_ALT,  # bench_1
+    *_NEVITT_PLACEMENT_BENCH_23,
+]
+NEVITT_AS_BENCH_LINEUP = [
+    _NEVITT_PLACEMENT_PG, _NEVITT_PLACEMENT_SG, _NEVITT_PLACEMENT_SF, _NEVITT_PLACEMENT_PF,
+    _NEVITT_PLACEMENT_C_ALT,  # C starter (real center, same primary-position fit bonus as Nevitt would get)
+    ("chuck-nevitt", "HOU", "1982-83"),  # bench_1
+    *_NEVITT_PLACEMENT_BENCH_23,
+]
+
+
+def test_tiny_sample_no_score_starter_hurts_more_than_the_same_card_on_bench():
+    """Requirement: the SAME no-score tiny-sample card must hurt the
+    projected record more as a starter than on the bench -- starters carry
+    0.8 weight toward talent_core (with the weakest starter still getting a
+    real, nonzero share via the peak-weighted average) vs bench's flat 0.2
+    average, so a near-replacement provisional value should be a bigger
+    drag when it's a starter."""
+    starter_cards = _resolve_lineup(NEVITT_AS_STARTER_LINEUP)
+    bench_cards = _resolve_lineup(NEVITT_AS_BENCH_LINEUP)
+    starter_fit = compute_exact_fit_components(starter_cards, SLOT_TYPES)
+    bench_fit = compute_exact_fit_components(bench_cards, SLOT_TYPES)
+    # Positional fit is identical in both fixtures (Embiid and Nevitt are
+    # both real centers, so whichever one starts at C gets the same
+    # primary-position bonus) -- isolating the difference to talent_core.
+    assert starter_fit.positional_fit == bench_fit.positional_fit
+    assert starter_fit.talent_core < bench_fit.talent_core
+
+    starter_result = simulate_exact_season(starter_cards, board_seed=1, slot_types=SLOT_TYPES)
+    bench_result = simulate_exact_season(bench_cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert starter_result.wins < bench_result.wins, (
+        f"expected Nevitt-as-starter ({starter_result.wins}) to hurt more than "
+        f"Nevitt-as-bench ({bench_result.wins})"
+    )
+
+
+# Requirement: multiple no-score starters must compound to a materially
+# worse projection than the SAME roster with equivalently-bad but SCORED
+# starters in their place -- an unscored tiny-sample trio should never look
+# better than a real, officially-scored replacement-level trio.
+_MULTI_UNSCORED_TAIL = [
+    ("rasheed-wallace", "POR", "2000-01"),
+    ("walter-davis", "PHO", "1986-87"),
+    ("pau-gasol", "MEM", "2005-06"),
+    ("hakeem-olajuwon", "HOU", "1993-94"),
+    ("shaquille-o-neal", "LAL", "1999-00"),
+]
+THREE_UNSCORED_STARTERS_LINEUP = [
+    ("tony-zeno", "IND", "1979-80"),      # 8 games, 0 starts -- unscored
+    ("corky-calhoun", "IND", "1979-80"),  # 7 games, 0 starts -- unscored
+    ("kevin-stacom", "MIL", "1981-82"),   # 7 games, 0 starts -- unscored
+    *_MULTI_UNSCORED_TAIL,
+]
+THREE_SCORED_REPLACEMENT_STARTERS_LINEUP = [
+    ("armond-hill", "ATL", "1979-80"),    # real, scored ~20
+    ("jo-jo-white", "GSW", "1979-80"),    # real, scored ~18
+    ("henry-bibby", "PHI", "1979-80"),    # real, scored ~19
+    *_MULTI_UNSCORED_TAIL,
+]
+
+
+def test_multiple_unscored_starters_project_lower_than_scored_replacement_starters():
+    cards_unscored = _resolve_lineup(THREE_UNSCORED_STARTERS_LINEUP)
+    cards_scored = _resolve_lineup(THREE_SCORED_REPLACEMENT_STARTERS_LINEUP)
+    assert all(c.score_status == "exact_season_unscored" for c in cards_unscored[:3])
+    assert all(c.score_status == "exact_season_scored" for c in cards_scored[:3])
+
+    result_unscored = simulate_exact_season(cards_unscored, board_seed=1, slot_types=SLOT_TYPES)
+    result_scored = simulate_exact_season(cards_scored, board_seed=1, slot_types=SLOT_TYPES)
+    assert result_unscored.wins < result_scored.wins, (
+        f"expected 3 unscored tiny-sample starters ({result_unscored.wins} wins) to project lower than "
+        f"3 real scored replacement-level starters ({result_scored.wins} wins)"
+    )
+
+
+def test_elite_ceiling_fixture_unaffected_by_provisional_impact_change():
+    """Regression: the all-time-ceiling fixture has zero unscored cards, so
+    provisional_unscored_impact never applies -- it must still hit 82-0."""
+    cards = _resolve_lineup(ALL_TIME_CEILING_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins == 82
+    assert result.is_perfect_season is True
+
+
+def test_disaster_fixtures_still_catastrophe_tier_after_provisional_impact_change():
+    """Regression: DISASTER_LINEUP/INCOMPLETE_DISASTER_LINEUP already mix
+    scored and unscored cards -- the provisional-impact change must not
+    weaken the catastrophe floor for these real historically-bad rosters."""
+    disaster_cards = _resolve_lineup(DISASTER_LINEUP)
+    disaster_fit = compute_exact_fit_components(disaster_cards, SLOT_TYPES)
+    assert _is_catastrophe_roster(disaster_cards, disaster_fit) is True
+    disaster_result = simulate_exact_season(disaster_cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert disaster_result.wins <= 12
+
+    incomplete_cards = _resolve_lineup(INCOMPLETE_DISASTER_LINEUP)
+    incomplete_fit = compute_exact_fit_components(incomplete_cards, SLOT_TYPES)
+    assert _is_catastrophe_roster(incomplete_cards, incomplete_fit) is True
+    incomplete_result = simulate_exact_season(incomplete_cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert incomplete_result.wins <= 12
+    assert incomplete_result.lineup_peak_score == 0.0

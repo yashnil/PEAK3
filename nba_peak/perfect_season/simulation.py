@@ -378,8 +378,144 @@ EXACT_SEASON_SIMULATOR_NOTICE = (
     "PEAK3 score -- never a career-peak substitute. If any selected card's "
     "exact-season score is unavailable (below the model's minutes threshold "
     "for that season), the PEAK3 Lineup Score is reported as unavailable "
-    "rather than approximated."
+    "rather than approximated. The projected record, however, still accounts "
+    "for that card using a conservative provisional impact based on its real "
+    "games/minutes sample -- never a neutral placeholder."
 )
+
+# ---------------------------------------------------------------------------
+# Phase 8K: provisional simulation impact for unscored exact-season cards.
+#
+# Root cause fixed here: compute_exact_fit_components used to build
+# talent_core/bench_strength from ONLY the cards with a real season_score --
+# an unscored card (score_status == "exact_season_unscored") simply dropped
+# out of the average entirely, contributing neither positive nor negative
+# weight. That is silent neutrality, not honesty: a 6-game, 0-start roster-
+# only card (Chuck Nevitt 1982-83 HOU) was mathematically indistinguishable
+# from "this slot doesn't exist" -- it never dragged talent_core down at all,
+# so a lineup with 3 real starters missing an official score could still
+# read as a fringe-playoff team even though nearly half the starting five
+# has no demonstrated real NBA-caliber production this season.
+#
+# Fix: every unscored card still gets a PROVISIONAL impact value (0-100,
+# same scale as season_score) derived from the real sample-size context PEAK3
+# already has for that card -- games_played, minutes_per_game, games_started
+# -- never a fabricated official score, and never used for lineup_peak_score
+# or anything the UI presents as "the PEAK3 score". It exists ONLY to keep
+# the projected win total honest. `score_status` stays exactly what it was
+# ("exact_season_unscored") and the UI's "Score incomplete" messaging is
+# untouched -- this only changes what the SIMULATION does with the card.
+#
+# Tiers, from real sample size (never from era, team, or any score-adjacent
+# signal -- the whole point is these cards have NO real score to lean on):
+#   near_replacement    -- tiny games-played sample (<15 games) or very low
+#                           minutes (<12 mpg), OR a token 0-start appearance
+#                           in under 10 games. A real NBA roster spot, but
+#                           one that never showed rotation-level production.
+#                           (Chuck Nevitt 1982-83: 6 games, 0 starts, 10.7
+#                           mpg -- exactly this case.)
+#   low_minute          -- a real bench/rotation-fringe sample (>=15 games)
+#                           but under 20 mpg. (Jalen Smith 2021-22 PHO: 29
+#                           games, 13.2 mpg.)
+#   meaningful_rotation -- >=20 mpg across a real sample. A genuine rotation
+#                           player who happens to be unscored this season
+#                           (below the model's minutes threshold in
+#                           aggregate, a data-coverage gap, not a talent
+#                           judgment) -- conservative, but never near-zero.
+#                           (Kemba Walker 2021-22 NYK: 37 games, 25.6 mpg.)
+#   unknown_sample      -- games_played/minutes_per_game themselves are
+#                           unavailable (should not occur for a resolvable
+#                           card, but stays defensive). A flat, conservative
+#                           mid-low value -- never assumed replacement-level
+#                           on literally no information.
+# ---------------------------------------------------------------------------
+
+_PROVISIONAL_TINY_SAMPLE_GAMES = 15.0
+_PROVISIONAL_TINY_SAMPLE_MPG = 12.0
+_PROVISIONAL_ZERO_START_TINY_GAMES = 10.0
+_PROVISIONAL_LOW_MINUTE_MPG = 20.0
+
+_PROVISIONAL_NEAR_REPLACEMENT_IMPACT = 6.0
+_PROVISIONAL_LOW_MINUTE_IMPACT = 16.0
+_PROVISIONAL_MEANINGFUL_ROTATION_IMPACT = 30.0
+_PROVISIONAL_UNKNOWN_SAMPLE_IMPACT = 22.0
+
+
+def _provisional_impact_tier(card: PlayerSeasonCard) -> str:
+    """Which provisional-impact tier an unscored card falls into -- see the
+    module comment above for the full rationale. Callers should only call
+    this for a card whose season_score is already None; harmless (but
+    meaningless) to call otherwise."""
+    gp = card.games_played
+    mpg = card.minutes_per_game
+    if gp is None or mpg is None:
+        return "unknown_sample"
+    zero_start_tiny = card.games_started == 0 and gp < _PROVISIONAL_ZERO_START_TINY_GAMES
+    if zero_start_tiny or gp < _PROVISIONAL_TINY_SAMPLE_GAMES or mpg < _PROVISIONAL_TINY_SAMPLE_MPG:
+        return "near_replacement"
+    if mpg < _PROVISIONAL_LOW_MINUTE_MPG:
+        return "low_minute"
+    return "meaningful_rotation"
+
+
+_PROVISIONAL_TIER_IMPACT = {
+    "near_replacement": _PROVISIONAL_NEAR_REPLACEMENT_IMPACT,
+    "low_minute": _PROVISIONAL_LOW_MINUTE_IMPACT,
+    "meaningful_rotation": _PROVISIONAL_MEANINGFUL_ROTATION_IMPACT,
+    "unknown_sample": _PROVISIONAL_UNKNOWN_SAMPLE_IMPACT,
+}
+
+
+def provisional_unscored_impact(card: PlayerSeasonCard) -> float:
+    """Conservative 0-100 PROVISIONAL simulation impact for a card with no
+    official PEAK3 score -- never the official score itself, never surfaced
+    as `season_score`/`lineup_peak_score`, used only inside the win-
+    projection math below (talent_core/bench_strength) so an unscored card
+    behaves like the real, if modest, roster-only or low-minute NBA season
+    it actually is instead of silently dropping out of the average."""
+    return _PROVISIONAL_TIER_IMPACT[_provisional_impact_tier(card)]
+
+
+def _simulation_impact_scores(group: list[PlayerSeasonCard]) -> list[float]:
+    """Like the old `_scored_scores` this replaces, but every card
+    contributes -- a real season_score if one exists, else a conservative
+    provisional_unscored_impact() derived from that card's own real games/
+    minutes sample. Never silently excludes an unscored card from the
+    average (see the Phase 8K module comment above for why that was the
+    root cause of unscored/low-minute cards reading as neutral rather than
+    the real drag they are)."""
+    return [c.season_score if c.season_score is not None else provisional_unscored_impact(c) for c in group]
+
+
+# Same tiers as _PROVISIONAL_TIER_IMPACT, translated to a 0-100 PERCENTILE
+# (creation_coverage/scoring_coverage/postseason_pedigree/team_context_depth
+# are percentile ranks, not raw scores -- see component_percentile). Without
+# this, component_percentile() returns None for every unscored card and
+# _avg_percentile below would exclude it exactly the same way talent_core
+# used to -- verified empirically to matter: a lineup with 3 real, badly-
+# scored starters (each with a genuinely low creation/scoring percentile)
+# could otherwise look BETTER on these components than a lineup with 3
+# unscored tiny-sample starters, since the scored-but-bad players' real low
+# percentiles get averaged in while the unscored ones simply vanished from
+# the average. That's backwards -- an unscored tiny-sample card has no
+# demonstrated creation/scoring/postseason value either, and should never
+# get a free pass on these components just because it lacks a score.
+_PROVISIONAL_TIER_PERCENTILE = {
+    "near_replacement": 8.0,
+    "low_minute": 22.0,
+    "meaningful_rotation": 38.0,
+    "unknown_sample": 28.0,
+}
+
+
+def provisional_unscored_percentile(card: PlayerSeasonCard) -> float:
+    """Conservative 0-100 provisional PERCENTILE for an unscored card's
+    creation/scoring/postseason/team-context contribution -- same tiering
+    as provisional_unscored_impact, expressed on the percentile scale
+    component_percentile() itself uses. Never the real percentile (which
+    doesn't exist for an unscored card), never fabricated as though it
+    were measured -- purely a conservative simulation-only stand-in."""
+    return _PROVISIONAL_TIER_PERCENTILE[_provisional_impact_tier(card)]
 
 
 def compute_exact_fit_components(cards: list[PlayerSeasonCard], slot_types: list[str]) -> LineupFitComponents:
@@ -389,20 +525,25 @@ def compute_exact_fit_components(cards: list[PlayerSeasonCard], slot_types: list
     starters = cards[:STARTER_SLOTS]
     bench = cards[STARTER_SLOTS:]
 
-    def _scored_scores(group: list[PlayerSeasonCard]) -> list[float]:
-        return [c.season_score for c in group if c.season_score is not None]
-
-    starter_scores = _scored_scores(starters)
-    bench_scores = _scored_scores(bench)
+    # Phase 8K: every starter/bench card contributes to talent_core/
+    # bench_strength -- an unscored card is never silently excluded, it
+    # gets a conservative provisional impact instead (see
+    # _simulation_impact_scores/provisional_unscored_impact above).
+    starter_scores = _simulation_impact_scores(starters)
+    bench_scores = _simulation_impact_scores(bench)
     starter_talent = _weighted_starter_talent(starter_scores)
     talent_core = (starter_talent * 0.8 + _avg(bench_scores) * 0.2) if bench_scores else starter_talent
     bench_strength = _avg(bench_scores)
 
+    # Phase 8K: an unscored card contributes a conservative provisional
+    # percentile here too -- see provisional_unscored_percentile above --
+    # instead of vanishing from the average the way a real, if badly-
+    # scored, card never does.
     def _avg_percentile(column: str) -> float:
-        values = [
-            p for c in cards
-            if (p := component_percentile(c.player_slug, c.team_id, c.season, column)) is not None
-        ]
+        values = []
+        for c in cards:
+            p = component_percentile(c.player_slug, c.team_id, c.season, column) if c.season_score is not None else None
+            values.append(p if p is not None else provisional_unscored_percentile(c))
         return _avg(values)
 
     creation_coverage = _avg_percentile("contrib_statistical_impact")
@@ -668,7 +809,37 @@ def _structural_weakness_exact(
 
     unscored = [c for c in cards if c.score_status != "exact_season_scored"]
     if len(unscored) >= 2:
-        return f"{len(unscored)} cards with no PEAK3 score yet -- lineup score is incomplete", None
+        detail_parts = [
+            "Projected record uses conservative provisional impact for unscored cards, based on each "
+            "card's real games/minutes sample -- it is not ignored and not treated as a neutral value."
+        ]
+        # Phase 8K: name any unscored STARTER whose real sample is so small
+        # (tiny games-played/minutes, or a token 0-start appearance) that it
+        # reads as roster-only depth rather than a real rotation player --
+        # e.g. Chuck Nevitt's 6-game, 0-start 1982-83 HOU season. Bench-only
+        # tiny-sample cards are already covered by the general sentence
+        # above; a tiny-sample STARTER is the specific, surprising case
+        # worth calling out by name. Also names a SEVERE position mismatch
+        # among the starters here (even a scored one) -- an unscored-card
+        # data gap and a structural position mismatch are independent real
+        # problems that can both apply to the same roster (Kemba Walker at
+        # C: a real-but-mediocre exact season AND a severe position
+        # mismatch), and both deserve to surface, not just whichever one
+        # this cascade's own priority order would otherwise pick alone.
+        for card, slot in zip(starters, starter_slot_types):
+            if card.score_status != "exact_season_scored" and _provisional_impact_tier(card) == "near_replacement":
+                sample_note = f"{int(card.games_played)}-game" if card.games_played is not None else "tiny-sample"
+                detail_parts.append(
+                    f"{card.player_name}'s {sample_note} season is treated as roster-only depth, "
+                    "not a rotation-level starter."
+                )
+            real_primary, _ = parse_real_position(card.position)
+            if (
+                classify_fit_from_position(card.position, slot, card.player_slug) == "off_position"
+                and position_fit_severity(slot, real_primary) == "severe"
+            ):
+                detail_parts.append(f"{card.player_name} at {slot} creates a major structural mismatch.")
+        return f"{len(unscored)} cards with no PEAK3 score yet -- lineup score is incomplete", " ".join(detail_parts)
 
     # (player_name, slot, real_primary_position, severity)
     off_position: list[tuple[str, str, str | None, str]] = []

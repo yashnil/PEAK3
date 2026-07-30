@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Lock } from "lucide-react";
 import { CurrentSpin, ERA_LABELS } from "@/types/perfect-season";
@@ -95,9 +95,65 @@ const REDUCED_MOTION_REVEAL_MS = 40;
 const RESPIN_REROLL_MS = 1200;
 const RESPIN_RAMP_TO_SLOW_MS = Math.round(RESPIN_REROLL_MS * 0.55);
 
+// Phase 8J: fixed number of ticks the reel travels from start to landing,
+// for the initial spin and for a respin respectively. Chosen to sit safely
+// UNDER the number of ticks that naturally fire within SPIN_MS/
+// RESPIN_REROLL_MS at the fast/medium/slow cadence above (roughly 15 ticks
+// fire in a ~2000ms initial spin; roughly 10 fire in a ~1200ms respin) --
+// so in the overwhelming common case the reel reaches its target through
+// ordinary ticking, with 1-2 ticks of margin to spare, rather than relying
+// on the safety-net snap (see the ceremony effects below) to cover for
+// normal timer variance.
+const INITIAL_SPIN_TRAVEL_TICKS = 13;
+const RESPIN_TRAVEL_TICKS = 8;
+
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * Phase 8J: the deterministic reel target -- root-cause fix for "the reel
+ * visually showed 2016-17, then the result became 1999-00". The OLD
+ * ticking model just incremented a counter forever (`t => t + 1`, no
+ * destination) while a completely separate `phase === "revealed"` branch
+ * swapped in the real `spin.franchise_display_name`/`era_label` once the
+ * ceremony's fixed timers ran out -- the ticking reel and the final result
+ * were never the same computation, so nothing guaranteed they'd agree.
+ *
+ * This computes a target position for the ticking counter such that
+ * `targetCumulative % pool.length === indexOf(target in pool)` EXACTLY --
+ * i.e. the tick counter's own value, once it reaches targetCumulative, maps
+ * to the real backend-selected string by construction, not by coincidence.
+ * It always travels exactly `travelTicks` positions from start to target
+ * (regardless of pool size or where the target falls in it), so the
+ * ceremony's total duration stays fixed while still scrolling through
+ * `travelTicks` distinct real pool entries before landing.
+ *
+ * If `target` isn't found in `pool` (should not normally happen -- the
+ * readiness endpoint's pools are the true resolvable sets), the real target
+ * is appended to a local copy of the pool rather than ever letting the reel
+ * converge on a different, wrong value.
+ */
+function computeReelTarget(
+  pool: readonly string[],
+  target: string,
+  travelTicks: number,
+): { pool: readonly string[]; startCumulative: number; targetCumulative: number } {
+  let effectivePool: readonly string[] = pool;
+  let finalIndex = pool.indexOf(target);
+  if (finalIndex === -1) {
+    effectivePool = [...pool, target];
+    finalIndex = effectivePool.length - 1;
+  }
+  const poolLength = effectivePool.length;
+  if (poolLength <= 0) {
+    return { pool: effectivePool, startCumulative: 0, targetCumulative: 0 };
+  }
+  const laps = Math.ceil((travelTicks + 1) / poolLength);
+  const targetCumulative = finalIndex + poolLength * laps;
+  const startCumulative = targetCumulative - travelTicks;
+  return { pool: effectivePool, startCumulative, targetCumulative };
 }
 
 /** A small horizontal strip of pool items centered on the current tick --
@@ -133,6 +189,7 @@ function ReelStrip({
   rampStage,
   reduceMotion,
   logoUrls,
+  centerTestId,
 }: {
   items: readonly string[];
   activeIndex: number;
@@ -141,6 +198,12 @@ function ReelStrip({
   /** Phase 8I: team name -> logo URL, team reel only -- the season/era reel
    * simply never passes this, so it renders text-only exactly as before. */
   logoUrls?: Record<string, string>;
+  /** Phase 8J: stable test id + data-final-value on the CENTER (payline)
+   * row only -- lets a test assert "whatever the reel is actually showing
+   * under the payline right now" without depending on animation timing or
+   * screenshots, and compare it directly against data-selected-team/
+   * data-selected-season on the wheel container (see SpinStage below). */
+  centerTestId?: string;
 }) {
   const windowSize = 5;
   const center = Math.floor(windowSize / 2);
@@ -168,6 +231,8 @@ function ReelStrip({
               transition={{ duration: reduceMotion ? 0 : tickDuration, ease: "easeOut" }}
               className={`spin-reel-strip-row ${isActive ? "spin-reel-strip-active" : "spin-reel-strip-item"}`}
               style={{ transform: reduceMotion ? undefined : `scale(${1 - distance * 0.14})` }}
+              data-testid={isActive ? centerTestId : undefined}
+              data-final-value={isActive ? label : undefined}
             >
               {colors && (
                 <span className="spin-reel-strip-logo-wrap" aria-hidden="true">
@@ -296,6 +361,18 @@ export default function SpinStage({
     : ERA_LABELS;
   const secondWheelLabel = isTeamYear ? "Season" : "Era";
 
+  // Phase 8J: the ACTUAL pool each ReelStrip renders from -- normally
+  // identical to teamPool/secondPool above, but computeReelTarget appends
+  // the real backend value if it was somehow missing from the readiness
+  // pool, so the reel is guaranteed to render from whatever pool its
+  // target index was actually computed against. Refs (not state) because
+  // they're only ever written at the start of a ceremony/respin effect,
+  // before any tick fires -- no render needs to be triggered by the write
+  // itself, only by the tick state updates that follow it.
+  const teamReelPoolRef = useRef<readonly string[]>(teamPool);
+  const secondReelPoolRef = useRef<readonly string[]>(secondPool);
+  const respinReelPoolRef = useRef<readonly string[]>([]);
+
   useEffect(() => {
     if (prefersReducedMotion()) {
       setPhase("locked");
@@ -315,25 +392,43 @@ export default function SpinStage({
     let slowInterval: number | undefined;
     let rampToMediumTimer: number | undefined;
     let rampToSlowTimer: number | undefined;
+    // Phase 8J: deterministic targets -- computed ONCE here, before any
+    // tick fires, from the real backend-selected spin.franchise_display_
+    // name/era_label. Every tick below clamps toward these exact values
+    // (never an unbounded counter), so the reel can only ever converge on
+    // the same result the parent will display once phase leaves
+    // "spinning" -- root-cause fix for the reel showing one team/season and
+    // the result becoming a different one.
+    let teamTarget = 0;
+    let secondTarget = 0;
     if (isTwoWheel) {
+      const teamGoal = computeReelTarget(teamPool, spin.franchise_display_name ?? "", INITIAL_SPIN_TRAVEL_TICKS);
+      const secondGoal = computeReelTarget(secondPool, spin.era_label ?? "", INITIAL_SPIN_TRAVEL_TICKS);
+      teamReelPoolRef.current = teamGoal.pool;
+      secondReelPoolRef.current = secondGoal.pool;
+      teamTarget = teamGoal.targetCumulative;
+      secondTarget = secondGoal.targetCumulative;
+      setTeamTick(teamGoal.startCumulative);
+      setSecondTick(secondGoal.startCumulative);
+
       fastInterval = window.setInterval(() => {
-        setTeamTick((t) => t + 1);
-        setSecondTick((t) => t + 1);
+        setTeamTick((t) => Math.min(t + 1, teamTarget));
+        setSecondTick((t) => Math.min(t + 1, secondTarget));
       }, FAST_TICK_MS);
       rampToMediumTimer = window.setTimeout(() => {
         if (fastInterval) window.clearInterval(fastInterval);
         setRampStage("medium");
         mediumInterval = window.setInterval(() => {
-          setTeamTick((t) => t + 1);
-          setSecondTick((t) => t + 1);
+          setTeamTick((t) => Math.min(t + 1, teamTarget));
+          setSecondTick((t) => Math.min(t + 1, secondTarget));
         }, MEDIUM_TICK_MS);
       }, RAMP_TO_MEDIUM_MS);
       rampToSlowTimer = window.setTimeout(() => {
         if (mediumInterval) window.clearInterval(mediumInterval);
         setRampStage("slow");
         slowInterval = window.setInterval(() => {
-          setTeamTick((t) => t + 1);
-          setSecondTick((t) => t + 1);
+          setTeamTick((t) => Math.min(t + 1, teamTarget));
+          setSecondTick((t) => Math.min(t + 1, secondTarget));
         }, SLOW_TICK_MS);
       }, RAMP_TO_SLOW_MS);
     }
@@ -341,6 +436,15 @@ export default function SpinStage({
       if (fastInterval) window.clearInterval(fastInterval);
       if (mediumInterval) window.clearInterval(mediumInterval);
       if (slowInterval) window.clearInterval(slowInterval);
+      // Safety net only -- natural ticking is scheduled with margin to
+      // spare (see INITIAL_SPIN_TRAVEL_TICKS's own comment) so this should
+      // normally be a no-op, but it guarantees the reel can NEVER settle
+      // into "locked" short of (or past) the real target, regardless of
+      // real browser timer jitter.
+      if (isTwoWheel) {
+        setTeamTick(teamTarget);
+        setSecondTick(secondTarget);
+      }
       setPhase("locked");
       setWasLocked(true);
     }, SPIN_MS);
@@ -376,8 +480,21 @@ export default function SpinStage({
     }
     setRespinning(true);
     setRespinRampStage("fast");
+
+    // Phase 8J: same deterministic-target model as the main ceremony
+    // effect. Only ONE axis ever ticks during a respin (the other renders
+    // its already-settled value, never mounting ReelStrip at all -- see
+    // teamIsTicking/seasonIsTicking below) so this only needs to resolve
+    // whichever pool/target respinKind currently points at.
+    const respinPool = respinKind === "team" ? teamPool : secondPool;
+    const respinTargetValue = respinKind === "team" ? (spin.franchise_display_name ?? "") : (spin.era_label ?? "");
+    const goal = computeReelTarget(respinPool, respinTargetValue, RESPIN_TRAVEL_TICKS);
+    respinReelPoolRef.current = goal.pool;
+    const respinTarget = goal.targetCumulative;
+    setRespinTick(goal.startCumulative);
+
     let fastInterval: number | undefined = window.setInterval(() => {
-      setRespinTick((t) => t + 1);
+      setRespinTick((t) => Math.min(t + 1, respinTarget));
     }, FAST_TICK_MS);
     let slowInterval: number | undefined;
     const rampTimer = window.setTimeout(() => {
@@ -385,12 +502,14 @@ export default function SpinStage({
       fastInterval = undefined;
       setRespinRampStage("slow");
       slowInterval = window.setInterval(() => {
-        setRespinTick((t) => t + 1);
+        setRespinTick((t) => Math.min(t + 1, respinTarget));
       }, SLOW_TICK_MS);
     }, RESPIN_RAMP_TO_SLOW_MS);
     const t1 = window.setTimeout(() => {
       if (fastInterval) window.clearInterval(fastInterval);
       if (slowInterval) window.clearInterval(slowInterval);
+      // Safety net, same reasoning as the main ceremony effect above.
+      setRespinTick(respinTarget);
       setRespinning(false);
     }, RESPIN_REROLL_MS);
     const t2 = window.setTimeout(() => setJustRespun(false), RESPIN_REROLL_MS + 100);
@@ -401,6 +520,12 @@ export default function SpinStage({
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
+    // Fires once per real respin only, keyed on respinFlashKey -- reads
+    // respinKind/teamPool/secondPool/spin from the render that scheduled
+    // this effect (already the NEW post-respin values, since CourtBuilder.
+    // tsx's respin handlers call setState+setRespinKind+setRespinFlashKey
+    // together before this effect can re-run), not stale ones.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [respinFlashKey]);
 
   // Phase 8C: per-wheel ticking/locked state, replacing the single
@@ -562,6 +687,11 @@ export default function SpinStage({
             data-testid="team-wheel"
             data-respinning={justRespun}
             data-locked={teamIsLocked}
+            // Phase 8J: the real backend-selected value for this axis --
+            // source of truth a test compares the reel's centered/settled
+            // display against (see spin-team-reel-center's data-final-value
+            // above/below).
+            data-selected-team={spin.franchise_display_name ?? ""}
             className={`spin-wheel-box spin-reel-streak-bg rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 text-center ${phase === "locked" || (justRespun && !teamIsLocked) ? "spin-ceremony-lock-flash" : ""}`}
             data-phase={respinning ? (teamIsTicking ? "spinning" : "revealed") : phase}
             style={{
@@ -626,10 +756,19 @@ export default function SpinStage({
                 Team
               </div>
               {teamIsTicking ? (
-                <ReelStrip items={teamPool} activeIndex={respinning ? respinTick : teamTick} rampStage={respinning ? respinRampStage : rampStage} reduceMotion={!!reduceMotion} logoUrls={teamLogoUrls} />
+                <ReelStrip
+                  items={respinning ? respinReelPoolRef.current : teamReelPoolRef.current}
+                  activeIndex={respinning ? respinTick : teamTick}
+                  rampStage={respinning ? respinRampStage : rampStage}
+                  reduceMotion={!!reduceMotion}
+                  logoUrls={teamLogoUrls}
+                  centerTestId="spin-team-reel-center"
+                />
               ) : (
                 <motion.div
                   key={teamDisplayName}
+                  data-testid="spin-team-reel-center"
+                  data-final-value={teamDisplayName}
                   className="text-base font-black name-2line"
                   style={{ color: "var(--text-primary)" }}
                   initial={reduceMotion ? false : { opacity: 0, scale: 0.92 }}
@@ -645,6 +784,8 @@ export default function SpinStage({
             data-testid="era-wheel"
             data-respinning={justRespun}
             data-locked={seasonIsLocked}
+            // Phase 8J: real backend-selected value for the season/era axis.
+            data-selected-season={spin.era_label ?? ""}
             className={`spin-wheel-box spin-reel-streak-bg rounded-2xl p-5 flex flex-col items-center justify-center gap-2.5 text-center ${phase === "locked" || (justRespun && !seasonIsLocked) ? "spin-ceremony-lock-flash" : ""}`}
             data-phase={respinning ? (seasonIsTicking ? "spinning" : "revealed") : phase}
             style={{
@@ -673,10 +814,18 @@ export default function SpinStage({
               {secondWheelLabel}
             </div>
             {seasonIsTicking ? (
-              <ReelStrip items={secondPool} activeIndex={respinning ? respinTick : secondTick} rampStage={respinning ? respinRampStage : rampStage} reduceMotion={!!reduceMotion} />
+              <ReelStrip
+                items={respinning ? respinReelPoolRef.current : secondReelPoolRef.current}
+                activeIndex={respinning ? respinTick : secondTick}
+                rampStage={respinning ? respinRampStage : rampStage}
+                reduceMotion={!!reduceMotion}
+                centerTestId="spin-season-reel-center"
+              />
             ) : (
               <motion.div
                 key={secondDisplay}
+                data-testid="spin-season-reel-center"
+                data-final-value={secondDisplay}
                 className="text-2xl font-black"
                 style={{ color: phase === "revealed" ? "var(--peak-accent, #f5c842)" : "var(--text-primary)" }}
                 initial={reduceMotion ? false : { opacity: 0, scale: 0.92 }}

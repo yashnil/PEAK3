@@ -27,12 +27,23 @@ interface Props {
 }
 
 // Part F: named result tiers, most-impressive first.
+// Phase 8J: recalibrated bands -- 53-29 was landing in the wins>=45 bucket
+// labeled "Mid Pack", which reads as dismissive for what's actually a real
+// playoff team (a genuine 53-win NBA season is comfortably a playoff/strong
+// play-in team, never "mid pack"). Every threshold below now maps to a
+// realistic real-NBA-standings framing instead of a generic five-bucket
+// scale, and 61+ always reads as a contender-or-better label, never merely
+// "Playoff Team".
 export function resultTier(wins: number): string {
   if (wins >= 82) return "82-0 Immortal";
-  if (wins >= 75) return "Dynasty";
-  if (wins >= 65) return "Contender";
-  if (wins >= 55) return "Playoff Team";
-  if (wins >= 45) return "Mid Pack";
+  if (wins >= 80) return "82-0 Caliber";
+  if (wins >= 75) return "Historic Juggernaut";
+  if (wins >= 68) return "Title Favorite";
+  if (wins >= 61) return "Title Contender";
+  if (wins >= 54) return "Strong Playoff Team";
+  if (wins >= 45) return "Playoff Team";
+  if (wins >= 35) return "Fringe Playoff Team";
+  if (wins >= 20) return "Lottery Team";
   return "Rebuild";
 }
 
@@ -219,7 +230,7 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
               className="text-[10px] font-bold uppercase tracking-wide rounded-full px-2 py-1 self-start mt-2"
               style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.08)" }}
               data-testid="estimated-record-badge"
-              title="One or more cards have no official PEAK3 score yet -- this record uses a prototype approximation for those cards."
+              title="One or more cards have no official PEAK3 score yet -- this record uses conservative provisional impact for those cards, based on each card's real games/minutes sample."
             >
               Estimated
             </span>
@@ -304,8 +315,9 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
             <div className="text-[11px]" style={{ color: "var(--text-muted)" }} data-testid="score-coverage-note">
               {scoredSlotCount}/{filledSlotCount} exact season cards scored — one or more selected
               player-seasons has no official PEAK3 score yet (below the model&apos;s minutes
-              threshold). Projected record above uses a prototype approximation for those cards;
-              the lineup score itself is not shown rather than estimated.
+              threshold). Projected record above uses conservative provisional impact for those
+              cards, based on each card&apos;s real games/minutes sample; the lineup score itself
+              is not shown rather than estimated.
             </div>
           </>
         ) : (
