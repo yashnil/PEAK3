@@ -1229,5 +1229,172 @@
     "idempotency_notes": [
       "none detected"
     ]
+  },
+  {
+    "filename": "20260724150000_perfect_season_leaderboard.sql",
+    "identifier": "20260724150000_perfect_season_leaderboard",
+    "tables_created": {
+      "perfect_season_runs": [
+        "id",
+        "owner_sub",
+        "display_name",
+        "mode",
+        "game_type",
+        "game_id",
+        "seed",
+        "wins",
+        "losses",
+        "lineup_score",
+        "score_status",
+        "exact_cards_scored",
+        "total_cards",
+        "team_respins_used",
+        "season_respins_used",
+        "data_version",
+        "formula_version",
+        "simulation_version",
+        "is_public",
+        "created_at"
+      ],
+      "perfect_season_run_cards": [
+        "id",
+        "run_id",
+        "slot_index",
+        "card_key"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "perfect_season_runs_leaderboard_idx",
+        "table": "perfect_season_runs"
+      },
+      {
+        "name": "perfect_season_runs_owner_idx",
+        "table": "perfect_season_runs"
+      },
+      {
+        "name": "perfect_season_run_cards_run_idx",
+        "table": "perfect_season_run_cards"
+      }
+    ],
+    "constraints": [
+      "perfect_season_run_cards_unique_slot"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "perfect_season_run_cards",
+      "perfect_season_runs"
+    ],
+    "policies": [
+      {
+        "name": "perfect_season_runs_public_read",
+        "table": "perfect_season_runs"
+      },
+      {
+        "name": "perfect_season_runs_owner_read",
+        "table": "perfect_season_runs"
+      },
+      {
+        "name": "perfect_season_runs_owner_insert",
+        "table": "perfect_season_runs"
+      },
+      {
+        "name": "perfect_season_run_cards_public_read",
+        "table": "perfect_season_run_cards"
+      },
+      {
+        "name": "perfect_season_run_cards_owner_read",
+        "table": "perfect_season_run_cards"
+      },
+      {
+        "name": "perfect_season_run_cards_owner_insert",
+        "table": "perfect_season_run_cards"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260729180000_perfect_season_saved_runs.sql",
+    "identifier": "20260729180000_perfect_season_saved_runs",
+    "tables_created": {
+      "perfect_season_saved_runs": [
+        "id",
+        "owner_sub",
+        "game_id",
+        "mode",
+        "seed",
+        "wins",
+        "losses",
+        "lineup_score",
+        "score_status",
+        "exact_cards_scored",
+        "total_cards",
+        "leaderboard_eligible",
+        "challenge_kind",
+        "challenge_date",
+        "is_perfect_season",
+        "team_respins_used",
+        "season_respins_used",
+        "roster",
+        "spin_history",
+        "peak_picks_matched",
+        "peak_picks_total",
+        "data_version",
+        "formula_version",
+        "simulation_version",
+        "created_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "perfect_season_saved_runs_owner_recent_idx",
+        "table": "perfect_season_saved_runs"
+      },
+      {
+        "name": "perfect_season_saved_runs_owner_daily_idx",
+        "table": "perfect_season_saved_runs"
+      }
+    ],
+    "constraints": [
+      "perfect_season_saved_runs_daily_has_date",
+      "perfect_season_saved_runs_unique_owner_game"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "perfect_season_saved_runs"
+    ],
+    "policies": [
+      {
+        "name": "perfect_season_saved_runs_owner_read",
+        "table": "perfect_season_saved_runs"
+      },
+      {
+        "name": "perfect_season_saved_runs_owner_insert",
+        "table": "perfect_season_saved_runs"
+      },
+      {
+        "name": "perfect_season_saved_runs_owner_delete",
+        "table": "perfect_season_saved_runs"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
   }
 ]

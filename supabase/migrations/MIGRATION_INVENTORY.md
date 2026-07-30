@@ -22,6 +22,8 @@ migration change rather than hand-editing this file.
 | 15 | `20260630125900_ranked_integrity` | 2 | 3 | 0 | 0 | 0 | 0 | 0 |
 | 16 | `20260630130000_ranked_rls` | 0 | 0 | 0 | 1 | 0 | 16 | 18 |
 | 17 | `20260630130100_default_privileges` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 18 | `20260724150000_perfect_season_leaderboard` | 2 | 3 | 1 | 0 | 0 | 2 | 6 |
+| 19 | `20260729180000_perfect_season_saved_runs` | 1 | 2 | 2 | 0 | 0 | 1 | 3 |
 
 ## Detail per migration
 
@@ -506,3 +508,58 @@ migration change rather than hand-editing this file.
 **External table dependencies (not created in this file):** none
 
 **Idempotency:** none detected
+
+### `20260724150000_perfect_season_leaderboard.sql`
+
+**Tables created:** perfect_season_runs, perfect_season_run_cards
+  - `perfect_season_runs`: id, owner_sub, display_name, mode, game_type, game_id, seed, wins, losses, lineup_score, score_status, exact_cards_scored, total_cards, team_respins_used, season_respins_used, data_version, formula_version, simulation_version, is_public, created_at
+  - `perfect_season_run_cards`: id, run_id, slot_index, card_key
+
+**Indexes:** perfect_season_runs_leaderboard_idx, perfect_season_runs_owner_idx, perfect_season_run_cards_run_idx
+
+**Constraints:** perfect_season_run_cards_unique_slot
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** perfect_season_run_cards, perfect_season_runs
+
+**Policies:** perfect_season_runs_public_read, perfect_season_runs_owner_read, perfect_season_runs_owner_insert, perfect_season_run_cards_public_read, perfect_season_run_cards_owner_read, perfect_season_run_cards_owner_insert
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260729180000_perfect_season_saved_runs.sql`
+
+**Tables created:** perfect_season_saved_runs
+  - `perfect_season_saved_runs`: id, owner_sub, game_id, mode, seed, wins, losses, lineup_score, score_status, exact_cards_scored, total_cards, leaderboard_eligible, challenge_kind, challenge_date, is_perfect_season, team_respins_used, season_respins_used, roster, spin_history, peak_picks_matched, peak_picks_total, data_version, formula_version, simulation_version, created_at
+
+**Indexes:** perfect_season_saved_runs_owner_recent_idx, perfect_season_saved_runs_owner_daily_idx
+
+**Constraints:** perfect_season_saved_runs_daily_has_date, perfect_season_saved_runs_unique_owner_game
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** perfect_season_saved_runs
+
+**Policies:** perfect_season_saved_runs_owner_read, perfect_season_saved_runs_owner_insert, perfect_season_saved_runs_owner_delete
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY

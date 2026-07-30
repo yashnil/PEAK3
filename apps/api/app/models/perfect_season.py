@@ -15,6 +15,15 @@ from pydantic import BaseModel, Field
 class CreatePerfectSeasonGameRequest(BaseModel):
     mode: str = Field(..., description="apex_1y | prime_3y | foundation_5y")
     seed: Optional[int] = Field(None, description="explicit seed; random if omitted")
+    # Phase 9A: "free_play" (default) | "daily". For a daily attempt the seed
+    # is ALWAYS derived server-side from (challenge_date, mode) and any
+    # client-supplied `seed` is ignored -- otherwise a client could request a
+    # run labeled as today's shared challenge that nobody else could
+    # reproduce (see state.py::create_perfect_season_game).
+    challenge_kind: str = Field("free_play", description="free_play | daily")
+    challenge_date: Optional[str] = Field(
+        None, description="YYYY-MM-DD; daily only. Defaults to today (UTC)."
+    )
 
 
 class SelectPlayerRequest(BaseModel):
@@ -82,6 +91,99 @@ class LeaderboardResponse(BaseModel):
 
 class MyRunsResponse(BaseModel):
     runs: list[PerfectSeasonRunPublic] = []
+
+
+# ---------------------------------------------------------------------------
+# Phase 9A: saved runs (private personal history), personal bests, and the
+# daily challenge descriptor.
+# ---------------------------------------------------------------------------
+
+class SavedRunPublic(BaseModel):
+    """One completed run in the owner's own history. Private -- only ever
+    returned to the authenticated owner. `game_id` doubles as the share/open
+    link target (/arena/court/results/{game_id}); it is the same already-
+    public game id, never a signed token or credential."""
+    id: str
+    game_id: str
+    mode: str
+    seed: int
+    wins: int
+    losses: int
+    lineup_score: float
+    score_status: str
+    exact_cards_scored: int
+    total_cards: int
+    leaderboard_eligible: bool
+    challenge_kind: str
+    challenge_date: Optional[str] = None
+    is_perfect_season: bool
+    team_respins_used: int = 0
+    season_respins_used: int = 0
+    roster: list[dict] = []
+    spin_history: list[dict] = []
+    peak_picks_matched: Optional[int] = None
+    peak_picks_total: Optional[int] = None
+    data_version: Optional[str] = None
+    formula_version: Optional[str] = None
+    simulation_version: Optional[str] = None
+    created_at: str
+
+
+class SaveRunRequest(BaseModel):
+    """The ONLY client-controlled input to a save is which completed game to
+    save -- every scored/roster field is recomputed server-side from the
+    saved game state (same discipline as SubmitRunRequest)."""
+    game_id: str
+
+
+class PersonalBestsPublic(BaseModel):
+    total_runs: int = 0
+    best_run: Optional[SavedRunPublic] = None
+    best_wins: Optional[int] = None
+    # Best OFFICIAL lineup score -- only ever set from a fully-scored run, so
+    # a provisional run's honest 0.0 never becomes a "personal best score".
+    best_lineup_score: Optional[float] = None
+    best_lineup_score_run: Optional[SavedRunPublic] = None
+    best_daily_run: Optional[SavedRunPublic] = None
+    perfect_season_count: int = 0
+    recent_runs: list[SavedRunPublic] = []
+
+
+class SaveRunResponse(BaseModel):
+    """The save result plus how it compared to the user's PREVIOUS bests --
+    so the UI can say "New personal best" / "Tied your best" / "Below your
+    best" without recomputing the tiebreaker rules client-side."""
+    saved_run: SavedRunPublic
+    # "first_run" | "new_personal_best" | "tied_personal_best" | "below_personal_best"
+    comparison: str
+    # True when this exact game was already in history (a retry/double-click)
+    # -- the response is still the real saved run, just not a new one.
+    already_saved: bool = False
+    personal_bests: PersonalBestsPublic
+
+
+class SavedRunsResponse(BaseModel):
+    runs: list[SavedRunPublic] = []
+    personal_bests: PersonalBestsPublic
+
+
+class DailyChallengeResponse(BaseModel):
+    """Today's (or a given date's) shared PEAK Season challenge. `seed` is
+    deliberately public -- it is the very thing that must be identical for
+    every player on this date, and the client already passes an explicit seed
+    for a replayable free-play board."""
+    challenge_date: str
+    mode: str
+    seed: int
+    challenge_id: str
+    board_type: str
+    daily_challenge_version: str
+    # How many times the authenticated user has already SAVED a run for this
+    # exact daily (date, mode). 0 for an anonymous caller -- attempts are
+    # tracked per account, and Phase 9A surfaces the count rather than
+    # hard-blocking a replay (see the route's own comment).
+    attempts_used: int = 0
+    already_played: bool = False
 
 
 class SpinCandidate(BaseModel):
@@ -281,6 +383,19 @@ class LiveBuildPublic(BaseModel):
     projection_confidence: str = "early_projection"
 
 
+class RunEligibilityPublic(BaseModel):
+    """Phase 9A: whether a completed run can go on the official leaderboard,
+    and why not when it can't. `savable` is deliberately independent --
+    a provisional (unscored-card) run is always savable to personal history
+    and always shareable/downloadable; only the ranked leaderboard requires
+    a fully-scored roster. See
+    app/services/perfect_season/state.py::compute_eligibility."""
+    leaderboard_eligible: bool
+    reason: str
+    reason_detail: str
+    savable: bool
+
+
 class PublicCourtStateResponse(BaseModel):
     game_id: str
     status: str
@@ -319,6 +434,15 @@ class PublicCourtStateResponse(BaseModel):
     team_respins_remaining_total: int = 3
     season_respins_used_total: int = 0
     season_respins_remaining_total: int = 3
+    # Phase 9A: which retention loop this attempt belongs to, and (for a
+    # daily attempt) the UTC date whose shared seed it uses.
+    challenge_kind: str = "free_play"
+    challenge_date: Optional[str] = None
+    board_type: str = "practice"
+    # Phase 9A: server-computed leaderboard eligibility -- see
+    # app/services/perfect_season/state.py::compute_eligibility, the single
+    # source of truth the /submit route enforces too.
+    eligibility: Optional[RunEligibilityPublic] = None
 
 
 class CourtBuilderCoverageSummary(BaseModel):

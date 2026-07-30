@@ -3573,3 +3573,638 @@ def test_disaster_fixtures_still_catastrophe_tier_after_provisional_impact_chang
     incomplete_result = simulate_exact_season(incomplete_cards, board_seed=1, slot_types=SLOT_TYPES)
     assert incomplete_result.wins <= 12
     assert incomplete_result.lineup_peak_score == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Phase 9A: saved runs, personal bests, run history, daily challenge
+# foundation, and leaderboard eligibility rules.
+#
+# The retention layer. Three properties these tests pin down, because each
+# was a real design choice rather than an obvious default:
+#   1. Play stays anonymous-friendly; only SAVING/comparing needs an account.
+#   2. A provisional (unscored-card) run is SAVABLE to personal history even
+#      though it is never leaderboard-eligible -- history and the leaderboard
+#      are separate stores with deliberately different rules (see
+#      app/repositories/saved_run_protocols.py's module docstring).
+#   3. The daily challenge needs no stored board: the same (date, mode)
+#      derives the same seed, and the board generator is already fully
+#      deterministic in the seed.
+# ---------------------------------------------------------------------------
+
+from nba_peak.perfect_season.daily import (  # noqa: E402
+    DAILY_BOARD_TYPE,
+    InvalidChallengeDate,
+    daily_challenge_descriptor,
+    daily_challenge_id,
+    daily_seed,
+    today_utc_date,
+    validate_challenge_date,
+)
+from app.repositories.saved_run_memory import MemoryPerfectSeasonSavedRunRepository  # noqa: E402
+from app.repositories.saved_run_protocols import SavedRun  # noqa: E402
+from app.repositories.saved_run_ranking import (  # noqa: E402
+    COMPARISON_BELOW_BEST,
+    COMPARISON_FIRST_RUN,
+    COMPARISON_NEW_BEST,
+    COMPARISON_TIED_BEST,
+    best_of,
+    compare_to_previous_best,
+    personal_best_sort_key,
+)
+from app.core.dependencies import _memory_perfect_season_saved_run_repo  # noqa: E402
+
+
+@pytest.fixture
+def saved_run_client() -> TestClient:
+    """CourtBuilder enabled + a real JWT secret so the authenticated
+    save/history/personal-best routes are reachable. Deliberately does NOT
+    enable COURTBUILDER_LEADERBOARD_ENABLED -- saving a run to your own
+    history must work with the competitive leaderboard still switched off,
+    which is exactly the Phase 9A separation."""
+    orig_team_year = settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED
+    orig_jwt_secret = settings.SUPABASE_JWT_SECRET
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = True
+    settings.SUPABASE_JWT_SECRET = TEST_JWT_SECRET
+    _memory_perfect_season_saved_run_repo._runs.clear()
+    _memory_perfect_season_saved_run_repo._by_owner_game.clear()
+    with TestClient(app) as c:
+        yield c
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = orig_team_year
+    settings.SUPABASE_JWT_SECRET = orig_jwt_secret
+    _memory_perfect_season_saved_run_repo._runs.clear()
+    _memory_perfect_season_saved_run_repo._by_owner_game.clear()
+
+
+def _play_full_game_as(client: TestClient, token: str, seed: int, prefer_scored: bool = True) -> dict:
+    """Play a complete 8-round game with the given user's Authorization
+    header attached throughout, so the game's owner_sub is that real
+    authenticated sub. `prefer_scored=False` deliberately picks an UNSCORED
+    candidate when one is offered, to produce a provisional run."""
+    client.headers["Authorization"] = f"Bearer {token}"
+    try:
+        state = _create(client, mode="apex_1y", seed=seed)
+        game_id = state["game_id"]
+        for _ in range(8):
+            candidates = state["current_spin"]["candidates"]
+            if prefer_scored:
+                pick = next((c for c in candidates if c.get("score_status") == "exact_season_scored"), candidates[0])
+            else:
+                pick = next((c for c in candidates if c.get("score_status") != "exact_season_scored"), candidates[0])
+            state = _select(client, game_id, pick["player_slug"])
+            open_slot = next(s["slot_type"] for s in state["slots"] if not s["filled"])
+            state = _place(client, game_id, open_slot)
+        return _complete(client, game_id)
+    finally:
+        del client.headers["Authorization"]
+
+
+def _save(client: TestClient, game_id: str, token: str) -> dict:
+    resp = client.post(
+        f"/api/v1/perfect-season/games/{game_id}/save",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+# --- Workstream 4: daily seed determinism (pure, no HTTP) -------------------
+
+def test_daily_seed_is_deterministic_for_the_same_date_and_mode():
+    a = daily_seed("2026-07-29", "apex_1y")
+    b = daily_seed("2026-07-29", "apex_1y")
+    assert a == b, "the same (date, mode) must always derive the same seed -- this is what makes the challenge shared"
+    assert 0 <= a < 2 ** 31, "seed must stay inside the range every CourtBuilder seed path accepts"
+
+
+def test_daily_seed_differs_by_date_and_by_mode():
+    assert daily_seed("2026-07-29", "apex_1y") != daily_seed("2026-07-30", "apex_1y")
+    # The three durations are three genuinely distinct daily challenges, not
+    # the same spin sequence relabeled.
+    assert daily_seed("2026-07-29", "apex_1y") != daily_seed("2026-07-29", "prime_3y")
+    assert daily_seed("2026-07-29", "apex_1y") != daily_seed("2026-07-29", "foundation_5y")
+
+
+def test_daily_seed_rejects_a_non_calendar_date():
+    with pytest.raises(InvalidChallengeDate):
+        daily_seed("2026-02-30", "apex_1y")  # real shape, impossible date
+    with pytest.raises(InvalidChallengeDate):
+        daily_seed("not-a-date", "apex_1y")
+
+
+def test_same_daily_date_gives_the_same_spin_sequence():
+    """The core shared-challenge property: two independent board generations
+    for the same (date, mode) produce the identical 8-round team/season/
+    candidate sequence -- no stored board snapshot required."""
+    seed = daily_seed("2026-07-29", "apex_1y")
+    board_a = generate_team_year_board(mode="apex_1y", seed=seed, board_type=DAILY_BOARD_TYPE)
+    board_b = generate_team_year_board(mode="apex_1y", seed=seed, board_type=DAILY_BOARD_TYPE)
+    seq_a = [(s.round_number, s.team_id, s.era_label, tuple(s.candidate_player_slugs)) for s in board_a.spins]
+    seq_b = [(s.round_number, s.team_id, s.era_label, tuple(s.candidate_player_slugs)) for s in board_b.spins]
+    assert seq_a == seq_b
+    # And a different date really is a different challenge, not a reshuffle
+    # of the same teams.
+    other = generate_team_year_board(
+        mode="apex_1y", seed=daily_seed("2026-07-30", "apex_1y"), board_type=DAILY_BOARD_TYPE
+    )
+    seq_other = [(s.round_number, s.team_id, s.era_label) for s in other.spins]
+    assert seq_other != [(s.round_number, s.team_id, s.era_label) for s in board_a.spins]
+
+
+def test_daily_challenge_id_and_descriptor_are_stable_and_self_describing():
+    assert daily_challenge_id("2026-07-29", "apex_1y") == "peak-season-daily-2026-07-29-apex_1y"
+    d = daily_challenge_descriptor("2026-07-29", "apex_1y")
+    assert d["challenge_date"] == "2026-07-29"
+    assert d["mode"] == "apex_1y"
+    assert d["seed"] == daily_seed("2026-07-29", "apex_1y")
+    assert d["board_type"] == DAILY_BOARD_TYPE
+    assert d["daily_challenge_version"]
+
+
+def test_today_utc_date_is_a_valid_challenge_date():
+    assert validate_challenge_date(today_utc_date()) == today_utc_date()
+
+
+# --- Workstream 4: daily route + daily game creation ------------------------
+
+def test_daily_endpoint_returns_todays_shared_seed_without_auth(saved_run_client: TestClient):
+    resp = saved_run_client.get("/api/v1/perfect-season/daily?mode=apex_1y")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["challenge_date"] == today_utc_date()
+    assert data["seed"] == daily_seed(today_utc_date(), "apex_1y")
+    assert data["board_type"] == DAILY_BOARD_TYPE
+    # Anonymous callers have no durable identity to count attempts against.
+    assert data["attempts_used"] == 0
+    assert data["already_played"] is False
+
+
+def test_daily_endpoint_rejects_an_invalid_date_and_mode(saved_run_client: TestClient):
+    assert saved_run_client.get("/api/v1/perfect-season/daily?date=2026-02-30").status_code == 422
+    assert saved_run_client.get("/api/v1/perfect-season/daily?mode=nope").status_code == 400
+
+
+def test_creating_a_daily_game_uses_the_date_seed_and_ignores_a_client_seed(saved_run_client: TestClient):
+    """A client must not be able to label an arbitrary board as "today's
+    shared challenge" -- the seed is always re-derived server-side."""
+    resp = saved_run_client.post(
+        "/api/v1/perfect-season/games",
+        json={"mode": "apex_1y", "seed": 999999, "challenge_kind": "daily"},
+    )
+    assert resp.status_code == 200, resp.text
+    state = resp.json()
+    assert state["challenge_kind"] == "daily"
+    assert state["challenge_date"] == today_utc_date()
+    assert state["board_type"] == DAILY_BOARD_TYPE
+    assert state["board_seed"] == daily_seed(today_utc_date(), "apex_1y")
+    assert state["board_seed"] != 999999, "a client-supplied seed must never win for a daily board"
+
+
+def test_two_players_opening_the_same_daily_date_get_the_same_board(saved_run_client: TestClient):
+    a = saved_run_client.post(
+        "/api/v1/perfect-season/games", json={"mode": "apex_1y", "challenge_kind": "daily", "challenge_date": "2026-07-29"}
+    ).json()
+    b = saved_run_client.post(
+        "/api/v1/perfect-season/games", json={"mode": "apex_1y", "challenge_kind": "daily", "challenge_date": "2026-07-29"}
+    ).json()
+    assert a["game_id"] != b["game_id"], "two distinct attempts"
+    assert a["board_seed"] == b["board_seed"]
+    assert a["current_spin"]["franchise_display_name"] == b["current_spin"]["franchise_display_name"]
+    assert a["current_spin"]["era_label"] == b["current_spin"]["era_label"]
+    assert (
+        [c["player_slug"] for c in a["current_spin"]["candidates"]]
+        == [c["player_slug"] for c in b["current_spin"]["candidates"]]
+    )
+
+
+def test_free_play_game_is_labeled_free_play_with_no_challenge_date(saved_run_client: TestClient):
+    state = _create(saved_run_client, mode="apex_1y", seed=42)
+    assert state["challenge_kind"] == "free_play"
+    assert state["challenge_date"] is None
+    assert state["board_type"] == "practice"
+
+
+def test_creating_a_game_rejects_an_unknown_challenge_kind(saved_run_client: TestClient):
+    resp = saved_run_client.post(
+        "/api/v1/perfect-season/games", json={"mode": "apex_1y", "challenge_kind": "ranked"}
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "invalid_challenge_kind"
+
+
+# --- Workstream 5: eligibility is exposed and honest -----------------------
+
+def test_completed_scored_run_is_marked_leaderboard_eligible(saved_run_client: TestClient):
+    token = _mint_test_jwt("elig-user")
+    state = _play_full_game_as(saved_run_client, token, seed=9101, prefer_scored=True)
+    elig = state["eligibility"]
+    if state["simulation_result"]["lineup_score_status"] == "complete":
+        assert elig["leaderboard_eligible"] is True
+        assert elig["reason"] == "eligible"
+    assert elig["savable"] is True
+
+
+def test_in_progress_game_is_neither_eligible_nor_savable(saved_run_client: TestClient):
+    state = _create(saved_run_client, mode="apex_1y", seed=9102)
+    elig = state["eligibility"]
+    assert elig["leaderboard_eligible"] is False
+    assert elig["reason"] == "game_not_complete"
+    assert elig["savable"] is False
+
+
+def test_provisional_run_is_ineligible_but_still_savable(saved_run_client: TestClient):
+    """The central Phase 9A eligibility rule: an unscored-card run can never
+    be ranked, but it is a real run and belongs in your own history."""
+    token = _mint_test_jwt("prov-user")
+    state = _play_full_game_as(saved_run_client, token, seed=9103, prefer_scored=False)
+    if state["simulation_result"]["lineup_score_status"] != "incomplete":
+        pytest.skip("this seed produced a fully-scored roster -- nothing provisional to assert")
+    elig = state["eligibility"]
+    assert elig["leaderboard_eligible"] is False
+    assert elig["reason"] == "incomplete_score"
+    assert elig["savable"] is True
+    assert "provisional" in elig["reason_detail"].lower()
+    # And it really does save.
+    saved = _save(saved_run_client, state["game_id"], token)
+    assert saved["saved_run"]["leaderboard_eligible"] is False
+    assert saved["saved_run"]["score_status"] == "incomplete"
+
+
+# --- Workstream 1: saving completed runs ----------------------------------
+
+def test_anonymous_save_is_rejected_with_sign_in_required(saved_run_client: TestClient):
+    """Play stays anonymous-friendly, but there is nowhere durable to attach
+    an anonymous session's history -- so the route says so rather than
+    silently discarding the save.
+
+    Two distinct anonymous cases, both 401: no Authorization header at all
+    (rejected by RequiredAuth itself, with its own plain-string detail), and
+    a real but ANONYMOUS Supabase JWT (is_anonymous=True), which reaches the
+    route and gets the machine-readable sign_in_required code the UI turns
+    into a sign-in CTA."""
+    state = _play_full_game(saved_run_client, seed=9201)
+    game_id = state["game_id"]
+
+    no_header = saved_run_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/save", json={"game_id": game_id}
+    )
+    assert no_header.status_code == 401
+
+    anon_token = _mint_test_jwt("anon-saver", is_anonymous=True)
+    anon = saved_run_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/save",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {anon_token}"},
+    )
+    assert anon.status_code == 401
+    assert anon.json()["detail"]["error_code"] == "sign_in_required"
+
+
+def test_anonymous_completed_run_still_works_without_saving(saved_run_client: TestClient):
+    """An anonymous player still gets a full, real result -- saving is
+    additive, never a precondition for finishing a run."""
+    state = _play_full_game(saved_run_client, seed=9202)
+    assert state["status"] == "result_ready"
+    assert state["simulation_result"]["wins"] + state["simulation_result"]["losses"] == 82
+    # And nothing was silently persisted to anyone's history.
+    assert len(_memory_perfect_season_saved_run_repo._runs) == 0
+
+
+def test_signed_in_user_can_save_a_completed_run_with_leaderboard_disabled(saved_run_client: TestClient):
+    assert settings.COURTBUILDER_LEADERBOARD_ENABLED is False, "fixture must leave the leaderboard OFF"
+    token = _mint_test_jwt("saver-1")
+    state = _play_full_game_as(saved_run_client, token, seed=9203)
+    body = _save(saved_run_client, state["game_id"], token)
+
+    run = body["saved_run"]
+    assert run["game_id"] == state["game_id"]
+    assert run["wins"] == state["simulation_result"]["wins"]
+    assert run["losses"] == state["simulation_result"]["losses"]
+    assert run["mode"] == "apex_1y"
+    assert run["challenge_kind"] == "free_play"
+    assert len(run["roster"]) == 8
+    assert all(c.get("slot_type") for c in run["roster"])
+    assert body["comparison"] == COMPARISON_FIRST_RUN
+    assert body["already_saved"] is False
+
+
+def test_save_recomputes_from_server_state_never_from_the_request_body(saved_run_client: TestClient):
+    token = _mint_test_jwt("saver-2")
+    state = _play_full_game_as(saved_run_client, token, seed=9204)
+    resp = saved_run_client.post(
+        f"/api/v1/perfect-season/games/{state['game_id']}/save",
+        json={"game_id": state["game_id"], "wins": 82, "lineup_score": 100.0, "is_perfect_season": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    run = resp.json()["saved_run"]
+    assert run["wins"] == state["simulation_result"]["wins"]
+    assert run["lineup_score"] == state["simulation_result"]["lineup_peak_score"]
+
+
+def test_saving_the_same_game_twice_is_idempotent(saved_run_client: TestClient):
+    token = _mint_test_jwt("saver-3")
+    state = _play_full_game_as(saved_run_client, token, seed=9205)
+    first = _save(saved_run_client, state["game_id"], token)
+    second = _save(saved_run_client, state["game_id"], token)
+    assert first["saved_run"]["id"] == second["saved_run"]["id"]
+    assert second["already_saved"] is True
+    history = saved_run_client.get(
+        "/api/v1/perfect-season/me/saved-runs", headers={"Authorization": f"Bearer {token}"}
+    ).json()
+    assert len(history["runs"]) == 1, "a re-save must never duplicate a history row"
+
+
+def test_cannot_save_someone_elses_game(saved_run_client: TestClient):
+    owner = _mint_test_jwt("owner-user")
+    state = _play_full_game_as(saved_run_client, owner, seed=9206)
+    other = _mint_test_jwt("other-user")
+    resp = saved_run_client.post(
+        f"/api/v1/perfect-season/games/{state['game_id']}/save",
+        json={"game_id": state["game_id"]},
+        headers={"Authorization": f"Bearer {other}"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["error_code"] == "not_your_game"
+
+
+def test_cannot_save_an_incomplete_game(saved_run_client: TestClient):
+    token = _mint_test_jwt("saver-4")
+    saved_run_client.headers["Authorization"] = f"Bearer {token}"
+    try:
+        state = _create(saved_run_client, mode="apex_1y", seed=9207)
+    finally:
+        del saved_run_client.headers["Authorization"]
+    resp = saved_run_client.post(
+        f"/api/v1/perfect-season/games/{state['game_id']}/save",
+        json={"game_id": state["game_id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "game_not_complete"
+
+
+# --- Workstream 3: run history --------------------------------------------
+
+def test_run_history_returns_only_the_callers_own_runs_newest_first(saved_run_client: TestClient):
+    mine = _mint_test_jwt("hist-mine")
+    theirs = _mint_test_jwt("hist-theirs")
+    first = _play_full_game_as(saved_run_client, mine, seed=9301)
+    _save(saved_run_client, first["game_id"], mine)
+    second = _play_full_game_as(saved_run_client, mine, seed=9302)
+    _save(saved_run_client, second["game_id"], mine)
+    other = _play_full_game_as(saved_run_client, theirs, seed=9303)
+    _save(saved_run_client, other["game_id"], theirs)
+
+    resp = saved_run_client.get(
+        "/api/v1/perfect-season/me/saved-runs", headers={"Authorization": f"Bearer {mine}"}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    game_ids = [r["game_id"] for r in body["runs"]]
+    assert set(game_ids) == {first["game_id"], second["game_id"]}
+    assert other["game_id"] not in game_ids, "history must never leak another user's runs"
+    assert body["personal_bests"]["total_runs"] == 2
+
+
+def test_run_history_requires_a_real_account(saved_run_client: TestClient):
+    assert saved_run_client.get("/api/v1/perfect-season/me/saved-runs").status_code == 401
+    anon = _mint_test_jwt("anon-sub", is_anonymous=True)
+    resp = saved_run_client.get(
+        "/api/v1/perfect-season/me/saved-runs", headers={"Authorization": f"Bearer {anon}"}
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["error_code"] == "sign_in_required"
+
+
+def test_empty_history_is_a_clean_empty_state_not_an_error(saved_run_client: TestClient):
+    token = _mint_test_jwt("brand-new-user")
+    resp = saved_run_client.get(
+        "/api/v1/perfect-season/me/saved-runs", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["runs"] == []
+    assert body["personal_bests"]["total_runs"] == 0
+    assert body["personal_bests"]["best_run"] is None
+    assert body["personal_bests"]["best_wins"] is None
+
+
+# --- Workstream 2: personal bests + tiebreakers ---------------------------
+
+def _mk_run(
+    run_id: str, wins: int, score: float = 50.0, status: str = "complete",
+    scored_cards: int = 8, created: str = "2026-07-01T00:00:00+00:00",
+    challenge_kind: str = "free_play", challenge_date=None,
+) -> SavedRun:
+    from datetime import datetime as _dt
+    return SavedRun(
+        id=run_id, owner_sub="u", game_id=f"g-{run_id}", mode="apex_1y", seed=1,
+        wins=wins, losses=82 - wins, lineup_score=score, score_status=status,
+        exact_cards_scored=scored_cards, total_cards=8,
+        leaderboard_eligible=(status == "complete"),
+        challenge_kind=challenge_kind, challenge_date=challenge_date,
+        is_perfect_season=(wins >= 82), created_at=_dt.fromisoformat(created),
+    )
+
+
+def test_personal_best_tiebreaker_1_wins_dominates():
+    better = _mk_run("a", wins=60, score=10.0)
+    worse = _mk_run("b", wins=59, score=99.0)
+    assert best_of([worse, better]) is better, "more wins beats a higher lineup score"
+
+
+def test_personal_best_tiebreaker_2_official_lineup_score_breaks_a_win_tie():
+    high = _mk_run("a", wins=60, score=80.0)
+    low = _mk_run("b", wins=60, score=70.0)
+    assert best_of([low, high]) is high
+
+
+def test_personal_best_tiebreaker_3_fewer_unscored_cards_breaks_the_next_tie():
+    full = _mk_run("a", wins=60, score=60.0, scored_cards=8)
+    partial = _mk_run("b", wins=60, score=60.0, scored_cards=6)
+    assert best_of([partial, full]) is full
+
+
+def test_personal_best_tiebreaker_4_earliest_timestamp_is_the_final_fallback():
+    earlier = _mk_run("a", wins=60, created="2026-07-01T00:00:00+00:00")
+    later = _mk_run("b", wins=60, created="2026-07-02T00:00:00+00:00")
+    assert best_of([later, earlier]) is earlier, "a tie resolves toward whoever got there first"
+
+
+def test_provisional_run_never_outranks_a_scored_run_on_score_alone():
+    """A provisional run's lineup_score is honestly 0.0 (never fabricated),
+    so it must not be compared as a real score -- but it can still win on
+    wins, which is criterion 1."""
+    provisional = _mk_run("p", wins=60, score=0.0, status="incomplete", scored_cards=5)
+    scored = _mk_run("s", wins=60, score=40.0, status="complete")
+    assert best_of([provisional, scored]) is scored
+    # Wins still dominate: a provisional run that won more games IS the best.
+    big_provisional = _mk_run("p2", wins=70, score=0.0, status="incomplete", scored_cards=5)
+    assert best_of([big_provisional, scored]) is big_provisional
+
+
+def test_compare_to_previous_best_distinguishes_first_new_tied_and_below():
+    base = _mk_run("base", wins=60, score=60.0)
+    assert compare_to_previous_best(base, None) == COMPARISON_FIRST_RUN
+    better = _mk_run("better", wins=61, score=60.0, created="2026-08-01T00:00:00+00:00")
+    assert compare_to_previous_best(better, base) == COMPARISON_NEW_BEST
+    # Tied on every MEANINGFUL criterion (wins/score/coverage) -- the
+    # timestamp fallback exists for deterministic sorting, not to call two
+    # otherwise-identical runs unequal.
+    tied = _mk_run("tied", wins=60, score=60.0, created="2026-08-01T00:00:00+00:00")
+    assert compare_to_previous_best(tied, base) == COMPARISON_TIED_BEST
+    worse = _mk_run("worse", wins=59, score=60.0, created="2026-08-01T00:00:00+00:00")
+    assert compare_to_previous_best(worse, base) == COMPARISON_BELOW_BEST
+
+
+@pytest.mark.asyncio
+async def test_personal_bests_only_improve_and_track_score_separately():
+    repo = MemoryPerfectSeasonSavedRunRepository()
+    await repo.save_run(_mk_run("r1", wins=50, score=55.0))
+    bests = await repo.get_personal_bests("u")
+    assert bests.best_wins == 50 and bests.best_lineup_score == 55.0
+
+    # A worse run must not move any best.
+    await repo.save_run(_mk_run("r2", wins=40, score=45.0))
+    bests = await repo.get_personal_bests("u")
+    assert bests.best_wins == 50
+    assert bests.best_lineup_score == 55.0
+    assert bests.best_run.id == "r1"
+    assert bests.total_runs == 2
+
+    # More wins but a LOWER score: best_wins/best_run move, best score doesn't.
+    await repo.save_run(_mk_run("r3", wins=61, score=20.0))
+    bests = await repo.get_personal_bests("u")
+    assert bests.best_wins == 61
+    assert bests.best_run.id == "r3"
+    assert bests.best_lineup_score == 55.0, "best OFFICIAL score is tracked independently of best record"
+    assert bests.best_lineup_score_run.id == "r1"
+
+
+@pytest.mark.asyncio
+async def test_best_lineup_score_ignores_provisional_runs_entirely():
+    repo = MemoryPerfectSeasonSavedRunRepository()
+    await repo.save_run(_mk_run("prov", wins=70, score=0.0, status="incomplete", scored_cards=5))
+    bests = await repo.get_personal_bests("u")
+    assert bests.total_runs == 1
+    assert bests.best_wins == 70
+    assert bests.best_lineup_score is None, "a provisional run has no official score to be a best"
+    assert bests.best_lineup_score_run is None
+
+
+@pytest.mark.asyncio
+async def test_best_daily_run_is_tracked_separately_from_free_play():
+    repo = MemoryPerfectSeasonSavedRunRepository()
+    await repo.save_run(_mk_run("free", wins=70, score=70.0))
+    await repo.save_run(_mk_run("day", wins=55, score=55.0, challenge_kind="daily", challenge_date="2026-07-29"))
+    bests = await repo.get_personal_bests("u")
+    assert bests.best_run.id == "free"
+    assert bests.best_daily_run.id == "day", "the best DAILY run is not just the best run overall"
+
+
+@pytest.mark.asyncio
+async def test_perfect_season_count_and_daily_attempt_count():
+    repo = MemoryPerfectSeasonSavedRunRepository()
+    await repo.save_run(_mk_run("p1", wins=82, score=95.0))
+    await repo.save_run(_mk_run("d1", wins=60, challenge_kind="daily", challenge_date="2026-07-29"))
+    await repo.save_run(_mk_run("d2", wins=61, challenge_kind="daily", challenge_date="2026-07-29"))
+    await repo.save_run(_mk_run("d3", wins=62, challenge_kind="daily", challenge_date="2026-07-30"))
+    bests = await repo.get_personal_bests("u")
+    assert bests.perfect_season_count == 1
+    assert await repo.count_daily_attempts("u", "2026-07-29", "apex_1y") == 2
+    assert await repo.count_daily_attempts("u", "2026-07-30", "apex_1y") == 1
+    assert await repo.count_daily_attempts("u", "2026-08-01", "apex_1y") == 0
+
+
+@pytest.mark.asyncio
+async def test_saved_run_repo_never_leaks_across_owners():
+    repo = MemoryPerfectSeasonSavedRunRepository()
+    mine = _mk_run("mine", wins=60)
+    theirs = _mk_run("theirs", wins=82)
+    theirs.owner_sub = "someone-else"
+    await repo.save_run(mine)
+    await repo.save_run(theirs)
+    assert [r.id for r in await repo.list_runs_for_owner("u")] == ["mine"]
+    bests = await repo.get_personal_bests("u")
+    assert bests.best_wins == 60, "another owner's 82-win run must never appear in my bests"
+    assert await repo.get_run_by_game_id("u", "g-theirs") is None
+
+
+def test_personal_bests_endpoint_reports_new_best_after_a_better_run(saved_run_client: TestClient):
+    token = _mint_test_jwt("pb-user")
+    first = _play_full_game_as(saved_run_client, token, seed=9401)
+    first_body = _save(saved_run_client, first["game_id"], token)
+    assert first_body["comparison"] == COMPARISON_FIRST_RUN
+
+    second = _play_full_game_as(saved_run_client, token, seed=9402)
+    second_body = _save(saved_run_client, second["game_id"], token)
+    assert second_body["comparison"] in (
+        COMPARISON_NEW_BEST, COMPARISON_TIED_BEST, COMPARISON_BELOW_BEST
+    ), "a second run must be compared against the first, never reported as another 'first run'"
+
+    resp = saved_run_client.get(
+        "/api/v1/perfect-season/me/personal-bests", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp.status_code == 200
+    bests = resp.json()
+    assert bests["total_runs"] == 2
+    assert bests["best_wins"] == max(
+        first["simulation_result"]["wins"], second["simulation_result"]["wins"]
+    )
+
+
+def test_personal_bests_endpoint_requires_a_real_account(saved_run_client: TestClient):
+    assert saved_run_client.get("/api/v1/perfect-season/me/personal-bests").status_code == 401
+
+
+def test_daily_attempt_count_appears_after_saving_a_daily_run(saved_run_client: TestClient):
+    token = _mint_test_jwt("daily-user")
+    saved_run_client.headers["Authorization"] = f"Bearer {token}"
+    try:
+        state = saved_run_client.post(
+            "/api/v1/perfect-season/games",
+            json={"mode": "apex_1y", "challenge_kind": "daily"},
+        ).json()
+        game_id = state["game_id"]
+        for _ in range(8):
+            candidates = state["current_spin"]["candidates"]
+            state = _select(saved_run_client, game_id, candidates[0]["player_slug"])
+            open_slot = next(s["slot_type"] for s in state["slots"] if not s["filled"])
+            state = _place(saved_run_client, game_id, open_slot)
+        state = _complete(saved_run_client, game_id)
+    finally:
+        del saved_run_client.headers["Authorization"]
+
+    assert state["challenge_kind"] == "daily"
+    body = _save(saved_run_client, game_id, token)
+    assert body["saved_run"]["challenge_kind"] == "daily"
+    assert body["saved_run"]["challenge_date"] == today_utc_date()
+    assert body["personal_bests"]["best_daily_run"] is not None
+
+    daily = saved_run_client.get(
+        "/api/v1/perfect-season/daily?mode=apex_1y", headers={"Authorization": f"Bearer {token}"}
+    ).json()
+    assert daily["attempts_used"] == 1
+    assert daily["already_played"] is True
+
+
+# --- Migration/RLS shape --------------------------------------------------
+
+def test_saved_runs_migration_has_owner_only_rls_and_no_public_read():
+    """Personal history is private by construction: unlike
+    perfect_season_runs (the public leaderboard), this table must have NO
+    public-read policy at all, and no UPDATE policy (an immutable snapshot)."""
+    sql = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "supabase" / "migrations" / "20260729180000_perfect_season_saved_runs.sql"
+    ).read_text()
+    assert "CREATE TABLE IF NOT EXISTS perfect_season_saved_runs" in sql
+    assert "ENABLE ROW LEVEL SECURITY" in sql
+    assert "perfect_season_saved_runs_owner_read" in sql
+    assert "perfect_season_saved_runs_owner_insert" in sql
+    assert "USING (is_public = TRUE)" not in sql, "history must never be publicly readable"
+    assert "FOR UPDATE" not in sql, "a saved run is an immutable snapshot"
+    # Idempotent + honest constraints.
+    assert "UNIQUE (owner_sub, game_id)" in sql
+    assert "perfect_season_saved_runs_daily_has_date" in sql

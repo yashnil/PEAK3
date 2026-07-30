@@ -36,6 +36,13 @@ from nba_peak.perfect_season.board import (
     resolve_card,
 )
 from nba_peak.perfect_season.config import SLOT_TYPES, TOTAL_ROUNDS
+from nba_peak.perfect_season.daily import (
+    DAILY_BOARD_TYPE,
+    FREE_PLAY_BOARD_TYPE,
+    daily_seed,
+    today_utc_date,
+    validate_challenge_date,
+)
 from nba_peak.perfect_season.exact_season import (
     PlayerSeasonCard,
     component_percentile,
@@ -83,15 +90,30 @@ def create_perfect_season_game(
     team_spin_enabled: bool,
     board_type: str = "practice",
     team_year_enabled: bool = False,
+    challenge_date: Optional[str] = None,
 ) -> CourtLineupState:
     if mode not in VALID_MODES:
         raise ValueError(f"Invalid mode '{mode}'. Valid: {list(VALID_MODES.keys())}")
-    if board_type != "practice":
-        # Phase 5C vertical slice supports practice only -- see
-        # PHASE_5_COURTBUILDER_VERTICAL_SLICE.md Sec 3. Daily/ranked are later phases.
+    # Phase 9A: "daily" joins "practice" as a supported board_type. A daily
+    # board is NOT a different engine or a different rule set -- it is the
+    # same generator on a seed derived from the calendar date
+    # (nba_peak.perfect_season.daily.daily_seed), which is exactly what makes
+    # everyone's board identical for a given date. Ranked remains unsupported.
+    if board_type not in (FREE_PLAY_BOARD_TYPE, DAILY_BOARD_TYPE):
         raise ValueError(f"board_type '{board_type}' is not supported in this phase")
 
-    resolved_seed = seed if seed is not None else secrets.randbelow(2 ** 31)
+    if board_type == DAILY_BOARD_TYPE:
+        # The seed for a daily board is ALWAYS derived here from the date --
+        # never accepted from the caller. Otherwise a client could request
+        # board_type="daily" with an arbitrary seed and get a run labeled as
+        # "today's shared challenge" that nobody else could reproduce.
+        challenge_date = validate_challenge_date(challenge_date or today_utc_date())
+        resolved_seed = daily_seed(challenge_date, mode)
+        challenge_kind = "daily"
+    else:
+        challenge_date = None
+        resolved_seed = seed if seed is not None else secrets.randbelow(2 ** 31)
+        challenge_kind = "free_play"
     # Phase 6A: team_year_enabled selects the experimental exact-season
     # engine instead of the team+decade path. Independent of
     # team_spin_enabled -- when both are set, team_year_enabled wins (the
@@ -115,6 +137,8 @@ def create_perfect_season_game(
         last_action_at=now,
         mode=mode,
         duration_years=VALID_MODES[mode],
+        challenge_kind=challenge_kind,
+        challenge_date=challenge_date,
     )
 
 
@@ -572,6 +596,86 @@ def action_complete_game(state: CourtLineupState) -> CourtLineupState:
 
 
 # ---------------------------------------------------------------------------
+# Phase 9A: leaderboard eligibility, computed in ONE place.
+#
+# Root cause this closes: "is this run leaderboard-eligible" was decided
+# independently in three places that could drift -- the submit endpoint
+# (which raised incomplete_score_not_eligible), the frontend panel (which
+# re-derived it from lineup_score_status), and the result copy. They agreed
+# only by coincidence. These helpers are now the single source of truth,
+# surfaced on the public state so the UI never has to re-derive the rule.
+#
+# The rule itself (unchanged in substance, only centralized):
+#   - The OFFICIAL leaderboard requires a fully-scored roster. A run with any
+#     unscored/provisional card is not eligible -- its projected record uses
+#     conservative provisional impact (Phase 8K), which is an honest estimate
+#     but not an official, comparable score.
+#   - Ineligibility is never a reason to block PLAY, SAVING, SHARING, or
+#     DOWNLOADING a run. A provisional run is a real run; it just isn't a
+#     ranked one.
+#   - Durable submission additionally requires a real signed-in account,
+#     enforced at the route (not here) since this layer has no auth context.
+# ---------------------------------------------------------------------------
+
+ELIGIBILITY_COMPLETE = "eligible"
+ELIGIBILITY_INCOMPLETE_SCORE = "incomplete_score"
+ELIGIBILITY_NOT_COMPLETE = "game_not_complete"
+
+
+def placed_cards_all_scored(state: CourtLineupState) -> bool:
+    """True when every placed slot has a real official PEAK3 score. Always
+    True for legacy peak-window boards (no unscored state exists at that
+    grain -- see simulation.py::_best_pick's own note)."""
+    if state.board.experimental_team_year_data_version is None:
+        return True
+    for slot in state.slots:
+        if not slot.exact_player_season_key:
+            return False
+        card = resolve_exact_card_by_key(slot.exact_player_season_key)
+        if card is None or card.score_status != "exact_season_scored":
+            return False
+    return True
+
+
+def compute_eligibility(state: CourtLineupState) -> dict:
+    """The one definition of leaderboard eligibility for a PEAK Season run.
+
+    Returns a plain dict (same at-the-API-boundary convention as
+    LineupFitComponents.as_dict()): `leaderboard_eligible` plus a stable
+    machine-readable `reason` code and a human-readable `reason_detail` the
+    UI can show verbatim instead of composing its own wording.
+    """
+    if state.status != "result_ready" or state.simulation_result is None:
+        return {
+            "leaderboard_eligible": False,
+            "reason": ELIGIBILITY_NOT_COMPLETE,
+            "reason_detail": "This run has not been completed and simulated yet.",
+            # Saving/sharing are gated on completion too -- there is no
+            # finished result to save before this point.
+            "savable": False,
+        }
+    if not placed_cards_all_scored(state):
+        return {
+            "leaderboard_eligible": False,
+            "reason": ELIGIBILITY_INCOMPLETE_SCORE,
+            "reason_detail": (
+                "One or more cards have no official PEAK3 score for that exact season, so this run's "
+                "projected record uses conservative provisional impact. You can still save, share, and "
+                "download it -- it just isn't eligible for the official leaderboard."
+            ),
+            # Explicitly savable: a provisional run belongs in your own
+            # history even though it can never be ranked.
+            "savable": True,
+        }
+    return {
+        "leaderboard_eligible": True,
+        "reason": ELIGIBILITY_COMPLETE,
+        "reason_detail": "Every card has an official PEAK3 score -- this run is eligible for the leaderboard.",
+        "savable": True,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Public state serialization (never exposes scores for un-locked candidates)
 # ---------------------------------------------------------------------------
 
@@ -984,6 +1088,17 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
         "coverage_mode": state.board.metadata.get("coverage_mode"),
         "open_pool_enabled": (not team_year_board) and any(s.spin_type == "open_pool" for s in state.board.spins),
         "simulation_result": simulation_public,
+        # Phase 9A: which loop this attempt belongs to ("free_play" | "daily")
+        # and, for a daily attempt, the UTC date whose shared seed it uses.
+        # The client uses these to label the scorecard ("Daily PEAK Season --
+        # July 29, 2026") rather than re-deriving the date from the seed.
+        "challenge_kind": state.challenge_kind,
+        "challenge_date": state.challenge_date,
+        "board_type": state.board.board_type,
+        # Phase 9A: leaderboard eligibility, computed server-side in exactly
+        # one place (compute_eligibility) so the UI never re-derives the rule
+        # and can never disagree with what /submit will actually accept.
+        "eligibility": compute_eligibility(state),
         "live_build": (
             _compute_live_build(placed_exact_cards, state)
             if team_year_board and placed_exact_cards and state.status != "result_ready"

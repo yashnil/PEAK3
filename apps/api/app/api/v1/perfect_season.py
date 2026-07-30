@@ -35,28 +35,49 @@ if str(_repo_root) not in sys.path:
 
 from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, RequiredAuth, resolve_owner_sub
 from app.core.config import settings
-from app.core.dependencies import CourtLineupRepoDep, PerfectSeasonLeaderboardRepoDep, ProfileRepoDep
+from app.core.dependencies import (
+    CourtLineupRepoDep,
+    PerfectSeasonLeaderboardRepoDep,
+    PerfectSeasonSavedRunRepoDep,
+    ProfileRepoDep,
+)
 from app.models.perfect_season import (
     CancelSelectionRequest,
     CompleteGameRequest,
     CourtBuilderCoverageSummary,
     CourtBuilderReadinessResponse,
     CreatePerfectSeasonGameRequest,
+    DailyChallengeResponse,
     LeaderboardResponse,
     MyRunsResponse,
     PerfectSeasonRunPublic,
+    PersonalBestsPublic,
     PlaceCardRequest,
     PublicCourtStateResponse,
     RespinRequest,
+    SavedRunPublic,
+    SavedRunsResponse,
+    SaveRunRequest,
+    SaveRunResponse,
     SelectPlayerRequest,
     SubmitRunRequest,
 )
 from app.repositories.leaderboard_protocols import DuplicateRunSubmission, PerfectSeasonRun
+from app.repositories.saved_run_protocols import PersonalBests, SavedRun
+from app.repositories.saved_run_ranking import compare_to_previous_best
 from app.services.perfect_season import state as state_machine
 from app.services.perfect_season.state import CourtError
 from nba_peak.perfect_season.assets import get_team_logo_url_by_name
 from nba_peak.perfect_season.board import coverage_summary, experimental_team_year_summary, interim_team_summary
 from nba_peak.perfect_season.config import SLOT_TYPES, SUPPORTED_MODES
+from nba_peak.perfect_season.daily import (
+    DAILY_BOARD_TYPE,
+    FREE_PLAY_BOARD_TYPE,
+    InvalidChallengeDate,
+    daily_challenge_descriptor,
+    today_utc_date,
+    validate_challenge_date,
+)
 from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME, resolve_player_season_card
 from nba_peak.perfect_season.simulation import compute_exact_fit_components, simulate_exact_season
 from pydantic import BaseModel
@@ -162,13 +183,23 @@ async def create_game(
             detail={"error_code": "invalid_mode", "message": f"Unknown mode '{body.mode}'"},
         )
 
+    if body.challenge_kind not in ("free_play", "daily"):
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "invalid_challenge_kind", "message": f"Unknown challenge_kind '{body.challenge_kind}'"},
+        )
+
     try:
         game_state = state_machine.create_perfect_season_game(
             mode=body.mode,
             seed=body.seed,
             team_spin_enabled=settings.COURTBUILDER_TEAM_SPIN_ENABLED,
             team_year_enabled=settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED,
+            board_type=DAILY_BOARD_TYPE if body.challenge_kind == "daily" else FREE_PLAY_BOARD_TYPE,
+            challenge_date=body.challenge_date,
         )
+    except InvalidChallengeDate as exc:
+        raise HTTPException(status_code=422, detail=_error_detail(exc, "invalid_challenge_date"))
     except (ValueError, RuntimeError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc, "board_error"))
 
@@ -410,19 +441,23 @@ async def submit_run(
 
     result = game_state.simulation_result
     team_year_board = game_state.board.experimental_team_year_data_version is not None
-    lineup_score_status = "complete"
-    if team_year_board:
-        all_scored = all(s.exact_player_season_key and _card_scored(s.exact_player_season_key) for s in game_state.slots)
-        lineup_score_status = "complete" if all_scored else "incomplete"
-        if lineup_score_status == "incomplete":
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error_code": "incomplete_score_not_eligible",
-                    "message": "This roster has one or more cards with no official PEAK3 score yet -- "
-                                "only fully-scored rosters can be submitted to the leaderboard.",
-                },
-            )
+    # Phase 9A: eligibility is decided by ONE shared helper
+    # (state_machine.compute_eligibility) that the public state also exposes,
+    # so this route can never accept a run the UI called ineligible (or
+    # reject one it called eligible). The rule is unchanged: a fully-scored
+    # roster is required for the official leaderboard.
+    eligibility = state_machine.compute_eligibility(game_state)
+    lineup_score_status = "complete" if state_machine.placed_cards_all_scored(game_state) else "incomplete"
+    if not eligibility["leaderboard_eligible"]:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "incomplete_score_not_eligible"
+                if eligibility["reason"] == state_machine.ELIGIBILITY_INCOMPLETE_SCORE
+                else eligibility["reason"],
+                "message": eligibility["reason_detail"],
+            },
+        )
 
     roster_card_keys = [
         s.exact_player_season_key or s.peak_window_id or "" for s in game_state.slots
@@ -493,6 +528,272 @@ async def get_my_runs(
     _require_leaderboard_enabled()
     runs = await leaderboard_repo.list_runs_for_owner(auth.sub)
     return MyRunsResponse(runs=[_run_to_public(r) for r in runs])
+
+
+# ---------------------------------------------------------------------------
+# Phase 9A: saved runs (private personal history) + personal bests.
+#
+# Deliberately NOT behind COURTBUILDER_LEADERBOARD_ENABLED: saving your own
+# completed run to your own history is core retention behavior, not an opt-in
+# competitive feature. It does always require a real signed-in account --
+# there is nowhere durable to attach an anonymous session's history, and
+# silently discarding a save would be worse than saying so (the route returns
+# 401 with a sign_in_required code the UI turns into a CTA).
+#
+# A PROVISIONAL run (unscored cards -> not leaderboard-eligible) IS savable.
+# See app/repositories/saved_run_protocols.py's module docstring for why
+# history and the leaderboard are separate stores with different rules.
+# ---------------------------------------------------------------------------
+
+def _saved_run_to_public(run: SavedRun) -> SavedRunPublic:
+    return SavedRunPublic(
+        id=run.id,
+        game_id=run.game_id,
+        mode=run.mode,
+        seed=run.seed,
+        wins=run.wins,
+        losses=run.losses,
+        lineup_score=run.lineup_score,
+        score_status=run.score_status,
+        exact_cards_scored=run.exact_cards_scored,
+        total_cards=run.total_cards,
+        leaderboard_eligible=run.leaderboard_eligible,
+        challenge_kind=run.challenge_kind,
+        challenge_date=run.challenge_date,
+        is_perfect_season=run.is_perfect_season,
+        team_respins_used=run.team_respins_used,
+        season_respins_used=run.season_respins_used,
+        roster=run.roster,
+        spin_history=run.spin_history,
+        peak_picks_matched=run.peak_picks_matched,
+        peak_picks_total=run.peak_picks_total,
+        data_version=run.data_version,
+        formula_version=run.formula_version,
+        simulation_version=run.simulation_version,
+        created_at=run.created_at.isoformat() if hasattr(run.created_at, "isoformat") else str(run.created_at),
+    )
+
+
+def _bests_to_public(bests: PersonalBests) -> PersonalBestsPublic:
+    return PersonalBestsPublic(
+        total_runs=bests.total_runs,
+        best_run=_saved_run_to_public(bests.best_run) if bests.best_run else None,
+        best_wins=bests.best_wins,
+        best_lineup_score=bests.best_lineup_score,
+        best_lineup_score_run=(
+            _saved_run_to_public(bests.best_lineup_score_run) if bests.best_lineup_score_run else None
+        ),
+        best_daily_run=_saved_run_to_public(bests.best_daily_run) if bests.best_daily_run else None,
+        perfect_season_count=bests.perfect_season_count,
+        recent_runs=[_saved_run_to_public(r) for r in bests.recent_runs],
+    )
+
+
+def _require_real_account(auth) -> None:
+    if auth.is_anonymous:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "sign_in_required",
+                "message": "Sign in with a real account to save runs and track personal bests.",
+            },
+        )
+
+
+def _roster_snapshot(game_state) -> list[dict]:
+    """The 8 placed cards, in slot order, as a durable display snapshot.
+
+    Stored rather than re-derived on read so a saved run's scorecard can
+    never silently change if card data or the simulator moves later -- a
+    personal best that quietly rewrites itself is not a record.
+    """
+    from nba_peak.perfect_season.exact_season import resolve_exact_card_by_key
+
+    snapshot: list[dict] = []
+    for slot in game_state.slots:
+        entry: dict = {"slot_type": slot.slot_type, "role_fit": slot.role_fit}
+        if slot.exact_player_season_key:
+            card = resolve_exact_card_by_key(slot.exact_player_season_key)
+            if card is not None:
+                entry.update({
+                    "player_name": card.player_name,
+                    "player_slug": card.player_slug,
+                    "team_name": card.team_name,
+                    "team_id": card.team_id,
+                    "season": card.season,
+                    "score": card.season_score,
+                    "score_status": card.score_status,
+                    "position": card.position,
+                })
+        elif slot.peak_window_id:
+            card = state_machine.resolve_card_by_window_id(game_state, slot.peak_window_id)
+            if card is not None:
+                entry.update({
+                    "player_name": card.player_name,
+                    "player_slug": card.player_slug,
+                    "season": card.anchor_season,
+                    "score": card.individual_peak_score,
+                    "score_status": "exact_season_scored",
+                })
+        snapshot.append(entry)
+    return snapshot
+
+
+@router.post("/perfect-season/games/{game_id}/save", response_model=SaveRunResponse)
+async def save_run(
+    game_id: str,
+    body: SaveRunRequest,
+    auth: RequiredAuth,
+    court_repo: CourtLineupRepoDep,
+    saved_run_repo: PerfectSeasonSavedRunRepoDep,
+) -> SaveRunResponse:
+    """Save a completed run to the signed-in owner's private history.
+
+    Every stored number is recomputed from the server-saved game state --
+    the request body carries nothing but which game to save.
+    """
+    _require_courtbuilder_enabled()
+    if body.game_id != game_id:
+        raise HTTPException(status_code=400, detail="game_id in body must match URL")
+    _require_real_account(auth)
+
+    game_state = await court_repo.get_lineup(game_id)
+    if game_state is None:
+        raise HTTPException(status_code=404, detail="Game not found or expired")
+    if game_state.owner_sub != auth.sub:
+        raise HTTPException(
+            status_code=403,
+            detail={"error_code": "not_your_game", "message": "This game belongs to a different account."},
+        )
+
+    eligibility = state_machine.compute_eligibility(game_state)
+    if not eligibility["savable"]:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "game_not_complete", "message": eligibility["reason_detail"]},
+        )
+
+    result = game_state.simulation_result
+    recap = result.peak_picks_recap or []
+    all_scored = state_machine.placed_cards_all_scored(game_state)
+    exact_cards_scored = sum(
+        1 for s in game_state.slots
+        if s.exact_player_season_key and _card_scored(s.exact_player_season_key)
+    ) if game_state.board.experimental_team_year_data_version is not None else len(game_state.slots)
+
+    # Personal bests BEFORE this save, so a first-ever run reads as
+    # "first run" and a repeat of your own best reads as "tied", not as a
+    # self-referential "new best".
+    previous_bests = await saved_run_repo.get_personal_bests(auth.sub)
+
+    candidate = SavedRun(
+        id="",
+        owner_sub=auth.sub,
+        game_id=game_id,
+        mode=game_state.mode,
+        seed=game_state.board.seed,
+        wins=result.wins,
+        losses=result.losses,
+        lineup_score=result.lineup_peak_score,
+        score_status="complete" if all_scored else "incomplete",
+        exact_cards_scored=exact_cards_scored,
+        total_cards=len(game_state.slots),
+        leaderboard_eligible=eligibility["leaderboard_eligible"],
+        challenge_kind=game_state.challenge_kind,
+        challenge_date=game_state.challenge_date,
+        is_perfect_season=result.is_perfect_season,
+        team_respins_used=sum(1 for h in game_state.respin_history if h.get("kind") == "team"),
+        season_respins_used=sum(1 for h in game_state.respin_history if h.get("kind") == "season"),
+        roster=_roster_snapshot(game_state),
+        spin_history=list(game_state.respin_history),
+        peak_picks_matched=sum(1 for r in recap if r.get("matched")) if recap else None,
+        peak_picks_total=len(recap) if recap else None,
+        data_version=game_state.board.experimental_team_year_data_version,
+        formula_version=game_state.board.metadata.get("formula_version"),
+        simulation_version=result.simulator_version,
+    )
+
+    already = await saved_run_repo.get_run_by_game_id(auth.sub, game_id)
+    saved = await saved_run_repo.save_run(candidate)
+    comparison = compare_to_previous_best(saved, previous_bests.best_run)
+    updated_bests = await saved_run_repo.get_personal_bests(auth.sub)
+
+    return SaveRunResponse(
+        saved_run=_saved_run_to_public(saved),
+        comparison=comparison,
+        already_saved=already is not None,
+        personal_bests=_bests_to_public(updated_bests),
+    )
+
+
+@router.get("/perfect-season/me/saved-runs", response_model=SavedRunsResponse)
+async def get_my_saved_runs(
+    auth: RequiredAuth,
+    saved_run_repo: PerfectSeasonSavedRunRepoDep,
+    limit: int = Query(25, ge=1, le=100),
+) -> SavedRunsResponse:
+    """This account's own run history + personal bests. Private: always
+    scoped to the authenticated owner, never listable for another user."""
+    _require_courtbuilder_enabled()
+    _require_real_account(auth)
+    runs = await saved_run_repo.list_runs_for_owner(auth.sub, limit=limit)
+    bests = await saved_run_repo.get_personal_bests(auth.sub)
+    return SavedRunsResponse(
+        runs=[_saved_run_to_public(r) for r in runs],
+        personal_bests=_bests_to_public(bests),
+    )
+
+
+@router.get("/perfect-season/me/personal-bests", response_model=PersonalBestsPublic)
+async def get_my_personal_bests(
+    auth: RequiredAuth,
+    saved_run_repo: PerfectSeasonSavedRunRepoDep,
+) -> PersonalBestsPublic:
+    _require_courtbuilder_enabled()
+    _require_real_account(auth)
+    return _bests_to_public(await saved_run_repo.get_personal_bests(auth.sub))
+
+
+# ---------------------------------------------------------------------------
+# Phase 9A: daily challenge descriptor. No auth REQUIRED (anonymous players
+# get the same shared board -- daily play is not gated on an account, only
+# saving/comparing is), but an authenticated caller additionally gets their
+# own attempt count for today.
+# ---------------------------------------------------------------------------
+
+@router.get("/perfect-season/daily", response_model=DailyChallengeResponse)
+async def get_daily_challenge(
+    auth: OptionalAuth,
+    saved_run_repo: PerfectSeasonSavedRunRepoDep,
+    mode: str = Query("apex_1y", description="apex_1y | prime_3y | foundation_5y"),
+    date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to today (UTC)"),
+) -> DailyChallengeResponse:
+    _require_courtbuilder_enabled()
+    if mode not in SUPPORTED_MODES:
+        raise HTTPException(
+            status_code=400, detail={"error_code": "invalid_mode", "message": f"Unknown mode '{mode}'"}
+        )
+    try:
+        challenge_date = validate_challenge_date(date or today_utc_date())
+    except InvalidChallengeDate as exc:
+        raise HTTPException(status_code=422, detail=_error_detail(exc, "invalid_challenge_date"))
+
+    descriptor = daily_challenge_descriptor(challenge_date, mode)
+
+    # Attempt tracking is RECORDED but not enforced as a hard block in this
+    # phase: the honest count is surfaced ("you've already played today") and
+    # the product decision about limiting replays is left for the next phase,
+    # when the daily leaderboard that would actually be distorted by replays
+    # exists. Anonymous callers have no durable identity to count against.
+    attempts_used = 0
+    if auth is not None and not auth.is_anonymous:
+        attempts_used = await saved_run_repo.count_daily_attempts(auth.sub, challenge_date, mode)
+
+    return DailyChallengeResponse(
+        **descriptor,
+        attempts_used=attempts_used,
+        already_played=attempts_used > 0,
+    )
 
 
 # ---------------------------------------------------------------------------
