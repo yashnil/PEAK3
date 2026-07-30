@@ -776,86 +776,74 @@ html, body {
     transparent 2px,
     transparent 16px
   );
-  animation: spin-reel-streak 0.4s linear infinite;
+  /* Phase 9B: the animation was removed. `background-position` is not a
+     compositable property, so this repainted both 128px wheel boxes for the
+     entire 2s spin, competing with the reel for main-thread budget (C7). The
+     static streak gradient carries the texture; the reel itself now supplies
+     all the motion. */
 }
 
-/* Phase 8H: rebuilt as a real VERTICAL slot reel (was a horizontal row
-   with only the center item animating) -- see SpinStage.tsx's ReelStrip
-   docstring for the full "why". Fixed height/overflow:hidden so it can
-   never cause page overflow regardless of label length, and so the
-   motion/react `layout` FLIP animation has a stable window to scroll
-   inside of. */
+/* ---------------------------------------------------------------------------
+   Phase 9B: the reel is a clipping WINDOW containing one pre-built strip that
+   is moved by a single composited transform. See SpinStage.tsx's ReelWindow
+   docstring for the full root-cause list this replaces.
+
+   `.spin-reel-strip` keeps its name (the e2e suite asserts on this class:
+   exactly 2 while spinning, 0 under reduced motion) but its MEANING changed
+   from "the flex column of rows" to "the clipping window".
+
+   Uniform row height is load-bearing: the old centered row was a different
+   font-size/padding than its siblings, so the column's height changed every
+   tick and re-centred underneath the animation (C2).
+   --------------------------------------------------------------------------- */
 .spin-reel-strip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
+  --row-h: 30px;
+  position: relative;
+  height: calc(var(--row-h) * 3);
   width: 100%;
-  height: 92px;
   overflow: hidden;
+  /* Isolate the strip's paint/layout from the rest of the card so a 100+ row
+     strip can never trigger layout work elsewhere on the page. */
+  contain: layout paint style;
 }
 
-/* Phase 8I: each row is now a logo + label pair (team reel only -- the
-   season/era reel never gets a logoUrls prop, so it just never renders the
-   `.spin-reel-strip-logo-wrap` span and reads exactly as before). */
-.spin-reel-strip-row {
+.spin-reel-track {
+  /* translate3d + will-change promote this to its own compositor layer, so the
+     transition runs off the main thread and survives a busy main thread (route
+     compile, hydration, image decode) -- which was the real cause of the
+     reported lag. */
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/* ONE static blur on ONE element while at speed -- replaces the old per-row
+   filter, which forced a rasterization pass on content that was simultaneously
+   being layout-animated and contained <img>s. Rasterized once, then
+   transformed for free. */
+.spin-reel-strip[data-stage="spinning"] .spin-reel-track {
+  filter: blur(1.1px);
+}
+
+.spin-reel-row {
+  height: var(--row-h);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  max-width: 100%;
-}
-
-.spin-reel-strip-label {
+  /* Uniform for EVERY row -- no active/inactive variants (C2). */
+  font-size: 13px;
+  font-weight: 700;
+  line-height: var(--row-h);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: center;
-  min-width: 0;
+  color: var(--text-secondary);
 }
 
-.spin-reel-strip-item .spin-reel-strip-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.spin-reel-strip-active .spin-reel-strip-label {
-  font-size: 16px;
-  font-weight: 800;
-  color: var(--text-primary);
-}
-
-/* Phase 8I: a "payline" highlight band behind the center row -- the row the
-   reel is actually pointing at, not just the biggest text -- tinted with
-   the currently-cycling team's own color (--reel-accent, already set on
-   the outer .spin-reel wrapper) for a touch more liveliness without adding
-   any new layout or a redesign. */
-.spin-reel-strip-active {
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--reel-accent, var(--peak-accent)) 14%, transparent),
-    transparent
-  );
-  border-radius: 8px;
-  padding: 3px 6px;
-  margin: 0 -6px;
-}
-
-/* Logo (or initials fallback) shown on every visible reel row while
-   spinning -- "team-branded while moving", not just after landing. The
-   fallback badge always renders; the real logo <img> sits on top of it and
-   simply hides itself via onError if the URL 404s or the asset gate is off,
-   so a missing logo degrades to the initials badge with no broken-image
-   flash and no extra render/state cost. */
-.spin-reel-strip-logo-wrap {
-  /* Must be a sized box, not the default inline `<span>` -- width/height
-     are no-ops on non-replaced inline elements, which was silently letting
-     the absolutely-positioned <img> inside fall back to its raw intrinsic
-     size (the source ESPN logos are 500x500) instead of the tiny reel
-     badge size set below. */
+.spin-reel-row-logo {
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   position: relative;
   border-radius: 999px;
@@ -863,32 +851,18 @@ html, body {
   flex-shrink: 0;
 }
 
-.spin-reel-strip-item .spin-reel-strip-logo-wrap {
-  width: 15px;
-  height: 15px;
-}
-
-.spin-reel-strip-active .spin-reel-strip-logo-wrap {
-  width: 24px;
-  height: 24px;
-}
-
-.spin-reel-strip-logo-fallback {
+.spin-reel-row-logo-fallback {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 8px;
+  font-size: 9px;
   line-height: 1;
 }
 
-.spin-reel-strip-active .spin-reel-strip-logo-fallback {
-  font-size: 10px;
-}
-
-.spin-reel-strip-logo-img {
+.spin-reel-row-logo-img {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -897,19 +871,23 @@ html, body {
   background: var(--bg-surface);
 }
 
-/* Blur/ghosting while the reel is at full speed -- eases off through
-   "medium" and clears entirely by "slow", so the strip visually settles in
-   stages before the lock snap rather than snapping from blurred to sharp in
-   one jump. Neutralized entirely under prefers-reduced-motion (that path
-   never mounts this element at all -- see SpinStage.tsx). */
-.spin-reel-strip[data-ramp="fast"] .spin-reel-strip-item,
-.spin-reel-strip[data-ramp="fast"] .spin-reel-strip-active {
-  filter: blur(0.6px);
-}
-
-.spin-reel-strip[data-ramp="medium"] .spin-reel-strip-item,
-.spin-reel-strip[data-ramp="medium"] .spin-reel-strip-active {
-  filter: blur(0.25px);
+/* The payline is a STATIC overlay on the window, never a class on the moving
+   row -- that separation is what allows uniform row heights. */
+.spin-reel-payline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: var(--row-h);
+  height: var(--row-h);
+  pointer-events: none;
+  border-top: 1px solid color-mix(in srgb, var(--peak-accent, #f5c842) 32%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--peak-accent, #f5c842) 32%, transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--reel-accent, var(--peak-accent, #f5c842)) 12%, transparent),
+    transparent
+  );
 }
 
 .spin-locked-stamp {

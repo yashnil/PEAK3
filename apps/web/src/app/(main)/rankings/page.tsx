@@ -1,412 +1,382 @@
 "use client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { getMethodology, getPeakWindowBoard, getSeasonBoard } from "@/lib/api";
+import type { Methodology, RankingBoardData, RankingBoardId, RankingRow } from "@/types";
+import RankingsTable, { ComponentLegend } from "@/components/rankings/RankingsTable";
+import ScoreExplainModal from "@/components/rankings/ScoreExplainModal";
+import {
+  DEFAULT_SORT_DIRECTION,
+  DEFAULT_SORT_KEY,
+  RANKING_COLUMNS,
+  hasComponents,
+  isDefaultSort,
+  sortRankingRows,
+  type RankingSortKey,
+  type SortDirection,
+} from "@/components/rankings/board-model";
 
-import { useState, useEffect } from "react";
-import { Search, ChevronLeft, ChevronRight } from "lucide-react";
-import { getLeaderboard, getPeaks } from "@/lib/api";
-import type { LeaderboardRow, LeaderboardResponse, PeaksResponse } from "@/types";
-import { cn } from "@/lib/utils";
-import Link from "next/link";
-import PlayerAvatar from "@/components/court/PlayerAvatar";
+/**
+ * PEAK3 Rankings.
+ *
+ * Phase 10B: reduced from THREE boards to TWO. "Canonical Players" answered the
+ * same question as Peak Windows -- "who had the best peak?", one row per player,
+ * just over a narrower universe -- so a reader had to diff two boards to tell
+ * them apart. Two boards that ask genuinely different questions is clearer:
+ *
+ *   Peak Windows   -- one row per player. "Who had the best peak?"
+ *   Single Seasons -- one row per season, repeats expected. "What are the best
+ *                     individual seasons ever?"
+ *
+ * The canonical 250-pool leaderboards are NOT removed from the product: the
+ * /api/v1/leaderboards route and its committed CSVs are untouched and the
+ * methodology page still documents them. This page just stops presenting a
+ * third, overlapping board.
+ *
+ * NOTE FOR FUTURE EDITORS: an existing e2e (gameplay.spec.ts) looks up a tab by
+ * /3.year|3-year/i with NO tablist scoping, so exactly ONE control on this page
+ * may match that wording. The window selector owns it ("1-Year"/"3-Year"/
+ * "5-Year"); no board tab or sort control may use that phrasing.
+ */
 
-const DURATION_OPTIONS = [1, 2, 3, 5] as const;
-const PEAK_WINDOW_OPTIONS = ["1y", "3y", "5y"] as const;
+const BOARDS: { id: RankingBoardId; label: string; blurb: string; testId: string }[] = [
+  {
+    id: "peakWindows",
+    label: "Peak Windows",
+    blurb:
+      "One row per player, at their single best consecutive stretch. Answers “who had the best peak?”",
+    testId: "pool-tab-peak-windows",
+  },
+  {
+    id: "seasons",
+    label: "Single Seasons",
+    blurb:
+      "Every scored season ranked on its own, so a player can appear many times. Answers “what are the best individual seasons ever?”",
+    testId: "pool-tab-seasons",
+  },
+];
+
+const WINDOW_OPTIONS: { id: "1y" | "3y" | "5y"; label: string }[] = [
+  { id: "1y", label: "1-Year" },
+  { id: "3y", label: "3-Year" },
+  { id: "5y", label: "5-Year" },
+];
+
 const PAGE_SIZE = 50;
 
-type Pool = "top250" | "top1000";
-
 export default function RankingsPage() {
-  const [pool, setPool] = useState<Pool>("top250");
-  const [years, setYears] = useState<1 | 2 | 3 | 5>(1);
+  const [board, setBoard] = useState<RankingBoardId>("peakWindows");
   const [peakWindow, setPeakWindow] = useState<"1y" | "3y" | "5y">("1y");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [data, setData] = useState<LeaderboardResponse | null>(null);
-  const [peaksData, setPeaksData] = useState<PeaksResponse | null>(null);
-  const [offset, setOffset] = useState(0);
+  const [data, setData] = useState<RankingBoardData | null>(null);
+  const [methodology, setMethodology] = useState<Methodology | null>(null);
+  const [visible, setVisible] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<RankingSortKey>(DEFAULT_SORT_KEY);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(DEFAULT_SORT_DIRECTION);
+  const [openRow, setOpenRow] = useState<RankingRow | null>(null);
 
-  // Debounce search
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search), 300);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => clearTimeout(t);
   }, [search]);
 
-  // Reset offset on filter change
+  // Component weights and long-form copy for the modal come from the real
+  // methodology endpoint -- never hardcoded in TS (project rule).
   useEffect(() => {
-    setOffset(0);
-  }, [years, debouncedSearch, pool]);
+    getMethodology()
+      .then(setMethodology)
+      .catch(() => setMethodology(null));
+  }, []);
 
-  // Load data (Top 250 canonical pool)
   useEffect(() => {
-    if (pool !== "top250") return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
-    getLeaderboard(years, {
-      limit: PAGE_SIZE,
-      offset,
-      search: debouncedSearch,
-    })
-      .then(setData)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [pool, years, offset, debouncedSearch]);
+    const request =
+      board === "peakWindows"
+        ? getPeakWindowBoard(peakWindow, { limit: 1000, search: debouncedSearch })
+        : getSeasonBoard({ limit: 1000, search: debouncedSearch });
 
-  // Load data (Top 1000 experimental, broader-universe peaks)
-  useEffect(() => {
-    if (pool !== "top1000") return;
-    setLoading(true);
-    setError(null);
-    getPeaks(peakWindow, { limit: 1000, search: debouncedSearch })
-      .then(setPeaksData)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
-  }, [pool, peakWindow, debouncedSearch]);
+    request
+      .then((result) => {
+        if (cancelled) return;
+        setData(result);
+        setVisible(PAGE_SIZE);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setData(null);
+          setError("Could not load rankings. Is the API running?");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [board, peakWindow, debouncedSearch]);
+
+  // Switching board resets sort: a component sort silently carried across
+  // boards would reorder a board the user has not looked at yet.
+  const selectBoard = useCallback((next: RankingBoardId) => {
+    setBoard(next);
+    setSortKey(DEFAULT_SORT_KEY);
+    setSortDirection(DEFAULT_SORT_DIRECTION);
+    setSearch("");
+    setDebouncedSearch("");
+  }, []);
+
+  const handleSort = useCallback((key: RankingSortKey) => {
+    setSortKey((prevKey) => {
+      const column = RANKING_COLUMNS.find((c) => c.key === key);
+      const initial = column?.initialDirection ?? "desc";
+      // Re-clicking the active column flips it; a new column starts at its own
+      // natural direction (rank ascends, every score descends).
+      setSortDirection((prevDirection) =>
+        prevKey === key ? (prevDirection === "asc" ? "desc" : "asc") : initial
+      );
+      return key;
+    });
+  }, []);
+
+  // Memoised so the `?? []` fallback doesn't mint a fresh array identity on
+  // every render and invalidate the sort memo below.
+  const rows = useMemo(() => data?.rows ?? [], [data]);
+  const showComponents = hasComponents(rows);
+  const sortedRows = useMemo(
+    () => sortRankingRows(rows, sortKey, sortDirection),
+    [rows, sortKey, sortDirection]
+  );
+  const shownRows = useMemo(() => sortedRows.slice(0, visible), [sortedRows, visible]);
+
+  const activeBoard = BOARDS.find((b) => b.id === board) ?? BOARDS[0];
+  const boardLabel =
+    board === "peakWindows"
+      ? `${WINDOW_OPTIONS.find((w) => w.id === peakWindow)?.label ?? peakWindow} Peak Windows`
+      : "Single Seasons";
+  const sortColumn = RANKING_COLUMNS.find((c) => c.key === sortKey);
+  const isSorted = !isDefaultSort(sortKey, sortDirection);
 
   return (
     <div className="min-h-screen px-4 py-8">
-      <div className="mx-auto max-w-5xl space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="font-display text-3xl font-bold">PEAK3 Rankings</h1>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">
-            {pool === "top250"
-              ? "Top 250 players by consecutive peak window."
-              : `Top ${peaksData?.total_available ?? 1000} players by consecutive peak window, across a broader ${peaksData?.universe_identity_count ?? ""}-player universe (experimental).`}{" "}
-            <Link href="/methodology" className="text-[var(--peak-accent)] underline">
-              Methodology →
-            </Link>
+      <div className="mx-auto max-w-5xl flex flex-col gap-5">
+        <header className="flex flex-col gap-1.5">
+          <h1 className="font-display text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+            PEAK3 Rankings
+          </h1>
+          <p className="text-sm max-w-2xl" style={{ color: "var(--text-secondary)" }}>
+            Every score below is the official PEAK3 formula. Select any row to see exactly how it
+            was built.
           </p>
-        </div>
+        </header>
 
-        {/* Pool toggle */}
-        <div className="flex gap-1 rounded-lg border border-[var(--border-default)] p-1 bg-[var(--bg-elevated)] w-fit" role="tablist" aria-label="Ranking pool">
-          <button
-            role="tab"
-            aria-selected={pool === "top250"}
-            data-testid="pool-tab-top250"
-            onClick={() => setPool("top250")}
-            className={cn(
-              "rounded-md px-4 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
-              pool === "top250"
-                ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            )}
+        {/* Board toggle. flex-wrap so a narrow viewport stacks instead of
+            overflowing -- an @mobile e2e asserts no horizontal page overflow. */}
+        <div className="flex flex-col gap-2">
+          <div
+            role="tablist"
+            aria-label="Ranking board"
+            className="flex flex-wrap gap-1.5 p-1 rounded-xl w-fit max-w-full"
+            style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
           >
-            Top 250 (canonical)
-          </button>
-          <button
-            role="tab"
-            aria-selected={pool === "top1000"}
-            data-testid="pool-tab-top1000"
-            onClick={() => setPool("top1000")}
-            className={cn(
-              "rounded-md px-4 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
-              pool === "top1000"
-                ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            )}
-          >
-            PEAK Index · Top 1000
-          </button>
-        </div>
-
-        {/* Controls */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          {/* Duration tabs */}
-          {pool === "top250" ? (
-            <div className="flex gap-1 rounded-lg border border-[var(--border-default)] p-1 bg-[var(--bg-elevated)]" role="tablist" aria-label="Peak window duration">
-              {DURATION_OPTIONS.map((y) => (
+            {BOARDS.map((b) => {
+              const active = b.id === board;
+              return (
                 <button
-                  key={y}
+                  key={b.id}
                   role="tab"
-                  aria-selected={years === y}
-                  onClick={() => setYears(y)}
-                  className={cn(
-                    "rounded-md px-4 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
-                    years === y
-                      ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                  )}
+                  aria-selected={active}
+                  data-testid={b.testId}
+                  onClick={() => selectBoard(b.id)}
+                  className="text-xs font-semibold uppercase tracking-wide rounded-lg px-3.5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  style={
+                    active
+                      ? { background: "var(--peak-accent, #f5c842)", color: "#000" }
+                      : { background: "transparent", color: "var(--text-secondary)" }
+                  }
                 >
-                  {y}-Year
+                  {b.label}
                 </button>
-              ))}
-            </div>
-          ) : (
-            <div className="flex gap-1 rounded-lg border border-[var(--border-default)] p-1 bg-[var(--bg-elevated)]" role="tablist" aria-label="Peak window duration">
-              {PEAK_WINDOW_OPTIONS.map((w) => (
-                <button
-                  key={w}
-                  role="tab"
-                  aria-selected={peakWindow === w}
-                  data-testid={`peak-window-tab-${w}`}
-                  onClick={() => setPeakWindow(w)}
-                  className={cn(
-                    "rounded-md px-4 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
-                    peakWindow === w
-                      ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                  )}
-                >
-                  {w.toUpperCase()} Peaks
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Search */}
-          <div className="relative flex-1">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
-              aria-hidden="true"
-            />
-            <input
-              type="search"
-              placeholder="Search players…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              aria-label="Search players"
-              className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] pl-8 pr-4 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-            />
+              );
+            })}
           </div>
+          <p
+            className="text-xs max-w-2xl"
+            style={{ color: "var(--text-muted)" }}
+            data-testid="pool-explainer"
+          >
+            {activeBoard.blurb}
+          </p>
         </div>
 
-        {pool === "top1000" && peaksData && (
-          <p className="text-xs text-[var(--text-muted)]" data-testid="peak-index-data-version">
-            Data version: {peaksData.dataset_version} · {peaksData.formula_version} · Coverage:{" "}
-            {peaksData.supported_start_season}–{peaksData.supported_end_season}
-          </p>
+        {/* Window duration -- Peak Windows only. */}
+        {board === "peakWindows" && (
+          <div role="tablist" aria-label="Peak window duration" className="flex flex-wrap gap-1.5">
+            {WINDOW_OPTIONS.map((w) => {
+              const active = w.id === peakWindow;
+              return (
+                <button
+                  key={w.id}
+                  role="tab"
+                  aria-selected={active}
+                  data-testid={`peak-window-tab-${w.id}`}
+                  onClick={() => setPeakWindow(w.id)}
+                  className="text-xs font-semibold rounded-full px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  style={
+                    active
+                      ? {
+                          background: "var(--peak-accent-bg, rgba(245,200,66,0.12))",
+                          color: "var(--peak-accent, #f5c842)",
+                          border: "1px solid var(--peak-accent-dim)",
+                        }
+                      : {
+                          background: "var(--bg-surface)",
+                          color: "var(--text-secondary)",
+                          border: "1px solid var(--border-subtle)",
+                        }
+                  }
+                >
+                  {w.label}
+                </button>
+              );
+            })}
+          </div>
         )}
 
-        {/* Table */}
-        {pool === "top1000" ? (
-          <div className="card-elevated overflow-hidden">
-            {loading && (
-              <div className="py-12 text-center text-sm text-[var(--text-muted)] animate-pulse" role="status">
-                Loading…
-              </div>
-            )}
-            {error && (
-              <div className="py-12 text-center text-sm text-[var(--incorrect)]" role="alert">
-                {error}
-              </div>
-            )}
-            {!loading && !error && peaksData && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm" data-testid="peak-index-table">
-                  <caption className="sr-only">PEAK3 Index -- top {peaksData.total_available} {peakWindow} peaks</caption>
-                  <thead>
-                    <tr className="border-b border-[var(--border-subtle)] text-left">
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider w-12">Rank</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Player</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Window</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider hidden sm:table-cell">Team</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider text-right">Score</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {peaksData.rows.map((row) => (
-                      <tr key={row.player_slug + row.window_label} className="border-b border-[var(--border-subtle)] hover:bg-[var(--bg-surface)] transition-colors" data-testid="peak-index-row">
-                        <td className="px-4 py-3 text-[var(--text-muted)] score-number font-medium">{row.rank}</td>
-                        <td className="px-4 py-3 font-medium text-[var(--text-primary)]">
-                          <div className="flex items-center gap-2">
-                            <PlayerAvatar name={row.player_name} size={24} imageUrl={row.headshot_url} />
-                            {row.player_name}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">{row.window_label}</td>
-                        <td className="px-4 py-3 text-[var(--text-secondary)] text-xs hidden sm:table-cell">{row.team ?? "—"}</td>
-                        <td className="px-4 py-3 text-right score-number font-bold text-[var(--peak-accent)]">{row.prime_score.toFixed(1)}</td>
-                      </tr>
-                    ))}
-                    {peaksData.rows.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-12 text-center text-sm text-[var(--text-muted)]">
-                          No players match &ldquo;{debouncedSearch}&rdquo;
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {!loading && !error && peaksData && peaksData.total_available < 1000 && !debouncedSearch && (
-              <p className="px-4 py-2 text-[11px]" style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border-subtle)" }} data-testid="peak-index-eligibility-note">
-                {peaksData.total_available.toLocaleString()} rows for {peakWindow.toUpperCase()} — this is the real count of
-                players with at least one eligible {peakWindow.replace("y", "")}-consecutive-season window in the data, not a
-                cap or a bug. Shorter windows (1Y) have more eligible players than longer ones (5Y needs 5 consecutive
-                qualifying seasons).
-              </p>
-            )}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={board === "seasons" ? "Search players or seasons…" : "Search players…"}
+            aria-label="Search rankings"
+            data-testid="rankings-search"
+            className="flex-1 rounded-lg px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            style={{
+              background: "var(--bg-surface)",
+              color: "var(--text-primary)",
+              border: "1px solid var(--border-default)",
+            }}
+          />
+          {isSorted && sortColumn && (
+            <div
+              className="flex items-center gap-2 text-xs shrink-0"
+              data-testid="active-sort-note"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              <span>
+                Sorted by{" "}
+                <strong style={{ color: "var(--peak-accent, #f5c842)" }}>{sortColumn.full}</strong>{" "}
+                {sortDirection === "desc" ? "high to low" : "low to high"}
+              </span>
+              <button
+                onClick={() => {
+                  setSortKey(DEFAULT_SORT_KEY);
+                  setSortDirection(DEFAULT_SORT_DIRECTION);
+                }}
+                data-testid="reset-sort-btn"
+                className="font-semibold uppercase tracking-wide rounded px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={{
+                  background: "var(--bg-surface)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border-default)",
+                }}
+              >
+                Reset
+              </button>
+            </div>
+          )}
+        </div>
+
+        {showComponents && <ComponentLegend />}
+
+        {error && (
+          <div
+            role="alert"
+            data-testid="rankings-error"
+            className="rounded-lg p-4 text-sm text-center"
+            style={{ background: "var(--bg-surface)", color: "#ef4444" }}
+          >
+            {error}
           </div>
-        ) : (
-        <div className="card-elevated overflow-hidden">
-          {loading && (
-            <div className="py-12 text-center text-sm text-[var(--text-muted)] animate-pulse" role="status">
-              Loading…
-            </div>
-          )}
-          {error && (
-            <div className="py-12 text-center text-sm text-[var(--incorrect)]" role="alert">
-              {error}
-            </div>
-          )}
-          {!loading && !error && data && (
-            <>
-              {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-sm">
-                  <caption className="sr-only">
-                    PEAK3 {years}-year peak rankings
-                  </caption>
-                  <thead>
-                    <tr className="border-b border-[var(--border-subtle)] text-left">
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider w-12">Rank</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Player</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider">Window</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider text-right">Score</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider text-right hidden lg:table-cell">SI</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider text-right hidden lg:table-cell">TP</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider text-right hidden lg:table-cell">Rec</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider text-right hidden lg:table-cell">PO</th>
-                      <th className="px-4 py-3 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider text-right hidden lg:table-cell">Team</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.rows.map((row) => (
-                      <LeaderboardTableRow key={row.id} row={row} />
-                    ))}
-                    {data.rows.length === 0 && (
-                      <tr>
-                        <td colSpan={9} className="px-4 py-12 text-center text-sm text-[var(--text-muted)]">
-                          No players match &ldquo;{debouncedSearch}&rdquo;
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+        )}
 
-              {/* Mobile list */}
-              <div className="md:hidden divide-y divide-[var(--border-subtle)]">
-                {data.rows.map((row) => (
-                  <MobileLeaderboardRow key={row.id} row={row} />
-                ))}
-                {data.rows.length === 0 && (
-                  <p className="py-12 text-center text-sm text-[var(--text-muted)]">
-                    No players match &ldquo;{debouncedSearch}&rdquo;
-                  </p>
-                )}
-              </div>
+        {loading && !data && (
+          <div
+            className="rounded-lg p-6 text-sm text-center"
+            style={{ background: "var(--bg-surface)", color: "var(--text-muted)" }}
+          >
+            Loading rankings…
+          </div>
+        )}
 
-              {/* Pagination */}
-              {data.total > PAGE_SIZE && (
-                <div className="border-t border-[var(--border-subtle)] px-4 py-3 flex items-center justify-between">
-                  <p className="text-xs text-[var(--text-muted)]">
-                    {offset + 1}–{Math.min(offset + PAGE_SIZE, data.total)} of {data.total}
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      disabled={offset === 0}
-                      onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-                      aria-label="Previous page"
-                      className="rounded p-1 text-[var(--text-secondary)] disabled:opacity-30 hover:bg-[var(--bg-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                    >
-                      <ChevronLeft size={16} />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={offset + PAGE_SIZE >= data.total}
-                      onClick={() => setOffset(offset + PAGE_SIZE)}
-                      aria-label="Next page"
-                      className="rounded p-1 text-[var(--text-secondary)] disabled:opacity-30 hover:bg-[var(--bg-surface)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                    >
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
-                </div>
+        {data && (
+          <>
+            <RankingsTable
+              rows={shownRows}
+              sortKey={sortKey}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              showComponents={showComponents}
+              onOpenRow={setOpenRow}
+              caption={`${boardLabel} — ranked by PEAK3 score. Select a row to see how the score was built.`}
+              emptyMessage={
+                debouncedSearch
+                  ? `No rows match “${debouncedSearch}”.`
+                  : "No rows available for this board."
+              }
+              labelHeading={board === "seasons" ? "Season" : "Window"}
+            />
+
+            {sortedRows.length > shownRows.length && (
+              <button
+                onClick={() => setVisible((v) => v + PAGE_SIZE)}
+                data-testid="rankings-show-more"
+                className="self-center text-xs font-semibold uppercase tracking-wide rounded px-4 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={{
+                  background: "var(--bg-surface)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border-default)",
+                }}
+              >
+                Show more ({shownRows.length} of {sortedRows.length})
+              </button>
+            )}
+
+            {/* Provenance, deliberately understated and last. */}
+            <div
+              className="flex flex-wrap gap-x-3 gap-y-1 text-[10px]"
+              style={{ color: "var(--text-muted)" }}
+              data-testid="rankings-provenance"
+            >
+              {data.meta.dataset_version && <span>{data.meta.dataset_version}</span>}
+              {data.meta.formula_version && <span>{data.meta.formula_version}</span>}
+              {data.meta.supported_start_season && data.meta.supported_end_season && (
+                <span>
+                  {data.meta.supported_start_season} to {data.meta.supported_end_season}
+                </span>
               )}
-            </>
-          )}
-        </div>
+              {data.meta.total_available != null && (
+                <span>{data.meta.total_available} rows served</span>
+              )}
+              {data.meta.serving_gate_note && <span>{data.meta.serving_gate_note}</span>}
+            </div>
+          </>
         )}
-
-        {/* Disclaimer */}
-        <p className="text-xs text-[var(--text-muted)] text-center">
-          Rankings reflect the PEAK3 formula. They are not a claim of objective historical truth.{" "}
-          <Link href="/methodology" className="text-[var(--peak-accent)] underline">
-            Learn about the methodology.
-          </Link>
-        </p>
       </div>
+
+      <ScoreExplainModal
+        row={openRow}
+        board={board}
+        boardLabel={boardLabel}
+        boardRowCount={data?.meta.total_available ?? rows.length}
+        populationNoun={board === "seasons" ? "scored seasons" : "peak windows"}
+        methodology={methodology}
+        onClose={() => setOpenRow(null)}
+      />
     </div>
-  );
-}
-
-function LeaderboardTableRow({ row }: { row: LeaderboardRow }) {
-  return (
-    <tr className="border-b border-[var(--border-subtle)] hover:bg-[var(--bg-surface)] transition-colors">
-      <td className="px-4 py-3 text-[var(--text-muted)] score-number font-medium">
-        {row.rank}
-      </td>
-      <td className="px-4 py-3">
-        <Link
-          href={`/players/${row.player_slug}`}
-          className="font-medium text-[var(--text-primary)] hover:text-[var(--peak-accent)] transition-colors"
-        >
-          {row.player_name}
-        </Link>
-      </td>
-      <td className="px-4 py-3 text-[var(--text-secondary)] text-xs">
-        {row.start_season === row.end_season
-          ? row.start_season
-          : `${row.start_season} – ${row.end_season}`}
-      </td>
-      <td className="px-4 py-3 text-right score-number font-bold text-[var(--peak-accent)]">
-        {row.prime_score.toFixed(1)}
-      </td>
-      <td className="px-4 py-3 text-right score-number text-xs text-[var(--text-muted)] hidden lg:table-cell" style={{ color: "var(--comp-si)" }}>
-        {row.components.statistical_impact.toFixed(1)}
-      </td>
-      <td className="px-4 py-3 text-right score-number text-xs text-[var(--text-muted)] hidden lg:table-cell" style={{ color: "var(--comp-tp)" }}>
-        {row.components.traditional_production.toFixed(1)}
-      </td>
-      <td className="px-4 py-3 text-right score-number text-xs text-[var(--text-muted)] hidden lg:table-cell" style={{ color: "var(--comp-rec)" }}>
-        {row.components.individual_recognition.toFixed(1)}
-      </td>
-      <td className="px-4 py-3 text-right score-number text-xs text-[var(--text-muted)] hidden lg:table-cell" style={{ color: "var(--comp-po)" }}>
-        {row.components.postseason_individual_value.toFixed(1)}
-      </td>
-      <td className="px-4 py-3 text-right score-number text-xs text-[var(--text-muted)] hidden lg:table-cell" style={{ color: "var(--comp-team)" }}>
-        {row.components.team_achievement.toFixed(1)}
-      </td>
-    </tr>
-  );
-}
-
-function MobileLeaderboardRow({ row }: { row: LeaderboardRow }) {
-  return (
-    <Link
-      href={`/players/${row.player_slug}`}
-      className="flex items-center gap-4 px-4 py-4 hover:bg-[var(--bg-surface)] transition-colors"
-    >
-      <span className="w-8 shrink-0 text-center text-sm font-medium text-[var(--text-muted)] score-number">
-        {row.rank}
-      </span>
-      <div className="flex-1 min-w-0">
-        <p className="font-medium text-[var(--text-primary)] truncate">{row.player_name}</p>
-        <p className="text-xs text-[var(--text-muted)]">
-          {row.start_season === row.end_season
-            ? row.start_season
-            : `${row.start_season} – ${row.end_season}`}
-        </p>
-      </div>
-      <span className="score-number text-lg font-bold text-[var(--peak-accent)]">
-        {row.prime_score.toFixed(1)}
-      </span>
-    </Link>
   );
 }

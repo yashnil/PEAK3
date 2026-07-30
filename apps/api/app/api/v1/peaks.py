@@ -10,13 +10,23 @@ here (CLAUDE.md: never calculate PEAK3 scores outside the Python model).
 Deliberately separate from /api/v1/leaderboards (the canonical 250-pool
 route) -- this is an experimental, broader-population surface, and must stay
 labeled as such rather than presented as replacing the canonical rankings.
+
+Two routes, on purpose (identical split to /api/v1/seasons):
+  GET /peaks?window=1y|3y|5y     -> lean rows for the ranked table
+  GET /peaks/{row_id}/explain    -> the heavy per-window breakdown
+Before Phase 9C this board published NO component data at all, so the
+explainability modal rendered "Not available for this view" for the entire
+breakdown even though nba_peak.leaderboards.build_leaderboard had already
+computed every official contribution. The generator now carries them through;
+the explain blocks are ~18 MB in aggregate and are therefore served only by the
+per-row route, never with the table.
 """
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -60,6 +70,35 @@ class PeakRow(BaseModel):
     team: Optional[str] = None
     prime_score: float
     data_completeness: str
+    # Phase 9B: the anchor season's real minutes per game. The generator
+    # (scripts/build_top_peaks.py) only publishes windows whose anchor season
+    # clears MIN_SERVED_ANCHOR_MPG, and it writes this field so the value is
+    # inspectable rather than an invisible precondition -- without declaring it
+    # here Pydantic silently dropped it, leaving the explainability modal to
+    # state the gate as a generic footnote instead of showing the row's actual
+    # minutes. Optional because an older generated artifact won't carry it.
+    anchor_season_mpg: Optional[float] = None
+    # ------------------------------------------------------------------ 9C ---
+    # The shared two-board rankings contract. Every field is Optional with a
+    # default so an OLDER generated artifact (one built before
+    # scripts/build_top_peaks.py started carrying these through) still
+    # validates and simply renders as "not available" rather than 500ing.
+    #
+    # `row_id` keys the explain route; `label` is the human window span
+    # ("1988-89 to 1990-91") next to the generator's compact `window_label`.
+    row_id: Optional[str] = None
+    label: Optional[str] = None
+    window: Optional[str] = None
+    mpg: Optional[float] = None
+    prime_index: Optional[float] = None
+    # The five OFFICIAL weighted contributions, straight from
+    # build_leaderboard's own decomposition -- the thing this board used to drop
+    # on the floor. Nothing is computed here.
+    components: Optional[dict[str, Optional[float]]] = None
+    # 0-100 rank of each contribution, plus the total, within this duration's
+    # served population. A rank of official numbers, never a new score.
+    percentiles: Optional[dict[str, Optional[float]]] = None
+    season_in_progress: bool = False
     # Phase 6E Part B: asset-manifest schema readiness -- always None today.
     headshot_url: Optional[str] = None
 
@@ -73,7 +112,25 @@ class PeaksResponse(BaseModel):
     supported_end_season: str
     universe_identity_count: int
     total_available: int
+    # Surfaced so the UI can state the minutes floor as a caveat rather than
+    # implying the board is unfiltered. Optional: an older artifact lacks them.
+    min_anchor_season_mpg: Optional[float] = None
+    excluded_low_minute_windows: Optional[int] = None
+    serving_gate_note: Optional[str] = None
     rows: list[PeakRow]
+
+
+class PeakExplainResponse(BaseModel):
+    """Intentionally loose, exactly like SeasonExplainResponse: the explain block
+    is a nested, evolving diagnostic payload generated from real parquet columns
+    and from build_leaderboard's own component decomposition, and pinning every
+    nested field here would mean re-typing model internals in the API layer. The
+    route's contract is "the generated explain block for this row_id, verbatim"
+    -- the frontend renders only the fields it recognises and shows "not
+    available" for anything absent rather than substituting a value."""
+
+    row_id: str
+    explain: dict[str, Any]
 
 
 @router.get("/peaks", response_model=PeaksResponse)
@@ -114,5 +171,27 @@ async def get_peaks(
         supported_end_season=data["supported_end_season"],
         universe_identity_count=data["universe_identity_count"],
         total_available=total_available,
+        min_anchor_season_mpg=bucket.get("min_anchor_season_mpg"),
+        excluded_low_minute_windows=bucket.get("excluded_low_minute_windows"),
+        serving_gate_note=data.get("serving_gate_note"),
         rows=[PeakRow(**r) for r in rows],
     )
+
+
+@router.get("/peaks/{row_id}/explain", response_model=PeakExplainResponse)
+async def get_peak_explain(row_id: str) -> PeakExplainResponse:
+    """The per-row breakdown, fetched on modal open rather than shipped with the
+    table. Keyed by row_id ({player_slug}-{n}yr-{anchor_season}), which embeds
+    the duration, so ONE route serves the 1Y, 3Y and 5Y boards and a comparison
+    entry can pivot the modal across durations."""
+    data = _load()
+    block = (data.get("explain") or {}).get(row_id)
+    if block is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error_code": "peak_row_not_found",
+                "message": f"No served peak window with id '{row_id}'",
+            },
+        )
+    return PeakExplainResponse(row_id=row_id, explain=block)

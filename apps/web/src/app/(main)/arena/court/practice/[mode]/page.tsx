@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import CourtBuilder from "@/components/court/CourtBuilder";
+import PeakSeasonStartGate from "@/components/court/PeakSeasonStartGate";
 import { CourtMode } from "@/types/perfect-season";
-import { createCourtGame, getCourtBuilderReadiness } from "@/lib/perfect-season-api";
+import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 
 const VALID_MODES: CourtMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
 
@@ -17,62 +17,44 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+/**
+ * Phase 9B: this route NO LONGER creates a game.
+ *
+ * It used to call createCourtGame() right here in the server component -- so
+ * merely following the "Try 82-0" CTA created a run and started the spin
+ * ceremony before the user had agreed to anything. Now the route only fetches
+ * the readiness catalog (the franchise/season pools the reels need) and hands
+ * it to PeakSeasonStartGate, which creates the game on an explicit click. See
+ * that component's docstring for the full rationale.
+ *
+ * Side benefit of moving creation out of the server component: readiness is a
+ * safe no-auth diagnostic, so a readiness failure no longer blocks the page
+ * from rendering at all (the reels just fall back to their own defaults) --
+ * the old version returned a full-page error if game creation threw.
+ */
 export default async function CourtBuilderPracticePage({ params, searchParams }: Props) {
   const { mode } = await params;
   const sp = await searchParams;
   if (!VALID_MODES.includes(mode as CourtMode)) notFound();
 
-  const seed = sp.seed ? parseInt(sp.seed, 10) : undefined;
-
-  let gameState;
-  let franchiseNames: string[] = [];
-  let seasonLabels: string[] = [];
-  let rollableTeamSeasonCount = 0;
-  let supportedStartSeason: string | null = null;
-  let supportedEndSeason: string | null = null;
-  let teamLogoUrls: Record<string, string> = {};
-  try {
-    // Fetched in parallel: the game itself, and the readiness catalog's
-    // franchise-name/season-label lists, which the spin ceremony's reels
-    // cycle through for visual variety (see SpinStage -- always the true
-    // resolvable set, never a broader decorative list). When the Phase 6A
-    // team+year engine is enabled, the team reel's pool comes from the
-    // experimental team-year dataset instead of the decade dataset, since
-    // that's the actual resolvable set for this board.
-    const [game, readiness] = await Promise.all([
-      createCourtGame(mode as CourtMode, seed),
-      getCourtBuilderReadiness().catch(() => null),
-    ]);
-    gameState = game;
-    franchiseNames = readiness?.team_year_enabled
-      ? (readiness?.experimental_team_year_franchise_names ?? [])
-      : (readiness?.interim_team_franchise_names ?? []);
-    seasonLabels = readiness?.experimental_team_year_season_labels ?? [];
-    rollableTeamSeasonCount = readiness?.rollable_team_season_count ?? 0;
-    supportedStartSeason = readiness?.supported_start_season ?? null;
-    supportedEndSeason = readiness?.supported_end_season ?? null;
-    teamLogoUrls = readiness?.team_logo_urls ?? {};
-  } catch (err) {
-    const message =
-      err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "courtbuilder_not_enabled"
-        ? "82-0 Peak Season is not enabled in this environment yet."
-        : "Could not create a CourtBuilder board. Is the API running?";
-    return (
-      <div className="mx-auto max-w-lg px-4 py-16 text-center">
-        <p style={{ color: "#ef4444" }}>{message}</p>
-      </div>
-    );
-  }
+  const parsedSeed = sp.seed ? parseInt(sp.seed, 10) : NaN;
+  const readiness = await getCourtBuilderReadiness().catch(() => null);
+  const franchiseNames = readiness?.team_year_enabled
+    ? (readiness?.experimental_team_year_franchise_names ?? [])
+    : (readiness?.interim_team_franchise_names ?? []);
 
   return (
-    <CourtBuilder
-      initialGameState={gameState}
+    <PeakSeasonStartGate
+      mode={mode as CourtMode}
+      challengeKind="free_play"
+      seed={Number.isFinite(parsedSeed) ? parsedSeed : undefined}
+      resumeGameId={sp.game}
       franchiseNames={franchiseNames}
-      seasonLabels={seasonLabels}
-      rollableTeamSeasonCount={rollableTeamSeasonCount}
-      supportedStartSeason={supportedStartSeason}
-      supportedEndSeason={supportedEndSeason}
-      teamLogoUrls={teamLogoUrls}
+      seasonLabels={readiness?.experimental_team_year_season_labels ?? []}
+      rollableTeamSeasonCount={readiness?.rollable_team_season_count ?? 0}
+      supportedStartSeason={readiness?.supported_start_season ?? null}
+      supportedEndSeason={readiness?.supported_end_season ?? null}
+      teamLogoUrls={readiness?.team_logo_urls ?? {}}
     />
   );
 }

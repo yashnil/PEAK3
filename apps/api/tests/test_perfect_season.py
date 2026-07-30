@@ -258,7 +258,10 @@ def test_classify_fit_archetype_fallback_for_starter_slots(archetype, slot, expe
 @pytest.mark.parametrize("archetype", ["lead_creator", "guard_wing", "wing_forward", "forward_big", "anchor", None])
 @pytest.mark.parametrize("slot", BENCH_SLOT_TYPES)
 def test_bench_slots_are_always_flexible_regardless_of_archetype(archetype, slot):
-    assert classify_fit(None, archetype, slot) == "flexible"
+    # Phase 9B: the token is "bench" (the SLOT is unrestricted), not
+    # "flexible" (which read as a claim about the player). Same meaning, same
+    # 0.0 fit points -- bench slots are excluded from positional_fit entirely.
+    assert classify_fit(None, archetype, slot) == "bench"
 
 
 # ---------------------------------------------------------------------------
@@ -348,17 +351,23 @@ def test_off_position_placement_is_never_blocked(client: TestClient):
     placed = _place(client, game_id, "PG")
     pg_slot = next(s for s in placed["slots"] if s["slot_type"] == "PG")
     assert pg_slot["filled"] is True
-    assert pg_slot["role_fit"] in ("primary", "secondary", "off_position")
+    assert pg_slot["role_fit"] in ("primary", "natural", "secondary", "off_position")
 
 
 def test_role_fit_present_once_slot_filled(client: TestClient):
     final_state = _play_full_game(client, mode="apex_1y", seed=42, slot_order=SLOT_TYPES)
     for slot in final_state["slots"]:
         assert slot["filled"] is True
-        assert slot["role_fit"] in ("primary", "secondary", "off_position", "flexible")
+        # Phase 9B renamed the non-primary tiers: "natural" (the player really
+        # played this position -- career_positions.py) replaced the
+        # never-reachable "secondary" as the live second tier, and bench slots
+        # say "bench" rather than "flexible" ("flexible" read as a claim about
+        # the PLAYER; the point is that the SLOT has no position restriction).
+        # The old tokens stay accepted on the wire for already-saved runs.
+        assert slot["role_fit"] in ("primary", "natural", "secondary", "off_position", "bench")
     for slot_type in BENCH_SLOT_TYPES:
         bench_slot = next(s for s in final_state["slots"] if s["slot_type"] == slot_type)
-        assert bench_slot["role_fit"] == "flexible"
+        assert bench_slot["role_fit"] == "bench"
 
 
 # ---------------------------------------------------------------------------
@@ -3137,13 +3146,21 @@ def test_sf_pf_swap_is_mild_not_the_dominant_weakness_when_components_are_health
 
 def test_flexible_forward_slugs_never_classified_off_position_between_sf_pf():
     """Named elite/big wings (LeBron, KD, Bird, Giannis, Kawhi, Tatum, PG,
-    Dr. J, Carmelo) get 'secondary' fit for a real-season SF<->PF swap --
-    never 'off_position', regardless of which forward slot that season's
-    real position lists."""
+    Dr. J, Carmelo) get a valid (never 'off_position') fit for a real-season
+    SF<->PF swap, regardless of which forward slot that season's real
+    position lists.
+
+    Phase 9B: the token is now 'natural' rather than 'secondary'. The
+    hardcoded FLEXIBLE_FORWARD_SLUGS branch in classify_fit_from_position is
+    gone -- career_positions.py unions {SF, PF} into these players' derived
+    career sets, so the same guarantee now comes from the general
+    "did they really play there?" rule instead of a name-list special case.
+    The list itself is still required, because Kawhi's per-season listings
+    derive only {SF} and Dr. J's only {SF, SG}."""
     from nba_peak.perfect_season.positions import classify_fit_from_position, FLEXIBLE_FORWARD_SLUGS
     for slug in FLEXIBLE_FORWARD_SLUGS:
-        assert classify_fit_from_position("SF", "PF", slug) == "secondary"
-        assert classify_fit_from_position("PF", "SF", slug) == "secondary"
+        assert classify_fit_from_position("SF", "PF", slug) == "natural"
+        assert classify_fit_from_position("PF", "SF", slug) == "natural"
     # A player NOT on the curated list still gets the general 'mild'
     # adjacency treatment (off_position, but only mild severity) -- the
     # curated list only ever makes things MORE lenient, never less.
@@ -4208,3 +4225,214 @@ def test_saved_runs_migration_has_owner_only_rls_and_no_public_read():
     # Idempotent + honest constraints.
     assert "UNIQUE (owner_sub, game_id)" in sql
     assert "perfect_season_saved_runs_daily_has_date" in sql
+
+
+# ---------------------------------------------------------------------------
+# Phase 9B: five UNIQUE 82-0-capable lineups.
+#
+# Product requirement: prove the simulation ceiling actually works for more
+# than one hand-tuned roster. These five are PAIRWISE FULLY DISJOINT across
+# all 8 cards (not just starters) -- verified by
+# test_elite_lineups_are_pairwise_disjoint below, so they can't be dismissed
+# as trivial one-player swaps of each other.
+#
+# Every card is a real, officially-scored exact player-season resolved from
+# cache/processed/scored_1980_2026.parquet (score_status ==
+# "exact_season_scored", score_source == "exact_team_stint" -- direct rows,
+# no traded-stint aggregates), and every 2025-26 season is deliberately
+# EXCLUDED so no in-progress partial season inflates a fixture.
+#
+# HONESTY NOTE, verified rather than assumed: none of these five depend on
+# the generational win FLOOR. Their raw pre-floor linear `base` values are
+# 85.1 / 91.6 / 83.4 / 84.9 / 86.6 -- all already >= 82, so min(82.0, base)
+# alone produces expected_wins == 82.0. The generational tier's only real
+# effect here is the tighter noise band (+/-1.0 instead of +/-2.5), which
+# lifts the worst case from 80-2 to 81-1. The 82 ceiling is earned by the
+# linear formula, not propped up by the floor.
+#
+# Pool-depth finding worth recording: only 66 player-seasons in the whole
+# scored dataset clear the 85.0 generational bar, held by just 26 unique
+# players -- and by real listed position that's PG 7 / SG 4 / SF 4 / PF 7 /
+# C 9 unique players. Five disjoint all-85+ starting fives would need 5 SGs
+# and 5 SFs, so at most FOUR can exist. That is why L1 uses Kobe (84.14) at
+# SG and L5 uses Barkley (82.89) at SF: both still clear the 4-starter
+# generational bar and both still reach 82 linearly.
+# ---------------------------------------------------------------------------
+
+# 4 starters >=85 (SGA 92.90, Giannis 91.28, Kawhi 87.84, Embiid 86.18)
+ELITE_L1_MODERN_MVP_CORE = [
+    ("shai-gilgeous-alexander", "OKC", "2024-25"),
+    ("kobe-bryant", "LAL", "2007-08"),
+    ("kawhi-leonard", "SAS", "2016-17"),
+    ("giannis-antetokounmpo", "MIL", "2019-20"),
+    ("joel-embiid", "PHI", "2022-23"),
+    ("jalen-williams", "OKC", "2024-25"),
+    ("khris-middleton", "MIL", "2019-20"),
+    ("clint-capela", "HOU", "2017-18"),
+]
+
+# 5 starters >=85 (Jordan 97.53, Magic 90.62, Hakeem 90.50, Bird 89.44, Malone 86.98)
+ELITE_L2_EIGHTIES_NINETIES_PANTHEON = [
+    ("magic-johnson", "LAL", "1986-87"),
+    ("michael-jordan", "CHI", "1990-91"),
+    ("larry-bird", "BOS", "1985-86"),
+    ("karl-malone", "UTA", "1996-97"),
+    ("hakeem-olajuwon", "HOU", "1993-94"),
+    ("scottie-pippen", "CHI", "1990-91"),
+    ("john-stockton", "UTA", "1996-97"),
+    ("kevin-mchale", "BOS", "1985-86"),
+]
+
+# 5 starters >=85 (Duncan 91.84, Durant 90.47, CP3 88.08, Robinson 88.08, Wade 85.35)
+ELITE_L3_SPURS_HEAT_OKC_AXIS = [
+    ("chris-paul", "NOH", "2007-08"),
+    ("dwyane-wade", "MIA", "2005-06"),
+    ("kevin-durant", "OKC", "2013-14"),
+    ("tim-duncan", "SAS", "2002-03"),
+    ("david-robinson", "SAS", "1994-95"),
+    ("serge-ibaka", "OKC", "2013-14"),
+    ("dennis-rodman", "SAS", "1994-95"),
+    ("alonzo-mourning", "MIA", "2005-06"),
+]
+
+# 5 starters >=85 (LeBron 95.85, Shaq 93.56, Garnett 89.33, Westbrook 85.84, McGrady 85.02)
+ELITE_L4_CLE_MIN_LAL = [
+    ("russell-westbrook", "OKC", "2016-17"),
+    ("tracy-mcgrady", "ORL", "2002-03"),
+    ("lebron-james", "CLE", "2008-09"),
+    ("kevin-garnett", "MIN", "2003-04"),
+    ("shaquille-o-neal", "LAL", "1999-00"),
+    ("sam-cassell", "MIN", "2003-04"),
+    ("mo-williams", "CLE", "2008-09"),
+    ("enes-freedom", "OKC", "2016-17"),
+]
+
+# 4 starters >=85 (Curry 93.90, Jokic 93.48, Kareem 89.26, Harden 88.79)
+ELITE_L5_WARRIORS_NUGGETS_THROWBACK = [
+    ("stephen-curry", "GSW", "2015-16"),
+    ("james-harden", "HOU", "2017-18"),
+    ("charles-barkley", "PHI", "1990-91"),
+    ("kareem-abdul-jabbar", "LAL", "1979-80"),
+    ("nikola-jokic", "DEN", "2022-23"),
+    ("draymond-green", "GSW", "2015-16"),
+    ("jamal-murray", "DEN", "2022-23"),
+    ("julius-erving", "PHI", "1982-83"),
+]
+
+ELITE_82_0_LINEUPS = {
+    "L1_modern_mvp_core": ELITE_L1_MODERN_MVP_CORE,
+    "L2_eighties_nineties_pantheon": ELITE_L2_EIGHTIES_NINETIES_PANTHEON,
+    "L3_spurs_heat_okc_axis": ELITE_L3_SPURS_HEAT_OKC_AXIS,
+    "L4_cle_min_lal": ELITE_L4_CLE_MIN_LAL,
+    "L5_warriors_nuggets_throwback": ELITE_L5_WARRIORS_NUGGETS_THROWBACK,
+}
+
+# A genuinely good roster of five all-star-caliber seasons with NO 85+ peak --
+# the negative control that keeps "elite" from meaning "anything decent".
+ORDINARY_CONTENDER_LINEUP_9B = [
+    ("gary-payton", "SEA", "1999-00"),
+    ("reggie-miller", "IND", "1993-94"),
+    ("vince-carter", "TOR", "2000-01"),
+    ("elton-brand", "LAC", "2005-06"),
+    ("patrick-ewing", "NYK", "1989-90"),
+    ("shawn-kemp", "SEA", "1995-96"),
+    ("detlef-schrempf", "SEA", "1994-95"),
+    ("dale-davis", "IND", "1993-94"),
+]
+
+
+@pytest.mark.parametrize("name", sorted(ELITE_82_0_LINEUPS))
+def test_five_unique_elite_lineups_every_card_is_real_and_officially_scored(name):
+    """No fabricated scores, no in-progress seasons, no traded-stint
+    aggregates -- every fixture card must be a direct, officially-scored
+    exact-season row."""
+    cards = _resolve_lineup(ELITE_82_0_LINEUPS[name])
+    assert len(cards) == 8
+    for card in cards:
+        assert card.score_status == "exact_season_scored", f"{card.player_name} {card.season} is unscored"
+        assert card.season_score is not None
+        assert card.score_source == "exact_team_stint", (
+            f"{card.player_name} {card.season} resolved via {card.score_source}, not a direct row"
+        )
+        assert card.season != "2025-26", "an in-progress season must never back an elite fixture"
+
+
+@pytest.mark.parametrize("name", sorted(ELITE_82_0_LINEUPS))
+def test_five_unique_elite_lineups_reach_82_0(name):
+    """The headline requirement: five distinct rosters each reach a perfect
+    season on the seeded simulation."""
+    cards = _resolve_lineup(ELITE_82_0_LINEUPS[name])
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins == 82, f"{name} expected 82-0 at seed 1, got {result.wins}-{result.losses}"
+    assert result.losses == 0
+    assert result.is_perfect_season is True
+    assert result.expected_wins == 82.0
+
+
+@pytest.mark.parametrize("name", sorted(ELITE_82_0_LINEUPS))
+@pytest.mark.parametrize("seed", [1, 7, 42, 99])
+def test_five_unique_elite_lineups_never_fall_below_81_across_seeds(name, seed):
+    """Seed robustness: the RNG noise band may cost a game, but an all-time
+    roster must never read as merely very good. (Measured over seeds 1-60 all
+    five stay within 81-82; these four seeds pin the contract.)"""
+    cards = _resolve_lineup(ELITE_82_0_LINEUPS[name])
+    result = simulate_exact_season(cards, board_seed=seed, slot_types=SLOT_TYPES)
+    assert 81 <= result.wins <= 82, f"{name} at seed {seed}: {result.wins}-{result.losses}"
+
+
+@pytest.mark.parametrize("name", sorted(ELITE_82_0_LINEUPS))
+def test_elite_lineups_earn_82_from_the_linear_formula_not_the_generational_floor(name):
+    """Honesty guard. The generational floor (81.0) must not be what makes
+    these rosters elite -- the linear `base` must already clear 82 on its own.
+    Recomputed here from the published component weights rather than trusting
+    the floor-clamped output."""
+    cards = _resolve_lineup(ELITE_82_0_LINEUPS[name])
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    base = 41.0 + (fit.talent_core - 50.0) * 1.0
+    base += (fit.bench_strength - 50.0) * 0.12
+    base += (fit.positional_fit - 50.0) * 0.08
+    base += (fit.creation_coverage - 50.0) * 0.05
+    base += (fit.scoring_coverage - 50.0) * 0.05
+    base += (fit.postseason_pedigree - 50.0) * 0.05
+    assert base >= 82.0, (
+        f"{name} only reaches 82 via the win floor (raw linear base={base:.2f}) -- "
+        "the fixture would be proving the floor, not the model"
+    )
+
+
+def test_elite_lineups_are_pairwise_disjoint():
+    """These must be five genuinely different rosters, not one roster with a
+    player swapped -- otherwise "five unique lineups" is a fiction."""
+    names = sorted(ELITE_82_0_LINEUPS)
+    slug_sets = {n: {slug for slug, _, _ in ELITE_82_0_LINEUPS[n]} for n in names}
+    for i, a in enumerate(names):
+        assert len(slug_sets[a]) == 8, f"{a} repeats a player within itself"
+        for b in names[i + 1:]:
+            overlap = slug_sets[a] & slug_sets[b]
+            assert overlap == set(), f"{a} and {b} share players: {sorted(overlap)}"
+
+
+def test_ordinary_contender_does_not_become_an_automatic_82():
+    """The other half of the contract: five all-star-caliber seasons with no
+    85+ peak must land as a strong-but-mortal team."""
+    cards = _resolve_lineup(ORDINARY_CONTENDER_LINEUP_9B)
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert _is_generational_core(cards) is False
+    assert 60 <= result.wins <= 75, f"expected a believable contender, got {result.wins}-{result.losses}"
+    assert result.is_perfect_season is False
+    assert fit.talent_core < 75
+
+
+def test_disaster_and_normal_bad_rosters_are_untouched_by_the_elite_fixtures():
+    """Regression: adding elite fixtures must not have lifted the bottom of
+    the scale. Re-asserts the existing floors from the opposite direction."""
+    normal = _resolve_lineup(NORMAL_BAD_LINEUP)
+    normal_result = simulate_exact_season(normal, board_seed=1, slot_types=SLOT_TYPES)
+    assert _is_catastrophe_roster(normal, compute_exact_fit_components(normal, SLOT_TYPES)) is False
+    assert 10 <= normal_result.wins <= 25
+
+    disaster = _resolve_lineup(DISASTER_LINEUP)
+    disaster_result = simulate_exact_season(disaster, board_seed=1, slot_types=SLOT_TYPES)
+    assert _is_catastrophe_roster(disaster, compute_exact_fit_components(disaster, SLOT_TYPES)) is True
+    assert disaster_result.wins < 15

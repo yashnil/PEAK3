@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { Lock } from "lucide-react";
 import { CurrentSpin, ERA_LABELS } from "@/types/perfect-season";
@@ -59,7 +59,28 @@ interface Props {
 }
 
 type CeremonyPhase = "spinning" | "locked" | "revealed";
-type RampStage = "fast" | "medium" | "slow";
+
+/** Phase 9B: a reel's animation stage.
+ *  armed     -> strip mounted at startIndex, no transition (one frame only)
+ *  spinning  -> long eased transition toward target + overshoot
+ *  settling  -> short back-eased rebound onto the exact target
+ *  done      -> strip UNMOUNTED, settled value rendered as plain text
+ * "done" must unmount the strip: the e2e suite reads
+ * `[data-testid="team-wheel"].innerText()`, which would otherwise return all
+ * ~140 strip labels instead of the landed team. */
+type ReelStage = "armed" | "spinning" | "settling" | "done";
+
+interface ReelRun {
+  strip: readonly string[];
+  targetIndex: number;
+  startIndex: number;
+  finalLabel: string;
+  stage: ReelStage;
+  spinMs: number;
+  settleMs: number;
+  /** Changes per spin/respin so a new run always remounts cleanly. */
+  runKey: string;
+}
 
 // Phase 8I: user playtest feedback was explicit -- "the spinner is still too
 // fast" / "should spend a little more time as a reveal event, but not
@@ -69,19 +90,94 @@ type RampStage = "fast" | "medium" | "slow";
 // "roughly 1.6-2.4s" guidance for the initial spin, LOCK_MS/COUNT_MS
 // unchanged (the landing beat was already reading as intentional; the
 // complaint was specifically about the reel itself feeling rushed).
-const SPIN_MS = 2000;
-const LOCK_MS = 400;
+const LOCK_MS = 350;
 const COUNT_MS = 300;
-// Three discrete stages instead of two (fast -> medium -> slow) spreads the
-// deceleration across more perceptible steps for a smoother spin-down feel,
-// while staying deterministic/trivially cancelable -- same reasoning as the
-// original two-stage design, just one more step given the longer SPIN_MS
-// budget now has room for it.
-const FAST_TICK_MS = 85;
-const MEDIUM_TICK_MS = 150;
-const SLOW_TICK_MS = 260;
-const RAMP_TO_MEDIUM_MS = Math.round(SPIN_MS * 0.4);
-const RAMP_TO_SLOW_MS = Math.round(SPIN_MS * 0.72);
+
+// ---------------------------------------------------------------------------
+// Phase 9B: continuous, GPU-composited reel motion.
+//
+// ROOT CAUSES this replaces (the reel was deterministic since Phase 8J but
+// still read as "laggy/glitchy, not a real wheel"):
+//
+//  C1, the dominant glitch: the old reel row carried BOTH `layout` and
+//      `style={{ transform: scale(...) }}`. motion/react drives `layout`
+//      (FLIP) by writing element.style.transform directly, so React's own
+//      per-tick commit wrote a scale()-only transform over the top of
+//      motion's in-flight translate -- every row teleported to its raw
+//      layout position for one frame, ~150 one-frame pops per spin.
+//  C2: `.spin-reel-strip-active` gave the centered row a different
+//      font-size/padding than its siblings, so row heights changed every
+//      tick and the centered flex column re-laid-out underneath the FLIP.
+//  C3: 85ms per row is ~12fps of perceived motion -- text swapping, not
+//      spinning.
+//  C4: three chained setIntervals swapped by setTimeouts left dead gaps of
+//      up to ~235ms and ~410ms at the ramp boundaries (two visible stalls).
+//  C5: `Math.min(t + 1, target)` reached the target with ticks to spare,
+//      then sat frozen for up to ~520ms before LOCKED -- read as a hang.
+//  C6: one interval callback advanced both reels, so they moved in perfect
+//      lockstep and stopped on the same frame; real reels never do.
+//  C7: per-tick accent recompute invalidated color-mix() box-shadow blurs,
+//      forcing a style recalc + repaint of both wheel boxes every 85ms.
+//  C9: the 5-entry decade pool equals the window size, so that reel never
+//      actually scrolled at all -- it shuffled.
+//
+// THE FIX: one `transform: translate3d()` transition per reel, on a single
+// pre-built strip element. Once the only animating property is a transform
+// and nothing in the subtree invalidates layout during the transition, the
+// animation runs on the COMPOSITOR thread -- so a busy main thread (Next
+// route compile, hydration, image decode) can no longer stall it, which was
+// the actual failure mode. It also drops React work during the spin from
+// ~15 full reconciliations to 4 state changes per reel.
+//
+// Deliberately NOT requestAnimationFrame: rAF would buy arbitrary easing but
+// schedules on the main thread, trading a compositor-driven animation for a
+// main-thread one to gain easing fidelity this doesn't need. Accelerate ->
+// glide -> settle is expressed by CHAINING two transitions instead.
+// ---------------------------------------------------------------------------
+
+/** Uniform row height. Uniform is load-bearing, not cosmetic: it is the C2
+ * fix. Every row is exactly this tall, and the payline is a static overlay on
+ * the window rather than a class on the moving row. */
+const ROW_H = 30;
+const WINDOW_ROWS = 3;
+const WINDOW_H = ROW_H * WINDOW_ROWS;
+/** Transform that puts strip row `i` under the centre payline. */
+const offsetForRow = (i: number) => -(i * ROW_H) + (WINDOW_H - ROW_H) / 2;
+
+/** Rows travelled per spin. CONSTANT for every roll, independent of pool
+ * size and of where the target happens to sit -- so every spin has the same
+ * duration and the same deceleration curve, with no "some rolls take longer"
+ * tell and no positional bias. 62 rows x 30px = 1860px of travel. */
+const TRAVEL_ROWS = 62;
+const TRAVEL_ROWS_RESPIN = 34;
+/** Hard guard on strip size (worst real case is ~141 rows for the 47-season
+ * pool; the 5-entry decade pool becomes 14 laps of real DOM rows, which is
+ * what fixes C9). */
+const MAX_STRIP_ROWS = 160;
+
+/** Phase 1: fast burst that decelerates hard. Verified against this curve --
+ * 19% of the time covers 48.5% of the distance (~95 rows/sec, a blurred
+ * burst), then 74% of the time has covered 97.4%, so the final ~1.6 rows
+ * creep past over the last ~430ms and individual team names are readable as
+ * they decelerate into the payline. */
+const SPIN_EASE = "cubic-bezier(0.22, 0.61, 0.36, 1)";
+const SPIN_TEAM_MS = 1650;
+/** Staggered on purpose -- this is the C6 fix. Two independent physical reels
+ * never stop on the same frame. */
+const SPIN_SEASON_MS = 1900;
+const SPIN_RESPIN_MS = 1050;
+/** Phase 2: a 0.3-row overshoot rebounding with a slight back-ease reads as a
+ * mechanical detent click rather than an abrupt stop. */
+const OVERSHOOT_ROWS = 0.3;
+const SETTLE_MS = 220;
+const SETTLE_RESPIN_MS = 200;
+const SETTLE_EASE = "cubic-bezier(0.34, 1.42, 0.64, 1)";
+/** transitionend is not delivered if the tab backgrounds mid-transition, so
+ * every stage also arms a timeout. Both paths are guarded on the current
+ * stage so they can never double-advance. */
+const TRANSITION_FALLBACK_MS = 120;
+/** Total ceremony: 1900 (slowest reel) + 220 settle + 350 lock + 300 count. */
+const SPIN_MS = SPIN_SEASON_MS + SETTLE_MS;
 // Reduced-motion still shows a real, discrete state machine (spinning ->
 // locked -> revealed) instead of one continuous cycling animation -- "simple
 // stepped reveal", not literally nothing -- but with near-zero delays so it
@@ -92,20 +188,9 @@ const REDUCED_MOTION_REVEAL_MS = 40;
 // real re-roll, target ~1.0-1.6s) -- still meaningfully shorter than the
 // first roll of a round (the player already knows what they're waiting
 // for), just no longer so short it barely registers as a reel scroll.
-const RESPIN_REROLL_MS = 1200;
-const RESPIN_RAMP_TO_SLOW_MS = Math.round(RESPIN_REROLL_MS * 0.55);
+const RESPIN_REROLL_MS = SPIN_RESPIN_MS + SETTLE_RESPIN_MS;
 
-// Phase 8J: fixed number of ticks the reel travels from start to landing,
-// for the initial spin and for a respin respectively. Chosen to sit safely
-// UNDER the number of ticks that naturally fire within SPIN_MS/
-// RESPIN_REROLL_MS at the fast/medium/slow cadence above (roughly 15 ticks
-// fire in a ~2000ms initial spin; roughly 10 fire in a ~1200ms respin) --
-// so in the overwhelming common case the reel reaches its target through
-// ordinary ticking, with 1-2 ticks of margin to spare, rather than relying
-// on the safety-net snap (see the ceremony effects below) to cover for
-// normal timer variance.
-const INITIAL_SPIN_TRAVEL_TICKS = 13;
-const RESPIN_TRAVEL_TICKS = 8;
+
 
 function prefersReducedMotion(): boolean {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
@@ -113,155 +198,188 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
- * Phase 8J: the deterministic reel target -- root-cause fix for "the reel
- * visually showed 2016-17, then the result became 1999-00". The OLD
- * ticking model just incremented a counter forever (`t => t + 1`, no
- * destination) while a completely separate `phase === "revealed"` branch
- * swapped in the real `spin.franchise_display_name`/`era_label` once the
- * ceremony's fixed timers ran out -- the ticking reel and the final result
- * were never the same computation, so nothing guaranteed they'd agree.
+ * Phase 9B: plan one reel spin as a REPEATED STRIP with the target row sitting
+ * deep inside it -- replacing Phase 8J's modular tick-counter arithmetic.
  *
- * This computes a target position for the ticking counter such that
- * `targetCumulative % pool.length === indexOf(target in pool)` EXACTLY --
- * i.e. the tick counter's own value, once it reaches targetCumulative, maps
- * to the real backend-selected string by construction, not by coincidence.
- * It always travels exactly `travelTicks` positions from start to target
- * (regardless of pool size or where the target falls in it), so the
- * ceremony's total duration stays fixed while still scrolling through
- * `travelTicks` distinct real pool entries before landing.
+ * Phase 8J made landing deterministic by construction
+ * (`targetCumulative % pool.length === indexOf(target)`), and that guarantee is
+ * PRESERVED here, just expressed geometrically instead of modularly:
+ * `strip[targetIndex] === target` is true by construction, so the row that
+ * geometrically comes to rest under the payline IS the backend-selected value.
+ * There is no separate "settled" computation that could disagree with it.
  *
- * If `target` isn't found in `pool` (should not normally happen -- the
- * readiness endpoint's pools are the true resolvable sets), the real target
- * is appended to a local copy of the pool rather than ever letting the reel
- * converge on a different, wrong value.
+ * Why a repeated strip rather than a modular window: a strip is a single static
+ * element that can be moved with one composited transform. The old model had to
+ * re-render a 5-row window on every tick to simulate motion, which is what made
+ * the reel main-thread-bound and janky.
+ *
+ * Exported for unit testing -- the invariants below are cheap to assert and are
+ * the whole correctness argument for the spinner, so they should not require a
+ * browser to verify.
  */
-function computeReelTarget(
+export function planReel(
   pool: readonly string[],
   target: string,
-  travelTicks: number,
-): { pool: readonly string[]; startCumulative: number; targetCumulative: number } {
-  let effectivePool: readonly string[] = pool;
-  let finalIndex = pool.indexOf(target);
-  if (finalIndex === -1) {
-    effectivePool = [...pool, target];
-    finalIndex = effectivePool.length - 1;
-  }
-  const poolLength = effectivePool.length;
-  if (poolLength <= 0) {
-    return { pool: effectivePool, startCumulative: 0, targetCumulative: 0 };
-  }
-  const laps = Math.ceil((travelTicks + 1) / poolLength);
-  const targetCumulative = finalIndex + poolLength * laps;
-  const startCumulative = targetCumulative - travelTicks;
-  return { pool: effectivePool, startCumulative, targetCumulative };
+  travel: number,
+): {
+  strip: readonly string[];
+  targetIndex: number;
+  startIndex: number;
+  finalLabel: string;
+} {
+  // Same defensive guarantee as Phase 8J: if the readiness pool somehow lacks
+  // the real backend value, append it rather than ever letting the reel come to
+  // rest on a different, wrong string.
+  const effective = pool.includes(target) ? [...pool] : [...pool, target];
+  const safePool = effective.length > 0 ? effective : [target];
+  const poolLength = safePool.length;
+  const finalPoolIndex = safePool.indexOf(target);
+
+  // Enough laps that the target can sit in the LAST repetition with a full
+  // window of real rows above it at t=0 (so the window is never partially
+  // empty, and the pre-spin row under the payline is not the answer).
+  const naturalRepeats = Math.max(3, Math.ceil((travel + WINDOW_ROWS + 1) / poolLength) + 1);
+  // Hard ceiling on DOM size. Reached only by a pathologically small pool
+  // (a 1-entry pool would otherwise want `travel + 4` repetitions); clamping
+  // costs nothing because a strip only needs to be long enough to contain the
+  // travel, and the target index is derived from the clamped value below so the
+  // landing guarantee is unaffected.
+  const repeats = Math.max(1, Math.min(naturalRepeats, Math.floor(MAX_STRIP_ROWS / poolLength) || 1));
+  const strip: string[] = Array.from(
+    { length: repeats * poolLength },
+    (_, i) => safePool[i % poolLength],
+  );
+  const targetIndex = (repeats - 1) * poolLength + finalPoolIndex;
+  return {
+    strip,
+    targetIndex,
+    // Constant travel distance for every spin -- see TRAVEL_ROWS.
+    startIndex: targetIndex - travel,
+    finalLabel: target,
+  };
 }
 
-/** A small horizontal strip of pool items centered on the current tick --
- * the visual "reel" (Phase 6G Part B: replaces the single centered
- * name-swap with something that actually looks like it's cycling through
- * many real options, proving broad team/season coverage rather than just
- * asserting it in a coverage-count line). Purely cosmetic: the ACTUAL
- * selection is always `spin.franchise_display_name`/`spin.era_label`,
- * already resolved server-side before this component ever mounts -- this
- * strip never drives or previews the real outcome, it only dresses up the
- * "spinning" phase. */
-/** Phase 8H: rebuilt as a real VERTICAL slot reel -- the single biggest
- * remaining gap from the "still doesn't feel like a real wheel" feedback.
- * The previous version only slid the CENTER item (a fade/pop swap); the
- * side items just sat at static offsets, so the strip as a whole never
- * read as one continuously-scrolling reel. This version keys every
- * visible item by its POOL INDEX (not its slot position) and lets
- * motion/react's `layout` prop do the actual sliding: when a tick shifts
- * every item up one slot, each element's key stays attached to the same
- * pool entry, so framer-motion computes a real FLIP position transition
- * for the whole column at once -- a genuine scroll, not five independent
- * animations pretending to be one. AnimatePresence handles the item that
- * scrolls off the top and the new one entering from the bottom.
+/** Phase 9B: one reel = one clipping window + one pre-built strip moved by a
+ * single composited transform.
  *
- * Known, accepted edge case: for a short pool (e.g. the 9-entry decade
- * ERA_LABELS list), a pool index can recur within one ~10-14-tick spin,
- * which very occasionally reorders instead of sliding for that one tick.
- * Harmless and rare -- never happens for the much larger team pool, and
- * the reduced-motion path (which never ticks at all) is unaffected. */
-function ReelStrip({
-  items,
-  activeIndex,
-  rampStage,
-  reduceMotion,
+ * The window keeps the class name `.spin-reel-strip` (its meaning changes from
+ * "the flex column of 5 rows" to "the clipping window") because the e2e suite
+ * asserts on that class: exactly 2 present while spinning, 0 under reduced
+ * motion. Documented here so the rename is not mistaken for a leftover.
+ *
+ * Every row is created ONCE per spin and never reconciled again -- which is
+ * what makes mid-animation logo pop-in structurally impossible (C-logos) and
+ * removes the per-tick React work entirely.
+ *
+ * `data-final-value` carries the backend value from t=0. That is correct, not a
+ * leak of future state: the value is already deterministic before the animation
+ * starts (the server picked it), and exposing it lets a test assert "the reel
+ * can never resolve to something else" without racing the animation. The
+ * on-screen answer is still hidden until the strip physically arrives, because
+ * the span is `hidden`. */
+function ReelWindow({
+  run,
   logoUrls,
+  failedLogos,
+  onLogoError,
+  windowTestId,
+  stripTestId,
   centerTestId,
+  onSettled,
 }: {
-  items: readonly string[];
-  activeIndex: number;
-  rampStage: RampStage;
-  reduceMotion: boolean;
-  /** Phase 8I: team name -> logo URL, team reel only -- the season/era reel
-   * simply never passes this, so it renders text-only exactly as before. */
+  run: ReelRun;
+  /** Team reel only -- the season/era reel never passes this and renders
+   * text-only, exactly as before. */
   logoUrls?: Record<string, string>;
-  /** Phase 8J: stable test id + data-final-value on the CENTER (payline)
-   * row only -- lets a test assert "whatever the reel is actually showing
-   * under the payline right now" without depending on animation timing or
-   * screenshots, and compare it directly against data-selected-team/
-   * data-selected-season on the wheel container (see SpinStage below). */
-  centerTestId?: string;
+  failedLogos: ReadonlySet<string>;
+  onLogoError: (url: string) => void;
+  windowTestId: string;
+  stripTestId: string;
+  centerTestId: string;
+  onSettled: () => void;
 }) {
-  const windowSize = 5;
-  const center = Math.floor(windowSize / 2);
-  const visible = Array.from({ length: windowSize }, (_, i) => {
-    const idx = ((activeIndex - center + i) % items.length + items.length) % items.length;
-    return { poolIndex: idx, label: items[idx], slot: i };
-  });
-  const tickDuration = rampStage === "fast" ? 0.075 : rampStage === "medium" ? 0.13 : 0.22;
+  const stripRef = useRef<HTMLDivElement | null>(null);
+
+  const restingIndex =
+    run.stage === "armed"
+      ? run.startIndex
+      : run.stage === "spinning"
+        ? run.targetIndex + OVERSHOOT_ROWS
+        : run.targetIndex;
+
+  const transition =
+    run.stage === "spinning"
+      ? `transform ${run.spinMs}ms ${SPIN_EASE}`
+      : run.stage === "settling"
+        ? `transform ${run.settleMs}ms ${SETTLE_EASE}`
+        : "none";
 
   return (
-    <div className="spin-reel-strip" data-phase="spinning" data-ramp={rampStage} aria-hidden="true">
-      <AnimatePresence initial={false} mode="popLayout">
-        {visible.map(({ poolIndex, label, slot }) => {
-          const distance = Math.abs(slot - center);
-          const isActive = slot === center;
+    <div
+      className="spin-reel-strip"
+      data-testid={windowTestId}
+      data-stage={run.stage}
+      data-phase="spinning"
+      aria-hidden="true"
+    >
+      <div
+        ref={stripRef}
+        className="spin-reel-track"
+        data-testid={stripTestId}
+        data-target-index={run.targetIndex}
+        data-row-count={run.strip.length}
+        style={{
+          transform: `translate3d(0, ${offsetForRow(restingIndex)}px, 0)`,
+          transition,
+        }}
+        onTransitionEnd={(e) => {
+          // Only the strip's own transform ends a stage -- not a descendant's
+          // opacity, and not a bubbled event from a logo.
+          if (e.propertyName !== "transform" || e.target !== stripRef.current) return;
+          onSettled();
+        }}
+      >
+        {run.strip.map((label, i) => {
           const colors = logoUrls ? getTeamColors(label) : null;
           const logoUrl = logoUrls?.[label];
+          const showLogo = !!logoUrl && !failedLogos.has(logoUrl);
           return (
-            <motion.div
-              key={poolIndex}
-              layout={!reduceMotion}
-              initial={reduceMotion ? false : { opacity: 0 }}
-              animate={{ opacity: Math.max(0.22, 1 - distance * 0.3) }}
-              exit={reduceMotion ? undefined : { opacity: 0 }}
-              transition={{ duration: reduceMotion ? 0 : tickDuration, ease: "easeOut" }}
-              className={`spin-reel-strip-row ${isActive ? "spin-reel-strip-active" : "spin-reel-strip-item"}`}
-              style={{ transform: reduceMotion ? undefined : `scale(${1 - distance * 0.14})` }}
-              data-testid={isActive ? centerTestId : undefined}
-              data-final-value={isActive ? label : undefined}
-            >
+            <div className="spin-reel-row" key={i} data-testid="reel-row" data-label={label}>
               {colors && (
-                <span className="spin-reel-strip-logo-wrap" aria-hidden="true">
+                <span className="spin-reel-row-logo" aria-hidden="true">
                   <span
                     data-testid="reel-logo-fallback"
-                    className="spin-reel-strip-logo-fallback"
+                    className="spin-reel-row-logo-fallback"
                     style={{ background: colors.primary, color: colors.secondary }}
                   >
                     {colors.initials}
                   </span>
-                  {logoUrl && (
+                  {showLogo && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       data-testid="reel-logo-img"
                       src={logoUrl}
                       alt=""
-                      className="spin-reel-strip-logo-img"
-                      onError={(e) => {
-                        e.currentTarget.style.display = "none";
-                      }}
+                      width={24}
+                      height={24}
+                      decoding="async"
+                      className="spin-reel-row-logo-img"
+                      // Declarative, so a known-bad URL renders no <img> on ANY
+                      // row and stays suppressed across rounds -- the old
+                      // imperative style.display="none" was lost on remount, so
+                      // a 404 logo re-fetched and re-failed every time.
+                      onError={() => onLogoError(logoUrl)}
                     />
                   )}
                 </span>
               )}
-              <span className="spin-reel-strip-label">{label}</span>
-            </motion.div>
+              <span className="spin-reel-row-label">{label}</span>
+            </div>
           );
         })}
-      </AnimatePresence>
+      </div>
+      <div className="spin-reel-payline" aria-hidden="true" />
+      <span data-testid={centerTestId} data-final-value={run.finalLabel} hidden />
     </div>
   );
 }
@@ -330,9 +448,12 @@ export default function SpinStage({
   // without racing a live transient render (see the "locked state" e2e
   // test's own comment for why that race is real, not just theoretical).
   const [wasLocked, setWasLocked] = useState(false);
-  const [rampStage, setRampStage] = useState<RampStage>("fast");
-  const [teamTick, setTeamTick] = useState(0);
-  const [secondTick, setSecondTick] = useState(0);
+  // Phase 9B: per-reel runs replace teamTick/secondTick/respinTick/rampStage/
+  // respinRampStage. Independent per reel, which is what allows the staggered
+  // landing (C6 fix).
+  const [teamRun, setTeamRun] = useState<ReelRun | null>(null);
+  const [seasonRun, setSeasonRun] = useState<ReelRun | null>(null);
+  const [failedLogos, setFailedLogos] = useState<ReadonlySet<string>>(() => new Set());
   const [logoFailed, setLogoFailed] = useState(false);
   const [justRespun, setJustRespun] = useState(false);
   // Phase 8 pre-loop polish: a respin previously only flashed the wheel
@@ -346,8 +467,6 @@ export default function SpinStage({
   // CourtBuilder.tsx's respin-controls gate), so this is a purely additive
   // overlay state, not a re-entry into the spinning/locked state machine.
   const [respinning, setRespinning] = useState(false);
-  const [respinTick, setRespinTick] = useState(0);
-  const [respinRampStage, setRespinRampStage] = useState<RampStage>("fast");
   const isTwoWheel = spin.spin_type !== "open_pool";
   const isTeamYear = spin.spin_type === "team_year";
   // Defensive fallback only -- every two-wheel spin (team_decade,
@@ -361,17 +480,9 @@ export default function SpinStage({
     : ERA_LABELS;
   const secondWheelLabel = isTeamYear ? "Season" : "Era";
 
-  // Phase 8J: the ACTUAL pool each ReelStrip renders from -- normally
-  // identical to teamPool/secondPool above, but computeReelTarget appends
-  // the real backend value if it was somehow missing from the readiness
-  // pool, so the reel is guaranteed to render from whatever pool its
-  // target index was actually computed against. Refs (not state) because
-  // they're only ever written at the start of a ceremony/respin effect,
-  // before any tick fires -- no render needs to be triggered by the write
-  // itself, only by the tick state updates that follow it.
-  const teamReelPoolRef = useRef<readonly string[]>(teamPool);
-  const secondReelPoolRef = useRef<readonly string[]>(secondPool);
-  const respinReelPoolRef = useRef<readonly string[]>([]);
+  const markLogoFailed = useCallback((url: string) => {
+    setFailedLogos((prev) => (prev.has(url) ? prev : new Set(prev).add(url)));
+  }, []);
 
   useEffect(() => {
     if (prefersReducedMotion()) {
@@ -387,75 +498,24 @@ export default function SpinStage({
         window.clearTimeout(t2);
       };
     }
-    let fastInterval: number | undefined;
-    let mediumInterval: number | undefined;
-    let slowInterval: number | undefined;
-    let rampToMediumTimer: number | undefined;
-    let rampToSlowTimer: number | undefined;
-    // Phase 8J: deterministic targets -- computed ONCE here, before any
-    // tick fires, from the real backend-selected spin.franchise_display_
-    // name/era_label. Every tick below clamps toward these exact values
-    // (never an unbounded counter), so the reel can only ever converge on
-    // the same result the parent will display once phase leaves
-    // "spinning" -- root-cause fix for the reel showing one team/season and
-    // the result becoming a different one.
-    let teamTarget = 0;
-    let secondTarget = 0;
+    // Phase 9B: plan both reels once, up front, from the real backend-selected
+    // values. Nothing about the animation can change where they land.
     if (isTwoWheel) {
-      const teamGoal = computeReelTarget(teamPool, spin.franchise_display_name ?? "", INITIAL_SPIN_TRAVEL_TICKS);
-      const secondGoal = computeReelTarget(secondPool, spin.era_label ?? "", INITIAL_SPIN_TRAVEL_TICKS);
-      teamReelPoolRef.current = teamGoal.pool;
-      secondReelPoolRef.current = secondGoal.pool;
-      teamTarget = teamGoal.targetCumulative;
-      secondTarget = secondGoal.targetCumulative;
-      setTeamTick(teamGoal.startCumulative);
-      setSecondTick(secondGoal.startCumulative);
-
-      fastInterval = window.setInterval(() => {
-        setTeamTick((t) => Math.min(t + 1, teamTarget));
-        setSecondTick((t) => Math.min(t + 1, secondTarget));
-      }, FAST_TICK_MS);
-      rampToMediumTimer = window.setTimeout(() => {
-        if (fastInterval) window.clearInterval(fastInterval);
-        setRampStage("medium");
-        mediumInterval = window.setInterval(() => {
-          setTeamTick((t) => Math.min(t + 1, teamTarget));
-          setSecondTick((t) => Math.min(t + 1, secondTarget));
-        }, MEDIUM_TICK_MS);
-      }, RAMP_TO_MEDIUM_MS);
-      rampToSlowTimer = window.setTimeout(() => {
-        if (mediumInterval) window.clearInterval(mediumInterval);
-        setRampStage("slow");
-        slowInterval = window.setInterval(() => {
-          setTeamTick((t) => Math.min(t + 1, teamTarget));
-          setSecondTick((t) => Math.min(t + 1, secondTarget));
-        }, SLOW_TICK_MS);
-      }, RAMP_TO_SLOW_MS);
+      const teamPlan = planReel(teamPool, spin.franchise_display_name ?? "", TRAVEL_ROWS);
+      const seasonPlan = planReel(secondPool, spin.era_label ?? "", TRAVEL_ROWS);
+      setTeamRun({ ...teamPlan, stage: "armed", spinMs: SPIN_TEAM_MS, settleMs: SETTLE_MS, runKey: `team:${roundNumber}` });
+      setSeasonRun({ ...seasonPlan, stage: "armed", spinMs: SPIN_SEASON_MS, settleMs: SETTLE_MS, runKey: `season:${roundNumber}` });
     }
     const t1 = window.setTimeout(() => {
-      if (fastInterval) window.clearInterval(fastInterval);
-      if (mediumInterval) window.clearInterval(mediumInterval);
-      if (slowInterval) window.clearInterval(slowInterval);
-      // Safety net only -- natural ticking is scheduled with margin to
-      // spare (see INITIAL_SPIN_TRAVEL_TICKS's own comment) so this should
-      // normally be a no-op, but it guarantees the reel can NEVER settle
-      // into "locked" short of (or past) the real target, regardless of
-      // real browser timer jitter.
-      if (isTwoWheel) {
-        setTeamTick(teamTarget);
-        setSecondTick(secondTarget);
-      }
+      // Phase 9B: no snap needed -- a reel's resting transform IS its target
+      // by construction (planReel), so there is nothing to correct for here.
+      // LOCK fires after the SLOWEST reel has settled (see SPIN_MS).
       setPhase("locked");
       setWasLocked(true);
     }, SPIN_MS);
     const t2 = window.setTimeout(() => setPhase("revealed"), SPIN_MS + LOCK_MS);
     const t3 = window.setTimeout(() => onRevealComplete?.(), SPIN_MS + LOCK_MS + COUNT_MS);
     return () => {
-      if (fastInterval) window.clearInterval(fastInterval);
-      if (mediumInterval) window.clearInterval(mediumInterval);
-      if (slowInterval) window.clearInterval(slowInterval);
-      if (rampToMediumTimer) window.clearTimeout(rampToMediumTimer);
-      if (rampToSlowTimer) window.clearTimeout(rampToSlowTimer);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
       window.clearTimeout(t3);
@@ -479,44 +539,28 @@ export default function SpinStage({
       return () => window.clearTimeout(t);
     }
     setRespinning(true);
-    setRespinRampStage("fast");
 
-    // Phase 8J: same deterministic-target model as the main ceremony
-    // effect. Only ONE axis ever ticks during a respin (the other renders
-    // its already-settled value, never mounting ReelStrip at all -- see
-    // teamIsTicking/seasonIsTicking below) so this only needs to resolve
-    // whichever pool/target respinKind currently points at.
+    // Phase 9B: only the respun AXIS gets a new run. The other reel stays at
+    // stage "done" with its settled value + locked badge, which is what keeps
+    // respins axis-locked (a team respin must never move the season reel).
     const respinPool = respinKind === "team" ? teamPool : secondPool;
     const respinTargetValue = respinKind === "team" ? (spin.franchise_display_name ?? "") : (spin.era_label ?? "");
-    const goal = computeReelTarget(respinPool, respinTargetValue, RESPIN_TRAVEL_TICKS);
-    respinReelPoolRef.current = goal.pool;
-    const respinTarget = goal.targetCumulative;
-    setRespinTick(goal.startCumulative);
+    const plan = planReel(respinPool, respinTargetValue, TRAVEL_ROWS_RESPIN);
+    const run: ReelRun = {
+      ...plan,
+      stage: "armed",
+      spinMs: SPIN_RESPIN_MS,
+      settleMs: SETTLE_RESPIN_MS,
+      runKey: `respin:${respinKind}:${respinFlashKey}`,
+    };
+    if (respinKind === "team") setTeamRun(run);
+    else setSeasonRun(run);
 
-    let fastInterval: number | undefined = window.setInterval(() => {
-      setRespinTick((t) => Math.min(t + 1, respinTarget));
-    }, FAST_TICK_MS);
-    let slowInterval: number | undefined;
-    const rampTimer = window.setTimeout(() => {
-      if (fastInterval) window.clearInterval(fastInterval);
-      fastInterval = undefined;
-      setRespinRampStage("slow");
-      slowInterval = window.setInterval(() => {
-        setRespinTick((t) => Math.min(t + 1, respinTarget));
-      }, SLOW_TICK_MS);
-    }, RESPIN_RAMP_TO_SLOW_MS);
     const t1 = window.setTimeout(() => {
-      if (fastInterval) window.clearInterval(fastInterval);
-      if (slowInterval) window.clearInterval(slowInterval);
-      // Safety net, same reasoning as the main ceremony effect above.
-      setRespinTick(respinTarget);
       setRespinning(false);
     }, RESPIN_REROLL_MS);
     const t2 = window.setTimeout(() => setJustRespun(false), RESPIN_REROLL_MS + 100);
     return () => {
-      window.clearTimeout(rampTimer);
-      if (fastInterval) window.clearInterval(fastInterval);
-      if (slowInterval) window.clearInterval(slowInterval);
       window.clearTimeout(t1);
       window.clearTimeout(t2);
     };
@@ -528,17 +572,86 @@ export default function SpinStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [respinFlashKey]);
 
+  // Phase 9B: advance a reel's stage machine. Called from the strip's own
+  // transitionend AND from a timeout fallback, so both are guarded on the
+  // current stage -- transitionend is not delivered if the tab backgrounds
+  // mid-transition, and a double-advance would skip the settle beat.
+  const advanceReel = useCallback((axis: "team" | "season") => {
+    const setter = axis === "team" ? setTeamRun : setSeasonRun;
+    setter((prev) => {
+      if (!prev) return prev;
+      if (prev.stage === "spinning") return { ...prev, stage: "settling" };
+      if (prev.stage === "settling") return { ...prev, stage: "done" };
+      return prev;
+    });
+  }, []);
+
+  // Two-frame arm. Setting the start and end transform in the same commit
+  // produces NO transition at all (the browser never observes the start value),
+  // so the strip is mounted at startIndex for one frame, then flipped to
+  // "spinning" on the next -- which is what actually starts the animation.
+  useEffect(() => {
+    const runs: Array<["team" | "season", ReelRun | null]> = [
+      ["team", teamRun],
+      ["season", seasonRun],
+    ];
+    const rafs: number[] = [];
+    const timers: number[] = [];
+    for (const [axis, run] of runs) {
+      if (!run) continue;
+      const setter = axis === "team" ? setTeamRun : setSeasonRun;
+      if (run.stage === "armed") {
+        const r1 = requestAnimationFrame(() => {
+          const r2 = requestAnimationFrame(() => {
+            setter((prev) => (prev && prev.stage === "armed" ? { ...prev, stage: "spinning" } : prev));
+          });
+          rafs.push(r2);
+        });
+        rafs.push(r1);
+      } else if (run.stage === "spinning" || run.stage === "settling") {
+        const budget = (run.stage === "spinning" ? run.spinMs : run.settleMs) + TRANSITION_FALLBACK_MS;
+        timers.push(window.setTimeout(() => advanceReel(axis), budget));
+      }
+    }
+    return () => {
+      rafs.forEach((r) => cancelAnimationFrame(r));
+      timers.forEach((t) => window.clearTimeout(t));
+    };
+    // Intentionally keyed on runKey+stage rather than the run OBJECTS: the
+    // effect must re-arm exactly when a reel starts a new spin or changes
+    // stage, and never merely because a new object identity was produced.
+    // Depending on the objects themselves would re-enter on every setter call
+    // and cancel the in-flight rAF/timeout that drives the very transition
+    // being scheduled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamRun?.runKey, teamRun?.stage, seasonRun?.runKey, seasonRun?.stage, advanceReel]);
+
   // Phase 8C: per-wheel ticking/locked state, replacing the single
   // combined `isTicking` both wheels shared before -- during the FIRST
   // roll of a round both wheels tick together (unchanged); during a
   // respin, only the respun axis ticks and the other renders locked.
-  const teamIsTicking = respinning ? respinKind === "team" : phase === "spinning";
-  const seasonIsTicking = respinning ? respinKind === "season" : phase === "spinning";
+  // Phase 9B: a reel is "ticking" while its OWN run is unfinished -- not while
+  // a shared `phase` says so. That is what lets the two reels land at different
+  // moments (C6) while each still hands off to its settled text the instant it
+  // personally arrives (C5: no dead freeze waiting for a shared timer).
+  const teamIsTicking = teamRun !== null && teamRun.stage !== "done";
+  const seasonIsTicking = seasonRun !== null && seasonRun.stage !== "done";
   const teamIsLocked = respinning && respinKind === "season";
   const seasonIsLocked = respinning && respinKind === "team";
-  const teamDisplayName = teamIsTicking ? teamPool[(respinning ? respinTick : teamTick) % teamPool.length] : spin.franchise_display_name ?? "Team-season unavailable";
-  const secondDisplay = seasonIsTicking ? secondPool[(respinning ? respinTick : secondTick) % secondPool.length] : spin.era_label ?? "";
-  const colors = getTeamColors(teamIsTicking ? teamDisplayName : spin.franchise_display_name);
+  // Phase 9B: the settled values. While a reel is ticking these are NOT read
+  // for the reel itself (the strip owns what is on screen) -- the reel is the
+  // single source of visual truth, so there is no second value that could
+  // disagree with it.
+  const teamDisplayName = spin.franchise_display_name ?? "Team-season unavailable";
+  const secondDisplay = spin.era_label ?? "";
+  // Accent/badge colour is resolved ONCE from the real landed team, and only
+  // APPLIED once the team reel is no longer ticking (see teamAccentReady). The
+  // old code recomputed this every tick from the ticking pool value, which
+  // invalidated the wheel boxes' color-mix() box-shadow blurs and forced a
+  // style recalc + repaint every 85ms (C7) -- and showing it during the spin
+  // would also leak the answer before the reel arrives.
+  const colors = getTeamColors(spin.franchise_display_name);
+  const teamAccentReady = !teamIsTicking;
 
   const coverageNote =
     isTeamYear && rollableTeamSeasonCount > 0 && supportedStartSeason && supportedEndSeason
@@ -614,7 +727,7 @@ export default function SpinStage({
       data-phase={phase}
       data-was-locked={wasLocked}
       className="spin-reel p-4 flex flex-col gap-3"
-      style={{ "--reel-accent": colors.primary } as CSSProperties}
+      style={{ "--reel-accent": teamAccentReady ? colors.primary : "var(--text-muted)" } as CSSProperties}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="round-progress-dots" aria-hidden="true">
@@ -699,7 +812,7 @@ export default function SpinStage({
               border: "1px solid var(--border-muted, #333)",
               minHeight: 128,
               opacity: teamIsLocked ? 0.55 : 1,
-              "--slot-accent": colors.primary,
+              "--slot-accent": teamAccentReady ? colors.primary : "var(--text-muted)",
             } as CSSProperties}
           >
             <AnimatePresence>
@@ -738,7 +851,7 @@ export default function SpinStage({
               <div
                 data-testid="team-badge"
                 aria-hidden="true"
-                className={`rounded-full flex items-center justify-center font-black text-lg ${teamIsTicking ? "spin-ceremony-reel-tick" : ""}`}
+                className="rounded-full flex items-center justify-center font-black text-lg"
                 style={{
                   width: 60,
                   height: 60,
@@ -755,14 +868,17 @@ export default function SpinStage({
               <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
                 Team
               </div>
-              {teamIsTicking ? (
-                <ReelStrip
-                  items={respinning ? respinReelPoolRef.current : teamReelPoolRef.current}
-                  activeIndex={respinning ? respinTick : teamTick}
-                  rampStage={respinning ? respinRampStage : rampStage}
-                  reduceMotion={!!reduceMotion}
+              {teamIsTicking && teamRun ? (
+                <ReelWindow
+                  key={teamRun.runKey}
+                  run={teamRun}
                   logoUrls={teamLogoUrls}
+                  failedLogos={failedLogos}
+                  onLogoError={markLogoFailed}
+                  windowTestId="team-reel-window"
+                  stripTestId="team-reel-strip"
                   centerTestId="spin-team-reel-center"
+                  onSettled={() => advanceReel("team")}
                 />
               ) : (
                 <motion.div
@@ -793,7 +909,7 @@ export default function SpinStage({
               border: "1px solid var(--border-muted, #333)",
               minHeight: 128,
               opacity: seasonIsLocked ? 0.55 : 1,
-              "--slot-accent": colors.primary,
+              "--slot-accent": teamAccentReady ? colors.primary : "var(--text-muted)",
             } as CSSProperties}
           >
             <AnimatePresence>
@@ -813,13 +929,16 @@ export default function SpinStage({
             <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
               {secondWheelLabel}
             </div>
-            {seasonIsTicking ? (
-              <ReelStrip
-                items={respinning ? respinReelPoolRef.current : secondReelPoolRef.current}
-                activeIndex={respinning ? respinTick : secondTick}
-                rampStage={respinning ? respinRampStage : rampStage}
-                reduceMotion={!!reduceMotion}
+            {seasonIsTicking && seasonRun ? (
+              <ReelWindow
+                key={seasonRun.runKey}
+                run={seasonRun}
+                failedLogos={failedLogos}
+                onLogoError={markLogoFailed}
+                windowTestId="era-reel-window"
+                stripTestId="era-reel-strip"
                 centerTestId="spin-season-reel-center"
+                onSettled={() => advanceReel("season")}
               />
             ) : (
               <motion.div

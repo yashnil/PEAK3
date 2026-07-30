@@ -65,6 +65,15 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
         data-testid="candidate-list"
       >
         {filtered.map((c) => {
+          // Phase 9B: `secondary_positions` now carries the OTHER positions
+          // this player really logged career minutes at
+          // (nba_peak/perfect_season/career_positions.py). It used to be
+          // unconditionally [] -- parse_real_position never yields secondaries
+          // for the committed data -- so a genuine multi-position player like
+          // Jimmy Butler rendered a bare "SF" and looked position-locked,
+          // which is exactly what made a later SF/SG/PF placement read as
+          // "off-slot" out of nowhere. Now it reads "SF / SG / PF" up front,
+          // so the fit the game will report is visible BEFORE the pick.
           const positions = [c.primary_position, ...c.secondary_positions].filter(Boolean).join(" / ");
           const isRosterOnly = c.identity_pool_status === "team_year_roster_only";
           const isUnscored = c.score_status === "exact_season_unscored";

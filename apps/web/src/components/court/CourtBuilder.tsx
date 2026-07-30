@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cancelSelection,
   completeCourtGame,
@@ -8,10 +8,19 @@ import {
   respinSeason,
   respinTeam,
   selectPlayer,
+  swapSlots,
   PerfectSeasonAPIError,
 } from "@/lib/perfect-season-api";
 import { uiPhaseFromStatus } from "@/lib/court-state";
-import { CourtLineupPublicState, CourtSlotPublic, CurrentSpin, SlotType, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
+import {
+  CourtLineupPublicState,
+  CourtSlotPublic,
+  CurrentSpin,
+  SlotType,
+  SLOT_LABELS,
+  STARTER_SLOT_TYPES,
+  BENCH_SLOT_TYPES,
+} from "@/types/perfect-season";
 import SpinStage from "./SpinStage";
 import EligiblePlayerSearch from "./EligiblePlayerSearch";
 import PeakCardCourt from "./PeakCardCourt";
@@ -72,8 +81,33 @@ export default function CourtBuilder({
   // visually clear enough"). Set alongside respinFlashKey on every respin,
   // read once by SpinStage's effect (see its own respinFlashKey comment).
   const [respinKind, setRespinKind] = useState<"team" | "season" | null>(null);
+  // Phase 9B rearrange mode: which filled slot's card the user is currently
+  // moving, or null when not rearranging. A two-step "pick a card, then pick
+  // a destination" flow rather than drag-and-drop -- it works with a keyboard
+  // and a screen reader with no extra machinery, and there is no such thing
+  // as a half-completed drop.
+  const [movingSlot, setMovingSlot] = useState<SlotType | null>(null);
 
   const phase = uiPhaseFromStatus(state.status);
+  // A submitted/simulated result is the saved and shared artifact -- it must
+  // not mutate, so the server rejects a swap once status is "result_ready"
+  // (code "rearrange_after_result") and the UI hides the controls to match.
+  const canRearrange = state.status !== "result_ready";
+  const filledSlotCount = state.slots.filter((s) => s.filled).length;
+  const rearrangeAvailable = canRearrange && filledSlotCount >= 1;
+
+  const cancelRearrange = useCallback(() => setMovingSlot(null), []);
+
+  // Escape cancels rearrange mode -- the standard exit for a transient modal
+  // interaction mode, so the user is never trapped in "pick a destination".
+  useEffect(() => {
+    if (!movingSlot) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") cancelRearrange();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [movingSlot, cancelRearrange]);
 
   // Phase 8D: the API only sends `current_spin` while status ===
   // "selection_pending" (see state.py's `find_spin` gate) -- it goes back
@@ -137,6 +171,23 @@ export default function CourtBuilder({
     }
   }
 
+  /** Perform the rearrange. Never re-spins and never re-selects -- the server
+   * only exchanges the two slots' card identity fields and recomputes both
+   * slots' role_fit, so the roster count and every card's data are preserved
+   * by construction (see state.py::action_swap_slots). */
+  async function handleSwap(target: SlotType) {
+    const from = movingSlot;
+    if (!from || from === target) {
+      setMovingSlot(null);
+      return;
+    }
+    const next = await withBusy(() => swapSlots(state.game_id, from, target));
+    // Leave rearrange mode either way -- on failure the error banner explains
+    // why, and keeping the mode open would invite the same failing click.
+    setMovingSlot(null);
+    if (next) setState(next);
+  }
+
   async function handleComplete() {
     const next = await withBusy(() => completeCourtGame(state.game_id));
     if (next) setState(next);
@@ -165,13 +216,32 @@ export default function CourtBuilder({
   const benchSlots = state.slots.filter((s) => BENCH_SLOT_TYPES.includes(s.slot_type));
 
   function renderSlot(slot: CourtSlotPublic) {
+    const pendingSlotFit = phase === "placing"
+      ? state.pending_selection?.fit_by_open_slot?.[slot.slot_type]
+      : undefined;
+    // While a card is being moved, every OTHER slot (filled or empty) is a
+    // destination -- moving into an empty slot is a plain move, and into a
+    // filled one is a swap. Both go through the same endpoint.
+    const isSwapTarget = movingSlot != null && movingSlot !== slot.slot_type;
     return (
       <PeakCardCourt
         slot={slot}
         isPendingTarget={phase === "placing" && !slot.filled}
-        onClick={phase === "placing" && !slot.filled && !busy ? () => handlePlace(slot.slot_type) : undefined}
-        pendingFit={phase === "placing" ? state.pending_selection?.fit_by_open_slot?.[slot.slot_type] : undefined}
+        onClick={
+          !isSwapTarget && phase === "placing" && !slot.filled && !busy
+            ? () => handlePlace(slot.slot_type)
+            : undefined
+        }
+        pendingFit={pendingSlotFit?.role_fit}
+        pendingFitSeverity={pendingSlotFit?.role_fit_severity}
         pendingPrimaryPosition={phase === "placing" ? state.pending_selection?.primary_position : undefined}
+        onMove={
+          rearrangeAvailable && slot.filled && movingSlot == null && !busy
+            ? () => setMovingSlot(slot.slot_type)
+            : undefined
+        }
+        onSwapTarget={isSwapTarget && !busy ? () => handleSwap(slot.slot_type) : undefined}
+        movingFromSlotLabel={movingSlot ? SLOT_LABELS[movingSlot] : null}
       />
     );
   }
@@ -371,6 +441,38 @@ export default function CourtBuilder({
             <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
               Your roster
             </div>
+
+            {/* Phase 9B: rearranging. Users could see a bad position fit but
+                had no way to act on it short of a respin (which rerolls the
+                team+season and costs a run-level budget) or restarting. This
+                is the missing lever, and the copy is explicit that it is NOT
+                a respin -- that distinction is the whole reason it's safe to
+                offer for free. */}
+            {rearrangeAvailable && movingSlot == null && (
+              <p className="text-[10px] -mt-1" style={{ color: "var(--text-muted)" }} data-testid="rearrange-hint">
+                Move players to improve position fit — this never re-spins.
+              </p>
+            )}
+            {movingSlot != null && (
+              <div
+                data-testid="rearrange-banner"
+                role="status"
+                className="rounded-lg px-2.5 py-2 flex items-center justify-between gap-2 -mt-1"
+                style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)" }}
+              >
+                <span className="text-[11px]" style={{ color: "var(--text-primary)" }}>
+                  Moving from <strong>{SLOT_LABELS[movingSlot]}</strong> — pick a destination slot. No re-spin, no cards lost.
+                </span>
+                <button
+                  data-testid="rearrange-cancel-btn"
+                  onClick={cancelRearrange}
+                  className="text-[10px] font-semibold uppercase tracking-wide rounded px-2 py-1 shrink-0"
+                  style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             {state.live_build && <LiveBuildPanel liveBuild={state.live_build} />}
             <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={renderSlot} />
 

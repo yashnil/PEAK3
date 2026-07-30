@@ -78,10 +78,23 @@ class CourtSlot:
     round_number: Optional[int] = None  # which round filled this slot
     peak_window_id: Optional[str] = None
     resolved_via_spin_id: Optional[str] = None
-    # "primary" | "secondary" | "off_position" | "flexible" -- set at
-    # placement time by nba_peak.perfect_season.positions.classify_fit().
-    # Display-only; never gates whether a placement is legal.
+    # "primary" | "natural" | "off_position" | "bench" -- set at placement
+    # time by nba_peak.perfect_season.positions.classify_fit_from_position()
+    # (or classify_fit() on the legacy engine). Display-only; never gates
+    # whether a placement is legal. Already-persisted runs may still carry
+    # the older "secondary"/"flexible" tokens, which stay renderable.
     role_fit: Optional[str] = None
+    # Phase 9B: "mild" | "moderate" | "severe", and only ever set alongside
+    # role_fit == "off_position" (severity is meaningless otherwise -- see
+    # positions.position_fit_severity).
+    #
+    # Why this has to be persisted rather than recomputed for display: the
+    # three off-position tiers cost 0.0 / -5.0 / -14.0 simulation points
+    # (simulation._OFF_POSITION_SEVERITY_POINTS), but severity was never
+    # serialized, so the UI painted an alarming orange "Off-slot" pill on
+    # placements the simulator had scored as completely free. Optional with a
+    # None default so every already-committed saved run still validates.
+    role_fit_severity: Optional[str] = None
     # Phase 6C: set instead of peak_window_id for team_year-mode boards --
     # an exact_season.PlayerSeasonCard.exact_player_season_key. The two
     # fields are mutually exclusive per slot (never both set), reflecting
