@@ -167,11 +167,31 @@ season-by-season career table with all seven scores.
 
 ## 4. Scoring formula (SUPERSEDED — historical percentile/pathway model; see OFFICIAL SCORE section)
 
+> **⚠ EVERYTHING IN THIS SECTION IS HISTORICAL. Nothing below describes the
+> current model.** It documents the retired percentile/pathway score and is
+> kept for provenance only. The bullets are written in the present tense
+> because they were current when written; read every "is"/"rewards"/"no longer"
+> in this section as "did, in the superseded model".
+>
+> **In particular, the `0.18 Role/workload` component below DOES NOT EXIST in
+> the current official index.** The live weights are Statistical Impact 0.38 /
+> Traditional Production 0.21 / Individual Recognition 0.20 / Postseason 0.18 /
+> Team Achievement 0.03 (`peak3.OFFICIAL_WEIGHTS`). `role_workload`,
+> `workload_score` and `workload_qualified` are still computed as
+> **diagnostics** and are read by no scoring path. The only minutes term in the
+> live index is `traditional_production`'s `load_mult`, whose total spread
+> across the real minutes range is ~1.47x.
+>
+> This matters because the claim "specifically so that a hyper-efficient role
+> player cannot score like a star" reads as a live safeguard and is not one.
+> See `docs/implementation/PHASE_9B_RANKINGS_AUDIT.md` Sec 3 for the
+> measurements, and `docs/model/SCORING_METHODOLOGY.md` for the current model.
+
 All stats are normalized **within season** (era-relative percentiles among
 qualifiers; ≥1000 regular-season minutes scaled for short seasons, ≥100 playoff
-minutes with a small-sample penalty). The **regular-season** score is built
-from seven components specifically so that a hyper-efficient role player cannot
-score like a star:
+minutes with a small-sample penalty). The **regular-season** score was built
+from seven components specifically so that a hyper-efficient role player could
+not score like a star:
 
 ```
 Regular = 0.24 Impact            (0.5 Rate impact + 0.5 Total impact)
@@ -190,8 +210,10 @@ Key design decisions (root-cause fixes):
   three independent full weights). Total impact = cumulative value (VORP, total
   Win Shares, minutes). A bench player with elite per-minute rates but low total
   value no longer rides BPM/WS48/PER to a star score.
-- **Role/workload is a real component (0.18).** It rewards minutes, MPG, games
-  played, usage and creation burden, so part-time players are placed correctly.
+- **Role/workload was a real component (0.18) — in this superseded model only.**
+  It rewarded minutes, MPG, games played, usage and creation burden, so
+  part-time players were placed correctly. **The current official index has no
+  such component**; see the warning at the top of this section.
 - **Scoring dominance multiplies volume × efficiency.** Volume is a *total
   scoring-load* percentile (per-100 × minutes ∝ total points), so elite
   efficiency at low volume is NOT treated like elite efficiency at high volume.

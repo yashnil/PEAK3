@@ -4,6 +4,14 @@ Status: **partially remediated.** One display/serving bug fixed and guarded; one
 candidate-universe bug diagnosed, reproduced, and deliberately deferred. No
 change was made to the scoring formula.
 
+> **Read the Phase 10D addendum at the end of this document before acting on
+> §4.** Phase 10D fixed the candidate universe and **retracted several of §4's
+> conclusions** — in particular the claim that the primary gate should be an
+> AND, and the reading of `fallback_25mpg_count: 0` as proof of a bug. §4's
+> surviving finding (that `15_ppg` measures a rate, not a per-game volume) was
+> correct and is now fixed. §3 (role-player inflation) remains deferred but is
+> now pinned by an executable contract test.
+
 Every number below was read directly from `cache/processed/scored_1980_2026.parquet`
 (11,429 scored seasons, 2,016 identities) and the committed JSON/CSV artifacts.
 Where this document says "defensible", that means *the arithmetic follows the
@@ -441,3 +449,152 @@ Both items in §3 (role-player inflation in `statistical_impact`) and §4 (the
 **unchanged and still open**. Nothing in Phase 10B touched the formula or the
 candidate pool. The rankings section is now explainable; it is not yet fully
 correct at the model level, and the modal does not claim otherwise.
+
+---
+
+# Phase 10D addendum — candidate universe fixed; §4 partly RETRACTED
+
+## §4 was wrong about the rule, and right that the criterion was broken
+
+**Retracted: "the intended rule is `(15+ PPG OR award) AND (30+ MPG, fallback
+25+)`."** It is not. `docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md`
+Sec 2.0 — the specification `audit_player_pool_expansion.py` implements — reads
+"Include every player … who matches **at least one** of:" and lists "averaged
+30+ MPG in any season" as one of those routes. The OR-chain is the
+specification, and minutes-as-an-admission-route is intentional. Three of §4's
+findings follow from that misreading and are withdrawn:
+
+| §4 finding | Status |
+|---|---|
+| "MPG should be ANDed, not ORed" | **Retracted** — contradicts Sec 2.0 |
+| "304 identities have no MPG criterion" | **Not a defect** — an All-Star needs no minutes bar |
+| "55 identities qualify on minutes alone" | **Not a defect** — 30+ MPG is a listed route |
+| "`fallback_25mpg_count: 0` is the manifest's own proof of the bug" | **Retracted** — a tiered fallback that never fires means the primary tier cleared the target, exactly as documented |
+| "`15_ppg` is not PPG" | **Confirmed, and worse than described** |
+
+Converting the gate to an AND would have ejected All-Stars and MVP vote-getters
+whose award season fell below 30 MPG. `tests/test_player_pool_inclusion.py::test_primary_gate_is_an_or_chain`
+now pins the OR so this cannot be "fixed" again by inspection.
+
+## The real defect: `15_ppg` measured a rate, not a volume
+
+§4 called the criterion "mislabeled". It was substantively wrong, and the
+v0→v1 "PPG criterion fixed" change did nothing:
+
+**`pts_per75` is exactly `pts_per100 × 0.75`** — verified, the ratio is
+1.3333… across all 11,429 rows with zero variance. So v1 compared the *same*
+per-possession rate against the *same* threshold, merely rescaled, which only
+lowered the effective bar from 15-per-100 to 20-per-100. Sec 2.0 asks for a
+per-game **volume** ("averaged 15+ PPG"); both versions implemented a
+per-minute **rate**. This is the same rate-inflation disease as §3, in the
+inclusion filter rather than the score.
+
+Measured: **1,660 season-rows cleared `pts_per75 >= 15` on under 25 MPG**, some
+with estimated real scoring under 6 PPG (Greg Anthony 1997-98: 12.8 MPG,
+`pts_per75` 16.4, ≈5.8 actual PPG). Luka Garza remains the clean proof —
+`["15_ppg"]` and nothing else, on a 16.2 MPG season with ≈8.5 estimated PPG.
+
+**Fix.** `ppg_est = pts_per100 × mpg / 48`, criterion renamed `15_ppg_est`.
+Both inputs are committed columns; the single assumption is a flat ~100
+possessions/48min league pace. Validated against 30 hand-verified real PPG
+figures spanning 1980–2026 and every role tier: **MAE 1.30 PPG, mean bias
++1.26, 80% within ±2.0, over-estimating 93% of the time** — i.e. the residual
+is unmodelled pace, and it errs permissive, which is the safe direction for an
+inclusion filter. The error bars ship inside the manifest
+(`ppg_estimator_accuracy`) and are re-derived by a test.
+
+## Result
+
+| | before | after |
+|---|---|---|
+| identities | 1,510 | **1,390** |
+| via primary routes | 1,510 | 1,103 |
+| via 25-MPG fallback | 0 | **287** |
+| admitted via the scoring criterion | 1,330 | 700 |
+| tagged `25_mpg_fallback` | 1,206 | **287** |
+
+The fallback tier now fires for the first time — not because the OR was
+"fixed", but because correcting the scoring criterion left the primary tier
+short of 1,500. The manifest reports `reached_target_identities: false` rather
+than implying the target was met.
+
+**Second defect, also fixed:** the manifest tagged `25_mpg_fallback` on all
+1,206 identities whose 25-MPG flag was true while reporting
+`fallback_25mpg_count: 0` — the tags and the count contradicted each other.
+The tag is an *admission route* and now appears only on identities the
+fallback actually admitted.
+
+## Blast radius — measured, not estimated
+
+§4 deferred this work because regenerating the manifest "changes the
+CourtBuilder gameplay candidate pool". **It does not.** `pool_1500` is read in
+exactly two places (`exact_season.py::resolve_player_season_card`,
+`build_experimental_team_year_dataset.py::identity_status`) and both use it
+*only* to choose the `identity_pool_status` string. Rosters are derived
+independently from `regular_1980_2026.parquet`. Nothing filters on the label —
+`EligiblePlayerSearch.tsx` renders it as a badge.
+
+Verified by diffing the regenerated team-year dataset against the previous one:
+
+- **0 candidates removed from any roster; 0 added**
+- per-team-season candidate counts **identical**
+- 1,314 rollable team-seasons before and after; min candidates 11 before and after
+- 2,387 `identity_pool_status` label changes (1,470 → `team_year_roster_only`,
+  917 → `qualifies_1500`, the latter because the fallback tier now admits them)
+
+82-0 rosters, spins, and saved runs are untouched. Gary Payton II, Isaiah
+Hartenstein and Daniel Gafford remain candidates via the championship/Finals
+rotation route — Sec 2.0 Cohort B, and historically correct. Luka Garza now
+satisfies **no** documented criterion and leaves the manifest entirely.
+
+## §3 role-player inflation — still deferred, now with an executable contract
+
+Mechanisms A–E re-verified independently; all reproduce. Two additions:
+
+**The postseason defect is sharper than §3D described.** §3D compared GPII to
+Jaylen Brown, which mixes a short extreme-rate run against a long *ordinary*
+one. Testing the module's own stated invariant directly — "an extreme rate
+stat over a SHORT run … cannot dwarf a Finals-length elite run" — the tail is
+far worse than the GPII example suggests:
+
+| | playoff minutes | postseason value |
+|---|---|---|
+| Aaron Holiday 2021-22 | **20** | **40.18** |
+| Matt Bullard 1996-97 | **7** | 28.58 |
+| Phil Ford 1982-83 | **5** | 28.17 |
+| *median of all 295 Finals-length (700+ min) runs* | — | *4.68* |
+
+Root cause: `abs_level` is clipped only on the **downside**, so it is unbounded
+above, and `sample_reliab` shrinks it **multiplicatively** — a multiplicative
+shrink cannot bound an unbounded quantity. The 60%-team-determined reliability
+weighting compounds it: for runs under 300 playoff minutes the games+series
+terms lift reliability from a minutes-only 0.165 to 0.272 (+65% relative),
+precisely where the sample is thinnest.
+
+**Why it is still deferred, and why that is tolerable.** Fixing it means
+editing scoring constants, which per CLAUDE.md requires explicit approval,
+regression evidence, and regenerating `leaderboards/*.csv` — and would require
+changing expected values inside the 235-test model suite, which CLAUDE.md
+prohibits outright. Containment was measured, not assumed: postseason carries
+0.18, so Aaron Holiday's 40.2 still yields a 37.19 `prime_score`, and **none of
+the extreme cases reach any served board or any `leaderboards/*.csv`**. The
+served rows that do carry a short-run boost are real stars with early exits
+(Giannis 2019-20 at 277 playoff minutes, Lillard 2020-21 at 248), where a 20–23
+postseason value is elevated but not absurd.
+
+This is now encoded rather than narrated:
+`tests/test_postseason_sample_invariant.py` states the invariant as a
+`strict=True` xfail, so the day the formula is fixed the suite **XPASSes and
+fails**, forcing the marker and the docs to be updated together. Four
+companion tests pin the current magnitude, the 0.60 team-determined weighting,
+the +0.107 short-run reliability lift, and the fact that no extreme case has
+leaked onto a served board.
+
+## Guards §8 asked for, now written
+
+| Recommended in §8 | Status |
+|---|---|
+| No `Low-minute specialist` in the top 250 of any served list | **Done** — asserted for *every* served row on both boards, not just the top 250 (`apps/api/tests/test_role_player_serving_guard.py`) |
+| Every manifest identity has ≥1 MPG criterion | **Superseded** — the premise was the retracted AND rule. Replaced by: every identity has ≥1 criterion of any kind |
+| `fallback_25mpg_count > 0` | **Achieved** (287), and the count is now asserted to equal the number of tagged identities |
+| Extend `test_no_role_player_in_top_50_stat_seasons` past the top 50 | **Done** — added a top-250 window plus a *categorical* version keyed on `classify_roles` rather than the four hardcoded names, which could never have caught Garza |

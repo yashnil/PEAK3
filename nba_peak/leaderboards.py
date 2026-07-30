@@ -9,9 +9,27 @@ under ``leaderboards/``.
 Methodology (unchanged, official):
   * player universe        -> data/generated/final_250_candidates.csv (the
                               canonical 250-player candidate set; reused, not
-                              redefined here);
-  * eligible seasons       -> completed, NON-PROVISIONAL scored seasons (the
-                              scored dataset is already minutes-qualified);
+                              redefined here) FOR THIS MODULE'S OWN OUTPUTS.
+                              ``build_leaderboard()`` accepts a caller-supplied
+                              universe, and scripts/build_top_peaks.py passes
+                              the full 2,016-identity scored population to
+                              build the website's top-1000 boards. See the
+                              minutes caveat directly below -- substituting a
+                              universe voids it.
+  * eligible seasons       -> completed, NON-PROVISIONAL scored seasons.
+                              "Minutes-qualified" here means ONLY
+                              peak3.regular_minutes_threshold: 1000 minutes
+                              over 82 games, ~12.2 MPG (observed floor in the
+                              committed parquet: 12.24). That is a data-
+                              completeness floor, NOT a rotation-player floor.
+                              For the canonical 250 pool the distinction never
+                              mattered -- every member is a star. For a wider
+                              universe it matters a great deal, which is why
+                              the top-1000 builders apply their own
+                              MIN_SERVED_ANCHOR_MPG / MIN_SERVED_SEASON_MPG
+                              gate on top. Before Phase 9B this sentence read
+                              simply "already minutes-qualified" and was
+                              carrying far more weight than it could bear.
   * windows                -> every CONSECUTIVE n-season run (peak3.n_year_windows);
   * aggregation            -> RAW season Prime values are rank-weighted FIRST
                               with peak3.nyear_weights(n), then the aggregated RAW

@@ -67,6 +67,12 @@ not as a claim about objective historical truth.
   or lowers it.
 - Search, and comparison rails for pivoting between rows without leaving the
   panel.
+- Both boards apply a 25 MPG floor on the ranked season. Statistical Impact is
+  ~74 % per-minute rate in practice, so without a workload floor efficient
+  bench players interleave with starters. Excluded seasons are still fully
+  scored and still reachable in 82-0 — they are just not ranked. The model's
+  known open defects are listed in
+  [`docs/model/SCORING_METHODOLOGY.md`](docs/model/SCORING_METHODOLOGY.md) §15.
 
 **Elsewhere**
 
@@ -312,6 +318,11 @@ Near-term:
   uncalibrated in the UI.
 - Split the rankings explain payload. The API currently holds a large artifact
   resident to serve a much smaller response.
+- Bound the postseason component on tiny playoff samples. A 20-minute playoff
+  run can currently out-score the median Finals-length run; contained today by
+  the component's 0.18 weight and the rankings minutes floor, but not fixed.
+  Measurements and the fix plan are in
+  `tests/test_postseason_sample_invariant.py`.
 - Promote 82-0 past `internal_dev` readiness, which gates the leaderboard.
 
 Deliberately deferred: friends and social feeds, live NBA scores, licensed

@@ -16,7 +16,22 @@ docs/implementation/CI_DATA_CONTRACT.md -- no network access, no scraping):
   cache/processed/regular_1980_2026.parquet   raw per-season stats (real `pos`)
 
 Inclusion criteria (docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md
-Sec 2.0, restated 1:1 here as executable checks against real columns):
+Sec 2.0, restated 1:1 here as executable checks against real columns).
+
+CRITERIA LOGIC -- read this before "fixing" the gate (Phase 10D):
+  Sec 2.0's wording is "Include every player ... who matches **at least one**
+  of:", and "averaged 30+ MPG in any season" is one of the listed items. The
+  gate below is therefore a deliberate OR-chain over basketball-significance
+  routes, with 25+ MPG as a TIERED FALLBACK that fires only if the OR-chain
+  yields fewer than TARGET_IDENTITIES. `fallback_25mpg_count == 0` is NOT
+  evidence of a bug -- it is the correct, documented outcome whenever the
+  primary routes already clear the target.
+  docs/implementation/PHASE_9B_RANKINGS_AUDIT.md Sec 4 asserted the intended
+  rule was "(15+ PPG OR award) AND (30+ MPG, fallback 25+)" and read the zero
+  fallback count as self-reported proof of a bug. Both claims are wrong
+  against Sec 2.0; see that document's Phase 10D correction. The REAL defect
+  in this file was criterion 6 -- see below.
+
   1. Any All-Defensive team selection      -> all_defense_team notna
   2. Any MVP vote getter                   -> mvp_rank notna
   3. Any DPOY vote getter                  -> dpoy_rank notna
@@ -25,8 +40,8 @@ Sec 2.0, restated 1:1 here as executable checks against real columns):
                                                reported as an explicit
                                                unsupported-criteria warning,
                                                never silently skipped.
-  6. Any 15+ PPG-equivalent season         -> KNOWN APPROXIMATION, see
-                                               PPG_CAVEAT below -- no genuine
+  6. Any 15+ PPG season                    -> ESTIMATED per-game scoring, see
+                                               PPG_CAVEAT below. No genuine
                                                per-game points column exists
                                                in any locally committed file
                                                (verified: only BR's per_poss.html
@@ -35,16 +50,14 @@ Sec 2.0, restated 1:1 here as executable checks against real columns):
                                                see peak3.py's BREF per_poss
                                                fetch calls; no totals.html or
                                                per_game.html points column
-                                               exists locally). Approximated
-                                               via `pts_per75` (per-75-
-                                               possessions, an existing
-                                               scored_1980_2026.parquet
-                                               column, closer to a per-game
-                                               feel than the raw per-100
-                                               column the v0 manifest
-                                               mistakenly used) against the
-                                               same MIN_PPG threshold.
-                                               Reported as an approximation
+                                               exists locally). Sec 2.0 asks
+                                               for a per-game VOLUME threshold,
+                                               so the rate is converted to an
+                                               estimated per-game figure with
+                                               the player's real minutes
+                                               (MPG_TO_PPG_NOTE) rather than
+                                               compared as a bare rate.
+                                               Reported as an estimate
                                                everywhere, never presented as
                                                literal PPG.
   7. Any championship starter              -> championship == 1 AND GS-based
@@ -71,14 +84,32 @@ Sec 2.0, restated 1:1 here as executable checks against real columns):
                                                fewer than TARGET_IDENTITIES
 
 v1 manifest (Phase 6D) additions over v0:
-  - PPG criterion fixed: v0 compared `regular_1980_2026.parquet`'s raw `pts`
+  - PPG criterion changed: v0 compared `regular_1980_2026.parquet`'s raw `pts`
     column (verified to be per-100-possessions, not per-game -- e.g. Stephen
     Curry's 2015-16 row shows pts=42.5, matching the per-100 conversion of
-    his real 30.1 PPG, not 30.1 itself) directly against MIN_PPG=15.0. That
-    silently over/under-qualified players depending on pace. v1 uses
-    `pts_per75` instead (see PPG_CAVEAT) -- still an approximation, but a
-    documented, less-wrong one, and now labeled as such everywhere it
-    surfaces (manifest, review script, docs).
+    his real 30.1 PPG, not 30.1 itself) directly against MIN_PPG=15.0. v1
+    switched to `pts_per75`.
+
+v1 manifest, Phase 10D revision -- criterion 6 corrected for real:
+  The v0->v1 change did NOT fix the defect it claimed to. `pts_per75` is
+  EXACTLY `pts_per100 * 0.75` in scored_1980_2026.parquet (verified: the
+  ratio pts_per100/pts_per75 is 1.3333... for all 11,429 rows, zero
+  variance). So v1 compared the SAME per-possession rate against the SAME
+  threshold, merely rescaled -- which only LOWERED the effective bar from 15
+  per-100 to 20 per-100. It never addressed the actual problem, which is
+  that Sec 2.0 asks for a per-game VOLUME ("averaged 15+ PPG") and both v0
+  and v1 implemented a per-minute RATE.
+
+  The difference is not cosmetic. A rate criterion admits any efficient
+  low-minute scorer: 1,660 season-rows cleared `pts_per75 >= 15` on under 25
+  MPG, including seasons whose estimated real scoring was under 6 PPG.
+  Luka Garza's 2025-26 (16.2 MPG, ~8.5 estimated PPG) entered the manifest
+  with `qualifying_criteria: ["15_ppg"]` and nothing else -- a bench player
+  admitted through a criterion named for a starter's scoring volume.
+
+  Phase 10D converts the rate to an estimated per-game volume before
+  comparing (see MPG_TO_PPG_NOTE / PPG_CAVEAT) and renames the criterion
+  `15_ppg_est` so no reader mistakes it for a measured value.
   - Full qualifying_seasons list (not a 5-item sample).
   - A companion all-seasons-for-qualifying-identities table (every locally
     available REGULAR-SEASON row for every qualifying identity, through
@@ -120,21 +151,67 @@ TARGET_IDENTITIES = 1500
 MIN_PPG = 15.0
 MIN_MPG_PRIMARY = 30.0
 MIN_MPG_FALLBACK = 25.0
-MANIFEST_VERSION = "player_pool_1500_manifest.v1"
+# Phase 10D bumps the CONTENT version but deliberately keeps the FILENAME at
+# `candidate_identity_manifest.v1.json`: five runtime/test/doc consumers resolve
+# that exact path (exact_season.py, build_experimental_team_year_dataset.py,
+# review_player_pool_manifest.py, audit_player_portrait_coverage.py,
+# apps/api/tests/test_perfect_season.py), and renaming the file would couple a
+# criteria correction to a path migration for no benefit. The version string
+# below is what tells a reader which criteria produced the file.
+MANIFEST_VERSION = "player_pool_1500_manifest.v1.1"
 ALL_SEASONS_VERSION = "all_seasons_for_identities.v1"
 SUPPORTED_START_SEASON = "1979-80"
 SUPPORTED_END_SEASON = "2025-26"
+
+MPG_TO_PPG_NOTE = (
+    "ppg_est = pts_per100 * mpg / 48. This is the standard per-100 -> per-game "
+    "identity under one stated assumption: that a team averages ~100 "
+    "possessions per 48 minutes, so a player on the floor for `mpg` minutes "
+    "sees roughly 100 * mpg/48 possessions. Both inputs are real committed "
+    "columns of scored_1980_2026.parquet -- no value is invented, and the "
+    "only approximation is the flat league-pace constant (real pace ranges "
+    "~90-105 by era, which is exactly the residual error measured below)."
+)
+
+# Measured against 30 hand-verified real PPG figures spanning 1980-2026 and
+# every role tier (Jordan 1986-87 through Gary Payton II 2021-22). Recorded
+# here as numbers, not adjectives, so the criterion's accuracy is auditable
+# rather than asserted -- and re-checked by
+# tests/test_player_pool_inclusion.py::test_ppg_estimator_accuracy_on_known_seasons.
+PPG_EST_ACCURACY = {
+    "validation_sample_size": 30,
+    "mean_bias_ppg": 1.26,
+    "median_bias_ppg": 1.31,
+    "mean_absolute_error_ppg": 1.30,
+    "max_overestimate_ppg": 3.51,
+    "max_underestimate_ppg": -0.38,
+    "share_within_2_ppg": 0.80,
+    "share_overestimated": 0.93,
+    "bias_direction": (
+        "Over-estimates 93% of the time (residual is unmodelled pace). For an "
+        "inclusion criterion this is the SAFE direction: it over-admits at the "
+        "margin rather than silently excluding a real 15-PPG scorer."
+    ),
+}
 
 PPG_CAVEAT = (
     "No genuine per-game points column exists in any locally committed source "
     "(only Basketball-Reference's per-100-possessions table was ever scraped "
     "for pts/trb/ast -- see peak3.py's BREF per_poss.html fetch calls; no "
-    "totals.html/per_game.html points column exists locally). This criterion "
-    "uses `pts_per75` (per-75-possessions, already computed in "
-    "scored_1980_2026.parquet) as an approximation of scoring volume, "
-    "compared against the same 15.0 threshold. It is NOT literal PPG -- "
-    "treat 'qualifies via 15_ppg' as 'high per-possession scoring output', "
-    "not a precise 15.0-points-per-game claim."
+    "totals.html/per_game.html points column exists locally). Sec 2.0 asks for "
+    "a per-game VOLUME threshold ('averaged 15+ PPG in any season'), so this "
+    "criterion converts the committed per-possession rate into an ESTIMATED "
+    "per-game figure using the player's real minutes -- " + MPG_TO_PPG_NOTE +
+    " Measured accuracy over 30 hand-verified seasons: mean absolute error "
+    "1.30 PPG, mean bias +1.26 PPG, 80% within +/-2.0 PPG, over-estimating 93% "
+    "of the time. It is NOT a measured value: read 'qualifies via 15_ppg_est' "
+    "as 'estimated to have averaged 15+ points per game', not as a precise "
+    "claim. NOTE (Phase 10D): the pre-10D versions of this criterion compared "
+    "the per-possession RATE (`pts`/`pts_per100` in v0, the arithmetically "
+    "identical `pts_per75` in v1) directly against 15.0, which admitted "
+    "efficient bench scorers -- 1,660 season-rows under 25 MPG, some with "
+    "estimated real scoring below 6 PPG -- under a criterion named for a "
+    "starter's volume."
 )
 
 # The exact audit list from the Phase 6A task, in the order given.
@@ -152,11 +229,44 @@ CRITERION_LABELS = {
     "mvp_votes": "MVP vote getter",
     "dpoy_votes": "DPOY vote getter",
     "all_star": "All-Star",
-    "15_ppg": "15+ PPG-equivalent season (pts_per75 proxy, see PPG_CAVEAT)",
+    "15_ppg_est": "15+ estimated PPG season (pts_per100 x mpg / 48, see PPG_CAVEAT)",
     "championship_starter_approx": "Championship + meaningful minutes (approximation)",
     "finals_starter_approx": "Finals + meaningful minutes (approximation)",
     "30_mpg": "30+ MPG season",
-    "25_mpg_fallback": "25+ MPG season (fallback tier)",
+    "25_mpg_fallback": "25+ MPG season (fallback tier -- only listed when the "
+                       "identity was ACTUALLY admitted through the fallback)",
+}
+
+# The gate's own semantics, published in the manifest so a future reader does
+# not have to re-derive them from the code (Phase 9B re-derived them wrongly).
+CRITERIA_LOGIC = {
+    "primary": "OR",
+    "primary_routes": [
+        "all_defense", "mvp_votes", "dpoy_votes", "all_star", "15_ppg_est",
+        "championship_starter_approx", "finals_starter_approx", "30_mpg",
+    ],
+    "fallback_route": "25_mpg_fallback",
+    "fallback_condition": (
+        "Applied ONLY when the primary OR-chain yields fewer than "
+        "target_identities. fallback_25mpg_count == 0 therefore means the "
+        "primary routes already cleared the target -- it is the documented "
+        "outcome, not a defect."
+    ),
+    "source_of_truth": (
+        "docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md Sec 2.0 -- "
+        "'Include every player ... who matches at least one of:', with "
+        "'averaged 30+ MPG in any season' listed as one of those routes. "
+        "Minutes is an admission route by design, not a conjunct."
+    ),
+    "scope": (
+        "This manifest defines the CANDIDATE UNIVERSE for identity labeling "
+        "(exact_season.py's identity_pool_status). It is NOT the PEAK Index "
+        "ranking universe: the served rankings apply their own, stricter "
+        "minutes gate (scripts/build_top_peaks.py::MIN_SERVED_ANCHOR_MPG and "
+        "scripts/build_top_seasons.py::MIN_SERVED_SEASON_MPG). A player can "
+        "legitimately be a CourtBuilder candidate and correctly absent from "
+        "the rankings."
+    ),
 }
 
 
@@ -198,11 +308,23 @@ def _load_current_pool() -> tuple[set[str], dict[str, str]]:
 def compute_criteria(scored: pd.DataFrame, regular: pd.DataFrame) -> pd.DataFrame:
     """One row per player identity, with a boolean column per inclusion
     criterion and the FULL qualifying season list (v1: no truncation)."""
-    ppg = regular[["player", "season", "pts"]].rename(columns={"pts": "ppg_per100_DO_NOT_USE"})
-    merged = scored.merge(ppg, on=["player", "season"], how="left")
-    # v1 fix: pts_per75 (already in scored_1980_2026.parquet), not the raw
-    # per-100-possessions `pts` column from `regular` -- see PPG_CAVEAT.
-    merged["ppg_proxy"] = pd.to_numeric(merged.get("pts_per75"), errors="coerce")
+    # Phase 10D: the `regular` parquet is no longer joined here. It was only
+    # ever merged to carry `pts` in under the name `ppg_per100_DO_NOT_USE` --
+    # a column the criteria never read after v1 switched to `pts_per75`. Both
+    # inputs the PPG criterion now needs (`pts_per100`, `mpg`) live in
+    # `scored`. The parameter is retained because callers pass it and the
+    # audit's other sections use it.
+    merged = scored.copy()
+    # Phase 10D: convert the committed per-possession RATE into an ESTIMATED
+    # per-game VOLUME before comparing against MIN_PPG. v0 compared
+    # `pts` (per-100) and v1 compared `pts_per75` -- which is exactly
+    # pts_per100 * 0.75, i.e. the same rate rescaled, so v1 never fixed
+    # anything. Sec 2.0's criterion is a per-game average; a rate is not one.
+    # See MPG_TO_PPG_NOTE / PPG_CAVEAT for the identity and its measured error.
+    merged["ppg_est"] = (
+        pd.to_numeric(merged.get("pts_per100"), errors="coerce")
+        * pd.to_numeric(merged.get("mpg"), errors="coerce") / 48.0
+    )
 
     merged["po_mp"] = pd.to_numeric(merged.get("po_mp"), errors="coerce").fillna(0.0)
     merged["_meaningful_po"] = merged["po_mp"] >= 50
@@ -213,7 +335,7 @@ def compute_criteria(scored: pd.DataFrame, regular: pd.DataFrame) -> pd.DataFram
         mvp_votes = bool(g["mvp_rank"].notna().any())
         dpoy_votes = bool(g["dpoy_rank"].notna().any())
         all_star = bool((g["all_star"] == 1).any())
-        ppg_15 = bool((g["ppg_proxy"] >= MIN_PPG).any())
+        ppg_15 = bool((g["ppg_est"] >= MIN_PPG).any())
         champ_starter = bool(((g["championship"] == 1) & g["_meaningful_po"]).any())
         finals_starter = bool(((g["finals_appearance"] == 1) & g["_meaningful_po"]).any())
         mpg_30 = bool((g["mpg"] >= MIN_MPG_PRIMARY).any())
@@ -222,7 +344,7 @@ def compute_criteria(scored: pd.DataFrame, regular: pd.DataFrame) -> pd.DataFram
         qual_mask = (
             (g["all_defense_team"].notna()) | (g["mvp_rank"].notna()) |
             (g["dpoy_rank"].notna()) | (g["all_star"] == 1) |
-            (g["ppg_proxy"] >= MIN_PPG) |
+            (g["ppg_est"] >= MIN_PPG) |
             ((g["championship"] == 1) & g["_meaningful_po"]) |
             ((g["finals_appearance"] == 1) & g["_meaningful_po"]) |
             (g["mpg"] >= MIN_MPG_PRIMARY)
@@ -239,8 +361,8 @@ def compute_criteria(scored: pd.DataFrame, regular: pd.DataFrame) -> pd.DataFram
                 hit.append("dpoy_votes")
             if r["all_star"] == 1:
                 hit.append("all_star")
-            if r["ppg_proxy"] >= MIN_PPG:
-                hit.append("15_ppg")
+            if r["ppg_est"] >= MIN_PPG:
+                hit.append("15_ppg_est")
             if r["championship"] == 1 and r["_meaningful_po"]:
                 hit.append("championship_starter_approx")
             if r["finals_appearance"] == 1 and r["_meaningful_po"]:
@@ -294,7 +416,7 @@ def audit_warriors_players(scored: pd.DataFrame, regular: pd.DataFrame, criteria
         crit_row = criteria[criteria["player"] == name]
         qualifying = crit_row.iloc[0]["qualifying_seasons_full"] if len(crit_row) else []
         met = [
-            c.replace("crit_", "") for c in [
+            c.replace("crit_", "").replace("15_ppg", "15_ppg_est") for c in [
                 "crit_all_defense", "crit_mvp_votes", "crit_dpoy_votes", "crit_all_star",
                 "crit_15_ppg", "crit_championship_starter_approx", "crit_finals_starter_approx",
                 "crit_30_mpg",
@@ -391,7 +513,7 @@ def main() -> int:
     print(f"2025-26 rows present in scored data:                              {(scored['season']=='2025-26').sum()}")
     print(f"2025-26 rows present in raw data:                                 {(regular['season']=='2025-26').sum()}")
 
-    _print_header("PPG criterion caveat (read before trusting 15_ppg)")
+    _print_header("PPG criterion caveat (read before trusting 15_ppg_est)")
     print(PPG_CAVEAT)
 
     _print_header("Candidate counts by criterion (players qualifying via EACH criterion, independently)")
@@ -400,7 +522,7 @@ def main() -> int:
         ("crit_mvp_votes", "MVP vote getter"),
         ("crit_dpoy_votes", "DPOY vote getter"),
         ("crit_all_star", "All-Star"),
-        ("crit_15_ppg", "15+ PPG-equivalent (pts_per75 proxy)"),
+        ("crit_15_ppg", "15+ estimated PPG (pts_per100 x mpg / 48)"),
         ("crit_championship_starter_approx", "Championship + meaningful minutes (approximation)"),
         ("crit_finals_starter_approx", "Finals + meaningful minutes (approximation)"),
         ("crit_30_mpg", "30+ MPG season"),
@@ -425,6 +547,16 @@ def main() -> int:
     reaches_target = len(primary_qualified) >= TARGET_IDENTITIES
     print(f"Reaches {TARGET_IDENTITIES}-identity target without fallback?          {'YES' if reaches_target else 'NO'}")
 
+    # Phase 10D: record the route each identity was ACTUALLY admitted through.
+    # Before this, `qualifying_criteria` listed `25_mpg_fallback` for every
+    # identity whose crit_25_mpg_fallback flag was true (1,206 of 1,510),
+    # including the entire primary-qualified population -- so the manifest
+    # simultaneously reported "fallback_25mpg_count: 0" and tagged 80% of its
+    # identities with the fallback criterion. Only genuine fallback admissions
+    # carry the tag now, which makes the count and the tags agree.
+    primary_qualified = primary_qualified.copy()
+    primary_qualified["admitted_via"] = "primary"
+
     final_pool = primary_qualified
     n_fallback_added = 0
     if not reaches_target:
@@ -433,7 +565,8 @@ def main() -> int:
         fallback_candidates = fallback_candidates.sort_values(
             ["n_seasons_local", "player"], ascending=[False, True]
         )
-        added = fallback_candidates.head(needed)
+        added = fallback_candidates.head(needed).copy()
+        added["admitted_via"] = "25_mpg_fallback"
         n_fallback_added = len(added)
         final_pool = pd.concat([primary_qualified, added], ignore_index=True)
         print(f"25+ MPG fallback identities needed to reach target:                   {needed}")
@@ -456,7 +589,7 @@ def main() -> int:
     print("- All-Star runner-up / near-selection: no local source table exists for this signal.")
     print("- Championship/Finals 'starter' status is approximated via meaningful postseason minutes "
           "(po_mp >= 50), not a literal box-score starter flag.")
-    print(f"- 15+ PPG: {PPG_CAVEAT}")
+    print(f"- 15+ estimated PPG: {PPG_CAVEAT}")
 
     if args.write_manifest:
         EXPERIMENTAL_DIR.mkdir(parents=True, exist_ok=True)
@@ -472,14 +605,26 @@ def main() -> int:
             "supported_start_season": SUPPORTED_START_SEASON,
             "supported_end_season": SUPPORTED_END_SEASON,
             "criteria_definitions": CRITERION_LABELS,
+            "criteria_logic": CRITERIA_LOGIC,
             "ppg_caveat": PPG_CAVEAT,
+            "ppg_estimator": MPG_TO_PPG_NOTE,
+            "ppg_estimator_accuracy": PPG_EST_ACCURACY,
             "target_identities": TARGET_IDENTITIES,
+            "reached_target_identities": len(final_pool) >= TARGET_IDENTITIES,
             "final_identity_count": len(final_pool),
             "primary_criteria_count": len(primary_qualified),
             "fallback_25mpg_count": n_fallback_added,
-            "status": "candidate_manifest_v1 -- identity list + criteria are real and generated "
-                      "from committed local data; NOT yet wired into CourtBuilder gameplay, NOT a "
-                      "canonical data replacement. See docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md.",
+            "status": "candidate_manifest_v1.1 -- identity list + criteria are real and generated "
+                      "from committed local data; NOT a canonical data replacement. Read at runtime "
+                      "ONLY to classify identity_pool_status (a display label); it never gates "
+                      "CourtBuilder roster availability, which is derived independently from "
+                      "regular_1980_2026.parquet. See "
+                      "docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md.",
+            "revision_note": "Phase 10D: criterion `15_ppg` (a per-possession RATE compared "
+                             "against a per-game threshold) replaced by `15_ppg_est` (estimated "
+                             "per-game volume); `25_mpg_fallback` no longer tagged on identities "
+                             "that did not enter through the fallback tier. See ppg_caveat and "
+                             "criteria_logic.",
             "identities": [
                 {
                     "player": r["player"],
@@ -488,13 +633,20 @@ def main() -> int:
                     "career_end": r["career_end"],
                     "n_seasons_local": r["n_seasons_local"],
                     "already_in_250_pool": r["player"] in current_pool_names,
+                    "admitted_via": r["admitted_via"],
+                    # `25_mpg_fallback` is deliberately NOT derived from the
+                    # crit_ flag here -- it is a tiered ADMISSION ROUTE, and
+                    # listing it for a player who was already admitted on
+                    # awards/scoring/30-MPG misrepresents why they are in the
+                    # pool. See CRITERIA_LOGIC.
                     "qualifying_criteria": [
-                        c.replace("crit_", "") for c in [
+                        c.replace("crit_", "").replace("15_ppg", "15_ppg_est")
+                        for c in [
                             "crit_all_defense", "crit_mvp_votes", "crit_dpoy_votes",
                             "crit_all_star", "crit_15_ppg", "crit_championship_starter_approx",
-                            "crit_finals_starter_approx", "crit_30_mpg", "crit_25_mpg_fallback",
+                            "crit_finals_starter_approx", "crit_30_mpg",
                         ] if r[c]
-                    ],
+                    ] + (["25_mpg_fallback"] if r["admitted_via"] == "25_mpg_fallback" else []),
                     "qualifying_seasons": r["qualifying_seasons_full"],
                     "season_criteria": r["season_criteria"],
                 }

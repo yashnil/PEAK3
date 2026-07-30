@@ -1458,11 +1458,16 @@ def compute_pathways(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 #   STATISTICAL IMPACT        38%   (raw BPM/OBPM/DBPM, VORP, total WS, WS/48,
 #                                    PER, + bounded modern EPM/LEBRON/RAPM)
-#   TRADITIONAL PRODUCTION    23%   (nonlinear scoring volume x efficiency,
+#   TRADITIONAL PRODUCTION    21%   (nonlinear scoring volume x efficiency,
 #                                    efficiency, playmaking, rebounding, def box)
-#   INDIVIDUAL RECOGNITION    15%   (additive grouped awards; recognition_row)
-#   POSTSEASON INDIVIDUAL     12%   (additive level + elevation + deep-run volume)
+#   INDIVIDUAL RECOGNITION    20%   (additive grouped awards; recognition_row)
+#   POSTSEASON INDIVIDUAL     18%   (additive level + elevation + deep-run volume)
 #   TEAM ACHIEVEMENT           3%   (championships/finals/CF x role; small)
+#
+# These five percentages are the SINGLE SOURCE weights in OFFICIAL_WEIGHTS
+# directly below -- kept in sync by tests/test_methodology_consistency.py,
+# because this block previously read 23/15/12 long after the weights had moved
+# to 21/20/18.
 #
 # Every component is built from RAW metric values through metric-specific
 # CONTINUOUS formulas. No percentiles, universal z-scores, generic 0-100
@@ -1532,8 +1537,27 @@ def _masked_wavg(score_arrays: List[np.ndarray], weights: List[float]) -> np.nda
 
 def statistical_impact(df: pd.DataFrame) -> Tuple[pd.Series, Dict[str, np.ndarray]]:
     """STATISTICAL IMPACT (38%) from raw advanced metrics (continuous formulas).
-    Sub-weights of the 45: BPM/OBPM/DBPM 15, VORP+total WS 10, WS/48 8, PER 5,
-    modern consensus 7 (bounded supplement, excluded when absent)."""
+    Sub-weights: BPM/OBPM/DBPM 15, VORP+total WS 10, WS/48 8, PER 5, modern
+    consensus 7 (bounded supplement, excluded when absent).
+
+    EFFECTIVE DENOMINATOR IS 38, NOT 45. The nominal weights sum to 45, but
+    `epm`/`lebron` are non-null in 0 of the 11,429 rows of the committed
+    scored dataset and `raptor`/`darko`/`rapm` are absent as columns, so
+    `si_modern` is always NaN and `_masked_wavg` renormalizes over the
+    remaining 38. Two consequences worth knowing before tuning anything here:
+
+      * the pure per-minute RATE terms (BPM 15 + WS/48 8 + PER 5 = 28) are
+        28/38 = 73.7% of this component, i.e. 0.38 * 28/38 = 28.0% of the
+        whole index;
+      * the cumulative, minutes-sensitive terms (VORP + total WS = 10) are
+        only 10/38 = 26.3%, i.e. 10.0% of the index.
+
+    That ratio is the structural reason a high-efficiency, low-minute player
+    can index near a starter. See docs/implementation/PHASE_9B_RANKINGS_AUDIT.md
+    Sec 3 and tests/test_postseason_sample_invariant.py. Supplying real
+    EPM/LEBRON data would change the denominator to 45 and dilute the rate
+    share to 62.2% -- a reason to treat that as a scoring change, not a data
+    backfill."""
     bpm, obpm, dbpm = num(df, "bpm"), num(df, "obpm"), num(df, "dbpm")
     vorp, tws = num(df, "vorp"), num(df, "total_ws")
     ws48, per = num(df, "ws_per_48"), num(df, "per")
@@ -1977,9 +2001,23 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
 
     mp = num(regular, "mp")
     thr = regular["season_end"].map(regular_minutes_threshold)
-    qualifier = mp >= thr
-    regular = regular.loc[qualifier.values | True].copy()  # keep all; flag below
+    # Keep EVERY row here and only FLAG qualification; the minutes filter is
+    # applied later, at `regular[regular["_qualifier"]]`. Percentiles and
+    # z-scores below need the full population present so they can be computed
+    # among qualifiers while non-qualifiers still carry their derived columns.
+    #
+    # This line used to read `regular.loc[qualifier.values | True].copy()`.
+    # `x | True` is unconditionally all-True, so that was an elaborate no-op
+    # that read like a filter -- and it was reported as a bug in the Phase 9B
+    # audit precisely because of how it reads. Behaviour is unchanged: `.copy()`
+    # over all rows is exactly what the old expression evaluated to.
+    regular = regular.copy()
     regular["_qualifier"] = (mp >= thr).values
+    # The threshold itself: peak3.regular_minutes_threshold is 1000 minutes over
+    # an 82-game season, i.e. ~12.2 MPG. That is a DATA-COMPLETENESS floor, not
+    # a "this player was a rotation regular" floor -- the served rankings apply
+    # their own, much stricter gate on top of it (build_top_peaks.py's
+    # MIN_SERVED_ANCHOR_MPG / build_top_seasons.py's MIN_SERVED_SEASON_MPG).
 
     # Era-relative percentiles + capped z-scores among qualifiers.
     regular = add_percentiles(regular, REGULAR_METRICS,
@@ -2025,8 +2063,8 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
     #   38% statistical impact | 21% traditional production |
     #   20% recognition | 18% postseason individual | 3% team achievement
     # ===================================================================
-    si, si_parts = statistical_impact(df)            # 43% component (raw value)
-    tp, tp_parts = traditional_production(df)         # 23% component (raw value)
+    si, si_parts = statistical_impact(df)             # 38% component (raw value)
+    tp, tp_parts = traditional_production(df)         # 21% component (raw value)
     df["statistical_impact"] = si
     df["traditional_production"] = tp
 

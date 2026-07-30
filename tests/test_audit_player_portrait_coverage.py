@@ -53,8 +53,24 @@ def test_pools_load_without_crashing_against_the_real_committed_data():
 
     assert len(resolved) > 0, "player_assets.v3.json must exist and have entries"
     assert len(pool_250) == 250, f"expected the 250-canonical pool to have 250 entries, got {len(pool_250)}"
-    # The identity manifest is documented as targeting 1500, landing at 1510.
-    assert 1400 <= len(pool_1500) <= 1600, f"expected ~1510 identity-pool entries, got {len(pool_1500)}"
+    # Phase 10D: assert LOADER CONSISTENCY against the manifest's own
+    # self-reported count rather than a hand-copied magic range. The previous
+    # `1400 <= n <= 1600` band encoded the 1510 figure produced by the
+    # pre-10D `15_ppg` rate criterion; when that criterion was corrected the
+    # pool legitimately moved to 1390 and a band assertion would have failed
+    # for the right change while still passing for a genuinely broken loader
+    # (e.g. one silently dropping 100 identities).
+    import json as _json
+    from scripts.audit_player_portrait_coverage import IDENTITY_1500_PATH
+    manifest = _json.loads(IDENTITY_1500_PATH.read_text())
+    assert len(pool_1500) == manifest["final_identity_count"], (
+        f"loader returned {len(pool_1500)} identities but the manifest reports "
+        f"{manifest['final_identity_count']}"
+    )
+    assert len(pool_1500) > 1000, (
+        f"identity pool collapsed to {len(pool_1500)} -- far below any documented "
+        "criteria outcome; regenerate with scripts/audit_player_pool_expansion.py"
+    )
     assert len(pool_team_year) > 3000, f"expected the full team-year pool to be the largest, got {len(pool_team_year)}"
 
 

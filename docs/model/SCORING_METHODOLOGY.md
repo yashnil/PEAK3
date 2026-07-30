@@ -111,6 +111,28 @@ replacement anchor `x0`, with a smooth never-flat log tail above `knee` and
 cumulative value (VORP/total WS) live in **separate** sub-weights, so they are
 not double-counted; defense enters once, via DBPM inside the BPM consensus.
 
+> **The modern-impact supplement never fires on the committed data, and the
+> sub-weights above are therefore not the effective ones.** `epm` and `lebron`
+> are non-null in **0 of the 11,429** scored player-seasons, and `raptor` /
+> `darko` / `rapm` are not columns at all. The masked weighted average
+> renormalizes over the remaining **38**, not 45. What that means in practice:
+>
+> | | nominal (/45) | effective (/38) | share of the whole index |
+> |---|---|---|---|
+> | per-minute **rate** (BPM 15 + WS/48 8 + PER 5 = 28) | 62.2 % | **73.7 %** | **28.0 %** |
+> | **cumulative** / minutes-sensitive (VORP + total WS = 10) | 22.2 % | 26.3 % | 10.0 % |
+> | modern supplement (7) | 15.6 % | **0 %** | 0 % |
+>
+> So Statistical Impact — the single largest component — is close to
+> three-quarters per-minute rate in practice. This is the structural reason a
+> high-efficiency, low-minute player can index near a full-time starter on this
+> component. It is a **known, documented property of the current model, not a
+> safeguard**: see §15 (Limitations), §17 (Methodological safeguards) and
+> `docs/implementation/PHASE_9B_RANKINGS_AUDIT.md` §3.
+> Backfilling real EPM/LEBRON data would move the denominator to 45 and dilute
+> the rate share to 62.2 %, which makes it a **scoring change**, not a data
+> chore.
+
 ---
 
 ## 4. Traditional Production (21%)
@@ -558,6 +580,32 @@ slight Hakeem edge — **if the data supports it**, with neither player forced.
 - Rankings are **model estimates**, not objective truth, and are sensitive to the
   stated philosophical weights.
 
+### Known open defects (audited, quantified, not yet fixed)
+
+These are not framing caveats — they are measured defects, recorded here so the
+model is not read as more protected than it is. Both are tracked by executable
+tests and neither has been corrected in the scoring formula.
+
+- **Per-minute rate dominates Statistical Impact.** The modern-impact supplement
+  is absent from all committed data, so the effective denominator is 38 and pure
+  rate terms are 73.7 % of the component / 28.0 % of the index (see §3). A
+  21.5-MPG backup centre can out-index a 34-MPG All-NBA wing on the two
+  regular-season components alone. The only minutes term anywhere in the live
+  index is `traditional_production`'s `load_mult`, whose spread across the whole
+  real minutes range is ~1.47×, against a real minutes ratio of ~2.8×.
+  **There is no role/workload component** — `METHODOLOGY.md` §4 describes one,
+  but that section documents the *superseded* model.
+- **Postseason reliability does not bound tiny samples.** See §17. A
+  five-to-twenty-minute playoff sample can produce a postseason component
+  several times the median Finals-length run.
+
+**What contains them today:** the served PEAK Index applies a 25.0 MPG gate
+(`MIN_SERVED_ANCHOR_MPG` / `MIN_SERVED_SEASON_MPG`), which removes every
+bench-role season from both public boards — verified categorically against
+`classify_roles`, not just by name. The underlying per-season scores are
+unchanged and still carry the inflation, so any *new* surface that ranks raw
+`prime_score` over a wide universe must apply its own gate.
+
 ---
 
 ## 16. What the project produces
@@ -584,8 +632,18 @@ slight Hakeem edge — **if the data supports it**, with neither player forced.
 - **Missing data is never silently zero**: weighted-available renormalization and
   explicit `*_data_status` flags keep absent fields from acting like real values;
   the rebuild **fails** on a silently-missing required field in a completed season.
-- **Postseason sample reliability** (minutes × games × series) shrinks the whole
-  upper tail so a short hot run cannot dwarf a Finals-length one.
+- **Postseason sample reliability** (minutes × games × series) shrinks the upper
+  tail on short/partial runs. ⚠️ **This safeguard is real but incomplete, and
+  does not fully deliver what it was designed to.** It multiplies an
+  `abs_level` that is unbounded above, and a multiplicative shrink cannot bound
+  an unbounded quantity; two of its three weights (games 0.35, series 0.25 —
+  60 %) describe how far the *team* advanced rather than the player's own
+  sample. Measured: a 20-playoff-minute season produces a postseason component
+  of 40.2 against a median of 4.7 across all 295 Finals-length (700+ minute)
+  runs. Contained in practice by the 0.18 component weight and by the served
+  rankings' minutes gate — **not corrected**. Tracked as an executable contract
+  in `tests/test_postseason_sample_invariant.py` (strict-xfail, with the fix
+  plan) and quantified in `docs/implementation/PHASE_9B_RANKINGS_AUDIT.md` §3.
 - **Bounded postseason elevation safeguard**: a gated, monotonic floor keeps a
   large negative elevation from reversing a clearly positive, well-sampled
   absolute playoff level (it can only ever raise a score; ~0.2% of seasons).

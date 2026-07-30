@@ -134,6 +134,47 @@ def test_no_role_player_in_top_50_stat_seasons():
     assert not set(top["player"]) & set(ROLE_CONTROLS)
 
 
+def test_no_role_player_in_top_250_stat_seasons():
+    """Phase 10D: the top-50 window above is why role-player inflation went
+    undetected for so long -- Daniel Gafford ranked 164 and Gary Payton II 194
+    on the served board and sailed straight through it. Phase 9B's recommended
+    guards asked for a deeper window; this is it.
+
+    Measured headroom when written: the best ROLE_CONTROLS season is Clint
+    Capela at stat_total rank 323, so 250 is a real bound with ~70 rows of
+    margin, not a threshold drawn around the current values.
+    """
+    s = _load()
+    if s is None:
+        return
+    top = s.sort_values("stat_total", ascending=False).drop_duplicates(
+        ["player", "season"]).head(250)
+    intruders = sorted(set(top["player"]) & set(ROLE_CONTROLS))
+    assert intruders == [], f"role-control players inside the top 250 stat seasons: {intruders}"
+
+
+def test_no_low_minute_specialist_in_top_250_stat_seasons():
+    """The categorical form of the guard above.
+
+    The four hardcoded ROLE_CONTROLS could never have caught Luka Garza, who
+    was not among them -- and will not catch whoever surfaces next. This
+    asserts on the model's OWN role classification instead of a name list, so
+    it covers the whole population `classify_roles` identifies.
+    """
+    s = _load()
+    if s is None or "role" not in s.columns:
+        return
+    top = s.sort_values("stat_total", ascending=False).drop_duplicates(
+        ["player", "season"]).head(250)
+    bench = top[top["role"] == "Low-minute specialist"]
+    assert bench.empty, (
+        "low-minute specialists inside the top 250 stat seasons: "
+        f"{bench[['player', 'season', 'mpg']].head(10).to_dict('records')}"
+    )
+    # Guard against the assertion becoming vacuous if the label ever changes.
+    assert (s["role"] == "Low-minute specialist").sum() > 500
+
+
 def _row(s, p, season):
     g = s[(s.player == p) & (s.season == season)]
     return g.iloc[0] if len(g) else None
