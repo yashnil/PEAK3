@@ -1308,7 +1308,17 @@ def test_1500_manifest_v1_exists_and_excludes_festus_ezeli():
     )
     assert manifest_path.exists(), "run: python scripts/audit_player_pool_expansion.py --write-manifest"
     manifest = _json.loads(manifest_path.read_text())
-    assert manifest["final_identity_count"] >= 1500
+    # Phase 10D: this used to assert `>= 1500`, which asserted an ASPIRATIONAL
+    # TARGET rather than a property of the data. 1500 is the goal recorded in
+    # `target_identities`; the pool is whatever the documented criteria
+    # actually admit. Correcting the `15_ppg` rate criterion (see that
+    # script's PPG_CAVEAT) legitimately moved the pool from 1510 to 1390, and
+    # the old assertion would have failed a correctness fix. The manifest now
+    # reports `reached_target_identities` explicitly, so the shortfall is
+    # visible data rather than a silent one.
+    assert manifest["final_identity_count"] == len(manifest["identities"])
+    assert manifest["final_identity_count"] > 1000
+    assert manifest["target_identities"] == 1500
     slugs = {i["player_slug"] for i in manifest["identities"]}
     assert "festus-ezeli" not in slugs
     assert "andre-iguodala" in slugs

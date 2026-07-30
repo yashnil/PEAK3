@@ -12,7 +12,7 @@ disk -- no network calls, safe to run in CI) -- reports, per pool:
   - unresolved players in the 250-canonical pool (named list -- the
     highest-visibility pool)
   - unresolved players in the 1500-identity pool (named list, cross-
-    referenced against candidate_identity_manifest.v1.json's 1510 curated
+    referenced against candidate_identity_manifest.v1.json's curated
     entries -- a distinct, smaller pool from the full ~3,494-name team-year
     candidate set)
   - licensing / cache-policy statement (restates the existing
@@ -85,9 +85,10 @@ def _load_250_pool() -> dict[str, str]:
 
 
 def _load_1500_identity_pool() -> dict[str, str]:
-    """slug -> display name, for the curated 1500-identity pool (1510
-    entries as of this pass) -- distinct from the broader team-year
-    candidate pool below."""
+    """slug -> display name, for the curated identity pool -- distinct from
+    the broader team-year candidate pool below. Size is whatever the
+    manifest's criteria currently produce (1,390 after the Phase 10D PPG-
+    criterion correction; 1,510 before it); never hardcode a count here."""
     if not IDENTITY_1500_PATH.exists():
         return {}
     data = json.loads(IDENTITY_1500_PATH.read_text())

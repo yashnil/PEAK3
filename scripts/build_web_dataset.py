@@ -243,19 +243,32 @@ METHODOLOGY = {
             "label": "Statistical Impact",
             "weight": 0.38,
             "weight_pct": 38,
-            "short_description": "Raw advanced metrics measuring on-court impact: BPM, VORP, WS, PER, EPM, and similar.",
+            "short_description": "Raw advanced metrics measuring on-court impact: BPM, VORP, Win Shares, WS/48, and PER.",
+            # Phase 10D: this used to lead with "BPM, VORP, WS, PER, EPM, and
+            # similar" and list "EPM (when available)" as a key input. The
+            # hedge was literally true but read as "the model uses EPM", and
+            # EPM/LEBRON are non-null in 0 of the 11,429 scored seasons while
+            # RAPTOR/DARKO/RAPM are not columns at all -- so the supplement has
+            # never contributed to a single served score. Saying so plainly
+            # also explains the component's real shape: with the supplement
+            # always absent, the masked average renormalizes over 38 instead of
+            # 45 and per-minute rate terms are 73.7% of the component.
             "long_description": (
                 "The largest component (38%) captures a player's measurable basketball impact through advanced metrics. "
-                "Primary signals include Box Plus/Minus (BPM), its offensive and defensive splits (OBPM/DBPM), "
-                "Value Over Replacement Player (VORP), Win Shares (WS) and WS/48, Player Efficiency Rating (PER), "
-                "and when available, EPM, LEBRON, RAPTOR, and similar ensemble impact models. "
+                "The signals actually used are Box Plus/Minus (BPM), its offensive and defensive splits (OBPM/DBPM), "
+                "Value Over Replacement Player (VORP), Win Shares (WS) and WS/48, and Player Efficiency Rating (PER). "
+                "The model also defines an optional supplement for modern ensemble metrics (EPM, LEBRON, RAPTOR and "
+                "similar), but no season in the published dataset carries those metrics, so the supplement contributes "
+                "nothing to any score shown here. "
                 "All metrics are evaluated on their raw values using continuous, era-relative formulas — no hard percentile cutoffs. "
-                "Missing modern metrics never penalize a player."
+                "Because the supplement is absent, per-minute rate metrics (BPM, WS/48, PER) make up about three quarters "
+                "of this component — which is why an efficient low-minute player can score well on it. The published "
+                "rankings apply a minutes floor for that reason."
             ),
-            "key_inputs": ["BPM", "OBPM", "DBPM", "VORP", "WS", "WS/48", "PER", "EPM (when available)"],
+            "key_inputs": ["BPM", "OBPM", "DBPM", "VORP", "WS", "WS/48", "PER"],
             "common_misconceptions": [
                 "This is not simply PER.",
-                "Missing EPM/LEBRON does not zero out SI.",
+                "EPM/LEBRON are defined as an optional supplement but are absent from every season in this dataset, so they never affect a published score.",
                 "It captures defense separately through DBPM.",
             ],
         },
