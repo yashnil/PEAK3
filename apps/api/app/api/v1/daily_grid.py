@@ -45,17 +45,21 @@ from app.models.daily_grid import (
     DailyGridBoardResponse,
     DailyGridSearchResponse,
     GridConstraint,
+    GridResultRequest,
+    GridResultResponse,
     SubmitAnswerRequest,
     SubmitAnswerResponse,
 )
 from nba_peak.daily_grid.constraints import all_constraints
 from nba_peak.daily_grid.generator import (
+    GRID_SIZE as MODEL_GRID_SIZE,
     GridBoard,
     InvalidGridDate,
     get_board,
     today_utc_date,
     validate_grid_date,
 )
+from nba_peak.daily_grid.optimal import build_result
 from nba_peak.daily_grid.search import MAX_LIMIT, DEFAULT_LIMIT, search_player_seasons
 from nba_peak.daily_grid.validation import InvalidCell, validate_answer
 
@@ -211,6 +215,79 @@ def submit_daily_grid_answer(body: SubmitAnswerRequest) -> SubmitAnswerResponse:
         raise HTTPException(status_code=400, detail=_error_detail(str(exc), "invalid_cell"))
 
     return SubmitAnswerResponse(**result.as_dict())
+
+
+# ---------------------------------------------------------------------------
+# Result / today's maximum
+# ---------------------------------------------------------------------------
+
+@router.post("/daily-grid/result", response_model=GridResultResponse)
+def get_daily_grid_result(body: GridResultRequest) -> GridResultResponse:
+    """Compare a COMPLETED board against today's maximum.
+
+    THIS IS THE ONLY ROUTE THAT RETURNS ANSWER-KEY MATERIAL, so completion is
+    enforced here rather than trusted:
+
+      - all nine squares must be present, each exactly once;
+      - every submitted answer is re-run through the full validator against
+        server data;
+      - the no-duplicate-player rule is re-checked across the whole board.
+
+    A client that has not genuinely finished gets a 400 and learns nothing. It
+    would otherwise be trivial to post nine junk ids and read back the
+    optimal solution -- which is the whole puzzle.
+
+    Not a GET: the board state is the request body, and a URL carrying nine
+    answer ids would end up in logs and browser history.
+    """
+    board = _resolve_board(body.date)
+
+    expected_cells = MODEL_GRID_SIZE * MODEL_GRID_SIZE
+    coords = [(cell.row, cell.col) for cell in body.filled]
+    if len(body.filled) != expected_cells or len(set(coords)) != expected_cells:
+        raise HTTPException(
+            status_code=400,
+            detail=_error_detail(
+                "the result comparison is available once all nine squares are "
+                f"locked (got {len(set(coords))} of {expected_cells})",
+                "board_incomplete",
+            ),
+        )
+
+    # Re-validate every square from scratch. `used_player_slugs` accumulates as
+    # we go, so a board that reuses a player identity is rejected here even
+    # though each square would pass on its own.
+    used: list[str] = []
+    for cell in body.filled:
+        try:
+            result = validate_answer(
+                board=board,
+                row=cell.row,
+                col=cell.col,
+                answer_id=cell.answer_id,
+                used_player_slugs=used,
+            )
+        except InvalidCell as exc:
+            raise HTTPException(
+                status_code=400, detail=_error_detail(str(exc), "invalid_cell")
+            )
+        if not result.valid or result.player_season is None:
+            raise HTTPException(
+                status_code=400,
+                detail=_error_detail(
+                    f"square ({cell.row}, {cell.col}) is not a valid locked answer: "
+                    f"{result.reason or 'rejected'}",
+                    "board_not_valid",
+                ),
+            )
+        used.append(result.player_season.player_slug)
+
+    grid_result = build_result(
+        board=board,
+        filled=[(cell.row, cell.col, cell.answer_id) for cell in body.filled],
+        incorrect_attempts=body.incorrect_attempts,
+    )
+    return GridResultResponse(**grid_result.as_dict())
 
 
 # ---------------------------------------------------------------------------

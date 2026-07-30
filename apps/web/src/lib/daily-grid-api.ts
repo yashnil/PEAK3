@@ -10,6 +10,8 @@
 import {
   DailyGridBoard,
   DailyGridSearchResponse,
+  GridResultRequest,
+  GridResultResponse,
   SubmitAnswerRequest,
   SubmitAnswerResponse,
 } from "@/types/daily-grid";
@@ -81,9 +83,27 @@ export async function searchPlayerSeasons(params: {
   } as RequestInit);
 }
 
-/** Submit one square. An invalid answer is a normal 200 response, not a throw. */
+/** Submit one square. An invalid answer is a normal 200 response, not a throw.
+ *
+ *  The response carries a score ONLY when the answer was valid, and only via
+ *  `cell_score` -- a rejected pick never reveals what it was worth. */
 export async function submitDailyGridAnswer(body: SubmitAnswerRequest): Promise<SubmitAnswerResponse> {
   return apiFetch<SubmitAnswerResponse>("/daily-grid/answer", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Fetch the post-completion comparison against today's maximum.
+ *
+ * Throws (400 `board_incomplete` / `board_not_valid`) unless all nine squares
+ * are genuinely locked with valid answers -- the server re-validates every one
+ * before releasing anything, because this response contains the answer key.
+ * Only call it once `isComplete(progress)`.
+ */
+export async function getDailyGridResult(body: GridResultRequest): Promise<GridResultResponse> {
+  return apiFetch<GridResultResponse>("/daily-grid/result", {
     method: "POST",
     body: JSON.stringify(body),
   });

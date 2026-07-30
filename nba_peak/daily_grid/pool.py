@@ -181,9 +181,20 @@ class PlayerSeason:
         referred to in basketball writing and in the share text."""
         return f"{self.season} {self.player_name}"
 
-    def as_dict(self) -> dict:
-        """Plain dict at the API boundary -- same convention as
-        LineupFitComponents.as_dict()."""
+    def as_search_dict(self) -> dict:
+        """Identity only -- NO score. The shape a candidate takes before the
+        player commits to it.
+
+        Phase 11B: the Daily Grid's objective is to maximise total PEAK3
+        score, so showing `prime_score` on a search result hands over the
+        answer to the optimisation. A player could type a name, read the
+        numbers, and click the biggest one without knowing anything about
+        basketball. Everything here is identity a player already knows from
+        the name they typed (which team, which season, which position) --
+        nothing that ranks the options against each other.
+
+        See as_dict() for the post-lock shape.
+        """
         return {
             "id": self.id,
             "player_slug": self.player_slug,
@@ -192,8 +203,20 @@ class PlayerSeason:
             "team": self.team,
             "team_name": self.team_name,
             "position": self.position,
-            "prime_score": round(self.prime_score, 2),
             "label": self.label,
+        }
+
+    def as_dict(self) -> dict:
+        """Full card, score included -- same convention as
+        LineupFitComponents.as_dict().
+
+        REVEALED SHAPE. Only ever sent for a season the player has already
+        locked in (a valid submission) or for a square in the post-completion
+        comparison. Never for a search candidate: use as_search_dict().
+        """
+        return {
+            **self.as_search_dict(),
+            "prime_score": round(self.prime_score, 2),
         }
 
 

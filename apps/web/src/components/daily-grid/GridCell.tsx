@@ -1,8 +1,9 @@
 "use client";
 
+import { Lock } from "lucide-react";
 import { FilledCell, GridCellSpec } from "@/types/daily-grid";
 import { RARITY_COLOR } from "./constraint-style";
-import { RARITY_SHORT_LABEL } from "@/lib/daily-grid-state";
+import { RARITY_POOL_HINT, RARITY_SHORT_LABEL } from "@/lib/daily-grid-state";
 
 interface Props {
   row: number;
@@ -50,9 +51,10 @@ export default function GridCell({
         ? "var(--peak-accent)"
         : "var(--border-default)";
 
+  const poolHint = spec ? RARITY_POOL_HINT[spec.rarity_bucket] : "";
   const ariaLabel = filled
-    ? `${fullTitle}. Filled with ${filled.player_season.label}, ${filled.player_season.team_name}, PEAK ${filled.player_season.prime_score}, ${filled.cell_score.arena_points} arena points. Activate to review or remove.`
-    : `${fullTitle}. Empty square. Activate to search for a player-season.`;
+    ? `${fullTitle}. Locked: ${filled.player_season.label}, ${filled.player_season.team_name}, PEAK ${filled.cell_score.quality_points}, ${filled.cell_score.arena_points} arena points. This pick is final. Activate to review it.`
+    : `${fullTitle}. Empty square. ${poolHint} Activate to search for a player-season.`;
 
   return (
     <button
@@ -99,7 +101,10 @@ export default function GridCell({
             className="text-[clamp(8px,2vw,10px)]"
             style={{ color: "var(--text-secondary)" }}
           >
-            {filled.player_season.team} · PEAK {filled.player_season.prime_score}
+            {/* Phase 11B: the score comes from cell_score.quality_points --
+                the locked square is where a season's PEAK3 rating is
+                revealed, and the card itself no longer carries one. */}
+            {filled.player_season.team} · PEAK {filled.cell_score.quality_points}
           </span>
           <span
             data-testid="grid-cell-points"
@@ -108,15 +113,24 @@ export default function GridCell({
           >
             {filled.cell_score.arena_points} pts
           </span>
+          <span
+            data-testid="grid-cell-locked"
+            className="mt-px inline-flex items-center gap-0.5 text-[clamp(7px,1.7vw,8px)] font-semibold uppercase tracking-[0.1em]"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <Lock size={7} aria-hidden="true" />
+            Locked
+          </span>
         </span>
       ) : (
         <span className="flex flex-col items-center gap-1">
+          {/* "Pick" rather than a bare "+": on a board where every square is
+              an open decision, the affordance should name the action. */}
           <span
-            aria-hidden="true"
-            className="text-[clamp(14px,4vw,20px)] font-light"
-            style={{ color: active ? "var(--peak-accent)" : "var(--text-muted)" }}
+            className="text-[clamp(9px,2.5vw,12px)] font-bold uppercase tracking-[0.1em]"
+            style={{ color: active ? "var(--peak-accent)" : "var(--text-secondary)" }}
           >
-            +
+            {active ? "Choose" : "Pick"}
           </span>
           {spec && (
             <span
@@ -124,7 +138,9 @@ export default function GridCell({
               className="text-[clamp(7px,1.9vw,9px)] font-semibold uppercase tracking-[0.08em]"
               style={{ color: RARITY_COLOR[spec.rarity_bucket] }}
             >
-              {RARITY_SHORT_LABEL[spec.rarity_bucket]}
+              {/* Named as what it is -- the size of the answer pool -- rather
+                  than an unexplained rarity adjective. */}
+              {RARITY_SHORT_LABEL[spec.rarity_bucket]} pool
             </span>
           )}
         </span>

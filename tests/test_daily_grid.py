@@ -21,8 +21,15 @@ from nba_peak.daily_grid.constraints import (
 )
 from nba_peak.daily_grid.generator import (
     GRID_SIZE,
+    MAX_PER_CATEGORY,
+    MAX_SQUARES_ONE_PLAYER_TOPS,
+    MAX_TEAM_CONSTRAINTS,
+    MIN_ANCHOR_CONSTRAINTS,
     MIN_ANSWERS_PER_CELL,
     MIN_PLAYERS_PER_CELL,
+    MIN_STRONG_OPTIONS,
+    MIN_TEAM_CONSTRAINTS,
+    PREFERRED_PEAK3_NATIVE,
     _BOARD_CACHE,
     _BOARD_CACHE_MAX,
     BoardGenerationFailed,
@@ -35,6 +42,7 @@ from nba_peak.daily_grid.generator import (
     today_utc_date,
     validate_grid_date,
 )
+from nba_peak.daily_grid.optimal import build_result, solve_optimal
 from nba_peak.daily_grid.pool import load_pool
 from nba_peak.daily_grid.scoring import (
     RARITY_MULTIPLIERS,
@@ -419,12 +427,17 @@ class TestSolvability:
             ]
             assert categories.count("team") <= 3
 
-    def test_boards_always_include_at_least_two_teams(self, boards):
+    def test_boards_always_include_at_least_one_team(self, boards):
+        """A franchise is the anchor a casual fan reads first. Phase 11B
+        lowered the floor from two to one and the ceiling from three to two:
+        a third franchise crowded out the categories that make a board
+        interesting, and franchise-heavy boards were the source of the
+        "this is just a database lookup" feeling."""
         for board in boards.values():
             categories = [c.category for c in board.rows] + [
                 c.category for c in board.cols
             ]
-            assert categories.count("team") >= 2
+            assert MIN_TEAM_CONSTRAINTS <= categories.count("team") <= MAX_TEAM_CONSTRAINTS
 
     def test_difficulty_is_a_known_label(self, boards):
         for board in boards.values():
@@ -787,7 +800,6 @@ class TestSearch:
                 "team",
                 "team_name",
                 "position",
-                "prime_score",
                 "label",
                 "eligible",
             }
@@ -822,3 +834,309 @@ class TestNoFabrication:
         thin = [c for c in build_constraints(pool) if c.category == "team"][:6]
         with pytest.raises(BoardGenerationFailed):
             generate_board("2026-07-30", pool=pool, constraints=thin)
+
+
+# ---------------------------------------------------------------------------
+# Phase 11B — no score before a pick is locked
+# ---------------------------------------------------------------------------
+
+class TestNoPreLockScoreLeak:
+    """The mode's objective is to maximise total PEAK3 score, so a season's
+    rating IS the answer to the puzzle. It must not be reachable before the
+    player commits to that season."""
+
+    def test_search_serialisation_carries_no_score(self, pool):
+        for hit in search_player_seasons("olajuwon", pool=pool):
+            payload = hit.as_dict()
+            assert "prime_score" not in payload
+            assert not any("score" in key for key in payload)
+
+    def test_identity_shape_and_revealed_shape_differ_by_exactly_the_score(self, pool):
+        player_season = pool.get("michael-jordan-199091-chi")
+        identity = player_season.as_search_dict()
+        revealed = player_season.as_dict()
+        assert set(revealed) - set(identity) == {"prime_score"}
+        assert "prime_score" not in identity
+
+    def test_search_results_are_not_ordered_by_score(self, pool):
+        """Ranking a player's seasons best-first would leak the target just as
+        surely as printing the number -- the player would click the top row
+        every time. Career order is neutral."""
+        hits = search_player_seasons("olajuwon", limit=50, pool=pool)
+        seasons = [h.player_season.season for h in hits]
+        assert seasons == sorted(seasons)
+        scores = [h.player_season.prime_score for h in hits]
+        assert scores != sorted(scores, reverse=True)
+
+    def test_a_rejected_answer_never_returns_its_score(self, boards, pool):
+        """Otherwise every square is a free score oracle: submit a season you
+        know will fail, read its rating, optimise the rest of the board."""
+        board = boards["2026-07-30"]
+        cell = board.cells[0]
+        valid_ids = set(cell.answer_ids)
+        wrong = next(ps for ps in pool.seasons if ps.id not in valid_ids)
+        payload = validate_answer(
+            board, cell.row, cell.col, wrong.id, pool=pool
+        ).as_dict()
+        assert payload["valid"] is False
+        assert "prime_score" not in payload["player_season"]
+        assert "cell_score" not in payload
+
+    def test_a_locked_answer_reveals_its_score_through_cell_score(self, boards, pool):
+        board = boards["2026-07-30"]
+        cell = board.cells[0]
+        answer = unused_answer_for_cell(board, cell.row, cell.col, pool=pool)
+        payload = validate_answer(
+            board, cell.row, cell.col, answer.id, pool=pool
+        ).as_dict()
+        assert payload["valid"] is True
+        # The card still carries no score; the square's own score does.
+        assert "prime_score" not in payload["player_season"]
+        assert payload["cell_score"]["quality_points"] == pytest.approx(
+            answer.prime_score, abs=0.01
+        )
+
+    def test_a_peak_threshold_rejection_does_not_print_the_score(self, boards, pool):
+        """A peak-threshold square would otherwise answer 'what is this season
+        rated?' for any season submitted to it."""
+        peak_constraint = constraint_by_id("peak_85_plus", pool)
+        below = next(ps for ps in pool.seasons if ps.prime_score < 85)
+        from nba_peak.daily_grid.validation import _constraint_failure_reason
+
+        reason = _constraint_failure_reason(below, peak_constraint)
+        assert "below" in reason
+        assert f"{below.prime_score:.1f}" not in reason
+        assert str(int(below.prime_score)) not in reason.replace("85", "")
+
+
+# ---------------------------------------------------------------------------
+# Phase 11B — today's maximum
+# ---------------------------------------------------------------------------
+
+class TestOptimalSolution:
+    def test_solution_fills_every_square_with_distinct_players(self, boards, pool):
+        for date, board in boards.items():
+            solution = solve_optimal(board, pool=pool)
+            assert len(solution.cells) == 9, date
+            assert len({c.player_season.player_slug for c in solution.cells}) == 9, date
+
+    def test_every_optimal_answer_is_actually_valid_for_its_square(self, boards, pool):
+        """The maximum has to be a legal board, not just a big number."""
+        for date, board in boards.items():
+            solution = solve_optimal(board, pool=pool)
+            used: set[str] = set()
+            for cell in solution.cells:
+                result = validate_answer(
+                    board,
+                    cell.row,
+                    cell.col,
+                    cell.player_season.id,
+                    used_player_slugs=used,
+                    pool=pool,
+                )
+                assert result.valid, (date, cell.row, cell.col, result.reason)
+                used.add(cell.player_season.player_slug)
+
+    def test_total_equals_the_sum_of_its_squares(self, boards, pool):
+        for board in boards.values():
+            solution = solve_optimal(board, pool=pool)
+            assert solution.total_points == sum(
+                c.cell_score.arena_points for c in solution.cells
+            )
+
+    def test_is_deterministic_down_to_the_named_seasons(self, boards, pool):
+        """The result screen names these nine seasons, so 'deterministic' has
+        to mean the same seasons, not just the same total."""
+        for board in boards.values():
+            first = solve_optimal(board, pool=pool)
+            second = solve_optimal(board, pool=pool)
+            assert first.total_points == second.total_points
+            assert [c.player_season.id for c in first.cells] == [
+                c.player_season.id for c in second.cells
+            ]
+
+    def test_is_claimed_exact(self, boards, pool):
+        """The reduction to a linear assignment problem is exact, so the UI is
+        entitled to say 'today's maximum' rather than 'best known'."""
+        for board in boards.values():
+            assert solve_optimal(board, pool=pool).exact is True
+
+    def test_no_legal_board_beats_it(self, boards, pool):
+        """The real optimality claim, checked against actual play: a large
+        sample of randomly-built legal boards must never outscore it."""
+        import random
+
+        for date, board in boards.items():
+            optimal = solve_optimal(board, pool=pool)
+            rng = random.Random(hash(date) & 0xFFFF)
+            for _ in range(200):
+                used: set[str] = set()
+                total = 0
+                feasible = True
+                for cell in sorted(board.cells, key=lambda c: c.distinct_player_count):
+                    choices = [
+                        pool.by_id[a]
+                        for a in cell.answer_ids
+                        if pool.by_id[a].player_slug not in used
+                    ]
+                    if not choices:
+                        feasible = False
+                        break
+                    pick = rng.choice(choices)
+                    used.add(pick.player_slug)
+                    total += score_cell(pick, cell).arena_points
+                if feasible:
+                    assert total <= optimal.total_points, (date, total)
+
+    def test_beats_a_greedy_fill(self, boards, pool):
+        """Sanity that the optimiser is doing real work: it must be at least as
+        good as taking each square's best available answer in turn."""
+        for board in boards.values():
+            optimal = solve_optimal(board, pool=pool)
+            used: set[str] = set()
+            greedy = 0
+            for cell in board.cells:
+                best = max(
+                    (
+                        pool.by_id[a]
+                        for a in cell.answer_ids
+                        if pool.by_id[a].player_slug not in used
+                    ),
+                    key=lambda ps: ps.prime_score,
+                )
+                used.add(best.player_slug)
+                greedy += score_cell(best, cell).arena_points
+            assert optimal.total_points >= greedy
+
+    def test_is_never_part_of_the_public_board_payload(self, boards):
+        """The whole puzzle is behind this. It must not ride along on the
+        board response under any key."""
+        for board in boards.values():
+            serialized = repr(board.as_public_dict())
+            for forbidden in ("optimal", "total_points", "best_cell", "exact"):
+                assert forbidden not in serialized
+
+
+class TestGridResult:
+    def _complete(self, board, pool):
+        solution = board_reference_solution(board, pool=pool)
+        return [(c.row, c.col, ps.id) for c, ps in zip(board.cells, solution)]
+
+    def test_compares_the_player_against_the_maximum(self, boards, pool):
+        board = boards["2026-07-30"]
+        result = build_result(board, self._complete(board, pool), pool=pool)
+        assert result.user_total > 0
+        assert result.optimal_total >= result.user_total
+        assert 0 < result.percent_of_best <= 100.0
+        assert len(result.cells) == 9
+
+    def test_percent_is_consistent_with_the_totals(self, boards, pool):
+        for board in boards.values():
+            result = build_result(board, self._complete(board, pool), pool=pool)
+            assert result.percent_of_best == pytest.approx(
+                round(100.0 * result.user_total / result.optimal_total, 1)
+            )
+
+    def test_names_a_biggest_miss_whenever_points_were_left(self, boards, pool):
+        board = boards["2026-07-30"]
+        result = build_result(board, self._complete(board, pool), pool=pool)
+        if result.user_total < result.optimal_total:
+            assert result.biggest_miss is not None
+            assert result.biggest_miss.points_left > 0
+            assert result.biggest_miss.points_left == max(
+                c.points_left for c in result.cells
+            )
+        else:
+            assert result.biggest_miss is None
+
+    def test_a_maximum_board_reports_no_miss_and_full_percent(self, boards, pool):
+        """Play the optimal board itself: 100%, no miss, every square matched."""
+        for date, board in boards.items():
+            optimal = solve_optimal(board, pool=pool)
+            filled = [(c.row, c.col, c.player_season.id) for c in optimal.cells]
+            result = build_result(board, filled, pool=pool)
+            assert result.user_total == result.optimal_total, date
+            assert result.percent_of_best == 100.0, date
+            assert result.biggest_miss is None, date
+            assert result.squares_matching_optimal == 9, date
+
+    def test_is_deterministic(self, boards, pool):
+        board = boards["2026-07-30"]
+        filled = self._complete(board, pool)
+        first = build_result(board, filled, pool=pool).as_dict()
+        second = build_result(board, filled, pool=pool).as_dict()
+        assert first == second
+
+    def test_carries_incorrect_attempts_through(self, boards, pool):
+        board = boards["2026-07-30"]
+        result = build_result(board, self._complete(board, pool), incorrect_attempts=7, pool=pool)
+        assert result.incorrect_attempts == 7
+
+
+# ---------------------------------------------------------------------------
+# Phase 11B — board composition quality
+# ---------------------------------------------------------------------------
+
+class TestBoardQuality:
+    def test_every_board_carries_the_preferred_peak3_native_count(self, boards):
+        """Phase 11A allowed a single PEAK3-native axis, which produced boards
+        that were franchises crossed with positions. The preference is two."""
+        for date, board in boards.items():
+            categories = [c.category for c in board.rows] + [c.category for c in board.cols]
+            native = sum(1 for cat in categories if cat in {"peak", "component"})
+            assert native >= PREFERRED_PEAK3_NATIVE, (date, categories)
+
+    def test_every_board_has_an_award_outcome_or_era_anchor(self, boards):
+        for date, board in boards.items():
+            categories = [c.category for c in board.rows] + [c.category for c in board.cols]
+            anchors = sum(1 for cat in categories if cat in {"award", "outcome", "era"})
+            assert anchors >= MIN_ANCHOR_CONSTRAINTS, (date, categories)
+
+    def test_no_board_is_mostly_franchises_and_positions(self, boards):
+        """The 'database lookup' shape this pass exists to remove."""
+        for date, board in boards.items():
+            categories = [c.category for c in board.rows] + [c.category for c in board.cols]
+            lookup = sum(1 for cat in categories if cat in {"team", "position"})
+            assert lookup <= len(categories) // 2, (date, categories)
+
+    def test_no_category_owns_a_whole_axis(self, boards):
+        for board in boards.values():
+            categories = [c.category for c in board.rows] + [c.category for c in board.cols]
+            for category in set(categories):
+                assert categories.count(category) <= MAX_PER_CATEGORY
+
+    def test_every_square_poses_a_real_choice(self, boards, pool):
+        """Several different players must be plausibly the best answer, or the
+        square is a recall test rather than a decision."""
+        for date, board in boards.items():
+            for cell in board.cells:
+                seasons = [pool.by_id[a] for a in cell.answer_ids]
+                best = max(ps.prime_score for ps in seasons)
+                strong = {ps.player_slug for ps in seasons if ps.prime_score >= 0.70 * best}
+                assert len(strong) >= MIN_STRONG_OPTIONS, (date, cell.row, cell.col)
+
+    def test_no_single_player_dominates_the_board(self, boards, pool):
+        """Guards against boards where one GOAT is the right answer nearly
+        everywhere and the unique-player rule becomes a chore."""
+        for date, board in boards.items():
+            tops = []
+            for cell in board.cells:
+                seasons = [pool.by_id[a] for a in cell.answer_ids]
+                tops.append(max(seasons, key=lambda ps: ps.prime_score).player_slug)
+            for slug in set(tops):
+                assert tops.count(slug) <= MAX_SQUARES_ONE_PLAYER_TOPS, (date, slug)
+
+    def test_a_full_year_still_generates_and_stays_unique(self, pool, taxonomy):
+        """The tighter rules must not have cost solvability or variety."""
+        start = datetime.date(2026, 1, 1)
+        signatures = set()
+        for offset in range(365):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            board = generate_board(date, pool=pool, constraints=taxonomy)
+            for cell in board.cells:
+                assert cell.answer_count >= MIN_ANSWERS_PER_CELL
+                assert cell.distinct_player_count >= MIN_PLAYERS_PER_CELL
+            signatures.add(
+                (tuple(c.id for c in board.rows), tuple(c.id for c in board.cols))
+            )
+        assert len(signatures) == 365

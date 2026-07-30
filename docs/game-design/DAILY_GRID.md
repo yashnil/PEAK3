@@ -1,8 +1,16 @@
-# Daily Grid Challenge (Phase 11A)
+# Daily Grid Challenge (Phase 11A, productized in 11B)
 
-PEAK3's lightweight daily game. A 3x3 board whose rows and columns are
+PEAK3's competitive daily game. A 3x3 board whose rows and columns are
 basketball/PEAK3 constraints; every square is filled with an **exact NBA
 player-season** satisfying both.
+
+> **The objective: build the highest-scoring valid 3x3 grid.**
+
+Phase 11A shipped a grid that worked but did not say what winning meant.
+Playtesters could not tell whether they were meant to find *any* valid answer,
+the rarest one, or the best one — and search results printed each candidate's
+PEAK3 score, so the optimal strategy was "type a name, click the biggest
+number". Phase 11B made it an optimisation puzzle and removed the shortcut.
 
 Route: **`/daily`**. Everyone gets the same board on the same UTC date.
 
@@ -18,7 +26,11 @@ Navbar "Play" still deep-links to `/arena/court/practice/apex_1y`.
   `1999-00 Shaquille O'Neal`, not `Shaquille O'Neal`.
 - **No player identity may be used twice on one board.** All nine squares need
   nine different players.
+- **PEAK3 scores are hidden until a pick is locked.**
+- **A valid locked pick is final.** There is no reset on the daily board.
+- Wrong answers are rejected with a reason and counted.
 - Every submission is validated server-side. The client never holds the key.
+- When the board is full, it is measured against **today's maximum**.
 
 ### Why the distinct-identity rule
 
@@ -61,17 +73,32 @@ The distinct-player floor matters independently of the answer floor: a cell
 with eight answers that are all the same player is effectively a one-answer
 cell under the identity rule.
 
-### Composition rules
+### Composition rules (tightened in 11B)
 
-Feasibility alone produces dull boards. A board must also have:
+Feasibility alone produces dull boards. 11A's rules allowed "Center × Nuggets",
+"All-Star × Heat" — technically fine, but a database lookup rather than a
+puzzle. A board must now also have:
 
-- 2–3 team constraints (never all-team, never team-less)
-- 1–3 PEAK3-native constraints (score thresholds / component deciles)
-- at least 4 distinct categories across the six axes
-- at most 3 axes from any one category
+- **1–2** team constraints (was 2–3; a third franchise crowded out everything
+  interesting and was the main source of the lookup-table feeling)
+- **2–3** PEAK3-native constraints — two is preferred and, in a 365-day
+  sample, every board achieves it (the floor of 1 is a fallback that has never
+  had to fire)
+- at least one **award / playoff outcome / era** anchor
+- team + position together may claim **at most half** the six axes
+- at least 4 distinct categories, and at most **2** axes from any one category
 - at least one recognizable (team/award/era/position/outcome) constraint on
   **each** axis, so no cell is pure formula or pure trivia
 - no nested or mutually-exclusive pair crossing (see below)
+
+Two further rules make each *square* a real decision rather than a recall test:
+
+- **Every square offers a genuine choice** — at least 3 distinct players hold a
+  qualifying season worth ≥70% of that square's best. A square with one runaway
+  answer and a long weak tail is not a decision.
+- **No GOAT domination** — no single player may be the single best answer to
+  more than 3 of the 9 squares, or the unique-player rule becomes a chore
+  instead of a strategy.
 
 ### Exclusive groups
 
@@ -88,13 +115,14 @@ The empirical answer-count gate would already reject the mutually-exclusive
 pairs (zero answers); nested pairs pass it while still making a bad board, so
 the grouping is enforced explicitly.
 
-### Measured behaviour (365-day sample, v1)
+### Measured behaviour (365-day sample, 11B rules)
 
 - 365/365 boards generated, **all distinct**
-- difficulty split ≈ even across easy/medium/hard (median-cell terciles)
+- every board carries 2–3 PEAK3-native axes (321 boards with 2, 44 with 3)
 - minimum cell across the whole year: 6 answers, 4 distinct players
 - every one of the 62 shipped constraints appears at least once
-- ~17 ms per board; the pool builds once in ~0.25 s
+- ~21 ms per board; worst date needs ~1,900 of 6,000 attempts
+- today's maximum ranges 702–1,044 points across the year
 
 ---
 
@@ -213,6 +241,14 @@ Name matching is prefix-and-substring with an optional season token
 produces confident wrong answers, and the pool is small enough that substring
 matching finds everything a real query intends.
 
+**Ordering carries no score signal (11B).** Within a name-match group, hits are
+ordered chronologically, never best-first — ranking a player's seasons by score
+would leak the optimisation target just as surely as printing the number, since
+the player would simply click the top row every time. Career order is neutral,
+and it is also how someone recalls a career they are trying to place ("his
+third year, the one they won it"). Eligible hits still sort ahead of ineligible
+ones, which is the search's actual job.
+
 ---
 
 ## Scoring
@@ -265,15 +301,120 @@ board, and tests assert the exact key set.
 
 localStorage only, keyed `peak3.daily-grid.{board_id}`. A new date produces a
 new `board_id`, so a new day starts clean without any expiry logic. Saves carry
-a `schema_version` so a future shape change discards stale saves rather than
-crashing on them.
+a `schema_version` (2 as of 11B, when `FilledCell.player_season` lost its
+score) so a stale save is discarded rather than crashing.
 
-No account-backed daily grid attempts in Phase 11A.
+**No reset.** `clearProgress()` still exists for tests, but nothing in the UI
+calls it: a valid pick is locked, and a "start over" button would make both the
+day's score and the comparison against today's maximum meaningless. Clearing
+localStorage by hand is possible and not worth defending against — what matters
+is that the product does not offer it as a move.
+
+A separate `peak3.daily-grid.rules-seen` key records that the player has seen
+the how-to-play gate. It is global rather than per-board: the rules do not
+change daily, and re-explaining them every morning is friction, not
+onboarding.
+
+No account-backed daily grid attempts.
+
+---
+
+## Hiding the score until a pick is locked (11B)
+
+The objective is to maximise total PEAK3 score, so a season's rating **is** the
+answer to the puzzle. Four separate channels leaked it in 11A, and all four are
+closed:
+
+| Channel | Fix |
+|---|---|
+| Search results printed each candidate's `prime_score` | `PlayerSeason.as_search_dict()` — the search response has no score field at all |
+| Search *sorted* candidates best-first | Ordered chronologically within a name-match group; the top row is no longer the best answer |
+| A rejected answer returned its full card | Submit responses return identity only, valid or not |
+| A `peak`-threshold rejection printed the exact score | Says it missed the bar, never by how much |
+
+The last two mattered most: together they made any square a free **score
+oracle** — submit a season you know will fail, read its rating, optimise the
+rest of the board without spending a pick.
+
+A locked square learns its own score through `CellScore.quality_points`, which
+only exists on a valid result and therefore cannot be reached by probing.
+
+**Eligibility is still revealed** for a query that names a specific player
+(≤6 distinct identities). Knowing *whether* a season qualifies is a different
+fact from knowing *how much* it is worth — and with the score hidden, choosing
+among a player's several qualifying seasons is exactly the judgement the mode
+is asking for. Broad queries reveal nothing (see § Search).
+
+---
+
+## Today's maximum
+
+`nba_peak/daily_grid/optimal.py`
+
+The competitive reference. Computed **exactly**, not approximated.
+
+A cell's rarity multiplier is fixed, so for a given (cell, player) the best
+season is simply that player's highest-scoring valid one — there is never a
+reason to prefer a lower one. Collapsing each (cell, player) pair to that value
+turns the whole thing into a rectangular **linear assignment problem**: 9 rows
+by however many distinct players appear on the board, with the no-duplicate
+rule becoming assignment's own one-player-per-row constraint.
+`scipy.optimize.linear_sum_assignment` solves it to proven optimality in ~1 ms.
+
+So the result screen can honestly say *"today's maximum"* rather than *"the
+best we found"*. `OptimalSolution.exact` records which claim is being made, and
+the UI wording follows it — overclaiming there would be exactly the kind of
+unearned certainty the rest of the project avoids.
+
+Determinism is stronger than "the solver is deterministic": the player list is
+sorted and per-(cell, player) ties break on answer id, so the same board yields
+the same nine *named seasons* every time. That matters because the result
+screen names them.
+
+### Gating
+
+`POST /api/v1/daily-grid/result` is the only route that returns answer-key
+material, so completion is **enforced, not trusted**:
+
+1. all nine squares present, each exactly once;
+2. every submitted answer re-run through the full validator against server
+   data;
+3. the no-duplicate-player rule re-checked across the whole board.
+
+A client that has not genuinely finished gets a 400 and learns nothing.
+Otherwise posting nine junk ids would read back the optimal solution — the
+whole puzzle.
+
+### What the player sees
+
+Total score, today's maximum, percent of it, squares matching the best
+available answer, the biggest miss (named, with what PEAK3 would have used),
+and an expandable per-square comparison. Share text carries the percent line.
+
+---
+
+## Leaderboards — direction, not a claim
+
+There is **no global leaderboard**, and the UI never shows a global rank. The
+competitive reference is today's maximum, which is a real, provable number that
+needs no other players to exist.
+
+This is a deliberate stopping point, not an oversight. A daily leaderboard
+needs durable per-user daily results and an anti-cheat story that local
+progress explicitly does not have (CLAUDE.md § Security: localStorage scores
+are not cheat-proof and not eligible for global ranking). Shipping a
+leaderboard fed by client-reported scores would be a fake leaderboard.
+
+The API shape is already compatible with one: `POST /daily-grid/result` takes a
+board and re-validates it server-side, which is exactly the trust boundary a
+leaderboard submission needs. A future phase can persist the validated result
+against an account without changing the contract.
 
 ---
 
 ## Deferred
 
 - account-backed saved daily grid attempts
+- global daily leaderboard (see § Leaderboards above for why not yet)
 - global completion stats / true answer-frequency rarity
-- per-board global leaderboards
+- a separate non-competitive "Practice Grid" with reset and replay

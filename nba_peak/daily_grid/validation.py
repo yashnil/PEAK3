@@ -39,12 +39,23 @@ class ValidationResult:
     cell_score: Optional[CellScore] = None
 
     def as_dict(self) -> dict:
+        """Phase 11B: `player_season` is the IDENTITY-ONLY shape, on a valid
+        submission as well as an invalid one.
+
+        A rejected answer must not come back carrying its PEAK3 score --
+        otherwise any square is a free score oracle: submit a season you know
+        will fail, read its rating, and optimise the rest of the board without
+        spending a real pick. The score for a season the player actually
+        LOCKED IN is revealed through `cell_score` instead
+        (`quality_points` is that season's prime_score), which exists only on
+        a valid result and so cannot be reached by probing.
+        """
         payload: dict = {"valid": self.valid}
         if self.reason:
             payload["reason"] = self.reason
             payload["reason_code"] = self.reason_code
         if self.player_season is not None:
-            payload["player_season"] = self.player_season.as_dict()
+            payload["player_season"] = self.player_season.as_search_dict()
         if self.cell_score is not None:
             payload["cell_score"] = self.cell_score.as_dict()
         return payload
@@ -71,10 +82,13 @@ def _constraint_failure_reason(
         listed = player_season.position or "no listed position"
         return f"{label} is listed at {listed}, not {constraint.label.lower()}."
     if constraint.category == "peak":
-        return (
-            f"PEAK3 rates {label} at {player_season.prime_score:.1f} — "
-            f"below the {constraint.label} line."
-        )
+        # Phase 11B: says that it missed the bar, never by how much. Printing
+        # the exact prime_score here would turn a peak-threshold square into a
+        # score oracle -- submit any season, read its rating back -- which is
+        # the one number the mode is built around not giving away before a
+        # lock. The player still learns the real fact: this season does not
+        # clear that line.
+        return f"PEAK3 rates {label} below the {constraint.label} line."
     if constraint.category == "outcome":
         return f"{label}: that team finished at {player_season.playoff_round.lower()}."
     return f"{label} does not satisfy {constraint.label}."

@@ -13,11 +13,13 @@
  */
 import {
   DAILY_GRID_PROGRESS_SCHEMA_VERSION,
+  DAILY_GRID_RULES_SEEN_KEY,
   DailyGridBoard,
   DailyGridProgress,
   FilledCell,
   GRID_SIZE,
   GridConstraint,
+  GridResultResponse,
   RarityBucket,
   dailyGridProgressKey,
 } from "@/types/daily-grid";
@@ -36,6 +38,19 @@ export const RARITY_SHORT_LABEL: Record<RarityBucket, string> = {
   uncommon: "Uncommon",
   common: "Common",
   very_common: "Very common",
+};
+
+/** Plain-English gloss of what a rarity bucket actually means.
+ *
+ * Phase 11B: an unexplained "RARE" chip on an empty square told the player
+ * nothing — it reads as flavour, when it is really a hint about how much room
+ * they have and a multiplier on what the square pays. These say the thing. */
+export const RARITY_POOL_HINT: Record<RarityBucket, string> = {
+  very_rare: "Very few player-seasons qualify here.",
+  rare: "A small pool of player-seasons qualifies here.",
+  uncommon: "A moderate pool of player-seasons qualifies here.",
+  common: "Many player-seasons qualify here.",
+  very_common: "A very large pool of player-seasons qualifies here.",
 };
 
 export const TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
@@ -115,10 +130,44 @@ export function saveProgress(progress: DailyGridProgress): void {
   }
 }
 
+/**
+ * Removes one board's saved progress.
+ *
+ * Phase 11B: NOT wired to any UI control. The competitive daily board has no
+ * reset — a valid pick is locked, and a "start over" button would make the
+ * day's score meaningless and the comparison against today's maximum
+ * unearned. Kept because tests need a clean slate between cases, and because
+ * clearing storage is something a browser can do anyway; what matters is that
+ * the product does not offer it as a move.
+ */
 export function clearProgress(boardId: string): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(dailyGridProgressKey(boardId));
+  } catch {
+    // ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rules acknowledgement
+// ---------------------------------------------------------------------------
+
+export function hasSeenRules(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(DAILY_GRID_RULES_SEEN_KEY) === "1";
+  } catch {
+    // Storage blocked: show the rules. Explaining the game twice is a much
+    // smaller cost than dropping someone onto a board with no objective.
+    return false;
+  }
+}
+
+export function markRulesSeen(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(DAILY_GRID_RULES_SEEN_KEY, "1");
   } catch {
     // ignore
   }
@@ -148,9 +197,20 @@ export function isComplete(progress: DailyGridProgress): boolean {
   return progress.filled.length >= TOTAL_CELLS;
 }
 
-/** Adds (or replaces) one square. Returns a new progress object. */
+/**
+ * Locks one square. Returns a new progress object.
+ *
+ * Phase 11B: a square that is already locked is returned UNCHANGED rather than
+ * overwritten. On the competitive daily board a valid pick is final, so
+ * "replace" is not a move the state layer should be able to express — the UI
+ * never offers it, and this makes a stray double-submit a no-op instead of a
+ * silent score change. There is deliberately no `withoutCell`.
+ */
 export function withFilledCell(progress: DailyGridProgress, cell: FilledCell): DailyGridProgress {
-  const filled = [...progress.filled.filter((c) => !(c.row === cell.row && c.col === cell.col)), cell];
+  if (progress.filled.some((c) => c.row === cell.row && c.col === cell.col)) {
+    return progress;
+  }
+  const filled = [...progress.filled, cell];
   const complete = filled.length >= TOTAL_CELLS;
   return {
     ...progress,
@@ -159,26 +219,19 @@ export function withFilledCell(progress: DailyGridProgress, cell: FilledCell): D
   };
 }
 
-export function withoutCell(progress: DailyGridProgress, row: number, col: number): DailyGridProgress {
-  return {
-    ...progress,
-    filled: progress.filled.filter((c) => !(c.row === row && c.col === col)),
-    completed_at: null,
-  };
-}
-
 export function withIncorrectAttempt(progress: DailyGridProgress): DailyGridProgress {
   return { ...progress, incorrect_attempts: progress.incorrect_attempts + 1 };
 }
 
-/** Highest arena_points. Ties break on the season's own prime_score, then
- *  reading order, so the recap is stable across renders. */
+/** Highest arena_points. Ties break on the square's `quality_points` (the
+ *  locked season's own prime_score, which is where the score is revealed now
+ *  that the card carries none), then reading order, so the recap is stable. */
 export function bestCell(filled: FilledCell[]): FilledCell | null {
   if (filled.length === 0) return null;
   return [...filled].sort(
     (a, b) =>
       b.cell_score.arena_points - a.cell_score.arena_points ||
-      b.player_season.prime_score - a.player_season.prime_score ||
+      b.cell_score.quality_points - a.cell_score.quality_points ||
       a.row - b.row ||
       a.col - b.col,
   )[0];
@@ -247,12 +300,25 @@ const SHARE_URL = "peak3.app/daily";
  * for this mode is a plain readable summary (a coloured square grid would also
  * leak which squares are hard, and the difficulty of a square is the puzzle).
  */
-export function buildDailyGridShareText(board: DailyGridBoard, progress: DailyGridProgress): string {
+export function buildDailyGridShareText(
+  board: DailyGridBoard,
+  progress: DailyGridProgress,
+  result?: GridResultResponse | null,
+): string {
   const lines: string[] = [
     `PEAK3 Daily Grid — ${board.date}`,
     `Solved ${progress.filled.length}/${TOTAL_CELLS}`,
     `Score: ${totalArenaPoints(progress)}`,
   ];
+  // The competitive line, and the reason to come back: a bare score means
+  // nothing without the ceiling it is measured against. Only present once the
+  // board is complete, because that is the only time the server will release
+  // today's maximum.
+  if (result) {
+    lines.push(
+      `${result.percent_of_best}% of ${result.exact_optimal ? "today's max" : "PEAK3's best known"} (${result.optimal_total})`,
+    );
+  }
   const best = bestCell(progress.filled);
   if (best) lines.push(`Best cell: ${best.player_season.label}`);
   const hardest = hardestCell(progress.filled);

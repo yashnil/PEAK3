@@ -1,5 +1,8 @@
 pandas>=2.0
 numpy
+# nba_peak/daily_grid/optimal.py -- exact assignment solve for the Daily Grid's
+# daily maximum (scipy.optimize.linear_sum_assignment).
+scipy>=1.11.0
 requests
 beautifulsoup4
 lxml
