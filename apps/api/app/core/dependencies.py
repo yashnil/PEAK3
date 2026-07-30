@@ -58,6 +58,8 @@ from app.repositories.ranked_protocols import (
 )
 from app.repositories.leaderboard_memory import MemoryPerfectSeasonLeaderboardRepository
 from app.repositories.leaderboard_protocols import PerfectSeasonLeaderboardRepository
+from app.repositories.saved_run_memory import MemoryPerfectSeasonSavedRunRepository
+from app.repositories.saved_run_protocols import PerfectSeasonSavedRunRepository
 
 # ---------------------------------------------------------------------------
 # Singleton in-memory stores (only used when DATABASE_URL is unset in dev)
@@ -83,6 +85,7 @@ _memory_ranked_matchmaking_repo = MemoryRankedMatchmakingRepository()
 _memory_ranked_rating_repo = MemoryRankedRatingRepository()
 _memory_ranked_integrity_repo = MemoryRankedIntegrityRepository()
 _memory_perfect_season_leaderboard_repo = MemoryPerfectSeasonLeaderboardRepository()
+_memory_perfect_season_saved_run_repo = MemoryPerfectSeasonSavedRunRepository()
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +243,23 @@ def get_perfect_season_leaderboard_repo(request: Request) -> PerfectSeasonLeader
     return _memory_perfect_season_leaderboard_repo
 
 
+def get_perfect_season_saved_run_repo(request: Request) -> PerfectSeasonSavedRunRepository:
+    """Return the active PerfectSeasonSavedRunRepository (Postgres or
+    in-memory) -- Phase 9A personal history/personal bests. Same
+    in-memory-fallback discipline as every other repository here.
+
+    Unlike the leaderboard repo, this one is NOT behind a feature flag:
+    saving your own completed run to your own history is core retention
+    behavior, not an opt-in competitive feature. It still always requires a
+    signed-in account at the route level."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.saved_run_postgres import PostgresPerfectSeasonSavedRunRepository
+        return PostgresPerfectSeasonSavedRunRepository(pool)
+    _warn_memory_repo("PerfectSeasonSavedRunRepository")
+    return _memory_perfect_season_saved_run_repo
+
+
 def _warn_memory_repo(name: str) -> None:
     if not settings.DEBUG:
         raise RuntimeError(
@@ -273,4 +293,7 @@ RankedRatingRepoDep = Annotated[RankedRatingRepository, Depends(get_ranked_ratin
 RankedIntegrityRepoDep = Annotated[RankedIntegrityRepository, Depends(get_ranked_integrity_repo)]
 PerfectSeasonLeaderboardRepoDep = Annotated[
     PerfectSeasonLeaderboardRepository, Depends(get_perfect_season_leaderboard_repo)
+]
+PerfectSeasonSavedRunRepoDep = Annotated[
+    PerfectSeasonSavedRunRepository, Depends(get_perfect_season_saved_run_repo)
 ]

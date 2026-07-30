@@ -7,9 +7,13 @@ import {
   CourtBuilderReadiness,
   CourtLineupPublicState,
   CourtMode,
+  DailyChallenge,
   LeaderboardResponse,
   MyRunsResponse,
+  PersonalBests,
   PerfectSeasonRunPublic,
+  SavedRunsResponse,
+  SaveRunResponse,
   SlotType,
 } from "@/types/perfect-season";
 
@@ -53,10 +57,22 @@ export async function getCourtBuilderReadiness(): Promise<CourtBuilderReadiness>
   return apiFetch<CourtBuilderReadiness>("/perfect-season/readiness", { cache: "no-store" } as RequestInit);
 }
 
-export async function createCourtGame(mode: CourtMode, seed?: number): Promise<CourtLineupPublicState> {
+export async function createCourtGame(
+  mode: CourtMode,
+  seed?: number,
+  /** Phase 9A: pass "daily" to start today's shared challenge. The seed is
+   * always re-derived server-side for a daily board, so any `seed` passed
+   * alongside it is ignored by design (see the API's own comment). */
+  options: { challengeKind?: "free_play" | "daily"; challengeDate?: string } = {},
+): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>("/perfect-season/games", {
     method: "POST",
-    body: JSON.stringify({ mode, seed }),
+    body: JSON.stringify({
+      mode,
+      seed,
+      challenge_kind: options.challengeKind ?? "free_play",
+      challenge_date: options.challengeDate,
+    }),
   });
 }
 
@@ -136,6 +152,51 @@ export async function getLeaderboard(params: {
 export async function getMyRuns(accessToken: string): Promise<MyRunsResponse> {
   return apiFetch<MyRunsResponse>("/perfect-season/me/runs", {
     headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  } as RequestInit);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9A: saved runs (private personal history), personal bests, daily
+// challenge. All the /me/* routes require a REAL signed-in account (an
+// anonymous session has nowhere durable to attach history) and throw a
+// PerfectSeasonAPIError with code "sign_in_required" otherwise -- callers
+// turn that into a sign-in CTA rather than an error banner.
+// ---------------------------------------------------------------------------
+
+export async function saveRun(gameId: string, accessToken: string): Promise<SaveRunResponse> {
+  return apiFetch<SaveRunResponse>(`/perfect-season/games/${gameId}/save`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ game_id: gameId }),
+  });
+}
+
+export async function getMySavedRuns(accessToken: string, limit = 25): Promise<SavedRunsResponse> {
+  return apiFetch<SavedRunsResponse>(`/perfect-season/me/saved-runs?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  } as RequestInit);
+}
+
+export async function getMyPersonalBests(accessToken: string): Promise<PersonalBests> {
+  return apiFetch<PersonalBests>("/perfect-season/me/personal-bests", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  } as RequestInit);
+}
+
+/** Today's (or a given date's) shared daily challenge. Works without auth --
+ * daily play is not gated on an account; an authenticated caller
+ * additionally gets their own `attempts_used` for that date. */
+export async function getDailyChallenge(
+  mode: CourtMode = "apex_1y",
+  options: { date?: string; accessToken?: string } = {},
+): Promise<DailyChallenge> {
+  const qs = new URLSearchParams({ mode });
+  if (options.date) qs.set("date", options.date);
+  return apiFetch<DailyChallenge>(`/perfect-season/daily?${qs.toString()}`, {
+    headers: options.accessToken ? { Authorization: `Bearer ${options.accessToken}` } : {},
     cache: "no-store",
   } as RequestInit);
 }

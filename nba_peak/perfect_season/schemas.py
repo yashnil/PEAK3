@@ -233,6 +233,16 @@ class CourtLineupState:
     team_respins_used: int = 0
     season_respins_used: int = 0
     respin_history: list[dict] = field(default_factory=list)
+    # Phase 9A: "free_play" | "daily". A daily attempt runs the exact same
+    # engine on a date-derived seed (nba_peak.perfect_season.daily), so this
+    # is NOT a game-mode switch -- it only records which loop the attempt
+    # belongs to, so history/personal-bests can separate "my best daily" from
+    # "my best free-play run" without inferring it from the seed value.
+    challenge_kind: str = "free_play"
+    # YYYY-MM-DD for a daily attempt, None for free play. Set server-side at
+    # creation from the requested/derived UTC date -- never client-trusted as
+    # a label for a seed that doesn't match it (see state.py's own check).
+    challenge_date: Optional[str] = None
 
 
 # Re-exported so callers of this module do not need to import

@@ -110,13 +110,41 @@ export default async function ArenaPage() {
             stay hidden until the final reveal, then you get a full receipt
             — including what PEAK3 itself would have picked each round.
           </p>
-          <Link
-            href="/arena/court/practice/apex_1y"
-            className="self-start px-5 py-2.5 rounded-lg text-sm font-semibold"
-            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-          >
-            Build a Perfect Season
-          </Link>
+          {/* Phase 9A: the daily challenge is the return loop -- given equal
+              visual weight beside free play (a distinct blue accent, matching
+              the daily badge used on the scorecard and in run history), not
+              buried as a secondary link. Free play stays the primary CTA for
+              a first-time visitor who hasn't got a reason to care about
+              "today's" board yet. */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Link
+              href="/arena/court/practice/apex_1y"
+              className="px-5 py-2.5 rounded-lg text-sm font-semibold"
+              style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+            >
+              Build a Perfect Season
+            </Link>
+            <Link
+              href="/arena/court/daily/apex_1y"
+              data-testid="daily-peak-season-cta"
+              className="px-5 py-2.5 rounded-lg text-sm font-semibold border"
+              style={{ background: "rgba(96,165,250,0.12)", color: "#60a5fa", borderColor: "#60a5fa" }}
+            >
+              Play today&apos;s Daily
+            </Link>
+            <Link
+              href="/arena/court/history"
+              data-testid="court-history-link"
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Your runs →
+            </Link>
+          </div>
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Everyone gets the same Daily spin sequence each day — save your run to track personal
+            bests and come back tomorrow.
+          </p>
         </div>
       )}
 

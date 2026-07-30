@@ -279,6 +279,15 @@ export interface CourtLineupPublicState {
   team_respins_remaining_total: number;
   season_respins_used_total: number;
   season_respins_remaining_total: number;
+  // Phase 9A: which retention loop this attempt belongs to, and (for a daily
+  // attempt) the UTC date whose shared seed it uses -- used to label the
+  // scorecard rather than re-deriving the date from the seed.
+  challenge_kind?: "free_play" | "daily";
+  challenge_date?: string | null;
+  board_type?: string;
+  // Phase 9A: server-computed leaderboard eligibility -- the same helper the
+  // /submit route enforces, so the UI can never disagree with it.
+  eligibility?: RunEligibility | null;
 }
 
 // Duration-aware coverage audit of the interim dataset -- see
@@ -375,6 +384,111 @@ export interface LeaderboardResponse {
 
 export interface MyRunsResponse {
   runs: PerfectSeasonRunPublic[];
+}
+
+// ---------------------------------------------------------------------------
+// Phase 9A: saved runs (private personal history), personal bests, daily
+// challenge, and leaderboard eligibility.
+// ---------------------------------------------------------------------------
+
+/** Server-computed leaderboard eligibility (state.py::compute_eligibility).
+ * `savable` is deliberately independent of `leaderboard_eligible`: a
+ * provisional (unscored-card) run is always savable/shareable/downloadable,
+ * it just can never be ranked. The UI must never re-derive this rule. */
+export interface RunEligibility {
+  leaderboard_eligible: boolean;
+  reason: "eligible" | "incomplete_score" | "game_not_complete" | string;
+  reason_detail: string;
+  savable: boolean;
+}
+
+/** One card in a saved run's durable roster snapshot. Stored at save time
+ * rather than re-resolved on read, so a saved scorecard can never silently
+ * change later. */
+export interface SavedRunRosterCard {
+  slot_type: string;
+  role_fit?: string | null;
+  player_name?: string;
+  player_slug?: string;
+  team_name?: string;
+  team_id?: string;
+  season?: string;
+  score?: number | null;
+  score_status?: string;
+  position?: string | null;
+}
+
+export interface SavedRun {
+  id: string;
+  /** Also the share/open target: /arena/court/results/{game_id}. */
+  game_id: string;
+  mode: CourtMode;
+  seed: number;
+  wins: number;
+  losses: number;
+  lineup_score: number;
+  score_status: "complete" | "incomplete";
+  exact_cards_scored: number;
+  total_cards: number;
+  leaderboard_eligible: boolean;
+  challenge_kind: "free_play" | "daily";
+  challenge_date: string | null;
+  is_perfect_season: boolean;
+  team_respins_used: number;
+  season_respins_used: number;
+  roster: SavedRunRosterCard[];
+  spin_history: Record<string, unknown>[];
+  peak_picks_matched: number | null;
+  peak_picks_total: number | null;
+  data_version: string | null;
+  formula_version: string | null;
+  simulation_version: string | null;
+  created_at: string;
+}
+
+export interface PersonalBests {
+  total_runs: number;
+  best_run: SavedRun | null;
+  best_wins: number | null;
+  /** Best OFFICIAL lineup score -- null when every saved run is provisional
+   * (a provisional run's 0.0 is never treated as a personal best). */
+  best_lineup_score: number | null;
+  best_lineup_score_run: SavedRun | null;
+  best_daily_run: SavedRun | null;
+  perfect_season_count: number;
+  recent_runs: SavedRun[];
+}
+
+export type RunComparison =
+  | "first_run"
+  | "new_personal_best"
+  | "tied_personal_best"
+  | "below_personal_best";
+
+export interface SaveRunResponse {
+  saved_run: SavedRun;
+  comparison: RunComparison;
+  /** True when this game was already in history (a retry/double-click). */
+  already_saved: boolean;
+  personal_bests: PersonalBests;
+}
+
+export interface SavedRunsResponse {
+  runs: SavedRun[];
+  personal_bests: PersonalBests;
+}
+
+export interface DailyChallenge {
+  challenge_date: string;
+  mode: CourtMode;
+  /** Public by design -- this is the value that must be identical for every
+   * player on this date. */
+  seed: number;
+  challenge_id: string;
+  board_type: string;
+  daily_challenge_version: string;
+  attempts_used: number;
+  already_played: boolean;
 }
 
 export const COURT_MODE_LABELS: Record<CourtMode, string> = {

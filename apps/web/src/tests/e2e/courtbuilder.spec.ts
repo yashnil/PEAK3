@@ -1260,3 +1260,134 @@ test.describe("CourtBuilder mobile", () => {
     expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 4);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 9A: retention layer -- daily challenge, run history, save CTA, and
+// leaderboard eligibility surfacing.
+//
+// Deliberately does NOT sign in: these tests cover the ANONYMOUS half of the
+// contract, which is the half that must never break (play is
+// anonymous-friendly by design -- only saving/comparing needs an account).
+// The signed-in save/personal-best path is covered at the API level in
+// apps/api/tests/test_perfect_season.py and at the component level in
+// src/tests/unit/save-run-panel.test.tsx, neither of which needs a real
+// Supabase session.
+// ---------------------------------------------------------------------------
+
+test.describe("Daily PEAK Season (Phase 9A)", () => {
+  test("the daily route launches a labeled shared-seed board without sign-in", async ({ page }) => {
+    await page.goto("/arena/court/daily/apex_1y", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="daily-challenge-header"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Daily PEAK Season", { exact: true })).toBeVisible();
+    // A real, playable board -- not a sign-in wall.
+    await expect(page.locator('[data-testid="court-builder"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="court-slot"]').first()).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("the bare /arena/court/daily path redirects to the default mode", async ({ page }) => {
+    await page.goto("/arena/court/daily", { waitUntil: "load" });
+    await expect(page).toHaveURL(/\/arena\/court\/daily\/apex_1y/);
+    await expect(page.locator('[data-testid="daily-challenge-header"]')).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("two visits to the same daily date get the identical team+season roll", async ({ page }) => {
+    // The core shared-challenge property, observed through the UI: the
+    // spinner lands on the same team and season both times, because the seed
+    // is derived from the date rather than being random per visit.
+    async function rolledTeamAndSeason(): Promise<[string, string]> {
+      await page.goto("/arena/court/daily/apex_1y?date=2026-07-29", { waitUntil: "load" });
+      await expect(page.locator('[data-testid="court-builder"]')).toBeVisible({ timeout: 15_000 });
+      // Wait for the ceremony to settle on its final values before reading.
+      const summary = page.locator('[data-testid="roll-summary"]');
+      await summary.waitFor({ state: "visible", timeout: 15_000 });
+      const team = (await page.locator('[data-testid="team-badge"]').first().textContent()) ?? "";
+      const season = (await summary.textContent()) ?? "";
+      return [team.trim(), season.trim()];
+    }
+
+    const [firstTeam, firstSeason] = await rolledTeamAndSeason();
+    const [secondTeam, secondSeason] = await rolledTeamAndSeason();
+
+    expect(firstSeason).not.toBe("");
+    expect(secondTeam).toBe(firstTeam);
+    expect(secondSeason).toBe(firstSeason);
+  });
+
+  test("an invalid daily date shows a clean message, never a crash", async ({ page }) => {
+    await page.goto("/arena/court/daily/apex_1y?date=2026-02-30", { waitUntil: "load" });
+    await expect(page.getByText(/valid challenge date|Could not start/i)).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("a completed daily run labels the scorecard with its challenge date", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
+    await page.goto("/arena/court/daily/apex_1y", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="court-builder"]')).toBeVisible({ timeout: 15_000 });
+    await page.locator('[data-testid="court-slot"]').first().waitFor({ state: "visible", timeout: 15_000 });
+
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+
+    await expect(page.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('[data-testid="daily-challenge-label"]')).toBeVisible();
+    await expect(page.locator('[data-testid="daily-challenge-label"]')).toContainText(/Daily challenge/i);
+  });
+});
+
+test.describe("Run history + save CTA (Phase 9A)", () => {
+  test("history page shows a sign-in CTA for an anonymous visitor, never an error", async ({ page }) => {
+    await page.goto("/arena/court/history", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="court-history-page"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="history-signin-cta"]')).toBeVisible();
+    // The CTA must explain the benefit AND make clear play doesn't require it.
+    await expect(page.locator('[data-testid="history-signin-cta"]')).toContainText(/personal bests/i);
+    await expect(page.locator('[data-testid="history-signin-cta"]')).toContainText(/without an account/i);
+    // No error state, and no empty table pretending to be their history.
+    // Scoped to THIS page's own error element rather than a global
+    // getByRole("alert") -- Next.js's dev overlay mounts its own empty
+    // aria-live alert region, which is tooling noise, not app state.
+    await expect(page.locator('[data-testid="history-error"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="history-table"]')).toHaveCount(0);
+  });
+
+  test("the arena page offers a Daily CTA and a link to your runs", async ({ page }) => {
+    await page.goto("/arena", { waitUntil: "load" });
+    const dailyCta = page.locator('[data-testid="daily-peak-season-cta"]');
+    await expect(dailyCta).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="court-history-link"]')).toBeVisible();
+    // Free play stays available alongside it -- the daily must not replace it.
+    await expect(page.getByRole("link", { name: /Build a Perfect Season/i })).toBeVisible();
+    await dailyCta.click();
+    await expect(page).toHaveURL(/\/arena\/court\/daily\/apex_1y/);
+  });
+
+  test("an anonymous completed run offers sign-in-to-save, and share/download still work", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
+    await startCourtBuilder(page, "apex_1y", 4242);
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+    await expect(page.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
+
+    // Sign-in-to-save CTA, not a broken/disabled save control.
+    await expect(page.locator('[data-testid="save-run-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="save-run-signin-cta"]')).toBeVisible();
+    await expect(page.locator('[data-testid="save-run-btn"]')).toHaveCount(0);
+
+    // Phase 8I/8J behavior must survive the Phase 9A additions.
+    await expect(page.locator('[data-testid="share-run-panel"]')).toBeVisible();
+    await expect(page.locator('[data-testid="share-run-download-btn"]')).toBeVisible();
+  });
+});

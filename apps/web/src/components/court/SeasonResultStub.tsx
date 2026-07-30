@@ -9,6 +9,7 @@ import PeakCardCourt from "./PeakCardCourt";
 import CourtLayout from "./CourtLayout";
 import PeakPicksRecap from "./PeakPicksRecap";
 import ShareRunPanel from "./ShareRunPanel";
+import SaveRunPanel from "./SaveRunPanel";
 
 interface Props {
   state: CourtLineupPublicState;
@@ -185,12 +186,28 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
     : (result.wins >= 65 ? "Ceiling limiter" : "Weakness");
   const scoredSlotCount = state.slots.filter((s) => s.score_status === "exact_season_scored").length;
   const filledSlotCount = state.slots.filter((s) => s.filled).length;
+  // Phase 9A: a daily attempt labels itself with its shared date, so a
+  // screenshot of the scorecard says which challenge it was.
+  const isDaily = state.challenge_kind === "daily";
+  const dailyDateLabel = state.challenge_date
+    ? new Date(`${state.challenge_date}T00:00:00Z`).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        timeZone: "UTC",
+      })
+    : null;
+  // Phase 9A: eligibility is server-computed (state.py::compute_eligibility);
+  // fall back to the pre-9A lineup_score_status inference only for a cached
+  // response from an older backend, never as a second source of truth.
+  const eligibility = state.eligibility ?? null;
+  const savable = eligibility?.savable ?? true;
 
   return (
     <div data-testid="season-result" className="share-card-shell flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <span className="text-xs font-black uppercase tracking-widest" style={{ color: "var(--peak-accent, #f5c842)" }}>
-          PEAK3 · 82-0 Peak Season
+          PEAK3 · {isDaily ? "Daily PEAK Season" : "82-0 Peak Season"}
         </span>
         <div
           className="text-[10px] uppercase tracking-wide rounded px-2 py-1"
@@ -246,7 +263,22 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
         <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }} data-testid="team-identity-phrase">
           {identity}
         </div>
+        {isDaily && dailyDateLabel && (
+          <div className="text-xs mt-1 font-semibold" style={{ color: "var(--peak-accent, #f5c842)" }} data-testid="daily-challenge-label">
+            Daily challenge · {dailyDateLabel}
+          </div>
+        )}
       </motion.div>
+
+      {/* Phase 9A: save/personal-best comparison. Hidden on a read-only
+          shared result (saving is an owner action the backend 403s for
+          anyone else) and for a run with nothing savable yet. */}
+      <SaveRunPanel
+        gameId={state.game_id}
+        wins={result.wins}
+        savable={savable}
+        readOnly={readOnly}
+      />
 
       {onPlayAgain && (
         <motion.div {...reveal(1)}>
@@ -391,6 +423,23 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
         </div>
       )}
       <ShareRunPanel state={state} result={result} />
+      {/* Phase 9A: state the leaderboard-eligibility verdict explicitly, using
+          the server's own wording (state.py::compute_eligibility), so an
+          ineligible run is never a silent surprise at submit time. Only shown
+          when the run is genuinely ineligible -- an eligible run needs no
+          disclaimer, and the submit panel below already speaks for it. */}
+      {eligibility && !eligibility.leaderboard_eligible && eligibility.reason !== "game_not_complete" && (
+        <p
+          data-testid="eligibility-notice"
+          className="text-xs rounded-lg p-3"
+          style={{ background: "var(--bg-surface)", color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
+        >
+          <span className="font-semibold" style={{ color: "#fb923c" }}>
+            Not leaderboard-eligible ·{" "}
+          </span>
+          {eligibility.reason_detail}
+        </p>
+      )}
       {!readOnly && (
         <LeaderboardSubmitPanel gameId={state.game_id} mode={state.mode} lineupScoreStatus={result.lineup_score_status} />
       )}
