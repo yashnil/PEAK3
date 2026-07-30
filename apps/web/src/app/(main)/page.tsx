@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { ArrowRight, Dices, Users, Trophy, BarChart3, ListOrdered, Swords } from "lucide-react";
+import { ArrowRight, Dices, Users, Trophy, BarChart3, Grid3x3, ListOrdered, Swords } from "lucide-react";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 import { getTeamColors } from "@/lib/team-colors";
 
@@ -182,6 +182,41 @@ export default async function HomePage() {
               </span>
             </Link>
           )}
+
+          {/* Phase 11A: the Daily Grid is the lightweight daily mode. It sits
+              directly under the flagship band and above the secondary cards --
+              clearly the second thing on the page, never competing with 82-0
+              for the primary CTA. Bordered in the slate component token rather
+              than gold, which stays reserved for the flagship. */}
+          <Link
+            href="/daily"
+            data-testid="home-daily-grid-card"
+            className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border p-6 transition-all hover:opacity-95"
+            style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}
+          >
+            <div>
+              <span
+                className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide rounded px-2 py-0.5"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
+              >
+                <Grid3x3 size={11} aria-hidden="true" />
+                New board every day
+              </span>
+              <h3 className="mt-2 font-display text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+                Daily Grid Challenge
+              </h3>
+              <p className="mt-1 text-sm max-w-xl" style={{ color: "var(--text-secondary)" }}>
+                Fill a 3x3 board with exact NBA player-seasons. Match teams, awards, eras, roles,
+                and PEAK3 thresholds. New board every day.
+              </p>
+            </div>
+            <span
+              className="inline-flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-semibold shrink-0"
+              style={{ borderColor: "var(--border-default)", color: "var(--text-primary)" }}
+            >
+              Play Today&apos;s Grid <ArrowRight size={14} />
+            </span>
+          </Link>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <ModeCard
