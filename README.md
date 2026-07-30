@@ -1,689 +1,364 @@
-# peak3 — NBA Peak Evaluator
+# PEAK3 Arena
 
-`peak3` measures **how good an NBA player was at their best**, season by season,
-over a 3-year prime, a 5-year prime, and any N-year window — from automatically
-scraped and cached Basketball Reference data (1979-80 → 2025-26).
+A basketball analytics game built on the PEAK3 peak-evaluation model. Spin a
+real NBA team-season, draft the exact player-seasons that were actually on that
+roster, place them on a position-aware court, and see what the model projects
+your lineup would do over 82 games.
 
-You never type a player's stats or accolades by hand. You give a name; the model
-scores every qualifying player-season on one transparent formula, tests every
-consecutive window, and explains which prime won and exactly why.
-
-This document is the authoritative product + methodology reference. For the
-deepest derivation see [`METHODOLOGY.md`](METHODOLOGY.md); for a regenerated
-25-player validation run see [`outputs.txt`](outputs.txt).
+Underneath the game is `peak3`: a transparent five-component model that scores
+every qualifying player-season from Basketball Reference data (1979-80 through
+2025-26) and finds each player's best consecutive window.
 
 ---
 
-## 1. What the model measures
+## Product overview
 
-Three related but distinct things, each reported separately:
+PEAK3 Arena has two halves that share one scoring engine.
 
-| Output | What it captures | Includes |
-|---|---|---|
-| **Regular-season dominance** (`regular_perf`) | Individual regular-season play only | Statistical Impact + Traditional Production. No awards, no playoffs, no team result. |
-| **Performance-Only** (`performance_only`) | Total individual on-court value | Regular-season play **+ individual playoff value**. Still no awards, no team result. |
-| **Prime** (`prime_score`) | The full peak evaluation | Performance-Only **+ individual recognition + team achievement**. |
+**The game.** The flagship mode is *82-0 PEAK Season*. A reel rolls a real
+franchise and a real season — eight times, once per roster spot. Each roll gives
+you the actual players from that exact team-season, and you pick one and assign
+them a position. Ratings stay hidden until you commit the lineup. Then the model
+scores what you built and projects a win-loss record, with a full receipt: which
+components carried the roster, where the positional fit broke, and which player
+the model itself would have taken in each round.
 
-So a player who never won an award and never reached a deep playoff round is
-judged purely on play; awards and team success only ever **add**, and only in
-their own dedicated slices.
+**The analytics surface.** The Rankings section exposes the same model directly:
+every scored peak window and every scored single season, sortable by any of the
+five components, with a per-row breakdown explaining how that score was
+assembled and where it sits in the all-time distribution.
 
----
-
-## 2. The official Prime formula
-
-The Prime index is an **open weighted sum of five raw-value components**:
-
-```
-prime_raw = 0.38 · Statistical Impact
-          + 0.21 · Traditional Production
-          + 0.20 · Individual Recognition
-          + 0.18 · Postseason Individual Value
-          + 0.03 · Team Achievement
-          + teammate_adjustment        (descriptive, capped ±0.5 index pts)
-
-prime_score = calibrate(prime_raw)      # monotonic 0–100 display relabel
-```
-
-Every component is a **raw additive points value** computed by metric-specific
-continuous formulas on real basketball units. There are **no percentiles, no
-universal z-scores, and no generic 0–100 grades inside the index** (era-relative
-percentiles exist only for role labels and descriptive display). The index is
-open/uncapped, so apex seasons separate naturally.
-
-`performance_only` is the same sum **without** Recognition and Team Achievement:
-`0.38·SI + 0.21·TP + 0.18·Postseason`.
-
-### The performance-driven split
-
-```
-59% regular-season statistical performance   (Statistical Impact 38 + Traditional Production 21)
-20% individual recognition
-18% individual postseason performance
- 3% team achievement
-```
-
-### Why Recognition (20%) and Postseason (18%) are *both* high — without double counting
-
-These two large slices read **completely different evidence**, so a high weight on
-each is additive information, not duplication:
-
-- **Individual Recognition (20%)** measures externally-validated individual
-  *standing*: MVP, Finals MVP, All-NBA, All-Defense, DPOY, and statistical titles.
-  These are meaningful, voted/objective evidence of season quality. Awards are
-  additive and **overlap-discounted** (MVP↔All-NBA, DPOY↔All-Defense, All-Star
-  subsumed) so no honor is counted twice.
-- **Postseason Individual Value (18%)** measures *actual on-court playoff
-  performance* from box/impact metrics (reliability-adjusted level + sample-
-  adjusted elevation + sustained volume + a diminishing, reliability-shrunk
-  dominance bonus). A ring or deep run **by itself** does not create a large
-  boost, and an extreme rate stat over a **short** run no longer dwarfs a complete
-  Finals-length season — the player must have performed at an elite level and
-  carried major responsibility over a real playoff sample (see §6).
-- **Team Achievement (3%)** measures *team results* with a small bounded weight,
-  so a player is not credited heavily merely for being on a good team.
-
-The boundaries are strict and enforced by tests: **Finals MVP appears only in
-Recognition**, **championship/advancement only in Team Achievement**, and
-**playoff box-score performance only in Postseason**. Recognition stayed at 20%
-(up from a transient 15%) because the awards it encodes are genuine evidence of a
-peak; the +5 points came proportionally from Statistical Impact (41→38) and
-Traditional Production (23→21). Postseason stayed at 18%.
+The design goal for both halves is that no number appears without an
+explanation attached. Rankings are presented as what the PEAK3 formula produces,
+not as a claim about objective historical truth.
 
 ---
 
-## 3. Statistical Impact (38%)
+## Current feature set
 
-Raw advanced-impact metrics, combined by a masked weighted average that
-**renormalizes over whatever is present**, so a missing metric never penalizes a
-player or an era. Relative sub-weights:
+**82-0 PEAK Season (flagship)**
 
-| Sub-metric | Rel. weight | Built from |
-|---|---|---|
-| BPM / OBPM / DBPM consensus | 15 | `0.50·BPM + 0.25·OBPM + 0.25·DBPM` (each a continuous plus/minus→points curve) |
-| VORP + total Win Shares | 10 | `0.55·VORP + 0.45·total WS` — the **cumulative / minutes / total-value** term |
-| WS/48 | 8 | per-minute win production |
-| PER | 5 | per-minute efficiency rating |
-| Modern impact supplement | 7 | EPM / LEBRON / RAPTOR / DARKO / RAPM consensus — a **bounded supplement**, excluded (weights renormalize) when absent |
+- Exact team-season boards: the eight rolls are real franchise-seasons, and
+  candidates are the players who were actually on that roster that year.
+- An explicit start gate — navigating to the mode never consumes a run.
+- Position-aware court with five starters by position and three bench slots;
+  cards can be moved between slots without re-spinning.
+- Ratings hidden until the lineup is committed.
+- Result receipt: projected record, lineup score, per-component fit bars,
+  positional-fit and structural-mismatch findings, and a round-by-round
+  comparison against the model's own highest-rated available pick.
+- Cards whose exact season falls below the model's minutes threshold are
+  reported as unavailable rather than approximated, and contribute a
+  conservative provisional impact based on their real games/minutes — never a
+  neutral placeholder.
+- Downloadable scorecard image, shareable result links, and copyable summaries.
+- Daily challenge: a date-derived seed, so everyone gets the same eight rolls
+  and the same candidate pools on a given day.
+- Saved runs, personal bests, and run history for signed-in users. Play itself
+  never requires an account.
 
-Each metric uses `_impact_value(x, x0, per, knee)`: `per` points per unit above a
-replacement anchor `x0`, with a smooth never-flat log tail above `knee` and
-**negative** values below replacement. Per-minute rate (BPM/WS48/PER) and
-cumulative value (VORP/total WS) live in **separate** sub-weights, so they are
-not double-counted; defense enters once, via DBPM inside the BPM consensus.
+**Rankings**
 
----
+- Two boards: *Peak Windows* (one row per player at their best consecutive
+  1-, 3-, or 5-year stretch) and *Single Seasons*.
+- Sortable by total score or by any individual component.
+- Per-row explanation panel: each component's raw contribution, its official
+  weight, its all-time percentile, what the component measures, and what raises
+  or lowers it.
+- Search, and comparison rails for pivoting between rows without leaving the
+  panel.
 
-## 4. Traditional Production (21%)
+**Elsewhere**
 
-Raw box production, where each skill **only adds when it is genuinely strong** (a
-hinge that is ~0 at average), so a center's ordinary assists or a guard's
-ordinary rebounds contribute nothing rather than dragging the score:
+- Interactive methodology explorer at `/methodology`.
+- Optional accounts (Supabase Auth), progression (XP, levels, streaks,
+  achievements, personal records), and public profiles.
+- Earlier prototypes — Peak Duel and the 5-player Peak Draft modes — remain
+  reachable at `/play/daily`, `/play/endless`, and `/arena/labs`. They are not
+  part of the main product path.
 
-| Sub-metric | Weight | Notes |
-|---|---|---|
-| Scoring value | 0.40 | **Nonlinear**: `hinge(PTS/100) × minutes-load × efficiency-mult + successful-burden residual − inefficient-high-volume penalty` |
-| Efficiency | 0.20 | relative TS% and TS+ above league |
-| Playmaking | 0.16 | AST/100 and AST% hinges |
-| Rebounding | 0.12 | TRB/100 and TRB% hinges |
-| Box defense | 0.12 | stocks/100 and DBPM hinges |
-
-Single-counted **penalties**: excessive turnovers and poor availability (games
-played). Scoring multiplies volume × efficiency, so elite efficiency at low
-volume is not treated like elite efficiency at high volume.
-
-**Successful offensive-burden residual.** The scoring term's prior *raw heavy-usage
-bonus* (`0.8·hinge(usage)`, which rewarded high usage by itself) is **replaced** by
-a small, **bounded** residual that credits only *successfully absorbed* extreme
-creation:
-
-```
-expected relative efficiency  = a usage-adjusted baseline (efficiency is expected to
-                                fall as usage rises above ~22%)
-usage_efficiency_residual     = actual relative TS − expected
-creation_load                 = bounded(ACTUAL team scoring share + 0.45·team assist share)
-                                (USG%+0.45·AST% proxy only as a flagged fallback)
-successful_burden_residual    = scale · creation_load · max(usage_efficiency_residual, 0)
-                                       · workload_reliability      (bounded, small)
-```
-
-The **creation load uses actual team scoring/assist shares** (player season points
-÷ team points; assists ÷ team assists — *real* production responsibility, not the
-USG%/AST% proxy). The actual-share pivots are **percentile-matched** to the old
-proxy distribution, so the residual distribution and the TP scale are preserved
-(mean burden 1.42 → 1.59; TP mean Δ ≈ +0.07). When a team share is missing the row
-falls back to the proxy, flagged via `burden_data_status`. So **high usage alone
-earns nothing**, high volume on poor efficiency earns nothing (small bounded
-deduction at most), and strong efficiency on a light role earns nothing — only
-genuinely *difficult* creation carried at **better-than-expected** efficiency over
-real minutes adds (bounded to a few points). It does not duplicate Statistical
-Impact (correlation ≈ 0.75) or the rest of Traditional Production; OBPM validates
-it but is never an additive input. (USG%, team scoring share, team assist share
-and AST% are kept as **distinct** measures — see DATA_SOURCES.md.)
+Several systems ship behind default-off flags; see
+[Feature flags](#feature-flags).
 
 ---
 
-## 5. Individual Recognition (20%)
+## Screenshots
 
-Additive, **grouped** award values (overlapping honors do not each count in
-full). A season with **no award contributes exactly zero**.
+Captured from a local dev build with external asset URLs disabled, so no
+third-party player photographs or team logos appear. Player names, seasons, and
+statistics are real data from the committed dataset.
 
-**Smooth award-voting for ranked awards (MVP, DPOY).** Placement *buckets* (which
-created arbitrary second-to-fourth cliffs) are replaced by
-
-```
-award_voting_value = winner_premium                    (only the actual winner)
-                   + continuous_vote_share_value       (primary signal)
-                   + small_nonwinner_placement_stabilizer
-```
-
-**Real MVP/DPOY vote share** (Basketball Reference `award_share = points won ÷
-points max`) is now populated for **every ranked awards-era season** and is the
-primary continuous signal; the **documented smooth exponential placement
-fallback** is used only where a ranked finish has no vote row (flagged via
-`mvp_vote_data_status` / `dpoy_vote_data_status`). Missing vote share is **NaN,
-never 0**. First place clearly exceeds second and **2nd → 10th decline smoothly
-with no cliff**. Real share also separates a *dominant* winner (Embiid 2023 .915,
-Westbrook 2017 .879 → above the fallback) from a narrow one, and a close runner-up
-from a distant one. MVP example (placement fallback):
-1st = 58, 2nd ≈ 29.8, 3rd ≈ 24.6, 4th ≈ 20.4, 5th ≈ 16.8 … 10th ≈ 6.5.
-
-- **MVP**: smooth voting value (above); **unanimous MVP** adds +8 (objective record).
-- **All-NBA**: 1st team 30 / 2nd 20 / 3rd 12 — **discounted ×0.45** for a top-3 MVP
-  finisher (the MVP value already implies first-team).
-- **All-Star**: 8, but **subsumed** by any All-NBA selection.
-- **Defense**: DPOY smooth voting value (1st ≈ 35, then a smooth decline), grouped
-  with All-Defense (1st 16 / 2nd 9, **×0.5** for a top-3 DPOY).
-- **Finals MVP**: 20, **binary — no runner-up value** — and Finals MVP lives **only** here.
-- **Statistical titles** (scoring/assist/rebound/steal/block leader) and **50-40-90**
-  add independently (the achievement itself, not the underlying statistical edge,
-  which already lives in Statistical Impact / Traditional Production).
-
-The sum is scaled ×0.80 onto the same ~0–115 magnitude as the other components,
-so the 20% weight is an honest 20%. **No championship or team result appears in
-Recognition.**
-
----
-
-## 6. Postseason Individual Value (18%)
-
-At 18% this is a **major** slice, so it is built to reward elite individual
-playoff performance — **not** winning. A purely individual, zero-baseline,
-additive value with four parts:
-
-```
-postseason_individual_value = absolute_playoff_level   (reliability-adjusted)
-                            + playoff_elevation        (sample-adjusted)
-                            + sustained_elite_volume
-                            + dominance_bonus          (diminishing, reliability-shrunk)
-```
-
-**Playoff-sample reliability governs the upper tail.** One confidence signal
-`sample_reliab ∈ [0,1]` measures *how much* playoff basketball the rate stats were
-observed over — **minutes**, **games**, and **series/rounds reached**
-(`0.40·min/850 + 0.35·games/19 + 0.25·series/4`). Series count is a **sample**
-signal only (how many rounds the rates survived), never points for advancement.
-It shrinks the level, the elevation, and especially the dominance bonus, so an
-extreme rate stat over a *short* run cannot dwarf a complete Finals-length run.
-
-**absolute_playoff_level** — raw playoff quality across all skills: BPM/WS48/PER
-rate, scoring volume, efficiency, playmaking, rebounding, box defense, and
-minutes, opponent-quality adjusted, centered on a replacement baseline
-(`PO_BASELINE = 25`). This is **linear in level** (the convex bonus is a separate
-term, so an extreme level is never rewarded twice) and is then **shrunk by
-`sample_reliab`** → the *reliability-adjusted level*. Excellent play adds, poor
-play is a small bounded penalty (downside floored once at `−14`). A ring/Finals/
-deep run **by itself** does not produce a large level; round reached is **not**
-rewarded.
-
-**playoff_elevation** — `playoff rate impact − regular-season rate impact`, using
-the identical rate formula for both. Gains are rewarded in full; a **decline from
-an extreme regular-season baseline is damped (×0.35)** and bounded (≤ +14, ≥ −6),
-then **shrunk by the same `sample_reliab`**. Elevation **supplements** absolute
-level; it never replaces it. LeBron 2008-09 still earns major elevation credit; a
-Jokić who elevates gains value even without a title — but improvement measured
-over a short sample is no longer over-trusted.
-
-**sustained_elite_volume** — elite per-minute quality **accumulated over real
-playoff minutes *and* games** (`0.5·min/950 + 0.5·games/21`, uncapped below a
-Finals-length run), scaled by **best-player responsibility** from the **playoff
-usage burden** (floor `0.55`, cap `1.12`). At equal rates, elite play sustained
-through *more* rounds earns more than a shorter run — the extra value comes from
-sustaining elite play, never from advancing. Requires quality **and** volume
-**and** responsibility; floored at 0.
-
-**dominance_bonus** — the exceptional residual of the level above an elite knee
-(`50`), through a **saturating square-root curve** (`PO_DOMINANCE_SCALE·√(level−50)`)
-that **replaces the old open-ended `+0.30 per point` linear booster**. Level 50
-earns 0, 60 is meaningful, 75 larger, 90 exceptional, and the curve flattens so it
-never explodes at the top. It is then **shrunk by `sample_reliab` with an extra
-series gate**, so a short Conference-Finals run with extreme rates earns only a
-*partial* historical-dominance bonus; the full bonus is reserved for elite play
-sustained through the deepest runs.
-
-**Reliability & no-double-counting.** The four terms read **different signals**
-(how good / improvement / how much / exceptional top), so the same extreme
-BPM/PER/WS48 is not counted multiple times; availability is counted **once**.
-**No playoffs (or zero playoff minutes) = exactly 0.** Finals MVP and clear-best-
-player status only **validate** the metric and add no points; championships, round
-reached, and Finals MVP do **not** enter here (they live in Team Achievement and
-Recognition respectively). *Net effect:* a short extreme run (LeBron 2008-09,
-~106 → ~75) no longer overpowers complete championship seasons, and the
-single-season Prime crown passes to a complete Finals-length run (Jordan 1990-91).
-
----
-
-## 7. Team Achievement (3%)
-
-Zero baseline. The component is
-
-```
-team_achievement = smooth_bounded_advancement_value × role_responsibility_multiplier
-```
-
-The **advancement value** is a *smooth, bounded* progression in `[0, 100]` driven by
-measurable results (rounds reached / series won / championship), **interpolated**
-between anchors rather than coarse `0 / 50 / 100` buckets:
-
-| Result (rounds reached) | Advancement value |
+| Landing page | The 82-0 start gate |
 |---|---|
-| First-round exit / no playoffs | **0** |
-| Won ≥1 series (lost Conf Semis) | 30 |
-| Conference Finals | 58 |
-| Finals | 80 |
-| Champion | 100 |
+| ![Home](docs/assets/readme/homepage.png) | ![82-0 start gate](docs/assets/readme/peak-season-start.png) |
 
-…with intermediate `playoff_round_score` values interpolated smoothly between
-those anchors. The **role-responsibility multiplier** distinguishes a *clear
-primary player* (1.00) → *co-star* (0.82) → *secondary contributor* → *role
-player* (floor 0.34). Recognized best/co-best players use the explicit flag;
-everyone else is graded smoothly by **creation burden** (usage + assist share),
-capped at the co-star level, so a low-creation role player on a champion receives
-limited credit while a high-responsibility hub does not.
-
-`playoff_round_score` encodes rounds *reached*, not won, so a first-round **loss**
-(score 30, zero series won) correctly scores 0. With only a 3% weight (≤3.0 index
-points) a title can never offset a large individual gap. **Championships appear
-only here; Finals MVP and individual playoff box score never enter Team
-Achievement.**
-
----
-
-## 8. Zero baselines & anti-double-counting
-
-- No playoffs → Postseason = 0 **and** Team Achievement = 0.
-- No award → Recognition = 0.
-- First-round exit → Team Achievement = 0.
-- Each playoff fact lives in exactly one place: **round/series → Team
-  Achievement; Finals MVP → Recognition; individual playoff box → Postseason.**
-- Within Statistical Impact, per-minute rate and cumulative value are separate
-  sub-weights; defense is counted once (DBPM in the BPM consensus).
-- Postseason availability is the only minutes discount (counted once).
-
-These invariants are enforced by tests (see §13).
-
----
-
-## 9. Missing data, eras, and calibration
-
-- **Missing optional metrics never zero a player out.** Masked weighted averages
-  renormalize over present metrics, so old seasons without modern impact data —
-  or any season missing a box split — are not penalized.
-- **Era handling.** Components are continuous functions of raw units; era-relative
-  percentiles/z-scores are used **only** for role labels and descriptive display,
-  never inside the index. Per-100 conversions and TS+/relative-TS handle
-  pace/efficiency inflation.
-- **Calibration.** `prime_score = calibrate(prime_raw)` is a single, **monotonic**
-  piecewise-linear relabel of the open index into interpretable historical bands
-  (~60s = quality starter, mid-70s = credible All-NBA, ~88+ = MVP-level, ~95+ =
-  historically dominant). Because it is monotonic it **never changes ordering**;
-  the raw index is preserved (`prime_index`/`perf_index`) so apex separation is
-  never lost.
-
----
-
-## 10. Single-season, 2-year, 3-year, 5-year, N-year peaks
-
-- A player's **N-year Prime** is the best **consecutive completed** N-season
-  window. Aggregation is **raw-before-calibration**: each season's `prime_raw` is
-  rank-weighted with `nyear_weights(N)` (best season weighted most, with a
-  documented minimum-weight floor), summed to one aggregated **raw** window score,
-  and then calibrated **once**. Calibrated display scores are **never** averaged.
-- The canonical rank weights (used by `--years N` and every top-250 leaderboard):
-
-  | N | rank weights (best → worst) |
-  |---|---|
-  | 1 | `[1.000]` |
-  | 2 | `[0.667, 0.333]` |
-  | 3 | `[0.500, 0.333, 0.167]` |
-  | 4 | `[0.390, 0.293, 0.195, 0.122]` |
-  | 5 | `[0.323, 0.258, 0.194, 0.129, 0.097]` |
-
-  The **two-year** weights are the *same* rank-weight system at N=2
-  (`[2,1]/3 = [0.667, 0.333]`), **not** a separate 60/40 rule — so 2-year Prime is
-  a clean interpolation between the single-season apex and sustained 3-year play
-  (the best 2-year raw never exceeds the best single-season raw).
-- Every window's score **decomposes exactly** into the five weighted component
-  contributions plus the teammate adjustment (they sum to the rank-weighted raw
-  window score).
-- Canonical **top-250 leaderboards** for all four durations are written under
-  `leaderboards/` (CSV + Markdown) plus a cross-duration comparison; see
-  §12. They use the 250-player universe in
-  `data/generated/final_250_candidates.csv`.
-
-### Provisional seasons
-A season is **provisional** (incomplete) unless a broad set of rotation players
-have played a near-full schedule — specifically until the **90th-percentile**
-rotation games-fraction reaches `0.90` (not when a single iron-man hits the game
-count). Provisional seasons may appear in career tables but are **excluded** from
-official single-season, 2-/3-/5-/N-year, and leaderboard results
-(`--include-provisional` opts in). The **2025-26** season is **complete** (not
-provisional): it passes the field-by-field completeness checks in
-`nba_peak/season_completeness.py`, and the rebuild **fails** rather than letting a
-2025-26 season with a silently-missing required field enter a leaderboard.
-
----
-
-## 11. Why different archetypes can score highly
-
-The model rewards real value through whichever channel a player provides it:
-
-- **Dominant regular-season engines** (Jordan, LeBron, Jokić) win on Statistical
-  Impact + Traditional Production.
-- **Playoff elevators** (Hakeem's title runs, Kawhi 2019, Dirk 2011) gain through
-  Postseason level + elevation + sustained-volume + dominance — now a major 18%
-  slice, with the dominance bonus diminishing and shrunk by the playoff sample.
-- **Pure scorers** (Dantley, English) score on Traditional Production.
-- **Defensive anchors / rebound specialists** (Ben Wallace, Rodman, Mutombo)
-  reach high marks through DBPM/stocks and rebounding hinges plus All-Defense
-  recognition — no archetype penalty, no archetype bonus.
-
-No reputation, "clutch," or named-player overrides exist anywhere.
-
----
-
-## 12. Install & usage
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-First run scrapes and caches Basketball Reference (~235 pages, ~13 min at a
-polite delay); afterward everything is offline.
-
-```bash
-# single player (full career table + 3-year prime + why it won)
-python peak3.py --player "Hakeem Olajuwon"
-
-# both Performance-Only and Prime views
-python peak3.py --player "LeBron James" --mode both
-
-# 5-year prime (or any N from 1..10) with component decomposition
-python peak3.py --player "Stephen Curry" --years 5
-
-# leaderboards
-python peak3.py --top 25 --mode legacy
-python peak3.py --top-seasons 25            # best single seasons (provisional excluded)
-
-# canonical top-250 Prime leaderboards (offline, deterministic, 250-player universe)
-python peak3.py --leaderboard --years 1 --top 250 --no-scrape
-python peak3.py --leaderboard --years 2 --top 250 --no-scrape
-python peak3.py --leaderboard --years 3 --top 250 --no-scrape
-python peak3.py --leaderboard --years 5 --top 250 --no-scrape
-python peak3.py --leaderboard-all --top 250 --no-scrape   # all 4 + cross-duration comparison
-#   -> writes leaderboards/top_250_{1,2,3,5}_year_prime.{csv,md}
-#      and leaderboards/top_250_prime_comparison.{csv,md}
-
-# simple plain-text top-100 rankings for 1/2/3/4/5-year Prime (title + ranked lines)
-python peak3.py --simple-leaderboards --top 100 --no-scrape
-python peak3.py --simple-leaderboard --years 4 --top 100 --no-scrape   # single duration
-#   -> writes leaderboards/top_100_{1,2,3,4,5}_year_prime.txt
-
-# regenerate every deliverable (outputs.txt, reports/, leaderboards/, results/)
-python make_outputs.py
-
-# compare seasons / players (writes an audit under results/)
-python peak3.py --compare-seasons "Stephen Curry" 2015 2016 --trace-formula
-python peak3.py --compare-players "Hakeem Olajuwon" "David Robinson"
-
-# trace one season's exact per-metric contributions
-python peak3.py --player "Nikola Jokic" --audit-score --season 2023 --trace-formula
-
-# offline / rebuild
-python peak3.py --player "Kobe Bryant" --no-scrape   # use cache only
-python peak3.py --rebuild --no-scrape                # re-parse cached HTML, re-score
-python peak3.py --refresh                            # re-download, then rebuild
-```
-
-### Full CLI reference
-
-**Reports:** `--player`, `--mode {stat,legacy,both}`, `--years N`, `--top N`,
-`--top-seasons N`, `--best-season`, `--best-window`, `--window-weighting
-{weighted,equal}`, `--sensitivity`, `--export PATH`, `--include-provisional`,
-`--season YEAR`, `--trace-formula`.
-
-**Leaderboards:** `--leaderboard --years {1,2,3,5} [--top N]`,
-`--leaderboard-all [--top N]` (offline; uses the canonical 250-player universe;
-writes `leaderboards/`). Plain-text top-N rankings:
-`--simple-leaderboards [--top N]` (all of 1/2/3/4/5-year) and
-`--simple-leaderboard --years {1,2,3,4,5} [--top N]` → `leaderboards/top_N_*_year_prime.txt`.
-
-**Compare:** `--compare-seasons PLAYER S1 S2`, `--compare-players A B`.
-
-**Data / context:** `--rebuild`, `--refresh`, `--no-scrape`,
-`--start-season-end`, `--end-season-end`, `--build-context`, `--ensure-context`.
-
-**Candidates / population:** `--build-candidates`, `--candidates`,
-`--candidate-count N`, `--stat-candidate-count N`, `--list-candidates`,
-`--list-all-nba-candidates`, `--list-exception-candidates`, `--list-all-players`,
-`--search-player NAME`, `--add-candidate NAME`, `--candidate-status`, `--tier N`,
-`--include-all-core-players`, `--workload-policy {default,strict,permissive}`.
-
-**Audits:** `--audit-score`, `--audit-context`, `--audit-data`,
-`--audit-candidates`, `--audit-anomalies`, `--audit-teammates`,
-`--audit-career-order`, `--audit-raw-model`, `--audit-exception-candidates`,
-`--debug`.
-
----
-
-## 13. Tests
-
-All offline (no network). Run the whole suite with:
-
-```bash
-pytest                       # currently 186 passing
-```
-
-Key files: `test_peak3.py` (I/O, windows, parsing), `test_context.py` (context +
-window reconciliation), `test_scoring.py` (component invariants),
-`test_validation.py` (data-supported relationships on the built cache),
-`test_corrections.py` (zero baselines, postseason, weights, no-double-count),
-`test_specialist_postseason_audit.py` (2025-26 completeness guard + bounded
-elevation safeguard), and `test_leaderboards.py` (canonical 250-player universe,
-consecutive-window sizes, raw-before-calibration, determinism, cross-duration
-reconciliation).
-
-The suite proves, among others: the **38/21/20/18/3** official weights reconcile
-exactly in single-season, 2-/3-/5-year windows; the 2025-26 Brunson Finals-MVP
-context is correct and counted only in Recognition; championship appears only in
-Team Achievement; playoff elevation affects Postseason only; no double counting;
-provisional seasons cannot enter multi-year peaks; and the leaderboards are
-deterministic with no silently-missing required data.
-
----
-
-## 14. Interpretation examples
-
-**A dominant regular-season player (Nikola Jokić).** His Prime is anchored by an
-enormous Statistical Impact (top-tier BPM consensus, WS/48, PER) and Traditional
-Production. His Postseason value is solidly positive but secondary; the 18%
-weight lifts strong playoff runs without overturning a historically great regular
-season. He ranks where his raw advanced metrics put him — not forced anywhere.
-
-**A playoff-elevating player (Hakeem Olajuwon, 1993-94 / title runs).** His
-regular-season Statistical Impact is excellent but below the very top; his peak
-is materially lifted by Postseason value — strong playoff level, positive
-elevation (he raised his game in May/June), and sustained-volume from two deep
-championship runs — plus two Finals MVPs in Recognition. The Hakeem–Robinson
-**contribution bridge** in `outputs.txt` makes this transparent: Robinson leads
-on Statistical Impact while Hakeem leads on Recognition and Postseason, and
-raising Recognition from 15% to 20% (and trimming Statistical Impact 41→38) flips
-their best-overlapping-3-year raw Prime gap from a slight Robinson edge to a
-slight Hakeem edge — **if the data supports it**, with neither player forced.
-
----
-
-## 15. Limitations
-
-- Modern impact metrics (EPM/LEBRON/RAPM) are not populated in this dataset;
-  Statistical Impact renormalizes so no era is penalized, but the modern
-  supplement is currently unused.
-- 2025-26 is treated as a complete season; its championship/Finals-MVP context is
-  set explicitly via `data/manual_context.csv` rather than scraped from a live
-  bracket.
-- Postseason value uses whole-playoff aggregates, so a great early-round run
-  followed by a poor Finals nets out (no per-round weighting, by design — this is
-  individual value, not narrative).
-- Opponent-quality and series context are auto-derived from brackets; unobserved
-  values are treated as neutral, never fabricated.
-- Some official native scores are still stored under legacy `_pct` column names
-  (used only for role labels, never the index); a full rename is deferred.
-- Coverage **begins in 1980**; pre-1980 seasons and the missing-data eras of early
-  tracking/defensive stats are out of scope.
-- The project classifies players by **role**, not basketball position; "Primary
-  position" in the comparison file is the model's modal role label.
-- Award voting reflects human and team-context biases; the model uses the **real**
-  vote shares but does not try to correct those biases.
-- Rankings are **model estimates**, not objective truth, and are sensitive to the
-  stated philosophical weights.
-
----
-
-## 16. What the project produces
-
-- **Per-player Prime** at five durations: single-season, **2-year**, 3-year,
-  5-year, and any N-year window (1–10), each with a full five-component
-  decomposition.
-- **Performance-Only** outputs (individual on-court value, no awards/team).
-- **Canonical top-250 leaderboards** for 1/2/3/5-year Prime + a cross-duration
-  comparison, under `leaderboards/` (CSV + Markdown).
-- **Case-study, sensitivity, and audit reports** under `reports/` (five-player
-  prime audit, specialist & postseason audit, negative-postseason audit, etc.).
-- **Data-completeness reports** (e.g. `reports/season_2025_26_completeness.csv`).
-- A regenerated 25-player validation run + all leaderboards in `outputs.txt`.
-
-## 17. Methodological safeguards
-
-- **Real MVP/DPOY vote shares** (`data/generated/mvp_votes.csv`,
-  `dpoy_votes.csv`) drive Recognition; a documented smooth placement curve is used
-  only where a vote row is genuinely missing.
-- **Actual team scoring/assist shares** (`data/generated/team_shares.csv`) drive
-  the successful-burden residual — never USG%/AST% relabeled as team share (the
-  USG%/AST% proxy is a flagged fallback only).
-- **Missing data is never silently zero**: weighted-available renormalization and
-  explicit `*_data_status` flags keep absent fields from acting like real values;
-  the rebuild **fails** on a silently-missing required field in a completed season.
-- **Postseason sample reliability** (minutes × games × series) shrinks the whole
-  upper tail so a short hot run cannot dwarf a Finals-length one.
-- **Bounded postseason elevation safeguard**: a gated, monotonic floor keeps a
-  large negative elevation from reversing a clearly positive, well-sampled
-  absolute playoff level (it can only ever raise a score; ~0.2% of seasons).
-- **Smooth role-adjusted Team Achievement** (interpolated advancement × creation-
-  burden role multiplier; no 0/50/100 buckets).
-- **Raw-before-calibration** window aggregation (rank-weight raw, calibrate once).
-- **Completed-season checks** gate 2025-26; **deterministic offline rebuilds**.
-
-## 18. Repository structure
-
-| Path | Purpose |
+| Rankings, sortable by any component | Per-row score explanation |
 |---|---|
-| `peak3.py` | Core model, scoring, windows, calibration, CLI. |
-| `make_outputs.py` | Regenerates `outputs.txt`, `reports/`, `leaderboards/`, `results/`. |
-| `nba_peak/` | Supporting modules: `leaderboards.py` (canonical top-250), `season_completeness.py` (2025-26 guard), `specialist_postseason_audit.py`, `five_player_audit.py`, `candidates.py`, `context_build.py`, `integrity.py`, … |
-| `nba_peak/context/` | Context derivations (postseason, awards, stat titles, teammates). |
-| `data/generated/` | Canonical generated inputs: `final_250_candidates.csv` (player universe), `team_shares.csv`, `mvp_votes.csv`, `dpoy_votes.csv`, `player_season_context.parquet`. |
-| `data/` | Manual overrides (`manual_context.csv`), regression snapshots, examples. |
-| `cache/` | Scraped HTML + processed parquet (`scored_1980_2026.parquet`); rebuildable. |
-| `leaderboards/` | Canonical top-250 Prime leaderboards (1/2/3/5-year + comparison), CSV + MD — **release artifacts**. |
-| `reports/` | Audit/case-study/completeness CSVs + Markdown. |
-| `results/` | Legacy single-season/3-/5-year leaderboards + compare-audit dumps. |
-| `tests/` | Offline test suite (`pytest`). |
-| `outputs.txt` | Full regenerated validation report + canonical leaderboards. |
-| `METHODOLOGY.md`, `DATA_SOURCES.md`, `FORMULA_TEXT` (in `peak3.py`) | Methodology, provenance, printable formula. |
-| `cleanup_manifest.txt` | Record of deleted/retained files for release hygiene. |
+| ![Rankings](docs/assets/readme/rankings.png) | ![Score explanation](docs/assets/readme/rankings-explain.png) |
 
-## 19. Reproducibility
+![82-0 result](docs/assets/readme/peak-season-result.png)
 
-- **Supported coverage:** 1980 through the **completed 2025-26** season.
-- **First run** (needs cached source HTML, or scrapes it once): `python peak3.py
-  --refresh` downloads Basketball Reference, then builds and scores.
-- **Fully offline** thereafter: `python peak3.py --rebuild --no-scrape` re-parses
-  cached HTML and re-scores; `python peak3.py --leaderboard-all --no-scrape` and
-  `python make_outputs.py` regenerate every deliverable from the scored cache with
-  **no network access**.
-- **Deterministic:** identical inputs produce byte-identical leaderboards; ranking
-  uses unrounded raw scores with a documented tie-break (Prime raw ↓, Prime
-  display ↓, SI ↓, Postseason ↓, anchor season ↑, canonical player id ↑).
-- **Verify score identity:** `pytest` checks that the offline rebuild reproduces
-  the checked-in scores and that all component contributions reconcile exactly.
+The result receipt from one real run: projected record, lineup score, the
+revealed roster with positional-fit findings, the model's own round-by-round
+picks, and the component breakdown. This run projected 21-61 — a genuine
+outcome of a poorly constructed roster, not a curated best case.
 
-See [`METHODOLOGY.md`](METHODOLOGY.md) for the complete derivation and
-[`outputs.txt`](outputs.txt) for a full regenerated validation run.
+To regenerate these images, from `apps/web`:
+
+```bash
+npx playwright test --config=playwright.screenshots.config.ts
+```
+
+That config starts the API with `PEAK3_ENABLE_EXTERNAL_ASSET_URLS=false` and
+refuses to write a frame if the API is serving external asset URLs.
 
 ---
 
-## 20. PEAK3 Arena — Development
+## Scoring methodology
 
-PEAK3 Arena is the game application built on top of this model. It ships Peak Duel: a daily 10-question challenge and endless mode comparing player peak windows using real PEAK3 data.
+Every score in the product comes from one formula with fixed weights:
 
-### Quick start
+| Component | Weight | What it measures |
+|---|---|---|
+| Statistical Impact | 38% | Advanced impact metrics — BPM and its offensive/defensive splits, VORP, Win Shares and WS/48, PER, and modern ensemble models where available |
+| Traditional Production | 21% | Box-score production, era-relative |
+| Individual Recognition | 20% | MVP, All-NBA, All-Star, All-Defense and similar honors |
+| Postseason Value | 18% | Individual playoff performance |
+| Team Achievement | 3% | Team results |
+
+A separate teammate adjustment is reported as a descriptive modifier, not as a
+sixth component.
+
+The raw weighted sum is a *prime index*; a monotonic calibration maps it to the
+0-100 *prime score* shown in the UI. Because the mapping is monotonic, it never
+reorders players.
+
+Two things worth stating plainly:
+
+- **This is a model, not a verdict.** The weights encode a particular view of
+  what "peak" means. The product says "PEAK3 rates…" and "the model gives…"
+  precisely because a different defensible weighting would produce a different
+  ordering.
+- **Missing data is not filled in.** Metrics that do not exist for an era are
+  handled by era-relative formulas rather than substituted values, and a player
+  is never penalized for a metric that was not recorded during their career.
+  Where a season falls below the serving threshold, the UI reports the score as
+  unavailable instead of estimating one.
+
+The 82-0 projection is a separate, explicitly experimental (v0) lineup model. It
+is not the PEAK3 individual score and is labeled as uncalibrated in the UI.
+
+Full detail: [`docs/model/SCORING_METHODOLOGY.md`](docs/model/SCORING_METHODOLOGY.md)
+for the component-by-component reference and CLI, and
+[`METHODOLOGY.md`](METHODOLOGY.md) for the deepest derivation.
+
+---
+
+## Data notes
+
+- **Source.** Basketball Reference, covering 1979-80 through 2025-26 (the
+  three-point era onward). Scraping happens offline via the CLI and is cached;
+  it never runs during a web request.
+- **Authoritative rankings.** The committed CSVs in `leaderboards/` are the
+  canonical output. `scripts/build_web_dataset.py` reads from those files with
+  no network access and validates its output before writing anything: it aborts
+  on NaN or infinite values, on duplicate window IDs, or if a rank-1 regression
+  check against the CSVs fails.
+- **Generated, not committed.** `data/web/` is produced by the exporter and is
+  gitignored. `make build-dataset` is required after cloning.
+- **Rebuilding from scratch.** Regenerating the leaderboards themselves needs
+  `cache/processed/`, which is also gitignored.
+- **No images in the repo.** `data/game/assets/` holds URL *manifests* only,
+  and they are served solely when `PEAK3_ENABLE_EXTERNAL_ASSET_URLS` is
+  explicitly enabled. Default-off, and off in CI. Player avatars fall back to
+  initials and teams to plain text.
+- **Scores are never computed in TypeScript.** The web app renders
+  pre-generated values; the model layer is the only thing that scores.
+
+---
+
+## Local development
+
+CI builds against Python 3.12 and Node 20.
 
 ```bash
-# 1. Install dependencies
-make install                  # model + api + web
+# Install model, API, and web dependencies
+make install
 
-# 2. Build the web dataset (required before running the API)
-make build-dataset            # reads leaderboards/*.csv → data/web/*.json
-
-# 3. Run services (two terminals)
-make api                      # FastAPI on http://localhost:8000
-make web                      # Next.js on http://localhost:3000
-
-# 4. Run all tests
-make test
+# Generate the dataset the API serves (required before first run)
+make build-dataset
 ```
 
-### Structure
+Then run the two services in separate terminals, API first — the web app expects
+it on port 8000.
 
-```
-apps/api/   FastAPI application — read-only, stateless HMAC sessions
-apps/web/   Next.js App Router — game UI, rankings, methodology explorer
-scripts/    build_web_dataset.py — offline exporter (no network access)
-data/web/   Generated JSON dataset (gitignored; run build-dataset to create)
-docs/       Architecture, game design, implementation audit
-CLAUDE.md   Full development reference for AI-assisted sessions
+The flagship mode sits behind default-off flags, so local development needs them
+set explicitly. From the repository root:
+
+```bash
+PEAK3_COURTBUILDER_ENABLED=true \
+PEAK3_COURTBUILDER_TEAM_SPIN_ENABLED=true \
+PEAK3_COURTBUILDER_READINESS_LEVEL=internal_dev \
+PEAK3_ENABLE_EXTERNAL_ASSET_URLS=false \
+PEAK3_COURTBUILDER_LEADERBOARD_ENABLED=false \
+python3 -m uvicorn app.main:app --app-dir apps/api --reload --port 8000
 ```
 
-### Routes
+`make api` also works, but starts the API with every flag at its default, which
+leaves 82-0 PEAK Season disabled.
+
+In a second terminal:
+
+```bash
+make web     # Next.js on http://localhost:3000
+```
+
+### Feature flags
+
+All are read with the `PEAK3_` prefix and default to off unless noted.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `COURTBUILDER_ENABLED` | off | Enables 82-0 PEAK Season |
+| `COURTBUILDER_TEAM_SPIN_ENABLED` | off | Enables the team-season reel |
+| `COURTBUILDER_READINESS_LEVEL` | `disabled` | Reported readiness; validated against the flags above |
+| `COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED` | **on** | Exact team-season boards |
+| `COURTBUILDER_LEADERBOARD_ENABLED` | off | 82-0 leaderboard submissions |
+| `ENABLE_EXTERNAL_ASSET_URLS` | off | Serves third-party headshot and logo URLs |
+| `RANKED_*` | off | Ranked queues, matchmaking, rating writes, public leaderboard |
+| `DEV_TOOLS_ENABLED` | off | Local-only debug endpoints |
+
+Supabase (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET`) is
+optional. Without it, accounts and progression are unavailable and the game
+still plays anonymously. `PEAK3_SIGNING_SECRET` signs session tokens and must be
+set to a real value outside local development. Copy `apps/api/.env.example` as a
+starting point; never commit a `.env` file.
+
+---
+
+## Useful routes
 
 | Route | Description |
 |---|---|
 | `/` | Landing page |
-| `/play/daily` | Daily 10-duel challenge |
-| `/play/endless` | Endless peak duel, duration selector |
-| `/rankings` | All-duration PEAK3 leaderboards |
+| `/arena/court/practice/apex_1y` | 82-0 PEAK Season — the main entry point |
+| `/arena/court/daily/apex_1y` | Today's shared daily challenge |
+| `/arena/court/history` | Saved runs and personal bests |
+| `/arena/court/results/[id]` | A shared or saved run result |
+| `/arena` | Arena hub |
+| `/rankings` | Peak Windows and Single Seasons boards |
 | `/players/[slug]` | Player profile with component breakdown |
 | `/methodology` | Interactive formula explorer |
 | `/about` | Model transparency and provenance |
+| `/profile`, `/u/[handle]` | Account and public profile |
+| `/arena/labs` | Earlier prototype modes, not part of the main path |
 
-### Test counts
+---
+
+## Testing
+
+```bash
+make test        # model + lineup + API + web unit
+make test-fast   # adds board-generation checks
+make test-full   # adds Playwright end-to-end
+```
+
+Individual suites:
+
+```bash
+python -m pytest tests/                     # model
+python -m pytest apps/api/tests/            # API
+cd apps/web && npm run test                 # frontend unit (vitest)
+cd apps/web && npx playwright test          # end-to-end
+cd apps/web && npm run lint                 # eslint
+cd apps/web && npx tsc --noEmit             # typecheck
+```
+
+Current counts, all passing:
 
 | Suite | Count |
 |---|---|
-| Python model tests | 186 |
-| API tests (FastAPI) | 53 |
-| Frontend unit tests | 24 |
+| Python model | 235 |
+| API (FastAPI) | 652 passing, 18 skipped |
+| Frontend unit (vitest) | 274 |
+| Playwright end-to-end | chromium and mobile-chrome projects; `@mobile`-tagged tests run on the mobile project |
 
-See [`CLAUDE.md`](CLAUDE.md) for the full development reference.
+End-to-end tests need both services running; Playwright starts them itself via
+its `webServer` config. Accessibility checks run through axe-core and assert no
+critical or serious violations.
+
+Model test expectations are treated as fixed. Regression tests verify that the
+generated web dataset still matches the canonical CSVs: rank 1 for the 1-year
+and 5-year boards, 1-year top-10 ordering, sequential ranks, finite component
+contributions, and no duplicate IDs.
+
+---
+
+## Project status
+
+The 82-0 PEAK Season loop is the current focus and is playable end to end:
+spin, draft, position, simulate, receipt, save, share. Rankings have a complete
+two-board explainability layer.
+
+Recent work, in order: saved runs and personal bests with a daily-challenge
+foundation; a rebuilt spin animation and an explicit start gate; a position
+model with slot swapping; honest handling of unscored and low-minute cards; the
+rankings overhaul; and consolidation of the main play path onto the flagship
+mode.
+
+Near-term:
+
+- Calibrate the 82-0 lineup projection. It is explicitly v0 and labeled
+  uncalibrated in the UI.
+- Split the rankings explain payload. The API currently holds a large artifact
+  resident to serve a much smaller response.
+- Promote 82-0 past `internal_dev` readiness, which gates the leaderboard.
+
+Deliberately deferred: friends and social feeds, live NBA scores, licensed
+player photography, native mobile apps, AI-generated commentary, and payments.
+
+Direction and open questions:
+[`docs/game-design/NEXT_MODE_ROADMAP.md`](docs/game-design/NEXT_MODE_ROADMAP.md).
+Architecture decisions are recorded as ADRs in
+[`docs/architecture/`](docs/architecture/).
+
+---
+
+## Repository layout
+
+```
+peak3.py              Core model — calibrate_score, OFFICIAL_WEIGHTS, n_year_windows
+nba_peak/             Scoring modules, leaderboard builders, perfect-season logic, CLI
+leaderboards/         Committed canonical rankings (CSV) — the authoritative source
+data/generated/       Committed candidate universe and parquet context
+data/game/assets/     Asset URL manifests (metadata only, no images)
+data/web/             Generated API dataset (gitignored)
+scripts/              Offline exporters and build tooling
+tests/                Model tests
+apps/api/             FastAPI — read-only, serves pre-generated data
+apps/web/             Next.js App Router — game and analytics UI
+docs/                 Architecture, model, game design, implementation reports
+```
+
+## Conventions and safety notes
+
+- The model layer is authoritative. `OFFICIAL_WEIGHTS`, `calibrate_score()`, and
+  the committed leaderboard CSVs are not changed without explicit approval and
+  passing regression evidence.
+- Scores are never recomputed in TypeScript, and Basketball Reference is never
+  scraped during a web request.
+- Game scoring is `arena_points`; the model's calibrated display value is
+  `prime_score` and its raw ordering value is `prime_index`. These are kept
+  distinct on purpose.
+- Player slugs are lowercase, hyphenated, ASCII-folded, and apostrophe-free
+  (`michael-jordan`). Window IDs are `{slug}-{n}yr-{anchor}`
+  (`michael-jordan-1yr-199091`).
+- No player photographs or team logos are committed, and the flag that serves
+  their URLs is off by default and off in CI.
+- Secrets live in environment variables. `.env` files are never committed;
+  `apps/api/.env.example` documents what is needed.
+- Client-side stored scores are not tamper-proof and are not eligible for
+  ranked or leaderboard placement.
+
+[`CLAUDE.md`](CLAUDE.md) holds the full working reference for this repository,
+including the rules above in their authoritative form.

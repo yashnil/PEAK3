@@ -1,74 +1,30 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import {
-  DraftMode,
-  MODE_LABELS,
-  MODE_DESCRIPTIONS,
-} from "@/types/draft";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 
+/**
+ * The Arena hub -- now exclusively the flagship 82-0 PEAK Season landing page.
+ *
+ * Phase 10C: this page used to render the 82-0 hero AND, directly underneath it,
+ * the legacy "Peak Draft (Legacy / Labs)" section with 1Y Apex / 3Y Prime / 5Y
+ * Foundation mode cards plus a Ranked closed-alpha card. Because both the navbar
+ * "Play" link and the homepage "Build Your Perfect Season" CTA landed here, the
+ * main product path always showed the old 5-player draft as a co-equal option --
+ * which is the routing bug this phase fixes.
+ *
+ * Those modes now live at /arena/labs ("Legacy Labs"), unlinked from the navbar
+ * and homepage. Nothing behind them was deleted: the routes, state machine and
+ * ranked queues are all still live and still covered by
+ * src/tests/e2e/gameplay.spec.ts, which navigates to them directly.
+ *
+ * Unrelated and untouched: the 1Y/3Y/5Y window selector on Rankings -> Peak
+ * Windows. That is an analytics feature, not a game mode.
+ */
 export const metadata: Metadata = {
-  title: "Arena — 82-0 Peak Season | PEAK3",
+  title: "82-0 PEAK Season | PEAK3 Arena",
   description:
-    "Spin a team and era, build a position-aware roster from real NBA peak windows, and chase a perfect 82-0 season.",
+    "Spin a real NBA team-season, draft exact player-season cards, place them on the court, and chase 82-0 with receipts.",
 };
-
-const MODES: DraftMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
-const MODE_ICONS = { apex_1y: "⚡", prime_3y: "✦", foundation_5y: "🏛" };
-const MODE_CSS: Record<DraftMode, string> = {
-  apex_1y: "#ff6b47",
-  prime_3y: "#f5c842",
-  foundation_5y: "#4a90d9",
-};
-
-function ModeCard({ mode }: { mode: DraftMode }) {
-  const color = MODE_CSS[mode];
-  return (
-    <div
-      className="rounded-2xl border p-5 flex flex-col gap-4"
-      style={{
-        background: "var(--bg-elevated)",
-        borderColor: "var(--border-default)",
-      }}
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-2xl">{MODE_ICONS[mode]}</span>
-        <div>
-          <div
-            className="font-bold text-base"
-            style={{ color: "var(--text-primary)" }}
-          >
-            {MODE_LABELS[mode]}
-          </div>
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {MODE_DESCRIPTIONS[mode]}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <Link
-          href={`/arena/daily/${mode}`}
-          className="block text-center py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
-          style={{ background: color, color: "#000" }}
-        >
-          Daily Draft
-        </Link>
-        <Link
-          href={`/arena/practice/${mode}`}
-          className="block text-center py-2 rounded-lg text-sm font-medium transition-all"
-          style={{
-            background: "var(--bg-surface)",
-            color: "var(--text-secondary)",
-            border: "1px solid var(--border-default)",
-          }}
-        >
-          Practice
-        </Link>
-      </div>
-    </div>
-  );
-}
 
 export default async function ArenaPage() {
   // CourtBuilder (Phase 5C prototype) is only presented as the flagship
@@ -148,64 +104,49 @@ export default async function ArenaPage() {
         </div>
       )}
 
-      <div className="mb-8">
-        <h2
-          className="text-xl font-bold"
-          style={{ color: "var(--text-primary)" }}
-        >
-          Peak Draft (Legacy / Labs)
-        </h2>
-        <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-          Build a 5-player lineup from NBA peak windows. 5 rounds. 3 offers each.
-          Use Hold to bank a card or Reframe to swap the entire round.
-        </p>
+      {/* Fail-closed state. Before Phase 10C this page always had the legacy
+          mode cards to fall back on, so a disabled flagship still rendered
+          something. Now that they are gone, say so plainly rather than
+          rendering an almost-empty page. */}
+      {!courtBuilderEnabled && (
         <div
-          className="mt-3 text-xs px-3 py-2 rounded-lg border inline-block"
-          style={{
-            background: "#f59e0b10",
-            borderColor: "#f59e0b40",
-            color: "#f59e0b",
-          }}
+          data-testid="courtbuilder-unavailable"
+          className="mb-8 rounded-2xl border p-6 flex flex-col gap-3"
+          style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
         >
-          ⚠ The lineup rating is an experimental model — not a prediction of wins or objective truth.
+          <h1 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+            82-0 PEAK Season
+          </h1>
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            82-0 PEAK Season is not enabled in this environment yet. Nothing is broken — the mode is
+            behind a server flag. In the meantime, the PEAK3 rankings are fully available.
+          </p>
+          <Link
+            href="/rankings"
+            className="self-start px-5 py-2.5 rounded-lg text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+          >
+            Explore the rankings
+          </Link>
         </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {MODES.map((m) => (
-          <ModeCard key={m} mode={m} />
-        ))}
-      </div>
-
-      {/* Ranked is a distinct, separately-labeled mode — not Daily, not Practice. */}
-      <div
-        className="mt-6 rounded-2xl border p-5 flex items-center justify-between gap-4"
-        style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
-      >
-        <div>
-          <div className="font-bold text-base" style={{ color: "var(--text-primary)" }}>
-            Ranked (closed alpha)
-          </div>
-          <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            Play the same hidden board as a matched opponent. Independent per-queue rating.
-          </div>
-        </div>
+      {/* Legacy modes, deliberately demoted to a footnote: discoverable for
+          internal use, never presented as part of the product. Not linked from
+          the navbar or the homepage. */}
+      <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+        Looking for the old Peak Draft modes?{" "}
         <Link
-          href="/arena/ranked"
-          className="shrink-0 px-4 py-2 rounded-lg text-sm font-semibold"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+          href="/arena/labs"
+          data-testid="legacy-labs-link"
+          className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+          style={{ color: "var(--text-secondary)" }}
         >
-          View Ranked
+          Legacy Labs
         </Link>
-      </div>
+        .
+      </p>
 
-      <div className="mt-10 text-xs" style={{ color: "var(--text-muted)" }}>
-        <p>
-          Card scores are the official individual PEAK3 scores — unchanged.
-          Lineup ratings use a separate experimental model (lineup_peak_rating).
-          Never presented as game predictions.
-        </p>
-      </div>
     </div>
   );
 }

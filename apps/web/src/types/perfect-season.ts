@@ -551,10 +551,37 @@ export interface DailyChallenge {
   already_played: boolean;
 }
 
+/**
+ * User-facing labels for the flagship 82-0 surfaces (run history + the 82-0
+ * leaderboard's board filter). Every consumer of this map is an 82-0 surface;
+ * the legacy Peak Draft and Ranked screens have their own label maps
+ * (`MODE_LABELS` in types/draft, `RANKED_MODE_LABELS` in types/ranked) and are
+ * unaffected by this vocabulary.
+ *
+ * Phase 10C: these used to read "1Y Apex" / "3Y Prime" / "5Y Foundation",
+ * inherited wholesale from the legacy 1Y/3Y/5Y draft modes when CourtBuilder
+ * reused their ids as its board-variant ids. That was doubly wrong on the
+ * flagship path:
+ *
+ *  1. It re-exposed retired game-mode branding in the one mode that IS the
+ *     product, implying the old modes were still selectable here.
+ *  2. It was inaccurate. On the exact-team-season path a mode's duration is
+ *     only recorded as the board's `duration_years` metadata -- see
+ *     `generate_team_year_board`, where the candidate pool comes from the real
+ *     rostermates of the rolled team-season and the RNG is seeded from `seed`
+ *     alone. The duration does not filter candidates, so cards are always
+ *     exact single seasons regardless of mode. A card labeled "3Y" would have
+ *     described a 3-year window that the board never builds.
+ *
+ * So the labels now name what actually differs -- which board variant a saved
+ * run came from -- and mark the two the main product no longer creates as
+ * legacy. The ids themselves are deliberately unchanged: saved runs, the
+ * leaderboard, and run history all group by them.
+ */
 export const COURT_MODE_LABELS: Record<CourtMode, string> = {
-  apex_1y: "1Y Apex",
-  prime_3y: "3Y Prime",
-  foundation_5y: "5Y Foundation",
+  apex_1y: "Standard 82-0",
+  prime_3y: "Legacy board (3Y)",
+  foundation_5y: "Legacy board (5Y)",
 };
 
 export const SLOT_LABELS: Record<SlotType, string> = {
