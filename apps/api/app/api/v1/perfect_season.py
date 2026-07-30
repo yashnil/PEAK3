@@ -9,6 +9,7 @@ Routes:
   POST /api/v1/perfect-season/games/{id}/respin-team   - reroll the round's team (up to 3x, team_year only)
   POST /api/v1/perfect-season/games/{id}/respin-season - reroll the round's season (up to 3x, team_year only)
   POST /api/v1/perfect-season/games/{id}/place    - place the pending selection into a slot
+  POST /api/v1/perfect-season/games/{id}/swap-slots    - move/swap two placed cards (no respin)
   POST /api/v1/perfect-season/games/{id}/complete - run the v0 simulation and freeze the result
 
 No exact PEAK3 score/rank for any un-placed candidate is ever included in any
@@ -61,6 +62,7 @@ from app.models.perfect_season import (
     SaveRunResponse,
     SelectPlayerRequest,
     SubmitRunRequest,
+    SwapSlotsRequest,
 )
 from app.repositories.leaderboard_protocols import DuplicateRunSubmission, PerfectSeasonRun
 from app.repositories.saved_run_protocols import PersonalBests, SavedRun
@@ -341,6 +343,42 @@ async def place_card(
     return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
 
 
+@router.post("/perfect-season/games/{game_id}/swap-slots", response_model=PublicCourtStateResponse)
+async def swap_slots(
+    game_id: str,
+    body: SwapSlotsRequest,
+    court_repo: CourtLineupRepoDep,
+) -> PublicCourtStateResponse:
+    """Phase 9B: move/swap two already-placed cards between slots.
+
+    A pure roster-optimization move -- NOT a respin. It consumes no respin
+    budget, never re-rolls the board or any spin, and can never create or
+    destroy a card; the only thing that changes is which slot each card
+    occupies (and therefore its recomputed position fit). Same request/error
+    shape as /place and /select: game_id must match the URL, ValueError from
+    the state machine becomes a 400 with the CourtError code, and the
+    response is the full refreshed public state.
+
+    Rejected with code "rearrange_after_result" once the run is simulated --
+    a submitted result is the saved/shared artifact and must not mutate.
+    """
+    _require_courtbuilder_enabled()
+    if body.game_id != game_id:
+        raise HTTPException(status_code=400, detail="game_id in body must match URL")
+
+    game_state = await court_repo.get_lineup(game_id)
+    if game_state is None:
+        raise HTTPException(status_code=404, detail="Game not found or expired")
+
+    try:
+        new_state = state_machine.action_swap_slots(game_state, body.slot_a, body.slot_b)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc))
+
+    await court_repo.save_lineup(new_state)
+    return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
+
+
 @router.post("/perfect-season/games/{game_id}/complete", response_model=PublicCourtStateResponse)
 async def complete_game(
     game_id: str,
@@ -611,7 +649,16 @@ def _roster_snapshot(game_state) -> list[dict]:
 
     snapshot: list[dict] = []
     for slot in game_state.slots:
-        entry: dict = {"slot_type": slot.slot_type, "role_fit": slot.role_fit}
+        # Phase 9B: role_fit_severity is snapshotted alongside role_fit for
+        # the same reason as everything else here -- without it a saved
+        # scorecard can only render "off-position", which is exactly the
+        # over-alarming label this pass replaced with three cost-accurate
+        # tiers (see nba_peak/perfect_season/positions.py::fit_label).
+        entry: dict = {
+            "slot_type": slot.slot_type,
+            "role_fit": slot.role_fit,
+            "role_fit_severity": slot.role_fit_severity,
+        }
         if slot.exact_player_season_key:
             card = resolve_exact_card_by_key(slot.exact_player_season_key)
             if card is not None:

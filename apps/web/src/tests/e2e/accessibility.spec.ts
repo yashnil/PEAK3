@@ -118,8 +118,22 @@ test.describe("accessibility: Hold state", () => {
 });
 
 test.describe("accessibility: CourtBuilder screen (Phase 5C)", () => {
+  // Phase 9B: the run now begins on an explicit click, which adds a new
+  // pre-game surface. Both the gate AND the board it leads to are scanned --
+  // the gate is the first thing every new player sees, so it must be clean.
+  test("no critical/serious violations on the Start gate", async ({ page }) => {
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "networkidle" });
+    await page.locator('[data-testid="peak-season-start-gate"]').waitFor({ timeout: 15_000 });
+    await expectNoViolations(
+      new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa"])
+        .exclude("[aria-hidden=true]")
+    );
+  });
+
   test("no critical/serious violations on initial CourtBuilder screen", async ({ page }) => {
     await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "networkidle" });
+    await page.locator('[data-testid="begin-run-btn"]').click();
     await page.locator('[data-testid="court-builder"]').waitFor({ timeout: 15_000 });
     await expectNoViolations(
       new AxeBuilder({ page })

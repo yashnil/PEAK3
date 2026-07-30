@@ -34,10 +34,56 @@ export const BENCH_SLOT_TYPES: SlotType[] = ["bench_1", "bench_2", "bench_3"];
 // derived from data coverage (docs/product/ARENA_OVERHAUL_PRODUCT_SPEC.md).
 export const ERA_LABELS = ["1980s", "1990s", "2000s", "2010s", "2020s"] as const;
 
-// Display-only fit note (nba_peak/perfect_season/positions.py::classify_fit)
-// -- never gates whether a placement is legal. "flexible" applies to bench
-// slots, which are never position-restricted.
-export type RoleFit = "primary" | "secondary" | "off_position" | "flexible";
+// Display-only fit note (nba_peak/perfect_season/positions.py::classify_fit /
+// classify_fit_from_position) -- never gates whether a placement is legal.
+//
+//   primary      -- the slot IS the player's listed/primary position
+//   natural      -- they really logged career minutes at this position
+//                   (nba_peak/perfect_season/career_positions.py)
+//   off_position  -- they didn't; grade it with `role_fit_severity`, NOT with
+//                   one blanket warning (see FitSeverity below)
+//   bench         -- a bench slot, which has no position restriction at all
+//
+// "secondary" and "flexible" are DEPRECATED aliases kept only so runs already
+// saved to history/shared scorecards still render (fitLabel maps "secondary"
+// to the same wording as "natural", and "flexible" to ""). Never emit them for
+// new placements, and never reuse "flexible" for the mild off-position tier --
+// it means "bench slot", not "this shift is fine".
+export type RoleFit = "primary" | "natural" | "off_position" | "bench" | "secondary" | "flexible";
+
+/** How big a real basketball problem an off-position placement is
+ * (nba_peak/perfect_season/positions.py::position_fit_severity). Only ever
+ * set alongside role_fit === "off_position". The three tiers are not cosmetic
+ * -- they cost 0.0 / -5.0 / -14.0 simulation points respectively, so a "mild"
+ * placement was scored as completely FREE by the model and must never be
+ * painted with the same warning color as a "severe" one. */
+export type FitSeverity = "mild" | "moderate" | "severe";
+
+/** Fit label + severity for one slot, as sent by
+ * PendingSelection.fit_by_open_slot. */
+export interface SlotFitInfo {
+  role_fit: RoleFit;
+  role_fit_severity?: FitSeverity | null;
+}
+
+/** The plain-language fit label. Mirrors -- and must stay in sync with --
+ * `fit_label()` in nba_peak/perfect_season/positions.py, which is the
+ * server-side source of truth for this wording. */
+export function fitLabel(roleFit: RoleFit | null | undefined, severity?: FitSeverity | null): string {
+  if (!roleFit) return "";
+  if (roleFit === "off_position") {
+    if (severity === "mild") return "Flex fit";
+    if (severity === "moderate") return "Role stretch";
+    // Unknown severity falls back to the same conservative default the
+    // simulator uses (see simulation.py::_fit_points) -- never silently
+    // downgraded to the free tier.
+    return "Structural mismatch";
+  }
+  if (roleFit === "primary") return "Primary fit";
+  // "secondary" is the deprecated alias for the same idea as "natural".
+  if (roleFit === "natural" || roleFit === "secondary") return "Natural fit";
+  return ""; // "bench" / "flexible" -- no position restriction to report.
+}
 
 export const TOTAL_ROUNDS = 8;
 
@@ -129,9 +175,11 @@ export interface PendingSelection {
   score_source?: ScoreSource | null;
   primary_position: SlotType | null;
   secondary_positions: SlotType[];
-  // slot_type -> fit note, for every currently open slot -- lets the UI show
-  // whether the pending pick fits each open spot before it's placed.
-  fit_by_open_slot: Record<string, RoleFit>;
+  // slot_type -> fit note + severity, for every currently open slot -- lets
+  // the UI show whether the pending pick fits each open spot before it's
+  // placed. Phase 9B widened the value from a bare RoleFit string to the
+  // (role_fit, role_fit_severity) pair.
+  fit_by_open_slot: Record<string, SlotFitInfo>;
   // Phase 6F Part C: only populated when the backend has
   // ENABLE_EXTERNAL_ASSET_URLS on (default off).
   headshot_url?: string | null;
@@ -151,10 +199,17 @@ export interface CourtSlotPublic {
   score_status?: ScoreStatus | null;
   score_source?: ScoreSource | null;
   role_fit?: RoleFit | null;
+  /** Phase 9B: only set alongside role_fit === "off_position". Required to
+   * label the placement by its real cost -- see FitSeverity. */
+  role_fit_severity?: FitSeverity | null;
   // The placed player's own position(s) -- v1 archetype-approximated for
   // peak-window cards, real per-season position for team_year cards. Used
   // to explain an off-position placement ("plays SF"), not just flag it.
   primary_position?: SlotType | null;
+  // Phase 9B: the OTHER positions this player really played across their
+  // career (career_positions.py). Previously always [] -- parse_real_position
+  // never yields secondaries for the committed data -- so a multi-position
+  // player rendered a bare "SF" instead of "SF / SG / PF".
   secondary_positions?: SlotType[];
   // Withheld by the server until status === "result_ready" -- always null
   // for a filled slot before then. See ARENA_OVERHAUL_PRODUCT_SPEC.md Sec 3.5.
@@ -407,7 +462,12 @@ export interface RunEligibility {
  * change later. */
 export interface SavedRunRosterCard {
   slot_type: string;
-  role_fit?: string | null;
+  role_fit?: RoleFit | string | null;
+  /** Phase 9B: snapshotted alongside role_fit so a saved scorecard can label
+   * the three off-position tiers by their real cost. Absent on runs saved
+   * before 9B -- fitLabel() then falls back to the conservative "severe"
+   * wording rather than inventing a friendlier one. */
+  role_fit_severity?: FitSeverity | null;
   player_name?: string;
   player_slug?: string;
   team_name?: string;
@@ -508,13 +568,19 @@ export const SLOT_LABELS: Record<SlotType, string> = {
   bench_3: "Bench 3",
 };
 
+/**
+ * @deprecated Phase 9B: use `fitLabel(roleFit, severity)` instead. A label
+ * keyed on role_fit ALONE cannot be correct: it collapsed all three
+ * off-position severities into one "Off-slot" pill, including the "mild" tier
+ * the simulator scores at exactly 0.0 points -- which is how a completely
+ * free placement ended up flagged as a problem. Kept only so any remaining
+ * caller keeps compiling; every value here is superseded by fitLabel's.
+ */
 export const ROLE_FIT_LABELS: Record<RoleFit, string> = {
   primary: "Primary fit",
-  secondary: "Secondary fit",
-  // Phase 6G Part F: shortened from "Off-position" -- the parenthetical
-  // "(plays PG)" suffix (see PeakCardCourt.tsx's fit-label helpers) made
-  // the full pill text too long to read at a glance in the compact court
-  // grid; the shortened pill relies on a title tooltip for the detail.
+  natural: "Natural fit",
+  secondary: "Natural fit",
   off_position: "Off-slot",
+  bench: "",
   flexible: "",
 };

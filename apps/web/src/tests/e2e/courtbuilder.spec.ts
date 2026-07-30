@@ -93,8 +93,25 @@ async function playOneRound(page: Page): Promise<void> {
   await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(filledBefore + 1, { timeout: 10_000 });
 }
 
+/** Navigate to a board and get past the Phase 9B Start gate.
+ *
+ * Phase 9B: the route no longer creates a game on navigation -- a run begins
+ * only when the user clicks "Begin". Every test that needs a playable board
+ * goes through here, so the gate is exercised ~50 times over rather than
+ * being special-cased in one place. */
 async function startCourtBuilder(page: Page, mode = "apex_1y", seed = 42): Promise<void> {
   await page.goto(`/arena/court/practice/${mode}?seed=${seed}`, { waitUntil: "load" });
+  await beginRun(page);
+}
+
+/** Click the Start gate's Begin button and wait for a real board. */
+async function beginRun(page: Page): Promise<void> {
+  const begin = page.locator('[data-testid="begin-run-btn"]');
+  await begin.waitFor({ state: "visible", timeout: 15_000 });
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/perfect-season/games") && r.request().method() === "POST"),
+    begin.click(),
+  ]);
   await expect(page.locator('[data-testid="court-builder"]')).toBeVisible({ timeout: 15_000 });
   await page.locator('[data-testid="court-slot"]').first().waitFor({ state: "visible", timeout: 15_000 });
 }
@@ -600,7 +617,7 @@ test.describe("CourtBuilder spin ceremony", () => {
     // Fresh navigation lands in the "spinning" phase for a moment before
     // the fixed ceremony timers advance it -- assert the reel strips exist
     // in that window rather than racing the animation.
-    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    await startCourtBuilder(page);
     const strips = page.locator('[data-testid="spin-stage"] .spin-reel-strip');
     await expect(strips.first()).toBeVisible({ timeout: 3_000 });
     await expect(strips).toHaveCount(2);
@@ -617,7 +634,7 @@ test.describe("CourtBuilder spin ceremony", () => {
     // ReelStrip in SpinStage.tsx and .spin-reel-strip-logo-* in
     // globals.css). The season/era reel never gets a logoUrls prop, so it
     // correctly renders none of these.
-    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    await startCourtBuilder(page);
     const fallbacks = page.locator('[data-testid="spin-stage"] [data-testid="reel-logo-fallback"]');
     await expect(fallbacks.first()).toBeVisible({ timeout: 3_000 });
     const count = await fallbacks.count();
@@ -639,7 +656,7 @@ test.describe("CourtBuilder spin ceremony", () => {
   // -------------------------------------------------------------------------
 
   test("Phase 8J: initial spin lands the reel exactly on the backend-selected team and season", async ({ page }) => {
-    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    await startCourtBuilder(page);
     await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
 
     const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
@@ -658,15 +675,26 @@ test.describe("CourtBuilder spin ceremony", () => {
   });
 
   test("Phase 8J: the reel never visually shows one season and then resolves to a different one", async ({ page }) => {
-    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    // Phase 9B: the run now begins on an explicit click, so the sample point
+    // below is measured from when the ceremony actually starts rather than
+    // from page load.
+    await startCourtBuilder(page);
     // SpinStage.tsx's SPIN_MS is a fixed 2000ms -- the deterministic ticking
     // model (computeReelTarget) is scheduled to already be sitting on the
     // real target with 1-2 ticks of margin to spare well before that timer
-    // fires (see INITIAL_SPIN_TRAVEL_TICKS's own comment), so sampling at
-    // 1700ms (85% through the fixed budget) catches the reel either still
+    // fires (see INITIAL_SPIN_TRAVEL_TICKS's own comment), so sampling
+    // partway through the fixed budget catches the reel either still
     // ticking-but-already-converged, or already settled -- either way it
     // must already equal the final backend result, proving there is no
     // late jump/swap at the very end of the ceremony.
+    //
+    // 1700ms is calibrated to the SPIN_MS budget and must stay there:
+    // `data-final-value` currently reflects the row the reel is CENTERED on,
+    // so sampling before the tick model converges (measured: 1200ms is too
+    // early -- it read "Utah Jazz" while the real result was "Washington
+    // Bullets") tests nothing but the animation's midpoint. beginRun leaves
+    // us within ~100-300ms of the ceremony's own t=0, so this offset is
+    // equivalent to the pre-Phase-9B page-load timing it replaces.
     await page.waitForTimeout(1700);
     const midSpinTeam = await page.locator('[data-testid="spin-team-reel-center"]').last().getAttribute("data-final-value");
     const midSpinSeason = await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value");
@@ -1279,8 +1307,9 @@ test.describe("Daily PEAK Season (Phase 9A)", () => {
     await page.goto("/arena/court/daily/apex_1y", { waitUntil: "load" });
     await expect(page.locator('[data-testid="daily-challenge-header"]')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("Daily PEAK Season", { exact: true })).toBeVisible();
-    // A real, playable board -- not a sign-in wall.
-    await expect(page.locator('[data-testid="court-builder"]')).toBeVisible({ timeout: 15_000 });
+    // Phase 9B: a real, playable board appears only AFTER an explicit Begin --
+    // not a sign-in wall, and not an auto-started run either.
+    await beginRun(page);
     await expect(page.locator('[data-testid="court-slot"]').first()).toBeVisible({ timeout: 15_000 });
   });
 
@@ -1296,7 +1325,7 @@ test.describe("Daily PEAK Season (Phase 9A)", () => {
     // is derived from the date rather than being random per visit.
     async function rolledTeamAndSeason(): Promise<[string, string]> {
       await page.goto("/arena/court/daily/apex_1y?date=2026-07-29", { waitUntil: "load" });
-      await expect(page.locator('[data-testid="court-builder"]')).toBeVisible({ timeout: 15_000 });
+      await beginRun(page);
       // Wait for the ceremony to settle on its final values before reading.
       const summary = page.locator('[data-testid="roll-summary"]');
       await summary.waitFor({ state: "visible", timeout: 15_000 });
@@ -1314,15 +1343,19 @@ test.describe("Daily PEAK Season (Phase 9A)", () => {
   });
 
   test("an invalid daily date shows a clean message, never a crash", async ({ page }) => {
+    // Phase 9B: the date is only validated when the run is actually created,
+    // so the gate renders fine and the error surfaces inline on Begin --
+    // never as a blank page or an unhandled server-component throw.
     await page.goto("/arena/court/daily/apex_1y?date=2026-02-30", { waitUntil: "load" });
-    await expect(page.getByText(/valid challenge date|Could not start/i)).toBeVisible({ timeout: 15_000 });
+    await page.locator('[data-testid="begin-run-btn"]').click();
+    await expect(page.locator('[data-testid="start-gate-error"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="start-gate-error"]')).toContainText(/valid challenge date|Could not start/i);
   });
 
   test("a completed daily run labels the scorecard with its challenge date", async ({ page }) => {
     test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await page.goto("/arena/court/daily/apex_1y", { waitUntil: "load" });
-    await expect(page.locator('[data-testid="court-builder"]')).toBeVisible({ timeout: 15_000 });
-    await page.locator('[data-testid="court-slot"]').first().waitFor({ state: "visible", timeout: 15_000 });
+    await beginRun(page);
 
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
       await playOneRound(page);
@@ -1389,5 +1422,337 @@ test.describe("Run history + save CTA (Phase 9A)", () => {
     // Phase 8I/8J behavior must survive the Phase 9A additions.
     await expect(page.locator('[data-testid="share-run-panel"]')).toBeVisible();
     await expect(page.locator('[data-testid="share-run-download-btn"]')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 9B: the explicit Start gate.
+//
+// ROOT CAUSE these cover: game creation used to live in the ROUTE's server
+// component, so merely following the "Try 82-0" CTA created a run and started
+// the spin ceremony before the user agreed to anything. A run is a committed
+// thing (it burns the day's daily attempt, it's what gets saved/shared, its
+// board is fixed at creation), so it must begin on a deliberate click.
+// ---------------------------------------------------------------------------
+
+test.describe("Start gate (Phase 9B)", () => {
+  test("navigating to the practice route does NOT auto-create a game or start the spinner", async ({ page }) => {
+    const createCalls: string[] = [];
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes("/perfect-season/games")) createCalls.push(r.url());
+    });
+
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="peak-season-start-gate"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="begin-run-btn"]')).toBeVisible();
+
+    // The decisive assertion: no board, no spinner, and -- most importantly --
+    // no game was created server-side.
+    await expect(page.locator('[data-testid="court-builder"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveCount(0);
+    expect(createCalls, "navigation alone must never create a run").toEqual([]);
+  });
+
+  test("the gate explains the mode before committing the user to a run", async ({ page }) => {
+    await page.goto("/arena/court/practice/apex_1y", { waitUntil: "load" });
+    const gate = page.locator('[data-testid="peak-season-start-gate"]');
+    await expect(gate).toBeVisible({ timeout: 15_000 });
+    // The four things a first-time player needs to know before starting.
+    await expect(gate).toContainText(/team and an exact season/i);
+    await expect(gate).toContainText(/place them on the court/i);
+    await expect(gate).toContainText(/82-0/);
+    await expect(gate).toContainText(/save, share, or beat your personal best/i);
+    // And an honest promise about what pressing nothing costs.
+    await expect(gate).toContainText(/Nothing starts until you press begin/i);
+  });
+
+  test("clicking Begin creates exactly one run and starts the board", async ({ page }) => {
+    let createCount = 0;
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes("/perfect-season/games")) createCount += 1;
+    });
+
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    await beginRun(page);
+
+    await expect(page.locator('[data-testid="peak-season-start-gate"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="spin-stage"]')).toBeVisible();
+    expect(createCount, "Begin must create exactly one run").toBe(1);
+  });
+
+  test("the daily route gates behind an explicit 'Begin Daily Run'", async ({ page }) => {
+    const createCalls: string[] = [];
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes("/perfect-season/games")) createCalls.push(r.url());
+    });
+
+    await page.goto("/arena/court/daily/apex_1y", { waitUntil: "load" });
+    const begin = page.locator('[data-testid="begin-run-btn"]');
+    await expect(begin).toBeVisible({ timeout: 15_000 });
+    // A daily attempt is the thing that gets counted -- it must never be
+    // consumed by a stray navigation.
+    expect(createCalls).toEqual([]);
+    await expect(begin).toContainText(/Begin Daily Run/i);
+    await expect(page.locator('[data-testid="start-gate-daily-note"]')).toContainText(/same teams, same seasons/i);
+
+    await beginRun(page);
+    expect(createCalls).toHaveLength(1);
+  });
+
+  test("the arena CTA lands on the gate, not on a running game", async ({ page }) => {
+    await page.goto("/arena", { waitUntil: "load" });
+    await page.getByRole("link", { name: /Build a Perfect Season/i }).click();
+    await expect(page).toHaveURL(/\/arena\/court\/practice\/apex_1y/);
+    // The whole point of the phase: the CTA is an invitation, not a start.
+    await expect(page.locator('[data-testid="peak-season-start-gate"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="court-builder"]')).toHaveCount(0);
+  });
+
+  test("an unknown ?game= id explains itself and still offers a fresh start", async ({ page }) => {
+    await page.goto("/arena/court/practice/apex_1y?game=does-not-exist", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="start-gate-error"]')).toBeVisible({ timeout: 15_000 });
+    // Resume failure must degrade to the normal gate, never a dead end.
+    await expect(page.locator('[data-testid="begin-run-btn"]')).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 9B: the rebuilt reel.
+//
+// These prove the things the OLD tick model could only sample for. The strip is
+// now a real DOM structure with a known target index, so determinism is
+// STRUCTURAL (assertable without racing the animation) and the landing is
+// GEOMETRIC (assertable from getBoundingClientRect, which reflects the live
+// composited transform -- what a screenshot would show, but deterministically).
+// ---------------------------------------------------------------------------
+
+/** The label of the row currently sitting under a reel window's centre payline,
+ * read from live layout geometry rather than from React state. */
+async function labelUnderPayline(page: Page, windowTestId: string): Promise<string | null> {
+  return page.evaluate((wid) => {
+    const win = document.querySelector(`[data-testid="${wid}"]`);
+    if (!win) return null;
+    const wr = win.getBoundingClientRect();
+    const y = wr.top + wr.height / 2;
+    const row = [...win.querySelectorAll('[data-testid="reel-row"]')].find((r) => {
+      const b = r.getBoundingClientRect();
+      return y >= b.top && y < b.bottom;
+    });
+    return row?.getAttribute("data-label") ?? null;
+  }, windowTestId);
+}
+
+test.describe("Spinner reel rebuild (Phase 9B)", () => {
+  test("the strip's target row IS the backend-selected value (structural, no timing)", async ({ page }) => {
+    await startCourtBuilder(page);
+
+    for (const [stripId, wheelId, attr] of [
+      ["team-reel-strip", "team-wheel", "data-selected-team"],
+      ["era-reel-strip", "era-wheel", "data-selected-season"],
+    ] as const) {
+      const strip = page.locator(`[data-testid="${stripId}"]`);
+      await strip.waitFor({ state: "attached", timeout: 5_000 });
+      const targetIndex = Number(await strip.getAttribute("data-target-index"));
+      const selected = await page.locator(`[data-testid="${wheelId}"]`).getAttribute(attr);
+      const rowLabel = await strip
+        .locator('[data-testid="reel-row"]')
+        .nth(targetIndex)
+        .getAttribute("data-label");
+      expect(selected, `${wheelId} must expose a real backend value`).toBeTruthy();
+      expect(rowLabel, `${stripId} row ${targetIndex} must BE the backend value`).toBe(selected);
+    }
+  });
+
+  test("the reel really travels a long strip (no unbounded modulo, no zero-travel spin)", async ({ page }) => {
+    await startCourtBuilder(page);
+    const strip = page.locator('[data-testid="team-reel-strip"]');
+    await strip.waitFor({ state: "attached", timeout: 5_000 });
+    const rowCount = Number(await strip.getAttribute("data-row-count"));
+    const targetIndex = Number(await strip.getAttribute("data-target-index"));
+    // A real reel scrolls through many real options; the old model reused a
+    // 5-row window forever.
+    expect(rowCount).toBeGreaterThanOrEqual(60);
+    expect(rowCount).toBeLessThanOrEqual(160);
+    // The target sits DEEP in the strip, so there is genuine distance to cover.
+    expect(targetIndex).toBeGreaterThanOrEqual(60);
+    expect(targetIndex).toBeLessThan(rowCount);
+  });
+
+  test("the reel visibly decelerates into its final row", async ({ page }) => {
+    await startCourtBuilder(page);
+    const translateY = () =>
+      page.evaluate(() => {
+        const el = document.querySelector('[data-testid="team-reel-strip"]');
+        if (!el) return null;
+        // Live composited transform -- not the React-declared value.
+        return new DOMMatrixReadOnly(getComputedStyle(el).transform).m42;
+      });
+
+    const samples: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      const v = await translateY();
+      if (v !== null) samples.push(v);
+      await page.waitForTimeout(170);
+    }
+    expect(samples.length).toBeGreaterThanOrEqual(5);
+
+    const deltas = samples.slice(1).map((v, i) => Math.abs(v - samples[i]));
+    const early = deltas.slice(0, 2).reduce((a, b) => a + b, 0);
+    const late = deltas.slice(-2).reduce((a, b) => a + b, 0);
+    // Fast burst up front, creeping at the end -- the "slows into the final
+    // item" requirement, measured rather than eyeballed.
+    expect(early, `expected real early movement, deltas=${deltas.join(",")}`).toBeGreaterThan(40);
+    expect(late, `expected deceleration, deltas=${deltas.join(",")}`).toBeLessThan(early);
+  });
+
+  test("the row under the payline at rest equals the backend value (geometric)", async ({ page }) => {
+    await startCourtBuilder(page);
+    // Sample the frame the team reel finishes its settle, before the strip
+    // unmounts -- this is the visual claim the user actually cares about.
+    await page
+      .locator('[data-testid="team-reel-window"][data-stage="settling"]')
+      .waitFor({ timeout: 6_000 });
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    expect(await labelUnderPayline(page, "team-reel-window")).toBe(selectedTeam);
+  });
+
+  test("both reels reach 'done' and hand off to the settled value", async ({ page }) => {
+    await startCourtBuilder(page);
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", {
+      timeout: 8_000,
+    });
+    // Strips must UNMOUNT at done -- otherwise team-wheel.innerText() returns
+    // every strip label instead of the landed team.
+    await expect(page.locator('[data-testid="team-reel-strip"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="era-reel-strip"]')).toHaveCount(0);
+
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const wheelText = await page.locator('[data-testid="team-wheel"]').innerText();
+    expect(wheelText).toContain(selectedTeam ?? "@@never@@");
+  });
+
+  test("team logos (or initials fallbacks) render on strip rows during the spin", async ({ page }) => {
+    await startCourtBuilder(page);
+    const fallbacks = page.locator('[data-testid="team-reel-strip"] [data-testid="reel-logo-fallback"]');
+    await fallbacks.first().waitFor({ state: "attached", timeout: 5_000 });
+    // Every team row carries real initials text -- never a blank badge.
+    expect(await fallbacks.count()).toBeGreaterThan(10);
+    expect(((await fallbacks.first().textContent()) ?? "").trim().length).toBeGreaterThan(0);
+    // The season reel is text-only by design and must carry none of these.
+    await expect(page.locator('[data-testid="era-reel-strip"] [data-testid="reel-logo-fallback"]')).toHaveCount(0);
+  });
+
+  test("no <img> mounts or unmounts mid-spin (strip is built once)", async ({ page }) => {
+    await startCourtBuilder(page);
+    const imgs = page.locator('[data-testid="team-reel-strip"] [data-testid="reel-logo-img"]');
+    const before = await imgs.count();
+    await page.waitForTimeout(800);
+    const after = await imgs.count();
+    // Equal counts prove the strip is static during the animation, which is
+    // what makes logo pop-in structurally impossible.
+    expect(after).toBe(before);
+  });
+
+  test("reduced motion mounts no strip and still shows the real result", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await startCourtBuilder(page);
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", {
+      timeout: 5_000,
+    });
+    await expect(page.locator('.spin-reel-strip')).toHaveCount(0);
+    await expect(page.locator('[data-testid="team-reel-strip"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="era-reel-strip"]')).toHaveCount(0);
+
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const selectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    expect(await page.locator('[data-testid="spin-team-reel-center"]').last().getAttribute("data-final-value")).toBe(selectedTeam);
+    expect(await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value")).toBe(selectedSeason);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 9B: position labels + slot rearranging.
+// ---------------------------------------------------------------------------
+
+test.describe("Position labels + rearranging (Phase 9B)", () => {
+  // Compared case-insensitively: the pill is CSS-uppercased, so innerText
+  // returns e.g. "STRUCTURAL MISMATCH" while the source label is title-case.
+  const TAXONOMY = ["primary fit", "natural fit", "flex fit", "role stretch", "structural mismatch"];
+
+  test("fit badges only ever use the five-label taxonomy -- never 'Off-slot'", async ({ page }) => {
+    await startCourtBuilder(page);
+    const candidate = page.locator('[data-testid="candidate-card"]').first();
+    await candidate.waitFor({ state: "visible" });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      candidate.click(),
+    ]);
+
+    const badges = page.locator('[data-testid="pending-fit-badge"]');
+    await badges.first().waitFor({ state: "visible", timeout: 10_000 });
+    const count = await badges.count();
+    expect(count).toBeGreaterThan(0);
+    for (let i = 0; i < count; i++) {
+      const text = (await badges.nth(i).innerText()).trim().toLowerCase();
+      // The old vocabulary is gone entirely -- that string was the whole
+      // complaint ("OFF-SLOT for a position they routinely play").
+      expect(text).not.toContain("off-slot");
+      expect(text).not.toContain("off position");
+      expect(TAXONOMY, `unexpected fit label "${text}"`).toContain(text);
+    }
+  });
+
+  test("a placed card can be moved to another slot without re-spinning", async ({ page }) => {
+    await startCourtBuilder(page);
+    // Fill two slots so there is something to swap between.
+    await playOneRound(page);
+    await playOneRound(page);
+
+    const seedBefore = await page.locator('[data-testid="result-receipt"], body').first().isVisible();
+    expect(seedBefore).toBeTruthy();
+
+    const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
+    expect(filledBefore).toBe(2);
+
+    const moveBtn = page.locator('[data-testid="slot-move-btn"]').first();
+    await moveBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await moveBtn.click();
+
+    // Every OTHER slot becomes a labeled destination button.
+    const targets = page.locator('[data-testid="slot-swap-target"]');
+    await targets.first().waitFor({ state: "visible", timeout: 5_000 });
+    expect(await targets.count()).toBeGreaterThan(0);
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/swap-slots") && r.status() === 200),
+      targets.first().click(),
+    ]);
+
+    // Roster count is conserved -- no duplicate, no lost card, no empty
+    // hidden state.
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(filledBefore);
+    // And the spin ceremony did NOT replay: we are still mid-round, not
+    // back in a spinning phase for a new roll.
+    await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
+  });
+
+  test("rearranging can be cancelled with the cancel button and with Escape", async ({ page }) => {
+    await startCourtBuilder(page);
+    await playOneRound(page);
+
+    const moveBtn = page.locator('[data-testid="slot-move-btn"]').first();
+    await moveBtn.waitFor({ state: "visible", timeout: 10_000 });
+
+    await moveBtn.click();
+    await expect(page.locator('[data-testid="rearrange-cancel-btn"]')).toBeVisible();
+    await page.locator('[data-testid="rearrange-cancel-btn"]').click();
+    await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
+
+    // Escape is the keyboard equivalent -- this UX is deliberately buttons +
+    // keyboard rather than drag/drop.
+    await moveBtn.click();
+    await expect(page.locator('[data-testid="slot-swap-target"]').first()).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
   });
 });

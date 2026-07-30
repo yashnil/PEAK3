@@ -1,7 +1,14 @@
 "use client";
 import { useState, type CSSProperties } from "react";
 import { Lock, Target } from "lucide-react";
-import { BENCH_SLOT_TYPES, CourtSlotPublic, ROLE_FIT_LABELS, RoleFit, SLOT_LABELS } from "@/types/perfect-season";
+import {
+  BENCH_SLOT_TYPES,
+  CourtSlotPublic,
+  FitSeverity,
+  RoleFit,
+  SLOT_LABELS,
+  fitLabel,
+} from "@/types/perfect-season";
 import PlayerAvatar from "./PlayerAvatar";
 import { getTeamColors } from "@/lib/team-colors";
 
@@ -13,30 +20,55 @@ interface Props {
    * open slot (nba_peak.perfect_season.positions.classify_fit) -- shown as
    * a small badge, never blocking. */
   pendingFit?: RoleFit;
+  /** Severity of that pending fit when it's off-position -- required to label
+   * it honestly (a "mild" shift costs the simulator 0.0 points). */
+  pendingFitSeverity?: FitSeverity | null;
   /** The pending selection's own primary position, so an off-position badge
    * can explain WHY ("plays PG") instead of just flagging it. */
   pendingPrimaryPosition?: string | null;
+  /** Phase 9B rearrange mode: render a "Move" affordance on this filled slot. */
+  onMove?: () => void;
+  /** Phase 9B rearrange mode: this slot is a candidate destination for the
+   * card currently being moved -- render it as a labeled target button. */
+  onSwapTarget?: () => void;
+  /** The slot whose card is currently being moved (for the target's label). */
+  movingFromSlotLabel?: string | null;
 }
 
-/** Phase 6G Part F: the visible pill stays short ("Off-slot") -- the WHY
- * ("plays PG") moves entirely into the title tooltip (fitTooltip below)
- * instead of being appended inline, which was overflowing/truncating in
- * the compact court grid ("OFF-POSITION (PLAYS PG)" at 8px). Position
- * eligibility clarity is preserved via the tooltip, not the badge text. */
-function fitPillLabel(label: string): string {
-  return label;
-}
-
-function fitTooltip(label: string, roleFit: RoleFit | null | undefined, primaryPosition: string | null | undefined): string {
-  if (roleFit === "off_position" && primaryPosition) {
-    return `${label} -- plays ${primaryPosition}`;
+function fitTooltip(
+  label: string,
+  roleFit: RoleFit | null | undefined,
+  severity: FitSeverity | null | undefined,
+  primaryPosition: string | null | undefined,
+  secondaryPositions: string[] | undefined,
+): string {
+  if (roleFit !== "off_position") {
+    // Naming the real positions is what makes "Natural fit" believable
+    // instead of a bare assertion.
+    const played = [primaryPosition, ...(secondaryPositions ?? [])].filter(Boolean).join(" / ");
+    return played ? `${label} -- played ${played}` : label;
   }
-  return label;
+  const why = primaryPosition ? `${label} -- plays ${primaryPosition}` : label;
+  if (severity === "mild") return `${why}. A routine, near-free positional shift -- PEAK3 charges nothing for it.`;
+  if (severity === "moderate") return `${why}. A real stretch, but a playable one.`;
+  return `${why}. A genuine structural mismatch for this lineup.`;
 }
 
-function fitColor(roleFit: RoleFit | null | undefined): string {
-  if (roleFit === "off_position") return "#fb923c";
+/** Phase 9B: color follows the placement's REAL simulation cost, not just
+ * "is it off-position". The mild tier costs exactly 0.0 fit points (see
+ * simulation.py::_OFF_POSITION_SEVERITY_POINTS), so painting it the same
+ * warning orange as a -14.0 severe mismatch told users the model had
+ * penalized something it scored as free -- the specific trust bug this pass
+ * fixes. Orange is now reserved for "Role stretch" (-5.0) and red for
+ * "Structural mismatch" (-14.0). */
+function fitColor(roleFit: RoleFit | null | undefined, severity?: FitSeverity | null): string {
+  if (roleFit === "off_position") {
+    if (severity === "mild") return "var(--text-secondary)"; // neutral: costs nothing
+    if (severity === "moderate") return "#fb923c";
+    return "#ef4444";
+  }
   if (roleFit === "primary") return "var(--peak-accent, #f5c842)";
+  if (roleFit === "natural" || roleFit === "secondary") return "#34d399";
   return "var(--text-secondary)";
 }
 
@@ -54,7 +86,17 @@ function fitColor(roleFit: RoleFit | null | undefined): string {
  * as a plain <div> so already-placed players stay in normal reading/tab
  * order (see prior version's note on why disabled <button> is avoided).
  */
-export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingFit, pendingPrimaryPosition }: Props) {
+export default function PeakCardCourt({
+  slot,
+  isPendingTarget,
+  onClick,
+  pendingFit,
+  pendingFitSeverity,
+  pendingPrimaryPosition,
+  onMove,
+  onSwapTarget,
+  movingFromSlotLabel,
+}: Props) {
   const [logoFailed, setLogoFailed] = useState(false);
   const isBench = (BENCH_SLOT_TYPES as string[]).includes(slot.slot_type);
   // Team-year (exact-season) slots carry team_name/season instead of the
@@ -63,13 +105,17 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
   // PlayerSeasonCard.
   const isExactSeason = slot.exact_player_season_key != null;
   const revealed = isExactSeason ? slot.season_score != null : slot.individual_peak_score != null;
-  const fitLabel = slot.role_fit ? fitPillLabel(ROLE_FIT_LABELS[slot.role_fit]) : "";
-  const fitLabelTooltip = slot.role_fit
-    ? fitTooltip(ROLE_FIT_LABELS[slot.role_fit], slot.role_fit, slot.primary_position)
-    : "";
-  const pendingFitLabel = !slot.filled && pendingFit ? fitPillLabel(ROLE_FIT_LABELS[pendingFit]) : "";
+  const fitPill = fitLabel(slot.role_fit, slot.role_fit_severity);
+  const fitPillTooltip = fitTooltip(
+    fitPill,
+    slot.role_fit,
+    slot.role_fit_severity,
+    slot.primary_position,
+    slot.secondary_positions,
+  );
+  const pendingFitPill = !slot.filled && pendingFit ? fitLabel(pendingFit, pendingFitSeverity) : "";
   const pendingFitTooltip = !slot.filled && pendingFit
-    ? fitTooltip(ROLE_FIT_LABELS[pendingFit], pendingFit, pendingPrimaryPosition)
+    ? fitTooltip(pendingFitPill, pendingFit, pendingFitSeverity, pendingPrimaryPosition, undefined)
     : "";
 
   const content = (
@@ -78,14 +124,14 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
         <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
           {SLOT_LABELS[slot.slot_type]}
         </span>
-        {slot.filled && fitLabel && (
+        {slot.filled && fitPill && (
           <span
             className="text-[8px] font-semibold uppercase tracking-wide rounded px-1 py-px shrink-0 truncate max-w-[60%]"
-            style={{ color: fitColor(slot.role_fit), background: "rgba(255,255,255,0.06)" }}
+            style={{ color: fitColor(slot.role_fit, slot.role_fit_severity), background: "rgba(255,255,255,0.06)" }}
             data-testid="role-fit-badge"
-            title={fitLabelTooltip}
+            title={fitPillTooltip}
           >
-            {fitLabel}
+            {fitPill}
           </span>
         )}
       </div>
@@ -177,6 +223,24 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
                 {slot.anchor_season} · <Lock size={9} aria-hidden="true" /> Peak locked
               </div>
             )}
+            {/* Phase 9B: rearrange affordance. A real <button>, not
+                drag-and-drop: keyboard- and screen-reader-operable by
+                default, and it can't half-succeed the way a pointer drag
+                can. Only rendered on filled slots while rearranging is
+                allowed, and only when this card ISN'T the one being moved
+                (see onSwapTarget's branch below). */}
+            {onMove && (
+              <button
+                type="button"
+                data-testid="slot-move-btn"
+                onClick={onMove}
+                className="mt-1 text-[9px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
+                style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+                aria-label={`Move ${slot.player_name ?? "player"} out of ${SLOT_LABELS[slot.slot_type]}`}
+              >
+                Move
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -204,14 +268,14 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
           <div className="text-[11px] font-semibold" style={{ color: isPendingTarget ? "var(--peak-accent, #f5c842)" : "var(--text-muted)" }}>
             {isPendingTarget ? "Place here" : "Open"}
           </div>
-          {pendingFitLabel && (
+          {pendingFitPill && (
             <div
               className="text-[9px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
-              style={{ color: fitColor(pendingFit), background: "rgba(255,255,255,0.06)" }}
+              style={{ color: fitColor(pendingFit, pendingFitSeverity), background: "rgba(255,255,255,0.06)" }}
               data-testid="pending-fit-badge"
               title={pendingFitTooltip}
             >
-              {pendingFitLabel}
+              {pendingFitPill}
             </div>
           )}
         </div>
@@ -240,6 +304,36 @@ export default function PeakCardCourt({ slot, isPendingTarget, onClick, pendingF
       ...(teamAccent ? ({ "--slot-accent": teamAccent } as CSSProperties) : {}),
     } as CSSProperties,
   };
+
+  // Phase 9B: while a card is being moved, every OTHER slot becomes a real
+  // destination button. Takes precedence over onClick/onMove so the card can
+  // never render a button inside a button (invalid HTML, and it would swallow
+  // the target's own click).
+  if (onSwapTarget) {
+    return (
+      <button
+        {...sharedProps}
+        type="button"
+        data-testid="slot-swap-target"
+        onClick={onSwapTarget}
+        aria-label={
+          movingFromSlotLabel
+            ? `Move to ${SLOT_LABELS[slot.slot_type]}${slot.filled ? `, swapping with ${slot.player_name ?? "the player there"}` : ""} (from ${movingFromSlotLabel})`
+            : `Move to ${SLOT_LABELS[slot.slot_type]}`
+        }
+        style={{
+          ...sharedProps.style,
+          cursor: "pointer",
+          border: "1px dashed var(--peak-accent, #f5c842)",
+        }}
+      >
+        {content}
+        <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent, #f5c842)" }}>
+          {slot.filled ? "Swap here" : "Move here"}
+        </span>
+      </button>
+    );
+  }
 
   if (onClick) {
     return (

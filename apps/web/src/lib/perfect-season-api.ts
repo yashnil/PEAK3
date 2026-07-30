@@ -115,6 +115,21 @@ export async function placeCard(gameId: string, slotType: SlotType): Promise<Cou
   });
 }
 
+/** Phase 9B: move/swap two already-placed cards between slots to optimize
+ * position fit. Explicitly NOT a respin -- it consumes no respin budget,
+ * never re-rolls the board or any spin, and can never add or remove a card.
+ * Rejected (code "rearrange_after_result") once the run is simulated. */
+export async function swapSlots(
+  gameId: string,
+  slotA: SlotType,
+  slotB: SlotType,
+): Promise<CourtLineupPublicState> {
+  return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/swap-slots`, {
+    method: "POST",
+    body: JSON.stringify({ game_id: gameId, slot_a: slotA, slot_b: slotB }),
+  });
+}
+
 export async function completeCourtGame(gameId: string): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/complete`, {
     method: "POST",

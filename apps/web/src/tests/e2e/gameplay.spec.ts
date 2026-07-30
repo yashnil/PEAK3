@@ -68,7 +68,14 @@ test.describe("Arena landing", () => {
     await expect(cta).toBeVisible();
     await expect(cta).toHaveAttribute("href", "/arena/court/practice/apex_1y");
     await Promise.all([page.waitForURL("**/arena/court/practice/apex_1y**"), cta.click()]);
-    await expect(page.locator('[data-testid="court-builder"]')).toBeVisible({ timeout: 15_000 });
+    // Phase 9B: the CTA lands on the explicit Start gate, NOT a running
+    // board -- following a link must never consume a run (it fixes the board
+    // and, for the daily, burns the day's attempt). The board appears after
+    // "Begin"; that transition is covered in courtbuilder.spec.ts's
+    // "Start gate" suite.
+    await expect(page.locator('[data-testid="peak-season-start-gate"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="begin-run-btn"]')).toBeVisible();
+    await expect(page.locator('[data-testid="court-builder"]')).toHaveCount(0);
   });
 
   test("Phase 8E: old /play/daily route still renders without a dead end or hard crash", async ({ page }) => {
@@ -116,7 +123,15 @@ test.describe("Rankings regression", () => {
 
   test("duration tabs are present and switch content", async ({ page }) => {
     await page.goto("/rankings");
-    const tab3y = page.getByRole("tab", { name: /3.year|3-year/i });
+    // Phase 10B: the "Canonical Players" board (which owned the 1-Year/2-Year/
+    // 3-Year/5-Year sub-tabs) was removed as redundant with Peak Windows. The
+    // duration selector now lives on Peak Windows, so this lookup is scoped to
+    // that tablist -- the previous unscoped getByRole("tab") matched across
+    // BOTH tablists and would trip Playwright strict mode. Deep rankings
+    // coverage lives in rankings.spec.ts; this stays a smoke test.
+    const tab3y = page
+      .getByRole("tablist", { name: /peak window duration/i })
+      .getByRole("tab", { name: /3.year|3-year/i });
     await tab3y.waitFor({ state: "visible", timeout: 10_000 });
     await tab3y.click();
     await expect(tab3y).toHaveAttribute("aria-selected", "true");

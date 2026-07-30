@@ -49,16 +49,20 @@ from nba_peak.perfect_season.exact_season import (
     resolve_exact_card_by_key,
     resolve_player_season_card,
 )
+from nba_peak.perfect_season.career_positions import career_positions
 from nba_peak.perfect_season.positions import (
+    STARTER_SLOTS,
     classify_fit,
     classify_fit_from_position,
+    classify_fit_severity,
     parse_real_position,
+    position_fit_severity,
     primary_position,
     secondary_positions,
 )
 from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot
 from nba_peak.perfect_season.simulation import (
-    _FIT_POINTS,
+    _fit_points,
     _weighted_starter_talent,
     provisional_unscored_impact,
     provisional_unscored_percentile,
@@ -181,6 +185,62 @@ def _is_team_year_spin(spin) -> bool:
 
 def get_open_slot_types(state: CourtLineupState) -> list[str]:
     return [s.slot_type for s in state.slots if s.peak_window_id is None]
+
+
+# ---------------------------------------------------------------------------
+# Phase 9B: fit resolution in ONE place.
+#
+# Root cause this closes: role_fit was computed at four separate call sites
+# (action_place_card's two engine branches, pending_card_public, and the
+# fit_by_open_slot preview) and severity at NONE of them, so the client had
+# no way to tell a 0.0-point "mild" off-position placement from a -14.0-point
+# "severe" one and painted both the same alarming orange. These two helpers
+# return the (role_fit, severity) pair together so the two values can never
+# drift apart, and are the only thing any caller below uses.
+# ---------------------------------------------------------------------------
+
+def _exact_fit(card: Optional[PlayerSeasonCard], slot_type: str) -> tuple[Optional[str], Optional[str]]:
+    """(role_fit, severity) for an exact-season card in `slot_type` -- the
+    LIVE path (COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED is on)."""
+    if card is None:
+        return None, None
+    role_fit = classify_fit_from_position(card.position, slot_type, card.player_slug)
+    if role_fit != "off_position":
+        return role_fit, None
+    return role_fit, position_fit_severity(slot_type, parse_real_position(card.position)[0])
+
+
+def _legacy_fit(player_slug: Optional[str], archetype: Optional[str], slot_type: str) -> tuple[str, Optional[str]]:
+    """(role_fit, severity) for a legacy peak-window card in `slot_type`."""
+    return (
+        classify_fit(player_slug, archetype, slot_type),
+        classify_fit_severity(player_slug, archetype, slot_type),
+    )
+
+
+def _display_positions(player_slug: Optional[str], listed_primary: Optional[str]) -> list[str]:
+    """The OTHER real positions this player played, for the card's
+    "SF / SG / PF" position line -- ordered PG..C so the line is stable.
+
+    Phase 9B: this used to come from parse_real_position's secondary tuple,
+    which is always empty for the committed data (see that function's own
+    note), so every exact-season card rendered a bare single position and
+    real multi-position players looked position-locked. Real data now, from
+    career_positions -- never a guess, and the listed primary is excluded
+    since it is rendered separately as `primary_position`."""
+    career = career_positions(player_slug)
+    return [p for p in STARTER_SLOTS if p in career and p != listed_primary]
+
+
+def _legacy_display_positions(card) -> list[str]:
+    """_display_positions for a legacy peak-window CardProfile: the curated
+    POSITION_OVERRIDES/archetype secondaries unioned with real career
+    positions, so the legacy engine's cards get the same honest multi-position
+    line as exact-season cards."""
+    primary = primary_position(card.player_slug, card.primary_role)
+    curated = set(secondary_positions(card.player_slug, card.primary_role))
+    career = career_positions(card.player_slug)
+    return [p for p in STARTER_SLOTS if (p in curated or p in career) and p != primary]
 
 
 # ---------------------------------------------------------------------------
@@ -307,15 +367,11 @@ def action_place_card(
     if state.pending_selection_exact_season_key:
         slot.exact_player_season_key = state.pending_selection_exact_season_key
         placed_card = resolve_exact_card_by_key(slot.exact_player_season_key)
-        slot.role_fit = classify_fit_from_position(
-            placed_card.position if placed_card else None,
-            slot_type,
-            placed_card.player_slug if placed_card else None,
-        )
+        slot.role_fit, slot.role_fit_severity = _exact_fit(placed_card, slot_type)
     else:
         slot.peak_window_id = state.pending_selection_peak_window_id
         placed_card = resolve_card_by_window_id(state, slot.peak_window_id)
-        slot.role_fit = classify_fit(
+        slot.role_fit, slot.role_fit_severity = _legacy_fit(
             placed_card.player_slug if placed_card else None,
             placed_card.primary_role if placed_card else None,
             slot_type,
@@ -338,6 +394,106 @@ def action_place_card(
         # run, that respin type stays disabled for the rest of the run.
         # (Phase 6G's original per-round reset was the bug this fixes.)
 
+    return state
+
+
+def _recompute_slot_fit(state: CourtLineupState, slot: CourtSlot) -> None:
+    """Re-derive (role_fit, role_fit_severity) for `slot` from whatever card
+    is currently sitting in it. Called after a rearrange -- the whole point
+    of moving a card is that its fit changes, so a stale role_fit copied
+    along with the card would defeat the feature."""
+    if slot.exact_player_season_key:
+        slot.role_fit, slot.role_fit_severity = _exact_fit(
+            resolve_exact_card_by_key(slot.exact_player_season_key), slot.slot_type
+        )
+    elif slot.peak_window_id:
+        card = resolve_card_by_window_id(state, slot.peak_window_id)
+        slot.role_fit, slot.role_fit_severity = _legacy_fit(
+            card.player_slug if card else None,
+            card.primary_role if card else None,
+            slot.slot_type,
+        )
+    else:
+        slot.role_fit = None
+        slot.role_fit_severity = None
+
+
+# Every identity/provenance field that belongs to the CARD, not to the SLOT.
+# Swapping is defined as exchanging exactly this tuple between two slots --
+# enumerated explicitly so a future CourtSlot field can't be silently left
+# behind (which would strand a card's provenance in the wrong slot).
+_SWAPPABLE_CARD_FIELDS = (
+    "exact_player_season_key",
+    "peak_window_id",
+    "round_number",
+    "resolved_via_spin_id",
+)
+
+
+def action_swap_slots(state: CourtLineupState, slot_a: str, slot_b: str) -> CourtLineupState:
+    """Move/swap already-placed cards between two slots, WITHOUT respinning.
+
+    Phase 9B: users could see that a placement was off-position but had no
+    way to act on it -- the only levers were respins (which reroll the
+    team+season and cost a run-level budget) or starting over. Rearranging
+    is a pure roster-optimization move: it consumes no budget, touches
+    neither the board nor any spin, and can never add or remove a card. The
+    only thing it changes is which slot each already-earned card occupies,
+    and therefore each card's position fit.
+
+    Rules:
+      * both slot_type values must be real slots (config.SLOT_TYPES);
+      * they must differ, and at least one must be filled (swapping two
+        empty slots is a no-op, and silently accepting it would let a client
+        believe it had done something);
+      * the card identity fields move together (_SWAPPABLE_CARD_FIELDS),
+        including round_number/resolved_via_spin_id so the receipt keeps
+        pointing at the round that actually produced the card;
+      * role_fit AND role_fit_severity are RECOMPUTED for both slots from
+        their new positions, never carried over;
+      * allowed while selection_pending / placement_pending / rounds_complete
+        -- including mid-run, and including with a selection pending (a
+        rearrange is orthogonal to the pending pick and leaves it alone);
+      * REJECTED once status == "result_ready". A submitted/simulated result
+        is the saved and shared artifact; letting the roster shift under a
+        frozen simulation_result would make a shared scorecard describe a
+        roster that no longer exists.
+    """
+    if state.status == "result_ready":
+        raise CourtError(
+            "rearrange_after_result",
+            "This run is already simulated -- its roster is frozen. Rearranging is only "
+            "available before you lock the roster and simulate.",
+        )
+    if state.status not in ("selection_pending", "placement_pending", "rounds_complete"):
+        raise CourtError("rearrange_not_allowed", f"Cannot rearrange in status '{state.status}'")
+
+    for slot_type in (slot_a, slot_b):
+        if slot_type not in SLOT_TYPES:
+            raise CourtError("invalid_slot", f"Unknown slot_type '{slot_type}'")
+    if slot_a == slot_b:
+        raise CourtError("invalid_swap", "Cannot swap a slot with itself")
+
+    a = next((s for s in state.slots if s.slot_type == slot_a), None)
+    b = next((s for s in state.slots if s.slot_type == slot_b), None)
+    if a is None or b is None:
+        raise CourtError("invalid_slot", f"Unknown slot_type '{slot_a}' or '{slot_b}'")
+
+    def _is_filled(slot: CourtSlot) -> bool:
+        return slot.peak_window_id is not None or slot.exact_player_season_key is not None
+
+    if not _is_filled(a) and not _is_filled(b):
+        raise CourtError("no_card_to_move", "Neither slot has a card to move")
+
+    for field_name in _SWAPPABLE_CARD_FIELDS:
+        a_value = getattr(a, field_name)
+        setattr(a, field_name, getattr(b, field_name))
+        setattr(b, field_name, a_value)
+
+    _recompute_slot_fit(state, a)
+    _recompute_slot_fit(state, b)
+
+    state.last_action_at = datetime.now(timezone.utc).isoformat()
     return state
 
 
@@ -829,12 +985,20 @@ def _provisional_expected_wins(state: CourtLineupState) -> Optional[float]:
     )
     bench_strength = (sum(bench_scores) / len(bench_scores)) if bench_scores else 50.0
 
+    # Phase 9B bug fix: this used to call _FIT_POINTS.get(label, 0.0) with NO
+    # severity, so every off-position placement scored 0.0 here while the
+    # real simulator charged -5.0 (moderate) / -14.0 (severe) for the same
+    # roster -- i.e. the mid-run projection was systematically optimistic
+    # about exactly the mistake this projection exists to warn about. Now
+    # uses simulation._fit_points, the same severity-aware function
+    # compute_exact_fit_components itself calls, so the two can't disagree.
     fit_points = []
     for slot_type in STARTER_SLOT_TYPES:
         card = cards_by_slot.get(slot_type)
         if card is None:
             continue
-        fit_points.append(_FIT_POINTS.get(classify_fit_from_position(card.position, slot_type, card.player_slug), 0.0))
+        role_fit, severity = _exact_fit(card, slot_type)
+        fit_points.append(_fit_points(role_fit or "off_position", severity))
     positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points))) if fit_points else 50.0
 
     # Phase 8K: same provisional-percentile fallback as compute_exact_fit_
@@ -932,7 +1096,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
     if state.pending_selection_exact_season_key:
         card = resolve_exact_card_by_key(state.pending_selection_exact_season_key)
         if card:
-            primary, secondary = parse_real_position(card.position)
+            primary, _unused_secondary = parse_real_position(card.position)
             pending_card_public = {
                 "exact_player_season_key": card.exact_player_season_key,
                 "player_name": card.player_name,
@@ -941,12 +1105,19 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                 "season": card.season,
                 # No score here either -- still not locked into a slot yet.
                 "primary_position": primary,
-                "secondary_positions": list(secondary),
+                # Phase 9B: real career positions, not parse_real_position's
+                # always-empty secondary tuple -- see _display_positions.
+                "secondary_positions": _display_positions(card.player_slug, primary),
                 "identity_pool_status": card.identity_pool_status,
                 "score_status": card.score_status,
                 "score_source": card.score_source,
+                # Phase 9B: carries role_fit AND its severity per open slot
+                # (was a bare label), so the placement preview can distinguish
+                # a free "Flex fit" from a "Structural mismatch". Deliberately
+                # a widened value on the SAME key rather than a sibling key --
+                # pending_selection's key set is contract-tested.
                 "fit_by_open_slot": {
-                    slot_type: classify_fit_from_position(card.position, slot_type, card.player_slug)
+                    slot_type: dict(zip(("role_fit", "role_fit_severity"), _exact_fit(card, slot_type)))
                     for slot_type in get_open_slot_types(state)
                 },
             }
@@ -960,9 +1131,12 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                 "player_name": card.player_name,
                 # No score here either -- still not locked into a slot yet.
                 "primary_position": primary_position(card.player_slug, card.primary_role),
-                "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
+                "secondary_positions": _legacy_display_positions(card),
                 "fit_by_open_slot": {
-                    slot_type: classify_fit(card.player_slug, card.primary_role, slot_type)
+                    slot_type: dict(zip(
+                        ("role_fit", "role_fit_severity"),
+                        _legacy_fit(card.player_slug, card.primary_role, slot_type),
+                    ))
                     for slot_type in get_open_slot_types(state)
                 },
             }
@@ -986,7 +1160,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             card = resolve_exact_card_by_key(slot.exact_player_season_key)
             if card:
                 placed_exact_cards.append(card)
-                primary, secondary = parse_real_position(card.position)
+                primary, _unused_secondary = parse_real_position(card.position)
                 entry.update({
                     "exact_player_season_key": card.exact_player_season_key,
                     "player_name": card.player_name,
@@ -994,9 +1168,14 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                     "team_name": card.team_name,
                     "season": card.season,
                     "role_fit": slot.role_fit,
+                    # Phase 9B: emitted next to role_fit so the client can
+                    # label the three off-position tiers by their real cost
+                    # (free / -5 / -14) instead of one alarming pill for all
+                    # three. None whenever role_fit != "off_position".
+                    "role_fit_severity": slot.role_fit_severity,
                     "resolved_via_spin_id": slot.resolved_via_spin_id,
                     "primary_position": primary,
-                    "secondary_positions": list(secondary),
+                    "secondary_positions": _display_positions(card.player_slug, primary),
                     "identity_pool_status": card.identity_pool_status,
                     "score_status": card.score_status,
                     "score_source": card.score_source,
@@ -1016,12 +1195,13 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                     "player_name": card.player_name,
                     "anchor_season": card.anchor_season,
                     "role_fit": slot.role_fit,
+                    "role_fit_severity": slot.role_fit_severity,
                     "resolved_via_spin_id": slot.resolved_via_spin_id,
                     # Lets the UI explain an off-position placement ("plays
                     # SF") rather than just flagging it as off-position with
                     # no context (goal: position eligibility clarity).
                     "primary_position": primary_position(card.player_slug, card.primary_role),
-                    "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
+                    "secondary_positions": _legacy_display_positions(card),
                 })
                 # Phase 8E: same gap as pending_card_public's peak-window
                 # branch -- the exact-season filled-slot branch above (line
@@ -1152,7 +1332,7 @@ def _candidate_public(player_slug: str, duration_years: int, include_asset_urls:
         "player_slug": player_slug,
         "player_name": card.player_name,
         "primary_position": primary_position(card.player_slug, card.primary_role),
-        "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
+        "secondary_positions": _legacy_display_positions(card),
     }
     if include_asset_urls:
         entry["headshot_url"] = get_player_headshot_url(player_slug)
@@ -1178,7 +1358,7 @@ def _candidate_public_exact(player_slug: str, team_id: str, season: str, include
             "primary_position": None, "secondary_positions": [],
             "identity_pool_status": "unresolved", "score_status": "score_unavailable",
         }
-    primary, secondary = parse_real_position(card.position)
+    primary, _unused_secondary = parse_real_position(card.position)
     entry = {
         "player_slug": player_slug,
         "player_name": card.player_name,
@@ -1186,7 +1366,10 @@ def _candidate_public_exact(player_slug: str, team_id: str, season: str, include
         "team_name": card.team_name,
         "season": card.season,
         "primary_position": primary,
-        "secondary_positions": list(secondary),
+        # Phase 9B: the other positions this player really played (see
+        # state._display_positions) -- previously always [], which is why a
+        # multi-position candidate rendered a bare single-position badge.
+        "secondary_positions": _display_positions(card.player_slug, primary),
         "identity_pool_status": card.identity_pool_status,
         "score_status": card.score_status,
         "score_source": card.score_source,

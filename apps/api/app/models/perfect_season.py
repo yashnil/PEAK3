@@ -50,6 +50,19 @@ class PlaceCardRequest(BaseModel):
     idempotency_key: Optional[str] = Field(None)
 
 
+class SwapSlotsRequest(BaseModel):
+    """Phase 9B: move/swap two already-placed cards to optimize position fit.
+
+    Deliberately NOT a respin -- it consumes no respin budget, never touches
+    the board or any spin, and can never add or remove a card. Rejected once
+    the run is simulated (status == "result_ready"), since that result is the
+    saved/shared artifact.
+    """
+    game_id: str
+    slot_a: str = Field(..., description="PG | SG | SF | PF | C | bench_1 | bench_2 | bench_3")
+    slot_b: str = Field(..., description="the destination slot; must differ from slot_a")
+
+
 class CompleteGameRequest(BaseModel):
     game_id: str
 
@@ -260,10 +273,17 @@ class PendingSelectionPublic(BaseModel):
     score_source: Optional[str] = None
     primary_position: Optional[str] = None
     secondary_positions: list[str] = []
-    # slot_type -> "primary" | "secondary" | "off_position" | "flexible" for
-    # every currently open slot -- lets the UI show whether the pending pick
-    # fits each open court/bench spot before it's placed (never blocking).
-    fit_by_open_slot: dict[str, str] = {}
+    # slot_type -> {"role_fit": ..., "role_fit_severity": ...} for every
+    # currently open slot -- lets the UI show whether the pending pick fits
+    # each open court/bench spot before it's placed (never blocking).
+    #
+    # Phase 9B: widened from a bare label string to the (label, severity)
+    # pair. Off-position placements cost 0.0 / -5.0 / -14.0 depending on
+    # severity, and without it the preview had to show one alarming
+    # "off-slot" warning for all three. Widened on the SAME key rather than
+    # added as a sibling because pending_selection's exact key set is
+    # contract-tested (see tests/test_perfect_season.py's allowed-key sets).
+    fit_by_open_slot: dict[str, dict[str, Optional[str]]] = {}
     # Phase 6F Part C: only populated when Settings.ENABLE_EXTERNAL_ASSET_URLS
     # is true (default off).
     headshot_url: Optional[str] = None
@@ -283,11 +303,16 @@ class CourtSlotPublic(BaseModel):
     score_status: Optional[str] = None
     # Phase 7A Part A: exact_team_stint | exact_season_aggregate | roster_only_unscored
     score_source: Optional[str] = None
-    # "primary" | "secondary" | "off_position" | "flexible" -- display-only
+    # "primary" | "natural" | "off_position" | "bench" -- display-only
     # position/role fit note (nba_peak.perfect_season.positions.classify_fit
     # / classify_fit_from_position), set once the slot is filled; never
-    # gates placement legality.
+    # gates placement legality. Already-persisted runs may carry the older
+    # "secondary"/"flexible" tokens, which remain valid on the wire.
     role_fit: Optional[str] = None
+    # Phase 9B: "mild" | "moderate" | "severe" -- only ever set alongside
+    # role_fit == "off_position". Optional with a None default so committed
+    # saved runs (which predate this field) still validate.
+    role_fit_severity: Optional[str] = None
     # The placed player's own position(s) -- v1 archetype-approximated for
     # peak-window cards, real per-season position for team_year cards. Lets
     # the UI explain an off-position placement ("plays SF") rather than

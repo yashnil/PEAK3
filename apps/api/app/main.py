@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import health, leaderboards, meta, methodology, peaks, players, game
+from app.api.v1 import seasons
 from app.api.v1 import draft
 from app.api.v1 import auth as auth_router
 from app.api.v1 import profiles as profiles_router
@@ -107,6 +108,7 @@ app.add_middleware(
 app.include_router(health.router, tags=["health"])
 app.include_router(leaderboards.router, prefix="/api/v1", tags=["leaderboards"])
 app.include_router(peaks.router, prefix="/api/v1", tags=["peaks"])
+app.include_router(seasons.router, prefix="/api/v1", tags=["seasons"])
 app.include_router(meta.router, prefix="/api/v1", tags=["meta"])
 app.include_router(methodology.router, prefix="/api/v1", tags=["methodology"])
 app.include_router(players.router, prefix="/api/v1", tags=["players"])
