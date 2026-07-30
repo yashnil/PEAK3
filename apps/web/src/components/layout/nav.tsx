@@ -28,6 +28,11 @@ const NAV_LINKS: { href: string; label: string; activePrefix?: string }[] = [
   // itself deep-links to the flagship run. Without it the plain
   // startsWith(href) check would light up only on the exact practice route.
   { href: "/arena/court/practice/apex_1y", label: "Play", activePrefix: "/arena" },
+  // Phase 11A: the Daily Grid is the lightweight daily mode and sits BESIDE
+  // "Play", never replacing it -- 82-0 PEAK Season remains the flagship the
+  // main Play path leads to. /daily is a top-level route, so it needs no
+  // activePrefix and cannot collide with "Play"'s /arena prefix.
+  { href: "/daily", label: "Daily" },
   { href: "/rankings", label: "Rankings" },
   { href: "/methodology", label: "Methodology" },
   { href: "/about", label: "About" },

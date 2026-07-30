@@ -131,6 +131,42 @@ export default async function ArenaPage() {
         </div>
       )}
 
+      {/* Phase 11A: Daily Grid. Rendered unconditionally -- unlike the 82-0
+          flagship it sits behind no server flag, so it stays available (and
+          this hub stays useful) even in the fail-closed state above. */}
+      <Link
+        href="/daily"
+        data-testid="arena-daily-grid-card"
+        className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border p-6 transition-all hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+        style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}
+      >
+        <div>
+          <span
+            className="text-[10px] uppercase tracking-wide rounded px-2 py-0.5"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--text-secondary)",
+              border: "1px solid var(--border-subtle)",
+            }}
+          >
+            New board every day
+          </span>
+          <h2 className="mt-2 font-display text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+            Daily Grid Challenge
+          </h2>
+          <p className="mt-1 text-sm max-w-xl" style={{ color: "var(--text-secondary)" }}>
+            Fill a 3x3 board with exact NBA player-seasons. Match teams, awards, eras, roles, and
+            PEAK3 thresholds. Everyone gets the same board each day.
+          </p>
+        </div>
+        <span
+          className="inline-flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-semibold shrink-0"
+          style={{ borderColor: "var(--border-default)", color: "var(--text-primary)" }}
+        >
+          Play Today&apos;s Grid
+        </span>
+      </Link>
+
       {/* Legacy modes, deliberately demoted to a footnote: discoverable for
           internal use, never presented as part of the product. Not linked from
           the navbar or the homepage. */}
