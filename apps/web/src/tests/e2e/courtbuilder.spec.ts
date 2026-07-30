@@ -15,13 +15,30 @@ import { test, expect, Page } from "@playwright/test";
 
 const TOTAL_ROUNDS = 8;
 
+// Phase 8I: the spin ceremony's own timing was deliberately slowed down
+// (SpinStage.tsx's SPIN_MS 1250ms -> 2000ms, per explicit product feedback
+// that the spinner felt too fast) -- across a full TOTAL_ROUNDS-round draft
+// that alone adds ~6s of real, unavoidable sequential time
+// (750ms x 8 rounds) on top of each round's own select/place network
+// round-trips, pushing every full-draft test right up against (and, on a
+// real run, past) Playwright's 30000ms default per-test timeout with zero
+// slack left. This is not test inefficiency to fix by reordering (unlike
+// the earlier /arena/court/results/[id] JIT-compile case) -- it's a fixed,
+// known cost from a deliberate product change, so every test that plays a
+// full TOTAL_ROUNDS-round draft calls `test.setTimeout(FULL_DRAFT_TIMEOUT_MS)`
+// as its first line.
+const FULL_DRAFT_TIMEOUT_MS = 60_000;
+
 /** Play one full round: select the first candidate, place into the first
- * open slot. Registers waitForResponse BEFORE each click, matching the
- * Promise.all pattern already established in gameplay.spec.ts to avoid a
- * response/registration race. The spin ceremony's ~1.6s timer sequence
- * happens before the candidate card becomes visible; the existing 10s
- * waitFor timeout already comfortably covers it -- no ceremony-specific
- * wait needed here. */
+ * open slot. The select click still races its network response via
+ * Promise.all (candidate buttons use a real `disabled` attribute while
+ * `busy`, which Playwright's own actionability checks already wait out
+ * correctly -- see EligiblePlayerSearch.tsx). The place click does NOT use
+ * that pattern (see the comment on `openSlot` below for why an open
+ * court-slot needed a different fix, not just a different wait). The spin
+ * ceremony's ~1.6s timer sequence happens before the candidate card becomes
+ * visible; the existing 10s waitFor timeout already comfortably covers it
+ * -- no ceremony-specific wait needed here. */
 async function playOneRound(page: Page): Promise<void> {
   // Phase 6E: candidate order is alphabetical (never star/score-weighted),
   // so the first candidate in the list is no longer reliably a scored
@@ -40,12 +57,40 @@ async function playOneRound(page: Page): Promise<void> {
     candidate.click(),
   ]);
 
-  const openSlot = page.locator('[data-testid="court-slot"][data-filled="false"]').first();
+  // Root cause of the CI flake this replaces (verified from the actual
+  // failing run's server log: a real "select" 200 response arrives, then
+  // NO "place" request is ever sent -- the click itself succeeds, it just
+  // hits a dead element): CourtBuilder.tsx only attaches onClick to an
+  // open slot once `phase === "placing" && !busy`; until then,
+  // PeakCardCourt renders that exact same testid/data-filled combination
+  // as a plain, non-interactive <div> (see PeakCardCourt.tsx -- `onClick`
+  // present -> <button>, absent -> <div>). A <div> has no `disabled`
+  // concept, so Playwright's actionability checks (visible/stable/
+  // enabled/receives-events) are perfectly satisfied and it clicks the
+  // dead element without complaint -- no request is ever sent, so any
+  // `waitForResponse("/place")` after it just times out. This is a narrow,
+  // pre-existing timing window (the moment between the select response
+  // landing and React finishing the resulting re-render); Phase 8C's
+  // heavier placement-mode DOM/motion made it wide enough to occasionally
+  // surface in CI. Fix: target the `<button>` tag specifically, so the
+  // wait itself is what closes the race -- Playwright will keep waiting
+  // until the slot actually becomes the interactive element, exactly like
+  // it already does for the (real, attribute-based) `disabled` candidate
+  // buttons above.
+  const openSlot = page.locator('button[data-testid="court-slot"][data-filled="false"]').first();
   await openSlot.waitFor({ state: "visible", timeout: 10_000 });
-  await Promise.all([
-    page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
-    openSlot.click(),
-  ]);
+
+  // Authoritative outcome, not a specific network URL: proves the
+  // placement actually landed (server round-trip + re-render), immune to
+  // any future endpoint rename and to the "response already resolved
+  // before the listener attached" race the old
+  // Promise.all([waitForResponse(...), click()]) pattern was prone to. A
+  // genuine placement failure (client-side click miss OR a real server
+  // error) still fails this assertion with a clear "count never changed"
+  // timeout, so real regressions are still caught.
+  const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
+  await openSlot.click();
+  await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(filledBefore + 1, { timeout: 10_000 });
 }
 
 async function startCourtBuilder(page: Page, mode = "apex_1y", seed = 42): Promise<void> {
@@ -60,6 +105,7 @@ async function startCourtBuilder(page: Page, mode = "apex_1y", seed = 42): Promi
 
 test.describe("CourtBuilder full attempt", () => {
   test("completes all 8 rounds and shows a result", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await startCourtBuilder(page);
 
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
@@ -93,6 +139,39 @@ test.describe("CourtBuilder full attempt", () => {
     // accepted behavior as Peak Draft's own practice route; see
     // gameplay.spec.ts's "Mid-draft refresh" test), so it is not a useful
     // check of this specific contract.
+  });
+
+  test("Phase 8D: Play Again starts a fresh game in the same mode without a page reload", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
+    await startCourtBuilder(page);
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+    await expect(page.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
+    const finishedGameUrl = page.url();
+
+    const playAgainBtn = page.locator('[data-testid="play-again-btn"]');
+    await expect(playAgainBtn).toBeVisible();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/perfect-season/games") && r.request().method() === "POST" && r.status() === 200),
+      playAgainBtn.click(),
+    ]);
+
+    // Back to a live round 1 -- no navigation happened (still the same
+    // practice-mode URL, not a reload), the result screen is gone, and the
+    // court is empty again with a brand-new spin ceremony for round 1.
+    expect(page.url()).toBe(finishedGameUrl);
+    await expect(page.locator('[data-testid="season-result"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+    const roundText = await page.locator('[data-testid="spin-stage"]').getByText(/Round 1 \/ 8/).count();
+    expect(roundText).toBeGreaterThan(0);
   });
 
   test("court grid always shows all 8 slots, filled and open together", async ({ page }) => {
@@ -282,6 +361,49 @@ test.describe("CourtBuilder cancel/back", () => {
     await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(0);
   });
 
+  test("Phase 8D: reselecting within the same round does not replay the spin ceremony", async ({ page }) => {
+    // Root-cause regression test: CourtBuilder used to only mount
+    // <SpinStage> while phase === "spinning", so cancelling a selection
+    // (back to spinning, SAME round) remounted it fresh and reran the
+    // mount-only ceremony effect -- the spinner visibly re-spun even
+    // though the team/season roll never changed. SpinStage now stays
+    // mounted for the whole round (only collapsing to a compact summary
+    // while placing), so the ceremony must have already finished --
+    // data-phase="revealed" and data-was-locked="true" -- BEFORE the
+    // cancel, and must still read that way immediately after, with no
+    // second "spinning"/"locked" phase ever observed in between.
+    await startCourtBuilder(page);
+    const spinStage = page.locator('[data-testid="spin-stage"]');
+    await expect(spinStage).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+    await expect(spinStage).toHaveAttribute("data-was-locked", "true");
+    const rolledTeamSeason = await page.locator('[data-testid="roll-summary"]').innerText();
+
+    const firstCandidate = page.locator('[data-testid="candidate-card"]').first();
+    await firstCandidate.waitFor({ state: "visible" });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      firstCandidate.click(),
+    ]);
+
+    // Now placing -- SpinStage collapses to the compact locked-in summary
+    // but must remain the SAME mounted element (still revealed/locked),
+    // never a fresh "spinning" one.
+    await expect(spinStage).toHaveAttribute("data-collapsed", "true");
+    await expect(spinStage).toHaveAttribute("data-phase", "revealed");
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/cancel") && r.status() === 200),
+      page.locator('[data-testid="cancel-selection-btn"]').click(),
+    ]);
+
+    // Back in "spinning" (candidate-choosing) UI for the SAME round: no
+    // ceremony replay -- the roll is instantly still the same team/season,
+    // never re-entering a "spinning" or "locked" data-phase.
+    await expect(spinStage).not.toHaveAttribute("data-collapsed", "true");
+    await expect(spinStage).toHaveAttribute("data-phase", "revealed");
+    await expect(page.locator('[data-testid="roll-summary"]')).toHaveText(rolledTeamSeason);
+  });
+
   test("select A, cancel, select a different candidate B, and place B", async ({ page }) => {
     await startCourtBuilder(page);
     const candidates = page.locator('[data-testid="candidate-card"]');
@@ -313,12 +435,16 @@ test.describe("CourtBuilder cancel/back", () => {
     // cleared the old pending selection rather than just hiding it.
     await expect(page.locator('[data-testid="placing-banner"]')).toContainText(nameB);
 
-    // Place B into the first open slot.
-    const openSlot = page.locator('[data-testid="court-slot"][data-filled="false"]').first();
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
-      openSlot.click(),
-    ]);
+    // Place B into the first open slot. Targets the `<button>` tag
+    // specifically (not just the testid) -- see playOneRound's own
+    // comment for why an open court-slot only becomes the real,
+    // interactive element once phase/busy actually settle, and a plain
+    // testid-only locator can click a dead <div> with no listener
+    // attached. The toHaveCount(1) assertion right below is the
+    // authoritative proof placement landed, replacing a fragile
+    // Promise.all([waitForResponse("/place"), click()]) race.
+    const openSlot = page.locator('button[data-testid="court-slot"][data-filled="false"]').first();
+    await openSlot.click();
 
     // Exactly one slot is filled, and it holds B's name, not A's.
     const filledSlot = page.locator('[data-testid="court-slot"][data-filled="true"]');
@@ -375,13 +501,15 @@ test.describe("CourtBuilder keyboard navigation", () => {
       page.keyboard.press("Enter"),
     ]);
 
-    const openSlot = page.locator('[data-testid="court-slot"][data-filled="false"]').first();
+    // Targets the `<button>` tag specifically -- a non-interactive slot
+    // renders as a plain <div> (not focusable at all without a real
+    // tabindex/button element), so waiting for the real button is both
+    // the accessible-correctness check AND what closes the same
+    // busy/phase timing race documented on playOneRound's `openSlot`.
+    const openSlot = page.locator('button[data-testid="court-slot"][data-filled="false"]').first();
     await openSlot.waitFor({ state: "visible" });
     await openSlot.focus();
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
-      page.keyboard.press("Enter"),
-    ]);
+    await page.keyboard.press("Enter");
 
     await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(1);
   });
@@ -396,8 +524,10 @@ test.describe("CourtBuilder spin ceremony", () => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await startCourtBuilder(page);
     // Under reduced motion the ceremony's JS timers (SpinStage.tsx's
-    // SPIN_MS/LOCK_MS/COUNT_MS sequence, ~1.7s total for normal-motion
-    // users) are skipped entirely -- the effect flips phase straight to
+    // SPIN_MS/LOCK_MS/COUNT_MS sequence, ~1.95s total for normal-motion
+    // users -- Phase 8 slowed it down for more suspense, still under the
+    // product spec's 2s hard ceiling) are skipped entirely -- the effect
+    // flips phase straight to
     // "revealed" on mount, no timers at all. Assert on that observable
     // state directly, with a tight timeout, rather than bracketing a
     // Date.now() measurement around page load: the old assertion measured
@@ -476,8 +606,123 @@ test.describe("CourtBuilder spin ceremony", () => {
     await expect(strips).toHaveCount(2);
   });
 
+  test("Phase 8I: team reel shows a logo or initials fallback on every visible item while spinning", async ({ page }) => {
+    // Phase 8I product ask: team logos during the spin itself, not only
+    // after landing. CI runs with ENABLE_EXTERNAL_ASSET_URLS off (no asset
+    // env var set in the Playwright CI job), so the deterministic,
+    // always-true assertion here is that the initials FALLBACK badge
+    // renders for every visible team-reel row -- the real <img> only
+    // additionally appears when the asset gate is on and that specific
+    // team resolved a logo, which is exactly why the fallback exists (see
+    // ReelStrip in SpinStage.tsx and .spin-reel-strip-logo-* in
+    // globals.css). The season/era reel never gets a logoUrls prop, so it
+    // correctly renders none of these.
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    const fallbacks = page.locator('[data-testid="spin-stage"] [data-testid="reel-logo-fallback"]');
+    await expect(fallbacks.first()).toBeVisible({ timeout: 3_000 });
+    const count = await fallbacks.count();
+    expect(count).toBeGreaterThanOrEqual(1);
+    // Every fallback badge shows real team initials text, never blank.
+    const firstText = (await fallbacks.first().innerText()).trim();
+    expect(firstText.length).toBeGreaterThan(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 8J: deterministic reel landing -- root-cause fix for a real
+  // trust-breaking bug (reel visibly slowed through 2014-15 -> 2015-16 ->
+  // 2016-17, then the actual result became 1999-00). SpinStage.tsx's old
+  // ticking model was an unbounded counter with no destination, completely
+  // decoupled from the real backend-selected spin.franchise_display_name/
+  // era_label swapped in once the ceremony's fixed timers ran out -- these
+  // tests prove the NEW model (computeReelTarget, see its own docstring)
+  // can never show a different final value than the real result.
+  // -------------------------------------------------------------------------
+
+  test("Phase 8J: initial spin lands the reel exactly on the backend-selected team and season", async ({ page }) => {
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const selectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    expect(selectedTeam).toBeTruthy();
+    expect(selectedSeason).toBeTruthy();
+
+    // The centered reel item's own displayed value (data-final-value) --
+    // read from whichever element currently carries the testid (ticking
+    // ReelStrip row or the settled view, see SpinStage.tsx) -- must be the
+    // literal same string as the real backend result, not merely similar.
+    const teamCenterVal = await page.locator('[data-testid="spin-team-reel-center"]').last().getAttribute("data-final-value");
+    const seasonCenterVal = await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value");
+    expect(teamCenterVal).toBe(selectedTeam);
+    expect(seasonCenterVal).toBe(selectedSeason);
+  });
+
+  test("Phase 8J: the reel never visually shows one season and then resolves to a different one", async ({ page }) => {
+    await page.goto("/arena/court/practice/apex_1y?seed=42", { waitUntil: "load" });
+    // SpinStage.tsx's SPIN_MS is a fixed 2000ms -- the deterministic ticking
+    // model (computeReelTarget) is scheduled to already be sitting on the
+    // real target with 1-2 ticks of margin to spare well before that timer
+    // fires (see INITIAL_SPIN_TRAVEL_TICKS's own comment), so sampling at
+    // 1700ms (85% through the fixed budget) catches the reel either still
+    // ticking-but-already-converged, or already settled -- either way it
+    // must already equal the final backend result, proving there is no
+    // late jump/swap at the very end of the ceremony.
+    await page.waitForTimeout(1700);
+    const midSpinTeam = await page.locator('[data-testid="spin-team-reel-center"]').last().getAttribute("data-final-value");
+    const midSpinSeason = await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value");
+
+    await expect(page.locator('[data-testid="spin-stage"]')).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const selectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+
+    expect(midSpinTeam).toBe(selectedTeam);
+    expect(midSpinSeason).toBe(selectedSeason);
+  });
+
+  test("Phase 8J: team-only respin lands exactly on the new backend-selected team, season stays locked", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamBtn = page.locator('[data-testid="respin-team-btn"]');
+    await expect(teamBtn).toBeVisible();
+    const seasonBefore = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+      teamBtn.click(),
+    ]);
+    // Respin's RESPIN_REROLL_MS is a fixed 1200ms with the same margin-to-
+    // spare guarantee as the initial spin (see RESPIN_TRAVEL_TICKS).
+    await page.waitForTimeout(1400);
+
+    const newSelectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const seasonAfter = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    const teamCenterVal = await page.locator('[data-testid="spin-team-reel-center"]').last().getAttribute("data-final-value");
+
+    expect(teamCenterVal).toBe(newSelectedTeam);
+    expect(seasonAfter).toBe(seasonBefore);
+  });
+
+  test("Phase 8J: season-only respin lands exactly on the new backend-selected season, team stays locked", async ({ page }) => {
+    await startCourtBuilder(page);
+    const seasonBtn = page.locator('[data-testid="respin-season-btn"]');
+    await expect(seasonBtn).toBeVisible();
+    const teamBefore = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-season") && r.status() === 200),
+      seasonBtn.click(),
+    ]);
+    await page.waitForTimeout(1400);
+
+    const newSelectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    const teamAfter = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const seasonCenterVal = await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value");
+
+    expect(seasonCenterVal).toBe(newSelectedSeason);
+    expect(teamAfter).toBe(teamBefore);
+  });
+
   test("locked state shows a LOCKED stamp between spinning and reveal", async ({ page }) => {
-    // The "locked" phase is a deliberately brief ~450ms window between the
+    // The "locked" phase is a deliberately brief ~400ms window between the
     // spinning and revealed phases (see SpinStage.tsx's LOCK_MS). Racing a
     // fresh navigation against that live transient window is not just slow
     // -- it is genuinely unreliable: on a slow dev-server compile, the
@@ -504,6 +749,16 @@ test.describe("CourtBuilder spin ceremony", () => {
     // Stepped reveal, not a continuous cycling animation -- no reel strips
     // should be mounted for reduced-motion users.
     await expect(page.locator('[data-testid="spin-stage"] .spin-reel-strip')).toHaveCount(0);
+    // Phase 8J: no ticking ever happens under reduced motion, so there is
+    // no mismatch to even be possible -- but assert the actual displayed
+    // result matches the backend-selected value anyway, directly, rather
+    // than assuming it.
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const selectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    const teamCenterVal = await page.locator('[data-testid="spin-team-reel-center"]').getAttribute("data-final-value");
+    const seasonCenterVal = await page.locator('[data-testid="spin-season-reel-center"]').getAttribute("data-final-value");
+    expect(teamCenterVal).toBe(selectedTeam);
+    expect(seasonCenterVal).toBe(selectedSeason);
   });
 
   test("mobile viewport: spin stage never causes horizontal page overflow", async ({ page }) => {
@@ -605,6 +860,66 @@ test.describe("CourtBuilder respins", () => {
     await expect(seasonBtn).toBeEnabled();
   });
 
+  // -------------------------------------------------------------------------
+  // Phase 8C: axis-independent respins -- respinning team must leave season
+  // visually locked (and unchanged), and vice versa. Playtest finding #1
+  // was that a team-only and season-only respin looked identical; this
+  // proves both the visual "Locked" badge on the untouched wheel AND that
+  // its actual displayed value doesn't change once the respin settles.
+  // -------------------------------------------------------------------------
+
+  test("Phase 8C: team-only respin locks the era wheel and its value is unchanged", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamBtn = page.locator('[data-testid="respin-team-btn"]');
+    // The respin button only renders once the ceremony has revealed (see
+    // CourtBuilder.tsx's respin-controls gate) -- waiting for it here is
+    // the real synchronization point; startCourtBuilder itself only waits
+    // for the court, not for the spin ceremony to finish ticking.
+    await expect(teamBtn).toBeVisible();
+    const eraBefore = await page.locator('[data-testid="era-wheel"]').innerText();
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+      teamBtn.click(),
+    ]);
+    // The era wheel shows the locked badge; the team wheel (the one
+    // actually respinning) never does.
+    await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toBeVisible();
+    await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toHaveCount(0);
+
+    // Once the brief respin flourish settles, the era wheel's own value
+    // must be exactly what it was before -- not just visually "locked",
+    // actually unchanged (proves frontend display matches backend's
+    // same-season-different-team respin behavior). Phase 8I bumped the
+    // respin flourish itself from ~480ms to ~1.2s (product ask: respin
+    // should read as a real re-roll) plus a ~200ms exit transition, so this
+    // window is widened to keep the same real safety margin, not just
+    // barely cover the new duration.
+    await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toHaveCount(0, { timeout: 3_500 });
+    const eraAfter = await page.locator('[data-testid="era-wheel"]').innerText();
+    expect(eraAfter).toBe(eraBefore);
+  });
+
+  test("Phase 8C: season-only respin locks the team wheel and its value is unchanged", async ({ page }) => {
+    await startCourtBuilder(page);
+    const seasonBtn = page.locator('[data-testid="respin-season-btn"]');
+    await expect(seasonBtn).toBeVisible();
+    const teamBefore = await page.locator('[data-testid="team-wheel"]').innerText();
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-season") && r.status() === 200),
+      seasonBtn.click(),
+    ]);
+    await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toBeVisible();
+    await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toHaveCount(0);
+
+    // Phase 8I: same widened window as the team-only respin test above --
+    // the respin flourish itself now runs ~1.2s, not ~480ms.
+    await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toHaveCount(0, { timeout: 3_500 });
+    const teamAfter = await page.locator('[data-testid="team-wheel"]').innerText();
+    expect(teamAfter).toBe(teamBefore);
+  });
+
   test("respin controls disappear once a player is selected", async ({ page }) => {
     await startCourtBuilder(page);
     await expect(page.locator('[data-testid="respin-controls"]')).toBeVisible();
@@ -648,11 +963,11 @@ test.describe("CourtBuilder respins", () => {
       page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
       candidate.click(),
     ]);
-    const openSlot = page.locator('[data-testid="court-slot"][data-filled="false"]').first();
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/place") && r.status() === 200),
-      openSlot.click(),
-    ]);
+    // Button tag scoped, plus an authoritative filled-count wait instead
+    // of racing a network URL -- see playOneRound's own comment for why.
+    const openSlot = page.locator('button[data-testid="court-slot"][data-filled="false"]').first();
+    await openSlot.click();
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(1, { timeout: 10_000 });
 
     // Round 2: the team respin button must still show 2 left, not reset to 3.
     await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("2 left", { timeout: 10_000 });
@@ -727,6 +1042,7 @@ test.describe("CourtBuilder candidate list (Phase 6E)", () => {
 
 test.describe("CourtBuilder result credibility", () => {
   test("the result screen reassures that stacked talent is rewarded, not penalized", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await startCourtBuilder(page);
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
       await playOneRound(page);
@@ -754,6 +1070,7 @@ test.describe("CourtBuilder result credibility", () => {
   });
 
   test("Phase 6E: result screen is a share-card with a tier headline and exact-season wording", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await startCourtBuilder(page);
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
       await playOneRound(page);
@@ -782,6 +1099,114 @@ test.describe("CourtBuilder result credibility", () => {
     await expect(receipt).toBeVisible();
     await expect(receipt.locator("summary")).toBeVisible();
   });
+
+  test("Phase 8H: result screen shows the PEAK3 pick recap and a working share panel", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
+    await startCourtBuilder(page);
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    const [resp] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+    await expect(page.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
+
+    // AI-pick recap: one row per round, each naming both the real pick and
+    // PEAK3's own top-rated available option that round.
+    const recap = page.locator('[data-testid="peak-picks-recap"]');
+    await expect(recap).toBeVisible();
+    await expect(page.locator('[data-testid="peak-picks-recap-row"]')).toHaveCount(TOTAL_ROUNDS);
+    await expect(page.locator('[data-testid="peak-picks-match-count"]')).toBeVisible();
+
+    // Never leaked before the roster was complete -- the API response
+    // itself only carries the recap once result_ready.
+    const body = await resp.json();
+    expect(body.simulation_result.peak_picks_recap).toHaveLength(TOTAL_ROUNDS);
+
+    // Share panel: real, working actions (copy summary / copy link),
+    // using the standard Clipboard API -- no fabricated capability.
+    const share = page.locator('[data-testid="share-run-panel"]');
+    await expect(share).toBeVisible();
+    await expect(page.locator('[data-testid="share-run-copy-link-btn"]')).toBeEnabled();
+    await expect(page.locator('[data-testid="share-run-copy-text-btn"]')).toBeEnabled();
+
+    // Phase 8I: "Download Image" -- a real file, not just a button that
+    // exists. Playwright's download event only fires for a genuine browser
+    // download, so this is a real, deterministic assertion (canvas.toBlob
+    // -> object URL -> synthetic <a download> click, no fixed sleeps).
+    const downloadBtn = page.locator('[data-testid="share-run-download-btn"]');
+    await expect(downloadBtn).toBeVisible();
+    await expect(downloadBtn).toHaveAccessibleName(/download/i);
+    const [download] = await Promise.all([page.waitForEvent("download"), downloadBtn.click()]);
+    expect(download.suggestedFilename()).toMatch(/^peak3-82-0-run-\d+-\d+\.png$/);
+  });
+
+  // Runs BEFORE the heavier read-only-scorecard test below on purpose: both
+  // tests are the first hits in this file on the /arena/court/results/[id]
+  // dynamic route, and in Playwright's dev-mode webServer (see
+  // playwright.config.ts -- `npm run dev`, not a production build) the
+  // *first* request to any route pays a real one-time Next.js JIT-compile
+  // cost (observed locally: ~300ms+, more under CI's slower/shared
+  // runners). This cheap not-found test has huge timeout headroom (a single
+  // goto + two text assertions), so it is the one that should absorb that
+  // one-time cost -- not the test below, which already spends its budget on
+  // a full 8-round draft, a `/complete` round-trip, and a second full page
+  // load.
+  test("Phase 8H: a nonexistent shared results link shows a clean not-found state", async ({ page }) => {
+    await page.goto("/arena/court/results/this-game-id-does-not-exist", { waitUntil: "load" });
+    await expect(page.getByText(/run not found/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/build your own roster/i)).toBeVisible();
+  });
+
+  test("Phase 8H: a shared results URL renders a read-only scorecard, never the owner's leaderboard actions", async ({ page, context }) => {
+    // Root cause of the CI timeout this replaces: this test does strictly
+    // more real, necessary work than any sibling in the file -- a full
+    // 8-round draft (each round pays the real spin-ceremony timer sequence,
+    // see playOneRound above), a `/complete` round-trip, AND a full second
+    // page load in a fresh tab. Measured locally (fast, uncontested
+    // machine, services already warm): ~30s, right at Playwright's 30000ms
+    // default per-test timeout with zero slack -- CI's shared/slower
+    // runners tip it over. The route-compile part of that cost is now paid
+    // by the not-found test above instead (see its comment); this explicit
+    // budget covers the rest of the inherent, unavoidable sequential work
+    // (not a symptom being papered over -- every wait below still asserts
+    // real, authoritative state, not a fixed sleep). Same FULL_DRAFT_TIMEOUT_MS
+    // budget as every other full-8-round-draft test in this file (see its
+    // own comment) plus headroom for the second page load.
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
+
+    await startCourtBuilder(page);
+    for (let i = 0; i < TOTAL_ROUNDS; i++) {
+      await playOneRound(page);
+    }
+    const completeBtn = page.locator('[data-testid="complete-season-btn"]');
+    await completeBtn.waitFor({ state: "visible", timeout: 10_000 });
+    const [resp] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/complete") && r.status() === 200),
+      completeBtn.click(),
+    ]);
+    const gameId = (await resp.json()).game_id as string;
+
+    const sharedPage = await context.newPage();
+    await sharedPage.goto(`/arena/court/results/${gameId}`, { waitUntil: "load" });
+    await expect(sharedPage.locator('[data-testid="season-result"]')).toBeVisible({ timeout: 10_000 });
+    // A shared/viewed run must never show account-specific actions --
+    // submitting it would 403 server-side anyway (not the viewer's game),
+    // so the UI never offers a button that would just fail.
+    await expect(sharedPage.locator('[data-testid="leaderboard-submit-panel"]')).toHaveCount(0);
+    await expect(sharedPage.getByText("Build your own")).toBeVisible();
+
+    // Phase 8I: download must also work on a shared/read-only run -- it's
+    // the same public-by-id state, and downloading a scorecard isn't an
+    // owner-only action the way submitting to the leaderboard is.
+    const downloadBtn = sharedPage.locator('[data-testid="share-run-download-btn"]');
+    await expect(downloadBtn).toBeVisible();
+    const [download] = await Promise.all([sharedPage.waitForEvent("download"), downloadBtn.click()]);
+    expect(download.suggestedFilename()).toMatch(/^peak3-82-0-run-\d+-\d+\.png$/);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -795,6 +1220,7 @@ test.describe("CourtBuilder result credibility", () => {
 
 test.describe("CourtBuilder leaderboard (Part E)", () => {
   test("leaderboard submit panel does not render when the leaderboard feature is off", async ({ page }) => {
+    test.setTimeout(FULL_DRAFT_TIMEOUT_MS);
     await startCourtBuilder(page);
     for (let i = 0; i < TOTAL_ROUNDS; i++) {
       await playOneRound(page);

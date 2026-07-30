@@ -27,7 +27,7 @@ _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from nba_peak.perfect_season.assets import get_player_headshot_url, get_team_logo_url
+from nba_peak.perfect_season.assets import get_player_headshot_url, get_team_logo_url, get_team_logo_url_by_name
 from nba_peak.perfect_season.board import (
     find_spin,
     generate_board,
@@ -50,7 +50,14 @@ from nba_peak.perfect_season.positions import (
     secondary_positions,
 )
 from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot
-from nba_peak.perfect_season.simulation import _FIT_POINTS, simulate_exact_season, simulate_season
+from nba_peak.perfect_season.simulation import (
+    _FIT_POINTS,
+    _weighted_starter_talent,
+    provisional_unscored_impact,
+    provisional_unscored_percentile,
+    simulate_exact_season,
+    simulate_season,
+)
 
 TEAM_YEAR_SPIN_TYPE = "team_year"
 
@@ -444,6 +451,83 @@ def action_respin_season(state: CourtLineupState) -> CourtLineupState:
     return state
 
 
+def _compute_peak_picks_recap(state: CourtLineupState, team_year_board: bool) -> list[dict]:
+    """Phase 8H: "what PEAK3 would have picked" -- for each round, the
+    highest-scored candidate actually AVAILABLE at that moment (excluding
+    whatever earlier rounds already used), compared against what the
+    player actually picked. Only ever called once the roster is complete
+    (action_complete_game, after the real reveal gate has already opened),
+    so this is an honest extension of the same reveal, never a pre-pick
+    leak -- ADR-005 Decision 6 is about withholding scores from the
+    CURRENT round's own live candidate list before a pick is made; this
+    runs only after every card's real score is already being shown.
+
+    Never fabricates a reason -- the "why" is always the real, computed
+    metric (highest score among the round's then-available candidates),
+    stated plainly rather than inventing narrative flavor text the model
+    didn't actually compute."""
+    recap: list[dict] = []
+    used_slugs: set[str] = set()
+    slots_by_spin = {s.resolved_via_spin_id: s for s in state.slots if s.resolved_via_spin_id}
+
+    for spin in sorted(state.board.spins, key=lambda s: s.round_number):
+        slot = slots_by_spin.get(spin.spin_id)
+        if slot is None:
+            continue
+
+        if team_year_board:
+            picked_card = resolve_exact_card_by_key(slot.exact_player_season_key) if slot.exact_player_season_key else None
+            picked_name = picked_card.player_name if picked_card else None
+            picked_score = picked_card.season_score if picked_card else None
+            picked_slug = picked_card.player_slug if picked_card else None
+
+            best_slug, best_name, best_score = None, None, None
+            for slug in spin.candidate_player_slugs:
+                if slug in used_slugs:
+                    continue
+                card = resolve_player_season_card(slug, spin.team_id, spin.era_label)
+                if card is None or card.season_score is None:
+                    continue
+                if best_score is None or card.season_score > best_score:
+                    best_slug, best_name, best_score = slug, card.player_name, card.season_score
+        else:
+            picked_card = resolve_card_by_window_id(state, slot.peak_window_id) if slot.peak_window_id else None
+            picked_name = picked_card.player_name if picked_card else None
+            picked_score = picked_card.individual_peak_score if picked_card else None
+            picked_slug = picked_card.player_slug if picked_card else None
+
+            best_slug, best_name, best_score = None, None, None
+            for slug in spin.candidate_player_slugs:
+                if slug in used_slugs:
+                    continue
+                card = resolve_card(slug, state.duration_years)
+                if card is None:
+                    continue
+                if best_score is None or card.individual_peak_score > best_score:
+                    best_slug, best_name, best_score = slug, card.player_name, card.individual_peak_score
+
+        if picked_slug:
+            used_slugs.add(picked_slug)
+
+        if best_slug is None:
+            # No scored candidate was available this round (e.g. every
+            # option was roster-only/unscored) -- an honest data gap, not
+            # a fabricated recommendation.
+            continue
+
+        recap.append({
+            "round_number": spin.round_number,
+            "slot_type": slot.slot_type,
+            "picked_player_name": picked_name,
+            "picked_score": round(picked_score, 1) if picked_score is not None else None,
+            "peak_pick_player_name": best_name,
+            "peak_pick_score": round(best_score, 1) if best_score is not None else None,
+            "matched": best_slug == picked_slug,
+        })
+
+    return recap
+
+
 def action_complete_game(state: CourtLineupState) -> CourtLineupState:
     """Run the v0 simulation and freeze the result. Idempotent -- calling
     this again on an already-result_ready state returns the same result
@@ -469,6 +553,7 @@ def action_complete_game(state: CourtLineupState) -> CourtLineupState:
                 )
             exact_cards.append(card)
         state.simulation_result = simulate_exact_season(exact_cards, state.board.seed, slot_types)
+        state.simulation_result.peak_picks_recap = _compute_peak_picks_recap(state, team_year_board=True)
     else:
         cards = []
         for slot in state.slots:
@@ -479,6 +564,7 @@ def action_complete_game(state: CourtLineupState) -> CourtLineupState:
                 raise CourtError("card_not_resolvable", f"Could not resolve slot card '{slot.peak_window_id}'")
             cards.append(card)
         state.simulation_result = simulate_season(cards, state.board.seed, slot_types)
+        state.simulation_result.peak_picks_recap = _compute_peak_picks_recap(state, team_year_board=False)
 
     state.status = "result_ready"
     state.last_action_at = datetime.now(timezone.utc).isoformat()
@@ -610,20 +696,32 @@ def _provisional_expected_wins(state: CourtLineupState) -> Optional[float]:
     if not cards_by_slot:
         return None
 
+    # Phase 8K: an unscored placed card still contributes a conservative
+    # provisional impact here, same as the final simulate_exact_season() --
+    # otherwise this mid-run estimate would read as more optimistic than
+    # the real result it's supposed to preview (see simulation.py's
+    # provisional_unscored_impact for the full rationale).
     starter_scores = [
-        c.season_score for st in STARTER_SLOT_TYPES
-        if (c := cards_by_slot.get(st)) is not None and c.season_score is not None
+        c.season_score if c.season_score is not None else provisional_unscored_impact(c)
+        for st in STARTER_SLOT_TYPES
+        if (c := cards_by_slot.get(st)) is not None
     ]
     bench_scores = [
-        c.season_score for st in BENCH_SLOT_TYPES
-        if (c := cards_by_slot.get(st)) is not None and c.season_score is not None
+        c.season_score if c.season_score is not None else provisional_unscored_impact(c)
+        for st in BENCH_SLOT_TYPES
+        if (c := cards_by_slot.get(st)) is not None
     ]
     if not starter_scores and not bench_scores:
         return None
+    # Phase 8: reuse the same peak-weighted starter aggregate as the real
+    # simulator (simulation.py::_weighted_starter_talent) -- keeping this
+    # mid-run estimate on the exact same formula as the final result is the
+    # whole point of this function (see docstring above).
+    starter_talent = _weighted_starter_talent(starter_scores)
     talent_core = (
-        (sum(starter_scores) / len(starter_scores)) * 0.8 + (sum(bench_scores) / len(bench_scores)) * 0.2
+        starter_talent * 0.8 + (sum(bench_scores) / len(bench_scores)) * 0.2
         if starter_scores and bench_scores
-        else (sum(starter_scores) / len(starter_scores) if starter_scores else sum(bench_scores) / len(bench_scores))
+        else (starter_talent if starter_scores else sum(bench_scores) / len(bench_scores))
     )
     bench_strength = (sum(bench_scores) / len(bench_scores)) if bench_scores else 50.0
 
@@ -635,11 +733,14 @@ def _provisional_expected_wins(state: CourtLineupState) -> Optional[float]:
         fit_points.append(_FIT_POINTS.get(classify_fit_from_position(card.position, slot_type, card.player_slug), 0.0))
     positional_fit = max(0.0, min(100.0, 50.0 + sum(fit_points))) if fit_points else 50.0
 
+    # Phase 8K: same provisional-percentile fallback as compute_exact_fit_
+    # components -- an unscored placed card contributes a conservative
+    # estimate here too, rather than vanishing from the average.
     def _avg_percentile(column: str) -> float:
-        values = [
-            p for c in cards_by_slot.values()
-            if (p := component_percentile(c.player_slug, c.team_id, c.season, column)) is not None
-        ]
+        values = []
+        for c in cards_by_slot.values():
+            p = component_percentile(c.player_slug, c.team_id, c.season, column) if c.season_score is not None else None
+            values.append(p if p is not None else provisional_unscored_percentile(c))
         return (sum(values) / len(values)) if values else 50.0
 
     creation_coverage = _avg_percentile("contrib_statistical_impact")
@@ -685,18 +786,31 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             "era_label": spin.era_label,
             "candidates": [
                 (_candidate_public_exact(slug, spin.team_id, spin.era_label, include_asset_urls)
-                 if _is_team_year_spin(spin) else _candidate_public(slug, state.duration_years))
+                 if _is_team_year_spin(spin) else _candidate_public(slug, state.duration_years, include_asset_urls))
                 for slug in spin.candidate_player_slugs
                 if slug not in _used_player_slugs(state)
             ],
         }
+        # Phase 8F: team_logo_url used to be set ONLY inside the team_year
+        # branch below (via team_id, which only team_year spins carry) --
+        # the DEFAULT engine's spins (team_decade/exact_team_season, what
+        # CourtBuilder actually runs by default) never got a logo at all,
+        # even with the asset flag on, because they have no team_id (the
+        # interim dataset only carries franchise_display_name). Resolved by
+        # name instead for every non-team_year spin type -- same real,
+        # already-verified team_assets.v2.json entries, just a second
+        # lookup key (get_team_logo_url_by_name). open_pool spins have no
+        # real team at all, so this correctly stays None for those.
+        if include_asset_urls and spin.spin_type != "open_pool":
+            current_spin_public["team_logo_url"] = (
+                get_team_logo_url(spin.team_id) if _is_team_year_spin(spin)
+                else get_team_logo_url_by_name(spin.franchise_display_name)
+            )
         if _is_team_year_spin(spin):
             current_spin_public["team_id"] = spin.team_id
             current_spin_public["candidate_source"] = "exact_team_season"
             current_spin_public["data_version"] = state.board.experimental_team_year_data_version
             current_spin_public["coverage_mode"] = state.board.metadata.get("coverage_mode")
-            if include_asset_urls:
-                current_spin_public["team_logo_url"] = get_team_logo_url(spin.team_id)
             # Phase 7A Part C: RUN-LEVEL budget (never resets per round --
             # see MAX_TEAM_RESPINS's own comment). Respins are only ever
             # offered/consumable before a player is selected (status ==
@@ -748,6 +862,14 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                     for slot_type in get_open_slot_types(state)
                 },
             }
+            # Phase 8E: this peak-window pending-selection branch was missing
+            # headshot_url entirely (the exact-season branch just above it,
+            # for state.pending_selection_exact_season_key, already had it)
+            # -- same class of gap as _candidate_public's, just one call site
+            # over. get_player_headshot_url is a pure slug lookup, so it
+            # resolves identically regardless of peak-window vs exact-season.
+            if include_asset_urls:
+                pending_card_public["headshot_url"] = get_player_headshot_url(card.player_slug)
 
     reveal_scores = state.status == "result_ready"
     slots_public = []
@@ -777,6 +899,7 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                 })
                 if include_asset_urls:
                     entry["headshot_url"] = get_player_headshot_url(card.player_slug)
+                    entry["team_logo_url"] = get_team_logo_url(card.team_id)
                 if card.score_status != "exact_season_scored":
                     all_placed_scored = False
                 if reveal_scores:
@@ -796,6 +919,11 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
                     "primary_position": primary_position(card.player_slug, card.primary_role),
                     "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
                 })
+                # Phase 8E: same gap as pending_card_public's peak-window
+                # branch -- the exact-season filled-slot branch above (line
+                # ~783) already had this, the peak-window one never did.
+                if include_asset_urls:
+                    entry["headshot_url"] = get_player_headshot_url(card.player_slug)
                 if reveal_scores:
                     entry.update({
                         "individual_peak_score": card.individual_peak_score,
@@ -830,7 +958,9 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
             ),
             "best_pick": r.best_pick,
             "structural_weakness": r.structural_weakness,
+            "structural_weakness_detail": r.structural_weakness_detail,
             "weakness_framing": r.weakness_framing,
+            "peak_picks_recap": r.peak_picks_recap,
         }
 
     return {
@@ -882,19 +1012,36 @@ def _display_name_for_slug(player_slug: str, duration_years: int) -> str:
     return card.player_name if card else player_slug
 
 
-def _candidate_public(player_slug: str, duration_years: int) -> dict:
+def _candidate_public(player_slug: str, duration_years: int, include_asset_urls: bool = False) -> dict:
     """Public candidate entry: name + v1 position eligibility hint, never a
     score/rank (ADR-005 Decision 6 -- SpinCandidate has no score field at
-    all, enforced at the Pydantic layer too)."""
+    all, enforced at the Pydantic layer too).
+
+    Phase 8E: `include_asset_urls` was missing entirely from this function's
+    signature until now -- every non-team_year spin (team_decade,
+    exact_team_season, open_pool) routed candidates through here (see the
+    `_is_team_year_spin` branch above) and could therefore NEVER show a
+    headshot regardless of Settings.ENABLE_EXTERNAL_ASSET_URLS or whether
+    the asset manifest actually had a resolved entry for that exact player
+    -- verified live (a fresh exact_team_season board for 2024-25 Nuggets
+    returned `headshot_url: null` for Nikola Jokic/Jamal Murray even with
+    the flag on, despite both being `resolution_status: "resolved"` in
+    data/game/assets/player_assets.v3.json with real ESPN URLs). Mirrors
+    _candidate_public_exact's own identical gating exactly: same
+    conditional, same get_player_headshot_url() lookup, same None-in-every-
+    other-case contract the frontend already handles."""
     card = resolve_card(player_slug, duration_years)
     if card is None:
         return {"player_slug": player_slug, "player_name": player_slug, "primary_position": None, "secondary_positions": []}
-    return {
+    entry = {
         "player_slug": player_slug,
         "player_name": card.player_name,
         "primary_position": primary_position(card.player_slug, card.primary_role),
         "secondary_positions": list(secondary_positions(card.player_slug, card.primary_role)),
     }
+    if include_asset_urls:
+        entry["headshot_url"] = get_player_headshot_url(player_slug)
+    return entry
 
 
 def _candidate_public_exact(player_slug: str, team_id: str, season: str, include_asset_urls: bool = False) -> dict:

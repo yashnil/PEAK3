@@ -21,6 +21,7 @@ TEAM_ASSETS_PATH = ASSETS_DIR / "team_assets.v2.json"
 
 _PLAYER_CACHE: Optional[dict[str, dict]] = None
 _TEAM_CACHE: Optional[dict[str, dict]] = None
+_TEAM_BY_NAME_CACHE: Optional[dict[str, dict]] = None
 
 
 def _load_player_assets() -> dict[str, dict]:
@@ -45,11 +46,30 @@ def _load_team_assets() -> dict[str, dict]:
     return _TEAM_CACHE
 
 
+def _load_team_assets_by_name() -> dict[str, dict]:
+    """team_name -> team asset entry. Phase 8F: the DEFAULT CourtBuilder
+    engine (nba_peak.perfect_season.board.generate_board -- what actually
+    runs unless COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=true) never
+    captures a team_id on its SpinPrompts at all (the interim dataset,
+    data/game/interim/courtbuilder_team_seasons.v3.json, only carries
+    franchise_display_name, e.g. "Chicago Bulls" -- no abbreviation). Rather
+    than thread a new team_id field through SpinPrompt/board.py/state.py
+    just for this, this name-keyed index lets get_team_logo_url_by_name
+    resolve a logo straight from the same real, already-verified
+    team_assets.v2.json entries used elsewhere -- no new data, no
+    fabrication, just a second lookup key into the existing manifest."""
+    global _TEAM_BY_NAME_CACHE
+    if _TEAM_BY_NAME_CACHE is None:
+        _TEAM_BY_NAME_CACHE = {t["team_name"]: t for t in _load_team_assets().values() if t.get("team_name")}
+    return _TEAM_BY_NAME_CACHE
+
+
 def clear_caches() -> None:
     """Used in tests."""
-    global _PLAYER_CACHE, _TEAM_CACHE
+    global _PLAYER_CACHE, _TEAM_CACHE, _TEAM_BY_NAME_CACHE
     _PLAYER_CACHE = None
     _TEAM_CACHE = None
+    _TEAM_BY_NAME_CACHE = None
 
 
 def get_player_headshot_url(player_slug: str) -> Optional[str]:
@@ -61,6 +81,18 @@ def get_player_headshot_url(player_slug: str) -> Optional[str]:
 
 def get_team_logo_url(team_id: str) -> Optional[str]:
     entry = _load_team_assets().get(team_id)
+    if not entry or entry.get("resolution_status") != "resolved":
+        return None
+    return entry.get("logo_url")
+
+
+def get_team_logo_url_by_name(franchise_display_name: Optional[str]) -> Optional[str]:
+    """Same contract as get_team_logo_url, keyed by the real franchise
+    display name (e.g. "Chicago Bulls") instead of a team_id -- see
+    _load_team_assets_by_name's docstring for why this exists."""
+    if not franchise_display_name:
+        return None
+    entry = _load_team_assets_by_name().get(franchise_display_name)
     if not entry or entry.get("resolution_status") != "resolved":
         return None
     return entry.get("logo_url")

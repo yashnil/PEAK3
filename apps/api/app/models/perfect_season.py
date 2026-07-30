@@ -206,6 +206,10 @@ class CourtSlotPublic(BaseModel):
     # Phase 6F Part C: only populated when Settings.ENABLE_EXTERNAL_ASSET_URLS
     # is true (default off).
     headshot_url: Optional[str] = None
+    # Phase 8F: the placed card's real team logo (team_year/exact-season
+    # slots only -- peak-window slots have no single team attached). Same
+    # ENABLE_EXTERNAL_ASSET_URLS gate as headshot_url.
+    team_logo_url: Optional[str] = None
 
 
 class SimulationResultPublic(BaseModel):
@@ -231,14 +235,29 @@ class SimulationResultPublic(BaseModel):
     # Phase 6F Part F: server-computed result explanation -- best_pick is the
     # highest real-score contributor; structural_weakness prioritizes roster
     # CONSTRUCTION issues (named off-position starters, missing wing/big
-    # coverage, thin bench) over "whichever legend scored lowest". None for
-    # legacy peak-window boards (nba_peak.perfect_season.simulation.
-    # simulate_season doesn't compute these -- Peak Draft is unaffected).
+    # coverage, thin bench) over "whichever legend scored lowest". Phase 8H:
+    # now computed for BOTH the exact-season and legacy career-peak-window
+    # paths (nba_peak.perfect_season.simulation._structural_weakness is the
+    # legacy-path counterpart of _structural_weakness_exact) -- previously
+    # only the exact-season path had this depth.
     best_pick: Optional[str] = None
     structural_weakness: Optional[str] = None
+    # Phase 8 pre-loop polish: one-sentence explainer for structural_weakness
+    # (see nba_peak.perfect_season.simulation._COMPONENT_EXPLAINERS) -- e.g.
+    # clarifies that "thin bench depth" is relative to the starters' own
+    # 0-100 all-time-peak scores, not a real-world judgment on the players.
+    # None when the weakness text is already self-explanatory or for legacy
+    # peak-window boards (same scope as structural_weakness itself).
+    structural_weakness_detail: Optional[str] = None
     # Phase 7A Part F: "weakness" | "ceiling_limiter" -- drives whether the
     # UI prefixes structural_weakness with "Weakness:" or "Ceiling limiter:".
     weakness_framing: Optional[str] = None
+    # Phase 8H: "what PEAK3 would have picked" post-run recap -- see
+    # nba_peak.perfect_season.schemas.SimulationResult.peak_picks_recap and
+    # state.py::_compute_peak_picks_recap for the full contract. Only ever
+    # populated once result_ready (the same reveal gate as every other
+    # score-bearing field here).
+    peak_picks_recap: Optional[list[dict]] = None
 
 
 class ProvisionalRecordRange(BaseModel):
@@ -371,3 +390,15 @@ class CourtBuilderReadinessResponse(BaseModel):
     supported_franchise_count: int = 0
     teams_represented_in_spinner: list[str] = []
     seasons_represented_in_spinner: list[str] = []
+
+    # Phase 8I: franchise_display_name -> resolved logo URL, for every name
+    # in interim_team_franchise_names / experimental_team_year_franchise_names
+    # that actually has one -- lets the spin ceremony's reel show a real team
+    # logo on EVERY visible item while it's ticking, not just the one team
+    # that ends up landed (see SpinStage.tsx's ReelStrip). Same resolved-only,
+    # never-fabricated contract as the existing per-spin team_logo_url, and
+    # empty whenever Settings.ENABLE_EXTERNAL_ASSET_URLS is off -- names with
+    # no resolved entry are simply absent from this map, never given a
+    # placeholder/broken URL (the frontend already has a premium initials
+    # fallback for exactly this case).
+    team_logo_urls: dict[str, str] = {}

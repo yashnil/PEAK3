@@ -54,6 +54,7 @@ from app.models.perfect_season import (
 from app.repositories.leaderboard_protocols import DuplicateRunSubmission, PerfectSeasonRun
 from app.services.perfect_season import state as state_machine
 from app.services.perfect_season.state import CourtError
+from nba_peak.perfect_season.assets import get_team_logo_url_by_name
 from nba_peak.perfect_season.board import coverage_summary, experimental_team_year_summary, interim_team_summary
 from nba_peak.perfect_season.config import SLOT_TYPES, SUPPORTED_MODES
 from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME, resolve_player_season_card
@@ -101,6 +102,13 @@ async def get_readiness(
         mode = "apex_1y"
     coverage = coverage_summary(mode)
     team_year_summary = experimental_team_year_summary()
+    team_logo_urls: dict[str, str] = {}
+    if settings.ENABLE_EXTERNAL_ASSET_URLS:
+        all_names = set(summary["franchise_names"]) | set(team_year_summary["franchise_names"])
+        for name in all_names:
+            url = get_team_logo_url_by_name(name)
+            if url:
+                team_logo_urls[name] = url
     return CourtBuilderReadinessResponse(
         readiness_level=settings.COURTBUILDER_READINESS_LEVEL,
         courtbuilder_enabled=settings.COURTBUILDER_ENABLED,
@@ -128,6 +136,7 @@ async def get_readiness(
         supported_franchise_count=team_year_summary.get("franchise_count", 0),
         teams_represented_in_spinner=team_year_summary.get("franchise_ids", []),
         seasons_represented_in_spinner=team_year_summary.get("seasons_represented", []),
+        team_logo_urls=team_logo_urls,
     )
 
 

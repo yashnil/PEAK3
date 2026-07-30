@@ -6,8 +6,15 @@ import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 
+// Phase 8E: "Play" used to point straight at /arena/daily -- the legacy
+// Peak Draft daily hub -- so reaching the flagship 82-0 Peak Season mode
+// from the persistent header always required an extra, unlabeled "Back to
+// Arena" detour. /arena (the hub) already puts the CourtBuilder flagship
+// front and center (server-checked via courtBuilderEnabled, gracefully
+// degrades to the legacy modes list if it's off) -- one real click, no
+// dead end, from every page in the app.
 const NAV_LINKS = [
-  { href: "/arena/daily", label: "Play" },
+  { href: "/arena", label: "Play" },
   { href: "/rankings", label: "Rankings" },
   { href: "/methodology", label: "Methodology" },
   { href: "/about", label: "About" },

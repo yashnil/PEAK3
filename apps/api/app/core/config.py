@@ -118,16 +118,28 @@ class Settings(BaseSettings):
     # an anon subject), never requires a signed-in account.
     COURTBUILDER_ALPHA_ALLOWLIST: list[str] = []
 
-    # Phase 6A: experimental team+YEAR (exact season, e.g. "2015-16") spins,
-    # replacing team+decade as the product direction. Independent of
-    # COURTBUILDER_TEAM_SPIN_ENABLED -- gates a separate, narrower-coverage
-    # engine (nba_peak.perfect_season.board.generate_team_year_board) that
-    # reads data/game/experimental/player_pool_1500/courtbuilder_team_year.
-    # experimental.v0.json. Deliberately never used for the official/global
-    # CourtBuilder mode while coverage is this narrow (currently 3 exact
-    # Golden State Warriors seasons only) -- see
-    # docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md.
-    COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED: bool = False
+    # Phase 6A: team+YEAR (exact season, e.g. "2015-16") spins -- the real
+    # flagship engine (nba_peak.perfect_season.board.generate_team_year_board),
+    # reading data/game/experimental/player_pool_1500/courtbuilder_team_year.
+    # experimental.v0.json. Independent of COURTBUILDER_TEAM_SPIN_ENABLED.
+    #
+    # Phase 8F: flipped default False -> True. This flag's own comment used
+    # to say "deliberately never used for the official/global CourtBuilder
+    # mode while coverage is this narrow (currently 3 exact Golden State
+    # Warriors seasons only)" -- that was true when the flag was introduced,
+    # but the dataset has since grown to 1,314 rollable team-seasons and
+    # nobody flipped the default to match. Root cause of a real regression
+    # report: a normal local run with only COURTBUILDER_ENABLED/
+    # COURTBUILDER_TEAM_SPIN_ENABLED set (the flags this project's own docs
+    # told developers to use) silently fell back to the old, tiny interim
+    # team_decade/exact_team_season engine (~19 entries, era-level "1980s"
+    # spins, a handful of curated legends per entry) while the UI still
+    # said "Experimental exact-season mode" -- misleading, and nowhere near
+    # flagship quality. The broad engine is now the default; the interim
+    # engine remains reachable (COURTBUILDER_TEAM_SPIN_ENABLED alone, with
+    # this flag explicitly set false) as a clearly-secondary fallback, not
+    # the flagship path. See docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md.
+    COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED: bool = True
 
     # Phase 6F Part C: render real player/team image URLs (ESPN CDN, sourced
     # from data/game/assets/{player,team}_assets.v2.json -- see

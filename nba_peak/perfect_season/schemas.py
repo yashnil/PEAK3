@@ -160,6 +160,15 @@ class SimulationResult:
     # module docstring's "never blame a strong player for a fit problem" rule.
     best_pick: str | None = None
     structural_weakness: str | None = None
+    # Phase 8 pre-loop polish: one-sentence plain-English explainer for
+    # structural_weakness -- see simulation.py::_COMPONENT_EXPLAINERS. Exists
+    # because a bare label like "thin bench depth" reads as a real basketball
+    # insult on its own; the detail clarifies it's relative to PEAK3's 0-100
+    # all-time-peak scale, not an absolute real-world judgment. None when the
+    # weakness text is already fully self-explanatory (a named off-position
+    # starter, a data-coverage gap, or the below-contender bare-name
+    # fallback) or for legacy peak-window boards (same scope as best_pick).
+    structural_weakness_detail: str | None = None
     # Phase 7A Part F: "weakness" | "ceiling_limiter" -- for a contender/
     # dynasty-tier result (wins >= 65), the UI should frame
     # structural_weakness as what's capping the ceiling ("Ceiling limiter:
@@ -167,6 +176,17 @@ class SimulationResult:
     # level nothing about the roster is actually bad. None for legacy
     # peak-window boards (same scope as best_pick/structural_weakness).
     weakness_framing: str | None = None
+    # Phase 8H: "what PEAK3 would have picked" recap -- one entry per round,
+    # computed post-completion only (result_ready already reveals every
+    # placed card's real score; this extends the same reveal to the
+    # UNPICKED candidates from each round, which is new information but
+    # never shown before the roster is locked -- see
+    # state.py::_compute_peak_picks_recap). None for a game that hasn't
+    # completed. Each entry is a plain dict (not a further-nested dataclass,
+    # matching LineupFitComponents.as_dict()'s existing plain-dict-at-the-
+    # API-boundary convention): round_number, slot_type, picked_player_name,
+    # picked_score, peak_pick_player_name, peak_pick_score, matched (bool).
+    peak_picks_recap: list[dict] | None = None
 
 
 @dataclass

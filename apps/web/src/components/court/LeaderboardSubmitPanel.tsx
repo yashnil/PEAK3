@@ -8,6 +8,13 @@ import { CourtMode, PerfectSeasonRunPublic } from "@/types/perfect-season";
 interface Props {
   gameId: string;
   mode: CourtMode;
+  /** Phase 8C: "complete" | "incomplete" -- when incomplete, the backend
+   * (apps/api/app/api/v1/perfect_season.py::submit_run) always rejects the
+   * submission with `incomplete_score_not_eligible`; this lets the panel
+   * show that state proactively (disabled button + explanation) instead of
+   * only after the user clicks and the request fails. Optional/undefined
+   * for legacy peak-window boards, which are always fully scored. */
+  lineupScoreStatus?: "complete" | "incomplete";
 }
 
 type SubmitPhase = "idle" | "submitting" | "submitted" | "error";
@@ -21,8 +28,9 @@ type SubmitPhase = "idle" | "submitting" | "submitted" | "error";
  * value). Never sends any score/win data itself -- submitRun's body is only
  * { game_id }, the server recomputes everything from the saved game state.
  */
-export default function LeaderboardSubmitPanel({ gameId, mode }: Props) {
+export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus }: Props) {
   const { user } = useAuth();
+  const isIncomplete = lineupScoreStatus === "incomplete";
   const [leaderboardEnabled, setLeaderboardEnabled] = useState<boolean | null>(null);
   const [phase, setPhase] = useState<SubmitPhase>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -94,6 +102,26 @@ export default function LeaderboardSubmitPanel({ gameId, mode }: Props) {
           >
             Sign in
           </a>
+        </div>
+      ) : isIncomplete ? (
+        // Phase 8C: proactive ineligibility -- the backend always rejects
+        // an incomplete-score submission with incomplete_score_not_eligible
+        // (apps/api/app/api/v1/perfect_season.py::submit_run); show that
+        // up front instead of letting the user click a live-looking button
+        // just to get an error back.
+        <div className="flex items-center justify-between gap-3" data-testid="leaderboard-ineligible-incomplete">
+          <span style={{ color: "var(--text-secondary)" }}>
+            This run has one or more cards with no official PEAK3 score yet — only fully-scored
+            rosters are eligible for the global leaderboard.
+          </span>
+          <button
+            disabled
+            className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0 opacity-40 cursor-not-allowed"
+            style={{ background: "var(--bg-elevated)", color: "var(--text-muted)" }}
+            title="Not eligible: one or more cards have no official PEAK3 score yet."
+          >
+            Not eligible yet
+          </button>
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">

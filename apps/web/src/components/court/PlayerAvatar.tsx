@@ -81,6 +81,13 @@ export default function PlayerAvatar({ name, size = 36, imageUrl }: Props) {
     );
   }
 
+  // Phase 8D: replaces the flat color-mix disc with a glossy "medallion"
+  // treatment -- a two-stop radial gradient (reads as a lit sphere rather
+  // than a flat tint), an inset highlight/shade pair (top-left glint, bottom
+  // shadow) for real depth, and an outer halo glow matching the same ring
+  // treatment already used for team badges (SpinStage.tsx) and portrait
+  // medallions (PeakCardCourt.tsx) -- one consistent "premium," not a
+  // placeholder-looking flat circle, everywhere a portrait can't be shown.
   return (
     <div
       aria-hidden="true"
@@ -89,10 +96,16 @@ export default function PlayerAvatar({ name, size = 36, imageUrl }: Props) {
       style={{
         width: size,
         height: size,
-        fontSize: Math.max(10, size * 0.36),
-        background: `color-mix(in srgb, ${tint} 22%, var(--bg-surface))`,
-        color: tint,
-        border: `1.5px solid color-mix(in srgb, ${tint} 55%, transparent)`,
+        fontSize: Math.max(10, size * 0.34),
+        color: "var(--text-primary)",
+        textShadow: "0 1px 2px rgba(0,0,0,0.45)",
+        background: `radial-gradient(circle at 32% 28%, color-mix(in srgb, ${tint} 60%, white 8%) 0%, color-mix(in srgb, ${tint} 40%, var(--bg-surface)) 55%, color-mix(in srgb, ${tint} 22%, var(--bg-elevated)) 100%)`,
+        boxShadow: [
+          "inset 0 1px 1.5px rgba(255,255,255,0.35)",
+          "inset 0 -2px 3px rgba(0,0,0,0.3)",
+          `0 0 0 3px color-mix(in srgb, ${tint} 22%, transparent)`,
+        ].join(", "),
+        border: `1px solid color-mix(in srgb, ${tint} 65%, transparent)`,
       }}
     >
       {initialsFromName(name)}

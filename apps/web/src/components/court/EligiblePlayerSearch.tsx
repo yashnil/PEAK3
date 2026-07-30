@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { SpinCandidate } from "@/types/perfect-season";
 import PlayerAvatar from "./PlayerAvatar";
+import { getTeamColors } from "@/lib/team-colors";
 
 interface Props {
   candidates: SpinCandidate[];
@@ -72,6 +73,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
           // score_source taxonomy) -- shown so it's clear the number isn't
           // this exact team stint's own performance.
           const isSeasonAggregate = c.score_source === "exact_season_aggregate";
+          const teamAccent = getTeamColors(c.team_name).primary;
           return (
             <button
               key={c.player_slug}
@@ -83,6 +85,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
               style={{
                 background: "var(--bg-surface)",
                 border: "1px solid var(--border-default)",
+                borderLeft: `3px solid color-mix(in srgb, ${teamAccent} 55%, transparent)`,
                 color: "var(--text-primary)",
               }}
             >
@@ -91,10 +94,10 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
                   the avatar's initials glyph -- `order:-1` below only
                   reorders visual/flex layout, not DOM/text order. */}
               <div className="min-w-0 flex-1 text-left">
-                <div className="text-sm font-bold truncate">{c.player_name}</div>
+                <div className="text-sm font-bold" style={{ wordBreak: "break-word" }}>{c.player_name}</div>
                 <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-0.5">
                   {c.team_name && c.season && (
-                    <span className="text-[10px] truncate" style={{ color: "var(--text-secondary)" }} data-testid="candidate-team-season">
+                    <span className="text-[10px]" style={{ color: "var(--text-secondary)" }} data-testid="candidate-team-season">
                       {c.team_name} · {c.season}
                     </span>
                   )}
@@ -140,8 +143,15 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
                 </div>
               </div>
 
-              <div style={{ order: -1 }}>
-                <PlayerAvatar name={c.player_name} size={34} imageUrl={c.headshot_url} />
+              <div
+                style={{
+                  order: -1,
+                  padding: 2,
+                  borderRadius: "999px",
+                  background: `color-mix(in srgb, ${teamAccent} 50%, transparent)`,
+                }}
+              >
+                <PlayerAvatar name={c.player_name} size={36} imageUrl={c.headshot_url} />
               </div>
 
               <span

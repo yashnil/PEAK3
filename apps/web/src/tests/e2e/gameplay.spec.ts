@@ -53,9 +53,32 @@ async function startPracticeDraft(page: Page, mode: string, seed = 42): Promise<
 test.describe("Arena landing", () => {
   test("loads with correct heading and CTAs", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await expect(page.locator("h1")).toContainText("Which player had");
-    await expect(page.locator('a[href="/arena/daily"]').first()).toBeVisible();
+    // Phase 8E: the homepage now leads with 82-0 Peak Season (the flagship
+    // mode), not Peak Duel -- and its primary CTA routes straight to
+    // CourtBuilder, not the legacy /arena/daily hub (see
+    // "homepage primary CTA" test below for the full click-through proof).
+    await expect(page.locator("h1")).toContainText("Chase 82-0");
+    await expect(page.locator('[data-testid="home-primary-cta"]')).toBeVisible();
     await expect(page.locator('a[href="/rankings"]').first()).toBeVisible();
+  });
+
+  test("Phase 8E: homepage primary CTA routes to the flagship 82-0 Peak Season experience", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const cta = page.locator('[data-testid="home-primary-cta"]');
+    await expect(cta).toBeVisible();
+    await expect(cta).toHaveAttribute("href", "/arena/court/practice/apex_1y");
+    await Promise.all([page.waitForURL("**/arena/court/practice/apex_1y**"), cta.click()]);
+    await expect(page.locator('[data-testid="court-builder"]')).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("Phase 8E: old /play/daily route still renders without a dead end or hard crash", async ({ page }) => {
+    // Demoted from the primary CTA, but still an intentionally supported
+    // secondary mode (linked from the homepage's "Daily Peak Duel" card) --
+    // must never hard-crash or dead-end even though it's no longer the
+    // default landing spot.
+    await page.goto("/play/daily", { waitUntil: "networkidle" });
+    const hasHardError = await page.locator("h2:has-text('Application error')").isVisible().catch(() => false);
+    expect(hasHardError).toBe(false);
   });
 
   test("navigation links are accessible", async ({ page }) => {
