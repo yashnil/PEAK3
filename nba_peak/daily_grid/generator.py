@@ -76,22 +76,60 @@ MIN_ANSWERS_PER_CELL = 6
 MIN_PLAYERS_PER_CELL = 4
 
 # Composition rules -- see "BOARD QUALITY" above.
-MIN_TEAM_CONSTRAINTS = 2
-MAX_TEAM_CONSTRAINTS = 3
+# Phase 11B composition rules. The Phase 11A set produced technically-fine
+# boards that played flat -- "Center x Nuggets", "All-Star x Heat" -- because
+# nothing stopped a board being three franchises crossed with three broad
+# roles. That is a database lookup, not a puzzle. These rules push every board
+# towards a real decision.
+MIN_TEAM_CONSTRAINTS = 1
+# Capped at 2 (was 3): a third franchise crowds out the categories that make a
+# board interesting, and franchise-heavy boards are where the "just look it
+# up" feeling came from.
+MAX_TEAM_CONSTRAINTS = 2
 MIN_PEAK3_NATIVE = 1          # at least one PEAK3-native (peak/component) axis
+# Two PEAK3-native axes is the target, not the ceiling -- see
+# _PREFER_TWO_NATIVE_UNTIL_ATTEMPT for how the preference is applied without
+# making some dates unsolvable.
+PREFERRED_PEAK3_NATIVE = 2
 MAX_PEAK3_NATIVE = 3
 MIN_CATEGORIES = 4            # distinct categories among the six axes
-MAX_PER_CATEGORY = 3
+MAX_PER_CATEGORY = 2          # was 3 -- no category may own a whole axis
+
+# Every board needs at least one constraint a fan can anchor on that is not a
+# franchise or a position: an award, a playoff outcome, or an era.
+MIN_ANCHOR_CONSTRAINTS = 1
 
 # Categories that a casual fan recognizes without knowing PEAK3 at all.
 _RECOGNIZABLE = frozenset({"team", "award", "era", "position", "outcome"})
 _PEAK3_NATIVE = frozenset({"peak", "component"})
+# "Interesting on their own" -- the categories that carry basketball meaning
+# beyond roster membership and listed height.
+_ANCHOR = frozenset({"award", "outcome", "era"})
+# The two categories that, alone, make a board feel like a lookup table.
+_LOOKUP_FLAVOURED = frozenset({"team", "position"})
 
-# Attempts before giving up on a date. Generation succeeds in well under 100
-# attempts in practice (see tests/test_daily_grid_generator.py), so this is a
-# guard against a future taxonomy change quietly making dates unsolvable, not
-# a routine code path.
-_MAX_ATTEMPTS = 4000
+# A square is only a real decision if several different players are plausibly
+# its best answer. Measured as: at least this many DISTINCT players have a
+# qualifying season worth at least _STRONG_OPTION_RATIO of the square's best.
+MIN_STRONG_OPTIONS = 3
+_STRONG_OPTION_RATIO = 0.70
+
+# How many squares one player may be the single best answer to. Without this,
+# boards appear where Jordan or LeBron is the right answer nearly everywhere
+# and the "no repeated player" rule turns into a chore rather than a choice.
+MAX_SQUARES_ONE_PLAYER_TOPS = 3
+
+# Attempts spent insisting on PREFERRED_PEAK3_NATIVE before settling for
+# MIN_PEAK3_NATIVE. Deterministic (it is a function of the attempt counter, not
+# of wall-clock), so the preference never costs a date its board.
+_PREFER_TWO_NATIVE_UNTIL_ATTEMPT = 2000
+
+# Attempts before giving up on a date. The Phase 11B composition rules are
+# much tighter than 11A's -- the worst date in a 365-day sample now needs
+# ~1,900 attempts (it was ~420) -- so the ceiling is raised to keep real
+# headroom above the _PREFER_TWO_NATIVE_UNTIL_ATTEMPT relaxation point rather
+# than sitting just above the observed worst case.
+_MAX_ATTEMPTS = 6000
 
 
 class InvalidGridDate(ValueError):
@@ -260,8 +298,11 @@ def rarity_bucket(answer_count: int) -> str:
 # so the three labels split roughly evenly across the year rather than
 # collapsing into one bucket -- "hard" has to be rare enough to mean something
 # and common enough to ever appear.
-_DIFFICULTY_HARD_BELOW = 47
-_DIFFICULTY_MEDIUM_BELOW = 69
+# Re-measured for the Phase 11B composition rules (P33 = 53, P66 = 91 over a
+# 365-day sample); the tighter rules shifted the distribution, and stale
+# thresholds would have quietly relabelled two thirds of the year "easy".
+_DIFFICULTY_HARD_BELOW = 53
+_DIFFICULTY_MEDIUM_BELOW = 91
 
 
 def _difficulty_label(cells: Sequence[GridCell]) -> str:
@@ -283,8 +324,17 @@ def _difficulty_label(cells: Sequence[GridCell]) -> str:
 # Composition + solvability checks
 # ---------------------------------------------------------------------------
 
-def _composition_ok(rows: Sequence[Constraint], cols: Sequence[Constraint]) -> bool:
-    """Cheap structural rejects, run before any answer-set work."""
+def _composition_ok(
+    rows: Sequence[Constraint], cols: Sequence[Constraint], attempt: int = 1
+) -> bool:
+    """Cheap structural rejects, run before any answer-set work.
+
+    `attempt` drives one soft preference: for the first
+    _PREFER_TWO_NATIVE_UNTIL_ATTEMPT attempts a board must carry two PEAK3-
+    native axes, after which one is accepted. Expressed as a function of the
+    attempt counter rather than a separate pass so the whole generator stays a
+    pure function of the seed.
+    """
     axes = list(rows) + list(cols)
 
     ids = {c.id for c in axes}
@@ -310,6 +360,22 @@ def _composition_ok(rows: Sequence[Constraint], cols: Sequence[Constraint]) -> b
 
     native_count = sum(1 for cat in categories if cat in _PEAK3_NATIVE)
     if not (MIN_PEAK3_NATIVE <= native_count <= MAX_PEAK3_NATIVE):
+        return False
+    if attempt <= _PREFER_TWO_NATIVE_UNTIL_ATTEMPT and native_count < PREFERRED_PEAK3_NATIVE:
+        return False
+
+    # At least one award / playoff outcome / era. Without this a board can be
+    # all franchises, positions and thresholds -- every square answerable by
+    # scanning a roster, none of them by knowing basketball.
+    anchor_count = sum(1 for cat in categories if cat in _ANCHOR)
+    if anchor_count < MIN_ANCHOR_CONSTRAINTS:
+        return False
+
+    # Never a board built only from "which roster" and "how tall". Those two
+    # categories together are exactly the lookup-table feeling this pass is
+    # removing, so they may not account for more than half the axes.
+    lookup_count = sum(1 for cat in categories if cat in _LOOKUP_FLAVOURED)
+    if lookup_count > len(axes) // 2:
         return False
 
     # A board must not be solvable purely by PEAK3 literacy, nor purely by
@@ -364,17 +430,39 @@ def _build_cells(
     """
     answer_ids = pool.frame["answer_id"].to_numpy()
     player_slugs = pool.frame["player_slug"].to_numpy()
+    prime_scores = pool.frame["prime_score"].to_numpy()
 
     cells: list[GridCell] = []
+    # Who is the single best answer to each square. A player topping too many
+    # squares means the board is really about one GOAT -- see
+    # MAX_SQUARES_ONE_PLAYER_TOPS.
+    top_answer_slugs: list[str] = []
+
     for row_index, row_constraint in enumerate(rows):
         for col_index, col_constraint in enumerate(cols):
             mask = masks[row_constraint.id] & masks[col_constraint.id]
             count = int(mask.sum())
             if count < MIN_ANSWERS_PER_CELL:
                 return None
-            slugs = frozenset(player_slugs[mask].tolist())
+            cell_slugs = player_slugs[mask]
+            slugs = frozenset(cell_slugs.tolist())
             if len(slugs) < MIN_PLAYERS_PER_CELL:
                 return None
+
+            # Does this square pose a real choice? A cell's rarity multiplier
+            # is constant, so a season's value here is proportional to its
+            # prime_score -- meaning "several players could plausibly be the
+            # best answer" reduces to counting distinct players holding a
+            # season within _STRONG_OPTION_RATIO of the square's best. A square
+            # with one runaway answer and a long tail of weak ones is not a
+            # decision, it is a recall test.
+            cell_scores = prime_scores[mask]
+            best_score = cell_scores.max()
+            strong = cell_slugs[cell_scores >= _STRONG_OPTION_RATIO * best_score]
+            if len(set(strong.tolist())) < MIN_STRONG_OPTIONS:
+                return None
+            top_answer_slugs.append(str(cell_slugs[cell_scores.argmax()]))
+
             cells.append(
                 GridCell(
                     row=row_index,
@@ -385,6 +473,10 @@ def _build_cells(
                     player_slugs=slugs,
                 )
             )
+
+    for slug in set(top_answer_slugs):
+        if top_answer_slugs.count(slug) > MAX_SQUARES_ONE_PLAYER_TOPS:
+            return None
 
     if not _solvable_with_distinct_players([cell.player_slugs for cell in cells]):
         return None
@@ -422,7 +514,7 @@ def generate_board(
         picked = rng.sample(taxonomy, 2 * GRID_SIZE)
         rows, cols = picked[:GRID_SIZE], picked[GRID_SIZE:]
 
-        if not _composition_ok(rows, cols):
+        if not _composition_ok(rows, cols, attempt):
             continue
 
         cells = _build_cells(rows, cols, grid_pool, masks)

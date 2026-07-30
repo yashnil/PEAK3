@@ -42,7 +42,10 @@ OTHER_DATE = "2026-03-15"
 # file exists to catch.
 CELL_KEYS = {"row", "col", "row_constraint_id", "col_constraint_id", "rarity_bucket"}
 CONSTRAINT_KEYS = {"id", "label", "short_label", "category", "description"}
-CARD_KEYS = {
+# Phase 11B: the shape a player-season takes BEFORE it is locked -- identity
+# only, no score. Search hits and submit responses both use it, so a score can
+# never be read off a candidate or off a rejected guess.
+IDENTITY_KEYS = {
     "id",
     "player_slug",
     "player_name",
@@ -50,9 +53,10 @@ CARD_KEYS = {
     "team",
     "team_name",
     "position",
-    "prime_score",
     "label",
 }
+# The revealed shape, valid only in the post-completion result comparison.
+CARD_KEYS = IDENTITY_KEYS | {"prime_score"}
 CELL_SCORE_KEYS = {
     "arena_points",
     "quality_points",
@@ -224,7 +228,7 @@ def test_search_returns_candidate_seasons(client: TestClient):
     assert body["query"] == "jordan"
     assert len(body["results"]) > 0
     for hit in body["results"]:
-        assert set(hit) == CARD_KEYS | {"eligible"}
+        assert set(hit) == IDENTITY_KEYS | {"eligible"}
         assert "jordan" in hit["player_name"].lower()
     # Unscoped search cannot say anything about eligibility.
     assert all(hit["eligible"] is None for hit in body["results"])
@@ -350,7 +354,9 @@ def test_valid_answer_scores_the_cell(client: TestClient):
     assert "reason" not in body
     assert "reason_code" not in body
 
-    assert set(body["player_season"]) == CARD_KEYS
+    # Identity only, even on a VALID answer: the score is revealed through
+    # cell_score.quality_points, which a rejected guess never receives.
+    assert set(body["player_season"]) == IDENTITY_KEYS
     assert body["player_season"]["id"] == answer.id
     assert body["player_season"]["label"] == answer.label
 
@@ -555,3 +561,201 @@ def test_constraints_cover_every_id_a_board_can_use(client: TestClient):
     board = client.get(BOARD_URL, params={"date": FIXED_DATE}).json()
     for constraint in board["rows"] + board["cols"]:
         assert constraint["id"] in known
+
+
+# ---------------------------------------------------------------------------
+# Phase 11B — no score before a pick is locked
+# ---------------------------------------------------------------------------
+
+def _complete_board_payload(date: str = FIXED_DATE):
+    """Nine valid answers with nine distinct players, from the server-side key."""
+    from nba_peak.daily_grid.search import board_reference_solution
+
+    board = get_board(date)
+    solution = board_reference_solution(board)
+    assert solution is not None
+    return [
+        {"row": cell.row, "col": cell.col, "answer_id": ps.id}
+        for cell, ps in zip(board.cells, solution)
+    ]
+
+
+def test_search_response_never_carries_a_score(client: TestClient):
+    """The mode asks the player to maximise total PEAK3 score, so a visible
+    per-candidate rating would BE the answer -- sort by eye, click the biggest
+    number, no basketball knowledge required."""
+    body = client.get(
+        SEARCH_URL, params={"q": "Reggie Miller", "date": FIXED_DATE, "row": 0, "col": 1}
+    ).json()
+    assert body["results"]
+    for hit in body["results"]:
+        assert "prime_score" not in hit
+        assert set(hit) == IDENTITY_KEYS | {"eligible"}
+    assert "prime_score" not in response_text(client, SEARCH_URL, {"q": "Reggie Miller"})
+
+
+def response_text(client: TestClient, url: str, params: dict) -> str:
+    return client.get(url, params=params).text
+
+
+def test_search_results_are_not_ordered_by_score(client: TestClient):
+    """Hiding the number but keeping best-first order would leak the same
+    thing -- the player would click the top row every time.
+
+    Eligible hits still sort ahead of ineligible ones (that is the search's
+    whole job once a query names a player), so the chronological ordering is
+    asserted WITHIN each group rather than across the list.
+    """
+    body = client.get(
+        SEARCH_URL,
+        params={"q": "Reggie Miller", "date": FIXED_DATE, "row": 0, "col": 1, "limit": MAX_LIMIT},
+    ).json()
+    results = body["results"]
+    assert results
+
+    for eligible in (True, False):
+        seasons = [hit["season"] for hit in results if hit["eligible"] is eligible]
+        assert seasons == sorted(seasons), f"eligible={eligible} not in career order"
+
+    # And the two groups do not interleave.
+    flags = [hit["eligible"] for hit in results]
+    assert flags == sorted(flags, key=lambda e: 0 if e else 1)
+
+
+def test_rejected_answer_does_not_reveal_its_score(client: TestClient):
+    """Otherwise any square is a free score oracle: submit a season you know
+    will fail, read its rating back, optimise the rest of the board."""
+    pool = load_pool()
+    board = get_board(FIXED_DATE)
+    valid_ids = set(board.cell(0, 0).answer_ids)
+    wrong = next(ps for ps in pool.seasons if ps.id not in valid_ids)
+
+    response = client.post(
+        ANSWER_URL,
+        json={"date": FIXED_DATE, "row": 0, "col": 0, "answer_id": wrong.id},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["valid"] is False
+    assert body["reason"]
+    assert set(body["player_season"]) == IDENTITY_KEYS
+    assert "prime_score" not in body["player_season"]
+    assert "cell_score" not in body
+    assert "prime_score" not in response.text
+
+
+def test_valid_answer_reveals_the_score_only_through_cell_score(client: TestClient):
+    answer = _known_good_answer(FIXED_DATE, 0, 0)
+    body = client.post(
+        ANSWER_URL,
+        json={"date": FIXED_DATE, "row": 0, "col": 0, "answer_id": answer.id},
+    ).json()
+    assert body["valid"] is True
+    assert "prime_score" not in body["player_season"]
+    assert body["cell_score"]["quality_points"] == pytest.approx(answer.prime_score, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# Phase 11B — POST /result (today's maximum)
+# ---------------------------------------------------------------------------
+
+RESULT_URL = "/api/v1/daily-grid/result"
+
+
+def test_result_returns_the_comparison_for_a_completed_board(client: TestClient):
+    response = client.post(
+        RESULT_URL,
+        json={"date": FIXED_DATE, "filled": _complete_board_payload(), "incorrect_attempts": 4},
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["board_id"] == f"daily-grid-v1-{FIXED_DATE}"
+    assert body["user_total"] > 0
+    assert body["optimal_total"] >= body["user_total"]
+    assert 0 < body["percent_of_best"] <= 100.0
+    assert body["exact_optimal"] is True
+    assert body["incorrect_attempts"] == 4
+    assert len(body["cells"]) == GRID_SIZE * GRID_SIZE
+
+    for cell in body["cells"]:
+        # Post-completion, the REVEALED card shape is correct -- the puzzle is
+        # over and naming the better answer is the whole point of the screen.
+        assert set(cell["user_player_season"]) == CARD_KEYS
+        assert set(cell["optimal_player_season"]) == CARD_KEYS
+        assert cell["points_left"] >= 0
+
+
+def test_result_optimal_uses_nine_distinct_players(client: TestClient):
+    body = client.post(
+        RESULT_URL, json={"date": FIXED_DATE, "filled": _complete_board_payload()}
+    ).json()
+    slugs = {cell["optimal_player_season"]["player_slug"] for cell in body["cells"]}
+    assert len(slugs) == GRID_SIZE * GRID_SIZE
+
+
+def test_result_is_deterministic(client: TestClient):
+    payload = {"date": FIXED_DATE, "filled": _complete_board_payload()}
+    assert client.post(RESULT_URL, json=payload).json() == client.post(RESULT_URL, json=payload).json()
+
+
+@pytest.mark.parametrize("kept", [1, 5, 8])
+def test_incomplete_board_cannot_fetch_the_maximum(client: TestClient, kept: int):
+    """The answer key is behind this route. Claiming a finished board must not
+    be enough to unlock it."""
+    response = client.post(
+        RESULT_URL, json={"date": FIXED_DATE, "filled": _complete_board_payload()[:kept]}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "board_incomplete"
+    assert "optimal" not in response.text
+
+
+def test_a_board_of_junk_answers_cannot_fetch_the_maximum(client: TestClient):
+    filled = [
+        {"row": r, "col": c, "answer_id": "not-a-real-player-season"}
+        for r in range(GRID_SIZE)
+        for c in range(GRID_SIZE)
+    ]
+    response = client.post(RESULT_URL, json={"date": FIXED_DATE, "filled": filled})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "board_not_valid"
+
+
+def test_a_board_reusing_one_player_cannot_fetch_the_maximum(client: TestClient):
+    """Each square would pass on its own; the board is still illegal, and the
+    route re-checks the unique-player rule across the whole thing."""
+    filled = _complete_board_payload()
+    filled[1]["answer_id"] = filled[0]["answer_id"]
+    response = client.post(RESULT_URL, json={"date": FIXED_DATE, "filled": filled})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "board_not_valid"
+
+
+def test_result_rejects_duplicate_squares(client: TestClient):
+    filled = _complete_board_payload()
+    filled[8] = dict(filled[0])
+    response = client.post(RESULT_URL, json={"date": FIXED_DATE, "filled": filled})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "board_incomplete"
+
+
+def test_result_rejects_malformed_date(client: TestClient):
+    response = client.post(
+        RESULT_URL, json={"date": "2026-02-30", "filled": _complete_board_payload()}
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "invalid_grid_date"
+
+
+def test_result_rejects_oversized_payload(client: TestClient):
+    filled = _complete_board_payload() * 3
+    response = client.post(RESULT_URL, json={"date": FIXED_DATE, "filled": filled})
+    assert response.status_code == 422
+
+
+def test_board_payload_still_hides_the_maximum(client: TestClient):
+    """The result route is the only place today's maximum may appear."""
+    text = client.get(BOARD_URL, params={"date": FIXED_DATE}).text
+    for forbidden in ("optimal", "user_total", "percent_of_best", "biggest_miss"):
+        assert forbidden not in text

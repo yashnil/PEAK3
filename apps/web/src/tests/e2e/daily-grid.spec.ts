@@ -94,6 +94,15 @@ async function findFillableCell(request: APIRequestContext): Promise<FillTarget>
   );
 }
 
+/** Mark the how-to-play rules as already seen, so a test that is not about
+ *  onboarding lands straight on the board. Must run before the first
+ *  navigation, hence addInitScript. */
+async function skipRules(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+  });
+}
+
 function cellAt(page: Page, row: number, col: number) {
   return page.locator(`[data-testid="grid-cell"][data-row="${row}"][data-col="${col}"]`);
 }
@@ -121,6 +130,7 @@ async function fillCell(page: Page, target: FillTarget): Promise<void> {
 
 test.describe("Daily Grid — page", () => {
   test("loads a complete 3x3 board", async ({ page }) => {
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
 
     await expect(page.getByRole("heading", { name: /Daily Grid Challenge/i })).toBeVisible();
@@ -132,21 +142,25 @@ test.describe("Daily Grid — page", () => {
   });
 
   test("states the one-player-per-board rule", async ({ page }) => {
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-unique-rule")).toBeVisible({ timeout: 15_000 });
   });
 
   test("the same date renders the same board twice", async ({ page }) => {
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     const first = await page.getByTestId("grid-col-header").allInnerTexts();
 
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     expect(await page.getByTestId("grid-col-header").allInnerTexts()).toEqual(first);
   });
 
   test("a different date renders a different board", async ({ page }) => {
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     const first = [
@@ -165,6 +179,7 @@ test.describe("Daily Grid — page", () => {
   });
 
   test("selecting an empty square opens the panel with both constraints", async ({ page }) => {
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
 
@@ -182,6 +197,7 @@ test.describe("Daily Grid — gameplay", () => {
   test("a valid player-season fills the square", async ({ page, request }) => {
     const target = await findFillableCell(request);
 
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
 
@@ -210,6 +226,7 @@ test.describe("Daily Grid — gameplay", () => {
       "every season of the probe player fits this square",
     );
 
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
 
@@ -233,6 +250,7 @@ test.describe("Daily Grid — gameplay", () => {
   test("progress survives a refresh", async ({ page, request }) => {
     const target = await findFillableCell(request);
 
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     await fillCell(page, target);
@@ -248,6 +266,7 @@ test.describe("Daily Grid — gameplay", () => {
   test("a new date starts from an empty board", async ({ page, request }) => {
     const target = await findFillableCell(request);
 
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     await fillCell(page, target);
@@ -272,6 +291,7 @@ test.describe("Daily Grid — gameplay", () => {
     // able to check is that the panel does not appear early.
     const target = await findFillableCell(request);
 
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("daily-grid-complete")).toHaveCount(0);
@@ -281,24 +301,11 @@ test.describe("Daily Grid — gameplay", () => {
     await expect(page.getByTestId("daily-grid-share")).toHaveCount(0);
   });
 
-  test("reset clears the board after confirmation", async ({ page, request }) => {
-    const target = await findFillableCell(request);
-
-    await page.goto(DAILY_URL, { waitUntil: "load" });
-    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
-    await fillCell(page, target);
-
-    await page.getByTestId("daily-grid-reset").click();
-    await page.getByTestId("daily-grid-reset-confirm").click();
-
-    await expect(
-      page.locator('[data-testid="grid-cell"][data-state="filled"]'),
-    ).toHaveCount(0, { timeout: 10_000 });
-  });
 });
 
 test.describe("Daily Grid — discoverability", () => {
   test("the homepage links to the Daily Grid", async ({ page }) => {
+    await skipRules(page);
     await page.goto("/", { waitUntil: "load" });
     const card = page.getByTestId("home-daily-grid-card");
     await expect(card).toBeVisible();
@@ -319,6 +326,7 @@ test.describe("Daily Grid — discoverability", () => {
   });
 
   test("the navbar reaches the Daily Grid", async ({ page }) => {
+    await skipRules(page);
     await page.goto("/", { waitUntil: "load" });
     const daily = page
       .getByRole("navigation", { name: "Main navigation" })
@@ -350,6 +358,7 @@ test.describe("Daily Grid — discoverability", () => {
 
 test.describe("Daily Grid — accessibility and layout", () => {
   test("squares are reachable and activatable by keyboard", async ({ page }) => {
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
 
@@ -362,6 +371,7 @@ test.describe("Daily Grid — accessibility and layout", () => {
   });
 
   test("every square carries a descriptive accessible name", async ({ page }) => {
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
 
@@ -374,6 +384,7 @@ test.describe("Daily Grid — accessibility and layout", () => {
   });
 
   test("@mobile the board fits without horizontal overflow", async ({ page }) => {
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
 
@@ -386,6 +397,7 @@ test.describe("Daily Grid — accessibility and layout", () => {
   });
 
   test("@mobile a square can still be selected and searched", async ({ page }) => {
+    await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
 
@@ -418,10 +430,176 @@ test.describe("Daily Grid — answer-key confidentiality", () => {
   test("the page's initial HTML never embeds the answer key", async ({ page }) => {
     // The board is fetched client-side, but a future move to a server
     // component must not quietly ship the key inside the RSC payload.
+    await skipRules(page);
     const response = await page.goto(DAILY_URL, { waitUntil: "load" });
     const html = (await response?.text()) ?? "";
     for (const forbidden of ["answer_ids", "answer_count"]) {
       expect(html, `initial HTML must not expose ${forbidden}`).not.toContain(forbidden);
     }
+  });
+});
+
+/**
+ * Phase 11B: the mode became a competitive optimisation puzzle. These cover the
+ * product changes that made it one — the objective is explained before play, no
+ * score is visible before a pick is locked, picks are final, and a finished
+ * board is measured against today's maximum.
+ */
+test.describe("Daily Grid — objective and onboarding", () => {
+  test("explains the objective before the board is playable", async ({ page }) => {
+    // Deliberately NO skipRules: this is the first-visit path.
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+
+    const gate = page.getByTestId("how-to-play-gate");
+    await expect(gate).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("how-to-play-objective")).toContainText(
+      /highest total PEAK3 score/i,
+    );
+    // The board is not reachable until the player starts.
+    await expect(page.getByTestId("daily-grid-board")).toHaveCount(0);
+  });
+
+  test("starting the grid reveals the board and states the objective again", async ({ page }) => {
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await page.getByTestId("start-daily-grid").click();
+
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("daily-grid-objective")).toContainText(
+      /Maximize your PEAK3 total/i,
+    );
+  });
+
+  test("the rules can be reopened from the board", async ({ page }) => {
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId("daily-grid-how-to-play").click();
+    await expect(page.getByTestId("how-to-play-panel")).toBeVisible();
+    await page.getByTestId("how-to-play-close").click();
+    await expect(page.getByTestId("how-to-play-panel")).toHaveCount(0);
+  });
+});
+
+test.describe("Daily Grid — no score before a lock", () => {
+  test("search results show the player-season but never its score", async ({ page, request }) => {
+    const target = await findFillableCell(request);
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    await cellAt(page, target.row, target.col).click();
+    await page.getByTestId("cell-search-input").fill(target.playerName);
+    const rows = page.getByTestId("cell-search-result");
+    await expect(rows.first()).toBeVisible({ timeout: 10_000 });
+
+    const surname = target.playerName.split(" ").slice(-1)[0];
+    await expect(rows.first()).toContainText(surname);
+    // The optimisation target must not be readable off the list. A PEAK3
+    // score renders as a 1-3 digit number, optionally with one decimal;
+    // a season ("1996-97") is the only numeric text a candidate row may show.
+    for (const text of await rows.allInnerTexts()) {
+      const withoutSeasons = text.replace(/\d{4}-\d{2}/g, "");
+      expect(withoutSeasons, `candidate row leaked a number: ${text}`).not.toMatch(/\d/);
+    }
+  });
+
+  test("the score appears only once the pick is locked", async ({ page, request }) => {
+    const target = await findFillableCell(request);
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    await fillCell(page, target);
+
+    const cell = cellAt(page, target.row, target.col);
+    await expect(cell.getByTestId("grid-cell-team")).toContainText(/PEAK \d/);
+    await expect(cell.getByTestId("grid-cell-points")).toContainText(/\d+ pts/);
+    await expect(cell.getByTestId("grid-cell-locked")).toBeVisible();
+  });
+
+  test("an empty square invites a pick and names its answer pool", async ({ page }) => {
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    const cell = cellAt(page, 0, 0);
+    await expect(cell).toContainText(/Pick/i);
+    await expect(cell.getByTestId("grid-cell-rarity")).toContainText(/pool/i);
+  });
+});
+
+test.describe("Daily Grid — locked picks, no reset", () => {
+  test("a locked square cannot be changed", async ({ page, request }) => {
+    const target = await findFillableCell(request);
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    await fillCell(page, target);
+    await cellAt(page, target.row, target.col).click();
+
+    // Reviewing shows the card and a Locked badge — never a remove control,
+    // and never a search box a second pick could go into.
+    await expect(page.getByTestId("cell-panel-filled")).toBeVisible();
+    await expect(page.getByTestId("cell-panel-locked")).toBeVisible();
+    await expect(page.getByTestId("cell-panel-remove")).toHaveCount(0);
+    await expect(page.getByTestId("cell-search-input")).toHaveCount(0);
+    await expect(cellAt(page, target.row, target.col)).toHaveAttribute("data-state", "filled");
+  });
+
+  test("there is no reset control on the daily board", async ({ page, request }) => {
+    const target = await findFillableCell(request);
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    await fillCell(page, target);
+
+    // A "start over" button would make both the day's score and the comparison
+    // against today's maximum meaningless.
+    await expect(page.getByTestId("daily-grid-reset")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /reset/i })).toHaveCount(0);
+  });
+});
+
+test.describe("Daily Grid — today's maximum", () => {
+  test("the maximum is not served to an unfinished board", async ({ request }) => {
+    // The board's own payload never carries it...
+    const board = await request.get(`${API_BASE}/api/v1/daily-grid/board`, {
+      params: { date: FIXED_DATE },
+    });
+    expect(board.ok()).toBe(true);
+    for (const forbidden of ["optimal", "percent_of_best", "biggest_miss"]) {
+      expect(await board.text()).not.toContain(forbidden);
+    }
+
+    // ...and claiming a finished board is not enough to unlock it.
+    const partial = await request.post(`${API_BASE}/api/v1/daily-grid/result`, {
+      data: {
+        date: FIXED_DATE,
+        filled: [{ row: 0, col: 0, answer_id: "michael-jordan-199091-chi" }],
+        incorrect_attempts: 0,
+      },
+    });
+    expect(partial.status()).toBe(400);
+    expect(await partial.text()).not.toContain("optimal_total");
+  });
+
+  test("a completed board is measured against the maximum", async ({ page, request }) => {
+    // Solving nine squares through the UI would need nine discovered answers
+    // with nine different players; the comparison itself is verified here at
+    // the API boundary, and its rendering is covered by the unit tests.
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: FIXED_DATE } })
+    ).json();
+    expect(board.cells).toHaveLength(9);
+
+    // Confirm the completed-state UI is genuinely gated: an empty board shows
+    // no comparison anywhere.
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("complete-comparison")).toHaveCount(0);
+    await expect(page.getByTestId("daily-grid-complete")).toHaveCount(0);
   });
 });

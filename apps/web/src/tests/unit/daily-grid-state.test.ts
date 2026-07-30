@@ -29,9 +29,8 @@ import {
   usedPlayerSlugs,
   withFilledCell,
   withIncorrectAttempt,
-  withoutCell,
 } from "@/lib/daily-grid-state";
-import { BOARD, completedProgress, filledCell, playerSeason } from "./daily-grid-fixtures";
+import { BOARD, completedProgress, filledCell, gridResult, playerSeason } from "./daily-grid-fixtures";
 
 describe("daily-grid-state persistence", () => {
   beforeEach(() => {
@@ -127,15 +126,21 @@ describe("daily-grid-state derivations", () => {
       p,
       filledCell(0, 0, playerSeason({ player_slug: "bill-russell", label: "1961-62 Bill Russell" }), 70, "rare"),
     );
+    // Phase 11B: a locked square is FINAL. The second write is ignored rather
+    // than overwriting -- on the competitive daily board there is no way to
+    // trade a pick for a better one, and a stray double-submit must not be
+    // able to change a score that has already been counted.
     expect(p.filled).toHaveLength(1);
-    expect(p.filled[0].cell_score.arena_points).toBe(70);
+    expect(p.filled[0].cell_score.arena_points).toBe(50);
+    expect(p.filled[0].player_season.player_slug).toBe("hakeem-olajuwon");
   });
 
-  it("withoutCell removes a square and un-completes the board", () => {
-    const p = withoutCell(completedProgress(), 1, 2);
-    expect(p.filled).toHaveLength(8);
-    expect(p.completed_at).toBeNull();
-    expect(isComplete(p)).toBe(false);
+  it("exposes no way to unlock a square", async () => {
+    // There is deliberately no `withoutCell` export: the state layer should not
+    // be able to express "remove a locked pick", so a future UI cannot
+    // accidentally offer it.
+    const mod = await import("@/lib/daily-grid-state");
+    expect("withoutCell" in mod).toBe(false);
   });
 
   it("tracks used identities and filled coordinates for the submit payload", () => {
@@ -201,5 +206,43 @@ describe("daily-grid share text", () => {
     const partial = withFilledCell(emptyProgress(BOARD), filledCell(1, 2, playerSeason(), 77, "very_rare"));
     expect(buildDailyGridShareText(BOARD, partial)).toContain("Solved 1/9");
     expect(buildDailyGridShareText(BOARD, partial)).toContain("Score: 77");
+  });
+});
+
+describe("daily-grid share text — competitive framing (Phase 11B)", () => {
+  it("adds the percent-of-maximum line once the result is known", () => {
+    const result = gridResult();
+    const text = buildDailyGridShareText(BOARD, completedProgress(), result);
+    // A bare score means nothing without the ceiling it is measured against;
+    // this line is the reason the share is worth posting.
+    expect(text).toContain(`${result.percent_of_best}% of today's max (${result.optimal_total})`);
+    expect(text.startsWith("PEAK3 Daily Grid — 2026-07-30")).toBe(true);
+    expect(text.endsWith("peak3.app/daily")).toBe(true);
+  });
+
+  it("says 'best known' instead of 'today's max' when the optimum is not proven", () => {
+    const text = buildDailyGridShareText(BOARD, completedProgress(), gridResult({ exact_optimal: false }));
+    expect(text).toContain("of PEAK3's best known");
+    expect(text).not.toContain("today's max");
+  });
+
+  it("omits the comparison line entirely when the result is absent", () => {
+    const text = buildDailyGridShareText(BOARD, completedProgress(), null);
+    expect(text).not.toContain("%");
+  });
+
+  it("never contains emoji", () => {
+    const text = buildDailyGridShareText(BOARD, completedProgress(), gridResult());
+    expect(/\p{Extended_Pictographic}/u.test(text)).toBe(false);
+  });
+});
+
+describe("daily-grid rules acknowledgement", () => {
+  it("reports unseen until marked, then seen", async () => {
+    const { hasSeenRules, markRulesSeen } = await import("@/lib/daily-grid-state");
+    window.localStorage.clear();
+    expect(hasSeenRules()).toBe(false);
+    markRulesSeen();
+    expect(hasSeenRules()).toBe(true);
   });
 });

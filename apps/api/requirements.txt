@@ -14,3 +14,10 @@ asyncpg>=0.30.0
 # against data/web/*.json, see CLAUDE.md).
 pandas>=2.2.0
 pyarrow>=17.0.0
+
+# Phase 11B: nba_peak/daily_grid/optimal.py solves the Daily Grid's "today's
+# maximum" as a rectangular linear assignment problem
+# (scipy.optimize.linear_sum_assignment) -- 9 cells x ~10^3 players, solved to
+# proven optimality in ~1ms. Required at request time by
+# POST /api/v1/daily-grid/result.
+scipy>=1.11.0

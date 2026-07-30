@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Lock } from "lucide-react";
 import { DailyGridBoard, FilledCell, GridConstraint, PlayerSeasonSearchHit } from "@/types/daily-grid";
 import { searchPlayerSeasons } from "@/lib/daily-grid-api";
-import { RARITY_SHORT_LABEL, cellSpec, colConstraint, rowConstraint } from "@/lib/daily-grid-state";
+import {
+  RARITY_POOL_HINT,
+  RARITY_SHORT_LABEL,
+  cellSpec,
+  colConstraint,
+  rowConstraint,
+} from "@/lib/daily-grid-state";
 import { CATEGORY_LABEL, categoryColor } from "./constraint-style";
 
 interface Props {
@@ -17,7 +24,6 @@ interface Props {
   invalidMessage: string | null;
   submitting: boolean;
   onSubmit: (hit: PlayerSeasonSearchHit) => void;
-  onRemove: () => void;
   onClose: () => void;
 }
 
@@ -49,7 +55,13 @@ function ConstraintBlock({ constraint, axis }: { constraint: GridConstraint | nu
 /**
  * The selected square's workbench: both constraints in full (label AND the
  * qualifying sentence -- the grid headers only have room for `short_label`),
- * then either the filled card with an explicit remove control, or the search.
+ * then either the LOCKED card or the search.
+ *
+ * Phase 11B: a locked square shows its answer, its revealed score and a
+ * "Locked" badge -- and no search box and no remove control, because a valid
+ * pick on the competitive daily board is final. Search results carry no score
+ * either: the mode's objective is to maximise total PEAK3 score, so a visible
+ * rating per candidate would be the answer rather than a hint.
  *
  * Search results are NEVER filtered or re-ordered here -- the server's order
  * is authoritative, and it is also the server that decides whether a hit gets
@@ -72,7 +84,6 @@ export default function CellPanel({
   invalidMessage,
   submitting,
   onSubmit,
-  onRemove,
   onClose,
 }: Props) {
   const [query, setQuery] = useState("");
@@ -146,8 +157,11 @@ export default function CellPanel({
             {(rowC?.label ?? `Row ${row + 1}`) + " × " + (colC?.label ?? `Column ${col + 1}`)}
           </h2>
           {spec && (
-            <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-              {RARITY_SHORT_LABEL[spec.rarity_bucket]} square
+            <p data-testid="cell-panel-pool" className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+              Answer pool: {RARITY_SHORT_LABEL[spec.rarity_bucket]} — {RARITY_POOL_HINT[spec.rarity_bucket]}{" "}
+              {spec.rarity_bucket === "very_common" || spec.rarity_bucket === "common"
+                ? "Easier to fill, worth less."
+                : "Harder to fill, worth more."}
             </p>
           )}
         </div>
@@ -184,28 +198,29 @@ export default function CellPanel({
             <p className="mt-0.5 text-xs" style={{ color: "var(--text-secondary)" }}>
               {filled.player_season.team_name}
               {filled.player_season.position ? ` · ${filled.player_season.position}` : ""} · PEAK{" "}
-              {filled.player_season.prime_score}
+              {filled.cell_score.quality_points}
             </p>
             <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
               {filled.cell_score.arena_points} arena points · {filled.cell_score.rarity_label} (
               {filled.cell_score.quality_points} quality + {filled.cell_score.rarity_bonus} rarity)
             </p>
           </div>
-          <button
-            type="button"
-            data-testid="cell-panel-remove"
-            onClick={onRemove}
-            aria-label={`Remove ${filled.player_season.label} from this square`}
-            title="Remove this answer"
-            className="shrink-0 rounded-md px-2.5 py-1 text-sm font-bold leading-none"
+          {/* Phase 11B: a locked square is FINAL. No remove control, and no
+              search box below -- the competitive daily board does not offer
+              "try again with a better player", because that would make the
+              score, and the comparison against today's maximum, meaningless. */}
+          <span
+            data-testid="cell-panel-locked"
+            className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em]"
             style={{
-              border: "1px solid var(--border-default)",
-              color: "var(--text-secondary)",
               background: "var(--bg-elevated)",
+              border: "1px solid var(--border-subtle)",
+              color: "var(--text-muted)",
             }}
           >
-            ×
-          </button>
+            <Lock size={9} aria-hidden="true" />
+            Locked
+          </span>
         </div>
       ) : (
         <div className="mt-4">
@@ -324,12 +339,14 @@ export default function CellPanel({
                         <span aria-hidden="true">× </span>No fit
                       </span>
                     )}
-                    <span
-                      className="rounded-full px-2 py-0.5 text-[11px] font-bold"
-                      style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent)" }}
-                    >
-                      {hit.prime_score}
-                    </span>
+                    {/* Phase 11B: NO score pill here. The objective is to
+                        maximise total PEAK3 score, so printing each
+                        candidate's rating would hand over the answer -- the
+                        player would sort by eye and click the biggest number
+                        without knowing any basketball. The score is revealed
+                        when the pick is locked, and not before. The search
+                        response does not even carry one (see
+                        PlayerSeasonIdentity in types/daily-grid.ts). */}
                   </span>
                 </button>
               );

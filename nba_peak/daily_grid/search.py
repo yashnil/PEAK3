@@ -46,7 +46,7 @@ from nba_peak.daily_grid.constraints import constraint_by_id
 from nba_peak.daily_grid.generator import GridBoard
 from nba_peak.daily_grid.pool import GridPool, PlayerSeason, load_pool
 
-SEARCH_VERSION = "daily_grid_search.v1"
+SEARCH_VERSION = "daily_grid_search.v2"
 
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 50
@@ -66,14 +66,25 @@ _SEASON_TOKEN = re.compile(r"\b(\d{2}|\d{4})\b")
 class SearchHit:
     """One candidate season, plus whether it fits the cell being filled.
 
-    `eligible` is None when the search was not scoped to a cell.
+    `eligible` is None when the search was not scoped to a cell, or when the
+    query was too broad to earn a verdict (see MAX_IDENTITIES_FOR_ELIGIBILITY).
+
+    CARRIES NO SCORE. Phase 11B: `as_dict()` serialises via
+    PlayerSeason.as_search_dict(), so a candidate's PEAK3 score is not
+    knowable until it is locked in. `eligible` is still exposed for a narrow
+    query because knowing WHETHER a season qualifies is a different fact from
+    knowing HOW MUCH it is worth -- and with the score hidden, choosing among
+    a player's several qualifying seasons is exactly the judgement the mode is
+    asking for.
     """
 
     player_season: PlayerSeason
     eligible: Optional[bool]
 
     def as_dict(self) -> dict:
-        payload = self.player_season.as_dict()
+        # as_SEARCH_dict, deliberately -- no prime_score. See the class
+        # docstring; the API's own tests assert no score reaches this shape.
+        payload = self.player_season.as_search_dict()
         payload["eligible"] = self.eligible
         return payload
 
@@ -166,10 +177,16 @@ def search_player_seasons(
         eligible: Optional[bool] = (
             (player_season.id in eligible_ids) if reveal_eligibility else None
         )
+        # Phase 11B: ordered CHRONOLOGICALLY within a name-match group, never
+        # by score. Ranking a player's seasons best-first would leak the
+        # optimisation target just as surely as printing the number -- the
+        # player would simply click the top row every time. Career order is
+        # neutral, and it is also how someone thinks about a career they are
+        # trying to recall ("his third year, the one they won it").
         sort_key = (
             0 if eligible else 1,
             name_rank,
-            -player_season.prime_score,
+            player_season.player_name,
             player_season.season,
         )
         scored.append(

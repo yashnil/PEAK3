@@ -92,8 +92,17 @@ class DailyGridBoardResponse(BaseModel):
     rules: GridRules
 
 
-class PlayerSeasonCard(BaseModel):
-    """An exact NBA player-season (pool.PlayerSeason.as_dict())."""
+class PlayerSeasonIdentity(BaseModel):
+    """An exact NBA player-season, WITHOUT its score
+    (pool.PlayerSeason.as_search_dict()).
+
+    Phase 11B: the Daily Grid asks the player to maximise total PEAK3 score,
+    so `prime_score` is the answer to the puzzle and cannot appear before a
+    pick is locked. Everything here is identity the player already knows from
+    the name they typed. Deliberately has no `prime_score` field at all rather
+    than an optional one -- an optional field is a field someone eventually
+    populates by accident.
+    """
 
     id: str
     player_slug: str
@@ -102,15 +111,27 @@ class PlayerSeasonCard(BaseModel):
     team: str = Field(..., description='Basketball-Reference code, e.g. "CHI"')
     team_name: str
     position: str = Field(..., description='Season position, e.g. "SG"; "" if unlisted')
-    prime_score: float = Field(..., description="PEAK3 calibrated 0-100 season score")
     label: str = Field(..., description='"1990-91 Michael Jordan"')
 
 
-class PlayerSeasonSearchHit(PlayerSeasonCard):
-    """A search result. `eligible` is None for an unscoped search.
+class PlayerSeasonCard(PlayerSeasonIdentity):
+    """A player-season with its score revealed (pool.PlayerSeason.as_dict()).
+
+    REVEALED SHAPE -- only valid post-completion, in the result comparison.
+    A locked square learns its own score through `CellScore.quality_points`,
+    not through this model.
+    """
+
+    prime_score: float = Field(..., description="PEAK3 calibrated 0-100 season score")
+
+
+class PlayerSeasonSearchHit(PlayerSeasonIdentity):
+    """A search result. `eligible` is None for an unscoped or broad search.
 
     Ineligible hits are returned on purpose: filtering them out would leak
-    the answer key by omission (see nba_peak/daily_grid/search.py).
+    the answer key by omission (see nba_peak/daily_grid/search.py). Carries no
+    score -- knowing WHETHER a season qualifies is a different fact from
+    knowing how much it is worth, and only the first is given away.
     """
 
     eligible: Optional[bool] = None
@@ -172,7 +193,84 @@ class SubmitAnswerResponse(BaseModel):
     valid: bool
     reason: Optional[str] = Field(None, description="Present only when invalid")
     reason_code: Optional[ValidationReasonCode] = None
-    player_season: Optional[PlayerSeasonCard] = Field(
-        None, description="Present whenever the id resolved, valid or not"
+    player_season: Optional[PlayerSeasonIdentity] = Field(
+        None,
+        description=(
+            "Present whenever the id resolved, valid or not. Identity only -- "
+            "a rejected answer never returns its score, or every square would "
+            "be a free score oracle."
+        ),
     )
-    cell_score: Optional[CellScore] = Field(None, description="Present only when valid")
+    cell_score: Optional[CellScore] = Field(
+        None,
+        description=(
+            "Present only when valid. `quality_points` is the locked season's "
+            "prime_score -- this is where a score is revealed."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Result / today's maximum (Phase 11B)
+# ---------------------------------------------------------------------------
+
+class FilledCellInput(BaseModel):
+    """One square the client claims to have locked."""
+
+    row: int = Field(..., ge=0, le=GRID_SIZE - 1)
+    col: int = Field(..., ge=0, le=GRID_SIZE - 1)
+    answer_id: str = Field(..., min_length=1, max_length=128)
+
+
+class GridResultRequest(BaseModel):
+    """POST /api/v1/daily-grid/result request.
+
+    The client sends the nine squares it believes it has completed. The route
+    RE-VALIDATES every one of them server-side before computing anything --
+    the result payload contains today's maximum, so a client must not be able
+    to unlock the answer key by simply claiming a finished board.
+    """
+
+    date: str = Field(..., max_length=32, description="YYYY-MM-DD, UTC")
+    filled: list[FilledCellInput] = Field(
+        ..., min_length=1, max_length=MAX_BOARD_CELLS
+    )
+    incorrect_attempts: int = Field(0, ge=0, le=10_000)
+
+
+class ResultCell(BaseModel):
+    """One square, side by side: what the player used, what the maximum used."""
+
+    row: int
+    col: int
+    row_constraint_label: str
+    col_constraint_label: str
+    user_player_season: PlayerSeasonCard
+    user_points: int
+    optimal_player_season: PlayerSeasonCard
+    optimal_points: int
+    points_left: int = Field(..., description="optimal_points - user_points, floored at 0")
+    matched_optimal: bool
+
+
+class GridResultResponse(BaseModel):
+    """POST /api/v1/daily-grid/result — the post-completion comparison.
+
+    `exact_optimal` is True when `optimal_total` is the provable maximum for
+    the board rather than the best found; the UI wording depends on it, and
+    overclaiming there would be unearned certainty.
+    """
+
+    board_id: str
+    date: str
+    user_total: int
+    optimal_total: int
+    percent_of_best: float
+    exact_optimal: bool
+    incorrect_attempts: int
+    squares_matching_optimal: int
+    cells: list[ResultCell]
+    best_cell: ResultCell
+    biggest_miss: Optional[ResultCell] = Field(
+        None, description="None when the player matched the maximum on every square"
+    )

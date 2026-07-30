@@ -14,8 +14,10 @@ import {
   DailyGridBoard,
   DailyGridProgress,
   FilledCell,
+  GridResultResponse,
   PlayerSeasonCard,
   RarityBucket,
+  ResultCell,
 } from "@/types/daily-grid";
 
 export const BOARD: DailyGridBoard = {
@@ -98,6 +100,13 @@ export function playerSeason(overrides: Partial<PlayerSeasonCard> = {}): PlayerS
   };
 }
 
+/**
+ * Phase 11B: strips `prime_score` off the card before storing it, exactly as
+ * the real submit response does. A locked square's score lives ONLY in
+ * `cell_score.quality_points` -- keeping the field on the fixture would let a
+ * component read a score from a place production never provides one, and the
+ * "no score before lock" tests would pass against a shape that cannot happen.
+ */
 export function filledCell(
   row: number,
   col: number,
@@ -105,17 +114,18 @@ export function filledCell(
   arenaPoints: number,
   rarity: RarityBucket,
 ): FilledCell {
+  const { prime_score, ...identity } = season;
   return {
     row,
     col,
-    player_season: season,
+    player_season: identity,
     cell_score: {
       arena_points: arenaPoints,
-      quality_points: Math.round(season.prime_score),
+      quality_points: Math.round(prime_score),
       rarity_bucket: rarity,
       rarity_label: rarity === "very_rare" ? "Very rare square" : "Rare square",
       rarity_multiplier: rarity === "very_rare" ? 1.4 : 1.1,
-      rarity_bonus: arenaPoints - Math.round(season.prime_score),
+      rarity_bonus: arenaPoints - Math.round(prime_score),
     },
   };
 }
@@ -262,5 +272,64 @@ export function completedProgress(): DailyGridProgress {
     filled: NINE.map(([row, col, o, pts, rarity]) => filledCell(row, col, playerSeason(o), pts, rarity)),
     incorrect_attempts: 3,
     completed_at: "2026-07-30T12:00:00Z",
+  };
+}
+
+/**
+ * A post-completion comparison against today's maximum, shaped exactly like
+ * POST /daily-grid/result. Built from `completedProgress()` so the two agree:
+ * the player's own totals here are the ones that fixture actually scored.
+ *
+ * The "optimal" seasons are real player-seasons; the point values are stand-in
+ * model numbers that never leave the test process.
+ */
+export function gridResult(overrides: Partial<GridResultResponse> = {}): GridResultResponse {
+  const progress = completedProgress();
+  const userTotal = progress.filled.reduce((s, c) => s + c.cell_score.arena_points, 0);
+  const cells: ResultCell[] = progress.filled.map((c, i) => {
+    // One deliberate miss (the last square) so `biggest_miss` has something to
+    // name; every other square is treated as matching the maximum.
+    const isMiss = i === progress.filled.length - 1;
+    const optimalSeason: PlayerSeasonCard = isMiss
+      ? {
+          id: "nikola-jokic-2021-22",
+          player_slug: "nikola-jokic",
+          player_name: "Nikola Jokic",
+          season: "2021-22",
+          team: "DEN",
+          team_name: "Denver Nuggets",
+          position: "C",
+          prime_score: 95.1,
+          label: "2021-22 Nikola Jokic",
+        }
+      : { ...c.player_season, prime_score: c.cell_score.quality_points };
+    const optimalPoints = isMiss ? c.cell_score.arena_points + 41 : c.cell_score.arena_points;
+    return {
+      row: c.row,
+      col: c.col,
+      row_constraint_label: `Row ${c.row + 1}`,
+      col_constraint_label: `Column ${c.col + 1}`,
+      user_player_season: { ...c.player_season, prime_score: c.cell_score.quality_points },
+      user_points: c.cell_score.arena_points,
+      optimal_player_season: optimalSeason,
+      optimal_points: optimalPoints,
+      points_left: optimalPoints - c.cell_score.arena_points,
+      matched_optimal: !isMiss,
+    };
+  });
+  const optimalTotal = cells.reduce((s, c) => s + c.optimal_points, 0);
+  return {
+    board_id: BOARD.board_id,
+    date: BOARD.date,
+    user_total: userTotal,
+    optimal_total: optimalTotal,
+    percent_of_best: Math.round((1000 * userTotal) / optimalTotal) / 10,
+    exact_optimal: true,
+    incorrect_attempts: progress.incorrect_attempts,
+    squares_matching_optimal: cells.filter((c) => c.matched_optimal).length,
+    cells,
+    best_cell: cells[0],
+    biggest_miss: cells[cells.length - 1],
+    ...overrides,
   };
 }

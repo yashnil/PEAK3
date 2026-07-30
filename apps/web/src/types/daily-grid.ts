@@ -74,8 +74,14 @@ export interface DailyGridBoard {
   rules: GridRules;
 }
 
-/** An exact NBA player-season -- the unit a cell is filled with. */
-export interface PlayerSeasonCard {
+/** An exact NBA player-season, WITHOUT its score.
+ *
+ *  Phase 11B: the objective is to build the highest-scoring valid grid, so
+ *  `prime_score` IS the answer to the puzzle and never appears before a pick
+ *  is locked. This type deliberately has no score field rather than an
+ *  optional one — an optional field is a field someone eventually populates
+ *  by accident. Search results and submit responses use this shape. */
+export interface PlayerSeasonIdentity {
   id: string;
   player_slug: string;
   player_name: string;
@@ -87,10 +93,18 @@ export interface PlayerSeasonCard {
   team_name: string;
   /** Position listed for that season, e.g. "SG". May be "" if unlisted. */
   position: string;
-  /** PEAK3 calibrated 0-100 single-season score. */
-  prime_score: number;
   /** "1990-91 Michael Jordan" */
   label: string;
+}
+
+/** A player-season with its score revealed.
+ *
+ *  REVEALED SHAPE — only valid in the post-completion result comparison. A
+ *  locked square learns its own score through `CellScore.quality_points`, not
+ *  through this type. */
+export interface PlayerSeasonCard extends PlayerSeasonIdentity {
+  /** PEAK3 calibrated 0-100 single-season score. */
+  prime_score: number;
 }
 
 /** A search result: a player-season plus, when the server chose to say,
@@ -112,7 +126,7 @@ export interface PlayerSeasonCard {
  *  Ineligible results are still returned for a narrow query: hiding them
  *  would leak the answer set by omission. Render `eligible` when it is
  *  non-null; do not re-sort or filter on it. */
-export interface PlayerSeasonSearchHit extends PlayerSeasonCard {
+export interface PlayerSeasonSearchHit extends PlayerSeasonIdentity {
   eligible: boolean | null;
 }
 
@@ -159,21 +173,78 @@ export interface SubmitAnswerResponse {
   /** Present only when invalid. A specific, teachable sentence. */
   reason?: string;
   reason_code?: ValidationReasonCode;
-  /** Present whenever the id resolved, valid or not. */
-  player_season?: PlayerSeasonCard;
-  /** Present only when valid. */
+  /** Present whenever the id resolved, valid or not. Identity only — a
+   *  rejected answer never returns its score, or every square would be a free
+   *  score oracle. */
+  player_season?: PlayerSeasonIdentity;
+  /** Present only when valid. `quality_points` is the locked season's
+   *  prime_score — this is where a score is revealed. */
   cell_score?: CellScore;
+}
+
+// ---------------------------------------------------------------------------
+// Result / today's maximum (Phase 11B)
+// ---------------------------------------------------------------------------
+
+/** POST /api/v1/daily-grid/result request.
+ *
+ *  The server RE-VALIDATES all nine squares before returning anything: this
+ *  response contains today's maximum, so claiming a finished board must not be
+ *  enough to unlock it. */
+export interface GridResultRequest {
+  date: string;
+  filled: { row: number; col: number; answer_id: string }[];
+  incorrect_attempts: number;
+}
+
+/** One square, side by side: what the player used vs. what the maximum used. */
+export interface ResultCell {
+  row: number;
+  col: number;
+  row_constraint_label: string;
+  col_constraint_label: string;
+  user_player_season: PlayerSeasonCard;
+  user_points: number;
+  optimal_player_season: PlayerSeasonCard;
+  optimal_points: number;
+  /** optimal_points - user_points, floored at 0. */
+  points_left: number;
+  matched_optimal: boolean;
+}
+
+/** POST /api/v1/daily-grid/result response.
+ *
+ *  `exact_optimal` is true when `optimal_total` is the PROVABLE maximum rather
+ *  than the best found. The UI wording depends on it — say "today's maximum"
+ *  only when it is true, "PEAK3's best known" otherwise. */
+export interface GridResultResponse {
+  board_id: string;
+  date: string;
+  user_total: number;
+  optimal_total: number;
+  percent_of_best: number;
+  exact_optimal: boolean;
+  incorrect_attempts: number;
+  squares_matching_optimal: number;
+  cells: ResultCell[];
+  best_cell: ResultCell;
+  /** Null when the player matched the maximum on every square. */
+  biggest_miss: ResultCell | null;
 }
 
 // ---------------------------------------------------------------------------
 // Client-side state (localStorage). Not an API shape.
 // ---------------------------------------------------------------------------
 
-/** One filled square as persisted locally. */
+/** One LOCKED square as persisted locally.
+ *
+ *  Phase 11B: a valid pick cannot be changed on the daily board, so this is
+ *  final once written. `player_season` is the identity shape the submit
+ *  response returned; the square's score lives in `cell_score`. */
 export interface FilledCell {
   row: number;
   col: number;
-  player_season: PlayerSeasonCard;
+  player_season: PlayerSeasonIdentity;
   cell_score: CellScore;
 }
 
@@ -191,9 +262,19 @@ export interface DailyGridProgress {
   completed_at: string | null;
 }
 
-export const DAILY_GRID_PROGRESS_SCHEMA_VERSION = 1;
+/** Bumped to 2 in Phase 11B: `FilledCell.player_season` lost `prime_score`,
+ *  so a v1 save carries a field the current shape does not define. Stale saves
+ *  are discarded rather than migrated — a board is one day old at most. */
+export const DAILY_GRID_PROGRESS_SCHEMA_VERSION = 2;
 
 /** localStorage key for one board's progress. */
 export function dailyGridProgressKey(boardId: string): string {
   return `peak3.daily-grid.${boardId}`;
 }
+
+/** localStorage key for "this player has seen the rules".
+ *
+ *  Global, not per-board: the rules do not change daily, and re-explaining
+ *  them every morning to a returning player is friction, not onboarding. The
+ *  panel stays reachable from a "How to play" control regardless. */
+export const DAILY_GRID_RULES_SEEN_KEY = "peak3.daily-grid.rules-seen";
