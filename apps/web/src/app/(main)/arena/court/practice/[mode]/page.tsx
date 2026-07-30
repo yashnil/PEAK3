@@ -30,6 +30,7 @@ export default async function CourtBuilderPracticePage({ params, searchParams }:
   let rollableTeamSeasonCount = 0;
   let supportedStartSeason: string | null = null;
   let supportedEndSeason: string | null = null;
+  let teamLogoUrls: Record<string, string> = {};
   try {
     // Fetched in parallel: the game itself, and the readiness catalog's
     // franchise-name/season-label lists, which the spin ceremony's reels
@@ -50,6 +51,7 @@ export default async function CourtBuilderPracticePage({ params, searchParams }:
     rollableTeamSeasonCount = readiness?.rollable_team_season_count ?? 0;
     supportedStartSeason = readiness?.supported_start_season ?? null;
     supportedEndSeason = readiness?.supported_end_season ?? null;
+    teamLogoUrls = readiness?.team_logo_urls ?? {};
   } catch (err) {
     const message =
       err && typeof err === "object" && "code" in err && (err as { code?: string }).code === "courtbuilder_not_enabled"
@@ -70,6 +72,7 @@ export default async function CourtBuilderPracticePage({ params, searchParams }:
       rollableTeamSeasonCount={rollableTeamSeasonCount}
       supportedStartSeason={supportedStartSeason}
       supportedEndSeason={supportedEndSeason}
+      teamLogoUrls={teamLogoUrls}
     />
   );
 }

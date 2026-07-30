@@ -48,6 +48,7 @@ from nba_peak.perfect_season.positions import (
     POSITION_OVERRIDES,
     STARTER_SLOTS as STARTER_SLOT_NAMES,
     classify_fit,
+    classify_fit_severity,
     primary_position,
     secondary_positions,
 )
@@ -64,11 +65,19 @@ def _courtbuilder_enabled_and_isolated():
         settings.COURTBUILDER_TEAM_SPIN_ENABLED,
         settings.COURTBUILDER_ALPHA_ALLOWLIST,
         settings.COURTBUILDER_READINESS_LEVEL,
+        settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED,
     )
     settings.COURTBUILDER_ENABLED = True
     settings.COURTBUILDER_TEAM_SPIN_ENABLED = True
     settings.COURTBUILDER_ALPHA_ALLOWLIST = []
     settings.COURTBUILDER_READINESS_LEVEL = "internal_dev"
+    # Phase 8F: this is now the real, shipped default (config.py) -- pinned
+    # explicitly here rather than left to inherit whatever's ambiently true
+    # at import time, so the test baseline can never silently drift from
+    # production. Tests that specifically want the legacy interim engine
+    # (team_decade/exact_team_season, ~19 curated entries) set this False
+    # themselves via their own fixture (see legacy_engine_client below).
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = True
 
     _memory_court_lineup_repo._lineups.clear()
     _clear_interim_teams_cache()
@@ -80,6 +89,7 @@ def _courtbuilder_enabled_and_isolated():
         settings.COURTBUILDER_TEAM_SPIN_ENABLED,
         settings.COURTBUILDER_ALPHA_ALLOWLIST,
         settings.COURTBUILDER_READINESS_LEVEL,
+        settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED,
     ) = original
     _memory_court_lineup_repo._lineups.clear()
     _clear_interim_teams_cache()
@@ -89,6 +99,22 @@ def _courtbuilder_enabled_and_isolated():
 def client() -> TestClient:
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def legacy_engine_client() -> TestClient:
+    """Phase 8F: explicitly forces the OLD interim team_decade/
+    exact_team_season/open_pool engine (COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED
+    = False) regardless of the ambient default -- for tests that
+    specifically exercise peak-window-only fields (anchor_season,
+    individual_peak_score/individual_peak_rank) or team_decade/open_pool
+    spin_type behavior, which the flagship team_year engine (the default
+    since Phase 8F) does not produce at all."""
+    original = settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = False
+    with TestClient(app) as c:
+        yield c
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = original
 
 
 # ---------------------------------------------------------------------------
@@ -267,9 +293,12 @@ def test_every_player_reachable_in_the_interim_dataset_has_a_manual_override():
     ("shaquille-oneal", "C", ()),
     ("tim-duncan", "PF", ("C",)),
     # Explicitly requested examples (Phase 5X.6 task).
-    ("michael-jordan", "SG", ("SF",)),
-    ("lebron-james", "SF", ("PG", "SG", "PF")),
-    ("nikola-jokic", "C", ()),
+    # Phase 8F: Jordan/LeBron/Jokic secondaries broadened per explicit
+    # product direction ("Michael Jordan at PG/SG/SF", "LeBron James at
+    # PG/SF/PF/C depending on lineup context", "Nikola Jokic at PF/C").
+    ("michael-jordan", "SG", ("SF", "PG")),
+    ("lebron-james", "SF", ("PG", "SG", "PF", "C")),
+    ("nikola-jokic", "C", ("PF",)),
     ("luka-doncic", "PG", ("SG",)),
     ("stephen-curry", "PG", ("SG",)),
 ])
@@ -526,13 +555,22 @@ def test_current_spin_candidates_never_expose_score_or_rank(client: TestClient):
         _place(client, game_id, open_slots[0])
 
 
-def test_filled_slots_withhold_score_and_rank_until_result_ready(client: TestClient):
+def test_filled_slots_withhold_score_and_rank_until_result_ready(legacy_engine_client: TestClient):
     """The core Phase 5X.7 contract change: placing a card into a slot does
     NOT reveal its score/rank immediately -- only qualitative info (name,
     anchor_season, role_fit) is visible while status is selection_pending /
     placement_pending / rounds_complete. Exact score/rank appear only once
     status == result_ready. This is the opposite of what this test asserted
-    before the deferred-reveal change."""
+    before the deferred-reveal change.
+
+    Phase 8F: uses legacy_engine_client -- anchor_season/individual_peak_score/
+    individual_peak_rank are peak-window-only fields the flagship team_year
+    engine (the default since Phase 8F) never populates at all (team_year
+    cards use season/season_score instead) -- see
+    test_team_year_game_completes_a_full_practice_attempt for the
+    team_year-engine's own equivalent deferred-reveal assertion
+    (season_score None until result_ready)."""
+    client = legacy_engine_client
     state = _create(client, mode="apex_1y", seed=44)
     game_id = state["game_id"]
     state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
@@ -561,7 +599,7 @@ def test_filled_slots_withhold_score_and_rank_until_result_ready(client: TestCli
         assert s["individual_peak_rank"] is not None
 
 
-def test_score_withheld_at_rounds_complete_before_explicit_complete_call(client: TestClient):
+def test_score_withheld_at_rounds_complete_before_explicit_complete_call(legacy_engine_client: TestClient):
     """Distinguishes 'all 8 slots filled' (rounds_complete) from 'simulated'
     (result_ready) -- score/rank must stay hidden through rounds_complete,
     only appearing after the explicit /complete call.
@@ -573,7 +611,12 @@ def test_score_withheld_at_rounds_complete_before_explicit_complete_call(client:
     later round's candidate list is entirely already-used identities (a
     property of the small interim dataset + greedy picking, not a product
     bug -- see docs/architecture/PHASE_5X_PLAYER_EXPANSION_STRATEGY.md).
-    """
+
+    Phase 8F: uses legacy_engine_client -- individual_peak_score/
+    individual_peak_rank are peak-window-only fields; asserting this same
+    deferred-reveal contract for the flagship team_year engine belongs to
+    test_team_year_game_completes_a_full_practice_attempt instead."""
+    client = legacy_engine_client
     state = _create(client, mode="apex_1y", seed=42)
     game_id = state["game_id"]
 
@@ -783,7 +826,12 @@ def test_position_mismatched_lineup_remains_completable(client: TestClient):
 # Team/era wheels expose both dimensions separately (Phase 5X.4 rule 1)
 # ---------------------------------------------------------------------------
 
-def test_team_decade_spin_exposes_franchise_and_era_as_separate_fields(client: TestClient):
+def test_team_decade_spin_exposes_franchise_and_era_as_separate_fields(legacy_engine_client: TestClient):
+    # Phase 8F: team_decade spins only exist in the legacy interim engine
+    # (the flagship team_year engine, the default since Phase 8F, only ever
+    # produces team_year spins) -- forced explicitly rather than relying on
+    # the ambient default.
+    client = legacy_engine_client
     state = _create(client, mode="apex_1y", seed=42)
     game_id = state["game_id"]
     saw_team_decade = False
@@ -1307,13 +1355,108 @@ def team_year_client() -> TestClient:
     settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = original
 
 
-def test_readiness_reports_team_year_disabled_by_default(client: TestClient):
+def test_readiness_reports_team_year_enabled_by_default(client: TestClient):
+    """Phase 8F: COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED's own default
+    flipped to True -- the flagship 82-0 Peak Season route must use the
+    broad, ~1,314-team-season engine out of the box, not require a hidden
+    local flag (see the Phase 8F root-cause report: a normal dev run with
+    only COURTBUILDER_ENABLED/COURTBUILDER_TEAM_SPIN_ENABLED set used to
+    silently fall back to the tiny ~19-entry interim engine)."""
     resp = client.get("/api/v1/perfect-season/readiness")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["team_year_enabled"] is False
+    assert data["team_year_enabled"] is True
     assert data["experimental_team_year_franchise_count"] >= 1
     assert data["experimental_team_year_season_count"] >= 1
+
+
+def test_readiness_reports_team_year_disabled_when_legacy_engine_forced(legacy_engine_client: TestClient):
+    """The legacy interim engine remains reachable (an explicit, clearly
+    secondary opt-out), it's just no longer the default."""
+    resp = legacy_engine_client.get("/api/v1/perfect-season/readiness")
+    assert resp.status_code == 200
+    assert resp.json()["team_year_enabled"] is False
+
+
+# ---------------------------------------------------------------------------
+# Phase 8F follow-up: real-user regression report -- a normal dev run with
+# only COURTBUILDER_ENABLED/COURTBUILDER_TEAM_SPIN_ENABLED set produced
+# "Boston Celtics . 1980s" with only 4 candidates (Bird/McHale/Parish/
+# Maxwell) and the UI still called it "Experimental exact-season mode" --
+# the flagship route was silently running the tiny ~19-entry legacy
+# engine, not the flagship ~1,314-team-season one. These tests assert the
+# actual GAME CREATION path (not just the readiness summary) defaults to
+# the flagship engine and never regresses back to a decade-level spin
+# with a curated-legends-only candidate pool.
+# ---------------------------------------------------------------------------
+
+def test_default_game_creation_uses_flagship_team_year_engine_not_legacy_fallback(client: TestClient):
+    """The actual /perfect-season/games creation path (not just readiness)
+    must default to the flagship engine -- every round's spin_type must be
+    "team_year", never "team_decade"/"exact_team_season"/"open_pool"."""
+    state = _create(client, mode="apex_1y", seed=1)
+    assert state["current_spin"]["spin_type"] == "team_year"
+    game_id = state["game_id"]
+    for _ in range(TOTAL_ROUNDS):
+        state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+        if state["status"] != "selection_pending":
+            break
+        spin = state["current_spin"]
+        assert spin["spin_type"] == "team_year", (
+            f"flagship route regressed to legacy engine spin_type={spin['spin_type']!r}"
+        )
+        # The exact reported symptom: a decade label ("1980s") instead of a
+        # real exact season ("1985-86") in the flagship experience.
+        assert re.fullmatch(r"\d{4}-\d{2}", spin["era_label"]), (
+            f"flagship route produced a non-exact-season era_label: {spin['era_label']!r}"
+        )
+        player_slug = spin["candidates"][0]["player_slug"]
+        _select(client, game_id, player_slug)
+        open_slots = [s["slot_type"] for s in state["slots"] if not s["filled"]]
+        _place(client, game_id, open_slots[0])
+
+
+def test_flagship_candidate_pool_is_broad_roster_scale_not_curated_legends(client: TestClient):
+    """Candidate count sanity for the flagship route: a real NBA roster has
+    far more than 4 players. Sampled across many seeds (deterministic, no
+    network) so this doesn't depend on landing a specific team-season --
+    the MEDIAN candidate count across real team-year rolls must be
+    roster-scale, matching the ~1,314-entry dataset's own reported
+    min/max/median (see readiness), not the tiny curated-legends-only
+    fallback (2-5 candidates per entry)."""
+    counts = []
+    for seed in range(1, 21):
+        state = _create(client, mode="apex_1y", seed=seed)
+        assert state["current_spin"]["spin_type"] == "team_year"
+        counts.append(len(state["current_spin"]["candidates"]))
+    counts.sort()
+    median = counts[len(counts) // 2]
+    assert median >= 8, f"expected roster-scale candidate counts, got median={median} across {counts}"
+
+
+def test_legacy_engine_forced_shows_the_reported_regression_shape(legacy_engine_client: TestClient):
+    """Documents (and pins) the OLD behavior this whole follow-up is about
+    -- proves the legacy engine really is the smaller, decade-capable,
+    curated-legends catalogue the bug report described, so the flagship
+    default fix above is verifiably fixing a real, reproduced difference,
+    not a hypothetical one."""
+    client = legacy_engine_client
+    saw_small_pool = False
+    state = _create(client, mode="apex_1y", seed=42)
+    game_id = state["game_id"]
+    for _ in range(TOTAL_ROUNDS):
+        state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+        if state["status"] != "selection_pending":
+            break
+        spin = state["current_spin"]
+        assert spin["spin_type"] in ("team_decade", "exact_team_season", "open_pool")
+        if len(spin["candidates"]) <= 5:
+            saw_small_pool = True
+        player_slug = spin["candidates"][0]["player_slug"]
+        _select(client, game_id, player_slug)
+        open_slots = [s["slot_type"] for s in state["slots"] if not s["filled"]]
+        _place(client, game_id, open_slots[0])
+    assert saw_small_pool, "expected the legacy engine's known small-catalogue shape to appear at seed=42"
 
 
 def test_readiness_reports_team_year_enabled_when_flagged(team_year_client: TestClient):
@@ -1405,7 +1548,12 @@ def test_team_year_game_completes_a_full_practice_attempt(team_year_client: Test
 # the explanation naming the actual roster-construction problem).
 # ---------------------------------------------------------------------------
 
-from nba_peak.perfect_season.simulation import simulate_exact_season  # noqa: E402
+from nba_peak.perfect_season.simulation import (  # noqa: E402
+    compute_exact_fit_components,
+    simulate_exact_season,
+    _is_catastrophe_roster,
+    _is_generational_core,
+)
 
 ALL_TIME_CEILING_LINEUP = [
     ("stephen-curry", "GSW", "2015-16"),
@@ -1793,6 +1941,145 @@ def test_unresolved_player_never_gets_a_fabricated_url(team_year_assets_client: 
 
     assert get_player_headshot_url("michael-jordan") is None
     assert get_player_headshot_url("hakeem-olajuwon") is None
+
+
+@pytest.fixture
+def assets_client() -> TestClient:
+    """Phase 8E: assets on, team_year mode EXPLICITLY off -- i.e. real
+    candidates flow through the interim engine's exact_team_season spin
+    type, not team_year. Every prior assets test used team_year_assets_client
+    (team_year explicitly ON), which routes candidates through
+    `_candidate_public_exact` -- a code path this repo's tests never
+    actually exercised for the branch real deployments used by default at
+    the time: `_candidate_public` (team_decade/exact_team_season/open_pool
+    spins). That untested branch was missing headshot_url/include_asset_urls
+    entirely until Phase 8E -- verified live against a real running API
+    (POST /perfect-season/games with ENABLE_EXTERNAL_ASSET_URLS=true
+    returned headshot_url: null for Nikola Jokic/Jamal Murray despite both
+    being resolved in player_assets.v3.json) before being fixed in
+    app/services/perfect_season/state.py's _candidate_public,
+    pending_card_public's peak-window branch, and the filled peak-window
+    slot branch. This fixture/these tests are the regression coverage for
+    that fix.
+
+    Phase 8F: COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED's own default
+    flipped to True (the interim engine was never meant to be the flagship
+    long-term, and its ~19-entry catalogue was a real regression once
+    treated as the default -- see the Phase 8F root-cause report). This
+    fixture now sets team_year OFF explicitly rather than relying on
+    whatever the ambient default happens to be, so it keeps testing the
+    exact legacy code path it was built for regardless of future default
+    changes."""
+    orig_assets = settings.ENABLE_EXTERNAL_ASSET_URLS
+    orig_team_year = settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED
+    settings.ENABLE_EXTERNAL_ASSET_URLS = True
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = False
+    with TestClient(app) as c:
+        yield c
+    settings.ENABLE_EXTERNAL_ASSET_URLS = orig_assets
+    settings.COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED = orig_team_year
+
+
+def test_candidate_headshot_url_exposed_outside_team_year_mode(assets_client: TestClient):
+    """Phase 8E regression: a resolved candidate's headshot_url must render
+    for the DEFAULT (non-team_year) engine too, not just team_year mode.
+    Seed 7 / apex_1y is a fixed, deterministic board whose exact_team_season
+    roll includes Stephen Curry, a real resolved ESPN entry in
+    data/game/assets/player_assets.v3.json."""
+    from nba_peak.perfect_season.assets import get_player_headshot_url
+
+    state = _create(assets_client, mode="apex_1y", seed=7)
+    assert state["current_spin"]["spin_type"] != "team_year"
+    candidates = {c["player_slug"]: c for c in state["current_spin"]["candidates"]}
+    assert "stephen-curry" in candidates
+    expected_url = get_player_headshot_url("stephen-curry")
+    assert expected_url is not None
+    assert candidates["stephen-curry"]["headshot_url"] == expected_url
+
+
+def test_pending_selection_and_filled_slot_headshot_url_outside_team_year_mode(assets_client: TestClient):
+    """Phase 8E regression: the SAME resolved headshot must carry through
+    both later stages of the round -- pending_selection (step 2, "place
+    this player") and the final filled court slot -- not just the initial
+    candidate list. Each of these is backed by a separate code path in
+    get_public_state, and only the candidate-list path was ever covered by
+    an existing test for non-team_year mode."""
+    from nba_peak.perfect_season.assets import get_player_headshot_url
+
+    state = _create(assets_client, mode="apex_1y", seed=7)
+    game_id = state["game_id"]
+    expected_url = get_player_headshot_url("stephen-curry")
+    assert expected_url is not None
+
+    selected = _select(assets_client, game_id, "stephen-curry")
+    assert selected["pending_selection"]["headshot_url"] == expected_url
+
+    open_slot = selected["pending_selection"]["primary_position"] or "BENCH1"
+    placed = _place(assets_client, game_id, open_slot)
+    filled = next(s for s in placed["slots"] if s["filled"])
+    assert filled["headshot_url"] == expected_url
+
+
+# ---------------------------------------------------------------------------
+# Phase 8F: team logo/image support -- same class of gap as the headshot_url
+# bug above, but for team logos. team_logo_url used to be set ONLY inside
+# the team_year branch of get_public_state (via a real team_id, which only
+# team_year SpinPrompts carry) -- the DEFAULT engine's spins
+# (team_decade/exact_team_season) never got a logo at all, even with the
+# asset flag on, because the interim dataset only carries
+# franchise_display_name, never a team_id. Fixed via a new
+# get_team_logo_url_by_name lookup (nba_peak.perfect_season.assets) keyed
+# off the same real, already-verified team_assets.v2.json entries.
+# ---------------------------------------------------------------------------
+
+def test_team_logo_url_exposed_outside_team_year_mode(assets_client: TestClient):
+    """Seed 7 / apex_1y rolls Golden State Warriors (see
+    test_candidate_headshot_url_exposed_outside_team_year_mode) -- a
+    resolved team logo must render for the DEFAULT (non-team_year) engine
+    too, not just team_year mode."""
+    from nba_peak.perfect_season.assets import get_team_logo_url_by_name
+
+    state = _create(assets_client, mode="apex_1y", seed=7)
+    assert state["current_spin"]["spin_type"] != "team_year"
+    franchise = state["current_spin"]["franchise_display_name"]
+    expected_url = get_team_logo_url_by_name(franchise)
+    assert expected_url is not None, f"expected a resolved logo for {franchise}"
+    assert state["current_spin"]["team_logo_url"] == expected_url
+
+
+def test_team_logo_url_null_by_default_outside_team_year_mode(team_year_client: TestClient):
+    """Default safe production behavior: ENABLE_EXTERNAL_ASSET_URLS is off,
+    so team_logo_url is never populated, even for a resolved franchise."""
+    state = _create(team_year_client, mode="apex_1y", seed=7)
+    assert state["current_spin"].get("team_logo_url") is None
+
+
+def test_filled_slot_has_no_team_logo_outside_team_year_mode(assets_client: TestClient):
+    """Honest architectural finding from this audit, not a bug: outside
+    team_year mode, action_select_player ALWAYS resolves via resolve_card()
+    (a peak_window_id CardProfile -- the player's own best-ever season,
+    never tied to one specific team), even for an exact_team_season/
+    team_decade spin -- see state.py's action_select_player, which only
+    branches to the exact PlayerSeasonCard path for _is_team_year_spin.
+    A peak-window card has no single team attached (CardProfile carries no
+    team field at all), so a filled slot in this mode can never show a team
+    logo -- only the SPIN itself (which draws candidates from a real
+    roster) has team identity, and that's what
+    test_team_logo_url_exposed_outside_team_year_mode covers. This is a
+    real, structural "no team to attach a logo to" state, not a missed
+    wiring gap like the ones this audit found and fixed elsewhere."""
+    state = _create(assets_client, mode="apex_1y", seed=7)
+    game_id = state["game_id"]
+
+    selected = _select(assets_client, game_id, "stephen-curry")
+    assert selected["pending_selection"]["peak_window_id"] is not None
+    assert selected["pending_selection"].get("exact_player_season_key") is None
+
+    open_slot = selected["pending_selection"]["primary_position"] or "BENCH1"
+    placed = _place(assets_client, game_id, open_slot)
+    filled = next(s for s in placed["slots"] if s["filled"])
+    assert filled["peak_window_id"] is not None
+    assert filled.get("team_logo_url") is None
 
 
 # ---------------------------------------------------------------------------
@@ -2322,6 +2609,470 @@ def test_low_lineup_score_does_not_reach_82_wins():
 
 
 # ---------------------------------------------------------------------------
+# Phase 8C: conditional catastrophe win floor.
+#
+# Root cause fixed here: expected_wins had a single flat 15.0 floor applied
+# before noise, so a merely-bad roster and a truly disastrous one were
+# indistinguishable -- both got propped up to the same floor. All three
+# fixtures below are real 2011-12 Charlotte Bobcats players (7-59 that real
+# season, the worst 82-game-equivalent pace in NBA history) -- chosen
+# specifically so the "disaster" fixture isn't a contrived worst-case, it's
+# an actual historically-terrible bench.
+# ---------------------------------------------------------------------------
+
+# All 8 real, SCORED (never unscored) Bobcats bench/rotation players -- weak
+# talent across the board, but every card is a real, minutes-earning,
+# officially-scored NBA season. This must stay on the NORMAL 15-win floor,
+# not the catastrophe floor, even though the talent itself is bad.
+NORMAL_BAD_LINEUP = [
+    ("d-j-augustin", "CHA", "2011-12"),
+    ("gerald-henderson", "CHA", "2011-12"),
+    ("corey-maggette", "CHA", "2011-12"),
+    ("tyrus-thomas", "CHA", "2011-12"),
+    ("bismack-biyombo", "CHA", "2011-12"),
+    ("byron-mullens", "CHA", "2011-12"),
+    ("d-j-white", "CHA", "2011-12"),
+    ("derrick-brown", "CHA", "2011-12"),
+]
+
+# Same bad-talent tier, but 3 of the 8 cards are unscored deep-bench/
+# fringe-roster players (Cory Higgins, DeSagana Diop, Eduardo Najera) --
+# crosses every catastrophe threshold (talent_core, creation_coverage,
+# scoring_coverage all deeply below their ceilings, AND >=2 cards that
+# aren't real contributors).
+DISASTER_LINEUP = [
+    ("d-j-augustin", "CHA", "2011-12"),
+    ("gerald-henderson", "CHA", "2011-12"),
+    ("corey-maggette", "CHA", "2011-12"),
+    ("tyrus-thomas", "CHA", "2011-12"),
+    ("bismack-biyombo", "CHA", "2011-12"),
+    ("cory-higgins", "CHA", "2011-12"),
+    ("desagana-diop", "CHA", "2011-12"),
+    ("eduardo-najera", "CHA", "2011-12"),
+]
+
+# The extreme end: only 2 of 8 cards are even scored, the other 6 are
+# unscored/roster-only fringe players. Tests that a heavily-incomplete
+# roster still degrades gracefully (no crash, lineup_peak_score honestly
+# reported as 0.0/incomplete rather than a fabricated precise number) while
+# ALSO correctly triggering the catastrophe floor.
+INCOMPLETE_DISASTER_LINEUP = [
+    ("tyrus-thomas", "CHA", "2011-12"),
+    ("byron-mullens", "CHA", "2011-12"),
+    ("jamario-moon", "CHA", "2011-12"),
+    ("matt-carroll", "CHA", "2011-12"),
+    ("reggie-williams", "CHA", "2011-12"),
+    ("cory-higgins", "CHA", "2011-12"),
+    ("desagana-diop", "CHA", "2011-12"),
+    ("eduardo-najera", "CHA", "2011-12"),
+]
+
+
+def test_normal_bad_roster_stays_on_the_15_win_floor_not_catastrophe():
+    """A real, fully-scored bad-talent roster (no unscored cards) must NOT
+    trigger the catastrophe floor -- catastrophe is reserved for rosters
+    that fail on every axis at once, not for ordinary bad talent."""
+    cards = _resolve_lineup(NORMAL_BAD_LINEUP)
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    assert _is_catastrophe_roster(cards, fit) is False
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 10 <= result.wins <= 25, f"expected a normal-bad record near the 15-win floor, got {result.wins}"
+
+
+def test_disaster_roster_falls_into_the_catastrophe_range():
+    """No star, no creator, no scoring engine, and multiple unscored cards
+    -- must fall meaningfully below the normal 15-win floor, into a
+    historically-awful range. Real 2011-12 Bobcats players (7-59 that
+    season, an 82-game-equivalent pace of ~9 wins)."""
+    cards = _resolve_lineup(DISASTER_LINEUP)
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    assert _is_catastrophe_roster(cards, fit) is True
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 3 <= result.wins <= 12, f"expected a catastrophe-range record, got {result.wins}"
+    assert result.wins < 15, "a real disaster roster must fall below the normal 15-win floor"
+
+
+def test_incomplete_score_disaster_roster_degrades_gracefully():
+    """A heavily-unscored disaster roster (6 of 8 cards unscored) must still
+    trigger the catastrophe floor, never crash, and never present the
+    incomplete lineup_peak_score as if it were a real precise number."""
+    cards = _resolve_lineup(INCOMPLETE_DISASTER_LINEUP)
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    assert _is_catastrophe_roster(cards, fit) is True
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 1 <= result.wins <= 12, f"expected a catastrophe-range record, got {result.wins}"
+    assert result.lineup_peak_score == 0.0, "incomplete lineup score must be reported as 0.0/incomplete, never estimated"
+
+
+def test_elite_roster_unaffected_by_catastrophe_floor_change():
+    """Regression: the catastrophe floor change must not touch the elite
+    end of the formula -- the all-time-ceiling fixture still hits 82-0."""
+    cards = _resolve_lineup(ALL_TIME_CEILING_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins == 82
+    assert result.is_perfect_season is True
+
+
+# ---------------------------------------------------------------------------
+# Generational-elite win floor: a lineup with 4+ starters individually
+# scoring 85+ must land 80-82 wins regardless of bench strength, per the
+# explicit product acceptance anchor: "2015-16 Curry, 1987-88 Jordan,
+# 2012-13 LeBron, 2003-04 Garnett, 2022-23 Jokic should essentially be an
+# 82-0 caliber team, or at worst around 81-1/80-2." Good-but-not-elite
+# ("good contender") rosters must stay completely unaffected.
+# ---------------------------------------------------------------------------
+
+# The exact product-specified anchor lineup, paired with a real, modest
+# (not superstar) bench on purpose -- proves the floor carries the result
+# even when the bench doesn't help.
+GENERATIONAL_ANCHOR_LINEUP = [
+    ("stephen-curry", "GSW", "2015-16"),
+    ("michael-jordan", "CHI", "1987-88"),
+    ("lebron-james", "MIA", "2012-13"),
+    ("kevin-garnett", "MIN", "2003-04"),
+    ("nikola-jokic", "DEN", "2022-23"),
+    ("marcus-smart", "BOS", "2021-22"),
+    ("al-horford", "BOS", "2023-24"),
+    ("derrick-white", "BOS", "2023-24"),
+]
+
+# Exactly 4 generational starters (Jokic swapped for a real but much
+# weaker 5th starter) plus the same modest bench -- must still land in the
+# 80-82 band ("4 OR 5 genuinely generational peak starters").
+FOUR_GENERATIONAL_LINEUP = [
+    ("stephen-curry", "GSW", "2015-16"),
+    ("michael-jordan", "CHI", "1987-88"),
+    ("lebron-james", "MIA", "2012-13"),
+    ("kevin-garnett", "MIN", "2003-04"),
+    ("rajon-rondo", "BOS", "2012-13"),
+    ("marcus-smart", "BOS", "2021-22"),
+    ("al-horford", "BOS", "2023-24"),
+    ("derrick-white", "BOS", "2023-24"),
+]
+
+# Only 3 generational-tier starters -- must NOT trigger the floor. A strong
+# "Dynasty"-tier result is expected, not an artificial elevation to
+# juggernaut territory.
+THREE_GENERATIONAL_LINEUP = [
+    ("stephen-curry", "GSW", "2015-16"),
+    ("michael-jordan", "CHI", "1987-88"),
+    ("lebron-james", "MIA", "2012-13"),
+    ("rajon-rondo", "BOS", "2012-13"),
+    ("alex-english", "DEN", "1980-81"),
+    ("marcus-smart", "BOS", "2021-22"),
+    ("al-horford", "BOS", "2023-24"),
+    ("derrick-white", "BOS", "2023-24"),
+]
+
+# A plausible "good contender" roster (no all-time-generational starters at
+# all) -- must land in a normal strong-but-not-elite band and be completely
+# untouched by the new floor, per the explicit "don't flatten everything
+# upward" direction.
+GOOD_CONTENDER_LINEUP = [
+    ("devin-booker", "PHO", "2021-22"),
+    ("klay-thompson", "GSW", "2015-16"),
+    ("jayson-tatum", "BOS", "2023-24"),
+    ("draymond-green", "GSW", "2015-16"),
+    ("rudy-gobert", "UTA", "2018-19"),
+    ("derrick-white", "BOS", "2023-24"),
+    ("al-horford", "BOS", "2023-24"),
+    ("marcus-smart", "BOS", "2021-22"),
+]
+
+
+def test_generational_anchor_lineup_lands_80_to_82_across_seeds():
+    """The exact product-specified 5-starter anchor lineup, with a modest
+    (not superstar) bench -- must land in the 80-82 band across many board
+    seeds, never dipping into merely-great territory."""
+    cards = _resolve_lineup(GENERATIONAL_ANCHOR_LINEUP)
+    fit = compute_exact_fit_components(cards, SLOT_TYPES)
+    assert _is_generational_core(cards) is True
+    for seed in range(1, 11):
+        result = simulate_exact_season(cards, board_seed=seed, slot_types=SLOT_TYPES)
+        assert 80 <= result.wins <= 82, (
+            f"seed {seed}: expected the generational anchor lineup to land 80-82, got {result.wins} "
+            f"(talent_core={fit.talent_core})"
+        )
+
+
+def test_four_generational_starters_still_lands_extremely_close_to_82():
+    """4 (not 5) generational starters, same modest bench -- still must
+    land 80-82, per the explicit '4 or 5' product direction."""
+    cards = _resolve_lineup(FOUR_GENERATIONAL_LINEUP)
+    assert _is_generational_core(cards) is True
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 80 <= result.wins <= 82, f"expected 80-82 for a 4-generational-starter core, got {result.wins}"
+
+
+def test_three_generational_starters_does_not_trigger_the_floor():
+    """Only 3 generational-tier starters -- a strong Dynasty-tier result is
+    right, but the floor must not artificially elevate it to 80-82."""
+    cards = _resolve_lineup(THREE_GENERATIONAL_LINEUP)
+    assert _is_generational_core(cards) is False
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins < 80, f"3 generational starters should not reach the elite floor, got {result.wins}"
+    assert result.wins >= 55, f"expected a genuinely strong record, got {result.wins}"
+
+
+def test_good_contender_roster_is_unaffected_by_the_generational_floor():
+    """A plausible good-contender roster with zero all-time-generational
+    starters must land in a normal strong band, completely untouched by
+    the new floor -- proves elite calibration didn't flatten the middle of
+    the distribution upward."""
+    cards = _resolve_lineup(GOOD_CONTENDER_LINEUP)
+    assert _is_generational_core(cards) is False
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert 45 <= result.wins <= 72, f"expected a good-contender-band record, got {result.wins}"
+
+
+# Phase 8H: a THIRD, personnel-distinct generational-core fixture (zero
+# player overlap with GENERATIONAL_ANCHOR_LINEUP/ALL_TIME_CEILING_LINEUP)
+# -- "at least 3 unique lineups can hit 80-82 or exact 82-0" was an
+# explicit acceptance bar, and the two pre-existing elite fixtures share 4
+# of 5 starters (both are built around the same Curry/Jordan/LeBron/
+# Garnett/Jokic core). This one is an entirely different generation/style
+# of core: Magic/Bird/Duncan/Shaq (all real 89+ season_scores), not a
+# variation on the same anchor.
+THIRD_ELITE_LINEUP = [
+    ("magic-johnson", "LAL", "1986-87"),
+    ("ray-allen", "MIL", "2000-01"),
+    ("larry-bird", "BOS", "1985-86"),
+    ("tim-duncan", "SAS", "2002-03"),
+    ("shaquille-o-neal", "LAL", "1999-00"),
+    ("hakeem-olajuwon", "HOU", "1993-94"),
+    ("derrick-white", "BOS", "2023-24"),
+    ("al-horford", "BOS", "2023-24"),
+]
+
+
+def test_at_least_three_personnel_distinct_lineups_reach_elite_80_to_82():
+    """Explicit Phase 8H acceptance bar: at least 3 UNIQUE lineups can hit
+    80-82 / exact 82-0 -- not the same core with a shuffled bench. Verifies
+    three fixtures with meaningfully different personnel all clear the bar
+    across multiple seeds, and that they are, in fact, personnel-distinct
+    (no fixture is a strict subset of another's starters)."""
+    fixtures = {
+        "generational_anchor": GENERATIONAL_ANCHOR_LINEUP,
+        "all_time_ceiling": ALL_TIME_CEILING_LINEUP,
+        "third_elite_core": THIRD_ELITE_LINEUP,
+    }
+    starter_sets = {name: {slug for slug, _, _ in spec[:5]} for name, spec in fixtures.items()}
+    assert starter_sets["generational_anchor"] != starter_sets["third_elite_core"]
+    assert starter_sets["all_time_ceiling"] != starter_sets["third_elite_core"]
+    # third_elite_core shares zero starters with the other two -- a
+    # genuinely different generation of talent, not a bench reshuffle.
+    assert not (starter_sets["third_elite_core"] & starter_sets["generational_anchor"])
+    assert not (starter_sets["third_elite_core"] & starter_sets["all_time_ceiling"])
+
+    for name, spec in fixtures.items():
+        cards = _resolve_lineup(spec)
+        for seed in range(1, 6):
+            result = simulate_exact_season(cards, board_seed=seed, slot_types=SLOT_TYPES)
+            assert 80 <= result.wins <= 82, (
+                f"{name} seed={seed}: expected 80-82, got {result.wins}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Phase 8F: position-model redesign -- the Moncrief-at-SG trust bug and the
+# broader "flexible shifts should be free/near-free, only structurally
+# broken basketball gets meaningfully penalized" direction.
+#
+# Root cause of the reported bug: Sidney Moncrief has no POSITION_OVERRIDES
+# entry, so the archetype fallback drove his position -- and a SEPARATE,
+# confirmed-live bug (Alonzo Mourning, a real center, had no override either
+# and fell back to a "lead_creator" archetype -> PG primary) meant a
+# legitimate center could be scored as badly-off-position at C. Fixed by
+# adding missing overrides (moncrief, mourning, hakeem, dirk, stockton, ja
+# morant) and broadening existing ones (jordan +PG, lebron +C, durant +SG,
+# jokic +PF, ray allen +SF) per explicit product direction, AND by replacing
+# the old flat off_position=-6 fit-point penalty with a severity-graded
+# scale (mild=free, moderate=real-but-limited, severe=meaningfully worse
+# than before) so a merely-adjacent swap (e.g. a real PG playing SF) is
+# never scored the same as a structurally broken one (a small guard at C).
+# ---------------------------------------------------------------------------
+
+def test_moncrief_at_sg_is_a_valid_near_free_placement():
+    """The exact reported bug: Moncrief at SG must never be scored as
+    off-position -- his real position is SG (primary), so this must be
+    "primary", not "secondary" or "off_position"."""
+    assert primary_position("sidney-moncrief") == "SG"
+    assert classify_fit("sidney-moncrief", "lead_creator", "SG") == "primary"
+    assert classify_fit_severity("sidney-moncrief", "lead_creator", "SG") is None
+
+
+def test_mourning_at_center_is_primary_not_a_broken_point_guard():
+    """A second, confirmed-live bug found during the same audit: Mourning
+    (a real center) had no override and fell back to a "lead_creator"
+    archetype, scoring him as badly off-position AT HIS OWN REAL POSITION.
+    Verified live before this fix: apex_1y roster with Mourning at C had
+    positional_fit=78 (a severe PG-at-C penalty); after the fix it's 100."""
+    assert primary_position("alonzo-mourning") == "C"
+    assert classify_fit("alonzo-mourning", "lead_creator", "C") == "primary"
+
+
+@pytest.mark.parametrize("slug,archetype,slot", [
+    ("stephen-curry", "lead_creator", "SG"),
+    ("hakeem-olajuwon", "anchor", "PF"),
+    ("kevin-durant", "wing_forward", "SG"),
+    ("nikola-jokic", "anchor", "PF"),
+    ("ray-allen", "guard_wing", "SF"),
+    ("dirk-nowitzki", "forward_big", "C"),
+    ("michael-jordan", "lead_creator", "PG"),
+])
+def test_flexible_shifts_are_never_off_position(slug, archetype, slot):
+    """Every shift explicitly named in the product direction as a normal,
+    plausible NBA role (Curry at SG, Hakeem at PF, Durant at SG, Jokic at
+    PF, Ray Allen at SF, Dirk at C, Jordan at PG) must resolve to
+    primary/secondary -- never off_position, and therefore never
+    penalized at all in positional_fit."""
+    label = classify_fit(slug, archetype, slot)
+    assert label in ("primary", "secondary"), f"{slug} at {slot} should be a valid fit, got {label}"
+    assert classify_fit_severity(slug, archetype, slot) is None
+
+
+def test_lebron_at_center_is_not_automatically_punished():
+    """Explicit acceptance criterion: 'LeBron James at C is not
+    automatically punished if lineup context supports it.' Verifies C is
+    now a real secondary position for him (added in this pass)."""
+    assert "C" in secondary_positions("lebron-james")
+    assert classify_fit("lebron-james", "wing_forward", "C") == "secondary"
+
+
+@pytest.mark.parametrize("slug,archetype,slot", [
+    ("stephen-curry", "lead_creator", "C"),
+    ("shaquille-oneal", "anchor", "PG"),
+    ("chris-paul", "lead_creator", "C"),
+    ("kareem-abdul-jabbar", "anchor", "PG"),
+])
+def test_absurd_position_shifts_are_still_severely_penalized(slug, archetype, slot):
+    """Explicit acceptance criterion: 'small guards at C and traditional
+    centers at guard are still punished.' These pairings must stay
+    off_position AND severe -- the new severity scale must not accidentally
+    soften genuinely broken basketball along with the plausible shifts."""
+    assert classify_fit(slug, archetype, slot) == "off_position"
+    assert classify_fit_severity(slug, archetype, slot) == "severe"
+
+
+def test_off_position_severity_points_are_graded_not_flat():
+    """The core scoring fix: mild off-position costs nothing, moderate costs
+    a real but limited amount, and severe costs meaningfully more than the
+    old flat -6 penalty every off-position placement used to cost."""
+    from nba_peak.perfect_season.simulation import _OFF_POSITION_SEVERITY_POINTS
+    assert _OFF_POSITION_SEVERITY_POINTS["mild"] == 0.0
+    assert _OFF_POSITION_SEVERITY_POINTS["moderate"] < 0.0
+    assert _OFF_POSITION_SEVERITY_POINTS["severe"] < _OFF_POSITION_SEVERITY_POINTS["moderate"]
+    assert _OFF_POSITION_SEVERITY_POINTS["severe"] < -6.0
+
+
+def test_result_copy_never_says_off_position_for_a_mild_or_flexible_shift():
+    """The exact reported trust bug, end to end through the real API/state
+    layer: a roster built with Moncrief at SG must never produce
+    'off-position' language in decisive_factors -- his fit is primary, so
+    he shouldn't be named in any weakness bullet at all."""
+    from nba_peak.perfect_season.simulation import simulate_season, compute_fit_components
+    from nba_peak.lineup.board import _load_profiles
+
+    profiles = _load_profiles()[1]
+    by_slug = {c.player_slug: c for c in profiles}
+    starters = ["john-stockton", "sidney-moncrief", "lebron-james", "kevin-garnett", "alonzo-mourning"]
+    bench = ["ray-allen", "ja-morant", "dirk-nowitzki"]
+    cards = [by_slug[s] for s in starters] + [by_slug[s] for s in bench]
+    fit = compute_fit_components(cards, list(SLOT_TYPES))
+    # Every starter now resolves to primary/secondary -- positional_fit is
+    # the maximum possible score, and no starter should ever be named in a
+    # "structural mismatch" / "role stretch" bullet.
+    assert fit.positional_fit == 100.0
+    result = simulate_season(cards, board_seed=1, slot_types=list(SLOT_TYPES))
+    joined = " ".join(result.decisive_factors)
+    assert "off-position" not in joined.lower()
+    assert "off position" not in joined.lower()
+    assert "Moncrief" not in joined
+
+
+def test_kd_at_sg_is_never_surfaced_as_a_meaningful_weakness():
+    """Phase 8H explicit acceptance bar: 'KD at SG should not be flagged as
+    a meaningful weakness.' End to end through the real exact-season
+    result pipeline -- KD's real position (SF for this season) placed at
+    SG is a mild SF<->SG adjacency, which must never appear in
+    decisive_factors and must never be the reported structural_weakness on
+    an otherwise-fine roster (it should fall through to a genuine
+    ceiling-limiter/strength-led explanation instead)."""
+    # SLOT_TYPES order is [PG, SG, SF, PF, C, bench...] -- index 1 (SG) is
+    # Durant (real position SF), the sole deliberate mismatch under test.
+    # Everyone else sits at their real position, or a curated flexible one
+    # (LeBron's real 2012-13 position is PF; FLEXIBLE_FORWARD_SLUGS makes
+    # his SF placement "secondary", never off_position).
+    spec = [
+        ("john-stockton", "UTA", "1989-90"),  # PG -- real position PG
+        ("kevin-durant", "OKC", "2013-14"),   # SG -- real position SF (the mild swap under test)
+        ("lebron-james", "MIA", "2012-13"),   # SF -- real position PF, flexible-forward secondary
+        ("kevin-garnett", "MIN", "2003-04"),  # PF -- real position PF
+        ("nikola-jokic", "DEN", "2022-23"),   # C -- real position C
+        ("tim-duncan", "SAS", "2002-03"),
+        ("derrick-white", "BOS", "2023-24"),
+        ("al-horford", "BOS", "2023-24"),
+    ]
+    cards = _resolve_lineup(spec)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    joined_factors = " ".join(result.decisive_factors)
+    assert "durant" not in joined_factors.lower()
+    assert "off-position" not in joined_factors.lower()
+    assert "off position" not in joined_factors.lower()
+    if result.structural_weakness:
+        assert "durant" not in result.structural_weakness.lower(), (
+            f"KD-at-SG mild swap should never be THE reported weakness, got: {result.structural_weakness!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase 8F: the three-tier win floor (catastrophe/normal/generational),
+# ported to simulate_season (CardProfile / career-peak-window path) -- the
+# path CourtBuilder actually runs by default, since
+# COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED defaults off. The exact-season
+# equivalents above (test_generational_anchor_lineup_lands_80_to_82_across_seeds
+# etc.) only ever exercised simulate_exact_season, which most real games
+# never reach.
+# ---------------------------------------------------------------------------
+
+def _resolve_legacy_lineup(slugs: list[str], duration_years: int):
+    from nba_peak.lineup.board import _load_profiles
+    profiles = _load_profiles()[duration_years]
+    by_slug = {c.player_slug: c for c in profiles}
+    cards = [by_slug[s] for s in slugs if s in by_slug]
+    assert len(cards) == len(slugs), f"fixture lineup must fully resolve at duration {duration_years}"
+    return cards
+
+
+def test_legacy_path_generational_core_lands_80_to_82():
+    """simulate_season's own generational floor -- peak-window Curry/Jordan/
+    LeBron/Garnett/Jokic (apex_1y, each player's own best-ever season) with
+    a modest bench must land 80-82, mirroring the exact-season anchor for
+    the path CourtBuilder actually runs by default."""
+    from nba_peak.perfect_season.simulation import simulate_season, _is_generational_core_legacy
+    starters = ["stephen-curry", "michael-jordan", "lebron-james", "kevin-garnett", "nikola-jokic"]
+    bench = ["al-horford", "derrick-white"]
+    cards = _resolve_legacy_lineup(starters + bench, duration_years=1)
+    assert _is_generational_core_legacy(cards) is True
+    for seed in range(1, 6):
+        result = simulate_season(cards, board_seed=seed, slot_types=list(SLOT_TYPES))
+        assert 80 <= result.wins <= 82, f"seed {seed}: expected 80-82, got {result.wins}"
+
+
+def test_legacy_path_good_contender_not_flattened_to_82():
+    """A real, decent-but-not-generational apex_1y roster must NOT be
+    swept up into the generational floor -- proves the legacy-path floor
+    port didn't flatten the middle of the distribution upward."""
+    from nba_peak.perfect_season.simulation import simulate_season, _is_generational_core_legacy
+    starters = ["devin-booker", "klay-thompson", "jayson-tatum", "draymond-green", "rudy-gobert"]
+    bench = ["derrick-white", "al-horford", "mike-conley"]
+    cards = _resolve_legacy_lineup(starters + bench, duration_years=1)
+    assert _is_generational_core_legacy(cards) is False
+    result = simulate_season(cards, board_seed=1, slot_types=list(SLOT_TYPES))
+    assert result.wins < 80, f"expected a good-contender band result, got {result.wins}"
+
+
+# ---------------------------------------------------------------------------
 # Phase 7A Part F: weakness wording round 2 -- "Ceiling limiter" for strong
 # teams, SF<->PF adjacency downgraded to mild (modern combo forwards).
 # ---------------------------------------------------------------------------
@@ -2355,7 +3106,13 @@ def test_lebron_at_sf_and_kd_at_pf_are_never_named_position_broken():
     'big wing' players who legitimately play either forward spot, so this
     exact roster (LeBron at SF, KD at PF) must never be described as
     'Position-broken' or off-position at all, and positional_fit must be
-    meaningfully higher than the pre-fix value of 68."""
+    meaningfully higher than the pre-fix value of 68.
+
+    Win bound widened for Phase 8's weighted-starter-talent recalibration
+    (this fixture's 5 starters are Magic/Kobe/LeBron/KD/KAT -- three of them
+    80+ PEAK3 -- so a higher win total than the original 70-76 band is the
+    correct, intended outcome of fixing "elite starters under-rewarded by a
+    flat average", not a regression)."""
     cards = _resolve_lineup(SUPERTEAM_AUDIT_LINEUP)
     result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
     assert result.structural_weakness is not None
@@ -2365,7 +3122,7 @@ def test_lebron_at_sf_and_kd_at_pf_are_never_named_position_broken():
     assert result.fit_components.positional_fit > 68, (
         f"expected positional_fit meaningfully above the pre-fix 68, got {result.fit_components.positional_fit}"
     )
-    assert 70 <= result.wins <= 76, f"expected a believable contender-tier record, got {result.wins}"
+    assert 75 <= result.wins <= 81, f"expected a believable dynasty-tier record, got {result.wins}"
 
 
 def test_sf_pf_swap_is_mild_not_the_dominant_weakness_when_components_are_healthy():
@@ -2430,6 +3187,96 @@ def test_decisive_factors_mention_the_same_component_the_weakness_names():
     result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
     assert result.structural_weakness == "thin bench depth"
     assert any("bench" in f.lower() for f in result.decisive_factors)
+
+
+# ---------------------------------------------------------------------------
+# Phase 8 pre-loop polish: weighted starter talent, weakness explainer
+# copy, and "elite starters" positive feedback.
+# ---------------------------------------------------------------------------
+
+# A reconstruction of the reported "roster felt too strong to only be
+# 65-17" case: three near-all-time-peak starters (Hakeem, LeBron, Bird) plus
+# a merely-decent floor general (Rondo) and two role-player-tier guards on
+# the bench (Lowry, Granger, English) rounding it out. Real exact seasons,
+# real positions -- Rondo/Lowry both PG (only one can start), no natural SG
+# on this roster (mirrors the reported build).
+UNDER_REWARDED_STARTERS_LINEUP = [
+    ("rajon-rondo", "BOS", "2012-13"),
+    ("kawhi-leonard", "LAC", "2022-23"),
+    ("lebron-james", "CLE", "2016-17"),
+    ("larry-bird", "BOS", "1983-84"),
+    ("hakeem-olajuwon", "HOU", "1992-93"),
+    ("danny-granger", "IND", "2008-09"),
+    ("kyle-lowry", "HOU", "2011-12"),
+    ("alex-english", "DEN", "1980-81"),
+]
+
+
+def test_weighted_starter_talent_rewards_elite_top_end_over_flat_average():
+    """Phase 8 regression for the exact complaint: a roster with three
+    80+-PEAK3 starters (Hakeem, LeBron, Bird) and one much weaker starter
+    (Rondo, ~35) should have a talent_core meaningfully above what a flat
+    5-way average of the starters would produce -- a flat average let one
+    merely-good starter drag elite ones down by as much as it took to
+    credit them, which is exactly what this recalibration fixes."""
+    cards = _resolve_lineup(UNDER_REWARDED_STARTERS_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    starters = cards[:5]
+    flat_avg = sum(c.season_score for c in starters) / len(starters)
+    assert result.fit_components.talent_core > flat_avg, (
+        f"expected weighted talent_core ({result.fit_components.talent_core}) to exceed the flat "
+        f"starter average ({flat_avg:.2f})"
+    )
+    # Believable, not automatic-82 -- Rondo's real drag and the modest bench
+    # still matter, just not as harshly as an unweighted average.
+    assert 68 <= result.wins <= 78, f"expected a believable strong-but-not-elite record, got {result.wins}"
+
+
+def test_bench_strength_weakness_gets_a_scale_clarifying_detail_sentence():
+    """Regression for the exact complaint: 'thin bench depth' alone reads
+    as a real insult to Granger/Lowry/English, who are not weak NBA
+    players. When bench_strength is the named ceiling limiter, the API
+    must also return a detail sentence clarifying it's relative to PEAK3's
+    0-100 all-time-peak scale, not an absolute judgment."""
+    cards = _resolve_lineup(UNDER_REWARDED_STARTERS_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.structural_weakness == "thin bench depth"
+    assert result.structural_weakness_detail is not None
+    assert "0-100" in result.structural_weakness_detail
+    assert "not a weak one" in result.structural_weakness_detail
+
+
+def test_elite_starter_count_surfaces_as_a_positive_decisive_factor():
+    """A roster with 2+ starters graded 80+ PEAK3 should get a specific,
+    exciting positive callout in decisive_factors -- not just a generic
+    'balanced lineup' or a purely negative framing, even when the result
+    isn't 82-0."""
+    cards = _resolve_lineup(UNDER_REWARDED_STARTERS_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert any("all-time peak" in f for f in result.decisive_factors), result.decisive_factors
+
+
+def test_ceiling_limiter_generic_fallback_has_a_detail_sentence():
+    """When a contender/dynasty roster has no positional issue and every
+    component is healthy, the generic 'not every star is in their peak
+    season' fallback must still come with an explanatory detail sentence,
+    not a bare unexplained phrase."""
+    from nba_peak.perfect_season.simulation import (
+        _CEILING_LIMITER_GENERIC_DETAIL,
+        _structural_weakness_exact,
+    )
+    from nba_peak.perfect_season.schemas import LineupFitComponents
+
+    # Every component comfortably healthy, no off-position starters --
+    # forces the function past every earlier branch to the final fallback.
+    healthy_fit = LineupFitComponents(
+        talent_core=90, bench_strength=80, positional_fit=100,
+        creation_coverage=90, scoring_coverage=90, postseason_pedigree=90, team_context_depth=80,
+    )
+    cards = _resolve_lineup(ALL_TIME_CEILING_LINEUP)
+    text, detail = _structural_weakness_exact(cards, SLOT_TYPES, healthy_fit, wins=79)
+    assert text == "not every star is in their peak season"
+    assert detail == _CEILING_LIMITER_GENERIC_DETAIL
 
 
 # ---------------------------------------------------------------------------
@@ -2500,3 +3347,229 @@ def test_no_image_binaries_committed_in_assets_directory():
     binary_extensions = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico"}
     offenders = [p for p in assets_dir.iterdir() if p.suffix.lower() in binary_extensions]
     assert offenders == [], f"image binaries found in data/game/assets/: {offenders}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 8K: unscored / low-minute / roster-only cards must honestly drag the
+# PROJECTED RECORD instead of being excluded from talent_core/bench_strength
+# (and the creation/scoring/postseason/team-context coverage components) as
+# if they didn't exist. Root cause of the reported trust bug: an unscored
+# card contributed neither positive nor negative weight to any of the
+# lineup-fit components, so a real 6-game, 0-start roster-only season (Chuck
+# Nevitt 1982-83 HOU) was mathematically indistinguishable from an empty
+# slot. See simulation.py's provisional_unscored_impact/
+# provisional_unscored_percentile and the module comment above them for the
+# full tiering rationale. The official PEAK3 Lineup Score is NEVER affected
+# by any of this -- it stays "incomplete" exactly as before whenever any
+# placed card lacks an official score.
+# ---------------------------------------------------------------------------
+
+from nba_peak.perfect_season.simulation import (  # noqa: E402
+    _provisional_impact_tier,
+    provisional_unscored_impact,
+    provisional_unscored_percentile,
+)
+
+# The exact reported bug lineup: Lillard/Carter/Kyrie/White/Cooper are real
+# scored cards; Jalen Smith (29 games, 13.2 mpg, roster-only-unscored),
+# Chuck Nevitt (6 games, 0 starts, 10.7 mpg -- a real but token roster
+# appearance), and Kemba Walker (37 games, 25.6 mpg, real rotation minutes
+# but below the model's scoring threshold, AND a severe PG-at-C mismatch)
+# are all unscored. The old exclusion-based average let this read as a
+# fringe-playoff ~39-42 win team.
+UNSCORED_TRUST_BUG_LINEUP = [
+    ("damian-lillard", "POR", "2013-14"),   # PG, scored 54.5
+    ("jalen-smith", "PHO", "2021-22"),      # SG, unscored, low-minute
+    ("vince-carter", "TOR", "2002-03"),     # SF, scored 46.4
+    ("chuck-nevitt", "HOU", "1982-83"),     # PF, unscored, tiny-sample
+    ("kemba-walker", "NYK", "2021-22"),     # C, unscored, meaningful rotation + severe mismatch
+    ("kyrie-irving", "CLE", "2013-14"),     # bench, scored 49.0
+    ("derrick-white", "BOS", "2025-26"),    # bench, scored 45.5
+    ("wayne-cooper", "UTA", "1980-81"),     # bench, scored 15.8
+]
+
+
+def test_unscored_trust_bug_lineup_no_longer_reads_as_fringe_playoff():
+    """The exact reported bug: with 3 of 8 cards unscored (one of them a
+    genuine 6-game/0-start roster-only season, one a severe position
+    mismatch), the projected record must land meaningfully below the old
+    ~39-42 fringe-playoff range -- lottery-team territory, not catastrophe
+    (the roster does have three real, decently-scored contributors)."""
+    cards = _resolve_lineup(UNSCORED_TRUST_BUG_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins <= 32, f"expected a lottery-range record well below the old fringe-playoff result, got {result.wins}"
+    assert result.wins >= 10, f"a roster with three real ~45-55 scored contributors should not be catastrophe-tier, got {result.wins}"
+
+
+def test_unscored_trust_bug_lineup_official_score_stays_incomplete():
+    """Requirement: the official PEAK3 Lineup Score must never be fabricated
+    -- it stays 0.0/incomplete regardless of how the projected record
+    changes, exactly like before this fix."""
+    cards = _resolve_lineup(UNSCORED_TRUST_BUG_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.lineup_peak_score == 0.0
+
+
+def test_unscored_trust_bug_explanation_names_tiny_sample_and_mismatch():
+    """The result explanation must mention BOTH the provisional-impact
+    limitation and, specifically, Chuck Nevitt's tiny real sample and
+    Kemba Walker's severe position mismatch -- not just a generic 'score
+    incomplete' notice that reads as if those cards were ignored."""
+    cards = _resolve_lineup(UNSCORED_TRUST_BUG_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.structural_weakness_detail is not None
+    assert "provisional impact" in result.structural_weakness_detail
+    assert "Chuck Nevitt" in result.structural_weakness_detail
+    assert "6-game" in result.structural_weakness_detail
+    assert "roster-only depth" in result.structural_weakness_detail
+    assert "Kemba Walker" in result.structural_weakness_detail
+    assert "structural mismatch" in result.structural_weakness_detail
+
+
+def test_chuck_nevitt_is_near_replacement_tier_kemba_walker_is_not():
+    """Requirement: tiers must be graded by real sample size, not a flat
+    'unscored = zero' rule. Chuck Nevitt's real 1982-83 HOU season (6
+    games, 0 starts) is near-replacement; Kemba Walker's 2021-22 NYK season
+    (37 games, 25.6 mpg) is a real, if unscored, rotation player and must
+    NOT be auto-zeroed to the same tier."""
+    nevitt = resolve_player_season_card("chuck-nevitt", "HOU", "1982-83")
+    kemba = resolve_player_season_card("kemba-walker", "NYK", "2021-22")
+    assert nevitt.season_score is None and kemba.season_score is None
+    assert _provisional_impact_tier(nevitt) == "near_replacement"
+    assert _provisional_impact_tier(kemba) == "meaningful_rotation"
+    assert provisional_unscored_impact(nevitt) < 10.0
+    assert provisional_unscored_impact(kemba) > provisional_unscored_impact(nevitt)
+    assert provisional_unscored_impact(kemba) > 0.0, "a real rotation player must never be auto-zeroed"
+    assert provisional_unscored_percentile(kemba) > provisional_unscored_percentile(nevitt)
+
+
+def test_jalen_smith_is_low_minute_tier_not_near_replacement_or_meaningful():
+    """A real, if unscored, low-minute bench role (29 games, 13.2 mpg)
+    should sit strictly between the near-replacement and meaningful-
+    rotation tiers -- neither auto-zeroed nor treated as a real rotation
+    player."""
+    jalen_smith = resolve_player_season_card("jalen-smith", "PHO", "2021-22")
+    assert jalen_smith.season_score is None
+    assert _provisional_impact_tier(jalen_smith) == "low_minute"
+    assert 0.0 < provisional_unscored_impact(jalen_smith) < provisional_unscored_impact(
+        resolve_player_season_card("kemba-walker", "NYK", "2021-22")
+    )
+
+
+# Shared 5-card "tail" (PF/C starters + full bench) used to isolate the
+# starter-vs-bench placement effect for the SAME unscored tiny-sample card
+# (Chuck Nevitt) -- only the C/bench_1 assignment differs between the two
+# fixtures below, so any wins difference is attributable to placement
+# weight (starters count 0.8 toward talent_core via the peak-weighted
+# average; bench counts 0.2 via a flat average), not to anything else
+# changing about the roster.
+_NEVITT_PLACEMENT_PG = ("kevin-johnson", "PHO", "1988-89")
+_NEVITT_PLACEMENT_SG = ("john-stockton", "UTA", "1988-89")
+_NEVITT_PLACEMENT_SF = ("rasheed-wallace", "POR", "2000-01")
+_NEVITT_PLACEMENT_PF = ("walter-davis", "PHO", "1986-87")
+_NEVITT_PLACEMENT_C_ALT = ("joel-embiid", "PHI", "2022-23")  # real C, swaps with Nevitt
+_NEVITT_PLACEMENT_BENCH_23 = [("hakeem-olajuwon", "HOU", "1993-94"), ("shaquille-o-neal", "LAL", "1999-00")]
+
+NEVITT_AS_STARTER_LINEUP = [
+    _NEVITT_PLACEMENT_PG, _NEVITT_PLACEMENT_SG, _NEVITT_PLACEMENT_SF, _NEVITT_PLACEMENT_PF,
+    ("chuck-nevitt", "HOU", "1982-83"),  # C starter
+    _NEVITT_PLACEMENT_C_ALT,  # bench_1
+    *_NEVITT_PLACEMENT_BENCH_23,
+]
+NEVITT_AS_BENCH_LINEUP = [
+    _NEVITT_PLACEMENT_PG, _NEVITT_PLACEMENT_SG, _NEVITT_PLACEMENT_SF, _NEVITT_PLACEMENT_PF,
+    _NEVITT_PLACEMENT_C_ALT,  # C starter (real center, same primary-position fit bonus as Nevitt would get)
+    ("chuck-nevitt", "HOU", "1982-83"),  # bench_1
+    *_NEVITT_PLACEMENT_BENCH_23,
+]
+
+
+def test_tiny_sample_no_score_starter_hurts_more_than_the_same_card_on_bench():
+    """Requirement: the SAME no-score tiny-sample card must hurt the
+    projected record more as a starter than on the bench -- starters carry
+    0.8 weight toward talent_core (with the weakest starter still getting a
+    real, nonzero share via the peak-weighted average) vs bench's flat 0.2
+    average, so a near-replacement provisional value should be a bigger
+    drag when it's a starter."""
+    starter_cards = _resolve_lineup(NEVITT_AS_STARTER_LINEUP)
+    bench_cards = _resolve_lineup(NEVITT_AS_BENCH_LINEUP)
+    starter_fit = compute_exact_fit_components(starter_cards, SLOT_TYPES)
+    bench_fit = compute_exact_fit_components(bench_cards, SLOT_TYPES)
+    # Positional fit is identical in both fixtures (Embiid and Nevitt are
+    # both real centers, so whichever one starts at C gets the same
+    # primary-position bonus) -- isolating the difference to talent_core.
+    assert starter_fit.positional_fit == bench_fit.positional_fit
+    assert starter_fit.talent_core < bench_fit.talent_core
+
+    starter_result = simulate_exact_season(starter_cards, board_seed=1, slot_types=SLOT_TYPES)
+    bench_result = simulate_exact_season(bench_cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert starter_result.wins < bench_result.wins, (
+        f"expected Nevitt-as-starter ({starter_result.wins}) to hurt more than "
+        f"Nevitt-as-bench ({bench_result.wins})"
+    )
+
+
+# Requirement: multiple no-score starters must compound to a materially
+# worse projection than the SAME roster with equivalently-bad but SCORED
+# starters in their place -- an unscored tiny-sample trio should never look
+# better than a real, officially-scored replacement-level trio.
+_MULTI_UNSCORED_TAIL = [
+    ("rasheed-wallace", "POR", "2000-01"),
+    ("walter-davis", "PHO", "1986-87"),
+    ("pau-gasol", "MEM", "2005-06"),
+    ("hakeem-olajuwon", "HOU", "1993-94"),
+    ("shaquille-o-neal", "LAL", "1999-00"),
+]
+THREE_UNSCORED_STARTERS_LINEUP = [
+    ("tony-zeno", "IND", "1979-80"),      # 8 games, 0 starts -- unscored
+    ("corky-calhoun", "IND", "1979-80"),  # 7 games, 0 starts -- unscored
+    ("kevin-stacom", "MIL", "1981-82"),   # 7 games, 0 starts -- unscored
+    *_MULTI_UNSCORED_TAIL,
+]
+THREE_SCORED_REPLACEMENT_STARTERS_LINEUP = [
+    ("armond-hill", "ATL", "1979-80"),    # real, scored ~20
+    ("jo-jo-white", "GSW", "1979-80"),    # real, scored ~18
+    ("henry-bibby", "PHI", "1979-80"),    # real, scored ~19
+    *_MULTI_UNSCORED_TAIL,
+]
+
+
+def test_multiple_unscored_starters_project_lower_than_scored_replacement_starters():
+    cards_unscored = _resolve_lineup(THREE_UNSCORED_STARTERS_LINEUP)
+    cards_scored = _resolve_lineup(THREE_SCORED_REPLACEMENT_STARTERS_LINEUP)
+    assert all(c.score_status == "exact_season_unscored" for c in cards_unscored[:3])
+    assert all(c.score_status == "exact_season_scored" for c in cards_scored[:3])
+
+    result_unscored = simulate_exact_season(cards_unscored, board_seed=1, slot_types=SLOT_TYPES)
+    result_scored = simulate_exact_season(cards_scored, board_seed=1, slot_types=SLOT_TYPES)
+    assert result_unscored.wins < result_scored.wins, (
+        f"expected 3 unscored tiny-sample starters ({result_unscored.wins} wins) to project lower than "
+        f"3 real scored replacement-level starters ({result_scored.wins} wins)"
+    )
+
+
+def test_elite_ceiling_fixture_unaffected_by_provisional_impact_change():
+    """Regression: the all-time-ceiling fixture has zero unscored cards, so
+    provisional_unscored_impact never applies -- it must still hit 82-0."""
+    cards = _resolve_lineup(ALL_TIME_CEILING_LINEUP)
+    result = simulate_exact_season(cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert result.wins == 82
+    assert result.is_perfect_season is True
+
+
+def test_disaster_fixtures_still_catastrophe_tier_after_provisional_impact_change():
+    """Regression: DISASTER_LINEUP/INCOMPLETE_DISASTER_LINEUP already mix
+    scored and unscored cards -- the provisional-impact change must not
+    weaken the catastrophe floor for these real historically-bad rosters."""
+    disaster_cards = _resolve_lineup(DISASTER_LINEUP)
+    disaster_fit = compute_exact_fit_components(disaster_cards, SLOT_TYPES)
+    assert _is_catastrophe_roster(disaster_cards, disaster_fit) is True
+    disaster_result = simulate_exact_season(disaster_cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert disaster_result.wins <= 12
+
+    incomplete_cards = _resolve_lineup(INCOMPLETE_DISASTER_LINEUP)
+    incomplete_fit = compute_exact_fit_components(incomplete_cards, SLOT_TYPES)
+    assert _is_catastrophe_roster(incomplete_cards, incomplete_fit) is True
+    incomplete_result = simulate_exact_season(incomplete_cards, board_seed=1, slot_types=SLOT_TYPES)
+    assert incomplete_result.wins <= 12
+    assert incomplete_result.lineup_peak_score == 0.0

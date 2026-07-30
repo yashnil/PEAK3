@@ -131,6 +131,21 @@ html, body {
   background-size: 48px 48px;
 }
 
+/* Phase 8E: homepage hero -- same restrained "arena lighting" language as
+   the court/spinner (Phase 8D: two low-opacity corner glows + a court-line
+   grid texture), scaled up for a full hero section. Gives the front door
+   the same premium arena atmosphere as the game itself instead of a plain
+   flat panel, without drifting into a busy/gaudy look (every glow stays
+   under 12% alpha, same discipline as .roster-board's). */
+.home-hero-glow {
+  background-image:
+    radial-gradient(45% 60% at 12% 0%, rgba(245, 200, 66, 0.10), transparent 70%),
+    radial-gradient(45% 60% at 88% 0%, rgba(96, 165, 250, 0.07), transparent 70%),
+    linear-gradient(var(--court-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--court-line) 1px, transparent 1px);
+  background-size: auto, auto, 48px 48px, 48px 48px;
+}
+
 /* ================================================================
    Card surfaces
    ================================================================ */
@@ -190,13 +205,25 @@ html, body {
 }
 
 @keyframes spin-ceremony-lock {
-  0% { transform: scale(0.92); opacity: 0.5; }
-  60% { transform: scale(1.03); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
+  0% { transform: scale(0.92); opacity: 0.5; box-shadow: 0 0 0 0 rgba(245, 200, 66, 0); }
+  45% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 26px 6px rgba(245, 200, 66, 0.4); }
+  100% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(245, 200, 66, 0); }
 }
 
 .spin-ceremony-lock-flash {
   animation: spin-ceremony-lock 0.35s ease-out;
+}
+
+/* Phase 8D: a real "launch" kick when the reel first starts spinning --
+   distinguishes the start of a roll as its own felt beat instead of the
+   spinning UI just silently appearing. Fires automatically at mount since
+   data-phase="spinning" is present from the first paint; neutralized by
+   the global prefers-reduced-motion rule below like every other keyframe
+   here. */
+@keyframes spin-reel-launch {
+  0% { transform: scale(0.98); }
+  35% { transform: scale(1.012); }
+  100% { transform: scale(1); }
 }
 
 @keyframes spin-ceremony-reel-tick {
@@ -322,6 +349,15 @@ html, body {
   overflow: hidden;
   border: 1px solid var(--border-default);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+  /* Phase 8B: a container query context, not just a viewport one. This
+     same component renders inside a full-width mobile column, a ~400px
+     desktop sticky rail (.arena-shell-rail), AND a ~672px result-screen
+     card -- three very different available widths at the SAME viewport
+     size. A `max-width: 480px` viewport media query can't tell those
+     apart (the 400px rail only ever exists on a >=1024px viewport, so it
+     would never match); querying this wrapper's own inline size does. */
+  container-type: inline-size;
+  container-name: court-panel;
 }
 
 .roster-board {
@@ -393,6 +429,49 @@ html, body {
       "pg  pg"
       "sf  sg"
       "pf  c";
+  }
+}
+
+/* Phase 8B: same 2-column collapse as the viewport rule above, but keyed
+   off the court panel's own rendered width (see .court-panel-wrapper's
+   container-type) -- covers the desktop sticky rail (.arena-shell-rail,
+   ~400px) AND the result-screen share card (~640px), neither of which the
+   old viewport-only media query above ever caught (both render at a wide,
+   >=1024px viewport). The corner slots (SF/SG) in the 4-column diagonal
+   layout only get ~1/4 of the container's width -- fine at the old
+   max-w-3xl (768px) single-column width this was tuned for, but at 640px
+   or 400px it's not enough room for "Carlos Clark" + "Boston Celtics ·
+   1983-84" without either character-level wrapping or clipping the season
+   off a 2-line clamp (Phase 8 playtest finding #5). The threshold is set
+   above every width this component currently renders at (900px), so the
+   4-column "spread" layout is reserved for a genuinely wide container if
+   one exists in the future -- readability wins over the diagonal court
+   silhouette at every width actually in use today. */
+@container court-panel (max-width: 900px) {
+  .roster-board-starters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "pg  pg"
+      "sf  sg"
+      "pf  c";
+  }
+}
+
+/* Phase 8B: on a real phone-width container, even 2 columns (~155px) isn't
+   enough room for "Los Angeles Clippers · 2022-23" without clipping the
+   season off the 2-line clamp. One full-width column trades the last of
+   the court silhouette for the thing the user actually asked to be able
+   to read -- every starter card gets the panel's full width, same as the
+   bench does below 460px. */
+@container court-panel (max-width: 380px) {
+  .roster-board-starters {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "pg"
+      "sf"
+      "sg"
+      "pf"
+      "c";
   }
 }
 
@@ -502,6 +581,19 @@ html, body {
   gap: 8px;
 }
 
+/* Phase 8B: same container-width problem as the starters grid -- 3 equal
+   columns gives each bench card only ~110px in the ~400px rail or on a
+   phone viewport, breaking names into single-character lines. Collapse to
+   one full-width column below that. The ~640px result-screen card and any
+   container above this stay 3-column (already comfortable, see
+   .court-panel-wrapper's container-type comment for the three widths this
+   component actually renders at). */
+@container court-panel (max-width: 460px) {
+  .roster-board-bench {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Small hoop glyph accent, purely decorative (aria-hidden), keeps a
    literal basketball reference without the absolute-position collision
    risk of the old full court-diagram approach. */
@@ -558,6 +650,21 @@ html, body {
   border: 1.5px solid var(--peak-accent, #f5c842) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--peak-accent, #f5c842) 18%, transparent),
     0 0 16px color-mix(in srgb, var(--peak-accent, #f5c842) 25%, transparent);
+}
+
+/* Phase 8C: empty slots as "draft targets" rather than inert blank boxes
+   (playtest finding #3: "improve empty slots too; they should feel like
+   draft targets, not blank boxes"). A pending target (the slot the current
+   selection can be placed into) gets a slow breathing pulse -- draws the
+   eye without being frantic. Neutralized by the existing global
+   prefers-reduced-motion override. */
+@keyframes draft-target-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--peak-accent, #f5c842) 22%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--peak-accent, #f5c842) 0%, transparent); }
+}
+
+.draft-target[data-pending="true"] {
+  animation: draft-target-pulse 1.8s ease-in-out infinite;
 }
 
 /* ================================================================
@@ -628,18 +735,29 @@ html, body {
   position: relative;
   border-radius: 16px;
   overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
 }
 
 .spin-reel[data-phase="spinning"] {
   box-shadow: inset 0 0 0 1px var(--border-emphasis);
+  animation: spin-reel-launch 260ms ease-out;
 }
 
 .spin-reel[data-phase="locked"] {
   box-shadow: inset 0 0 0 1px var(--peak-accent-dim), 0 0 0 3px rgba(245, 200, 66, 0.12);
 }
 
+/* Phase 8D: once the roll settles, the whole card (not just the two wheel
+   boxes) picks up a soft wash of the rolled team's own color (--reel-accent,
+   set inline in SpinStage.tsx from the same getTeamColors() already used
+   for the wheel boxes/team badge) -- the reveal moment should feel like
+   color genuinely arriving, not just two small boxes changing. Stays a
+   restrained top-down wash (18% peak alpha) rather than a full-card tint --
+   this is still a premium analytics surface, not a slot-machine skin. */
 .spin-reel[data-phase="revealed"] {
   box-shadow: inset 0 0 0 1px var(--peak-accent-dim);
+  background-image: radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--reel-accent, var(--peak-accent)) 18%, transparent), transparent 70%);
 }
 
 /* Faint vertical blur streaks behind the reel content while spinning --
@@ -661,48 +779,137 @@ html, body {
   animation: spin-reel-streak 0.4s linear infinite;
 }
 
-/* Phase 6G Part B -- reel-strip ticker (shows several pool items at once
-   while spinning, proving broad team/season coverage instead of just
-   asserting it). Fixed width/overflow:hidden so it can never cause
-   horizontal page overflow on mobile regardless of label length. */
+/* Phase 8H: rebuilt as a real VERTICAL slot reel (was a horizontal row
+   with only the center item animating) -- see SpinStage.tsx's ReelStrip
+   docstring for the full "why". Fixed height/overflow:hidden so it can
+   never cause page overflow regardless of label length, and so the
+   motion/react `layout` FLIP animation has a stable window to scroll
+   inside of. */
 .spin-reel-strip {
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  height: 92px;
+  overflow: hidden;
+}
+
+/* Phase 8I: each row is now a logo + label pair (team reel only -- the
+   season/era reel never gets a logoUrls prop, so it just never renders the
+   `.spin-reel-strip-logo-wrap` span and reads exactly as before). */
+.spin-reel-strip-row {
+  display: flex;
+  align-items: center;
   justify-content: center;
   gap: 6px;
-  width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
+  max-width: 100%;
 }
 
-.spin-reel-strip-item {
-  font-size: 10px;
+.spin-reel-strip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  min-width: 0;
+}
+
+.spin-reel-strip-item .spin-reel-strip-label {
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
-  opacity: 0.55;
-  flex-shrink: 0;
-  max-width: 64px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.spin-reel-strip-active {
-  font-size: 14px;
+.spin-reel-strip-active .spin-reel-strip-label {
+  font-size: 16px;
   font-weight: 800;
   color: var(--text-primary);
-  flex-shrink: 0;
-  max-width: 96px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-/* Blur/ghosting while the reel is at full speed -- eases off once the ramp
-   drops to "slow", so the strip visually settles before the lock snap.
-   Neutralized entirely under prefers-reduced-motion (that path never
-   mounts this element at all -- see SpinStage.tsx). */
+/* Phase 8I: a "payline" highlight band behind the center row -- the row the
+   reel is actually pointing at, not just the biggest text -- tinted with
+   the currently-cycling team's own color (--reel-accent, already set on
+   the outer .spin-reel wrapper) for a touch more liveliness without adding
+   any new layout or a redesign. */
+.spin-reel-strip-active {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--reel-accent, var(--peak-accent)) 14%, transparent),
+    transparent
+  );
+  border-radius: 8px;
+  padding: 3px 6px;
+  margin: 0 -6px;
+}
+
+/* Logo (or initials fallback) shown on every visible reel row while
+   spinning -- "team-branded while moving", not just after landing. The
+   fallback badge always renders; the real logo <img> sits on top of it and
+   simply hides itself via onError if the URL 404s or the asset gate is off,
+   so a missing logo degrades to the initials badge with no broken-image
+   flash and no extra render/state cost. */
+.spin-reel-strip-logo-wrap {
+  /* Must be a sized box, not the default inline `<span>` -- width/height
+     are no-ops on non-replaced inline elements, which was silently letting
+     the absolutely-positioned <img> inside fall back to its raw intrinsic
+     size (the source ESPN logos are 500x500) instead of the tiny reel
+     badge size set below. */
+  display: inline-flex;
+  position: relative;
+  border-radius: 999px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.spin-reel-strip-item .spin-reel-strip-logo-wrap {
+  width: 15px;
+  height: 15px;
+}
+
+.spin-reel-strip-active .spin-reel-strip-logo-wrap {
+  width: 24px;
+  height: 24px;
+}
+
+.spin-reel-strip-logo-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 8px;
+  line-height: 1;
+}
+
+.spin-reel-strip-active .spin-reel-strip-logo-fallback {
+  font-size: 10px;
+}
+
+.spin-reel-strip-logo-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--bg-surface);
+}
+
+/* Blur/ghosting while the reel is at full speed -- eases off through
+   "medium" and clears entirely by "slow", so the strip visually settles in
+   stages before the lock snap rather than snapping from blurred to sharp in
+   one jump. Neutralized entirely under prefers-reduced-motion (that path
+   never mounts this element at all -- see SpinStage.tsx). */
 .spin-reel-strip[data-ramp="fast"] .spin-reel-strip-item,
 .spin-reel-strip[data-ramp="fast"] .spin-reel-strip-active {
   filter: blur(0.6px);
+}
+
+.spin-reel-strip[data-ramp="medium"] .spin-reel-strip-item,
+.spin-reel-strip[data-ramp="medium"] .spin-reel-strip-active {
+  filter: blur(0.25px);
 }
 
 .spin-locked-stamp {
@@ -711,6 +918,18 @@ html, body {
   border: 1.5px solid var(--peak-accent, #f5c842);
   border-radius: 999px;
   background: rgba(245, 200, 66, 0.1);
+  /* Phase 8E: a real "stamp down" snap instead of appearing statically --
+     this is the single clearest "the roll just got decided" beat in the
+     whole ceremony, so it earns its own punchier entrance than the
+     surrounding wheel-box flash. Neutralized by the global
+     prefers-reduced-motion rule like every other keyframe in this file. */
+  animation: spin-locked-stamp-snap 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes spin-locked-stamp-snap {
+  0% { transform: scale(1.6) rotate(-8deg); opacity: 0; }
+  60% { transform: scale(0.96) rotate(1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
 }
 
 .round-progress-dots {
@@ -806,4 +1025,236 @@ html, body {
 .score-number {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+/* ================================================================
+   Phase 8D -- PEAK Season "Arena" shell: ONE consistent layout
+   ================================================================
+   Phase 8B/8C tried a mode-dependent shell (a 400px rail that expanded
+   to a dominant column once a player was selected). Playtest finding:
+   the resize itself -- combined with .court-panel-wrapper's own
+   container-query breakpoint (900px) getting crossed mid-transition --
+   read as an unstable morph between what felt like two different
+   products, not a premium reveal. "I do not want a tiny-court state and
+   a huge-court state."
+   Fix: the court is ALWAYS the dominant column and the spin/candidate
+   panel is ALWAYS the same fixed-width companion, from the very first
+   paint, regardless of select/place phase. Nothing about this shell's
+   own geometry ever changes in response to game phase -- only real
+   viewport-width changes (normal, expected responsive behavior, not the
+   "morph" bug) ever resize it. `.arena-shell-main` (spin/candidates/
+   placement prompt) and `.arena-shell-rail` (the court) swap visual
+   order via `order` at lg+ ONLY -- mobile keeps its natural DOM order
+   (spin/candidates first, court below) since scrolling past a still-
+   forming court every round would be worse on a phone. */
+.arena-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (min-width: 1024px) {
+  .arena-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 460px;
+    align-items: start;
+    gap: 28px;
+  }
+
+  .arena-shell-main {
+    order: 2;
+  }
+
+  .arena-shell-rail {
+    order: 1;
+  }
+}
+
+.arena-shell-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (min-width: 1024px) {
+  .arena-shell-rail {
+    position: sticky;
+    top: 24px;
+  }
+}
+
+/* ================================================================
+   Phase 8B -- richer roster-board court surface
+   ================================================================ */
+
+.roster-board {
+  /* Stronger arena-floor treatment: a warmer radial "spotlight" over the
+     paint plus a slightly more saturated hardwood gradient -- still no
+     image asset, CSS-only.
+     Phase 8D: adds two low-opacity "stadium rig" corner glows (warm gold +
+     a cool accent pulled from the existing --comp-si design token, never an
+     arbitrary new hue) and a soft vignette toward the panel edges -- this
+     is what turns "premium dark tool" into "arena" without drifting into a
+     gaudy, betting-app palette (every added layer stays under 12% alpha). */
+  background:
+    radial-gradient(30% 26% at 6% 2%, rgba(245, 200, 66, 0.11), transparent 72%),
+    radial-gradient(30% 26% at 94% 2%, rgba(96, 165, 250, 0.08), transparent 72%),
+    radial-gradient(85% 60% at 50% 8%, rgba(245, 200, 66, 0.10), transparent 65%),
+    radial-gradient(60% 45% at 50% 100%, rgba(245, 200, 66, 0.05), transparent 70%),
+    radial-gradient(120% 95% at 50% 45%, transparent 60%, rgba(0, 0, 0, 0.18) 100%),
+    linear-gradient(180deg, var(--bg-elevated) 0%, #17130a 65%, #14110a 100%);
+}
+
+.roster-board-court-markings .roster-board-paint,
+.roster-board-court-markings .roster-board-ft-circle,
+.roster-board-court-markings .roster-board-arc {
+  opacity: 0.55;
+}
+
+.roster-board-court-markings .roster-board-rim {
+  opacity: 0.8;
+  box-shadow: 0 0 12px rgba(245, 200, 66, 0.35);
+}
+
+/* Per-slot team-color accent (Phase 8B) -- filled starter/bench cards get a
+   left accent rail in the real team's primary color (nba team-colors.ts;
+   colors + initials only, never a logo -- see that module's own docstring
+   for the licensing rationale). Applied via inline style custom property
+   `--slot-accent` (set per-card in PeakCardCourt.tsx) so this stays a pure
+   CSS hook, not a hardcoded palette. */
+.roster-board-slot-card-filled {
+  border-left: 3px solid var(--slot-accent, var(--peak-accent, #f5c842)) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), 0 2px 10px -4px rgba(0, 0, 0, 0.5);
+  /* Phase 8E: a filled slot now carries a faint wash of its own team color
+     (same --slot-accent the rail/medallion already use), not just a flat
+     --bg-elevated fill -- a populated court should read as "colored in" by
+     the actual roster, not just outlined in team color at the edge. Kept
+     very low alpha (8%) so player-name/score text never loses contrast. */
+  background: var(--bg-elevated);
+  background-image: radial-gradient(140% 160% at 0% 50%, color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 8%, transparent), transparent 70%);
+}
+
+.roster-board-slot-card-open {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-surface);
+  /* Phase 8H: court-density fix -- a subtle radial glow so an empty slot
+     still reads as part of the arena's lit surface rather than a flat
+     gray cutout waiting to be filled. */
+  background-image: radial-gradient(120% 140% at 50% 0%, rgba(245, 200, 66, 0.05), transparent 70%);
+}
+
+/* Phase 8H: large, near-invisible position-letter watermark inside an
+   empty slot -- see PeakCardCourt.tsx's own comment for the rationale.
+   Absolutely positioned so it never affects the icon/label's own layout;
+   clipped by the parent's overflow:hidden so it can never leak past the
+   card's rounded corners. */
+.roster-board-slot-watermark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 44px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  opacity: 0.045;
+  pointer-events: none;
+  line-height: 1;
+}
+
+/* ================================================================
+   Phase 8B -- spinner: bigger, more suspenseful reel + a visibly
+   distinct "respinning" re-roll state
+   ================================================================ */
+
+.spin-reel {
+  border-radius: 20px;
+}
+
+.spin-wheel-box {
+  position: relative;
+  border-radius: 18px;
+  transition: box-shadow 200ms ease, transform 200ms ease;
+}
+
+/* Once a roll is revealed, the wheel box picks up a soft glow in the
+   rolled team's own color (--slot-accent, set inline from getTeamColors)
+   -- real team identity used consistently, without a logo. */
+.spin-wheel-box[data-phase="revealed"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 45%, transparent),
+    0 0 28px -6px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 55%, transparent);
+}
+
+/* Phase 8I: a much lighter version of the same glow while still spinning
+   (--slot-accent already tracks whichever team the reel is currently
+   ticking through, not just the final landed one) -- the box no longer
+   sits visually inert until the very end of the ceremony. */
+.spin-wheel-box[data-phase="spinning"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 20%, transparent),
+    0 0 16px -8px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 35%, transparent);
+}
+
+/* Top/bottom fade mask on the reel strip -- gives the ticking pool items a
+   real slot-machine "window" depth instead of a flat clipped list. */
+.spin-reel-strip {
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, black 20%, black 80%, transparent 100%);
+  mask-image: linear-gradient(180deg, transparent 0%, black 20%, black 80%, transparent 100%);
+}
+
+/* Respin-specific re-roll flourish (distinct from the first roll of a
+   round): a brief, energetic pulse + label so clicking "Respin" reads as a
+   real new roll happening, not a silent text swap (Phase 8 playtest
+   finding #1). Neutralized under prefers-reduced-motion like every other
+   animation in this file (global rule below still applies). */
+@keyframes respin-pulse-ring {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--peak-accent, #f5c842) 55%, transparent); }
+  100% { box-shadow: 0 0 0 14px color-mix(in srgb, var(--peak-accent, #f5c842) 0%, transparent); }
+}
+
+.spin-wheel-box[data-respinning="true"] {
+  animation: respin-pulse-ring 550ms ease-out;
+}
+
+.respin-banner {
+  color: var(--peak-accent, #f5c842);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 11px;
+  animation: respin-banner-fade 700ms ease-out;
+}
+
+@keyframes respin-banner-fade {
+  0% { opacity: 0; transform: translateY(-2px); }
+  15% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; }
+}
+
+/* ================================================================
+   Phase 8B -- result screen tier glow
+   ================================================================
+   Escalating (not re-hued) accent intensity by result tier -- stays
+   within the existing single peak-accent identity (blueprint principle:
+   "selective high-energy accents", not a rainbow tier-coding system).
+   Set via the `data-tier-glow` attribute (SeasonResultStub.tsx). */
+.result-hero[data-tier-glow="none"] { --tier-glow-opacity: 0; --tier-glow-blur: 0px; }
+.result-hero[data-tier-glow="low"] { --tier-glow-opacity: 0.12; --tier-glow-blur: 40px; }
+.result-hero[data-tier-glow="mid"] { --tier-glow-opacity: 0.20; --tier-glow-blur: 56px; }
+.result-hero[data-tier-glow="high"] { --tier-glow-opacity: 0.30; --tier-glow-blur: 72px; }
+.result-hero[data-tier-glow="max"] { --tier-glow-opacity: 0.42; --tier-glow-blur: 96px; }
+
+.result-hero {
+  position: relative;
+}
+
+.result-hero::before {
+  content: "";
+  position: absolute;
+  inset: -20px;
+  z-index: -1;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--peak-accent, #f5c842) calc(var(--tier-glow-opacity, 0) * 100%), transparent), transparent 75%);
+  filter: blur(var(--tier-glow-blur, 0px));
+  pointer-events: none;
 }

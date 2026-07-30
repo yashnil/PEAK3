@@ -277,6 +277,14 @@ class PlayerSeasonCard:
     season_label: str
     games_played: Optional[float]
     minutes_per_game: Optional[float]
+    # Phase 8K: games started, direct-row resolution only ("GS" column in
+    # regular_1980_2026.parquet) -- None for the traded-stint fallback path
+    # (traded_player_team_stints.v1.json carries no starts field). Used only
+    # to grade PROVISIONAL simulation impact for unscored cards (never the
+    # official score) -- a 6-game, 0-start card is real roster-only depth,
+    # not a rotation player, and simulate_exact_season should not treat it
+    # as a neutral unknown.
+    games_started: Optional[float]
     position: Optional[str]
     identity_pool_status: str  # canonical_250 | qualifies_1500 | team_year_roster_only
     score_status: str  # exact_season_scored | exact_season_unscored
@@ -330,6 +338,7 @@ def resolve_player_season_card(
         games_played = float(row["g"]) if pd.notna(row["g"]) else None
         minutes_total = float(row["mp"]) if pd.notna(row["mp"]) else None
         minutes_per_game = (minutes_total / games_played) if (games_played and minutes_total is not None) else None
+        games_started = float(row["GS"]) if pd.notna(row.get("GS")) else None
         position = str(row["pos"]) if pd.notna(row.get("pos")) else None
         player_name = str(row["player"])
         score_source = "exact_team_stint"
@@ -364,6 +373,9 @@ def resolve_player_season_card(
         games_played = stint.get("games")
         minutes_total = stint.get("minutes_total_estimate")
         minutes_per_game = (minutes_total / games_played) if (games_played and minutes_total) else None
+        # No starts field in the traded-stint supplement -- honestly unknown,
+        # never guessed.
+        games_started = None
         position = stint.get("position")
         player_name = stint["player_name"]
         score_source = "roster_only_unscored"
@@ -414,6 +426,7 @@ def resolve_player_season_card(
         season_label=season,
         games_played=games_played,
         minutes_per_game=round(minutes_per_game, 1) if minutes_per_game is not None else None,
+        games_started=games_started,
         position=position,
         identity_pool_status=identity_pool_status,
         score_status=score_status,

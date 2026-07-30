@@ -1,8 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   cancelSelection,
   completeCourtGame,
+  createCourtGame,
   placeCard,
   respinSeason,
   respinTeam,
@@ -10,7 +11,7 @@ import {
   PerfectSeasonAPIError,
 } from "@/lib/perfect-season-api";
 import { uiPhaseFromStatus } from "@/lib/court-state";
-import { CourtLineupPublicState, CourtSlotPublic, SlotType, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
+import { CourtLineupPublicState, CourtSlotPublic, CurrentSpin, SlotType, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import SpinStage from "./SpinStage";
 import EligiblePlayerSearch from "./EligiblePlayerSearch";
 import PeakCardCourt from "./PeakCardCourt";
@@ -31,6 +32,12 @@ interface Props {
   rollableTeamSeasonCount?: number;
   supportedStartSeason?: string | null;
   supportedEndSeason?: string | null;
+  /** Phase 8I: franchise_display_name -> resolved logo URL (readiness
+   * endpoint's team_logo_urls), so the spin reel can show a real team logo
+   * on every visible item while it's ticking, not just the landed team.
+   * Empty whenever the asset gate is off -- SpinStage falls back to the
+   * initials badge for any name missing from this map. */
+  teamLogoUrls?: Record<string, string>;
 }
 
 export default function CourtBuilder({
@@ -40,6 +47,7 @@ export default function CourtBuilder({
   rollableTeamSeasonCount = 0,
   supportedStartSeason = null,
   supportedEndSeason = null,
+  teamLogoUrls = {},
 }: Props) {
   const [state, setState] = useState<CourtLineupPublicState>(initialGameState);
   const [error, setError] = useState<string | null>(null);
@@ -58,8 +66,29 @@ export default function CourtBuilder({
   // SpinStage's brief "just respun" flash -- never affects which round is
   // considered revealed.
   const [respinFlashKey, setRespinFlashKey] = useState(0);
+  // Phase 8C: which axis the most recent respin actually rerolled -- lets
+  // SpinStage animate ONLY that wheel and show the other as visibly locked
+  // (playtest finding: "team-only respin and season-only respin are not
+  // visually clear enough"). Set alongside respinFlashKey on every respin,
+  // read once by SpinStage's effect (see its own respinFlashKey comment).
+  const [respinKind, setRespinKind] = useState<"team" | "season" | null>(null);
 
   const phase = uiPhaseFromStatus(state.status);
+
+  // Phase 8D: the API only sends `current_spin` while status ===
+  // "selection_pending" (see state.py's `find_spin` gate) -- it goes back
+  // to null the instant a player is selected, which is exactly the round
+  // SpinStage needs to STAY mounted through (see the SpinStage `collapsed`
+  // prop comment for why remounting it replays the ceremony). Cache the
+  // most recent non-null spin in a ref so it survives that gap; safe to
+  // write during render (a standard "derived cache" ref pattern, not a
+  // side effect visible to this render) because it only ever overwrites
+  // with a genuinely newer value and every round starts by handing back a
+  // fresh non-null current_spin, so the cache can never leak a stale round
+  // into the next one.
+  const lastSpinRef = useRef<CurrentSpin | null>(null);
+  if (state.current_spin) lastSpinRef.current = state.current_spin;
+  const roundSpin = state.current_spin ?? lastSpinRef.current;
 
   async function withBusy<T>(fn: () => Promise<T>): Promise<T | undefined> {
     setBusy(true);
@@ -94,6 +123,7 @@ export default function CourtBuilder({
     const next = await withBusy(() => respinTeam(state.game_id));
     if (next) {
       setState(next);
+      setRespinKind("team");
       setRespinFlashKey((k) => k + 1);
     }
   }
@@ -102,6 +132,7 @@ export default function CourtBuilder({
     const next = await withBusy(() => respinSeason(state.game_id));
     if (next) {
       setState(next);
+      setRespinKind("season");
       setRespinFlashKey((k) => k + 1);
     }
   }
@@ -109,6 +140,25 @@ export default function CourtBuilder({
   async function handleComplete() {
     const next = await withBusy(() => completeCourtGame(state.game_id));
     if (next) setState(next);
+  }
+
+  // Phase 8D: "Play Again" -- starts a fresh, unseeded game in the SAME
+  // mode without a page reload (reuses the exact createCourtGame call the
+  // initial practice page itself makes server-side -- no parallel "new
+  // game" path). Resets every piece of local ceremony-tracking state back
+  // to its own initial value so the new game's round 1 gets a real,
+  // un-skipped spin ceremony rather than inheriting stale state from the
+  // finished game (e.g. revealedRound already matching round 1 would skip
+  // straight to "revealed" with no ceremony at all).
+  async function handlePlayAgain() {
+    const next = await withBusy(() => createCourtGame(state.mode));
+    if (next) {
+      setState(next);
+      setRevealedRound(null);
+      setRespinFlashKey(0);
+      setRespinKind(null);
+      lastSpinRef.current = null;
+    }
   }
 
   const starterSlots = state.slots.filter((s) => STARTER_SLOT_TYPES.includes(s.slot_type));
@@ -127,7 +177,7 @@ export default function CourtBuilder({
   }
 
   return (
-    <div data-testid="court-builder" className="mx-auto max-w-3xl px-4 py-8 flex flex-col gap-5">
+    <div data-testid="court-builder" className="mx-auto max-w-7xl px-4 py-8 flex flex-col gap-5">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
           82-0 Peak Season
@@ -170,155 +220,185 @@ export default function CourtBuilder({
       )}
 
       {!state.simulation_result && (
-        <>
-          {/* Top: the current round's constraint (team + era wheel). */}
-          {phase === "spinning" && state.current_spin && (
-            <SpinStage
-              key={state.current_round}
-              spin={state.current_spin}
-              roundNumber={state.current_round}
-              totalRounds={state.total_rounds}
-              franchiseNames={franchiseNames}
-              seasonLabels={seasonLabels}
-              rollableTeamSeasonCount={rollableTeamSeasonCount}
-              supportedStartSeason={supportedStartSeason}
-              supportedEndSeason={supportedEndSeason}
-              onRevealComplete={() => setRevealedRound(state.current_round)}
-              respinFlashKey={respinFlashKey}
-            />
-          )}
-
-          {/* Phase 7A Part C: up to 3 team + 3 season respins for the WHOLE
-              8-round run (never per-round -- Phase 6G's original per-round
-              reset was a bug). Uses the top-level *_total counters, which
-              are always run-level and never reset, rather than
-              current_spin's own copy of the same numbers. Still only
-              shown while this round's player hasn't been picked yet
-              (ceremonyRevealed implies status === "selection_pending" --
-              the whole block disappears once a player is selected).
-              team_year rounds only -- legacy team_decade/exact_team_season/
-              open_pool rounds don't have a team+season reel to respin. */}
-          {phase === "spinning" && state.current_spin?.spin_type === "team_year" && ceremonyRevealed && (
-            <div className="flex flex-col items-center gap-1.5" data-testid="respin-controls">
-              <div className="flex items-center gap-2">
-                <button
-                  data-testid="respin-team-btn"
-                  onClick={handleRespinTeam}
-                  disabled={busy || state.team_respins_remaining_total <= 0}
-                  className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-                >
-                  Respin Team ({state.team_respins_remaining_total} left)
-                </button>
-                <button
-                  data-testid="respin-season-btn"
-                  onClick={handleRespinSeason}
-                  disabled={busy || state.season_respins_remaining_total <= 0}
-                  className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-                >
-                  Respin Season ({state.season_respins_remaining_total} left)
-                </button>
-              </div>
-              <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                Three team respins and three season respins per run. Use them wisely.
-              </p>
-            </div>
-          )}
-
-          {/* Candidate area: clearly its own panel, separate from the court
-              below -- step 1 of this round (choose), never mixed visually
-              with step 2 (place). */}
-          {phase === "spinning" && state.current_spin && ceremonyRevealed && (
-            <div
-              data-testid="candidate-panel"
-              className="rounded-2xl border p-4 flex flex-col gap-3"
-              style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                  Step 1 · Choose a player
-                </div>
-                {state.current_spin.spin_type !== "open_pool" && (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span
-                      aria-hidden="true"
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ background: getTeamColors(state.current_spin.franchise_display_name).primary }}
-                    />
-                    <span
-                      className="text-[11px] font-semibold truncate max-w-[180px]"
-                      style={{ color: "var(--text-secondary)" }}
-                      title={`${state.current_spin.franchise_display_name} · ${state.current_spin.era_label}`}
-                    >
-                      {state.current_spin.franchise_display_name} · {state.current_spin.era_label}
-                    </span>
-                  </div>
-                )}
-              </div>
-              <EligiblePlayerSearch
-                candidates={state.current_spin.candidates}
-                onSelect={handleSelect}
-                disabled={busy}
+        /* Phase 8D: the arena shell is now ONE consistent layout at every
+           game phase (see .arena-shell in globals.css) -- the court is
+           always the dominant column and the spin/candidate panel is
+           always the same fixed-width companion, from first paint. There
+           is no more mode-dependent resize (Phase 8B/8C's tiny-rail ->
+           big-court swap read as an unstable morph, partly because it also
+           crossed .court-panel-wrapper's own container-query breakpoint
+           mid-transition). Both columns simply stack in document order
+           below 1024px -- no separate mobile markup branch to maintain. */
+        <div className="arena-shell" data-testid="arena-shell">
+          <div className="flex flex-col gap-5 min-w-0 arena-shell-main">
+            {/* Top: the current round's constraint (team + era wheel).
+                Phase 8D: mounted for the WHOLE round (spinning through
+                placing), never conditionally removed -- keyed only on
+                current_round, so canceling a selection and returning to
+                "spinning" in the SAME round no longer remounts it and
+                replays the ceremony. `collapsed` swaps it to a compact
+                locked-in readout once placement starts. */}
+            {(phase === "spinning" || phase === "placing") && roundSpin && (
+              <SpinStage
+                key={state.current_round}
+                spin={roundSpin}
+                roundNumber={state.current_round}
+                totalRounds={state.total_rounds}
+                franchiseNames={franchiseNames}
+                seasonLabels={seasonLabels}
+                teamLogoUrls={teamLogoUrls}
+                rollableTeamSeasonCount={rollableTeamSeasonCount}
+                supportedStartSeason={supportedStartSeason}
+                supportedEndSeason={supportedEndSeason}
+                onRevealComplete={() => setRevealedRound(state.current_round)}
+                respinFlashKey={respinFlashKey}
+                respinKind={respinKind}
+                collapsed={phase === "placing"}
               />
-            </div>
-          )}
+            )}
 
-          {phase === "placing" && state.pending_selection && (
-            <div
-              data-testid="placing-banner"
-              className="rounded-xl p-3 text-sm flex flex-col gap-2"
-              style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)", color: "var(--text-primary)" }}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--peak-accent, #f5c842)" }}>
-                    Step 2 · Place {state.pending_selection.player_name}
-                  </div>
-                  Choose any open court or bench spot below — the fit badge shows how well
-                  they match that spot, but every open spot is a legal placement.
+            {/* Phase 7A Part C: up to 3 team + 3 season respins for the WHOLE
+                8-round run (never per-round -- Phase 6G's original per-round
+                reset was a bug). Uses the top-level *_total counters, which
+                are always run-level and never reset, rather than
+                current_spin's own copy of the same numbers. Still only
+                shown while this round's player hasn't been picked yet
+                (ceremonyRevealed implies status === "selection_pending" --
+                the whole block disappears once a player is selected).
+                team_year rounds only -- legacy team_decade/exact_team_season/
+                open_pool rounds don't have a team+season reel to respin. */}
+            {phase === "spinning" && state.current_spin?.spin_type === "team_year" && ceremonyRevealed && (
+              <div className="flex flex-col items-center gap-1.5" data-testid="respin-controls">
+                <div className="flex items-center gap-2">
+                  <button
+                    data-testid="respin-team-btn"
+                    onClick={handleRespinTeam}
+                    disabled={busy || state.team_respins_remaining_total <= 0}
+                    className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+                  >
+                    Respin Team ({state.team_respins_remaining_total} left)
+                  </button>
+                  <button
+                    data-testid="respin-season-btn"
+                    onClick={handleRespinSeason}
+                    disabled={busy || state.season_respins_remaining_total <= 0}
+                    className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+                  >
+                    Respin Season ({state.season_respins_remaining_total} left)
+                  </button>
                 </div>
-                <button
-                  data-testid="cancel-selection-btn"
-                  onClick={handleCancel}
-                  disabled={busy}
-                  className="text-xs font-semibold uppercase tracking-wide rounded px-2 py-1 shrink-0"
-                  style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
-                >
-                  Choose someone else
-                </button>
+                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  Three team respins and three season respins per run. Use them wisely.
+                </p>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Middle/bottom: the court itself (PG/SG/SF/PF/C) with the bench
-              rail beneath it -- always visible so the roster-in-progress
-              stays legible across both steps. CourtLayout's own
+            {/* Candidate area: clearly its own panel, separate from the court
+                rail -- step 1 of this round (choose), never mixed visually
+                with step 2 (place). */}
+            {phase === "spinning" && state.current_spin && ceremonyRevealed && (
+              <div
+                data-testid="candidate-panel"
+                className="rounded-2xl border p-4 flex flex-col gap-3"
+                style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                    Step 1 · Choose a player
+                  </div>
+                  {state.current_spin.spin_type !== "open_pool" && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span
+                        aria-hidden="true"
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{ background: getTeamColors(state.current_spin.franchise_display_name).primary }}
+                      />
+                      <span
+                        className="text-[11px] font-semibold"
+                        style={{ color: "var(--text-secondary)" }}
+                        title={`${state.current_spin.franchise_display_name} · ${state.current_spin.era_label}`}
+                      >
+                        {state.current_spin.franchise_display_name} · {state.current_spin.era_label}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <EligiblePlayerSearch
+                  candidates={state.current_spin.candidates}
+                  onSelect={handleSelect}
+                  disabled={busy}
+                />
+              </div>
+            )}
+
+            {phase === "placing" && state.pending_selection && (
+              <div
+                data-testid="placing-banner"
+                className="rounded-xl p-3 text-sm flex flex-col gap-2"
+                style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)", color: "var(--text-primary)" }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--peak-accent, #f5c842)" }}>
+                      Step 2 · Place {state.pending_selection.player_name}
+                    </div>
+                    Choose any open spot on the court rail — the fit badge shows how well
+                    they match that spot, but every open spot is a legal placement.
+                  </div>
+                  <button
+                    data-testid="cancel-selection-btn"
+                    onClick={handleCancel}
+                    disabled={busy}
+                    className="text-xs font-semibold uppercase tracking-wide rounded px-2 py-1 shrink-0"
+                    style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+                  >
+                    Choose someone else
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Rail: the court itself (PG/SG/SF/PF/C) with the bench row
+              beneath it -- always visible so the roster-in-progress stays
+              legible across both steps, and (lg+) stays pinned in view
+              while scrolling the candidate list. CourtLayout's own
               .roster-board provides the visual frame (Phase 6B) -- no
               redundant outer box around it. */}
-          <div data-testid="court-grid" className="flex flex-col gap-2">
+          <div data-testid="court-grid" className="arena-shell-rail">
             <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
               Your roster
             </div>
             {state.live_build && <LiveBuildPanel liveBuild={state.live_build} />}
             <CourtLayout starterSlots={starterSlots} benchSlots={benchSlots} renderSlot={renderSlot} />
-          </div>
 
-          {phase === "complete" && state.status === "rounds_complete" && (
-            <button
-              data-testid="complete-season-btn"
-              onClick={handleComplete}
-              disabled={busy}
-              className="rounded-lg py-3 font-semibold"
-              style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
-            >
-              {busy ? "Simulating…" : "Lock Roster & Simulate"}
-            </button>
-          )}
-        </>
+            {phase === "complete" && state.status === "rounds_complete" && (
+              <button
+                data-testid="complete-season-btn"
+                onClick={handleComplete}
+                disabled={busy}
+                className="rounded-lg py-3 font-semibold"
+                style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+              >
+                {busy ? "Simulating…" : "Lock Roster & Simulate"}
+              </button>
+            )}
+          </div>
+        </div>
       )}
 
-      {state.simulation_result && <SeasonResultStub state={state} result={state.simulation_result} />}
+      {state.simulation_result && (
+        <div className="mx-auto max-w-2xl w-full">
+          <SeasonResultStub
+            state={state}
+            result={state.simulation_result}
+            onPlayAgain={handlePlayAgain}
+            playAgainBusy={busy}
+          />
+        </div>
+      )}
     </div>
   );
 }

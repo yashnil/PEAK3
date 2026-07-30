@@ -8,9 +8,9 @@ import {
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 
 export const metadata: Metadata = {
-  title: "Arena — Peak Draft | PEAK3",
+  title: "Arena — 82-0 Peak Season | PEAK3",
   description:
-    "Draft your all-time 5-player lineup from NBA history windows. An experimental lineup model rates your selections.",
+    "Spin a team and era, build a position-aware roster from real NBA peak windows, and chase a perfect 82-0 season.",
 };
 
 const MODES: DraftMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
@@ -106,8 +106,9 @@ export default async function ArenaPage() {
           </h1>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
             Spin a team and era, build a position-aware 5+3 roster from
-            exact NBA peak windows, and chase a perfect season. Exact
-            ratings stay hidden until the final reveal.
+            exact NBA player-seasons, and chase a perfect season. Ratings
+            stay hidden until the final reveal, then you get a full receipt
+            — including what PEAK3 itself would have picked each round.
           </p>
           <Link
             href="/arena/court/practice/apex_1y"
