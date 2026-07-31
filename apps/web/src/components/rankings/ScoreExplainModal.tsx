@@ -5,7 +5,7 @@
  *
  * WHY THIS EXISTS. The rankings page publishes an ordering; without a mechanism
  * every close call reads as an arbitrary opinion. 41% of the weight vector
- * (recognition 20 + postseason 18 + team achievement 3) sits outside
+ * (recognition 20 + playoff rate impact 18 + team result 3) sits outside
  * regular-season play, so a regular-season deficit is routinely overturned --
  * Kobe 2007-08 over 2005-06, Embiid 2022-23 vs Howard 2008-09, Hakeem 1993-94 vs
  * Robinson 1994-95. This modal always shows the split, and it makes the
@@ -318,7 +318,7 @@ function buildWhy(
         denominator !== 0 ? ` — ${((restTotal / denominator) * 100).toFixed(0)}% of this score is decided outside the regular season` : "";
       out.push(
         `${split.regular_season.toFixed(2)} raw points come from regular-season play and ` +
-          `${restTotal.toFixed(2)} from postseason value, recognition and team achievement${sharePart}.`
+          `${restTotal.toFixed(2)} from playoff rate impact, recognition and team result${sharePart}.`
       );
     }
   }
@@ -374,7 +374,7 @@ function buildEvidence(
   if (typeof championship === "number" || typeof finals === "number") {
     out.team_achievement =
       Number(championship) > 0
-        ? "This row's team won the title, and team achievement is capped, which is why it is still the smallest number here."
+        ? "This row's team won the title, and Team Result is capped at 3 points, which is why it is still the smallest number here."
         : Number(finals) > 0
           ? "This row's team reached the Finals without winning it."
           : "This row's team did not reach the Finals.";
@@ -904,10 +904,10 @@ export default function ScoreExplainModal({
                     ))}
                   </div>
                   <p className="border-l border-[var(--border-subtle)] pl-3 text-xs text-[var(--text-muted)]">
-                    Recognition, postseason value and team achievement sit outside regular-season
+                    Recognition, Playoff Rate Impact and Team Result sit outside regular-season
                     play, which is why a row can lose the regular-season comparison and still rank
-                    higher. Team achievement is capped, so it is almost always the smallest number
-                    here — even for a champion.
+                    higher. Team Result is capped at 3 points, so it is almost always the smallest
+                    number here — even for a champion.
                   </p>
                 </div>
               </Section>

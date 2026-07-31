@@ -474,16 +474,16 @@ COMPONENT_SPECS: tuple[tuple[str, str, str, str, str], ...] = (
     (
         "comp_postseason",
         "contrib_postseason",
-        "Elite Postseason Value",
+        "Elite Playoff Rate Impact",
         "Top 10% Postseason",
-        "Postseason Value",
+        "Playoff Rate Impact",
     ),
     (
         "comp_team_achievement",
         "team_achievement",
-        "Elite Team Achievement",
+        "Elite Team Result",
         "Top 10% Team",
-        "Team Achievement",
+        "Team Result",
     ),
 )
 

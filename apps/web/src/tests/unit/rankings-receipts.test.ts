@@ -106,7 +106,7 @@ describe("postseason receipt", () => {
       { postseason_individual_value: 9.131 },
     );
     expect(r.note).toMatch(/not winning/i);
-    expect(r.note).toMatch(/team achievement/i);
+    expect(r.note).toMatch(/team result/i);
   });
 
   it("cites this row's own sample", () => {

@@ -86,8 +86,8 @@ make api && make web                     # run services
 - Statistical Impact: `--comp-si: #60a5fa` (blue)
 - Traditional Production: `--comp-tp: #a78bfa` (violet)
 - Individual Recognition: `--comp-rec: #f472b6` (pink)
-- Postseason Value: `--comp-po: #fb923c` (orange)
-- Team Achievement: `--comp-team: #34d399` (emerald)
+- Playoff Rate Impact: `--comp-po: #fb923c` (orange)
+- Team Result: `--comp-team: #34d399` (emerald)
 - Teammate Adj: `--comp-tm: #94a3b8` (slate)
 
 ## Naming conventions

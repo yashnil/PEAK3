@@ -49,13 +49,39 @@ export function difficultyColor(difficulty: string): string {
   }
 }
 
+/**
+ * The display name for a scoring component.
+ *
+ * Phase 12B renamed two of them (variant K in
+ * docs/model/PEAK3_FORMULA_VARIANT_EXPERIMENTS.md). The old names described
+ * what the components were FOR; the new ones describe what they actually
+ * COMPUTE, which is where nearly every trust complaint in the top-50 review
+ * came from:
+ *
+ *   "Postseason Value" -> "Playoff Rate Impact"
+ *      It measures per-possession play in the playoffs. Measured over all
+ *      5,756 playoff player-seasons it correlates r=+0.61 with playoff BPM and
+ *      only r=+0.08 with playoff GAMES -- so a 12-game run and a 23-game run
+ *      score alike, and a Finals-run MVP can score near zero. Calling it
+ *      "Postseason Value" invited the reading "how much did their postseason
+ *      matter", which is not the question it answers.
+ *
+ *   "Team Achievement" -> "Team Result"
+ *      It is team advancement times a role multiplier, capped at 3 points.
+ *      "Achievement" reads like a judgement; "Result" is what it is.
+ *
+ * These are LABELS ONLY. No score, weight or ordering changed -- see the
+ * calibration diagnosis for the evidence that no formula change was warranted.
+ * The underlying keys are untouched, so API payloads and stored data are
+ * unaffected.
+ */
 export function componentLabel(key: string): string {
   const labels: Record<string, string> = {
     statistical_impact: "Statistical Impact",
     traditional_production: "Traditional Production",
     individual_recognition: "Individual Recognition",
-    postseason_individual_value: "Postseason Value",
-    team_achievement: "Team Achievement",
+    postseason_individual_value: "Playoff Rate Impact",
+    team_achievement: "Team Result",
     teammate_adjustment: "Teammate Adj.",
   };
   return labels[key] ?? key;

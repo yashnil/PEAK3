@@ -49,6 +49,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 import peak3 as P  # noqa: E402
+from nba_peak.season_status import in_progress_seasons  # noqa: E402
 
 SCORED_PATH = REPO_ROOT / "cache" / "processed" / "scored_1980_2026.parquet"
 OUT_DIR = REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500"
@@ -166,12 +167,17 @@ _PER_GAME_NOTE = (
     "values are provided instead."
 )
 
-# The most recent season in the committed parquet is still IN PROGRESS
-# (season_progress_pct < 1.0). Those rows are real and officially scored, so
-# they are NOT excluded -- excluding them would be a silent editorial choice --
-# but each is flagged so the table and modal can label it instead of quietly
-# ranking a partial season against 45 completed ones.
-_IN_PROGRESS_SEASON = "2025-26"
+# WHICH SEASONS ARE STILL BEING PLAYED is DERIVED, never hardcoded -- see
+# nba_peak/season_status.py. This used to be `_IN_PROGRESS_SEASON = "2025-26"`,
+# justified by `season_progress_pct < 1.0`; that value is below 1.0 for every
+# season since 2016-17 (2021-22 is 0.939, LOWER than 2025-26's 0.951), so it
+# never distinguished a live season from a finished one, and the constant went
+# stale the moment 2025-26 concluded. A season is finished when the data says
+# who won it: a champion and a Finals MVP.
+#
+# In-progress rows are still NOT excluded -- excluding them would be a silent
+# editorial choice -- they are only flagged so the table and modal can label
+# them rather than quietly ranking a partial season against completed ones.
 
 
 def _slug(name: str) -> str:
@@ -394,6 +400,11 @@ def main() -> int:
     if "season_end" not in scored.columns:
         scored["season_end"] = scored["season"].str.slice(0, 4).astype(int) + 1
 
+    # Derived once per build and threaded through, so every row in one artifact
+    # agrees about which seasons are finished.
+    unfinished = in_progress_seasons(scored)
+    print(f"seasons still in progress (derived): {sorted(unfinished) or 'none'}")
+
     pct = _percentile_frames(scored)
 
     ranked = scored.sort_values(
@@ -478,7 +489,7 @@ def main() -> int:
             "season_mpg": round(season_mpg, 1) if season_mpg is not None else None,
             "mpg": round(season_mpg, 1) if season_mpg is not None else None,
             "data_completeness": completeness,
-            "season_in_progress": season == _IN_PROGRESS_SEASON,
+            "season_in_progress": season in unfinished,
         })
 
         regular_season_total = sum(by_name.get(k, 0.0) for k in _REGULAR_SEASON_COMPONENTS)
@@ -515,7 +526,7 @@ def main() -> int:
                 web: P.OFFICIAL_WEIGHTS[key] for web, key in _OFFICIAL_WEIGHT_KEYS.items()
             },
             "mpg": round(season_mpg, 1) if season_mpg is not None else None,
-            "season_in_progress": season == _IN_PROGRESS_SEASON,
+            "season_in_progress": season in unfinished,
             "season_stats": {
                 "season": season,
                 "is_anchor_season_only": False,
@@ -612,7 +623,7 @@ def main() -> int:
                         "This season is still in progress in the committed dataset "
                         f"({round((_num(r, 'season_progress_pct') or 0) * 100)}% elapsed) -- it is ranked "
                         "against completed seasons."
-                    ) if season == _IN_PROGRESS_SEASON else None,
+                    ) if season in unfinished else None,
                     (
                         "PEAK3 scores one row per player-season, so this traded season is a "
                         "combined multi-team total, not a single-team split."
