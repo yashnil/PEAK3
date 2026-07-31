@@ -250,6 +250,7 @@ starting point; never commit a `.env` file.
 | `/arena/court/practice/apex_1y` | 82-0 PEAK Season — the main entry point |
 | `/arena/court/daily/apex_1y` | Today's shared daily challenge |
 | `/daily` | Daily Grid Challenge — the 3x3 daily puzzle |
+| `/daily/history` | Your Daily Grid streak and past results (stored locally) |
 | `/arena/court/history` | Saved runs and personal bests |
 | `/arena/court/results/[id]` | A shared or saved run result |
 | `/arena` | Arena hub |

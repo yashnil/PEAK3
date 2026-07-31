@@ -32,6 +32,7 @@ REPOSITORY_DOMAINS: list[str] = [
     "ranked_matchmaking",
     "ranked_rating",
     "ranked_integrity",
+    "daily_grid_result",
 ]
 
 

@@ -1,4 +1,4 @@
-"""Daily Grid Challenge (Phase 11A) -- PEAK3's lightweight daily game.
+"""Daily Grid Challenge -- PEAK3's daily basketball puzzle.
 
 A 3x3 board whose rows and columns are basketball/PEAK3 constraints; each
 cell is filled with an exact NBA player-SEASON that satisfies both.

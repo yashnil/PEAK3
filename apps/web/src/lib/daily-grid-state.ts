@@ -442,6 +442,11 @@ export function buildDailyGridShareText(
   progress: DailyGridProgress,
   result?: GridResultResponse | null,
   now: Date = new Date(),
+  /** The local archive, when one has been read. The streak line is included
+   *  ONLY from a real local record and only when it is at least 2 — a "1 day
+   *  streak" is just "I played", and a streak shared out of an empty archive
+   *  would be a number the sharer cannot themselves see. */
+  archive?: { current_streak: number } | null,
 ): string {
   const lines: string[] = [`PEAK3 Daily Grid — ${board.date}`];
   if (board.theme) lines.push(board.theme);
@@ -465,6 +470,12 @@ export function buildDailyGridShareText(
   const elapsed = elapsedMs(progress, now);
   if (elapsed !== null) lines.push(`Time: ${formatElapsed(elapsed)}`);
   lines.push(`Misses: ${progress.incorrect_attempts}`);
+  // Local, unverified, and never dressed up as anything else. No rank and no
+  // percentile go in here for the same reason: there is no server-side record
+  // to back either one.
+  if (archive && archive.current_streak >= 2) {
+    lines.push(`Streak: ${archive.current_streak} days`);
+  }
 
   if (result) {
     lines.push("");

@@ -183,6 +183,46 @@ class Settings(BaseSettings):
             )
         return self
 
+    # ---------------------------------------------------------------------------
+    # Phase 11D — Daily Grid rate limiting
+    #
+    # The Daily Grid is the only surface where a client repeatedly queries the
+    # server while the server is withholding a secret (the day's answer key), so
+    # it is the only one that carries limits. Every value is per client key per
+    # 60s -- see app/core/rate_limit.py for what the key is and for the honest
+    # account of what an in-process limiter does and does not buy.
+    #
+    # Defaults are set well above what a person playing the game can produce
+    # (filling nine squares is ~9 searches and ~9 submissions) and well below
+    # what a script enumerating an answer set needs.
+    # ---------------------------------------------------------------------------
+
+    # Master switch. Left ON by default so the limited path is the one that runs
+    # everywhere, including local dev -- a limiter that is only enabled in
+    # production is a limiter nobody has tested.
+    DAILY_GRID_RATE_LIMIT_ENABLED: bool = True
+
+    # Board fetch: generous. It returns no answer information, and a client
+    # legitimately re-fetches on reload, on date change and on retry.
+    DAILY_GRID_BOARD_RATE_LIMIT: int = 120
+
+    # Search: the endpoint an answer-key harvester would actually use.
+    DAILY_GRID_SEARCH_RATE_LIMIT: int = 60
+
+    # Answer submission: a player submits at most nine times plus mistakes.
+    DAILY_GRID_ANSWER_RATE_LIMIT: int = 30
+
+    # Result: called once per completed board (the client fetches it once and
+    # caches it in component state), so this is already very generous.
+    DAILY_GRID_RESULT_RATE_LIMIT: int = 20
+
+    # Distinct dates one client may pull boards for per window. Replaying an
+    # archive board is a supported feature, so this is not a block -- it is a
+    # ceiling on walking the calendar to build an offline board corpus.
+    DAILY_GRID_DATE_ENUMERATION_LIMIT: int = 30
+
+    DAILY_GRID_RATE_LIMIT_WINDOW_SECONDS: float = 60.0
+
     @model_validator(mode="after")
     def warn_insecure_secret(self) -> "Settings":
         if self.DEBUG and self.SIGNING_SECRET == "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION":

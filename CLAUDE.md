@@ -66,9 +66,10 @@ make api && make web                     # run services
 
 ## Testing expectations
 
-- **Model tests**: all must pass. Never weaken assertions or change expected values.
+- **Python model tests** (`tests/`): must always pass. Never weaken assertions or change expected values.
+- **FastAPI/API tests** (`apps/api/tests/`): must always pass.
 - **API regression tests**: verify web dataset matches canonical CSVs for rank 1 of all durations and top-10 ordering.
-- **Frontend unit tests**: game reducer state transitions, progress persistence, share text.
+- **Frontend unit tests**: game reducer state transitions, progress persistence, share text, Daily Grid streak/archive.
 - **Playwright e2e**: landing page, navigation, rankings, methodology accordion.
 
 ## Design principles

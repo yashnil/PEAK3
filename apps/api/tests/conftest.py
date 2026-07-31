@@ -106,6 +106,28 @@ def client() -> TestClient:
         yield c
 
 
+@pytest.fixture(autouse=True)
+def _isolated_rate_limits():
+    """Give every test a fresh rate-limit budget (Phase 11D).
+
+    The `client` fixture is session-scoped, so without this the Daily Grid
+    limits would be shared across the whole run: a test would pass or fail
+    depending on how many requests the tests before it happened to make, and
+    adding a test anywhere could break one somewhere else. Resetting per test
+    makes each one's budget exactly the configured limit.
+
+    Deliberately does NOT disable limiting. The limited path is the one that
+    runs in production, so it should be the one the tests exercise; the
+    429-behaviour tests then work by deliberately exceeding a limit rather than
+    by turning a switch back on that nothing else uses.
+    """
+    from app.core.rate_limit import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
 @pytest.fixture(scope="session")
 def fixture_leaderboards() -> dict[int, list[dict]]:
     return FIXTURE_LEADERBOARDS

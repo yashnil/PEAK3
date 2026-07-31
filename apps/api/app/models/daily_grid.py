@@ -1,4 +1,4 @@
-"""Pydantic request/response models for the Daily Grid Challenge (Phase 11A).
+"""Pydantic request/response models for the Daily Grid Challenge.
 
 The authoritative contract is apps/web/src/types/daily-grid.ts. Every model
 here mirrors one interface in that file, field for field, so the OpenAPI
@@ -15,11 +15,17 @@ TWO THINGS THIS FILE IS RESPONSIBLE FOR
    generator.GridBoard.as_public_dict(); see the header comment in
    daily-grid.ts for why the raw answer count is as sensitive as the key.
 
-2. BOUNDING CLIENT INPUT. Phase 11A keeps no server-side board state, so
-   `used_player_slugs` / `filled_cells` are client-supplied. They are capped
-   at nine (a 3x3 board can never have more), which is a resource guard, not
-   a security boundary -- constraint validity itself is decided server-side
-   from real data in nba_peak/daily_grid/validation.py.
+2. BOUNDING CLIENT INPUT. There is no server-side board state -- boards are
+   derived from the date, not stored -- so `used_player_slugs` / `filled_cells`
+   are client-supplied. They are capped at nine (a 3x3 board can never have
+   more), which is a resource guard, not a security boundary: constraint
+   validity itself is decided server-side from real data in
+   nba_peak/daily_grid/validation.py, and the distinct-identity rule is
+   re-checked across the whole board on /result and /official.
+
+   (Phase 11D added durable storage of completed RESULTS for signed-in
+   players -- see OfficialResultRequest below -- which is a record of a
+   finished board, not live board state.)
 
 The closed unions below (`ConstraintCategory`, `RarityBucket`,
 `GridDifficulty`, `ValidationReasonCode`) are Literals on purpose: they are
@@ -288,3 +294,63 @@ class GridResultResponse(BaseModel):
     biggest_miss: Optional[ResultCell] = Field(
         None, description="None when the player matched the maximum on every square"
     )
+
+
+# ---------------------------------------------------------------------------
+# Official account-backed result (Phase 11D)
+# ---------------------------------------------------------------------------
+
+class OfficialResultRequest(GridResultRequest):
+    """POST /api/v1/daily-grid/official request.
+
+    Extends the result request rather than redefining it, so the two routes
+    take the SAME nine squares and go through the SAME server-side
+    revalidation. Adds only the two presentational facts the durable record
+    keeps and the comparison does not.
+    """
+
+    elapsed_seconds: Optional[int] = Field(
+        None,
+        ge=0,
+        le=86_400,
+        description=(
+            "Client wall-clock time for the board. Stored presentationally and "
+            "NEVER scored or ranked -- the server does not time attempts, so "
+            "this value is not verified and must not be treated as if it were."
+        ),
+    )
+    theme: Optional[str] = Field(
+        None,
+        max_length=64,
+        description="Board theme, echoed back for display. Re-derived server-side.",
+    )
+
+
+class OfficialResultResponse(BaseModel):
+    """POST /api/v1/daily-grid/official response.
+
+    `official_saved` is True whenever the caller now HAS an official record for
+    this board, whether this request created it or an earlier one did.
+    `created` distinguishes the two. A retry is a success, not a conflict --
+    see DailyGridResultRepository.save_result.
+    """
+
+    official_saved: bool
+    created: bool = Field(
+        ..., description="False when an official result for this board already existed"
+    )
+    board_id: str
+    board_date: str
+    board_version: str
+    score: int
+    optimal_total: int
+    percent_of_best: float
+    squares_matching_optimal: int
+    played_on_board_date: bool = Field(
+        ...,
+        description=(
+            "False for an archive replay reached through ?date=. Recorded "
+            "honestly rather than rejected, and never counted as a live daily."
+        ),
+    )
+    saved_at: str = Field(..., description="ISO-8601 UTC")
