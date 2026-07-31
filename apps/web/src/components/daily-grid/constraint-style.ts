@@ -11,6 +11,7 @@ export const CATEGORY_COLOR: Record<ConstraintCategory, string> = {
   award: "var(--comp-rec)", // pink -- Individual Recognition
   era: "var(--comp-tm)", // slate -- neutral, era is not a component
   position: "var(--comp-po)", // orange
+  context: "var(--comp-tm)", // slate -- season shape, not a component
   peak: "var(--peak-accent)", // gold -- the PEAK score itself
   component: "var(--comp-si)", // blue -- Statistical Impact family
   outcome: "var(--comp-tp)", // violet
@@ -21,6 +22,7 @@ export const CATEGORY_LABEL: Record<ConstraintCategory, string> = {
   award: "Award",
   era: "Era",
   position: "Position",
+  context: "Season context",
   peak: "PEAK score",
   component: "Model component",
   outcome: "Team outcome",

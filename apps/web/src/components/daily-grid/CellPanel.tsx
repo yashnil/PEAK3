@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Lock } from "lucide-react";
-import { DailyGridBoard, FilledCell, GridConstraint, PlayerSeasonSearchHit } from "@/types/daily-grid";
+import {
+  DailyGridBoard,
+  FilledCell,
+  GridConstraint,
+  PlayerSeasonSearchHit,
+  SearchHitStatus,
+} from "@/types/daily-grid";
 import { searchPlayerSeasons } from "@/lib/daily-grid-api";
 import {
   RARITY_POOL_HINT,
@@ -52,28 +58,66 @@ function ConstraintBlock({ constraint, axis }: { constraint: GridConstraint | nu
   );
 }
 
+/** How each search-result status is presented.
+ *
+ * Every badge carries its own words -- never colour alone -- so the list reads
+ * correctly to a screen reader and to a colour-blind player. `unknown` has no
+ * badge at all: the server withheld a verdict, and inventing a neutral chip
+ * would imply it had said something.
+ */
+const STATUS_STYLE: Record<
+  SearchHitStatus,
+  { badge: string | null; testId?: string; note: string | null; announce: string }
+> = {
+  available: {
+    badge: "Available",
+    testId: "cell-search-result-available",
+    note: null,
+    announce: "Qualifies for this square. Submit.",
+  },
+  used: {
+    badge: "Used",
+    testId: "cell-search-result-used",
+    note: "Already used on this board",
+    announce: "Already used on this board. Not available.",
+  },
+  no_fit: {
+    badge: "No fit",
+    testId: "cell-search-result-no-fit",
+    note: "Does not satisfy this square",
+    announce: "Does not fit this square. Not available.",
+  },
+  unknown: {
+    badge: null,
+    note: null,
+    announce: "Submit to check.",
+  },
+};
+
 /**
  * The selected square's workbench: both constraints in full (label AND the
  * qualifying sentence -- the grid headers only have room for `short_label`),
  * then either the LOCKED card or the search.
  *
- * Phase 11B: a locked square shows its answer, its revealed score and a
- * "Locked" badge -- and no search box and no remove control, because a valid
- * pick on the competitive daily board is final. Search results carry no score
- * either: the mode's objective is to maximise total PEAK3 score, so a visible
- * rating per candidate would be the answer rather than a hint.
+ * A locked square shows its answer, its revealed score and a "Locked" badge --
+ * and no search box and no remove control, because a valid pick on the
+ * competitive daily board is final. Search results carry no score either: the
+ * mode's objective is to maximise total PEAK3 score, so a visible rating per
+ * candidate would be the answer rather than a hint.
  *
- * Search results are NEVER filtered or re-ordered here -- the server's order
- * is authoritative, and it is also the server that decides whether a hit gets
- * an `eligible` verdict at all. A broad query comes back entirely `null`
- * (rendered with no affordance, so the list cannot be used to harvest a cell's
- * answer set); a query narrow enough to name a player comes back flagged
- * true/false, which turns "which of THIS player's seasons is the one?" from
+ * PHASE 11C -- RESULTS SAY WHAT THEY ARE. Every hit renders its server-issued
+ * `status`, and `used`/`no_fit` rows are genuinely DISABLED. The 11B list made
+ * a player click a result to discover it was unplayable, and worse, kept
+ * showing "Fits" on a player they had already spent. Both were the server
+ * knowing something and the UI not saying it.
+ *
+ * Results are NEVER filtered or re-ordered here -- the server's order is
+ * authoritative, and it is also the server that decides whether a hit earns an
+ * eligibility verdict at all. A query that would give away too much of the
+ * square's answer set comes back entirely `unknown`; anything narrower is
+ * marked, which turns "which of THIS player's seasons is the one?" from
  * repeated blind submissions into a decision. See the `PlayerSeasonSearchHit`
  * doc comment in types/daily-grid.ts for the full rationale.
- *
- * An ineligible hit is de-emphasized but stays clickable and submits normally:
- * the server's `reason` sentence is still the teaching moment.
  */
 export default function CellPanel({
   board,
@@ -96,10 +140,14 @@ export default function CellPanel({
   const rowC = rowConstraint(board, row);
   const colC = colConstraint(board, col);
   const spec = cellSpec(board, row, col);
-  // The server withheld a verdict on every hit -- i.e. the query was too broad
-  // to be about one player. Worth a line: otherwise the flags appearing later
-  // looks arbitrary rather than like something the player controls.
-  const allUnflagged = results.length > 0 && results.every((r) => r.eligible === null);
+  // The server withheld a verdict on every hit -- i.e. answering this query
+  // would have named too many of the square's qualifying players. Worth a
+  // line: otherwise the badges appearing on a narrower query looks arbitrary
+  // rather than like something the player controls.
+  const allUnflagged = results.length > 0 && results.every((r) => r.status === "unknown");
+  // Joined into the query string, so a plain dependency on the array would
+  // re-fire the search on every render.
+  const usedKey = usedPlayerSlugs.join(",");
 
   useEffect(() => {
     if (!filled) inputRef.current?.focus();
@@ -117,7 +165,15 @@ export default function CellPanel({
     const controller = new AbortController();
     setSearching(true);
     const timer = setTimeout(() => {
-      searchPlayerSeasons({ q: trimmed, date: board.date, row, col, limit: 20, signal: controller.signal })
+      searchPlayerSeasons({
+        q: trimmed,
+        date: board.date,
+        row,
+        col,
+        limit: 20,
+        used: usedKey ? usedKey.split(",") : [],
+        signal: controller.signal,
+      })
         .then((res) => {
           setResults(res.results ?? []);
           setSearchError(null);
@@ -139,7 +195,7 @@ export default function CellPanel({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [query, board.date, row, col]);
+  }, [query, board.date, row, col, usedKey]);
 
   return (
     <section
@@ -274,39 +330,40 @@ export default function CellPanel({
           >
             {allUnflagged && (
               <p data-testid="cell-search-broad-hint" className="pb-1 text-[11px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
-                Naming a specific player will show which of their seasons fit this square. A broad search
-                will not — working out who qualifies is the puzzle.
+                Too many players match to show which ones qualify. Narrow the search and each result will
+                say whether it fits — working out who qualifies is the puzzle.
               </p>
             )}
             {results.map((hit) => {
-              const alreadyUsed = usedPlayerSlugs.includes(hit.player_slug);
-              const fits = hit.eligible === true;
-              const doesNotFit = hit.eligible === false;
+              const style = STATUS_STYLE[hit.status];
+              // The server decides. The client does not second-guess it with
+              // its own used-slug bookkeeping -- one source of truth means the
+              // badge and the button state can never disagree.
+              const playable = hit.selectable && !submitting;
+              const available = hit.status === "available";
               return (
                 <button
                   key={hit.id}
                   type="button"
                   data-testid="cell-search-result"
                   data-answer-id={hit.id}
+                  data-status={hit.status}
                   data-eligible={hit.eligible === null ? "unknown" : String(hit.eligible)}
-                  disabled={submitting}
+                  disabled={!playable}
                   onClick={() => onSubmit(hit)}
-                  aria-label={
-                    fits
-                      ? `${hit.label}, ${hit.team_name}. Fits this square. Submit.`
-                      : doesNotFit
-                        ? `${hit.label}, ${hit.team_name}. Does not fit this square. Submit anyway.`
-                        : `${hit.label}, ${hit.team_name}. Submit.`
-                  }
-                  className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors disabled:opacity-50"
+                  aria-label={`${hit.label}, ${hit.team_name}. ${style.announce}`}
+                  className="flex items-center justify-between gap-2 rounded-lg px-3 py-2 text-left transition-colors disabled:cursor-not-allowed"
                   style={{
                     background: "var(--bg-surface)",
-                    // Ineligible hits stay fully readable and fully clickable --
-                    // only the border/label recede, never the information.
                     border: `1px solid ${
-                      fits ? "color-mix(in srgb, var(--correct) 55%, transparent)" : "var(--border-default)"
+                      available
+                        ? "color-mix(in srgb, var(--correct) 55%, transparent)"
+                        : "var(--border-default)"
                     }`,
-                    opacity: doesNotFit ? 0.72 : 1,
+                    // Unusable rows recede but stay legible -- they are still
+                    // information ("Daugherty was a Cav, not a Knick"), just
+                    // not a move.
+                    opacity: hit.selectable ? 1 : 0.6,
                     color: "var(--text-primary)",
                   }}
                 >
@@ -315,37 +372,29 @@ export default function CellPanel({
                     <span className="block text-[11px]" style={{ color: "var(--text-secondary)" }}>
                       {hit.team_name}
                       {hit.position ? ` · ${hit.position}` : ""}
-                      {alreadyUsed ? " · already on your board" : ""}
+                      {style.note ? ` · ${style.note.toLowerCase()}` : ""}
                     </span>
                   </span>
                   <span className="flex shrink-0 flex-col items-end gap-1">
-                    {/* Never colour alone: the badge carries its own words, so
-                        it survives a screen reader and a colour-blind user. */}
-                    {fits && (
+                    {style.badge && (
                       <span
-                        data-testid="cell-search-result-fits"
+                        data-testid={style.testId}
                         className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.06em]"
-                        style={{ background: "var(--correct-bg)", color: "var(--correct)" }}
+                        style={
+                          available
+                            ? { background: "var(--correct-bg)", color: "var(--correct)" }
+                            : { background: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }
+                        }
                       >
-                        <span aria-hidden="true">✓ </span>Fits
+                        {style.badge}
                       </span>
                     )}
-                    {doesNotFit && (
-                      <span
-                        data-testid="cell-search-result-unfits"
-                        className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.06em]"
-                        style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }}
-                      >
-                        <span aria-hidden="true">× </span>No fit
-                      </span>
-                    )}
-                    {/* Phase 11B: NO score pill here. The objective is to
-                        maximise total PEAK3 score, so printing each
-                        candidate's rating would hand over the answer -- the
-                        player would sort by eye and click the biggest number
-                        without knowing any basketball. The score is revealed
-                        when the pick is locked, and not before. The search
-                        response does not even carry one (see
+                    {/* NO score pill here. The objective is to maximise total
+                        PEAK3 score, so printing each candidate's rating would
+                        hand over the answer -- the player would sort by eye and
+                        click the biggest number without knowing any basketball.
+                        The score is revealed when the pick is locked, and not
+                        before. The search response does not even carry one (see
                         PlayerSeasonIdentity in types/daily-grid.ts). */}
                   </span>
                 </button>

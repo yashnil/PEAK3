@@ -42,6 +42,7 @@ if str(_repo_root) not in sys.path:
 
 from app.models.daily_grid import (
     GRID_SIZE,
+    MAX_BOARD_CELLS,
     DailyGridBoardResponse,
     DailyGridSearchResponse,
     GridConstraint,
@@ -135,13 +136,23 @@ def search_daily_grid(
     row: Optional[int] = Query(None, description="0-2; scope results to a cell"),
     col: Optional[int] = Query(None, description="0-2; required whenever row is given"),
     limit: int = Query(DEFAULT_LIMIT, ge=1, description=f"clamped to {MAX_LIMIT}"),
+    used: list[str] = Query(
+        default_factory=list,
+        max_length=MAX_BOARD_CELLS,
+        description="player slugs already placed on this board; marks their seasons `used`",
+    ),
 ) -> DailyGridSearchResponse:
     """Candidate player-seasons for a query.
 
-    With (row, col) supplied the results are RANKED so seasons valid for that
-    cell come first -- but invalid ones are still returned and marked, which
-    is what keeps the answer key server-side. Without them every hit comes
-    back with `eligible: null`.
+    With (row, col) supplied the results are RANKED so seasons the player can
+    actually use come first -- but unusable ones are still returned and marked
+    (`status`, `selectable`), which is what keeps the answer key server-side
+    while sparing the player a submit-to-find-out loop. Without them every hit
+    comes back `unknown`.
+
+    `used` is the client's own board state, so reporting `status: "used"` tells
+    it nothing it did not already know -- and it is reported even for a query
+    whose eligibility verdict was withheld.
 
     A query shorter than the search module's minimum returns an empty list on
     HTTP 200: a half-typed name is not an error, it is just not a query yet.
@@ -170,6 +181,7 @@ def search_daily_grid(
         row=row,
         col=col,
         limit=min(limit, MAX_LIMIT),
+        used_player_slugs=used,
     )
     return DailyGridSearchResponse(
         query=q, results=[hit.as_dict() for hit in hits]

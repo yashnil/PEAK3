@@ -12,13 +12,26 @@ CATEGORIES
   team       one franchise, relocations folded in (Sonics seasons answer
              "Thunder", Bullets answer "Wizards") -- franchise continuity is
              how fans actually think about team history.
-  award      MVP / DPOY / Finals MVP / All-NBA / All-Defense / All-Star,
-             from the scored table's own award columns.
+  award      MVP / DPOY / Finals MVP / All-NBA / All-Defense / All-Star and
+             the league-leader titles, from the scored table's own columns.
   era        decade of the season's start year.
   position   the position the player logged THAT season.
+  context    season shape: minutes per game, games played.
+  outcome    how far that season's team actually went in the playoffs.
   peak       PEAK3 prime_score thresholds.
   component  top-decile seasons in one of the five PEAK3 components.
-  outcome    how far that season's team actually went in the playoffs.
+
+PHASE 11C: PEAK3-NATIVE CONSTRAINTS ARE NO LONGER STANDARD
+`peak` and `component` are still shipped -- they are honest, well-defined
+predicates -- but the generator now keeps them off almost every board. The
+reason is game design rather than data quality: the Daily Grid's objective is
+to MAXIMISE total PEAK3 score, so an axis that reads "60+ PEAK" or "Top 10%
+Statistical Impact" is asking the player to do the thing the scoring already
+rewards. Those squares have one obvious answer (the biggest all-time name who
+clears the bar) and teach nothing. The interesting version of this game hides
+PEAK3 in the SCORING and puts basketball facts on the AXES -- so the standard
+board is franchises, awards, eras, playoff runs and season context, and PEAK3
+only shows up when a pick locks. See generator._native_allowance().
 
 EXCLUSIVE GROUPS
 Two constraints sharing an `exclusive_group` must never appear on opposite
@@ -28,7 +41,8 @@ axes of the same board, for one of two reasons:
   - NESTED: "85+ PEAK" is a strict subset of "80+ PEAK", so crossing them
     makes the outer constraint decoration rather than a real second
     condition. Same for MVP inside MVP-top-5, All-NBA 1st inside All-NBA,
-    and the champion/finals/conference-finals ladder.
+    Scoring Champion inside League Leader, 36+ MPG inside 30+ MPG, and the
+    champion/finals/conference-finals/made-the-playoffs ladder.
 The empirical answer-count gate in generator.py would already reject the
 mutually-exclusive pairs (zero answers), but nested pairs pass it while
 still making a bad board -- so the grouping is enforced explicitly and the
@@ -49,9 +63,9 @@ from typing import Callable, Optional
 import numpy as np
 import pandas as pd
 
-from nba_peak.daily_grid.pool import GridPool, load_pool
+from nba_peak.daily_grid.pool import STAT_TITLE_COLUMNS, GridPool, load_pool
 
-CONSTRAINTS_VERSION = "daily_grid_constraints.v1"
+CONSTRAINTS_VERSION = "daily_grid_constraints.v2"
 
 # Top-decile cut for the component constraints. One shared value so "top 10%"
 # means the same thing in every component label.
@@ -256,6 +270,34 @@ def _award_constraints() -> list[Constraint]:
             description="Selected to the All-Star Game that season.",
             mask=lambda f: (f["all_star"] == 1).to_numpy(),
         ),
+        # League-leader titles. Real per-season flags on the scored table, and
+        # exactly the kind of fact this game should be asking about: "who led
+        # the league in rebounding for the Spurs?" is basketball knowledge,
+        # where "who had a 75+ PEAK season for the Spurs?" is the scoring
+        # formula asked backwards.
+        Constraint(
+            id="award_scoring_title",
+            label="Scoring Champion",
+            short_label="Scoring Title",
+            category="award",
+            exclusive_group="stat_title",
+            description="Led the league in points per game that season.",
+            mask=lambda f: (f["scoring_title"] == 1).to_numpy(),
+        ),
+        Constraint(
+            id="award_stat_leader",
+            label="Led the League in a Major Category",
+            short_label="League Leader",
+            category="award",
+            exclusive_group="stat_title",
+            description=(
+                "Led the league that season in points, rebounds, assists, "
+                "blocks or steals per game."
+            ),
+            mask=lambda f: (
+                sum(f[column] == 1 for column, _ in STAT_TITLE_COLUMNS) > 0
+            ).to_numpy(),
+        ),
     ]
 
 
@@ -322,6 +364,57 @@ def _position_constraints() -> list[Constraint]:
                 ),
             )
         )
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Season-context constraints
+# ---------------------------------------------------------------------------
+
+# Minutes-per-game cuts. Real `mpg` on the scored table, no derivation. Two
+# rungs only: 30+ is "a starter's season", 36+ is "a workhorse season", and a
+# third cut in between would be a distinction no fan draws. A season with no
+# recorded mpg fails both -- NaN >= x is False, which is the honest answer.
+MPG_THRESHOLDS: tuple[tuple[int, str], ...] = (
+    (30, "Played 30+ minutes per game that season."),
+    (36, "Played 36+ minutes per game that season."),
+)
+
+# Games-played cut. 70 of 82 is the recognisable "played essentially the whole
+# season" line, and it is the one that makes an availability square meaningful
+# without turning into a trivia question about lockout years.
+GAMES_THRESHOLD = 70
+
+
+def _context_constraints() -> list[Constraint]:
+    out: list[Constraint] = [
+        Constraint(
+            id=f"context_mpg_{threshold}",
+            label=f"{threshold}+ Minutes Per Game",
+            short_label=f"{threshold}+ MPG",
+            category="context",
+            # Nested: 36+ is a strict subset of 30+, so crossing them makes the
+            # looser one decoration rather than a second condition.
+            exclusive_group="minutes",
+            description=description,
+            mask=lambda f, t=threshold: (f["mpg"] >= t).to_numpy(),
+        )
+        for threshold, description in MPG_THRESHOLDS
+    ]
+    out.append(
+        Constraint(
+            id=f"context_games_{GAMES_THRESHOLD}",
+            label=f"Played {GAMES_THRESHOLD}+ Games",
+            short_label=f"{GAMES_THRESHOLD}+ Games",
+            category="context",
+            exclusive_group="games_played",
+            description=(
+                f"Appeared in {GAMES_THRESHOLD} or more games that season "
+                "for this team."
+            ),
+            mask=lambda f: (f["g"] >= GAMES_THRESHOLD).to_numpy(),
+        )
+    )
     return out
 
 
@@ -460,6 +553,15 @@ def _outcome_constraints() -> list[Constraint]:
             mask=lambda f: (f["conf_finals"] == 1).to_numpy(),
         ),
         Constraint(
+            id="outcome_made_playoffs",
+            label="Made the Playoffs",
+            short_label="Playoffs",
+            category="outcome",
+            exclusive_group="playoff_depth",
+            description="Team reached the playoffs that season.",
+            mask=lambda f: f["made_playoffs"].to_numpy(dtype=bool),
+        ),
+        Constraint(
             id="outcome_missed_playoffs",
             label="Missed the Playoffs",
             short_label="No Playoffs",
@@ -490,6 +592,7 @@ def build_constraints(pool: GridPool) -> list[Constraint]:
         + _award_constraints()
         + _era_constraints()
         + _position_constraints()
+        + _context_constraints()
         + _peak_constraints()
         + _component_constraints(pool)
         + _outcome_constraints()

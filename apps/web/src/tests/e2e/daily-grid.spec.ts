@@ -73,8 +73,8 @@ async function findFillableCell(request: APIRequestContext): Promise<FillTarget>
         });
         if (!response.ok()) continue;
         const { results } = await response.json();
-        const hits = results as { eligible: boolean | null; season: string }[];
-        const fits = hits.find((r) => r.eligible === true);
+        const hits = results as { status: string; season: string }[];
+        const fits = hits.find((r) => r.status === "available");
         if (fits) {
           return {
             row,
@@ -82,7 +82,7 @@ async function findFillableCell(request: APIRequestContext): Promise<FillTarget>
             playerName,
             season: fits.season,
             ineligibleSeason:
-              hits.find((r) => r.eligible === false)?.season ?? null,
+              hits.find((r) => r.status === "no_fit")?.season ?? null,
           };
         }
       }
@@ -92,6 +92,82 @@ async function findFillableCell(request: APIRequestContext): Promise<FillTarget>
     `no fillable square found on ${FIXED_DATE} from ${PROBE_NAMES.length} probe names ` +
       "— the board may be unsolvable, which is itself the bug",
   );
+}
+
+/**
+ * Nine real, server-scored squares for the pinned board, using nine different
+ * players.
+ *
+ * Every value comes back from the live API: the season is one the SEARCH route
+ * marked available, and the score is the one POST /answer awarded for locking
+ * it. Nothing is invented — seeding this into localStorage is the same state
+ * the UI would reach by nine clicks, which is what makes it legitimate to skip
+ * the clicks. (The result route re-validates all nine server-side anyway, so a
+ * fabricated board would simply be rejected.)
+ */
+interface SolvedCell {
+  row: number;
+  col: number;
+  player_season: { player_slug: string };
+  cell_score: { arena_points: number };
+}
+
+async function solveBoardViaApi(request: APIRequestContext): Promise<SolvedCell[]> {
+  const filled: SolvedCell[] = [];
+  const used: string[] = [];
+
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      let locked = false;
+      for (const playerName of PROBE_NAMES) {
+        // Built by hand rather than via `params`, because `used` is a REPEATED
+        // query parameter and Playwright's params object cannot express one.
+        const query = new URLSearchParams({
+          q: playerName,
+          date: FIXED_DATE,
+          row: String(row),
+          col: String(col),
+          limit: "50",
+        });
+        // Passing `used` makes the server mark spent identities, so the
+        // distinct-player rule is enforced by the same code the UI uses.
+        for (const slug of used) query.append("used", slug);
+        const search = await request.get(
+          `${API_BASE}/api/v1/daily-grid/search?${query.toString()}`,
+        );
+        if (!search.ok()) continue;
+        const { results } = await search.json();
+        const fits = (results as { status: string; id: string }[]).find(
+          (r) => r.status === "available",
+        );
+        if (!fits) continue;
+
+        const answer = await request.post(`${API_BASE}/api/v1/daily-grid/answer`, {
+          data: {
+            date: FIXED_DATE,
+            row,
+            col,
+            answer_id: fits.id,
+            used_player_slugs: used,
+            filled_cells: filled.map((c) => [c.row, c.col]),
+          },
+        });
+        const body = await answer.json();
+        if (!body.valid) continue;
+
+        used.push(body.player_season.player_slug);
+        filled.push({ row, col, player_season: body.player_season, cell_score: body.cell_score });
+        locked = true;
+        break;
+      }
+      if (!locked) {
+        throw new Error(
+          `no distinct-player answer found for square (${row}, ${col}) on ${FIXED_DATE}`,
+        );
+      }
+    }
+  }
+  return filled;
 }
 
 /** Mark the how-to-play rules as already seen, so a test that is not about
@@ -211,15 +287,18 @@ test.describe("Daily Grid — gameplay", () => {
     await expect(cell.getByTestId("grid-cell-points")).toBeVisible();
   });
 
-  test("an invalid answer is rejected with a reason from the server", async ({
+  test("an answer the server already rejected cannot be submitted at all", async ({
     page,
     request,
   }) => {
-    // Submit a REAL player-season that the server itself marked as not fitting
-    // this square. Moving a valid answer to a neighbouring square is not a
-    // reliable way to get a rejection — the two squares share a constraint, so
-    // the season may legitimately satisfy the other one too (this test failed
-    // exactly that way first time round).
+    // Phase 11C changed this behaviour deliberately. Up to 11B a no-fit
+    // result stayed clickable and taught its lesson through the server's
+    // rejection sentence — which meant the only way to learn a result was
+    // unplayable was to try it. The server has already said so by the time the
+    // list renders, so the row is disabled and no request is made. (The
+    // rejection SENTENCE still renders when a verdict was withheld and the
+    // player submits anyway; that path is covered in the component tests,
+    // where the server response can be forced.)
     const target = await findFillableCell(request);
     test.skip(
       target.ineligibleSeason === null,
@@ -230,21 +309,27 @@ test.describe("Daily Grid — gameplay", () => {
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
 
+    let submits = 0;
+    await page.route("**/api/v1/daily-grid/answer", (route) => {
+      submits += 1;
+      return route.continue();
+    });
+
     await cellAt(page, target.row, target.col).click();
     await page.getByTestId("cell-search-input").fill(target.playerName);
     const results = page.getByTestId("cell-search-result");
     await expect(results.first()).toBeVisible({ timeout: 10_000 });
 
-    await results.filter({ hasText: target.ineligibleSeason! }).first().click();
+    const noFit = results.filter({ hasText: target.ineligibleSeason! }).first();
+    await expect(noFit).toBeDisabled();
+    await noFit.click({ force: true });
 
-    const reason = page.getByTestId("cell-invalid-reason");
-    await expect(reason).toBeVisible({ timeout: 10_000 });
-    // The server's message is specific, not a generic "invalid".
-    expect((await reason.innerText()).trim().length).toBeGreaterThan(10);
+    await expect(page.getByTestId("cell-invalid-reason")).toHaveCount(0);
     await expect(cellAt(page, target.row, target.col)).not.toHaveAttribute(
       "data-state",
       "filled",
     );
+    expect(submits).toBe(0);
   });
 
   test("progress survives a refresh", async ({ page, request }) => {
@@ -453,7 +538,7 @@ test.describe("Daily Grid — objective and onboarding", () => {
     const gate = page.getByTestId("how-to-play-gate");
     await expect(gate).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("how-to-play-objective")).toContainText(
-      /highest total PEAK3 score/i,
+      /maximize your PEAK3 total with nine different players/i,
     );
     // The board is not reachable until the player starts.
     await expect(page.getByTestId("daily-grid-board")).toHaveCount(0);
@@ -465,7 +550,10 @@ test.describe("Daily Grid — objective and onboarding", () => {
 
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("daily-grid-objective")).toContainText(
-      /Maximize your PEAK3 total/i,
+      /maximize your PEAK3 total with nine different players/i,
+    );
+    await expect(page.getByTestId("daily-grid-objective")).toContainText(
+      /Scores stay hidden until each pick locks/i,
     );
   });
 
@@ -601,5 +689,217 @@ test.describe("Daily Grid — today's maximum", () => {
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("complete-comparison")).toHaveCount(0);
     await expect(page.getByTestId("daily-grid-complete")).toHaveCount(0);
+  });
+});
+
+/**
+ * Phase 11C. Three product changes, end to end: a result can never be offered
+ * as playable when it is not, the clock is real and survives a refresh, and
+ * the completion state reads like a game result.
+ */
+test.describe("Daily Grid — search says what a result is", () => {
+  test("a used player is labelled used and cannot be picked again", async ({ page, request }) => {
+    const target = await findFillableCell(request);
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    await fillCell(page, target);
+
+    // Now look that same player up on a DIFFERENT square. Every one of their
+    // seasons must be reported as spent — including any that fit.
+    const other = [0, 1, 2]
+      .flatMap((r) => [0, 1, 2].map((c) => ({ row: r, col: c })))
+      .find((c) => c.row !== target.row || c.col !== target.col)!;
+    await cellAt(page, other.row, other.col).click();
+    await page.getByTestId("cell-search-input").fill(target.playerName);
+
+    const rows = page.getByTestId("cell-search-result");
+    await expect(rows.first()).toBeVisible({ timeout: 10_000 });
+    await expect(rows.first()).toHaveAttribute("data-status", "used");
+    await expect(rows.first()).toBeDisabled();
+    await expect(rows.first()).toContainText(/used/i);
+    // And never as available.
+    await expect(page.getByTestId("cell-search-result-available")).toHaveCount(0);
+  });
+
+  test("a result that does not fit is labelled and disabled, not clickable", async ({
+    page,
+    request,
+  }) => {
+    const target = await findFillableCell(request);
+    test.skip(!target.ineligibleSeason, "this player's every season fits the square");
+
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    await cellAt(page, target.row, target.col).click();
+    await page.getByTestId("cell-search-input").fill(target.playerName);
+
+    const noFit = page
+      .getByTestId("cell-search-result")
+      .filter({ hasText: target.ineligibleSeason! })
+      .first();
+    await expect(noFit).toBeVisible({ timeout: 10_000 });
+    await expect(noFit).toHaveAttribute("data-status", "no_fit");
+    await expect(noFit).toBeDisabled();
+    await expect(noFit).toContainText(/no fit/i);
+  });
+
+  test("available results appear before the ones that cannot be played", async ({
+    page,
+    request,
+  }) => {
+    const target = await findFillableCell(request);
+    test.skip(!target.ineligibleSeason, "this player's every season fits the square");
+
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    await cellAt(page, target.row, target.col).click();
+    await page.getByTestId("cell-search-input").fill(target.playerName);
+    await expect(page.getByTestId("cell-search-result").first()).toBeVisible({ timeout: 10_000 });
+
+    const statuses = await page
+      .getByTestId("cell-search-result")
+      .evaluateAll((nodes) => nodes.map((n) => n.getAttribute("data-status")));
+    const rank: Record<string, number> = { available: 0, unknown: 0, used: 1, no_fit: 2 };
+    const ranks = statuses.map((s) => rank[s ?? "unknown"]);
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+  });
+});
+
+test.describe("Daily Grid — timer", () => {
+  test("does not run until the first move, then starts and survives a refresh", async ({ page }) => {
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    const timer = page.getByTestId("daily-grid-timer");
+    await expect(timer).toBeVisible();
+    await expect(timer).toHaveText("—");
+
+    await cellAt(page, 0, 0).click();
+    await expect(timer).toHaveText(/^\d+:\d{2}$/, { timeout: 5_000 });
+
+    // The clock is a persisted START TIME, so a reload continues it rather
+    // than restarting it.
+    await page.waitForTimeout(2_100);
+    const before = await timer.textContent();
+    await page.reload({ waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    await expect(timer).toHaveText(/^\d+:\d{2}$/);
+    const after = await timer.textContent();
+    expect(toSeconds(after!)).toBeGreaterThanOrEqual(toSeconds(before!));
+  });
+});
+
+function toSeconds(display: string): number {
+  const parts = display.split(":").map(Number);
+  return parts.reduce((total, part) => total * 60 + part, 0);
+}
+
+test.describe("Daily Grid — completed result screen", () => {
+  test("shows the grade, the score trio, the recap grid and the biggest miss", async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    const filled = await solveBoardViaApi(request);
+    const boardResponse = await request.get(`${API_BASE}/api/v1/daily-grid/board`, {
+      params: { date: FIXED_DATE },
+    });
+    const board = await boardResponse.json();
+
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 2,
+            started_at: "2026-03-14T12:00:00.000Z",
+            completed_at: "2026-03-14T12:06:30.000Z",
+          }),
+        );
+      },
+      [board.board_id, FIXED_DATE, filled] as const,
+    );
+
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+
+    const panel = page.getByTestId("daily-grid-complete");
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+
+    // Headline, then the three numbers, then the recap.
+    await expect(page.getByTestId("complete-headline")).toHaveText(
+      /Perfect Grid|Near Perfect|Strong Run|Room to Improve/,
+    );
+    await expect(page.getByTestId("complete-total-score")).toHaveText(/^\d+$/, { timeout: 15_000 });
+    await expect(page.getByTestId("complete-optimal-total")).toHaveText(/^\d+$/);
+    await expect(page.getByTestId("complete-percent-of-best")).toHaveText(/^\d+(\.\d+)?%$/);
+
+    // The clock stopped at completion and reads the frozen 6:30.
+    await expect(page.getByTestId("complete-time")).toContainText("6:30");
+    await expect(page.getByTestId("daily-grid-timer")).toHaveText("6:30");
+
+    await expect(page.getByTestId("complete-mini-cell")).toHaveCount(9);
+
+    // Either a biggest miss, or a genuinely perfect board. Both are real
+    // states; what must not happen is neither.
+    const miss = page.getByTestId("complete-biggest-miss");
+    const perfect = page.getByTestId("complete-perfect");
+    expect((await miss.count()) + (await perfect.count())).toBe(1);
+
+    // No invented standing anywhere on the screen.
+    await expect(panel).not.toContainText(/percentile|leaderboard/i);
+  });
+
+  test("the share button copies a result summary", async ({ page, request, context }) => {
+    test.slow();
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const filled = await solveBoardViaApi(request);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: FIXED_DATE } })
+    ).json();
+
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 0,
+            started_at: "2026-03-14T12:00:00.000Z",
+            completed_at: "2026-03-14T12:06:30.000Z",
+          }),
+        );
+      },
+      [board.board_id, FIXED_DATE, filled] as const,
+    );
+
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("complete-mini-cell")).toHaveCount(9);
+
+    await page.getByTestId("daily-grid-share").click();
+    await expect(page.getByTestId("daily-grid-share")).toHaveText(/copied/i, { timeout: 5_000 });
+
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain("PEAK3 Daily Grid — 2026-03-14");
+    expect(copied).toContain("Time: 6:30");
+    expect(copied).toContain("# best  + close  - fair  . weak");
+    expect(copied).toContain("peak3.app/daily");
+    expect(copied).not.toMatch(/percentile|leaderboard/i);
   });
 });

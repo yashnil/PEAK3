@@ -16,19 +16,25 @@ import {
 import {
   bestCell,
   buildDailyGridShareText,
+  buildShareGrid,
+  cellGrade,
   cellShortTitle,
   clearProgress,
+  elapsedMs,
   emptyProgress,
   filledCoords,
+  formatElapsed,
   hardestCell,
   isComplete,
   loadProgress,
   rarityRank,
+  resultGrade,
   saveProgress,
   totalArenaPoints,
   usedPlayerSlugs,
   withFilledCell,
   withIncorrectAttempt,
+  withTimerStarted,
 } from "@/lib/daily-grid-state";
 import { BOARD, completedProgress, filledCell, gridResult, playerSeason } from "./daily-grid-fixtures";
 
@@ -164,7 +170,7 @@ describe("daily-grid-state derivations", () => {
   it("picks the rarest square as the hardest cell, not the highest-scoring one", () => {
     const hardest = hardestCell(completedProgress().filled)!;
     expect(hardest.cell_score.rarity_bucket).toBe("very_rare");
-    expect(cellShortTitle(BOARD, hardest.row, hardest.col)).toBe("DPOY x 85+ PEAK");
+    expect(cellShortTitle(BOARD, hardest.row, hardest.col)).toBe("DPOY x 36+ MPG");
   });
 
   it("breaks a rarity tie on arena_points, then reading order", () => {
@@ -181,27 +187,39 @@ describe("daily-grid-state derivations", () => {
 });
 
 describe("daily-grid share text", () => {
-  it("matches the published format exactly", () => {
+  it("matches the published format exactly for an unfinished board", () => {
+    // No comparison released yet, so no maximum, no grade and no recap grid --
+    // the server only hands those over once all nine squares are locked.
     expect(buildDailyGridShareText(BOARD, completedProgress())).toBe(
       [
         "PEAK3 Daily Grid — 2026-07-30",
-        "Solved 9/9",
+        "Two-Way Night",
         "Score: 842",
-        "Best cell: 1993-94 Hakeem Olajuwon",
-        "Hardest cell: DPOY x 85+ PEAK",
+        "Solved 9/9",
+        "Time: 7:04",
+        "Misses: 3",
         "peak3.app/daily",
       ].join("\n"),
     );
   });
 
   it("contains no emoji or pictographic characters", () => {
-    const text = buildDailyGridShareText(BOARD, completedProgress());
+    const text = buildDailyGridShareText(BOARD, completedProgress(), gridResult());
     expect(/\p{Extended_Pictographic}/u.test(text)).toBe(false);
   });
 
-  it("reports a partial grid honestly and omits cell lines when nothing is filled", () => {
+  it("reports a partial grid honestly and omits the clock before the first move", () => {
     const empty = buildDailyGridShareText(BOARD, emptyProgress(BOARD));
-    expect(empty).toBe(["PEAK3 Daily Grid — 2026-07-30", "Solved 0/9", "Score: 0", "peak3.app/daily"].join("\n"));
+    expect(empty).toBe(
+      [
+        "PEAK3 Daily Grid — 2026-07-30",
+        "Two-Way Night",
+        "Score: 0",
+        "Solved 0/9",
+        "Misses: 0",
+        "peak3.app/daily",
+      ].join("\n"),
+    );
 
     const partial = withFilledCell(emptyProgress(BOARD), filledCell(1, 2, playerSeason(), 77, "very_rare"));
     expect(buildDailyGridShareText(BOARD, partial)).toContain("Solved 1/9");
@@ -209,15 +227,27 @@ describe("daily-grid share text", () => {
   });
 });
 
-describe("daily-grid share text — competitive framing (Phase 11B)", () => {
-  it("adds the percent-of-maximum line once the result is known", () => {
+describe("daily-grid share text — competitive framing", () => {
+  it("adds the score-against-maximum line and the grade once the result is known", () => {
     const result = gridResult();
     const text = buildDailyGridShareText(BOARD, completedProgress(), result);
     // A bare score means nothing without the ceiling it is measured against;
     // this line is the reason the share is worth posting.
-    expect(text).toContain(`${result.percent_of_best}% of today's max (${result.optimal_total})`);
+    expect(text).toContain(
+      `${result.user_total}/${result.optimal_total} — ${result.percent_of_best}% of today's max`,
+    );
+    expect(text).toContain(resultGrade(result.percent_of_best).headline);
     expect(text.startsWith("PEAK3 Daily Grid — 2026-07-30")).toBe(true);
     expect(text.endsWith("peak3.app/daily")).toBe(true);
+  });
+
+  it("carries a three-by-three plain-text recap with a legend", () => {
+    const text = buildDailyGridShareText(BOARD, completedProgress(), gridResult());
+    const grid = buildShareGrid(gridResult());
+    expect(grid).toHaveLength(3);
+    expect(grid.every((row) => row.split(" ").length === 3)).toBe(true);
+    for (const row of grid) expect(text).toContain(row);
+    expect(text).toContain("# best  + close  - fair  . weak");
   });
 
   it("says 'best known' instead of 'today's max' when the optimum is not proven", () => {
@@ -226,14 +256,110 @@ describe("daily-grid share text — competitive framing (Phase 11B)", () => {
     expect(text).not.toContain("today's max");
   });
 
-  it("omits the comparison line entirely when the result is absent", () => {
+  it("omits the comparison and the recap entirely when the result is absent", () => {
     const text = buildDailyGridShareText(BOARD, completedProgress(), null);
     expect(text).not.toContain("%");
+    expect(text).not.toContain("# best");
+  });
+
+  it("claims no rank, percentile or global standing", () => {
+    const text = buildDailyGridShareText(BOARD, completedProgress(), gridResult());
+    expect(text).not.toMatch(/percentile|leaderboard|rank|#\d+\b/i);
   });
 
   it("never contains emoji", () => {
     const text = buildDailyGridShareText(BOARD, completedProgress(), gridResult());
     expect(/\p{Extended_Pictographic}/u.test(text)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Timer (Phase 11C)
+// ---------------------------------------------------------------------------
+
+describe("daily-grid timer", () => {
+  const T0 = new Date("2026-07-30T12:00:00Z");
+
+  it("does not run until the player's first move", () => {
+    const fresh = emptyProgress(BOARD);
+    expect(fresh.started_at).toBeNull();
+    expect(elapsedMs(fresh, T0)).toBeNull();
+    expect(formatElapsed(null)).toBe("—");
+  });
+
+  it("starts once, and a second start does not restart it", () => {
+    const started = withTimerStarted(emptyProgress(BOARD), T0);
+    expect(started.started_at).toBe(T0.toISOString());
+    const again = withTimerStarted(started, new Date("2026-07-30T12:05:00Z"));
+    expect(again).toBe(started);
+  });
+
+  it("survives a refresh -- the start time is persisted, not an accumulator", () => {
+    const started = withTimerStarted(emptyProgress(BOARD), T0);
+    saveProgress(started);
+    const reloaded = loadProgress(BOARD.board_id)!;
+    expect(reloaded.started_at).toBe(started.started_at);
+    expect(elapsedMs(reloaded, new Date("2026-07-30T12:03:20Z"))).toBe(200_000);
+  });
+
+  it("runs against the clock while the board is in play", () => {
+    const started = withTimerStarted(emptyProgress(BOARD), T0);
+    expect(elapsedMs(started, new Date("2026-07-30T12:00:45Z"))).toBe(45_000);
+    expect(elapsedMs(started, new Date("2026-07-30T12:07:04Z"))).toBe(424_000);
+  });
+
+  it("stops at completion and does not move afterwards", () => {
+    const done = completedProgress();
+    const atCompletion = elapsedMs(done, new Date("2026-07-30T12:00:00Z"));
+    const muchLater = elapsedMs(done, new Date("2026-07-30T23:00:00Z"));
+    expect(atCompletion).toBe(424_000);
+    expect(muchLater).toBe(atCompletion);
+  });
+
+  it("never starts a clock on an already-finished board", () => {
+    const done = completedProgress();
+    expect(withTimerStarted({ ...done, started_at: null }, T0).started_at).toBeNull();
+  });
+
+  it("formats minutes, seconds and hours, and never goes negative", () => {
+    expect(formatElapsed(0)).toBe("0:00");
+    expect(formatElapsed(45_000)).toBe("0:45");
+    expect(formatElapsed(424_000)).toBe("7:04");
+    expect(formatElapsed(3_731_000)).toBe("1:02:11");
+    // A clock skew between two sessions must not print "-3:12".
+    const skewed = { ...emptyProgress(BOARD), started_at: "2026-07-30T12:00:00Z" };
+    expect(elapsedMs(skewed, new Date("2026-07-30T11:55:00Z"))).toBe(0);
+  });
+
+  it("ignores an unparseable stored start time rather than throwing", () => {
+    const broken = { ...emptyProgress(BOARD), started_at: "not-a-date" };
+    expect(elapsedMs(broken, T0)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Result grading (Phase 11C)
+// ---------------------------------------------------------------------------
+
+describe("daily-grid result grading", () => {
+  it("reserves the perfect headline for actually matching the maximum", () => {
+    expect(resultGrade(100).headline).toBe("Perfect Grid");
+    expect(resultGrade(99.9).headline).toBe("Near Perfect");
+  });
+
+  it("bands the rest of the range", () => {
+    expect(resultGrade(92).headline).toBe("Near Perfect");
+    expect(resultGrade(80).headline).toBe("Strong Run");
+    expect(resultGrade(51).headline).toBe("Room to Improve");
+    expect(resultGrade(0).headline).toBe("Room to Improve");
+  });
+
+  it("grades a square by how close it came to the best answer available there", () => {
+    const cells = gridResult().cells;
+    const matched = cells.find((c) => c.matched_optimal)!;
+    const missed = cells.find((c) => !c.matched_optimal)!;
+    expect(cellGrade(matched)).toBe("best");
+    expect(cellGrade(missed)).not.toBe("best");
   });
 });
 

@@ -21,6 +21,7 @@ import {
   GridConstraint,
   GridResultResponse,
   RarityBucket,
+  ResultCell,
   dailyGridProgressKey,
 } from "@/types/daily-grid";
 
@@ -66,6 +67,7 @@ export function emptyProgress(board: Pick<DailyGridBoard, "board_id" | "date">):
     schema_version: DAILY_GRID_PROGRESS_SCHEMA_VERSION,
     filled: [],
     incorrect_attempts: 0,
+    started_at: null,
     completed_at: null,
   };
 }
@@ -113,6 +115,7 @@ export function loadProgress(boardId: string): DailyGridProgress | null {
         typeof parsed.incorrect_attempts === "number" && parsed.incorrect_attempts >= 0
           ? parsed.incorrect_attempts
           : 0,
+      started_at: typeof parsed.started_at === "string" ? parsed.started_at : null,
       completed_at: typeof parsed.completed_at === "string" ? parsed.completed_at : null,
     };
   } catch {
@@ -223,6 +226,107 @@ export function withIncorrectAttempt(progress: DailyGridProgress): DailyGridProg
   return { ...progress, incorrect_attempts: progress.incorrect_attempts + 1 };
 }
 
+// ---------------------------------------------------------------------------
+// Timer
+// ---------------------------------------------------------------------------
+
+/**
+ * Starts the clock, once. Returns the progress unchanged if it is already
+ * running or the board is already finished.
+ *
+ * The clock is stored as a START TIMESTAMP, not an accumulated duration: that
+ * is what makes it survive a refresh without a tick loop writing to
+ * localStorage, and it means a reload cannot quietly reset or double-count it.
+ * The cost is that the timer keeps running while the tab is closed — which is
+ * the honest reading of "how long did today's grid take you", and the number
+ * is presentational either way (Phase 11C does not score it, rank it, or send
+ * it anywhere).
+ */
+export function withTimerStarted(
+  progress: DailyGridProgress,
+  now: Date = new Date(),
+): DailyGridProgress {
+  if (progress.started_at || progress.completed_at) return progress;
+  return { ...progress, started_at: now.toISOString() };
+}
+
+/**
+ * Milliseconds on the clock: frozen at `completed_at` once the board is done,
+ * live against `now` while it is in play, and null before the first move.
+ * Never negative — a clock skew between two sessions must not print "-3:12".
+ */
+export function elapsedMs(progress: DailyGridProgress, now: Date = new Date()): number | null {
+  if (!progress.started_at) return null;
+  const start = Date.parse(progress.started_at);
+  if (Number.isNaN(start)) return null;
+  const end = progress.completed_at ? Date.parse(progress.completed_at) : now.getTime();
+  if (Number.isNaN(end)) return null;
+  return Math.max(0, end - start);
+}
+
+/** "7:04", or "1:02:11" past an hour. Null in, "—" out. */
+export function formatElapsed(ms: number | null): string {
+  if (ms === null) return "—";
+  const total = Math.floor(ms / 1000);
+  const seconds = total % 60;
+  const minutes = Math.floor(total / 60) % 60;
+  const hours = Math.floor(total / 3600);
+  const mm = hours > 0 ? String(minutes).padStart(2, "0") : String(minutes);
+  return `${hours > 0 ? `${hours}:` : ""}${mm}:${String(seconds).padStart(2, "0")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Result grading
+// ---------------------------------------------------------------------------
+
+/** The headline a completed board earns, from percent of today's maximum.
+ *
+ *  Four bands, checked high to low. "Perfect Grid" is reserved for actually
+ *  matching the maximum — with the score hidden until each pick locks, a 100%
+ *  board is a genuine achievement and calling anything less by that name would
+ *  cheapen it. */
+export const RESULT_GRADES: { min: number; headline: string; blurb: string }[] = [
+  {
+    min: 100,
+    headline: "Perfect Grid",
+    blurb: "You matched today's maximum on every square.",
+  },
+  {
+    min: 90,
+    headline: "Near Perfect",
+    blurb: "A few points short of the best grid available today.",
+  },
+  {
+    min: 75,
+    headline: "Strong Run",
+    blurb: "A solid grid — there were better answers on a couple of squares.",
+  },
+  {
+    min: 0,
+    headline: "Room to Improve",
+    blurb: "Plenty of points still on the board. Come back tomorrow.",
+  },
+];
+
+export function resultGrade(percentOfBest: number): { headline: string; blurb: string } {
+  const grade = RESULT_GRADES.find((g) => percentOfBest >= g.min);
+  // The 0 band matches everything, so the fallback is unreachable; kept so a
+  // future edit to RESULT_GRADES cannot make this return undefined.
+  return grade ?? RESULT_GRADES[RESULT_GRADES.length - 1];
+}
+
+/** How well one square did, as a share of what the best answer there was
+ *  worth. Used for the mini recap's colour and for the share grid's glyph. */
+export type CellGrade = "best" | "close" | "fair" | "weak";
+
+export function cellGrade(cell: ResultCell): CellGrade {
+  if (cell.matched_optimal) return "best";
+  const share = cell.optimal_points > 0 ? cell.user_points / cell.optimal_points : 0;
+  if (share >= 0.9) return "close";
+  if (share >= 0.75) return "fair";
+  return "weak";
+}
+
 /** Highest arena_points. Ties break on the square's `quality_points` (the
  *  locked season's own prime_score, which is where the score is revealed now
  *  that the card carries none), then reading order, so the recap is stable. */
@@ -295,34 +399,80 @@ export function cellFullTitle(board: DailyGridBoard, row: number, col: number): 
 
 const SHARE_URL = "peak3.app/daily";
 
+/** The glyph each cell grade takes in the shared 3x3 recap.
+ *
+ *  ASCII, not emoji: the rest of this product's share text has never used
+ *  emoji, and a plain block reads the same in a terminal, a code block and a
+ *  tweet. The scale is deliberately monotonic left to right, so the shape of a
+ *  run is legible without the legend. */
+const SHARE_GLYPH: Record<CellGrade, string> = {
+  best: "#",
+  close: "+",
+  fair: "-",
+  weak: ".",
+};
+
+/** The 3x3 performance recap, three lines of three glyphs.
+ *
+ *  Only available once the server has released the comparison — before that
+ *  there is nothing to grade a square against, and a grid of how-many-points
+ *  glyphs would just be a picture of PEAK3 scores. */
+export function buildShareGrid(result: GridResultResponse): string[] {
+  const rows: string[] = [];
+  for (let row = 0; row < GRID_SIZE; row += 1) {
+    const cells = result.cells
+      .filter((c) => c.row === row)
+      .sort((a, b) => a.col - b.col)
+      .map((c) => SHARE_GLYPH[cellGrade(c)]);
+    rows.push(cells.join(" "));
+  }
+  return rows;
+}
+
 /**
- * The share payload. No emojis, no grid-of-squares glyphs -- the house style
- * for this mode is a plain readable summary (a coloured square grid would also
- * leak which squares are hard, and the difficulty of a square is the puzzle).
+ * The share payload: a compact scoreboard plus the 3x3 recap.
+ *
+ * Says nothing it cannot prove. There is no rank, no percentile and no
+ * comparison to other players, because Phase 11C has no global leaderboard --
+ * the only competitive fact available is the player's distance from today's
+ * maximum, which the server computed and which every player's board shares.
  */
 export function buildDailyGridShareText(
   board: DailyGridBoard,
   progress: DailyGridProgress,
   result?: GridResultResponse | null,
+  now: Date = new Date(),
 ): string {
-  const lines: string[] = [
-    `PEAK3 Daily Grid — ${board.date}`,
-    `Solved ${progress.filled.length}/${TOTAL_CELLS}`,
-    `Score: ${totalArenaPoints(progress)}`,
-  ];
+  const lines: string[] = [`PEAK3 Daily Grid — ${board.date}`];
+  if (board.theme) lines.push(board.theme);
+
   // The competitive line, and the reason to come back: a bare score means
   // nothing without the ceiling it is measured against. Only present once the
   // board is complete, because that is the only time the server will release
   // today's maximum.
   if (result) {
     lines.push(
-      `${result.percent_of_best}% of ${result.exact_optimal ? "today's max" : "PEAK3's best known"} (${result.optimal_total})`,
+      `${result.user_total}/${result.optimal_total} — ${result.percent_of_best}% of ${
+        result.exact_optimal ? "today's max" : "PEAK3's best known"
+      }`,
     );
+    lines.push(resultGrade(result.percent_of_best).headline);
+  } else {
+    lines.push(`Score: ${totalArenaPoints(progress)}`);
+    lines.push(`Solved ${progress.filled.length}/${TOTAL_CELLS}`);
   }
-  const best = bestCell(progress.filled);
-  if (best) lines.push(`Best cell: ${best.player_season.label}`);
-  const hardest = hardestCell(progress.filled);
-  if (hardest) lines.push(`Hardest cell: ${cellShortTitle(board, hardest.row, hardest.col)}`);
+
+  const elapsed = elapsedMs(progress, now);
+  if (elapsed !== null) lines.push(`Time: ${formatElapsed(elapsed)}`);
+  lines.push(`Misses: ${progress.incorrect_attempts}`);
+
+  if (result) {
+    lines.push("");
+    lines.push(...buildShareGrid(result));
+    lines.push("");
+    lines.push(`# best  + close  - fair  . weak`);
+  }
+
   lines.push(SHARE_URL);
   return lines.join("\n");
 }

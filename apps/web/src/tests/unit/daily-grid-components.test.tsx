@@ -25,7 +25,7 @@ vi.mock("@/lib/daily-grid-api", () => ({
 
 import DailyGridGame from "@/components/daily-grid/DailyGridGame";
 import { dailyGridProgressKey } from "@/types/daily-grid";
-import { BOARD, completedProgress, gridResult, playerSeason } from "./daily-grid-fixtures";
+import { BOARD, completedProgress, gridResult, playerSeason, searchHit } from "./daily-grid-fixtures";
 
 const HAKEEM = playerSeason();
 // Phase 11B: the wire shapes for a search hit and a submit response carry NO
@@ -36,7 +36,7 @@ const HAKEEM = playerSeason();
 const { prime_score: _unusedPrimeScore, ...HAKEEM_IDENTITY } = HAKEEM;
 
 function hit() {
-  return { ...HAKEEM_IDENTITY, eligible: null };
+  return searchHit();
 }
 
 function validResponse() {
@@ -80,7 +80,7 @@ describe("DailyGridGame", () => {
     expect(screen.getAllByTestId("grid-col-header")).toHaveLength(3);
     // Headers use the compact label, because the gutter is narrow.
     expect(screen.getByText("DPOY")).toBeInTheDocument();
-    expect(screen.getByText("85+ PEAK")).toBeInTheDocument();
+    expect(screen.getByText("36+ MPG")).toBeInTheDocument();
   });
 
   it("shows the date, difficulty and the one-player-per-board rule up front", () => {
@@ -233,8 +233,81 @@ describe("DailyGridGame", () => {
     await waitFor(() => expect(screen.getByTestId("daily-grid-complete")).toBeInTheDocument());
     expect(screen.getByTestId("daily-grid-progress")).toHaveTextContent("9/9");
     expect(screen.getByTestId("complete-total-score")).toHaveTextContent("842");
-    expect(screen.getByTestId("complete-best-cell")).toHaveTextContent("1993-94 Hakeem Olajuwon");
-    expect(screen.getByTestId("complete-hardest-cell")).toHaveTextContent("DPOY x 85+ PEAK");
+  });
+
+  // Phase 11C: the completion state has to read like a game result, not a
+  // paragraph. These pin the elements a player is meant to scan.
+  describe("result screen", () => {
+    async function renderCompleted() {
+      window.localStorage.setItem(
+        dailyGridProgressKey(BOARD.board_id),
+        JSON.stringify(completedProgress()),
+      );
+      render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+      await screen.findByTestId("daily-grid-complete");
+      return gridResult();
+    }
+
+    it("leads with a headline earned from percent of today's maximum", async () => {
+      const result = await renderCompleted();
+      const headline = await screen.findByTestId("complete-headline");
+      // The fixture leaves 41 points on one square, so it is not perfect.
+      expect(result.percent_of_best).toBeLessThan(100);
+      await waitFor(() => expect(headline.textContent).toMatch(/Near Perfect|Strong Run|Room to Improve/));
+      expect(headline.textContent).not.toMatch(/Perfect Grid/);
+    });
+
+    it("shows the score trio: your score, today's max, and the percentage", async () => {
+      const result = await renderCompleted();
+      await waitFor(() =>
+        expect(screen.getByTestId("complete-optimal-total")).toHaveTextContent(
+          String(result.optimal_total),
+        ),
+      );
+      expect(screen.getByTestId("complete-total-score")).toHaveTextContent(String(result.user_total));
+      expect(screen.getByTestId("complete-percent-of-best")).toHaveTextContent(
+        `${result.percent_of_best}%`,
+      );
+    });
+
+    it("shows the final time and the miss count", async () => {
+      await renderCompleted();
+      // completedProgress() runs 11:52:56 -> 12:00:00.
+      expect(screen.getByTestId("complete-time")).toHaveTextContent("7:04");
+      expect(screen.getByTestId("complete-attempts")).toHaveTextContent("3 misses");
+    });
+
+    it("renders a nine-square mini recap, marking best-available and the biggest miss", async () => {
+      await renderCompleted();
+      await waitFor(() => expect(screen.getAllByTestId("complete-mini-cell")).toHaveLength(9));
+      const cells = screen.getAllByTestId("complete-mini-cell");
+      expect(cells.filter((c) => c.getAttribute("data-grade") === "best")).toHaveLength(8);
+      expect(cells.filter((c) => c.getAttribute("data-biggest-miss") === "true")).toHaveLength(1);
+    });
+
+    it("names the biggest miss with both answers and the points left", async () => {
+      const result = await renderCompleted();
+      const card = await screen.findByTestId("complete-biggest-miss");
+      expect(card).toHaveTextContent(result.biggest_miss!.user_player_season.label);
+      expect(card).toHaveTextContent("Nikola Jokic");
+      expect(card).toHaveTextContent(String(result.biggest_miss!.points_left));
+    });
+
+    it("shows only the squares PEAK3 would have changed, expandable to all nine", async () => {
+      const user = userEvent.setup();
+      await renderCompleted();
+      await screen.findByTestId("complete-comparison");
+      // One deliberate miss in the fixture, so one row by default.
+      expect(screen.getAllByTestId("complete-per-cell-row")).toHaveLength(1);
+      await user.click(screen.getByTestId("complete-per-cell-toggle"));
+      expect(screen.getAllByTestId("complete-per-cell-row")).toHaveLength(9);
+    });
+
+    it("claims no rank, percentile or comparison to other players", async () => {
+      await renderCompleted();
+      const panel = await screen.findByTestId("daily-grid-complete");
+      expect(panel.textContent).not.toMatch(/percentile|rank(ed|ing)?\b|leaderboard|beat \d+% of/i);
+    });
   });
 
   it("does not restore another day's board", async () => {
@@ -269,51 +342,75 @@ describe("DailyGridGame", () => {
     expect(writeText.mock.calls[0][0]).toBe(
       [
         "PEAK3 Daily Grid — 2026-07-30",
-        "Solved 9/9",
-        "Score: 842",
-        // Phase 11B: the competitive line -- a bare score means nothing
-        // without the ceiling it is measured against.
-        `${expectedResult.percent_of_best}% of today's max (${expectedResult.optimal_total})`,
-        "Best cell: 1993-94 Hakeem Olajuwon",
-        "Hardest cell: DPOY x 85+ PEAK",
+        "Two-Way Night",
+        // The competitive line -- a bare score means nothing without the
+        // ceiling it is measured against.
+        `${expectedResult.user_total}/${expectedResult.optimal_total} — ${expectedResult.percent_of_best}% of today's max`,
+        "Near Perfect",
+        "Time: 7:04",
+        "Misses: 3",
+        "",
+        // The 3x3 recap. Eight best-available squares, one miss in the corner.
+        "# # #",
+        "# # #",
+        "# # .",
+        "",
+        "# best  + close  - fair  . weak",
         "peak3.app/daily",
       ].join("\n"),
     );
   });
 
-  // The server reveals eligibility only once a query narrows to a specific
-  // player (nba_peak/daily_grid/search.py). Three renderings, and the UI must
-  // never re-sort, filter or disable on the flag.
-  describe("search-result eligibility", () => {
+  // Phase 11C: every result says what can be done with it, and the ones that
+  // cannot be played are genuinely disabled. The UI never re-sorts or filters
+  // -- the server's order and verdicts are authoritative.
+  describe("search-result status", () => {
     const OTHER = {
-      ...HAKEEM_IDENTITY,
       id: "hakeem-olajuwon-1988-89",
       season: "1988-89",
       label: "1988-89 Hakeem Olajuwon",
     };
 
-    it("marks an eligible hit as fitting, in words and not by colour alone", async () => {
+    it("marks an available hit in words, not by colour alone, and enables it", async () => {
       const user = userEvent.setup();
-      mockSearch.mockResolvedValue({ query: "olajuwon", results: [{ ...HAKEEM_IDENTITY, eligible: true }] });
+      mockSearch.mockResolvedValue({ query: "olajuwon", results: [searchHit({ status: "available" })] });
       render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
 
       await selectFirstCell(user);
       await user.type(screen.getByTestId("cell-search-input"), "olajuwon");
 
       const row = await screen.findByTestId("cell-search-result", {}, { timeout: 2000 });
-      expect(row).toHaveAttribute("data-eligible", "true");
-      expect(within(row).getByTestId("cell-search-result-fits")).toHaveTextContent(/Fits/i);
-      expect(row).toHaveAccessibleName(/Fits this square/i);
+      expect(row).toHaveAttribute("data-status", "available");
+      expect(within(row).getByTestId("cell-search-result-available")).toHaveTextContent(/Available/i);
+      expect(row).toHaveAccessibleName(/Qualifies for this square/i);
       expect(row).toBeEnabled();
     });
 
-    it("de-emphasizes an ineligible hit but keeps it clickable and submits it normally", async () => {
+    it("labels a no-fit hit and disables it, so it never has to be clicked to find out", async () => {
       const user = userEvent.setup();
-      mockSearch.mockResolvedValue({ query: "olajuwon", results: [{ ...HAKEEM_IDENTITY, eligible: false }] });
-      mockSubmit.mockResolvedValue({
-        valid: false,
-        reason: "Hakeem Olajuwon never played for the Boston Celtics.",
-        reason_code: "constraint_failed",
+      mockSearch.mockResolvedValue({ query: "olajuwon", results: [searchHit({ status: "no_fit" })] });
+      render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+      await selectFirstCell(user);
+      await user.type(screen.getByTestId("cell-search-input"), "olajuwon");
+
+      const row = await screen.findByTestId("cell-search-result", {}, { timeout: 2000 });
+      expect(row).toHaveAttribute("data-status", "no_fit");
+      expect(within(row).getByTestId("cell-search-result-no-fit")).toHaveTextContent(/No fit/i);
+      expect(row).toHaveAccessibleName(/Does not fit this square/i);
+      expect(row).toBeDisabled();
+
+      await user.click(row);
+      expect(mockSubmit).not.toHaveBeenCalled();
+    });
+
+    it("labels an already-used player USED — never as if it were playable — and disables it", async () => {
+      const user = userEvent.setup();
+      // The reported LeBron case: an identity already on the board, whose
+      // season DOES satisfy the square. It must still not be offered.
+      mockSearch.mockResolvedValue({
+        query: "olajuwon",
+        results: [searchHit({ status: "used", eligible: true })],
       });
       render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
 
@@ -321,40 +418,54 @@ describe("DailyGridGame", () => {
       await user.type(screen.getByTestId("cell-search-input"), "olajuwon");
 
       const row = await screen.findByTestId("cell-search-result", {}, { timeout: 2000 });
-      expect(row).toHaveAttribute("data-eligible", "false");
-      expect(within(row).getByTestId("cell-search-result-unfits")).toHaveTextContent(/No fit/i);
-      expect(row).toHaveAccessibleName(/Does not fit this square/i);
-      // Not filtered away, not disabled -- the server's reason is still the lesson.
-      expect(row).toBeEnabled();
+      expect(row).toHaveAttribute("data-status", "used");
+      expect(within(row).getByTestId("cell-search-result-used")).toHaveTextContent(/Used/i);
+      expect(within(row).queryByTestId("cell-search-result-available")).not.toBeInTheDocument();
+      expect(row).toHaveAccessibleName(/Already used on this board/i);
+      expect(row).toBeDisabled();
 
       await user.click(row);
-      await waitFor(() => expect(mockSubmit).toHaveBeenCalledTimes(1));
-      expect(await screen.findByTestId("cell-invalid-reason")).toHaveTextContent(
-        "Hakeem Olajuwon never played for the Boston Celtics.",
-      );
+      expect(mockSubmit).not.toHaveBeenCalled();
     });
 
-    it("shows no eligibility affordance when the server withheld a verdict", async () => {
+    it("sends the board's used identities so the server can mark them", async () => {
       const user = userEvent.setup();
-      mockSearch.mockResolvedValue({ query: "an", results: [{ ...HAKEEM_IDENTITY, eligible: null }] });
+      window.localStorage.setItem(
+        dailyGridProgressKey(BOARD.board_id),
+        JSON.stringify({ ...completedProgress(), filled: completedProgress().filled.slice(0, 2) }),
+      );
+      render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+      await waitFor(() => expect(screen.getByTestId("daily-grid-progress")).toHaveTextContent("2/9"));
+      await user.click(screen.getAllByTestId("grid-cell")[8]);
+      await user.type(screen.getByTestId("cell-search-input"), "olajuwon");
+
+      await waitFor(() => expect(mockSearch).toHaveBeenCalled());
+      const call = mockSearch.mock.calls[mockSearch.mock.calls.length - 1][0];
+      expect(call.used).toEqual(["hakeem-olajuwon", "david-robinson"]);
+    });
+
+    it("shows no verdict affordance when the server withheld one, and stays playable", async () => {
+      const user = userEvent.setup();
+      mockSearch.mockResolvedValue({ query: "an", results: [searchHit({ status: "unknown" })] });
       render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
 
       await selectFirstCell(user);
       await user.type(screen.getByTestId("cell-search-input"), "an");
 
       const row = await screen.findByTestId("cell-search-result", {}, { timeout: 2000 });
-      expect(row).toHaveAttribute("data-eligible", "unknown");
-      expect(within(row).queryByTestId("cell-search-result-fits")).not.toBeInTheDocument();
-      expect(within(row).queryByTestId("cell-search-result-unfits")).not.toBeInTheDocument();
+      expect(row).toHaveAttribute("data-status", "unknown");
+      expect(within(row).queryByTestId("cell-search-result-available")).not.toBeInTheDocument();
+      expect(within(row).queryByTestId("cell-search-result-no-fit")).not.toBeInTheDocument();
       expect(row).toHaveAccessibleName(/1993-94 Hakeem Olajuwon/);
-      expect(row.getAttribute("aria-label")).not.toMatch(/fit/i);
+      expect(row).toBeEnabled();
     });
 
     it("explains how to get verdicts when every hit came back unflagged", async () => {
       const user = userEvent.setup();
       mockSearch.mockResolvedValue({
         query: "an",
-        results: [{ ...HAKEEM_IDENTITY, eligible: null }, { ...OTHER, eligible: null }],
+        results: [searchHit({ status: "unknown" }), searchHit({ ...OTHER, status: "unknown" })],
       });
       render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
 
@@ -362,7 +473,7 @@ describe("DailyGridGame", () => {
       await user.type(screen.getByTestId("cell-search-input"), "an");
 
       expect(await screen.findByTestId("cell-search-broad-hint", {}, { timeout: 2000 })).toHaveTextContent(
-        /Naming a specific player will show which of their seasons fit/i,
+        /Too many players match to show which ones qualify/i,
       );
     });
 
@@ -370,22 +481,22 @@ describe("DailyGridGame", () => {
       const user = userEvent.setup();
       mockSearch.mockResolvedValue({
         query: "olajuwon",
-        results: [{ ...HAKEEM_IDENTITY, eligible: true }, { ...OTHER, eligible: null }],
+        results: [searchHit({ status: "available" }), searchHit({ ...OTHER, status: "no_fit" })],
       });
       render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
 
       await selectFirstCell(user);
       await user.type(screen.getByTestId("cell-search-input"), "olajuwon");
 
-      await screen.findByTestId("cell-search-result-fits", {}, { timeout: 2000 });
+      await screen.findByTestId("cell-search-result-available", {}, { timeout: 2000 });
       expect(screen.queryByTestId("cell-search-broad-hint")).not.toBeInTheDocument();
     });
 
-    it("preserves the server's order -- eligible hits are never floated to the top", async () => {
+    it("preserves the server's order rather than re-sorting on status", async () => {
       const user = userEvent.setup();
       mockSearch.mockResolvedValue({
         query: "olajuwon",
-        results: [{ ...OTHER, eligible: false }, { ...HAKEEM_IDENTITY, eligible: true }],
+        results: [searchHit({ ...OTHER, status: "no_fit" }), searchHit({ status: "available" })],
       });
       render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
 
@@ -395,9 +506,24 @@ describe("DailyGridGame", () => {
       await waitFor(() => expect(screen.getAllByTestId("cell-search-result")).toHaveLength(2));
       const rows = screen.getAllByTestId("cell-search-result");
       expect(rows[0]).toHaveAttribute("data-answer-id", OTHER.id);
-      expect(rows[0]).toHaveAttribute("data-eligible", "false");
+      expect(rows[0]).toHaveAttribute("data-status", "no_fit");
       expect(rows[1]).toHaveAttribute("data-answer-id", HAKEEM.id);
-      expect(rows[1]).toHaveAttribute("data-eligible", "true");
+      expect(rows[1]).toHaveAttribute("data-status", "available");
+    });
+
+    it("never renders a score on a search result", async () => {
+      const user = userEvent.setup();
+      mockSearch.mockResolvedValue({
+        query: "olajuwon",
+        results: [searchHit({ status: "available" })],
+      });
+      render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+      await selectFirstCell(user);
+      await user.type(screen.getByTestId("cell-search-input"), "olajuwon");
+
+      const row = await screen.findByTestId("cell-search-result", {}, { timeout: 2000 });
+      expect(row.textContent).not.toMatch(/92|PEAK|pts/);
     });
   });
 
@@ -422,7 +548,7 @@ describe("DailyGridGame", () => {
     render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
     const cells = screen.getAllByTestId("grid-cell");
     expect(cells[0]).toHaveAccessibleName(/Boston Celtics x 1990s/i);
-    expect(cells[8]).toHaveAccessibleName(/NBA Champion x 85\+ PEAK Season/i);
+    expect(cells[8]).toHaveAccessibleName(/NBA Champion x 36\+ Minutes Per Game/i);
     expect(cells[0].tagName).toBe("BUTTON");
   });
 
@@ -463,7 +589,7 @@ describe("DailyGridGame — Phase 11B competitive framing", () => {
 
       const gate = await screen.findByTestId("how-to-play-gate");
       expect(within(gate).getByTestId("how-to-play-objective")).toHaveTextContent(
-        /highest total PEAK3 score/i,
+        /maximize your PEAK3 total with nine different players/i,
       );
       expect(within(gate).getAllByTestId("how-to-play-step")).toHaveLength(4);
       // The board is not reachable until the player starts.

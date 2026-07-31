@@ -12,7 +12,7 @@ PEAK3 Arena transforms the PEAK3 NBA peak-evaluation engine into a global basket
   leaderboards/       # Committed CSV canonical rankings (top_250_*_year_prime.csv)
   data/generated/     # Committed candidate universe and parquet context
   data/web/           # GENERATED: JSON files for the API (run scripts/build_web_dataset.py)
-  tests/              # 235 model tests — must always pass
+  tests/              # model tests — must always pass
   scripts/            # build_web_dataset.py — offline exporter
 
 apps/
@@ -54,9 +54,9 @@ cd apps/api && uvicorn app.main:app --reload    # API: localhost:8000
 cd apps/web && npm run dev                       # Web: localhost:3000
 
 # Test
-python -m pytest tests/ -v               # model (235 tests)
-cd apps/api && python -m pytest tests/   # API (652 passing, 18 skipped)
-cd apps/web && npm run test              # frontend unit (274 tests)
+python -m pytest tests/ -v               # model
+cd apps/api && python -m pytest tests/   # API
+cd apps/web && npm run test              # frontend unit
 
 # Or use Make:
 make test                                # all tests
@@ -66,7 +66,7 @@ make api && make web                     # run services
 
 ## Testing expectations
 
-- **Model tests**: 235 must pass. Never weaken assertions or change expected values.
+- **Model tests**: all must pass. Never weaken assertions or change expected values.
 - **API regression tests**: verify web dataset matches canonical CSVs for rank 1 of all durations and top-10 ordering.
 - **Frontend unit tests**: game reducer state transitions, progress persistence, share text.
 - **Playwright e2e**: landing page, navigation, rankings, methodology accordion.

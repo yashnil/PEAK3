@@ -21,6 +21,10 @@ from nba_peak.daily_grid.constraints import (
 )
 from nba_peak.daily_grid.generator import (
     GRID_SIZE,
+    GridBoard,
+    GridCell as ModelGridCell,
+    MAX_CONTEXT_CONSTRAINTS,
+    MAX_PEAK3_NATIVE,
     MAX_PER_CATEGORY,
     MAX_SQUARES_ONE_PLAYER_TOPS,
     MAX_TEAM_CONSTRAINTS,
@@ -29,12 +33,13 @@ from nba_peak.daily_grid.generator import (
     MIN_PLAYERS_PER_CELL,
     MIN_STRONG_OPTIONS,
     MIN_TEAM_CONSTRAINTS,
-    PREFERRED_PEAK3_NATIVE,
     _BOARD_CACHE,
     _BOARD_CACHE_MAX,
+    _native_allowance,
     BoardGenerationFailed,
     InvalidGridDate,
     board_id,
+    board_theme,
     generate_board,
     get_board,
     grid_seed,
@@ -50,7 +55,11 @@ from nba_peak.daily_grid.scoring import (
     score_cell,
 )
 from nba_peak.daily_grid.search import (
-    MAX_IDENTITIES_FOR_ELIGIBILITY,
+    MAX_REVEALED_ELIGIBLE_IDENTITIES,
+    STATUS_AVAILABLE,
+    STATUS_NO_FIT,
+    STATUS_UNKNOWN,
+    STATUS_USED,
     board_reference_solution,
     search_player_seasons,
     unused_answer_for_cell,
@@ -148,6 +157,7 @@ class TestConstraints:
             "award",
             "era",
             "position",
+            "context",
             "peak",
             "component",
             "outcome",
@@ -307,7 +317,7 @@ class TestDeterminism:
         assert len(signatures) == 365
 
     def test_board_id_is_date_keyed(self):
-        assert board_id("2026-07-30") == "daily-grid-v1-2026-07-30"
+        assert board_id("2026-07-30") == "daily-grid-v2-2026-07-30"
         assert board_id("2026-07-31") != board_id("2026-07-30")
 
     def test_get_board_cache_matches_fresh_generation(self):
@@ -405,7 +415,11 @@ class TestSolvability:
                         col.id,
                     )
 
-    def test_boards_mix_recognizable_and_peak3_native_categories(self, boards):
+    def test_boards_are_built_from_categories_a_fan_recognizes(self, boards):
+        """Phase 11C inverted this test's second half. It used to require at
+        least one PEAK3-native axis; the mode now requires almost none, so what
+        is asserted instead is that every axis is a fact a basketball fan can
+        reason about without knowing anything about the model."""
         for date, board in boards.items():
             categories = [c.category for c in board.rows] + [
                 c.category for c in board.cols
@@ -413,11 +427,9 @@ class TestSolvability:
             recognizable = sum(
                 1
                 for cat in categories
-                if cat in {"team", "award", "era", "position", "outcome"}
+                if cat in {"team", "award", "era", "position", "outcome", "context"}
             )
-            native = sum(1 for cat in categories if cat in {"peak", "component"})
-            assert recognizable >= 3, (date, categories)
-            assert native >= 1, (date, categories)
+            assert recognizable >= 5, (date, categories)
             assert len(set(categories)) >= 4, (date, categories)
 
     def test_boards_are_never_all_teams(self, boards):
@@ -741,17 +753,58 @@ class TestSearch:
         assert all(h.eligible is None for h in hits)
 
     @pytest.mark.parametrize("broad", ["an", "er", "on", "ar", "in", "el"])
-    def test_a_broad_query_never_reveals_eligibility(self, boards, pool, broad):
-        """The bulk answer-key harvest this gate exists to stop: a meaningless
-        substring matches hundreds of players, and eligibility ranking would
-        float a large share of a cell's real answer set to the top of the list
-        for someone who knows nothing. A broad query must reveal nothing."""
+    def test_a_query_never_names_more_than_the_cap_of_qualifying_players(
+        self, boards, pool, broad
+    ):
+        """The bulk answer-key harvest the gate exists to stop: a meaningless
+        substring matches hundreds of players, and marking them valid-first
+        would float a large share of a cell's real answer set to the top of the
+        list for someone who knows nothing.
+
+        Phase 11C measures the leak directly rather than proxying it with "is
+        this query narrow?" -- so what must hold is that no response ever names
+        more than MAX_REVEALED_ELIGIBLE_IDENTITIES distinct qualifying players.
+        A substring that happens to match almost nothing valid may answer; one
+        approaching the answer set must go dark."""
         board = boards["2026-07-30"]
         for cell in board.cells:
             hits = search_player_seasons(
                 broad, board=board, row=cell.row, col=cell.col, limit=50, pool=pool
             )
-            assert all(h.eligible is None for h in hits), (broad, cell.row, cell.col)
+            revealed = {
+                h.player_season.player_slug for h in hits if h.eligible is True
+            }
+            assert len(revealed) <= MAX_REVEALED_ELIGIBLE_IDENTITIES, (
+                broad,
+                cell.row,
+                cell.col,
+                sorted(revealed),
+            )
+            # All-or-nothing per response: a mixed response would let a player
+            # infer the withheld verdicts from the ones that were given.
+            verdicts = {h.eligible is None for h in hits}
+            assert len(verdicts) <= 1, (broad, cell.row, cell.col)
+
+    def test_a_query_matching_much_of_the_answer_set_withholds_every_verdict(
+        self, boards, pool
+    ):
+        """The gate has to actually fire on a real board, not just be
+        theoretically capable of firing. Finds a query that matches enough of
+        some cell's answers to trip it, and asserts the whole response goes
+        `unknown`."""
+        board = boards["2026-07-30"]
+        cell = max(board.cells, key=lambda c: c.distinct_player_count)
+        for broad in ("a", "e", "an", "on", "ar", "er"):
+            hits = search_player_seasons(
+                broad, board=board, row=cell.row, col=cell.col, limit=50, pool=pool
+            )
+            if hits and all(h.status == STATUS_UNKNOWN for h in hits):
+                assert all(h.eligible is None for h in hits)
+                # Withheld is still PLAYABLE -- the player may submit and find
+                # out. Only a stated refusal disables a row.
+                assert all(h.selectable for h in hits)
+                return
+        pytest.fail("no query tripped the eligibility cap on the widest cell")
 
     def test_naming_a_player_does_reveal_season_eligibility(self, boards, pool):
         """The flip side: once the player has done the recall work, the search
@@ -773,18 +826,114 @@ class TestSearch:
         assert all(h.eligible is not None for h in hits)
         assert any(h.eligible for h in hits)
 
-    def test_the_eligibility_gate_counts_identities_not_seasons(self, pool):
-        """A single player has ~18 seasons in the pool; that must not read as
-        a broad query. The gate counts distinct identities for exactly this
-        reason."""
-        hits = search_player_seasons("olajuwon", pool=pool)
-        assert len(hits) > MAX_IDENTITIES_FOR_ELIGIBILITY
-        assert len({h.player_season.player_slug for h in hits}) <= MAX_IDENTITIES_FOR_ELIGIBILITY
+    def test_the_eligibility_gate_counts_identities_not_seasons(self, boards, pool):
+        """One player has many seasons in the pool, and a cell can hold several
+        of them. The cap counts distinct qualifying IDENTITIES so that naming a
+        single player always earns a verdict -- the case the help exists for."""
+        board = boards["2026-07-30"]
+        cell = max(board.cells, key=lambda c: c.answer_count)
+        answer = pool.by_id[cell.answer_ids[0]]
+        seasons_in_cell = sum(
+            1 for a in cell.answer_ids if pool.by_id[a].player_slug == answer.player_slug
+        )
+        hits = search_player_seasons(
+            answer.player_name,
+            board=board,
+            row=cell.row,
+            col=cell.col,
+            limit=50,
+            pool=pool,
+        )
+        # Even when that player holds MORE qualifying seasons than the cap, the
+        # response still answers -- because it is one identity.
+        assert seasons_in_cell >= 1
+        assert all(h.eligible is not None for h in hits)
+
+    # -- Phase 11C statuses -------------------------------------------------
+
+    def test_a_used_player_is_marked_used_and_not_selectable(self, boards, pool):
+        """The bug this fixes: a player already spent on the board kept coming
+        back labelled as if it were playable."""
+        board = boards["2026-07-30"]
+        cell = max(board.cells, key=lambda c: c.answer_count)
+        answer = pool.by_id[cell.answer_ids[0]]
+        hits = search_player_seasons(
+            answer.player_name,
+            board=board,
+            row=cell.row,
+            col=cell.col,
+            limit=50,
+            pool=pool,
+            used_player_slugs=[answer.player_slug],
+        )
+        assert hits
+        own = [h for h in hits if h.player_season.player_slug == answer.player_slug]
+        assert own
+        for hit in own:
+            assert hit.status == STATUS_USED
+            assert hit.selectable is False
+        # And specifically: no season of theirs is offered as available, not
+        # even the ones that genuinely satisfy both constraints.
+        assert not any(h.status == STATUS_AVAILABLE for h in own)
+
+    def test_used_wins_over_eligibility_in_both_directions(self, boards, pool):
+        board = boards["2026-07-30"]
+        cell = max(board.cells, key=lambda c: c.answer_count)
+        valid = pool.by_id[cell.answer_ids[0]]
+        hits = search_player_seasons(
+            valid.player_name,
+            board=board,
+            row=cell.row,
+            col=cell.col,
+            limit=50,
+            pool=pool,
+            used_player_slugs=[valid.player_slug],
+        )
+        statuses = {h.status for h in hits if h.player_season.player_slug == valid.player_slug}
+        assert statuses == {STATUS_USED}
+
+    def test_an_invalid_hit_is_no_fit_and_not_selectable(self, boards, pool):
+        board = boards["2026-07-30"]
+        cell = max(board.cells, key=lambda c: c.answer_count)
+        valid_ids = set(cell.answer_ids)
+        answer = pool.by_id[cell.answer_ids[0]]
+        hits = search_player_seasons(
+            answer.player_name,
+            board=board,
+            row=cell.row,
+            col=cell.col,
+            limit=50,
+            pool=pool,
+        )
+        misses = [h for h in hits if h.player_season.id not in valid_ids]
+        if not misses:
+            pytest.skip("this player's every season happens to fit the cell")
+        for hit in misses:
+            assert hit.status == STATUS_NO_FIT
+            assert hit.selectable is False
+
+    def test_available_hits_sort_ahead_of_unusable_ones(self, boards, pool):
+        """"Valid unused first, then used, then no-fit" -- the ordering the
+        player relies on to not have to read the whole list."""
+        board = boards["2026-07-30"]
+        cell = max(board.cells, key=lambda c: c.answer_count)
+        answer = pool.by_id[cell.answer_ids[0]]
+        hits = search_player_seasons(
+            answer.player_name,
+            board=board,
+            row=cell.row,
+            col=cell.col,
+            limit=50,
+            pool=pool,
+        )
+        rank = {STATUS_AVAILABLE: 0, STATUS_UNKNOWN: 0, STATUS_USED: 1, STATUS_NO_FIT: 2}
+        ranks = [rank[h.status] for h in hits]
+        assert ranks == sorted(ranks), [h.status for h in hits]
 
     def test_result_dicts_carry_no_answer_key_signal(self, boards, pool):
         """A search hit says whether THAT season fits -- which the player is
         about to learn anyway by submitting it -- and nothing about the rest
-        of the answer set."""
+        of the answer set. In particular no score, and no count."""
         board = boards["2026-07-30"]
         cell = board.cells[0]
         hits = search_player_seasons(
@@ -802,7 +951,128 @@ class TestSearch:
                 "position",
                 "label",
                 "eligible",
+                "status",
+                "selectable",
             }
+
+
+# ---------------------------------------------------------------------------
+# Phase 11C — the reported search bugs, on a fixed board
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def knicks_guard_board(pool, taxonomy):
+    """A hand-built Knicks x Guard board, so the reported bugs are pinned to
+    the exact scenario they were reported in rather than to whatever board a
+    date happens to produce.
+
+    Built directly from the constraint masks rather than through
+    generate_board(): this is a REGRESSION FIXTURE, and it has to keep meaning
+    "Knicks x Guard" even if a future composition rule would stop the generator
+    from ever pairing these six axes.
+    """
+    by_id = {c.id: c for c in taxonomy}
+    rows = [by_id["team_nyk"], by_id["team_chi"], by_id["era_2010s"]]
+    cols = [by_id["pos_guard"], by_id["award_all_star"], by_id["outcome_champion"]]
+    masks = {c.id: c.matches(pool.frame) for c in taxonomy}
+    answer_ids = pool.frame["answer_id"].to_numpy()
+    slugs = pool.frame["player_slug"].to_numpy()
+
+    cells = []
+    for row_index, row_constraint in enumerate(rows):
+        for col_index, col_constraint in enumerate(cols):
+            mask = masks[row_constraint.id] & masks[col_constraint.id]
+            cells.append(
+                ModelGridCell(
+                    row=row_index,
+                    col=col_index,
+                    row_constraint_id=row_constraint.id,
+                    col_constraint_id=col_constraint.id,
+                    answer_ids=tuple(answer_ids[mask].tolist()),
+                    player_slugs=frozenset(slugs[mask].tolist()),
+                )
+            )
+    return GridBoard(
+        board_id="daily-grid-test-knicks-guard",
+        date="2026-07-30",
+        seed=1,
+        version="test",
+        rows=tuple(rows),
+        cols=tuple(cols),
+        cells=tuple(cells),
+        difficulty="medium",
+        theme=board_theme(rows, cols),
+        attempts=1,
+    )
+
+
+class TestReportedSearchBugs:
+    """Knicks x Guard is cell (0, 0) of `knicks_guard_board`."""
+
+    def _search(self, board, pool, query, used=()):
+        return search_player_seasons(
+            query, board=board, row=0, col=0, limit=25, pool=pool, used_player_slugs=used
+        )
+
+    def test_a_broad_partial_prioritises_the_valid_candidate(
+        self, knicks_guard_board, pool
+    ):
+        """"br" on Knicks x Guard: Jalen Brunson is a Knicks guard and must
+        come first; Brad Daugherty matches the letters but was a Cleveland
+        centre and must not be offered as if he were playable."""
+        hits = self._search(knicks_guard_board, pool, "br")
+        by_slug = {h.player_season.player_slug: h for h in hits}
+        assert "jalen-brunson" in by_slug
+        assert by_slug["jalen-brunson"].status == STATUS_AVAILABLE
+        assert by_slug["jalen-brunson"].selectable is True
+
+        assert "brad-daugherty" in by_slug, "the invalid match must still be shown"
+        assert by_slug["brad-daugherty"].status == STATUS_NO_FIT
+        assert by_slug["brad-daugherty"].selectable is False
+
+        statuses = [h.status for h in hits]
+        assert statuses.index(STATUS_AVAILABLE) < statuses.index(STATUS_NO_FIT)
+
+    def test_the_broad_partial_and_the_full_name_agree(self, knicks_guard_board, pool):
+        """A player's verdict cannot depend on how much of their name was
+        typed -- that inconsistency is what made the list feel arbitrary."""
+        broad = {
+            h.player_season.id: h.status
+            for h in self._search(knicks_guard_board, pool, "br")
+            if h.player_season.player_slug == "brad-daugherty"
+        }
+        full = {
+            h.player_season.id: h.status
+            for h in self._search(knicks_guard_board, pool, "brad daugherty")
+            if h.player_season.player_slug == "brad-daugherty"
+        }
+        assert broad, "the partial query must surface Daugherty at all"
+        for answer_id, status in broad.items():
+            assert full[answer_id] == status == STATUS_NO_FIT
+
+    def test_a_used_player_is_never_offered_as_playable(self, knicks_guard_board, pool):
+        """The LeBron case from the review: once an identity is on the board,
+        every one of their seasons is USED, including the qualifying ones."""
+        used_hits = self._search(
+            knicks_guard_board, pool, "brunson", used=("jalen-brunson",)
+        )
+        assert used_hits
+        for hit in used_hits:
+            if hit.player_season.player_slug == "jalen-brunson":
+                assert hit.status == STATUS_USED
+                assert hit.selectable is False
+
+        # Control: unused, the same query does offer them.
+        fresh = self._search(knicks_guard_board, pool, "brunson")
+        assert any(h.status == STATUS_AVAILABLE for h in fresh)
+
+    def test_no_search_result_ever_carries_a_score(self, knicks_guard_board, pool):
+        for query in ("br", "brad daugherty", "brunson"):
+            for hit in self._search(knicks_guard_board, pool, query):
+                payload = hit.as_dict()
+                assert "prime_score" not in payload
+                assert "arena_points" not in payload
+                assert "points" not in payload
 
 
 # ---------------------------------------------------------------------------
@@ -1074,19 +1344,71 @@ class TestGridResult:
 
 
 # ---------------------------------------------------------------------------
-# Phase 11B — board composition quality
+# Phase 11C — board composition quality
 # ---------------------------------------------------------------------------
 
-class TestBoardQuality:
-    def test_every_board_carries_the_preferred_peak3_native_count(self, boards):
-        """Phase 11A allowed a single PEAK3-native axis, which produced boards
-        that were franchises crossed with positions. The preference is two."""
-        for date, board in boards.items():
-            categories = [c.category for c in board.rows] + [c.category for c in board.cols]
-            native = sum(1 for cat in categories if cat in {"peak", "component"})
-            assert native >= PREFERRED_PEAK3_NATIVE, (date, categories)
+def _axis_categories(board) -> list[str]:
+    return [c.category for c in board.rows] + [c.category for c in board.cols]
 
-    def test_every_board_has_an_award_outcome_or_era_anchor(self, boards):
+
+def _native_axis_count(board) -> int:
+    return sum(1 for cat in _axis_categories(board) if cat in {"peak", "component"})
+
+
+class TestBoardQuality:
+    def test_no_board_carries_more_than_one_peak3_native_axis(self, boards):
+        """The Phase 11C rule that makes this a basketball game rather than a
+        formula quiz: an axis restating the scoring objective ("60+ PEAK",
+        "Top 10% SI") is self-referential when the objective is to maximise
+        PEAK3 score, so at most one may ever appear."""
+        for date, board in boards.items():
+            assert _native_axis_count(board) <= MAX_PEAK3_NATIVE, (
+                date,
+                _axis_categories(board),
+            )
+
+    def test_most_boards_carry_no_peak3_native_axis(self, pool, taxonomy):
+        """"At most one" is the ceiling; ZERO is the standard board. Measured
+        over a full year rather than the small sample, because the allowance is
+        a deterministic function of the seed and a handful of dates could
+        otherwise all land on the same side of it."""
+        start = datetime.date(2026, 1, 1)
+        zero_native = 0
+        for offset in range(365):
+            date = (start + datetime.timedelta(days=offset)).isoformat()
+            board = generate_board(date, pool=pool, constraints=taxonomy)
+            if _native_axis_count(board) == 0:
+                zero_native += 1
+        # Comfortably a majority. The spice allowance fires on ~1 date in 5 and
+        # the measured figure is 298/365 (82%); the assertion leaves room for
+        # the taxonomy shifting without becoming a rubber stamp.
+        assert zero_native >= 280, zero_native
+
+    def test_a_board_never_exceeds_its_dates_native_allowance(self, boards):
+        """The per-date allowance is the whole mechanism, so assert boards obey
+        the allowance itself rather than only the global ceiling."""
+        for date, board in boards.items():
+            assert _native_axis_count(board) <= _native_allowance(board.seed), date
+
+    def test_native_allowance_is_deterministic_and_bounded(self):
+        for seed in (0, 1, 4, 5, 12345, 2**31 - 1):
+            allowance = _native_allowance(seed)
+            assert allowance in (0, MAX_PEAK3_NATIVE)
+            assert _native_allowance(seed) == allowance
+
+    def test_no_board_crosses_two_season_context_axes(self, boards):
+        for date, board in boards.items():
+            categories = _axis_categories(board)
+            assert categories.count("context") <= MAX_CONTEXT_CONSTRAINTS, (date, categories)
+
+    def test_every_board_has_a_theme_derived_from_its_axes(self, boards):
+        for date, board in boards.items():
+            assert board.theme, date
+            # Pure function of the axes: recomputing it from the board's own
+            # rows/cols must reproduce it exactly.
+            assert board_theme(board.rows, board.cols) == board.theme, date
+
+    def test_every_board_has_two_award_outcome_or_era_anchors(self, boards):
         for date, board in boards.items():
             categories = [c.category for c in board.rows] + [c.category for c in board.cols]
             anchors = sum(1 for cat in categories if cat in {"award", "outcome", "era"})

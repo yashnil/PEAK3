@@ -11,9 +11,11 @@ import {
 import { getDailyGridBoard, getDailyGridResult, submitDailyGridAnswer } from "@/lib/daily-grid-api";
 import {
   TOTAL_CELLS,
+  elapsedMs,
   emptyProgress,
   filledCoords,
   findFilled,
+  formatElapsed,
   hasSeenRules,
   isComplete,
   loadProgress,
@@ -23,6 +25,7 @@ import {
   usedPlayerSlugs,
   withFilledCell,
   withIncorrectAttempt,
+  withTimerStarted,
 } from "@/lib/daily-grid-state";
 import DailyGridBoardView from "./DailyGridBoardView";
 import CellPanel from "./CellPanel";
@@ -107,6 +110,10 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   const [rulesPanelOpen, setRulesPanelOpen] = useState(false);
   const [result, setResult] = useState<GridResultResponse | null>(null);
   const [resultError, setResultError] = useState<string | null>(null);
+  // Re-render tick for the running clock. The elapsed time itself is always
+  // derived from `progress.started_at`, never accumulated here -- this state
+  // exists only to make the displayed number move.
+  const [, setClockTick] = useState(0);
 
   // --- rules gate ---------------------------------------------------------
   useEffect(() => {
@@ -150,6 +157,17 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
     if (progress) saveProgress(progress);
   }, [progress]);
 
+  // --- clock --------------------------------------------------------------
+  // Runs only while a board is genuinely in play: not before the first move,
+  // and not for a second after the ninth square locks. A plain interval, no
+  // animation -- nothing here is affected by prefers-reduced-motion.
+  const clockRunning = !!progress?.started_at && !progress?.completed_at;
+  useEffect(() => {
+    if (!clockRunning) return;
+    const id = window.setInterval(() => setClockTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [clockRunning]);
+
   // --- today's maximum, once the board is finished ------------------------
   useEffect(() => {
     if (!board || !progress || !isComplete(progress) || result) return;
@@ -180,6 +198,10 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   const handleSelect = useCallback((row: number, col: number) => {
     setSelected((cur) => (cur && cur.row === row && cur.col === col ? null : { row, col }));
     setCellMessage(null);
+    // The clock starts on the player's first MOVE, not on page load. A
+    // returning player who has already dismissed the rules lands straight on
+    // the board, and starting the timer then would charge them for reading it.
+    setProgress((cur) => (cur ? withTimerStarted(cur) : cur));
   }, []);
 
   async function handleSubmit(hit: PlayerSeasonSearchHit) {
@@ -230,6 +252,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   function startGrid() {
     markRulesSeen();
     setShowGate(false);
+    setProgress((cur) => (cur ? withTimerStarted(cur) : cur));
   }
 
   if (loading || showGate === null) {
@@ -273,6 +296,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
           variant="gate"
           date={board.date}
           difficulty={board.difficulty}
+          theme={board.theme}
           onStart={startGrid}
         />
       </div>
@@ -295,9 +319,10 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
               className="mt-1 text-sm sm:text-base"
               style={{ color: "var(--text-secondary)" }}
             >
-              <strong style={{ color: "var(--peak-accent)" }}>Maximize your PEAK3 total.</strong> Fill
-              all nine squares with valid exact NBA player-seasons — scores stay hidden until you lock
-              a pick.
+              Fill the grid with exact NBA player-seasons. Scores stay hidden until each pick locks.{" "}
+              <strong style={{ color: "var(--peak-accent)" }}>
+                Your goal: maximize your PEAK3 total with nine different players.
+              </strong>
             </p>
           </div>
           <button
@@ -330,6 +355,15 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
             accent={progress.incorrect_attempts > 0 ? "var(--incorrect)" : undefined}
             testId="daily-grid-misses"
           />
+          {/* The clock. Starts on the first move, freezes on completion, and
+              does not enter the score — it is pressure and a personal best,
+              not a scoreboard (Phase 11C has no verified speed ranking, so
+              claiming one would be inventing it). */}
+          <StatTile
+            label={progress.completed_at ? "Final time" : "Time"}
+            value={formatElapsed(elapsedMs(progress))}
+            testId="daily-grid-timer"
+          />
           {result ? (
             <StatTile
               label={result.exact_optimal ? "Of today's max" : "Of best known"}
@@ -352,10 +386,12 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
           className="mt-3 rounded-lg px-3 py-2 text-xs leading-relaxed"
           style={{ background: "var(--peak-accent-bg)", color: "var(--text-secondary)" }}
         >
-          <strong style={{ color: "var(--peak-accent)" }}>One player per square, picks are final.</strong>{" "}
-          All nine squares need nine different players, and a valid pick cannot be changed. Answers are
-          exact seasons — &ldquo;1999-00 Shaquille O&rsquo;Neal&rdquo;, not just &ldquo;Shaquille
-          O&rsquo;Neal&rdquo;. <span data-testid="daily-grid-date">{board.date}</span>
+          <strong style={{ color: "var(--peak-accent)" }}>One player per board, picks are final.</strong>{" "}
+          Nine squares need nine different players, and a valid pick cannot be changed. Search helps you
+          confirm eligibility, but scores reveal only after a pick locks. Answers are exact seasons —
+          &ldquo;1999-00 Shaquille O&rsquo;Neal&rdquo;, not just &ldquo;Shaquille O&rsquo;Neal&rdquo;.{" "}
+          <span data-testid="daily-grid-theme">{board.theme}</span> ·{" "}
+          <span data-testid="daily-grid-date">{board.date}</span>
         </p>
       </header>
 
@@ -436,6 +472,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
             variant="panel"
             date={board.date}
             difficulty={board.difficulty}
+            theme={board.theme}
             onStart={startGrid}
             onClose={() => setRulesPanelOpen(false)}
           />

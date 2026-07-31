@@ -60,9 +60,13 @@ export async function getDailyGridBoard(date?: string): Promise<DailyGridBoard> 
 
 /**
  * Player-season search. When `row`/`col` are supplied the search is scoped to
- * that square and each hit carries `eligible`; ineligible hits are still
- * returned on purpose (see the contract in types/daily-grid.ts -- hiding them
- * would leak the answer key by omission).
+ * that square and each hit carries a `status` saying whether it can be played
+ * there; unusable hits are still returned on purpose (see the contract in
+ * types/daily-grid.ts -- hiding them would leak the answer key by omission).
+ *
+ * `used` is the identities already on the board. Sending it is what lets the
+ * server mark a player the client has already spent, rather than offering them
+ * again as if they were playable.
  */
 export async function searchPlayerSeasons(params: {
   q: string;
@@ -70,6 +74,7 @@ export async function searchPlayerSeasons(params: {
   row?: number;
   col?: number;
   limit?: number;
+  used?: string[];
   signal?: AbortSignal;
 }): Promise<DailyGridSearchResponse> {
   const qs = new URLSearchParams({ q: params.q });
@@ -77,6 +82,7 @@ export async function searchPlayerSeasons(params: {
   if (params.row !== undefined) qs.set("row", String(params.row));
   if (params.col !== undefined) qs.set("col", String(params.col));
   if (params.limit !== undefined) qs.set("limit", String(params.limit));
+  for (const slug of params.used ?? []) qs.append("used", slug);
   return apiFetch<DailyGridSearchResponse>(`/daily-grid/search?${qs.toString()}`, {
     cache: "no-store",
     signal: params.signal,

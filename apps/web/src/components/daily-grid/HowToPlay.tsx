@@ -33,19 +33,21 @@ const STEPS: { icon: typeof Target; title: string; body: string }[] = [
   {
     icon: Lock,
     title: "Lock it in",
-    body: "Scores stay hidden until you lock a pick. A valid pick is final — you cannot swap it out, so spend your best players carefully.",
+    body: "Search tells you whether a season qualifies, but scores reveal only after a pick locks. A valid pick is final — spend your best players carefully.",
   },
   {
     icon: Trophy,
     title: "Beat the maximum",
-    body: "Every square pays its PEAK3 score, times a bonus for how few seasons qualify. When the board is full, see how close you got to today’s maximum.",
+    body: "Every square pays its PEAK3 score, times a bonus for how small its answer pool is. When the board is full, compare your grid to today’s PEAK3 maximum.",
   },
 ];
 
 const RULES: string[] = [
-  "Nine squares, nine different players.",
+  "One player per board — nine squares, nine different players.",
+  "Picks are final. There is no reset and no swapping.",
+  "Search helps confirm eligibility; scores reveal only after lock.",
   "Wrong answers are rejected and counted — they cost you nothing but pride.",
-  "There is no reset. The board is the board.",
+  "Your time is tracked for you. It does not affect your score.",
   "A new grid every day, the same one for everyone.",
 ];
 
@@ -53,11 +55,14 @@ interface Props {
   variant: "gate" | "panel";
   date: string;
   difficulty: string;
+  /** The board's theme, e.g. "Ring Chasers". Optional so the panel still
+   *  renders against an older board payload. */
+  theme?: string;
   onStart: () => void;
   onClose?: () => void;
 }
 
-export default function HowToPlay({ variant, date, difficulty, onStart, onClose }: Props) {
+export default function HowToPlay({ variant, date, difficulty, theme, onStart, onClose }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const startRef = useRef<HTMLButtonElement>(null);
 
@@ -104,9 +109,12 @@ export default function HowToPlay({ variant, date, difficulty, onStart, onClose 
             className="mt-2 max-w-xl text-sm leading-relaxed"
             style={{ color: "var(--text-secondary)" }}
           >
-            Fill all nine squares with valid NBA player-seasons and score the{" "}
-            <strong style={{ color: "var(--text-primary)" }}>highest total PEAK3 score</strong> you
-            can. Any valid answer fills a square — only the best ones win the day.
+            Fill the grid with exact NBA player-seasons. Your goal:{" "}
+            <strong style={{ color: "var(--text-primary)" }}>
+              maximize your PEAK3 total with nine different players
+            </strong>
+            . The rows and columns are basketball facts — teams, awards, eras, playoff runs. PEAK3 only
+            decides what each pick was worth.
           </p>
         </div>
         {isPanel && (
@@ -173,8 +181,9 @@ export default function HowToPlay({ variant, date, difficulty, onStart, onClose 
       </ul>
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Today&apos;s board · {date} · {difficulty} difficulty
+        <p data-testid="how-to-play-board-line" className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Today&apos;s board · {date}
+          {theme ? ` · ${theme}` : ""} · {difficulty} difficulty
         </p>
         <button
           ref={startRef}
