@@ -8,7 +8,7 @@
  * WHY THESE PIN A DATE. The board is a pure function of the UTC date, so
  * "today" is a different puzzle every run — and a test that fills a square has
  * to know a real answer for the square it clicks. Every test here loads
- * `/daily?date=FIXED_DATE` and discovers a genuine answer at run time by
+ * `/daily/grid?date=FIXED_DATE` and discovers a genuine answer at run time by
  * asking the search endpoint (see `findFillableCell`), rather than hardcoding
  * a player-season that a future taxonomy change would silently invalidate.
  * Nothing in the test knows the answer key; it learns one answer the same way
@@ -26,7 +26,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 // the generator has no special cases — so this is just "a date, chosen once".
 const FIXED_DATE = "2026-03-14";
 
-const DAILY_URL = `/daily?date=${FIXED_DATE}`;
+const DAILY_URL = `/daily/grid?date=${FIXED_DATE}`;
 
 /** Full names, so each query names ONE identity and therefore always earns an
  * eligibility verdict (a bare surname can match enough qualifying players to
@@ -284,7 +284,7 @@ test.describe("Daily Grid — page", () => {
       ...(await page.getByTestId("grid-col-header").allInnerTexts()),
     ];
 
-    await page.goto("/daily?date=2026-09-09", { waitUntil: "load" });
+    await page.goto("/daily/grid?date=2026-09-09", { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     const second = [
       ...(await page.getByTestId("grid-row-header").allInnerTexts()),
@@ -397,7 +397,7 @@ test.describe("Daily Grid — gameplay", () => {
     await fillCell(page, target);
 
     // Progress is keyed by board_id, so a different date must not inherit it.
-    await page.goto("/daily?date=2026-09-09", { waitUntil: "load" });
+    await page.goto("/daily/grid?date=2026-09-09", { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     await expect(
       page.locator('[data-testid="grid-cell"][data-state="filled"]'),
@@ -434,7 +434,7 @@ test.describe("Daily Grid — discoverability", () => {
     await page.goto("/", { waitUntil: "load" });
     const card = page.getByTestId("home-daily-grid-card");
     await expect(card).toBeVisible();
-    await expect(card).toHaveAttribute("href", "/daily");
+    await expect(card).toHaveAttribute("href", "/daily/grid");
 
     await card.click();
     await expect(page).toHaveURL(/\/daily/);
@@ -447,10 +447,12 @@ test.describe("Daily Grid — discoverability", () => {
     await page.goto("/arena", { waitUntil: "load" });
     const card = page.getByTestId("arena-daily-grid-card");
     await expect(card).toBeVisible();
-    await expect(card).toHaveAttribute("href", "/daily");
+    await expect(card).toHaveAttribute("href", "/daily/grid");
   });
 
-  test("the navbar reaches the Daily Grid", async ({ page }) => {
+  test("the navbar reaches the Daily Grid through the hub", async ({ page }) => {
+    // Phase 12A: Daily is a hub for BOTH daily games, so the navbar lands
+    // there and the grid is one deliberate click further.
     await skipRules(page);
     await page.goto("/", { waitUntil: "load" });
     const daily = page
@@ -459,7 +461,8 @@ test.describe("Daily Grid — discoverability", () => {
     await expect(daily).toHaveAttribute("href", "/daily");
 
     await daily.click();
-    await expect(page).toHaveURL(/\/daily/);
+    await expect(page).toHaveURL(/\/daily$/);
+    await page.getByTestId("daily-hub-grid-card").click();
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
   });
 
@@ -1034,7 +1037,7 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
       [board.board_id, today, filled] as const,
     );
 
-    await page.goto("/daily", { waitUntil: "load" });
+    await page.goto("/daily/grid", { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
 
     const retention = page.getByTestId("complete-retention");
@@ -1080,7 +1083,7 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
       [board.board_id, today, filled] as const,
     );
 
-    await page.goto("/daily", { waitUntil: "load" });
+    await page.goto("/daily/grid", { waitUntil: "load" });
     await expect(page.getByTestId("complete-current-streak")).toHaveText("1", { timeout: 15_000 });
     const score = await page.getByTestId("complete-total-score").textContent();
 
@@ -1136,12 +1139,12 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
     await expect(page.getByTestId("complete-current-streak")).toHaveText("4");
     await expect(page.getByTestId("complete-total-played")).toHaveText("5");
     await expect(page.getByTestId("complete-come-back")).toContainText(/archive board/i);
-    await expect(page.getByTestId("complete-play-today")).toHaveAttribute("href", "/daily");
+    await expect(page.getByTestId("complete-play-today")).toHaveAttribute("href", "/daily/grid");
   });
 
   test("today's board is never labelled as an archive", async ({ page }) => {
     await skipRules(page);
-    await page.goto("/daily", { waitUntil: "load" });
+    await page.goto("/daily/grid", { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("daily-grid-archive-banner")).toHaveCount(0);
   });
@@ -1158,7 +1161,7 @@ test.describe("Daily Grid — history page", () => {
     await expect(page.getByTestId("daily-history-total")).toHaveText("0");
     await expect(page.getByTestId("recent-results-empty")).toBeVisible();
     await expect(page.getByTestId("daily-history-today")).toContainText(/not played today/i);
-    await expect(page.getByTestId("daily-history-play-today")).toHaveAttribute("href", "/daily");
+    await expect(page.getByTestId("daily-history-play-today")).toHaveAttribute("href", "/daily/grid");
   });
 
   test("lists completed grids and says plainly that they are local", async ({ page }) => {
@@ -1227,18 +1230,184 @@ test.describe("Daily Grid — history page", () => {
     // A row links back to that day's board.
     await expect(page.getByTestId("recent-results-row").first().locator("a")).toHaveAttribute(
       "href",
-      /\/daily\?date=\d{4}-\d{2}-\d{2}/,
+      /\/daily\/grid\?date=\d{4}-\d{2}-\d{2}/,
     );
   });
 
   test("is reachable from the grid", async ({ page }) => {
     await skipRules(page);
-    await page.goto("/daily", { waitUntil: "load" });
+    await page.goto("/daily/grid", { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
 
     await page.getByTestId("daily-grid-history-link").click();
     await expect(page.getByTestId("daily-history-total")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("daily-history-back").click();
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+  });
+});
+
+/**
+ * Phase 12A: the Daily hub, and the legality of the optimal comparison.
+ */
+test.describe("Daily hub", () => {
+  test("lists both daily games", async ({ page }) => {
+    await page.goto("/daily", { waitUntil: "load" });
+
+    const grid = page.getByTestId("daily-hub-grid-card");
+    const duel = page.getByTestId("daily-hub-duel-card");
+    await expect(grid).toBeVisible({ timeout: 15_000 });
+    await expect(duel).toBeVisible();
+    await expect(grid).toHaveAttribute("href", "/daily/grid");
+    await expect(duel).toHaveAttribute("href", "/play/daily");
+    await expect(grid).toContainText(/Daily Grid Challenge/i);
+    await expect(duel).toContainText(/Peak Duel Daily/i);
+  });
+
+  test("reaches the grid and the duel from the hub", async ({ page }) => {
+    await skipRules(page);
+    await page.goto("/daily", { waitUntil: "load" });
+    await page.getByTestId("daily-hub-grid-card").click();
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    await page.goto("/daily", { waitUntil: "load" });
+    await page.getByTestId("daily-hub-duel-card").click();
+    await expect(page).toHaveURL(/\/play\/daily/, { timeout: 15_000 });
+  });
+
+  test("links to Daily Grid history and keeps 82-0 reachable", async ({ page }) => {
+    await page.goto("/daily", { waitUntil: "load" });
+    await expect(page.getByTestId("daily-hub-history-link")).toHaveAttribute(
+      "href",
+      "/daily/history",
+    );
+    await expect(page.getByTestId("daily-hub-flagship-card")).toHaveAttribute(
+      "href",
+      "/arena/court/practice/apex_1y",
+    );
+  });
+
+  test("an old /daily?date= link still reaches that archive board", async ({ page }) => {
+    // Those URLs are in players' own history and share text.
+    await skipRules(page);
+    await page.goto(`/daily?date=${FIXED_DATE}`, { waitUntil: "load" });
+    await expect(page).toHaveURL(new RegExp(`/daily/grid\\?date=${FIXED_DATE}`), {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("the navbar Daily link highlights across both daily games", async ({ page }) => {
+    for (const url of ["/daily", "/daily/grid", "/daily/history", "/play/daily"]) {
+      await page.goto(url, { waitUntil: "load" });
+      const daily = page.getByRole("navigation").getByRole("link", { name: "Daily" }).first();
+      await expect(daily).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
+    }
+  });
+
+  test("@mobile the hub fits without horizontal overflow", async ({ page }) => {
+    await page.goto("/daily", { waitUntil: "load" });
+    await expect(page.getByTestId("daily-hub-grid-card")).toBeVisible({ timeout: 15_000 });
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
+test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
+  test("never lists the same player twice as an optimal answer", async ({ page, request }) => {
+    test.slow();
+    const filled = await solveBoardViaApi(request);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: FIXED_DATE } })
+    ).json();
+
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 0,
+            started_at: "2026-03-14T12:00:00.000Z",
+            completed_at: "2026-03-14T12:06:00.000Z",
+          }),
+        );
+      },
+      [board.board_id, FIXED_DATE, filled] as const,
+    );
+
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("complete-comparison")).toBeVisible({ timeout: 15_000 });
+
+    // Expand to the full nine squares so every optimal answer is on screen.
+    const toggle = page.getByTestId("complete-per-cell-toggle");
+    if (await toggle.count()) await toggle.click();
+
+    // Read the API's own optimal grid and assert the invariant at the source
+    // the UI renders from -- the rendered text is prose, the payload is fact.
+    const result = await (
+      await request.post(`${API_BASE}/api/v1/daily-grid/result`, {
+        data: {
+          date: FIXED_DATE,
+          filled: filled.map((c) => ({
+            row: c.row,
+            col: c.col,
+            answer_id: (c as unknown as { player_season: { id: string } }).player_season.id,
+          })),
+          incorrect_attempts: 0,
+        },
+      })
+    ).json();
+
+    const slugs = result.cells.map(
+      (c: { optimal_player_season: { player_slug: string } }) => c.optimal_player_season.player_slug,
+    );
+    const ids = result.cells.map(
+      (c: { optimal_player_season: { id: string } }) => c.optimal_player_season.id,
+    );
+    expect(new Set(slugs).size).toBe(9);
+    expect(new Set(ids).size).toBe(9);
+    // ...and today's max is the total of exactly that grid.
+    const total = result.cells.reduce(
+      (sum: number, c: { optimal_points: number }) => sum + c.optimal_points,
+      0,
+    );
+    expect(result.optimal_total).toBe(total);
+  });
+
+  test("labels the comparison as the best LEGAL grid", async ({ page, request }) => {
+    test.slow();
+    const filled = await solveBoardViaApi(request);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: FIXED_DATE } })
+    ).json();
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 0,
+            started_at: "2026-03-14T12:00:00.000Z",
+            completed_at: "2026-03-14T12:06:00.000Z",
+          }),
+        );
+      },
+      [board.board_id, FIXED_DATE, filled] as const,
+    );
+
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("complete-comparison")).toContainText(/best legal grid/i, {
+      timeout: 15_000,
+    });
   });
 });

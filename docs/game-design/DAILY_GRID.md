@@ -27,9 +27,11 @@ Phase 11D made it a daily habit rather than a one-off: a local streak and
 history, a come-back-tomorrow loop, an account-backed official result for
 signed-in players, and rate limits on every endpoint.
 
-Routes: **`/daily`** (today's board, or `?date=` for an archive replay) and
-**`/daily/history`** (your own record). Everyone gets the same board on the
-same UTC date.
+Routes: **`/daily/grid`** (today's board, or `?date=` for an archive replay),
+**`/daily/history`** (your own record), and **`/daily`** (the hub listing every
+daily game — Phase 12A). `/daily?date=` redirects to the grid, so archive links
+already in players' history and share text still work. Everyone gets the same
+board on the same UTC date.
 
 This mode sits *beside* the 82-0 PEAK Season flagship, never replacing it.
 Navbar "Play" still deep-links to `/arena/court/practice/apex_1y`.
@@ -388,6 +390,16 @@ acknowledgement that the e2e harness legitimately drives search far harder
 than a human can: it discovers real answers by probing the live endpoint
 rather than hardcoding a key.
 
+### Round labels are derived, not trusted (12A)
+
+`playoff_round` is the string the rejection sentence reads ("that team finished
+at conference finals"). In the committed scored table it disagrees with the
+authoritative flags for the 2025-26 season — nine champion rows and nine Finals
+rows carry the label "Conference Finals" — so the Daily Grid derives the label
+from the flags instead (`pool.canonical_playoff_round`). Without it the game
+printed a false claim about a real team as a teaching sentence. Full analysis:
+docs/model/POSTSEASON_TEAM_AUDIT.md section 4.
+
 ### What is still client-supplied
 
 `used_player_slugs` on `/answer` and `used` on `/search` are the client's own
@@ -613,6 +625,30 @@ material, so completion is **enforced, not trusted**:
 A client that has not genuinely finished gets a 400 and learns nothing.
 Otherwise posting nine junk ids would read back the optimal solution — the
 whole puzzle.
+
+### The comparison is grid-to-grid, not square-to-square (12A)
+
+`optimal_total` and every `optimal_player_season` come from ONE assignment that
+obeys the game's own rule: **nine different players**. It is the *best legal
+grid*, not nine independent per-square maxima — those would sum to a higher
+number that no legal board can reach, and would print duplicate names.
+
+Two consequences of optimising the grid as a whole used to be displayed as
+something else, and are now named:
+
+| Consequence | Field | What the UI now says |
+|---|---|---|
+| The legal grid scores LESS than the player on a square, having traded it away for a bigger total | `beat_optimal` | "Beat" on the mini-cell, "you beat it here" in the list |
+| The legal grid reuses a player the player already spent elsewhere | `optimal_player_user_square` | "(you played X on Celtics x MVP)" |
+
+Before 12A the first case rendered as **"Max — no better answer existed"**,
+which was simply false, and the second made the same name appear twice down the
+comparison list with no explanation — the reported "duplicate player" bug.
+
+`build_result` asserts the no-duplicate invariant and raises rather than
+rendering an illegal grid: the screen tells the player these are nine different
+players, and shipping a contradiction of the game's own rule is worse than
+failing loudly. Pinned by `tests/test_daily_grid_optimal_legality.py`.
 
 ### What the player sees (rebuilt in 11C)
 

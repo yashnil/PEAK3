@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowRight, Dices, Users, Trophy, BarChart3, Grid3x3, ListOrdered, Swords } from "lucide-react";
+import GameCard from "@/components/shared/GameCard";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 import { getTeamColors } from "@/lib/team-colors";
 
@@ -151,93 +152,84 @@ export default async function HomePage() {
             Ways to play
           </h2>
 
+          {/* Phase 12A: one hierarchy, three tiers, built from the shared
+              GameCard so the flagship/daily/browse split is legible at a glance
+              instead of being asserted in copy. Exactly one card is `featured`;
+              a second gold card would make the word meaningless. */}
           {courtBuilderEnabled && (
-            <Link
+            <GameCard
+              testId="home-flagship-card"
               href="/arena/court/practice/apex_1y"
-              data-testid="home-flagship-card"
-              className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border p-6 transition-all hover:opacity-95"
-              style={{ background: "var(--bg-elevated)", borderColor: "var(--peak-accent, #f5c842)" }}
-            >
-              <div>
-                <span
-                  className="text-[10px] uppercase tracking-wide rounded px-2 py-0.5"
-                  style={{ background: "var(--bg-surface)", color: "var(--peak-accent, #f5c842)", border: "1px solid var(--peak-accent, #f5c842)" }}
-                >
-                  Flagship
-                </span>
-                <h3 className="mt-2 font-display text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-                  82-0 Peak Season
-                </h3>
-                <p className="mt-1 text-sm max-w-xl" style={{ color: "var(--text-secondary)" }}>
-                  Spin a team and era, draft a position-aware 5+3 roster from exact NBA player-seasons,
-                  and chase a perfect season — with a full receipt on every rating and a round-by-round
-                  comparison to what PEAK3 itself would have picked.
-                </p>
-              </div>
-              <span
-                className="inline-flex items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold shrink-0"
-                style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-              >
-                Play now <ArrowRight size={14} />
-              </span>
-            </Link>
+              eyebrow="Flagship"
+              title="82-0 PEAK Season"
+              description="Spin a team and era, draft a position-aware 5+3 roster from exact NBA player-seasons, and chase a perfect season — with a full receipt on every rating and a round-by-round comparison to what PEAK3 itself would have picked."
+              icon={<Trophy size={18} />}
+              meta={["8 roster slots", "Full-season simulation", "Play any time"]}
+              featured
+              cta="Play now"
+            />
           )}
 
-          {/* Phase 11A: the Daily Grid is the lightweight daily mode. It sits
-              directly under the flagship band and above the secondary cards --
-              clearly the second thing on the page, never competing with 82-0
-              for the primary CTA. Bordered in the slate component token rather
-              than gold, which stays reserved for the flagship. */}
-          <Link
-            href="/daily"
-            data-testid="home-daily-grid-card"
-            className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border p-6 transition-all hover:opacity-95"
-            style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}
-          >
-            <div>
-              <span
-                className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide rounded px-2 py-0.5"
-                style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
-              >
-                <Grid3x3 size={11} aria-hidden="true" />
-                New board every day
-              </span>
-              <h3 className="mt-2 font-display text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-                Daily Grid Challenge
-              </h3>
-              <p className="mt-1 text-sm max-w-xl" style={{ color: "var(--text-secondary)" }}>
-                Fill a 3x3 board with exact NBA player-seasons. Match teams, awards, eras, roles,
-                and PEAK3 thresholds. New board every day.
-              </p>
-            </div>
-            <span
-              className="inline-flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-semibold shrink-0"
-              style={{ borderColor: "var(--border-default)", color: "var(--text-primary)" }}
+          <div className="mt-8 mb-2 flex items-baseline justify-between gap-3">
+            <h3
+              className="text-[11px] font-bold uppercase tracking-[0.18em]"
+              style={{ color: "var(--text-muted)" }}
             >
-              Play Today&apos;s Grid <ArrowRight size={14} />
-            </span>
-          </Link>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <ModeCard
-              icon={<Swords size={22} style={{ color: "var(--comp-rec)" }} />}
-              title="Daily Peak Duel"
-              description="10 head-to-head duels. One shot a day. Real data revealed only after you choose."
+              Daily games
+            </h3>
+            <Link
+              href="/daily"
+              data-testid="home-daily-hub-link"
+              className="text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              style={{ color: "var(--peak-accent)" }}
+            >
+              Daily hub →
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <GameCard
+              testId="home-daily-grid-card"
+              href="/daily/grid"
+              eyebrow="New board every day"
+              title="Daily Grid Challenge"
+              description="Fill a 3x3 board with exact NBA player-seasons — teams, awards, eras, playoff runs. Nine squares, nine different players, same board for everyone."
+              icon={<Grid3x3 size={17} />}
+              cta="Play today's grid"
+            />
+            <GameCard
+              testId="home-daily-duel-card"
               href="/play/daily"
+              eyebrow="New questions every day"
+              title="Peak Duel Daily"
+              description="Ten head-to-head questions: pick which player's peak PEAK3 rates higher. Real data revealed only after you choose."
+              icon={<Swords size={17} />}
               cta="Play today's duel"
             />
-            <ModeCard
-              icon={<BarChart3 size={22} style={{ color: "var(--comp-si)" }} />}
-              title="PEAK Index"
-              description="Browse all-time rankings by window length and understand every scoring component."
+          </div>
+
+          <h3
+            className="mt-8 mb-2 text-[11px] font-bold uppercase tracking-[0.18em]"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Browse the model
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <GameCard
+              testId="home-rankings-card"
               href="/rankings"
+              eyebrow="Rankings"
+              title="The PEAK Index"
+              description="All-time peak windows and single seasons, with a full component breakdown and row-by-row receipts on every score."
+              icon={<BarChart3 size={17} />}
               cta="See the rankings"
             />
-            <ModeCard
-              icon={<ListOrdered size={22} style={{ color: "var(--comp-team)" }} />}
-              title="Leaderboard"
-              description="See the best submitted 82-0 Peak Season runs and measure your roster against them."
+            <GameCard
+              testId="home-leaderboard-card"
               href="/arena/court/leaderboard"
+              eyebrow="Community"
+              title="82-0 Leaderboard"
+              description="The best submitted 82-0 PEAK Season runs — measure your roster against them."
+              icon={<ListOrdered size={17} />}
               cta="View leaderboard"
             />
           </div>
@@ -277,31 +269,6 @@ export default async function HomePage() {
           </Link>
         </div>
       </section>
-    </div>
-  );
-}
-
-function ModeCard({
-  icon,
-  title,
-  description,
-  href,
-  cta,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  href: string;
-  cta: string;
-}) {
-  return (
-    <div className="card-elevated p-6 flex flex-col">
-      <div className="mb-4">{icon}</div>
-      <h3 className="font-display text-lg font-bold mb-2">{title}</h3>
-      <p className="text-sm text-[var(--text-secondary)] leading-relaxed flex-1">{description}</p>
-      <Link href={href} className="mt-6 text-sm font-medium text-[var(--peak-accent)] underline inline-flex items-center gap-1">
-        {cta} <ArrowRight size={13} />
-      </Link>
     </div>
   );
 }

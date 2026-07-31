@@ -212,7 +212,15 @@ export interface GridResultRequest {
   incorrect_attempts: number;
 }
 
-/** One square, side by side: what the player used vs. what the maximum used. */
+/** One square, side by side: what the player used vs. what the BEST LEGAL GRID
+ *  used.
+ *
+ *  The comparison is grid-to-grid, not square-to-square. The optimal answer in
+ *  a square comes from ONE nine-different-players assignment, so it depends on
+ *  what that assignment needed elsewhere — which is why the last two fields
+ *  exist. Without them the screen prints things that look like bugs: a square
+ *  the player actually won reads as "no better answer existed", and a player
+ *  the optimal grid reuses reads as a duplicate. */
 export interface ResultCell {
   row: number;
   col: number;
@@ -225,6 +233,12 @@ export interface ResultCell {
   /** optimal_points - user_points, floored at 0. */
   points_left: number;
   matched_optimal: boolean;
+  /** The player scored MORE here than the best legal grid did, because that
+   *  grid traded this square away for a bigger total elsewhere. */
+  beat_optimal: boolean;
+  /** The square where the PLAYER used this same identity, when the best legal
+   *  grid also wanted them. Null when there is no overlap. */
+  optimal_player_user_square: string | null;
 }
 
 /** POST /api/v1/daily-grid/result response.

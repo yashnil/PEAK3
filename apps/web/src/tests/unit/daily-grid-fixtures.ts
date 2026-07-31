@@ -345,6 +345,11 @@ export function gridResult(overrides: Partial<GridResultResponse> = {}): GridRes
       optimal_points: optimalPoints,
       points_left: optimalPoints - c.cell_score.arena_points,
       matched_optimal: !isMiss,
+      // The fixture's optimal grid never scores below the player, so no square
+      // is a "beat"; the beat path is exercised explicitly by the tests that
+      // need it via an override.
+      beat_optimal: false,
+      optimal_player_user_square: null,
     };
   });
   const optimalTotal = cells.reduce((s, c) => s + c.optimal_points, 0);

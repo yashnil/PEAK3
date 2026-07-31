@@ -370,3 +370,71 @@ test.describe("Rankings — mobile", () => {
     expect(bodyWidth).toBeLessThanOrEqual(394);
   });
 });
+
+/**
+ * Phase 12A: the modal has to explain THIS row, not the formula in general.
+ * The old modal produced near-identical prose for every player-season, which is
+ * exactly what made a surprising Postseason Value unexplainable.
+ */
+test.describe("Rankings — row-specific receipts", () => {
+  async function openFirstRow(page: import("@playwright/test").Page) {
+    await page.goto("/rankings", { waitUntil: "load" });
+    const row = page.getByTestId("rankings-row").first();
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await row.click();
+    await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
+  }
+
+  test("shows per-component receipts built from this row's own numbers", async ({ page }) => {
+    await openFirstRow(page);
+
+    const receipts = page.getByTestId("score-explain-receipts");
+    await expect(receipts).toBeVisible({ timeout: 15_000 });
+
+    // The impact receipt must cite real metrics, not a definition.
+    const si = page.getByTestId("score-explain-receipt-statistical_impact");
+    await expect(si).toBeVisible();
+    await expect(si).toContainText(/BPM|VORP|WS\/48|PER/);
+
+    // Postseason and team are the two the audit exists for.
+    await expect(page.getByTestId("score-explain-receipt-postseason_individual_value")).toBeVisible();
+    await expect(page.getByTestId("score-explain-receipt-team_achievement")).toBeVisible();
+  });
+
+  test("explains what Postseason Value actually measures", async ({ page }) => {
+    await openFirstRow(page);
+    const note = page.getByTestId("score-explain-receipt-note-postseason_individual_value");
+    await expect(note).toBeVisible({ timeout: 15_000 });
+    // Whatever the row, the note must resolve the "why is this number like
+    // that?" question rather than restating the component's name.
+    await expect(note).toContainText(
+      /did not reach the playoffs|replacement-level|shrinks postseason value|not winning/i,
+    );
+  });
+
+  test("two different rows produce different receipts", async ({ page }) => {
+    await openFirstRow(page);
+    const first = await page.getByTestId("score-explain-receipts").innerText();
+    await page.getByTestId("score-explain-close").click();
+
+    const second = page.getByTestId("rankings-row").nth(3);
+    await second.click();
+    await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("score-explain-receipts")).toBeVisible();
+    const other = await page.getByTestId("score-explain-receipts").innerText();
+
+    expect(other).not.toEqual(first);
+  });
+
+  test("the modal stays accessible with the new sections", async ({ page }) => {
+    await openFirstRow(page);
+    await expect(page.getByTestId("score-explain-receipts")).toBeVisible({ timeout: 15_000 });
+    const results = await new AxeBuilder({ page })
+      .include('[data-testid="score-explain-modal"]')
+      .analyze();
+    const serious = results.violations.filter(
+      (v) => v.impact === "critical" || v.impact === "serious",
+    );
+    expect(serious).toEqual([]);
+  });
+});

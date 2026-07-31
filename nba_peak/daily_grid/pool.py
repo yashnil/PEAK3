@@ -301,6 +301,66 @@ def _optional_float(value) -> Optional[float]:
     return float(value)
 
 
+# The five values `playoff_round` may take, deepest first. Used to rebuild the
+# label from the authoritative flags -- see canonical_playoff_round().
+PLAYOFF_ROUND_CHAMPION = "Champion"
+PLAYOFF_ROUND_FINALS = "Finals"
+PLAYOFF_ROUND_CONF_FINALS = "Conference Finals"
+PLAYOFF_ROUND_MISSED = "Missed playoffs"
+
+# `playoff_round_score` -> label, for the rounds no boolean flag covers.
+# Mirrors nba_peak/context/postseason.py's own ROUND_LOSS_SCORE mapping.
+_ROUND_SCORE_LABELS: tuple[tuple[float, str], ...] = (
+    (100.0, PLAYOFF_ROUND_CHAMPION),
+    (85.0, PLAYOFF_ROUND_FINALS),
+    (70.0, PLAYOFF_ROUND_CONF_FINALS),
+    (50.0, "Conference Semifinals"),
+    (30.0, "First Round"),
+)
+
+
+def canonical_playoff_round(row) -> str:
+    """The round label implied by the AUTHORITATIVE flags, not the stored string.
+
+    WHY THIS EXISTS. `playoff_round` is a human-readable label written from the
+    parsed bracket, while PEAK3 scores team achievement from the numeric flags
+    (`championship`, `finals_appearance`, `conf_finals`, `playoff_round_score`).
+    In the committed scored table those two disagree for the 2025-26 season and
+    only that season: nine champion rows and nine Finals rows carry the label
+    "Conference Finals", because the string was captured from a bracket state
+    before the Finals resolved while the flags carry the final outcome. Every
+    other season from 1979-80 on is consistent. See
+    docs/model/POSTSEASON_TEAM_AUDIT.md section 4.
+
+    The symptom was user-visible and wrong: the Daily Grid's rejection sentence
+    reads this label, so submitting a 2025-26 champion produced "that team
+    finished at conference finals" -- a false claim about a real team, printed
+    to the player as a teaching sentence.
+
+    Deriving the label here rather than repairing the parquet keeps the fix
+    inside the consumer that shows it, changes no PEAK3 score (the model never
+    reads this string), and cannot drift: flags and label now come from the same
+    place by construction.
+    """
+    if not bool(row.get("made_playoffs")):
+        return PLAYOFF_ROUND_MISSED
+    if float(row.get("championship") or 0) == 1:
+        return PLAYOFF_ROUND_CHAMPION
+    if float(row.get("finals_appearance") or 0) == 1:
+        return PLAYOFF_ROUND_FINALS
+    if float(row.get("conf_finals") or 0) == 1:
+        return PLAYOFF_ROUND_CONF_FINALS
+    score = pd.to_numeric(row.get("playoff_round_score"), errors="coerce")
+    if pd.notna(score):
+        for threshold, label in _ROUND_SCORE_LABELS:
+            if float(score) >= threshold:
+                return label
+    # Made the playoffs with no flag and no usable score: fall back to the
+    # stored label rather than inventing a round.
+    stored = row.get("playoff_round")
+    return str(stored) if stored else PLAYOFF_ROUND_MISSED
+
+
 def build_pool(
     scored_path: Path | None = None,
     regular_path: Path | None = None,
@@ -339,6 +399,10 @@ def build_pool(
     scored["position"] = scored["position"].fillna("")
 
     scored["season_start_year"] = scored["season"].str[:4].astype(int)
+    # Rebuild the round label from the flags PEAK3 actually scores from, so the
+    # label the player is shown can never contradict the constraint that
+    # accepted or rejected their answer. See canonical_playoff_round().
+    scored["playoff_round"] = scored.apply(canonical_playoff_round, axis=1)
     scored["answer_id"] = [
         answer_id(s, se, t)
         for s, se, t in zip(scored["player_slug"], scored["season"], scored["team"])

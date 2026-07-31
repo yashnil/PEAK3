@@ -389,6 +389,22 @@ export interface RankingExplainSeasonStats {
   per?: number | null;
   bpm?: number | null;
   ws?: number | null;
+  // Phase 12A: already present in the served block, now typed because the
+  // component receipts cite them (see lib/rankings-receipts.ts). All optional
+  // for the same reason as the fields above -- a row that lacks one omits the
+  // clause rather than printing a placeholder.
+  obpm?: number | null;
+  dbpm?: number | null;
+  vorp?: number | null;
+  ws_per_48?: number | null;
+  usg_pct?: number | null;
+  ts_plus?: number | null;
+  pts_per_75?: number | null;
+  ast_per_75?: number | null;
+  pts_per_100?: number | null;
+  trb_per_100?: number | null;
+  ast_per_100?: number | null;
+  minutes_total?: number | null;
 }
 
 /** The context blocks are typed loosely on purpose: the modal renders whichever

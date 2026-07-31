@@ -81,7 +81,7 @@ export default function DailyGridHistory() {
             </p>
           </div>
           <Link
-            href="/daily"
+            href="/daily/grid"
             data-testid="daily-history-back"
             className="shrink-0 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
             style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
@@ -151,7 +151,7 @@ export default function DailyGridHistory() {
               You have not played today&rsquo;s grid yet.
             </strong>
             <Link
-              href="/daily"
+              href="/daily/grid"
               data-testid="daily-history-play-today"
               className="font-semibold underline underline-offset-2"
               style={{ color: "var(--peak-accent)" }}

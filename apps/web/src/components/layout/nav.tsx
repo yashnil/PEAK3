@@ -22,25 +22,38 @@ import { useAuth } from "@/lib/auth-context";
 // an explicit "Begin 82-0 Run" screen and no run is created until they press
 // it. See PeakSeasonStartGate's own docstring for why creation moved out of the
 // route's server component.
-const NAV_LINKS: { href: string; label: string; activePrefix?: string }[] = [
+const NAV_LINKS: { href: string; label: string; activePrefix?: string; alsoActiveOn?: string[] }[] = [
   // activePrefix keeps "Play" highlighted across the whole arena section --
   // the daily route, run history, results, the hub -- even though the link
   // itself deep-links to the flagship run. Without it the plain
   // startsWith(href) check would light up only on the exact practice route.
   { href: "/arena/court/practice/apex_1y", label: "Play", activePrefix: "/arena" },
-  // Phase 11A: the Daily Grid is the lightweight daily mode and sits BESIDE
-  // "Play", never replacing it -- 82-0 PEAK Season remains the flagship the
-  // main Play path leads to. /daily is a top-level route, so it needs no
-  // activePrefix and cannot collide with "Play"'s /arena prefix.
-  { href: "/daily", label: "Daily" },
+  // Phase 12A: /daily is the HUB for every once-a-day game (the Grid at
+  // /daily/grid, Peak Duel Daily at /play/daily), sitting BESIDE "Play" rather
+  // than replacing it -- 82-0 PEAK Season remains the flagship the main Play
+  // path leads to.
+  //
+  // `alsoActiveOn` exists because Peak Duel Daily lives under /play for
+  // historical reasons while belonging to Daily in the product's own IA.
+  // Highlighting "Daily" there is the honest answer: it is where the user
+  // navigated from and where they would go back to. Moving the route itself
+  // would break existing links for no user-visible gain.
+  { href: "/daily", label: "Daily", alsoActiveOn: ["/play/daily"] },
   { href: "/rankings", label: "Rankings" },
   { href: "/methodology", label: "Methodology" },
   { href: "/about", label: "About" },
 ];
 
-function isActive(pathname: string, link: { href: string; activePrefix?: string }): boolean {
-  const base = link.activePrefix ?? link.href;
+function matchesPrefix(pathname: string, base: string): boolean {
   return pathname === base || pathname.startsWith(base + "/");
+}
+
+function isActive(
+  pathname: string,
+  link: { href: string; activePrefix?: string; alsoActiveOn?: string[] },
+): boolean {
+  if (matchesPrefix(pathname, link.activePrefix ?? link.href)) return true;
+  return (link.alsoActiveOn ?? []).some((extra) => matchesPrefix(pathname, extra));
 }
 
 export function Nav() {
@@ -107,6 +120,7 @@ export function Nav() {
               <li key={link.href}>
                 <Link
                   href={link.href}
+                  aria-current={isActive(pathname, link) ? "page" : undefined}
                   className={cn(
                     "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                     isActive(pathname, link)
@@ -178,6 +192,7 @@ export function Nav() {
                 <li key={link.href}>
                   <Link
                     href={link.href}
+                    aria-current={isActive(pathname, link) ? "page" : undefined}
                     className={cn(
                       "block py-2.5 px-3 rounded-md text-sm font-medium transition-colors",
                       isActive(pathname, link)
