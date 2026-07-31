@@ -38,10 +38,11 @@ GRID_SIZE = 3
 MAX_BOARD_CELLS = GRID_SIZE * GRID_SIZE
 
 ConstraintCategory = Literal[
-    "team", "award", "era", "position", "peak", "component", "outcome"
+    "team", "award", "era", "position", "context", "peak", "component", "outcome"
 ]
 RarityBucket = Literal["very_rare", "rare", "uncommon", "common", "very_common"]
 GridDifficulty = Literal["easy", "medium", "hard"]
+SearchHitStatus = Literal["available", "used", "no_fit", "unknown"]
 ValidationReasonCode = Literal[
     "unknown_answer", "player_already_used", "constraint_failed", "cell_filled"
 ]
@@ -86,6 +87,10 @@ class DailyGridBoardResponse(BaseModel):
     date: str = Field(..., description="YYYY-MM-DD, UTC")
     version: str
     difficulty: GridDifficulty
+    # Deliberately an open `str`, not a Literal: the theme is descriptive copy
+    # derived from the axes the client already has, and adding a theme name
+    # should not be a breaking schema change on a field nothing switches on.
+    theme: str = Field(..., description='e.g. "Ring Chasers"; derived from the axes')
     rows: list[GridConstraint]
     cols: list[GridConstraint]
     cells: list[GridCellSpec]
@@ -126,15 +131,24 @@ class PlayerSeasonCard(PlayerSeasonIdentity):
 
 
 class PlayerSeasonSearchHit(PlayerSeasonIdentity):
-    """A search result. `eligible` is None for an unscoped or broad search.
+    """A search result. `eligible` is None for an unscoped search, or one whose
+    verdict was withheld to avoid handing over the square's answers.
 
-    Ineligible hits are returned on purpose: filtering them out would leak
-    the answer key by omission (see nba_peak/daily_grid/search.py). Carries no
-    score -- knowing WHETHER a season qualifies is a different fact from
-    knowing how much it is worth, and only the first is given away.
+    Unusable hits are returned on purpose: filtering them out would leak the
+    answer key by omission (see nba_peak/daily_grid/search.py). `status` is
+    what the UI renders and what decides whether the row is clickable --
+    `selectable` restates it as the single boolean a button needs, so the
+    client never has to re-derive the rule.
+
+    Carries no score -- knowing WHETHER a season qualifies is a different fact
+    from knowing how much it is worth, and only the first is given away.
     """
 
     eligible: Optional[bool] = None
+    status: SearchHitStatus = "unknown"
+    selectable: bool = Field(
+        True, description="False for `used` and `no_fit`; the UI disables those rows"
+    )
 
 
 class DailyGridSearchResponse(BaseModel):

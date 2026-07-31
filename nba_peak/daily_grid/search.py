@@ -1,34 +1,43 @@
 """Player-season search for filling a Daily Grid cell.
 
-The player types a name; this returns exact player-SEASONS to choose from.
-Two things shape the design:
+The player types a name; this returns exact player-SEASONS to choose from,
+each carrying a STATUS that says whether it can actually be played here.
 
 RANKING, NOT FILTERING. When a cell is supplied, results are ordered so that
-seasons valid for that cell come first -- but invalid ones are still
-returned, marked. Hiding them would leak the answer key by omission: a player
-could type "Jordan", see only three of his seasons, and learn the answer set
-without submitting anything. Showing every season and letting validation
-reject the wrong ones keeps the key server-side and teaches the player why a
-guess missed.
+seasons the player can actually use come first -- but unusable ones are still
+returned, marked and disabled. Hiding them would leak the answer key by
+omission: a player could type "Jordan", see only three of his seasons, and
+learn the answer set without submitting anything. Showing every season, and
+saying plainly why the others cannot be picked, keeps the key server-side and
+still spares the player a submit-to-find-out loop.
 
-WHICH QUERIES EARN THAT HELP. Eligibility is revealed only for a query that
-already names a specific player (few distinct identities matched). This is
-the game's skill split made explicit:
+THE FOUR STATUSES (see STATUS_* below)
+  available  fits this square, and this identity is not on the board yet
+  used       this player is already somewhere on the board, so the
+             distinct-identity rule rules out every one of their seasons --
+             decided from client-supplied board state, not from the key, so
+             it is always safe to report
+  no_fit     does not satisfy this square's two constraints
+  unknown    eligibility withheld for this query (see below); the player may
+             still submit it and find out
 
-  "who played for the Nuggets AND was top-10% in Traditional Production?"
-      <- the actual puzzle; the search box must not answer this
-  "which of Alex English's seasons is the one?"
-      <- pure friction; there is no attempt limit, so withholding this only
-         makes the player submit the same name repeatedly until one sticks
+HOW MUCH ELIGIBILITY A QUERY EARNS. Phase 11C replaces 11B's "is the query
+narrow?" gate with a direct measure of the thing that was actually at risk:
+HOW MANY OF THIS SQUARE'S ANSWERS ONE RESPONSE WOULD HAND OVER. If a query's
+hits contain more than MAX_REVEALED_ELIGIBLE_IDENTITIES distinct qualifying
+PLAYERS, every hit comes back `unknown` and the client cannot tell valid from
+invalid. Counted in distinct players because the distinct-identity rule makes
+the player the real unit of an answer -- and because the case this is meant to
+help, "which of Alex English's seasons is the one?", is one identity no matter
+how many seasons it matches.
 
-Without the gate, eligibility ranking is a bulk answer-key extractor: a
-meaningless two-letter substring ("an", "on") matches hundreds of players,
-and sorting valid-first floats a large share of a cell's real answer set to
-the top of the list for a player who knows nothing. Measured on a real v1
-board, one such query surfaced 6 of a 31-answer cell's key. So a BROAD query
-(more than MAX_IDENTITIES_FOR_ELIGIBILITY distinct players) is ranked by name
-match alone and every hit comes back `eligible=None` -- the client cannot tell
-valid from invalid, and there is nothing to harvest.
+That is a strictly better gate than counting matched identities. The old rule
+withheld a verdict from "br" (dozens of matching names) even though barely any
+of them qualify -- so the player had to click Brad Daugherty to discover he is
+not a Knicks guard, which is friction with no security value. The new rule
+answers "br" and goes dark exactly when a query starts to approach the answer
+set, which is the incentive shape you want: the closer a query gets to being a
+bulk extractor, the less it says.
 
 NAME MATCHING is prefix-and-substring over the player name, with a season
 token honoured when present ("jordan 96", "1996-97 jordan"), because that is
@@ -40,23 +49,47 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Optional
+from typing import Iterable, Optional
 
 from nba_peak.daily_grid.constraints import constraint_by_id
 from nba_peak.daily_grid.generator import GridBoard
 from nba_peak.daily_grid.pool import GridPool, PlayerSeason, load_pool
 
-SEARCH_VERSION = "daily_grid_search.v2"
+SEARCH_VERSION = "daily_grid_search.v3"
 
 DEFAULT_LIMIT = 25
 MAX_LIMIT = 50
 MIN_QUERY_LENGTH = 2
 
-# A cell-scoped query only reveals eligibility if it narrows to at most this
-# many distinct player identities -- see "WHICH QUERIES EARN THAT HELP" above.
-# Set at 6 so a real surname still qualifies (there are several Johnsons and
-# Williamses in the pool) while a generic substring does not.
-MAX_IDENTITIES_FOR_ELIGIBILITY = 6
+# The four statuses a hit can carry. See the module docstring.
+STATUS_AVAILABLE = "available"
+STATUS_USED = "used"
+STATUS_NO_FIT = "no_fit"
+STATUS_UNKNOWN = "unknown"
+
+# Statuses the client may submit. `unknown` is playable because the player is
+# choosing to find out; `used` and `no_fit` are refusals the server has already
+# stated, so offering them as buttons would only invite a pointless round trip.
+SELECTABLE_STATUSES = frozenset({STATUS_AVAILABLE, STATUS_UNKNOWN})
+
+# How many DISTINCT qualifying players one response may name before eligibility
+# is withheld from the whole response -- see "HOW MUCH ELIGIBILITY A QUERY
+# EARNS" above. Three is enough that naming a player (one identity, however
+# many of their seasons match) always earns a verdict, and that a plausible
+# partial like "br" on a guard square still does; it is small enough that a
+# query approaching a cell's real answer set goes dark.
+MAX_REVEALED_ELIGIBLE_IDENTITIES = 3
+
+# Sort rank per status. Playable hits first, then the player's own already-used
+# names, then the ones that simply do not fit. `available` and `unknown` share
+# a rank because they never occur in the same response -- eligibility is
+# revealed for all hits or none of them.
+_STATUS_RANK: dict[str, int] = {
+    STATUS_AVAILABLE: 0,
+    STATUS_UNKNOWN: 0,
+    STATUS_USED: 1,
+    STATUS_NO_FIT: 2,
+}
 
 # A 2- or 4-digit run in the query is read as a season hint ("96", "1996").
 _SEASON_TOKEN = re.compile(r"\b(\d{2}|\d{4})\b")
@@ -64,28 +97,38 @@ _SEASON_TOKEN = re.compile(r"\b(\d{2}|\d{4})\b")
 
 @dataclass(frozen=True)
 class SearchHit:
-    """One candidate season, plus whether it fits the cell being filled.
+    """One candidate season, plus whether it can be played in the cell.
 
     `eligible` is None when the search was not scoped to a cell, or when the
-    query was too broad to earn a verdict (see MAX_IDENTITIES_FOR_ELIGIBILITY).
+    query would have revealed too much of the answer set (see
+    MAX_REVEALED_ELIGIBLE_IDENTITIES). `status` is the display verdict, which
+    also folds in the distinct-identity rule: a player already on the board is
+    `used` whatever their eligibility, because that is the reason they cannot
+    be played here.
 
-    CARRIES NO SCORE. Phase 11B: `as_dict()` serialises via
+    CARRIES NO SCORE. `as_dict()` serialises via
     PlayerSeason.as_search_dict(), so a candidate's PEAK3 score is not
-    knowable until it is locked in. `eligible` is still exposed for a narrow
-    query because knowing WHETHER a season qualifies is a different fact from
-    knowing HOW MUCH it is worth -- and with the score hidden, choosing among
-    a player's several qualifying seasons is exactly the judgement the mode is
-    asking for.
+    knowable until it is locked in. Eligibility is still exposed because
+    knowing WHETHER a season qualifies is a different fact from knowing HOW
+    MUCH it is worth -- and with the score hidden, choosing among a player's
+    several qualifying seasons is exactly the judgement the mode is asking for.
     """
 
     player_season: PlayerSeason
     eligible: Optional[bool]
+    status: str = STATUS_UNKNOWN
+
+    @property
+    def selectable(self) -> bool:
+        return self.status in SELECTABLE_STATUSES
 
     def as_dict(self) -> dict:
         # as_SEARCH_dict, deliberately -- no prime_score. See the class
         # docstring; the API's own tests assert no score reaches this shape.
         payload = self.player_season.as_search_dict()
         payload["eligible"] = self.eligible
+        payload["status"] = self.status
+        payload["selectable"] = self.selectable
         return payload
 
 
@@ -113,16 +156,22 @@ def search_player_seasons(
     col: int | None = None,
     limit: int = DEFAULT_LIMIT,
     pool: GridPool | None = None,
+    used_player_slugs: Iterable[str] = (),
 ) -> list[SearchHit]:
-    """Candidate player-seasons for `query`, best first.
+    """Candidate player-seasons for `query`, most playable first.
 
-    When (board, row, col) are supplied AND the query names a specific player
-    (see MAX_IDENTITIES_FOR_ELIGIBILITY), hits valid for that cell sort ahead
-    of invalid ones and carry `eligible`. For a broad query, results are ranked
-    by name match alone and every hit carries `eligible=None`.
+    When (board, row, col) are supplied, hits the player can actually use sort
+    ahead of ones they cannot, and each carries a `status`. Eligibility is
+    withheld (status `unknown`) when a response would name more than
+    MAX_REVEALED_ELIGIBLE_IDENTITIES distinct qualifying players.
+
+    `used_player_slugs` is the client's own board state, so `used` is reported
+    for every query -- including one too broad to earn an eligibility verdict.
+    It tells the client nothing it did not already know.
     """
     grid_pool = pool if pool is not None else load_pool()
     limit = max(1, min(int(limit), MAX_LIMIT))
+    used = set(used_player_slugs)
 
     normalized = _normalize(query)
     if len(normalized.replace(" ", "")) < MIN_QUERY_LENGTH:
@@ -156,41 +205,62 @@ def search_player_seasons(
 
         matched.append((name_rank, player_season))
 
-    # Does this query narrow to a specific player? Counted over DISTINCT
-    # IDENTITIES rather than seasons, since one player naturally has many
-    # seasons and that is exactly the case eligibility is meant to help with.
-    identities = {player_season.player_slug for _, player_season in matched}
+    # How much of this square's answer set would a verdict give away? Measured
+    # in distinct QUALIFYING players, which is the unit an answer really has
+    # (the distinct-identity rule means a player's other seasons are worth
+    # nothing once one of them is placed). Computed over the whole matched set,
+    # not the truncated page, so raising `limit` cannot buy a bigger reveal.
+    cell_scoped = board is not None and row is not None and col is not None
+    answer_ids: set[str] = set(board.cell(row, col).answer_ids) if cell_scoped else set()
+    revealed_identities = {
+        player_season.player_slug
+        for _, player_season in matched
+        if player_season.id in answer_ids
+    }
     reveal_eligibility = (
-        board is not None
-        and row is not None
-        and col is not None
-        and 0 < len(identities) <= MAX_IDENTITIES_FOR_ELIGIBILITY
+        cell_scoped and len(revealed_identities) <= MAX_REVEALED_ELIGIBLE_IDENTITIES
     )
 
-    eligible_ids: set[str] = (
-        set(board.cell(row, col).answer_ids) if reveal_eligibility else set()
-    )
-
-    # Pass 2 -- rank.
+    # Pass 2 -- classify and rank.
     scored: list[tuple[tuple, SearchHit]] = []
     for name_rank, player_season in matched:
         eligible: Optional[bool] = (
-            (player_season.id in eligible_ids) if reveal_eligibility else None
+            (player_season.id in answer_ids) if reveal_eligibility else None
         )
-        # Phase 11B: ordered CHRONOLOGICALLY within a name-match group, never
-        # by score. Ranking a player's seasons best-first would leak the
-        # optimisation target just as surely as printing the number -- the
-        # player would simply click the top row every time. Career order is
-        # neutral, and it is also how someone thinks about a career they are
-        # trying to recall ("his third year, the one they won it").
+        if player_season.player_slug in used:
+            # Wins over eligibility on purpose: an identity already on the
+            # board cannot be played here whether or not the season qualifies,
+            # and "already used" is the reason the player needs to see. It is
+            # also derived from their own board state, so it stays truthful on
+            # a query whose eligibility was withheld.
+            status = STATUS_USED
+        elif eligible is True:
+            status = STATUS_AVAILABLE
+        elif eligible is False:
+            status = STATUS_NO_FIT
+        else:
+            status = STATUS_UNKNOWN
+
+        # Within a status, ordered by name-match quality and then
+        # CHRONOLOGICALLY -- never by score. Ranking a player's seasons
+        # best-first would leak the optimisation target just as surely as
+        # printing the number: the player would simply click the top row every
+        # time. Career order is neutral, and it is also how someone thinks
+        # about a career they are trying to recall ("his third year, the one
+        # they won it").
         sort_key = (
-            0 if eligible else 1,
+            _STATUS_RANK[status],
             name_rank,
             player_season.player_name,
             player_season.season,
         )
         scored.append(
-            (sort_key, SearchHit(player_season=player_season, eligible=eligible))
+            (
+                sort_key,
+                SearchHit(
+                    player_season=player_season, eligible=eligible, status=status
+                ),
+            )
         )
 
     scored.sort(key=lambda item: item[0])

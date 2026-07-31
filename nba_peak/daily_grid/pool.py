@@ -14,9 +14,12 @@ docs/implementation/CI_DATA_CONTRACT.md):
       components) plus the real award/postseason context columns the model
       already consumes: mvp_rank, dpoy_rank, all_nba_team, all_defense_team,
       all_star, championship, finals_mvp, finals_appearance, playoff_round.
-      Nothing in this module derives, imputes, or back-fills any of them --
-      a season either has the field in this table or it is not eligible for
-      the constraint that needs it.
+      Phase 11C also reads the season-shape and league-leader columns already
+      present on the same table: mpg, g, made_playoffs, and the five
+      *_title flags (scoring/rebound/assist/blocks/steals). Nothing in this
+      module derives, imputes, or back-fills any of them -- a season either
+      has the field in this table or it is not eligible for the constraint
+      that needs it.
 
   cache/processed/regular_1980_2026.parquet
       Per-team-season roster rows; read ONLY for `pos`, the position the
@@ -67,7 +70,18 @@ MANIFEST_PATH = (
     / "candidate_identity_manifest.v1.json"
 )
 
-POOL_VERSION = "daily_grid_pool.v1"
+POOL_VERSION = "daily_grid_pool.v2"
+
+# The league-leader flags on the scored table, in the order their labels are
+# read out in a rejection sentence. Each is a real 0/1 column: the player led
+# the league in that category that season.
+STAT_TITLE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("scoring_title", "scoring"),
+    ("rebound_title", "rebounding"),
+    ("assist_title", "assists"),
+    ("blocks_title", "blocks"),
+    ("steals_title", "steals"),
+)
 
 # See module docstring -- season aggregates for a traded player, never a real
 # single-team-season.
@@ -173,7 +187,18 @@ class PlayerSeason:
     finals_mvp: bool
     finals_appearance: bool
     conf_finals: bool
+    made_playoffs: bool
     playoff_round: str
+    # Real season-shape facts, straight from the scored table. Used by the
+    # Phase 11C season-context constraints and by the rejection sentences that
+    # explain them ("logged 24.1 MPG, not 30+"). None where the table has no
+    # value -- never back-filled, and every context predicate rejects a season
+    # whose value is missing rather than guessing one.
+    minutes_per_game: Optional[float]
+    games_played: Optional[int]
+    # Categories this season led the league in, e.g. ("scoring",). Empty tuple
+    # for the overwhelming majority of seasons.
+    stat_titles: tuple[str, ...]
 
     @property
     def label(self) -> str:
@@ -268,6 +293,14 @@ def _optional_int(value) -> Optional[int]:
     return int(value)
 
 
+def _optional_float(value) -> Optional[float]:
+    """NaN -> None, else float. Same contract as _optional_int: a missing
+    minutes/games value is a hole in the source table, not a zero."""
+    if value is None or pd.isna(value):
+        return None
+    return float(value)
+
+
 def build_pool(
     scored_path: Path | None = None,
     regular_path: Path | None = None,
@@ -337,7 +370,15 @@ def build_pool(
             finals_mvp=bool(row.finals_mvp == 1),
             finals_appearance=bool(row.finals_appearance == 1),
             conf_finals=bool(row.conf_finals == 1),
+            made_playoffs=bool(row.made_playoffs),
             playoff_round=str(row.playoff_round),
+            minutes_per_game=_optional_float(row.mpg),
+            games_played=_optional_int(row.g),
+            stat_titles=tuple(
+                name
+                for column, name in STAT_TITLE_COLUMNS
+                if int(getattr(row, column)) == 1
+            ),
         )
         for row in scored.itertuples(index=False)
     ]
@@ -366,7 +407,11 @@ def build_pool(
             "finals_mvp",
             "finals_appearance",
             "conf_finals",
+            "made_playoffs",
             "playoff_round",
+            "mpg",
+            "g",
+            *[column for column, _ in STAT_TITLE_COLUMNS],
         ]
     ].reset_index(drop=True)
 

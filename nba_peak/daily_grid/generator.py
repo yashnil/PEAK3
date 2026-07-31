@@ -36,10 +36,24 @@ submit time (validation.py).
 BOARD QUALITY
 Feasibility alone produces dull boards -- all-team boards, or all-formula
 boards, or "80+ PEAK x 60+ PEAK" where one condition implies the other. The
-composition rules below are what make a board read like a basketball puzzle:
-a mix of recognizable categories (teams, awards, eras) and PEAK3-native ones
-(score thresholds, component deciles), with nested/mutually-exclusive pairs
-kept off opposite axes.
+composition rules below are what make a board read like a basketball puzzle,
+with nested/mutually-exclusive pairs kept off opposite axes.
+
+PHASE 11C: THE AXES ARE BASKETBALL, THE SCORING IS PEAK3
+11B required TWO PEAK3-native axes on every board, which turned out to be the
+mode's central design mistake. The objective is to maximise total PEAK3 score;
+putting "60+ PEAK" or "Top 10% Statistical Impact" on an AXIS therefore asks
+the player to do, as an eligibility test, the same thing the scoring already
+rewards. Those squares collapse to "name the biggest all-time player who
+clears the bar" -- self-referential, and always answered by the same handful
+of legends.
+
+So the standard board is now built entirely from basketball facts: franchises,
+awards and league-leader titles, decades, positions, playoff outcomes, and
+season context (minutes, games). PEAK3 stays hidden until a pick locks, where
+it decides how much the pick was WORTH. A single PEAK3-native axis survives as
+a deterministic spice on roughly one date in _SPICE_MODULUS -- never two, and
+never on a majority of boards. See _native_allowance().
 """
 from __future__ import annotations
 
@@ -55,7 +69,10 @@ import numpy as np
 from nba_peak.daily_grid.constraints import Constraint, all_constraints
 from nba_peak.daily_grid.pool import GridPool, load_pool
 
-DAILY_GRID_VERSION = "daily_grid.v1"
+# v2: Phase 11C. The composition rules changed enough that every date's board
+# changes, so the version salt moves with them -- a v1 board_id must never
+# resolve to a v2 board (it is also the client's progress key).
+DAILY_GRID_VERSION = "daily_grid.v2"
 
 # Namespace prefix -- never share a raw date salt with another game's daily
 # seed (same discipline as nba_peak/perfect_season/daily.py).
@@ -76,36 +93,38 @@ MIN_ANSWERS_PER_CELL = 6
 MIN_PLAYERS_PER_CELL = 4
 
 # Composition rules -- see "BOARD QUALITY" above.
-# Phase 11B composition rules. The Phase 11A set produced technically-fine
-# boards that played flat -- "Center x Nuggets", "All-Star x Heat" -- because
-# nothing stopped a board being three franchises crossed with three broad
-# roles. That is a database lookup, not a puzzle. These rules push every board
-# towards a real decision.
 MIN_TEAM_CONSTRAINTS = 1
-# Capped at 2 (was 3): a third franchise crowds out the categories that make a
-# board interesting, and franchise-heavy boards are where the "just look it
-# up" feeling came from.
+# Capped at 2: a third franchise crowds out the categories that make a board
+# interesting, and franchise-heavy boards are where the "just look it up"
+# feeling came from.
 MAX_TEAM_CONSTRAINTS = 2
-MIN_PEAK3_NATIVE = 1          # at least one PEAK3-native (peak/component) axis
-# Two PEAK3-native axes is the target, not the ceiling -- see
-# _PREFER_TWO_NATIVE_UNTIL_ATTEMPT for how the preference is applied without
-# making some dates unsolvable.
-PREFERRED_PEAK3_NATIVE = 2
-MAX_PEAK3_NATIVE = 3
-MIN_CATEGORIES = 4            # distinct categories among the six axes
-MAX_PER_CATEGORY = 2          # was 3 -- no category may own a whole axis
 
-# Every board needs at least one constraint a fan can anchor on that is not a
-# franchise or a position: an award, a playoff outcome, or an era.
-MIN_ANCHOR_CONSTRAINTS = 1
+# Phase 11C: a board may carry AT MOST ONE PEAK3 score/component axis, and on
+# most dates carries none. This is the hard ceiling; _native_allowance() is
+# what decides whether a given date gets its one.
+MAX_PEAK3_NATIVE = 1
+
+MIN_CATEGORIES = 4            # distinct categories among the six axes
+MAX_PER_CATEGORY = 2          # no category may own a whole axis
+
+# Season context (minutes, games played) is a real basketball fact and a good
+# second condition, but two context axes crossed with each other is an
+# availability quiz rather than a puzzle.
+MAX_CONTEXT_CONSTRAINTS = 1
+
+# Every board needs at least two constraints a fan can anchor on that are not
+# a franchise, a position or a workload line: awards, playoff outcomes, eras.
+# Raised from 1 in 11C -- with the PEAK3-native axes gone there is room for
+# them, and they are what makes "Lakers x MVP" rather than "Lakers x Center".
+MIN_ANCHOR_CONSTRAINTS = 2
 
 # Categories that a casual fan recognizes without knowing PEAK3 at all.
-_RECOGNIZABLE = frozenset({"team", "award", "era", "position", "outcome"})
+_RECOGNIZABLE = frozenset({"team", "award", "era", "position", "outcome", "context"})
 _PEAK3_NATIVE = frozenset({"peak", "component"})
 # "Interesting on their own" -- the categories that carry basketball meaning
-# beyond roster membership and listed height.
+# beyond roster membership, listed height and minutes played.
 _ANCHOR = frozenset({"award", "outcome", "era"})
-# The two categories that, alone, make a board feel like a lookup table.
+# The categories that, alone, make a board feel like a lookup table.
 _LOOKUP_FLAVOURED = frozenset({"team", "position"})
 
 # A square is only a real decision if several different players are plausibly
@@ -119,17 +138,32 @@ _STRONG_OPTION_RATIO = 0.70
 # and the "no repeated player" rule turns into a chore rather than a choice.
 MAX_SQUARES_ONE_PLAYER_TOPS = 3
 
-# Attempts spent insisting on PREFERRED_PEAK3_NATIVE before settling for
-# MIN_PEAK3_NATIVE. Deterministic (it is a function of the attempt counter, not
-# of wall-clock), so the preference never costs a date its board.
-_PREFER_TWO_NATIVE_UNTIL_ATTEMPT = 2000
+# How often a date is allowed its one PEAK3-native axis. One date in five, so
+# the formula still appears on an axis occasionally (it is part of what this
+# product is) without being the shape of the game. Chosen off the SEED rather
+# than the calendar so it cannot line up with a weekday and become predictable.
+_SPICE_MODULUS = 5
 
-# Attempts before giving up on a date. The Phase 11B composition rules are
-# much tighter than 11A's -- the worst date in a 365-day sample now needs
-# ~1,900 attempts (it was ~420) -- so the ceiling is raised to keep real
-# headroom above the _PREFER_TWO_NATIVE_UNTIL_ATTEMPT relaxation point rather
-# than sitting just above the observed worst case.
-_MAX_ATTEMPTS = 6000
+# On a spice date, attempts spent insisting the board actually uses its
+# allowance before accepting a plain zero-native board. Deterministic (a
+# function of the attempt counter, not the clock), so the preference can never
+# cost a date its board.
+_PREFER_SPICE_UNTIL_ATTEMPT = 2500
+
+# Attempts before giving up on a date. Sized to leave real headroom above
+# _PREFER_SPICE_UNTIL_ATTEMPT rather than sitting just above the observed
+# worst case (~2,700 attempts over a 365-day sample of v2 boards).
+_MAX_ATTEMPTS = 8000
+
+
+def _native_allowance(seed: int) -> int:
+    """How many PEAK3 score/component axes this date's board may carry: 1 on a
+    spice date, 0 otherwise. Never more than MAX_PEAK3_NATIVE.
+
+    Pure function of the seed, so it is as deterministic as the rest of
+    generation -- the same date gets the same allowance forever.
+    """
+    return MAX_PEAK3_NATIVE if seed % _SPICE_MODULUS == 0 else 0
 
 
 class InvalidGridDate(ValueError):
@@ -228,6 +262,7 @@ class GridBoard:
     cols: tuple[Constraint, ...]
     cells: tuple[GridCell, ...]
     difficulty: str
+    theme: str
     attempts: int
 
     def cell(self, row: int, col: int) -> GridCell:
@@ -254,6 +289,9 @@ class GridBoard:
             "date": self.date,
             "version": self.version,
             "difficulty": self.difficulty,
+            # Safe to expose: derived from the axis labels the client already
+            # has, so it carries no answer information the board did not.
+            "theme": self.theme,
             "rows": [c.as_dict() for c in self.rows],
             "cols": [c.as_dict() for c in self.cols],
             "cells": [
@@ -298,11 +336,56 @@ def rarity_bucket(answer_count: int) -> str:
 # so the three labels split roughly evenly across the year rather than
 # collapsing into one bucket -- "hard" has to be rare enough to mean something
 # and common enough to ever appear.
-# Re-measured for the Phase 11B composition rules (P33 = 53, P66 = 91 over a
-# 365-day sample); the tighter rules shifted the distribution, and stale
-# thresholds would have quietly relabelled two thirds of the year "easy".
-_DIFFICULTY_HARD_BELOW = 53
-_DIFFICULTY_MEDIUM_BELOW = 91
+# Re-measured for the Phase 11C composition rules (P33 = 67, P66 = 122 over a
+# 365-day sample). Dropping the PEAK3-native axes -- which were the tightest
+# constraints in the taxonomy -- widened every cell, and stale thresholds would
+# have quietly relabelled almost the whole year "easy".
+_DIFFICULTY_HARD_BELOW = 67
+_DIFFICULTY_MEDIUM_BELOW = 122
+
+
+# ---------------------------------------------------------------------------
+# Board theme
+# ---------------------------------------------------------------------------
+
+# Constraint ids whose subject is defence. Named explicitly rather than
+# pattern-matched on the label, so renaming a label cannot silently change a
+# board's theme.
+_DEFENSIVE_CONSTRAINT_IDS = frozenset(
+    {"award_dpoy", "award_dpoy_votes", "award_all_defense", "award_all_defense_first"}
+)
+_MODERN_ERA_IDS = frozenset({"era_2010s", "era_2020s"})
+_THROWBACK_ERA_IDS = frozenset({"era_1980s", "era_1990s"})
+
+
+def board_theme(rows: Sequence[Constraint], cols: Sequence[Constraint]) -> str:
+    """A short name for what this board is ABOUT.
+
+    Read off the axes the board actually has -- it is a description, never a
+    generation input, so it cannot drift from the board it labels and cannot
+    influence which board a date gets. Rules are checked in order and the first
+    match wins, which keeps it a pure function of the axis set: two boards with
+    the same axes always get the same theme.
+    """
+    axes = list(rows) + list(cols)
+    ids = {c.id for c in axes}
+    categories = [c.category for c in axes]
+
+    if categories.count("outcome") >= 2:
+        return "Ring Chasers"
+    if categories.count("award") >= 2:
+        return "Award Season"
+    if ids & _DEFENSIVE_CONSTRAINT_IDS:
+        return "Two-Way Night"
+    if categories.count("team") >= 2:
+        return "Franchise Icons"
+    if categories.count("outcome") >= 1:
+        return "Playoff Pressure"
+    if ids & _MODERN_ERA_IDS:
+        return "Modern Era"
+    if ids & _THROWBACK_ERA_IDS:
+        return "Throwback Night"
+    return "Open Court"
 
 
 def _difficulty_label(cells: Sequence[GridCell]) -> str:
@@ -325,15 +408,21 @@ def _difficulty_label(cells: Sequence[GridCell]) -> str:
 # ---------------------------------------------------------------------------
 
 def _composition_ok(
-    rows: Sequence[Constraint], cols: Sequence[Constraint], attempt: int = 1
+    rows: Sequence[Constraint],
+    cols: Sequence[Constraint],
+    attempt: int = 1,
+    native_allowance: int = 0,
 ) -> bool:
     """Cheap structural rejects, run before any answer-set work.
 
-    `attempt` drives one soft preference: for the first
-    _PREFER_TWO_NATIVE_UNTIL_ATTEMPT attempts a board must carry two PEAK3-
-    native axes, after which one is accepted. Expressed as a function of the
-    attempt counter rather than a separate pass so the whole generator stays a
-    pure function of the seed.
+    `native_allowance` is this date's ceiling on PEAK3 score/component axes --
+    0 on an ordinary date, 1 on a spice date (see _native_allowance).
+
+    `attempt` drives one soft preference: on a spice date the first
+    _PREFER_SPICE_UNTIL_ATTEMPT attempts must actually USE the allowance,
+    after which a zero-native board is accepted too. Expressed as a function of
+    the attempt counter rather than a separate pass so the whole generator
+    stays a pure function of the seed.
     """
     axes = list(rows) + list(cols)
 
@@ -358,15 +447,21 @@ def _composition_ok(
     if not (MIN_TEAM_CONSTRAINTS <= team_count <= MAX_TEAM_CONSTRAINTS):
         return False
 
-    native_count = sum(1 for cat in categories if cat in _PEAK3_NATIVE)
-    if not (MIN_PEAK3_NATIVE <= native_count <= MAX_PEAK3_NATIVE):
-        return False
-    if attempt <= _PREFER_TWO_NATIVE_UNTIL_ATTEMPT and native_count < PREFERRED_PEAK3_NATIVE:
+    if categories.count("context") > MAX_CONTEXT_CONSTRAINTS:
         return False
 
-    # At least one award / playoff outcome / era. Without this a board can be
-    # all franchises, positions and thresholds -- every square answerable by
-    # scanning a roster, none of them by knowing basketball.
+    # Phase 11C: the score/component axes are capped by the date's allowance,
+    # which is 0 on four dates in five. See the module docstring for why an
+    # axis that restates the scoring objective makes a worse puzzle.
+    native_count = sum(1 for cat in categories if cat in _PEAK3_NATIVE)
+    if native_count > min(native_allowance, MAX_PEAK3_NATIVE):
+        return False
+    if native_allowance and attempt <= _PREFER_SPICE_UNTIL_ATTEMPT and native_count == 0:
+        return False
+
+    # At least two awards / playoff outcomes / eras. Without this a board can
+    # be all franchises, positions and minutes lines -- every square answerable
+    # by scanning a roster, none of them by knowing basketball.
     anchor_count = sum(1 for cat in categories if cat in _ANCHOR)
     if anchor_count < MIN_ANCHOR_CONSTRAINTS:
         return False
@@ -503,6 +598,7 @@ def generate_board(
 
     seed = grid_seed(date_str, version)
     rng = random.Random(seed)
+    native_allowance = _native_allowance(seed)
 
     # Masks are computed once per constraint and reused across every attempt;
     # recomputing them per attempt is what would make generation slow.
@@ -514,7 +610,7 @@ def generate_board(
         picked = rng.sample(taxonomy, 2 * GRID_SIZE)
         rows, cols = picked[:GRID_SIZE], picked[GRID_SIZE:]
 
-        if not _composition_ok(rows, cols, attempt):
+        if not _composition_ok(rows, cols, attempt, native_allowance):
             continue
 
         cells = _build_cells(rows, cols, grid_pool, masks)
@@ -530,6 +626,7 @@ def generate_board(
             cols=tuple(cols),
             cells=cells,
             difficulty=_difficulty_label(cells),
+            theme=board_theme(rows, cols),
             attempts=attempt,
         )
 

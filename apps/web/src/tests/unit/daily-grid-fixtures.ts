@@ -16,6 +16,7 @@ import {
   FilledCell,
   GridResultResponse,
   PlayerSeasonCard,
+  PlayerSeasonSearchHit,
   RarityBucket,
   ResultCell,
 } from "@/types/daily-grid";
@@ -25,6 +26,9 @@ export const BOARD: DailyGridBoard = {
   date: "2026-07-30",
   version: "1.0.0",
   difficulty: "medium",
+  // Matches what generator.board_theme() returns for these axes (a DPOY axis
+  // present, one outcome axis, one award axis).
+  theme: "Two-Way Night",
   rows: [
     {
       id: "team-bos",
@@ -63,24 +67,27 @@ export const BOARD: DailyGridBoard = {
       category: "position",
       description: "Listed at center for that season.",
     },
+    // Phase 11C: a season-context axis rather than a PEAK3 threshold. The
+    // standard board is built from basketball facts, so the fixture the
+    // component tests render should be one too.
     {
-      id: "peak-85",
-      label: "85+ PEAK Season",
-      short_label: "85+ PEAK",
-      category: "peak",
-      description: "The season's calibrated PEAK3 score is 85 or higher.",
+      id: "context-mpg-36",
+      label: "36+ Minutes Per Game",
+      short_label: "36+ MPG",
+      category: "context",
+      description: "Played 36+ minutes per game that season.",
     },
   ],
   cells: [
     { row: 0, col: 0, row_constraint_id: "team-bos", col_constraint_id: "era-1990s", rarity_bucket: "common" },
     { row: 0, col: 1, row_constraint_id: "team-bos", col_constraint_id: "pos-center", rarity_bucket: "uncommon" },
-    { row: 0, col: 2, row_constraint_id: "team-bos", col_constraint_id: "peak-85", rarity_bucket: "rare" },
+    { row: 0, col: 2, row_constraint_id: "team-bos", col_constraint_id: "context-mpg-36", rarity_bucket: "rare" },
     { row: 1, col: 0, row_constraint_id: "award-dpoy", col_constraint_id: "era-1990s", rarity_bucket: "uncommon" },
     { row: 1, col: 1, row_constraint_id: "award-dpoy", col_constraint_id: "pos-center", rarity_bucket: "rare" },
-    { row: 1, col: 2, row_constraint_id: "award-dpoy", col_constraint_id: "peak-85", rarity_bucket: "very_rare" },
+    { row: 1, col: 2, row_constraint_id: "award-dpoy", col_constraint_id: "context-mpg-36", rarity_bucket: "very_rare" },
     { row: 2, col: 0, row_constraint_id: "outcome-champ", col_constraint_id: "era-1990s", rarity_bucket: "very_common" },
     { row: 2, col: 1, row_constraint_id: "outcome-champ", col_constraint_id: "pos-center", rarity_bucket: "common" },
-    { row: 2, col: 2, row_constraint_id: "outcome-champ", col_constraint_id: "peak-85", rarity_bucket: "rare" },
+    { row: 2, col: 2, row_constraint_id: "outcome-champ", col_constraint_id: "context-mpg-36", rarity_bucket: "rare" },
   ],
   rules: { unique_player_identity: true, grid_size: 3 },
 };
@@ -271,7 +278,30 @@ export function completedProgress(): DailyGridProgress {
     schema_version: DAILY_GRID_PROGRESS_SCHEMA_VERSION,
     filled: NINE.map(([row, col, o, pts, rarity]) => filledCell(row, col, playerSeason(o), pts, rarity)),
     incorrect_attempts: 3,
+    // 7:04 on the clock, frozen because the board is finished.
+    started_at: "2026-07-30T11:52:56Z",
     completed_at: "2026-07-30T12:00:00Z",
+  };
+}
+
+/** One search result in the shape the API returns.
+ *
+ * `status` and `selectable` are what the UI renders and enables; they are
+ * kept consistent here by default so a test that only cares about the status
+ * cannot accidentally assert against an impossible row (a `no_fit` hit that
+ * claims to be selectable never comes back from the server). */
+export function searchHit(
+  overrides: Partial<PlayerSeasonSearchHit> = {},
+): PlayerSeasonSearchHit {
+  const { prime_score, ...identity } = playerSeason();
+  void prime_score; // search results never carry a score
+  const status = overrides.status ?? "unknown";
+  return {
+    ...identity,
+    eligible: status === "available" ? true : status === "no_fit" ? false : null,
+    status,
+    selectable: status === "available" || status === "unknown",
+    ...overrides,
   };
 }
 

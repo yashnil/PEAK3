@@ -23,6 +23,7 @@ from nba_peak.daily_grid.generator import (
     GridCell,
     InvalidGridDate,
     board_id,
+    board_theme,
     generate_board,
     get_board,
     grid_seed,
@@ -32,7 +33,16 @@ from nba_peak.daily_grid.generator import (
 )
 from nba_peak.daily_grid.pool import PlayerSeason, load_pool
 from nba_peak.daily_grid.scoring import CellScore, score_cell
-from nba_peak.daily_grid.search import SearchHit, cell_answer_stats, search_player_seasons
+from nba_peak.daily_grid.search import (
+    SELECTABLE_STATUSES,
+    STATUS_AVAILABLE,
+    STATUS_NO_FIT,
+    STATUS_UNKNOWN,
+    STATUS_USED,
+    SearchHit,
+    cell_answer_stats,
+    search_player_seasons,
+)
 from nba_peak.daily_grid.validation import ValidationResult, validate_answer
 
 __all__ = [
@@ -44,10 +54,16 @@ __all__ = [
     "GridCell",
     "InvalidGridDate",
     "PlayerSeason",
+    "SELECTABLE_STATUSES",
+    "STATUS_AVAILABLE",
+    "STATUS_NO_FIT",
+    "STATUS_UNKNOWN",
+    "STATUS_USED",
     "SearchHit",
     "ValidationResult",
     "all_constraints",
     "board_id",
+    "board_theme",
     "cell_answer_stats",
     "constraint_by_id",
     "generate_board",

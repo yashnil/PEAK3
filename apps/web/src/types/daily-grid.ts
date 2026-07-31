@@ -22,6 +22,8 @@ export type ConstraintCategory =
   | "award"
   | "era"
   | "position"
+  /** Season shape: minutes per game, games played. */
+  | "context"
   | "peak"
   | "component"
   | "outcome";
@@ -68,6 +70,10 @@ export interface DailyGridBoard {
   date: string;
   version: string;
   difficulty: GridDifficulty;
+  /** What the board is about, e.g. "Ring Chasers". Derived server-side from
+   *  the axes the client already has, so it carries no answer information. An
+   *  open string, not a union — nothing switches on it. */
+  theme: string;
   rows: GridConstraint[];
   cols: GridConstraint[];
   cells: GridCellSpec[];
@@ -107,27 +113,36 @@ export interface PlayerSeasonCard extends PlayerSeasonIdentity {
   prime_score: number;
 }
 
-/** A search result: a player-season plus, when the server chose to say,
- *  whether it fits the selected cell.
+/** What the player can do with one search result.
  *
- *  `eligible` is null unless BOTH of these hold:
- *    - the search was scoped to a cell (row + col supplied), AND
- *    - the query narrowed to a specific player (few distinct identities).
+ *  - `available` — fits this square and the identity is unused: playable.
+ *  - `used` — this player is already somewhere on the board, so the
+ *    distinct-identity rule rules out every one of their seasons.
+ *  - `no_fit` — does not satisfy this square's two constraints.
+ *  - `unknown` — the server withheld a verdict for this query (see below).
+ *    Still playable: the player is choosing to find out. */
+export type SearchHitStatus = "available" | "used" | "no_fit" | "unknown";
+
+/** A search result: a player-season plus what can be done with it here.
  *
- *  That second condition is the game's skill split. "Who played for the
- *  Nuggets and was top-10% in Traditional Production?" is the actual puzzle
- *  and the search box must not answer it -- so a broad substring ("an", "er")
- *  comes back entirely unflagged, and cannot be used to harvest a cell's
- *  answer set. "Which of Alex English's seasons is the one?" is pure friction
- *  -- there is no attempt limit, so withholding it would only make the player
- *  submit the same name repeatedly -- so once they have named a player, the
- *  server marks which of that player's seasons qualify.
+ *  `eligible` is null unless the search was scoped to a cell AND the response
+ *  would name at most a few distinct QUALIFYING players. That cap is the
+ *  game's skill split: "who played for the Nuggets and led the league in
+ *  rebounding?" is the actual puzzle and the search box must not answer it, so
+ *  a query whose hits approach a square's answer set comes back entirely
+ *  `unknown` and cannot be used to harvest the key. A query naming one player
+ *  — "which of Alex English's seasons is the one?" — is pure friction, since
+ *  there is no attempt limit, so it always earns a verdict.
  *
- *  Ineligible results are still returned for a narrow query: hiding them
- *  would leak the answer set by omission. Render `eligible` when it is
- *  non-null; do not re-sort or filter on it. */
+ *  Unusable results are still returned: hiding them would leak the answer set
+ *  by omission. Render `status`, disable the row when `selectable` is false,
+ *  and do not re-sort or filter — the server's order is authoritative. */
 export interface PlayerSeasonSearchHit extends PlayerSeasonIdentity {
   eligible: boolean | null;
+  status: SearchHitStatus;
+  /** False for `used` and `no_fit`. The single boolean a button needs, so the
+   *  client never re-derives the rule from `status` + used-slug bookkeeping. */
+  selectable: boolean;
 }
 
 /** GET /api/v1/daily-grid/search */
@@ -259,13 +274,19 @@ export interface DailyGridProgress {
   filled: FilledCell[];
   /** Wrong submissions, for the completion recap. */
   incorrect_attempts: number;
+  /** ISO timestamp of the player's FIRST move on this board, not of the page
+   *  load. Null until they make one. Persisted so the clock survives a
+   *  refresh — elapsed time is always (completed_at ?? now) − started_at,
+   *  never an interval accumulated in memory. */
+  started_at: string | null;
   completed_at: string | null;
 }
 
-/** Bumped to 2 in Phase 11B: `FilledCell.player_season` lost `prime_score`,
- *  so a v1 save carries a field the current shape does not define. Stale saves
- *  are discarded rather than migrated — a board is one day old at most. */
-export const DAILY_GRID_PROGRESS_SCHEMA_VERSION = 2;
+/** Bumped to 3 in Phase 11C: `started_at` was added, and a v2 save has no
+ *  start time, so its elapsed time would be unknowable. Stale saves are
+ *  discarded rather than migrated — a board is one day old at most, and the
+ *  board_id itself changed with the generator version anyway. */
+export const DAILY_GRID_PROGRESS_SCHEMA_VERSION = 3;
 
 /** localStorage key for one board's progress. */
 export function dailyGridProgressKey(boardId: string): string {

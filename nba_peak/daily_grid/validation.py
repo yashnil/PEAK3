@@ -91,6 +91,22 @@ def _constraint_failure_reason(
         return f"PEAK3 rates {label} below the {constraint.label} line."
     if constraint.category == "outcome":
         return f"{label}: that team finished at {player_season.playoff_round.lower()}."
+    if constraint.category == "context":
+        # Names the season's real number where the table has one, because that
+        # is a plain basketball fact and not the score the mode withholds.
+        if constraint.id.startswith("context_mpg"):
+            if player_season.minutes_per_game is None:
+                return f"{label} has no recorded minutes per game."
+            return (
+                f"{label} averaged {player_season.minutes_per_game:.1f} minutes "
+                f"per game, below the {constraint.short_label} line."
+            )
+        if player_season.games_played is None:
+            return f"{label} has no recorded games played."
+        return (
+            f"{label} appeared in {player_season.games_played} games, below the "
+            f"{constraint.short_label} line."
+        )
     return f"{label} does not satisfy {constraint.label}."
 
 

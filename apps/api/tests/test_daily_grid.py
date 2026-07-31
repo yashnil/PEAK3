@@ -25,7 +25,12 @@ if str(_repo_root) not in sys.path:
 
 from nba_peak.daily_grid.generator import GRID_SIZE, get_board, today_utc_date
 from nba_peak.daily_grid.pool import load_pool
-from nba_peak.daily_grid.search import MAX_LIMIT, MIN_QUERY_LENGTH, unused_answer_for_cell
+from nba_peak.daily_grid.search import (
+    MAX_LIMIT,
+    MAX_REVEALED_ELIGIBLE_IDENTITIES,
+    MIN_QUERY_LENGTH,
+    unused_answer_for_cell,
+)
 
 BOARD_URL = "/api/v1/daily-grid/board"
 SEARCH_URL = "/api/v1/daily-grid/search"
@@ -55,6 +60,10 @@ IDENTITY_KEYS = {
     "position",
     "label",
 }
+# Phase 11C: what a SEARCH hit adds on top of identity. `status` is the display
+# verdict (available / used / no_fit / unknown) and `selectable` restates it as
+# the boolean the UI's button needs. Neither is a score.
+SEARCH_VERDICT_KEYS = {"eligible", "status", "selectable"}
 # The revealed shape, valid only in the post-completion result comparison.
 CARD_KEYS = IDENTITY_KEYS | {"prime_score"}
 CELL_SCORE_KEYS = {
@@ -116,7 +125,7 @@ def test_board_returns_three_by_three_grid(client: TestClient):
     assert len(body["cols"]) == GRID_SIZE
     assert len(body["cells"]) == GRID_SIZE * GRID_SIZE
     assert body["date"] == FIXED_DATE
-    assert body["board_id"] == f"daily-grid-v1-{FIXED_DATE}"
+    assert body["board_id"] == f"daily-grid-v2-{FIXED_DATE}"
     assert body["difficulty"] in {"easy", "medium", "hard"}
     assert body["rules"] == {"unique_player_identity": True, "grid_size": GRID_SIZE}
 
@@ -210,6 +219,7 @@ def test_board_top_level_keys_are_exactly_the_contract(client: TestClient):
         "date",
         "version",
         "difficulty",
+        "theme",
         "rows",
         "cols",
         "cells",
@@ -228,7 +238,7 @@ def test_search_returns_candidate_seasons(client: TestClient):
     assert body["query"] == "jordan"
     assert len(body["results"]) > 0
     for hit in body["results"]:
-        assert set(hit) == IDENTITY_KEYS | {"eligible"}
+        assert set(hit) == IDENTITY_KEYS | SEARCH_VERDICT_KEYS
         assert "jordan" in hit["player_name"].lower()
     # Unscoped search cannot say anything about eligibility.
     assert all(hit["eligible"] is None for hit in body["results"])
@@ -237,10 +247,10 @@ def test_search_returns_candidate_seasons(client: TestClient):
 def test_search_scoped_to_a_cell_ranks_eligible_hits_first(client: TestClient):
     """A query that NAMES a player gets season-level help.
 
-    Uses the player's full name, not their surname: a surname can match more
-    than MAX_IDENTITIES_FOR_ELIGIBILITY distinct players ("James", "Jordan",
-    "Johnson"), which the search deliberately treats as a broad query and
-    answers with no eligibility at all -- see the broad-query test below.
+    Uses the player's full name, not their surname: a surname can match enough
+    distinct QUALIFYING players ("James", "Johnson") to trip the eligibility
+    cap, which the search answers with no verdict at all -- see
+    test_search_never_names_too_many_qualifying_players below.
     """
     answer = _known_good_answer(FIXED_DATE, 0, 0)
 
@@ -265,15 +275,16 @@ def test_search_scoped_to_a_cell_ranks_eligible_hits_first(client: TestClient):
 
 
 @pytest.mark.parametrize("broad_query", ["an", "er", "on", "ar"])
-def test_search_broad_query_reveals_no_eligibility(
+def test_search_never_names_too_many_qualifying_players(
     client: TestClient, broad_query: str
 ):
-    """The bulk answer-key harvest the eligibility gate exists to stop.
+    """The bulk answer-key harvest the eligibility cap exists to stop.
 
-    A meaningless substring matches hundreds of players; if eligibility
-    ranking applied, a large share of a cell's real answer set would sort to
-    the top of the response for a caller who knows nothing. Broad queries must
-    come back entirely unflagged.
+    A meaningless substring matches hundreds of players; if every one were
+    marked, a large share of a cell's real answer set would be handed to a
+    caller who knows nothing. Phase 11C caps the leak directly: no response may
+    name more than MAX_REVEALED_ELIGIBLE_IDENTITIES distinct qualifying
+    players, and a response that would goes entirely `unknown`.
     """
     response = client.get(
         SEARCH_URL,
@@ -288,7 +299,112 @@ def test_search_broad_query_reveals_no_eligibility(
     assert response.status_code == 200
     results = response.json()["results"]
     assert results, "a broad query should still return candidates"
-    assert all(hit["eligible"] is None for hit in results)
+
+    revealed = {hit["player_slug"] for hit in results if hit["eligible"] is True}
+    assert len(revealed) <= MAX_REVEALED_ELIGIBLE_IDENTITIES, sorted(revealed)
+    # All-or-nothing per response: a mix would let the withheld verdicts be
+    # inferred from the ones that were given.
+    assert len({hit["eligible"] is None for hit in results}) == 1
+
+
+def test_search_marks_a_used_player_and_disables_the_row(client: TestClient):
+    """The reported bug: a player already spent on the board kept coming back
+    labelled as if they were still playable."""
+    answer = _known_good_answer(FIXED_DATE, 0, 0)
+    response = client.get(
+        SEARCH_URL,
+        params={
+            "q": answer.player_name,
+            "date": FIXED_DATE,
+            "row": 0,
+            "col": 0,
+            "limit": MAX_LIMIT,
+            "used": [answer.player_slug],
+        },
+    )
+    assert response.status_code == 200
+    own = [
+        hit
+        for hit in response.json()["results"]
+        if hit["player_slug"] == answer.player_slug
+    ]
+    assert own
+    for hit in own:
+        assert hit["status"] == "used"
+        assert hit["selectable"] is False
+    assert not any(hit["status"] == "available" for hit in own)
+
+
+def test_search_without_used_still_offers_that_player(client: TestClient):
+    """Control for the test above: `used` is what changes the verdict, not the
+    query."""
+    answer = _known_good_answer(FIXED_DATE, 0, 0)
+    results = client.get(
+        SEARCH_URL,
+        params={
+            "q": answer.player_name,
+            "date": FIXED_DATE,
+            "row": 0,
+            "col": 0,
+            "limit": MAX_LIMIT,
+        },
+    ).json()["results"]
+    available = [hit for hit in results if hit["status"] == "available"]
+    assert available
+    assert all(hit["selectable"] is True for hit in available)
+
+
+def test_search_marks_an_invalid_hit_no_fit_and_disables_it(client: TestClient):
+    answer = _known_good_answer(FIXED_DATE, 0, 0)
+    results = client.get(
+        SEARCH_URL,
+        params={
+            "q": answer.player_name,
+            "date": FIXED_DATE,
+            "row": 0,
+            "col": 0,
+            "limit": MAX_LIMIT,
+        },
+    ).json()["results"]
+    misses = [hit for hit in results if hit["status"] == "no_fit"]
+    if not misses:
+        pytest.skip("this player's every season happens to fit the cell")
+    for hit in misses:
+        assert hit["eligible"] is False
+        assert hit["selectable"] is False
+
+
+def test_search_sorts_playable_hits_ahead_of_unusable_ones(client: TestClient):
+    answer = _known_good_answer(FIXED_DATE, 0, 0)
+    results = client.get(
+        SEARCH_URL,
+        params={
+            "q": answer.player_name,
+            "date": FIXED_DATE,
+            "row": 0,
+            "col": 0,
+            "limit": MAX_LIMIT,
+        },
+    ).json()["results"]
+    rank = {"available": 0, "unknown": 0, "used": 1, "no_fit": 2}
+    ranks = [rank[hit["status"]] for hit in results]
+    assert ranks == sorted(ranks), [hit["status"] for hit in results]
+
+
+def test_search_rejects_more_used_slugs_than_a_board_can_hold(client: TestClient):
+    """`used` is client-supplied, so it is bounded like every other piece of
+    client board state the routes accept."""
+    response = client.get(
+        SEARCH_URL,
+        params={
+            "q": "jordan",
+            "date": FIXED_DATE,
+            "row": 0,
+            "col": 0,
+            "used": [f"player-{i}" for i in range(GRID_SIZE * GRID_SIZE + 1)],
+        },
+    )
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize("short_query", ["", "j"])
@@ -548,6 +664,7 @@ def test_constraints_returns_the_shipped_taxonomy(client: TestClient):
         "award",
         "era",
         "position",
+        "context",
         "peak",
         "component",
         "outcome",
@@ -590,7 +707,7 @@ def test_search_response_never_carries_a_score(client: TestClient):
     assert body["results"]
     for hit in body["results"]:
         assert "prime_score" not in hit
-        assert set(hit) == IDENTITY_KEYS | {"eligible"}
+        assert set(hit) == IDENTITY_KEYS | SEARCH_VERDICT_KEYS
     assert "prime_score" not in response_text(client, SEARCH_URL, {"q": "Reggie Miller"})
 
 
@@ -670,7 +787,7 @@ def test_result_returns_the_comparison_for_a_completed_board(client: TestClient)
     assert response.status_code == 200
     body = response.json()
 
-    assert body["board_id"] == f"daily-grid-v1-{FIXED_DATE}"
+    assert body["board_id"] == f"daily-grid-v2-{FIXED_DATE}"
     assert body["user_total"] > 0
     assert body["optimal_total"] >= body["user_total"]
     assert 0 < body["percent_of_best"] <= 100.0
