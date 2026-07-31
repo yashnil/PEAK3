@@ -21,6 +21,7 @@ apps/
 docs/
   architecture/
   game-design/
+  model/               # SCORING_METHODOLOGY.md, POSTSEASON_TEAM_AUDIT.md
   implementation/     # PHASE_1_AUDIT.md, PHASE_1_REPORT.md
 ```
 

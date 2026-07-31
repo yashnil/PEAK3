@@ -1,5 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { Grid3x3, Swords } from "lucide-react";
+import GameCard from "@/components/shared/GameCard";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 
 /**
@@ -131,41 +133,49 @@ export default async function ArenaPage() {
         </div>
       )}
 
-      {/* Phase 11A: Daily Grid. Rendered unconditionally -- unlike the 82-0
-          flagship it sits behind no server flag, so it stays available (and
-          this hub stays useful) even in the fail-closed state above. */}
-      <Link
-        href="/daily"
-        data-testid="arena-daily-grid-card"
-        className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border p-6 transition-all hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-        style={{ background: "var(--bg-surface)", borderColor: "var(--border-default)" }}
-      >
-        <div>
-          <span
-            className="text-[10px] uppercase tracking-wide rounded px-2 py-0.5"
-            style={{
-              background: "var(--bg-elevated)",
-              color: "var(--text-secondary)",
-              border: "1px solid var(--border-subtle)",
-            }}
+      {/* Phase 12A: BOTH daily games, as a labelled section rather than one
+          lone card. They are rendered unconditionally -- unlike the 82-0
+          flagship they sit behind no server flag, so this hub stays useful even
+          in the fail-closed state above. They stay visually secondary to the
+          flagship hero: same GameCard component, without `featured`. */}
+      <section aria-label="Daily games" className="mb-6">
+        <div className="mb-2 flex items-baseline justify-between gap-3">
+          <h2
+            className="text-[11px] font-bold uppercase tracking-[0.18em]"
+            style={{ color: "var(--text-muted)" }}
           >
-            New board every day
-          </span>
-          <h2 className="mt-2 font-display text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-            Daily Grid Challenge
+            Daily games
           </h2>
-          <p className="mt-1 text-sm max-w-xl" style={{ color: "var(--text-secondary)" }}>
-            Fill a 3x3 board with exact NBA player-seasons. Match teams, awards, eras, roles, and
-            PEAK3 thresholds. Everyone gets the same board each day.
-          </p>
+          <Link
+            href="/daily"
+            data-testid="arena-daily-hub-link"
+            className="text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            style={{ color: "var(--peak-accent)" }}
+          >
+            Daily hub →
+          </Link>
         </div>
-        <span
-          className="inline-flex items-center justify-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-semibold shrink-0"
-          style={{ borderColor: "var(--border-default)", color: "var(--text-primary)" }}
-        >
-          Play Today&apos;s Grid
-        </span>
-      </Link>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <GameCard
+            testId="arena-daily-grid-card"
+            href="/daily/grid"
+            eyebrow="New board every day"
+            title="Daily Grid Challenge"
+            description="Fill a 3x3 board with exact NBA player-seasons — teams, awards, eras, playoff runs. Nine squares, nine different players, and everyone gets the same board."
+            icon={<Grid3x3 size={17} />}
+            cta="Play today's grid"
+          />
+          <GameCard
+            testId="arena-daily-duel-card"
+            href="/play/daily"
+            eyebrow="New questions every day"
+            title="Peak Duel Daily"
+            description="Ten head-to-head questions: pick which player's peak PEAK3 rates higher. Same ten comparisons for everyone."
+            icon={<Swords size={17} />}
+            cta="Play today's duel"
+          />
+        </div>
+      </section>
 
       {/* Legacy modes, deliberately demoted to a footnote: discoverable for
           internal use, never presented as part of the product. Not linked from

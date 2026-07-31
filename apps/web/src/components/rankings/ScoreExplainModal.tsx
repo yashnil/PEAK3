@@ -44,6 +44,7 @@ import type {
   RankingRow,
 } from "@/types";
 import ComponentBreakdown from "./ComponentBreakdown";
+import { buildComponentReceipts, buildHeldBack } from "@/lib/rankings-receipts";
 import {
   COMPONENT_ABBR,
   RANKING_COMPONENT_KEYS,
@@ -571,6 +572,14 @@ export default function ScoreExplainModal({
   const primeScore = explain?.prime_score ?? subject?.prime_score ?? null;
   const rank = explain?.rank ?? subject?.rank ?? null;
   const evidence = useMemo(() => buildEvidence(explain), [explain]);
+  // Row-specific receipts and hold-backs. Memoized on the two inputs they read
+  // so re-rendering the modal (hover, focus, comparison pivot) does not rebuild
+  // the strings.
+  const receipts = useMemo(
+    () => buildComponentReceipts(explain, components ?? {}),
+    [explain, components],
+  );
+  const heldBack = useMemo(() => buildHeldBack(explain, components ?? {}), [explain, components]);
   const why = useMemo(
     () => (subject ? buildWhy(explain, { ...subject, prime_score: primeScore }, boardLabel, populationNoun) : []),
     [explain, subject, primeScore, boardLabel, populationNoun]
@@ -758,6 +767,77 @@ export default function ScoreExplainModal({
                 )
               )}
             </Section>
+
+            {/* Receipts: what actually drove each component FOR THIS ROW.
+                Every line is built from this row's own fields and omitted when
+                the row has none, so two different player-seasons never produce
+                the same paragraph (see lib/rankings-receipts.ts). */}
+            {receipts.some((r) => r.evidence || r.note) && (
+              <Section title="Receipts" testId="score-explain-receipts">
+                <p className="mb-2 text-[11px] text-[var(--text-muted)]">
+                  The numbers behind each component for this exact row.
+                </p>
+                <div className="space-y-2">
+                  {receipts
+                    .filter((r) => r.evidence || r.note)
+                    .map((receipt) => (
+                      <div
+                        key={receipt.key}
+                        className="card-surface p-3"
+                        style={{
+                          borderLeftColor: componentColor(receipt.key),
+                          borderLeftWidth: "3px",
+                        }}
+                        data-testid={`score-explain-receipt-${receipt.key}`}
+                      >
+                        <p className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                          <span className="font-bold">{COMPONENT_ABBR[receipt.key]}</span>{" "}
+                          {componentLabel(receipt.key)}
+                          {components?.[receipt.key] !== null &&
+                            components?.[receipt.key] !== undefined && (
+                              <span className="score-number ml-1 text-[var(--text-secondary)]">
+                                {formatScore2(components[receipt.key])}
+                              </span>
+                            )}
+                        </p>
+                        {receipt.evidence && (
+                          <p className="mt-1 text-xs leading-relaxed text-[var(--text-primary)]">
+                            {receipt.evidence}
+                          </p>
+                        )}
+                        {receipt.note && (
+                          <p
+                            className="mt-1 text-[11px] leading-relaxed text-[var(--text-secondary)]"
+                            data-testid={`score-explain-receipt-note-${receipt.key}`}
+                          >
+                            {receipt.note}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              </Section>
+            )}
+
+            {/* What held this row back: concrete, not "component X was low". */}
+            {heldBack.length > 0 && (
+              <Section title="What held this row back" testId="score-explain-held-back">
+                <ul className="space-y-1.5">
+                  {heldBack.map((reason) => (
+                    <li
+                      key={reason}
+                      data-testid="score-explain-held-back-item"
+                      className="flex gap-2 text-xs leading-relaxed text-[var(--text-secondary)]"
+                    >
+                      <span aria-hidden="true" style={{ color: "var(--comp-po)" }}>
+                        &middot;
+                      </span>
+                      {reason}
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            )}
 
             {/* Per-component cards: value + percentile, all five at a glance */}
             {components && (

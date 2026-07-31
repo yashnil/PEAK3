@@ -420,7 +420,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
             streak.
           </span>
           <Link
-            href="/daily"
+            href="/daily/grid"
             data-testid="daily-grid-play-today"
             className="font-semibold underline underline-offset-2"
             style={{ color: "var(--peak-accent)" }}

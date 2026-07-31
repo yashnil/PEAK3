@@ -47,6 +47,7 @@ interface Props {
 /** Colour per square grade. Always paired with a number or a word on screen --
  *  the colour is reinforcement, never the only carrier of the fact. */
 const GRADE_COLOR: Record<CellGrade, string> = {
+  beat: "var(--comp-si)",
   best: "var(--comp-team)",
   close: "var(--peak-accent)",
   fair: "var(--comp-po)",
@@ -54,10 +55,25 @@ const GRADE_COLOR: Record<CellGrade, string> = {
 };
 
 const GRADE_WORD: Record<CellGrade, string> = {
-  best: "best available",
-  close: "close to best",
+  beat: "beat the best legal grid here",
+  best: "matched the best legal grid here",
+  close: "close to the best legal grid",
   fair: "some points left",
   weak: "well short",
+};
+
+/** The chip under each mini-cell's points.
+ *
+ *  "Max" used to appear on every square with `points_left === 0`, which
+ *  included squares the player actually WON — the best legal grid scores less
+ *  there because it traded the square away for a bigger total. Saying "no
+ *  better answer existed" in that case was simply false. */
+const GRADE_CHIP: Record<CellGrade, string> = {
+  beat: "Beat",
+  best: "Max",
+  close: "",
+  fair: "",
+  weak: "",
 };
 
 function ScoreTile({
@@ -255,15 +271,16 @@ export default function CompletionPanel({
                     style={{ color: "var(--text-muted)" }}
                     title={cellShortTitle(board, cell.row, cell.col)}
                   >
-                    {g === "best" ? "Max" : `−${cell.points_left}`}
+                    {GRADE_CHIP[g] || `−${cell.points_left}`}
                   </p>
                 </div>
               );
             })}
           </div>
-          <p className="mt-1.5 text-[10px]" style={{ color: "var(--text-muted)" }}>
-            Points scored per square. <span style={{ color: GRADE_COLOR.best }}>Max</span> means no better answer
-            existed; a red outline marks your biggest miss.
+          <p className="mt-1.5 text-[10px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
+            Points scored per square. <span style={{ color: GRADE_COLOR.best }}>Max</span> means the best legal
+            grid scored the same here; <span style={{ color: GRADE_COLOR.beat }}>Beat</span> means you scored
+            more than it did. A red outline marks your biggest miss.
           </p>
 
           {result.biggest_miss ? (
@@ -314,7 +331,7 @@ export default function CompletionPanel({
           >
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--text-muted)" }}>
-                What PEAK3 would have used
+                The best legal grid
               </p>
               {changed.length > 0 && (
                 <button
@@ -331,7 +348,7 @@ export default function CompletionPanel({
 
             {shown.length === 0 ? (
               <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Nothing to change — every square already held a best-available answer.
+                Nothing to change — your grid matched the best legal grid on every square.
               </p>
             ) : (
               <ul className="mt-2 space-y-1.5">
@@ -339,6 +356,7 @@ export default function CompletionPanel({
                   <li
                     key={`${cell.row}-${cell.col}`}
                     data-testid="complete-per-cell-row"
+                    data-beat-optimal={cell.beat_optimal ? "true" : "false"}
                     className="flex flex-wrap items-baseline gap-x-2 text-xs leading-relaxed"
                   >
                     <span className="font-semibold" style={{ color: "var(--text-muted)" }}>
@@ -347,11 +365,30 @@ export default function CompletionPanel({
                     <span style={{ color: "var(--text-secondary)" }}>
                       {cell.user_player_season.label} ({cell.user_points})
                     </span>
-                    {cell.matched_optimal ? (
-                      <span style={{ color: "var(--comp-team)" }}>— best available</span>
+                    {cell.beat_optimal ? (
+                      <span data-testid="complete-beat-note" style={{ color: GRADE_COLOR.beat }}>
+                        — you beat it here ({cell.optimal_points})
+                      </span>
+                    ) : cell.matched_optimal ? (
+                      <span style={{ color: "var(--comp-team)" }}>— matched</span>
                     ) : (
                       <span style={{ color: "var(--comp-team)" }}>
                         → {cell.optimal_player_season.label} ({cell.optimal_points})
+                      </span>
+                    )}
+                    {/* The same name can legitimately appear twice down this
+                        list — once as the player's pick, once as the optimal
+                        grid's. Saying where they spent them turns what looks
+                        like a duplicate bug into the actual insight: the grid
+                        wanted that player somewhere else. */}
+                    {cell.optimal_player_user_square && !cell.matched_optimal && !cell.beat_optimal && (
+                      <span
+                        data-testid="complete-overlap-note"
+                        className="text-[11px]"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        (you played {cell.optimal_player_season.player_name} on{" "}
+                        {cell.optimal_player_user_square})
                       </span>
                     )}
                   </li>
@@ -466,7 +503,7 @@ export default function CompletionPanel({
               <>
                 <strong style={{ color: "var(--text-primary)" }}>That was an archive board.</strong>
                 <Link
-                  href="/daily"
+                  href="/daily/grid"
                   data-testid="complete-play-today"
                   className="font-semibold underline underline-offset-2"
                   style={{ color: "var(--peak-accent)" }}

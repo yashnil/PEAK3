@@ -218,7 +218,24 @@ def get_optimal(board: GridBoard, pool: GridPool | None = None) -> OptimalSoluti
 
 @dataclass(frozen=True)
 class ResultCell:
-    """One square, side by side: what the player used, what the maximum used."""
+    """One square, side by side: what the player used, what the BEST LEGAL GRID
+    used.
+
+    THE COMPARISON IS GRID-TO-GRID, NOT SQUARE-TO-SQUARE, and Phase 12A added
+    the two fields that make that legible. `optimal_player_season` comes from a
+    single nine-different-players assignment (see solve_optimal), so the value
+    in one square depends on what the assignment needed elsewhere. Two
+    consequences used to be presented as if they were something else:
+
+      * the best legal grid can score LESS on one square than the player did,
+        because it traded that square away for a bigger total. `points_left`
+        floors at zero, so such a square used to render as "no better answer
+        existed" -- which is false. `beat_optimal` names it instead.
+      * the best legal grid may use a player the PLAYER already spent on a
+        different square. Reading the comparison list then shows the same name
+        twice and looks like a duplicate bug.
+        `optimal_player_user_square` says where they used them.
+    """
 
     row: int
     col: int
@@ -228,12 +245,27 @@ class ResultCell:
     user_points: int
     optimal_player_season: PlayerSeason
     optimal_points: int
+    # "Celtics x MVP" -- the square where the PLAYER used this same identity,
+    # when the best legal grid also wanted them. None when there is no overlap.
+    optimal_player_user_square: Optional[str] = None
 
     @property
     def points_left(self) -> int:
-        """How much this square cost the player. Zero when they matched the
-        maximum -- which includes finding a DIFFERENT season worth the same."""
+        """How much this square cost the player. Zero when they matched or beat
+        the best legal grid here -- which includes finding a DIFFERENT season
+        worth the same."""
         return max(0, self.optimal_points - self.user_points)
+
+    @property
+    def beat_optimal(self) -> bool:
+        """The player scored MORE here than the best legal grid did.
+
+        Not a contradiction: the grid is optimised as a whole, so it will
+        happily take fewer points on one square to free a player for a bigger
+        gain on another. Surfaced so the UI can say that rather than claiming
+        no better answer existed.
+        """
+        return self.user_points > self.optimal_points
 
     @property
     def matched_optimal(self) -> bool:
@@ -251,6 +283,8 @@ class ResultCell:
             "optimal_points": self.optimal_points,
             "points_left": self.points_left,
             "matched_optimal": self.matched_optimal,
+            "beat_optimal": self.beat_optimal,
+            "optimal_player_user_square": self.optimal_player_user_square,
         }
 
 
@@ -305,11 +339,35 @@ def build_result(
 
     from nba_peak.daily_grid.constraints import constraint_by_id
 
+    filled_list = list(filled)
+
+    # Where the PLAYER used each identity, so a square whose optimal answer is
+    # someone they already spent can say so instead of looking like the same
+    # name printed twice. Built from the labels the comparison itself shows.
+    def _square_label(row: int, col: int) -> str:
+        cell = board.cell(row, col)
+        return (
+            f"{constraint_by_id(cell.row_constraint_id, grid_pool).short_label}"
+            f" x {constraint_by_id(cell.col_constraint_id, grid_pool).short_label}"
+        )
+
+    user_square_by_slug: dict[str, str] = {
+        grid_pool.by_id[answer_id].player_slug: _square_label(row, col)
+        for row, col, answer_id in filled_list
+    }
+
     cells: list[ResultCell] = []
-    for row, col, answer_id in filled:
+    for row, col, answer_id in filled_list:
         cell = board.cell(row, col)
         user_season = grid_pool.by_id[answer_id]
         optimal_cell = optimal.cell(row, col)
+        optimal_slug = optimal_cell.player_season.player_slug
+        # Only interesting when the overlap is on a DIFFERENT square -- an
+        # optimal pick that matches what the player put in this very square is
+        # already reported by `matched_optimal`.
+        overlap = user_square_by_slug.get(optimal_slug)
+        if optimal_slug == user_season.player_slug:
+            overlap = None
         cells.append(
             ResultCell(
                 row=row,
@@ -324,9 +382,23 @@ def build_result(
                 user_points=score_cell(user_season, cell).arena_points,
                 optimal_player_season=optimal_cell.player_season,
                 optimal_points=optimal_cell.cell_score.arena_points,
+                optimal_player_user_square=overlap,
             )
         )
     cells.sort(key=lambda c: (c.row, c.col))
+
+    # The invariant the whole comparison rests on. solve_optimal solves a
+    # rectangular assignment (one player per row, one row per player), so this
+    # cannot fail by construction -- it is asserted anyway because the screen
+    # tells the player these are nine different players, and shipping a
+    # contradiction of the game's own rule is worse than failing loudly.
+    optimal_slugs = [c.optimal_player_season.player_slug for c in cells]
+    optimal_ids = [c.optimal_player_season.id for c in cells]
+    if len(set(optimal_slugs)) != len(optimal_slugs) or len(set(optimal_ids)) != len(optimal_ids):
+        raise RuntimeError(
+            f"the best legal grid for board {board.board_id} repeats a player "
+            "-- the assignment solver and the distinct-identity rule disagree"
+        )
 
     user_total = sum(c.user_points for c in cells)
     # Reading order breaks ties for both, so the same board and the same fill

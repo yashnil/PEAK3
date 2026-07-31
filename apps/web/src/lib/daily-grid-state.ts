@@ -315,11 +315,17 @@ export function resultGrade(percentOfBest: number): { headline: string; blurb: s
   return grade ?? RESULT_GRADES[RESULT_GRADES.length - 1];
 }
 
-/** How well one square did, as a share of what the best answer there was
- *  worth. Used for the mini recap's colour and for the share grid's glyph. */
-export type CellGrade = "best" | "close" | "fair" | "weak";
+/** How well one square did against the best legal grid.
+ *
+ *  `beat` is its own grade rather than being folded into `best`: a square where
+ *  the player outscored the optimal assignment is a genuinely different — and
+ *  better — outcome than matching it, and calling it "best available" would
+ *  repeat the false claim this grade exists to remove. See the `ResultCell`
+ *  doc comment in types/daily-grid.ts. */
+export type CellGrade = "beat" | "best" | "close" | "fair" | "weak";
 
 export function cellGrade(cell: ResultCell): CellGrade {
+  if (cell.beat_optimal) return "beat";
   if (cell.matched_optimal) return "best";
   const share = cell.optimal_points > 0 ? cell.user_points / cell.optimal_points : 0;
   if (share >= 0.9) return "close";
@@ -406,6 +412,10 @@ const SHARE_URL = "peak3.app/daily";
  *  tweet. The scale is deliberately monotonic left to right, so the shape of a
  *  run is legible without the legend. */
 const SHARE_GLYPH: Record<CellGrade, string> = {
+  // `*` outranks `#`: beating the best legal grid on a square is rarer and
+  // better than matching it, and the shared line has to be legible without
+  // reading the legend.
+  beat: "*",
   best: "#",
   close: "+",
   fair: "-",
@@ -481,7 +491,7 @@ export function buildDailyGridShareText(
     lines.push("");
     lines.push(...buildShareGrid(result));
     lines.push("");
-    lines.push(`# best  + close  - fair  . weak`);
+    lines.push(`* beat  # best  + close  - fair  . weak`);
   }
 
   lines.push(SHARE_URL);

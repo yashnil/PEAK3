@@ -361,7 +361,7 @@ describe("DailyGridGame", () => {
         "# # #",
         "# # .",
         "",
-        "# best  + close  - fair  . weak",
+        "* beat  # best  + close  - fair  . weak",
         "peak3.app/daily",
       ].join("\n"),
     );
@@ -915,7 +915,7 @@ describe("DailyGridGame — Phase 11D archive boards", () => {
     const banner = screen.getByTestId("daily-grid-archive-banner");
     expect(banner).toHaveTextContent(/Archive board · 2026-07-30/);
     expect(banner).toHaveTextContent(/does not count toward your streak/i);
-    expect(screen.getByTestId("daily-grid-play-today")).toHaveAttribute("href", "/daily");
+    expect(screen.getByTestId("daily-grid-play-today")).toHaveAttribute("href", "/daily/grid");
   });
 
   it("shows no archive banner on today's board", () => {
@@ -947,6 +947,96 @@ describe("DailyGridGame — Phase 11D archive boards", () => {
 
     const line = await screen.findByTestId("complete-come-back");
     expect(line).toHaveTextContent(/That was an archive board/i);
-    expect(screen.getByTestId("complete-play-today")).toHaveAttribute("href", "/daily");
+    expect(screen.getByTestId("complete-play-today")).toHaveAttribute("href", "/daily/grid");
+  });
+});
+
+/**
+ * Phase 12A: the comparison is grid-to-grid. Two consequences of that used to
+ * render as something false — a square the player won reading as "no better
+ * answer existed", and a reused player reading as a duplicate bug.
+ */
+describe("DailyGridGame — the best legal grid", () => {
+  function seedCompleted() {
+    window.localStorage.setItem(
+      dailyGridProgressKey(BOARD.board_id),
+      JSON.stringify(completedProgress()),
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    mockSearch.mockResolvedValue({ query: "olajuwon", results: [hit()] });
+  });
+
+  it("calls the comparison the best LEGAL grid, not a per-square maximum", async () => {
+    mockGetResult.mockResolvedValue(gridResult());
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const panel = await screen.findByTestId("complete-comparison");
+    expect(panel).toHaveTextContent(/best legal grid/i);
+  });
+
+  it("says the player BEAT the grid on a square rather than claiming it was the max", async () => {
+    const result = gridResult();
+    // The grid traded this square away for a bigger total elsewhere.
+    result.cells[0] = {
+      ...result.cells[0],
+      optimal_points: result.cells[0].user_points - 12,
+      points_left: 0,
+      matched_optimal: true,
+      beat_optimal: true,
+    };
+    mockGetResult.mockResolvedValue(result);
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    await waitFor(() => expect(screen.getAllByTestId("complete-mini-cell")).toHaveLength(9));
+    const beaten = screen
+      .getAllByTestId("complete-mini-cell")
+      .filter((c) => c.getAttribute("data-grade") === "beat");
+    expect(beaten).toHaveLength(1);
+    // "Beat", never "Max" — the old label was simply false here.
+    expect(beaten[0]).toHaveTextContent("Beat");
+    expect(beaten[0]).not.toHaveTextContent("Max");
+    expect(beaten[0]).toHaveAccessibleName(/beat the best legal grid here/i);
+  });
+
+  it("says where the player spent a player the grid also wanted", async () => {
+    const result = gridResult();
+    const miss = result.cells[result.cells.length - 1];
+    result.cells[result.cells.length - 1] = {
+      ...miss,
+      optimal_player_user_square: "Celtics x 1990s",
+    };
+    mockGetResult.mockResolvedValue(result);
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const note = await screen.findByTestId("complete-overlap-note");
+    // Reading the list, the same name appears twice; this is the line that
+    // turns that from a bug into the actual insight.
+    expect(note).toHaveTextContent(/you played .+ on Celtics x 1990s/i);
+  });
+
+  it("never claims a square was the max when the player beat it", async () => {
+    const result = gridResult();
+    result.cells = result.cells.map((c) => ({
+      ...c,
+      optimal_points: c.user_points - 5,
+      points_left: 0,
+      matched_optimal: true,
+      beat_optimal: true,
+    }));
+    mockGetResult.mockResolvedValue(result);
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    await waitFor(() => expect(screen.getAllByTestId("complete-mini-cell")).toHaveLength(9));
+    for (const cell of screen.getAllByTestId("complete-mini-cell")) {
+      expect(cell).not.toHaveTextContent("Max");
+    }
   });
 });

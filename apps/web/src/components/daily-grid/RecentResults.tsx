@@ -95,7 +95,7 @@ export default function RecentResults({ entries, emptyMessage, linkToBoards }: P
           <li key={entry.board_id} data-testid="recent-results-row" data-date={entry.date}>
             {linkToBoards ? (
               <Link
-                href={`/daily?date=${entry.date}`}
+                href={`/daily/grid?date=${entry.date}`}
                 className={`${className} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]`}
                 style={style}
                 aria-label={`Review the ${entry.date} grid, ${entry.theme}, ${entry.score} points`}

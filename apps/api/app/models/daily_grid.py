@@ -259,7 +259,15 @@ class GridResultRequest(BaseModel):
 
 
 class ResultCell(BaseModel):
-    """One square, side by side: what the player used, what the maximum used."""
+    """One square, side by side: what the player used, what the BEST LEGAL GRID
+    used.
+
+    The comparison is grid-to-grid, not square-to-square: the optimal answer
+    here comes from a single nine-different-players assignment, so it depends
+    on what that assignment needed elsewhere. `beat_optimal` and
+    `optimal_player_user_square` exist so the UI can say that instead of
+    printing something that looks wrong (see optimal.ResultCell).
+    """
 
     row: int
     col: int
@@ -271,6 +279,20 @@ class ResultCell(BaseModel):
     optimal_points: int
     points_left: int = Field(..., description="optimal_points - user_points, floored at 0")
     matched_optimal: bool
+    beat_optimal: bool = Field(
+        False,
+        description=(
+            "The player scored MORE here than the best legal grid did, because "
+            "that grid traded this square away for a bigger total elsewhere."
+        ),
+    )
+    optimal_player_user_square: Optional[str] = Field(
+        None,
+        description=(
+            "The square where the PLAYER used this same identity, when the best "
+            "legal grid also wanted them. None when there is no overlap."
+        ),
+    )
 
 
 class GridResultResponse(BaseModel):
