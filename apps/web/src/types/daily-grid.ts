@@ -1,4 +1,4 @@
-// Daily Grid Challenge (Phase 11A) TypeScript types.
+// Daily Grid Challenge TypeScript types.
 //
 // THIS FILE IS THE CONTRACT. The API layer (apps/api/app/api/v1/daily_grid.py)
 // and the UI are written against these shapes; every field here mirrors a
@@ -58,7 +58,7 @@ export interface GridCellSpec {
 }
 
 export interface GridRules {
-  /** Phase 11A product decision: no player identity twice on one board. */
+  /** Product decision since 11A: no player identity twice on one board. */
   unique_player_identity: boolean;
   grid_size: number;
 }
@@ -248,6 +248,43 @@ export interface GridResultResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Official account-backed result (Phase 11D)
+// ---------------------------------------------------------------------------
+
+/** POST /api/v1/daily-grid/official request.
+ *
+ *  The same nine squares the result comparison takes, plus two presentational
+ *  fields. Deliberately carries NO score: the server recomputes every stored
+ *  number from the board, so there is nothing here for a client to inflate. */
+export interface OfficialResultRequest extends GridResultRequest {
+  /** Client wall-clock seconds. Stored for display and NEVER scored or ranked
+   *  — the server does not time attempts, so this value is not verified. */
+  elapsed_seconds?: number | null;
+  /** Echoed for display; re-derived server-side from the board. */
+  theme?: string | null;
+}
+
+/** POST /api/v1/daily-grid/official response.
+ *
+ *  `official_saved` is true whenever the account now HAS a record for this
+ *  board; `created` is false when an earlier submit already made one. A retry
+ *  is a success, not a conflict. */
+export interface OfficialResultResponse {
+  official_saved: boolean;
+  created: boolean;
+  board_id: string;
+  board_date: string;
+  board_version: string;
+  score: number;
+  optimal_total: number;
+  percent_of_best: number;
+  squares_matching_optimal: number;
+  /** False for an archive replay reached through ?date=. */
+  played_on_board_date: boolean;
+  saved_at: string;
+}
+
+// ---------------------------------------------------------------------------
 // Client-side state (localStorage). Not an API shape.
 // ---------------------------------------------------------------------------
 
@@ -292,6 +329,76 @@ export const DAILY_GRID_PROGRESS_SCHEMA_VERSION = 3;
 export function dailyGridProgressKey(boardId: string): string {
   return `peak3.daily-grid.${boardId}`;
 }
+
+// ---------------------------------------------------------------------------
+// Local archive + streak (Phase 11D). Also localStorage; also not an API shape.
+// ---------------------------------------------------------------------------
+
+/** One finished board, kept after its day is over.
+ *
+ *  A SNAPSHOT, not a pointer: it stores the numbers as they were at
+ *  completion rather than re-deriving them later. Re-deriving would mean a
+ *  taxonomy or model change could silently rewrite a player's own history,
+ *  which is the opposite of what a personal record is for — the same reasoning
+ *  as `SavedRun` on the 82-0 side (apps/api/app/repositories/saved_run_protocols.py).
+ *
+ *  Carries no answer key: the nine picks are stored as display labels only, so
+ *  a completed archive cannot be read back as a solution to an unplayed board
+ *  by someone else on the same browser. */
+export interface DailyGridArchiveEntry {
+  board_id: string;
+  /** YYYY-MM-DD, UTC — the board's date, not the completion timestamp. */
+  date: string;
+  theme: string;
+  difficulty: GridDifficulty;
+  started_at: string | null;
+  completed_at: string;
+  elapsed_seconds: number | null;
+  score: number;
+  /** Null when the comparison never loaded (API down at completion). The row
+   *  still belongs in history; it just cannot show a percentage. */
+  today_max: number | null;
+  percent_of_max: number | null;
+  /** The headline this result earned, stored rather than recomputed so a
+   *  future change to the grade bands cannot restate an old day's result. */
+  grade: string | null;
+  misses: number;
+  filled_count: number;
+  /** True only for a board played on its own UTC date. An archive/replay board
+   *  is recorded but never counts toward the live streak — see
+   *  `recordCompletedBoard`. */
+  counted_for_streak: boolean;
+  /** "1990-91 Michael Jordan" per square, reading order. Display only. */
+  picks: string[];
+}
+
+/** The player's whole local Daily Grid record.
+ *
+ *  Streak fields are DERIVED on write from `entries`, not accumulated blindly,
+ *  so a corrupted or hand-edited counter is corrected the next time a board is
+ *  completed rather than persisting forever. */
+export interface DailyGridArchive {
+  schema_version: number;
+  /** Newest first, capped at DAILY_GRID_ARCHIVE_MAX. */
+  entries: DailyGridArchiveEntry[];
+  current_streak: number;
+  longest_streak: number;
+  total_completed: number;
+  /** YYYY-MM-DD of the most recent board that counted for the streak. */
+  last_streak_date: string | null;
+  best_percent_of_max: number | null;
+  best_score: number | null;
+}
+
+export const DAILY_GRID_ARCHIVE_SCHEMA_VERSION = 1;
+
+/** How many completed boards are kept. A year is far more than any surface
+ *  shows and still bounds a localStorage value that only ever grows. */
+export const DAILY_GRID_ARCHIVE_MAX = 365;
+
+/** localStorage key for the whole archive. Not board-scoped — this is the one
+ *  Daily Grid value that deliberately OUTLIVES a single day. */
+export const DAILY_GRID_ARCHIVE_KEY = "peak3.daily-grid.archive";
 
 /** localStorage key for "this player has seen the rules".
  *

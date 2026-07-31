@@ -1,4 +1,4 @@
-# Daily Grid Challenge (Phase 11A, productized in 11B, tuned in 11C)
+# Daily Grid Challenge (11A shipped, 11B productized, 11C tuned, 11D hardened)
 
 PEAK3's competitive daily game. A 3x3 board whose rows and columns are
 **basketball facts** — franchises, awards, eras, positions, playoff runs,
@@ -23,7 +23,13 @@ board. **PEAK3 is now the hidden scoring layer, not the category.** 11C also
 made the search say plainly what each result is, rebuilt the completion state
 into a game result, and added a clock.
 
-Route: **`/daily`**. Everyone gets the same board on the same UTC date.
+Phase 11D made it a daily habit rather than a one-off: a local streak and
+history, a come-back-tomorrow loop, an account-backed official result for
+signed-in players, and rate limits on every endpoint.
+
+Routes: **`/daily`** (today's board, or `?date=` for an archive replay) and
+**`/daily/history`** (your own record). Everyone gets the same board on the
+same UTC date.
 
 This mode sits *beside* the 82-0 PEAK Season flagship, never replacing it.
 Navbar "Play" still deep-links to `/arena/court/practice/apex_1y`.
@@ -293,6 +299,106 @@ be right — is decided from server data alone.
 
 ---
 
+## Rate limiting and the probing model
+
+`apps/api/app/core/rate_limit.py`, applied in `app/api/v1/daily_grid.py`.
+
+The Daily Grid is the only router in this project that carries limits, because
+it is the only one that answers repeated questions about a secret it is trying
+to keep. Everything else serves data that is already public.
+
+| Route | Default | Bucket key |
+|---|---|---|
+| `GET /board` | 120/min | client |
+| distinct dates per client | 30/min | client (set of dates) |
+| `GET /search` | 60/min | client + board date |
+| `POST /answer` | 30/min | client + board date |
+| `POST /result` | 20/min | client + board date |
+| `POST /official` | 20/min | client + board date |
+
+Every value is configurable (`PEAK3_DAILY_GRID_*`), and the defaults sit far
+above human play — filling nine squares is about nine searches and nine
+submissions — and far below what enumerating an answer set needs.
+
+### What the limiter is and is not
+
+It is a fixed-window counter in a bounded dict, and it is honest about the
+shape of deployment it fits: **a single API process**. It does not survive a
+restart, does not coordinate across replicas, and keys partly on client IP,
+which a caller behind a rotating proxy can change. A Redis-backed limiter is
+the upgrade path when the API runs more than one process; `RateLimiter` is the
+seam.
+
+None of that makes it useless. The threat it addresses is one client scripting
+the search endpoint faster than a person could, and a per-process bucket is the
+right size of answer for that. **The real defence against reading the key is
+still the search module's own eligibility cap** — this is the second layer,
+deliberately cheap.
+
+### Why the distinct-DATE cap is its own primitive
+
+"How many board requests?" and "how many different DATES?" are different
+questions, and only the second one distinguishes normal play from corpus
+building. Reloading today's board fifty times is ordinary; pulling fifty
+different dates is assembling an offline library of boards. A plain counter
+cannot tell those apart, and folding the date into the bucket key cannot either
+(that just gives every date its own budget) — so `check_distinct` keeps the set
+of dates seen in the window. **A date already seen is free, forever**, which is
+what keeps reload, retry and archive replay unaffected.
+
+### What a 429 says
+
+Nothing a prober can calibrate against. There is no `X-RateLimit-Remaining` on
+the success path and no bucket name or limit in the error body: a running count
+of requests left is precisely the signal that would let someone ride just under
+the limit indefinitely. `Retry-After` is sent, because a well-behaved client
+genuinely needs it and it says nothing about the budget's size.
+
+The client turns a 429 into "you're searching faster than the grid allows —
+your board is safe", because a rate limit is a wait, not data loss: the locked
+picks and the timer are untouched.
+
+### Input hygiene
+
+- Query length is clamped in `search.py` as well as at the route's
+  `max_length`, so a caller that bypasses the route cannot reintroduce a
+  full-pool scan on a 5,000-character string.
+- Whitespace collapses during normalization, so `"jordan"`, `"  jordan  "` and
+  `"jordan..."` are one query rather than three novel-looking ones.
+- Response size is capped at `MAX_LIMIT` (50) regardless of the `limit` asked
+  for.
+
+### How this is tested, and why Playwright is not throttled
+
+Limits are **on by default everywhere**, including local dev — a limiter that
+is only enabled in production is a limiter nobody has tested. The API tests
+therefore exercise the limited path, and the 429 cases work by deliberately
+exceeding a limit rather than by flipping a switch nothing else uses. An
+autouse fixture resets the limiter before every test, so each one starts with
+exactly the configured budget and test order cannot change an outcome.
+
+`RateLimiter` takes an injectable clock, so the unit tests assert exact
+allow/deny and window-reset boundaries without sleeping. Nothing about the
+limiter's tests depends on how fast the machine is.
+
+The Playwright server (`npm run start:api`) raises every limit via
+`PEAK3_DAILY_GRID_*` env vars. That is not the limiter being disabled — the
+code path still runs, so a bug in it would still surface — it is an
+acknowledgement that the e2e harness legitimately drives search far harder
+than a human can: it discovers real answers by probing the live endpoint
+rather than hardcoding a key.
+
+### What is still client-supplied
+
+`used_player_slugs` on `/answer` and `used` on `/search` are the client's own
+view of its board. They are a **convenience** — they let the server mark
+already-spent identities — and they are never a security boundary. The
+distinct-identity rule that matters is re-enforced server-side on `/answer` and
+re-checked across the whole board on `/result` and `/official`, where `used`
+accumulates as the server walks the nine squares.
+
+---
+
 ## Search
 
 `nba_peak/daily_grid/search.py`
@@ -434,7 +540,11 @@ the how-to-play gate. It is global rather than per-board: the rules do not
 change daily, and re-explaining them every morning is friction, not
 onboarding.
 
-No account-backed daily grid attempts.
+A third key, `peak3.daily-grid.archive`, is the one Daily Grid value that
+deliberately OUTLIVES a single day — see § Streaks and local history.
+
+Signed-in players additionally get a durable server-side copy of each completed
+board (§ Official account-backed results). Anonymous play is unaffected.
 
 ---
 
@@ -525,10 +635,19 @@ glance whether they had done well. The completion state is now a game result:
    by default, expandable to all nine. Listing nine rows when six matched
    buries the three that did not.
 
+Phase 11D adds the loop underneath: the streak trio (current / longest / total),
+a "come back tomorrow" line with a countdown to the next UTC board, a preview of
+recent grids, and a link to `/daily/history`. The badge says which of two things
+is true — **Saved on this device** for an anonymous player, **Saved to your
+account** once the server has a validated copy — and neither implies a ranking.
+
 Share text carries the date, theme, score-against-maximum, grade, time, misses
 and a plain-text 3x3 recap (`#` best, `+` close, `-` fair, `.` weak) with its
 legend. ASCII rather than emoji, matching this product's existing share style.
-It states no rank and no percentile, because there is nothing to state.
+A streak line is added only from a real local record and only at 2+ days — a
+"1 day streak" is just "I played", and a streak shared out of an empty archive
+would be a number the sharer cannot themselves see. It states no rank and no
+percentile, because there is nothing to state.
 
 ---
 
@@ -552,13 +671,151 @@ benchmark, and it deliberately does **not** enter the score.
 - **Never negative** — a clock skew between two sessions floors at zero rather
   than printing `-3:12`.
 - Shown in the status bar, on the result screen, and in the share text.
-- Client-side only: not sent to the server, not persisted to an account, not
-  ranked.
+- **Sent to the server only as part of a signed-in player's official result
+  (11D), where it is stored presentationally.** The server does not time
+  attempts, so the value is bounded rather than believed, and it is never
+  scored, compared or ranked. Anonymous players' times never leave the browser.
 
-**Why it does not affect the score.** Tying time to score, or ranking on it,
-before account-backed attempts and rate limits exist would be inventing a
-competition that cannot be verified — the same reason there is no leaderboard.
-The clock is real; the claims made about it are not more than it can support.
+**Why it does not affect the score.** The number is client wall-clock: nothing
+server-side observes when a board was started or finished. Scoring or ranking
+an unverified duration would be inventing a competition that cannot be
+checked — the same reason there is no leaderboard. Making time count would mean
+timing attempts server-side first, which is listed as a prerequisite in
+§ Leaderboards. The clock is real; the claims made about it are not more than
+it can support.
+
+---
+
+## Streaks and local history (11D)
+
+`apps/web/src/lib/daily-grid-archive.ts`
+
+An anonymous player gets a full retention loop with no account: a streak, a
+record of every board they have finished, and a `/daily/history` page. All of
+it is localStorage, and every surface that shows it says so.
+
+### What is kept per completed board
+
+Board id, date, theme, difficulty, start/completion timestamps, elapsed
+seconds, score, today's maximum, percent of it, grade, misses, filled count,
+whether it counted for the streak, and the nine picks **as display labels**.
+
+Labels, not answer ids — deliberately. A stored answer key would turn a
+finished archive into a solution sheet for anyone else using that browser.
+
+Each row is a **snapshot**, not a pointer: it stores the numbers as they stood
+on the day. Re-deriving them later would let a taxonomy or model change quietly
+rewrite someone's own history, which is the opposite of what a personal record
+is for (the same reasoning as `SavedRun` on the 82-0 side).
+
+### The streak rule
+
+**Only a board played on its own UTC date counts.** Finishing today's grid
+continues the streak; finishing an archive board through `?date=` is recorded
+and shown, but never touches `current_streak`.
+
+The looser rule — any completion extends the streak — is unshippable here,
+because every past board is permanently available at a guessable URL. A streak
+that can be reconstructed in an afternoon by walking the calendar measures
+nothing, and the number would be a lie told to the only person it matters to.
+The strict rule costs a genuine case (you played, the browser lost the write)
+and that is the right trade: a streak is only worth showing if missing a day
+actually breaks it.
+
+Yesterday still counts as live. A player who finished last night and opens the
+page this morning has not broken anything — they simply have not played yet.
+
+### Derived, not accumulated
+
+`current_streak`, `longest_streak`, `total_completed` and the bests are
+**recomputed from the stored entries on every read and every write**, never
+incremented in place. A counter that is only ever `+= 1` cannot recover from a
+bad write, a clock change, or a hand-edited localStorage value; a derivation
+can. It also means a tampered "900-day streak" is corrected the moment it is
+loaded rather than displayed once and fixed later.
+
+Recording is idempotent per `board_id`: the completion effect fires on every
+mount of a finished board and again when the comparison lands, so a re-record
+REPLACES the row (upgrading it with today's max when that arrives) rather than
+appending. Replaying the same day cannot double-count it either, because the
+streak counts distinct dates.
+
+UTC throughout, matching the clock boards are generated on — using the
+browser's local date would put a player in UTC+13 on "tomorrow's" streak day
+while the API is still serving today's board.
+
+### Known limits
+
+localStorage is per-browser, editable, and cleared with site data. It is not
+cheat-proof and is explicitly not eligible for ranking (CLAUDE.md § Security).
+That is exactly why the label says "Saved on this device" and why the official
+result below exists.
+
+---
+
+## Official account-backed results (11D)
+
+`supabase/migrations/20260730190000_daily_grid_results.sql`,
+`app/repositories/daily_grid_*.py`, `POST /api/v1/daily-grid/official`
+
+A signed-in player also gets a durable, server-validated copy: one official
+result per user per (board date, board version).
+
+### What is actually verified
+
+Everything scored. The whole board goes through the **same**
+`_revalidate_completed_board` helper the result comparison uses — all nine
+squares present, every answer re-checked against server data, the
+distinct-identity rule re-checked across the board — and then every stored
+number (score, today's maximum, percentage, squares matched) is **recomputed**
+by `build_result`. The request model carries no score field at all, so a client
+cannot report a false one; it cannot report one.
+
+Sharing the validation helper between the two routes is deliberate: two copies
+of "is this board real?" is two chances for one to drift into being more
+permissive, and the more permissive one is the one an attacker would use.
+
+### What is not verified
+
+`elapsed_seconds` is client wall-clock — the server does not time attempts — so
+it is stored presentationally, bounded rather than believed, and never scored
+or ranked. **That asymmetry is precisely why the timer must not become a
+scoring term until the server times attempts itself.** `theme` is display copy
+and is re-derived server-side rather than trusted.
+
+### Immutable and idempotent
+
+A second POST for the same board returns the existing record with
+`created: false` and HTTP 200. A daily attempt happens once; a retry after a
+reload is not new information, and letting it overwrite would let a player
+resubmit until they liked the number. There is no UPDATE policy on the table
+and no update path in the repository.
+
+### Not a leaderboard
+
+No public-read policy, no ranking endpoint, no read route for anyone but the
+owner. RLS is owner-only for select/insert/delete, as a second layer behind the
+API's own service-role owner scoping. Anonymous play is never blocked or
+degraded — the local archive is the whole product for those players, and the
+official save is strictly additive.
+
+The migration is **local only**; `supabase db push` was not run, matching the
+discipline of the leaderboard and saved-run migrations.
+
+---
+
+## Archive and replay (11D)
+
+`?date=YYYY-MM-DD` loads any past or future board. It is supported, and it is
+labelled:
+
+- a banner on the board names the date and states that it does not count toward
+  the streak, with a link back to today;
+- the completion screen points at today's grid rather than at tomorrow;
+- history rows carry a **Replay** tag;
+- progress keys are `board_id`-scoped, so opening an old date can never
+  overwrite today's board;
+- the share text leads with the board's own date.
 
 ---
 
@@ -574,18 +831,37 @@ progress explicitly does not have (CLAUDE.md § Security: localStorage scores
 are not cheat-proof and not eligible for global ranking). Shipping a
 leaderboard fed by client-reported scores would be a fake leaderboard.
 
-The API shape is already compatible with one: `POST /daily-grid/result` takes a
-board and re-validates it server-side, which is exactly the trust boundary a
-leaderboard submission needs. A future phase can persist the validated result
-against an account without changing the contract.
+**Phase 11D built the foundation and stopped there.** `daily_grid_results` now
+holds one immutable, fully server-validated result per signed-in user per
+board — which is exactly the record a ranking would have to be computed from.
+What is still missing before anything can be published:
+
+1. **A decision about what a verified attempt is.** Today an anonymous player
+   can complete a board and a signed-in player can complete the same board
+   later at their leisure; ranking those together needs a rule about when the
+   clock starts and whether replays are eligible at all.
+2. **Server-side timing**, if time is ever to be ranked. `elapsed_seconds` is
+   client-reported and will stay unranked until it is not.
+3. **Abuse controls beyond a per-process limiter** — an account-creation cost,
+   or at minimum a shared limiter — since a leaderboard turns board-probing
+   from pointless into profitable.
+4. **A published projection with its own RLS**, rather than relaxing the
+   owner-only policy on the record table.
+
+Until all four exist, no rank, percentile or "you beat X% of players" appears
+anywhere in the UI or the share text, and the tests assert their absence.
 
 ---
 
 ## Deferred
 
-- account-backed saved daily grid attempts
-- global daily leaderboard (see § Leaderboards above for why not yet)
+- global daily leaderboard (see § Leaderboards above for the four prerequisites)
+- a read route for a user's own official results (11D writes them; nothing
+  reads them back yet, because the local archive already serves the history UI
+  and a second source of truth would need a reconciliation rule first)
 - global completion stats / true answer-frequency rarity
+- importing a local streak into an account (would mean trusting client history)
+- a calendar heat-map view; `/daily/history` ships as a list this pass
 - a separate non-competitive "Practice Grid" with reset and replay
 - a verified speed leaderboard, or time as a scoring term (see § Timer)
 
@@ -597,7 +873,18 @@ against an account without changing the contract.
   re-validates every submitted answer and re-validates the whole board before
   releasing today's maximum, so a tampered board cannot unlock the answer key —
   but a tampered *score display* is possible and is not eligible for any
-  ranking (CLAUDE.md § Security).
+  ranking (CLAUDE.md § Security). The same applies to the local streak, which
+  is why it is derived from the stored entries rather than trusted as a number.
+- **The rate limiter is per process.** Restarting the API clears it, and N
+  replicas mean N times the limit. It is a nuisance cost, not a security
+  boundary — see § Rate limiting for what actually protects the answer key.
+- **A streak lives in one browser.** Switching device or clearing site data
+  loses it, and signing in does not import it: the official result table starts
+  from the day the account first completes a board. Backfilling a local archive
+  into an account would mean trusting client-reported history, which is the one
+  thing the official record exists not to do.
+- **`elapsed_seconds` is unverified** on the official record and is stored for
+  display only.
 - **Rarity is a proxy for difficulty**, not real answer-frequency rarity: it is
   the size of a cell's valid answer set, not how rare the pick was among
   players. Named as "answer pool" everywhere it surfaces so it is never

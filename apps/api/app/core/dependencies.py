@@ -60,6 +60,8 @@ from app.repositories.leaderboard_memory import MemoryPerfectSeasonLeaderboardRe
 from app.repositories.leaderboard_protocols import PerfectSeasonLeaderboardRepository
 from app.repositories.saved_run_memory import MemoryPerfectSeasonSavedRunRepository
 from app.repositories.saved_run_protocols import PerfectSeasonSavedRunRepository
+from app.repositories.daily_grid_memory import MemoryDailyGridResultRepository
+from app.repositories.daily_grid_protocols import DailyGridResultRepository
 
 # ---------------------------------------------------------------------------
 # Singleton in-memory stores (only used when DATABASE_URL is unset in dev)
@@ -86,6 +88,7 @@ _memory_ranked_rating_repo = MemoryRankedRatingRepository()
 _memory_ranked_integrity_repo = MemoryRankedIntegrityRepository()
 _memory_perfect_season_leaderboard_repo = MemoryPerfectSeasonLeaderboardRepository()
 _memory_perfect_season_saved_run_repo = MemoryPerfectSeasonSavedRunRepository()
+_memory_daily_grid_result_repo = MemoryDailyGridResultRepository()
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +263,24 @@ def get_perfect_season_saved_run_repo(request: Request) -> PerfectSeasonSavedRun
     return _memory_perfect_season_saved_run_repo
 
 
+def get_daily_grid_result_repo(request: Request) -> DailyGridResultRepository:
+    """Return the active DailyGridResultRepository (Postgres or in-memory) --
+    Phase 11D official daily results. Same in-memory-fallback discipline as
+    every other repository here.
+
+    Not behind a feature flag, for the same reason the saved-run repo is not:
+    saving your own completed board to your own record is core retention
+    behavior, not an opt-in competitive feature. It still always requires a
+    signed-in account at the route level, and anonymous players keep the
+    localStorage archive instead."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.daily_grid_postgres import PostgresDailyGridResultRepository
+        return PostgresDailyGridResultRepository(pool)
+    _warn_memory_repo("DailyGridResultRepository")
+    return _memory_daily_grid_result_repo
+
+
 def _warn_memory_repo(name: str) -> None:
     if not settings.DEBUG:
         raise RuntimeError(
@@ -296,4 +317,7 @@ PerfectSeasonLeaderboardRepoDep = Annotated[
 ]
 PerfectSeasonSavedRunRepoDep = Annotated[
     PerfectSeasonSavedRunRepository, Depends(get_perfect_season_saved_run_repo)
+]
+DailyGridResultRepoDep = Annotated[
+    DailyGridResultRepository, Depends(get_daily_grid_result_repo)
 ]

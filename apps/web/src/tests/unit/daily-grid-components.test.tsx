@@ -5,7 +5,7 @@
  * mocked POST /daily-grid/answer said `valid: true` and handed back a
  * cell_score. Nothing is scored or validated in the component.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
@@ -24,7 +24,13 @@ vi.mock("@/lib/daily-grid-api", () => ({
 }));
 
 import DailyGridGame from "@/components/daily-grid/DailyGridGame";
-import { dailyGridProgressKey } from "@/types/daily-grid";
+import { DailyGridArchiveEntry, dailyGridProgressKey } from "@/types/daily-grid";
+import {
+  emptyArchive,
+  loadArchive,
+  recordCompletedBoard,
+  saveArchive,
+} from "@/lib/daily-grid-archive";
 import { BOARD, completedProgress, gridResult, playerSeason, searchHit } from "./daily-grid-fixtures";
 
 const HAKEEM = playerSeason();
@@ -708,5 +714,239 @@ describe("DailyGridGame — Phase 11B competitive framing", () => {
       expect(await screen.findByTestId("complete-result-error")).toBeInTheDocument();
       expect(screen.getByTestId("complete-total-score")).toHaveTextContent("842");
     });
+  });
+});
+
+/**
+ * Phase 11D: the daily loop. Completing a board should leave the player with a
+ * streak, a record, and a reason to come back — and none of it may imply a
+ * ranking that does not exist.
+ */
+describe("DailyGridGame — Phase 11D retention", () => {
+  function seedCompleted() {
+    window.localStorage.setItem(
+      dailyGridProgressKey(BOARD.board_id),
+      JSON.stringify(completedProgress()),
+    );
+  }
+
+  /** An archive holding `days` consecutive completed boards ending on
+   *  BOARD.date, so the streak under test is a real derived number rather than
+   *  a value written straight into storage. */
+  function seedArchive(days: number, overrides: Partial<DailyGridArchiveEntry> = {}) {
+    let archive = emptyArchive();
+    for (let i = days - 1; i >= 0; i -= 1) {
+      const date = new Date(Date.UTC(2026, 6, 30 - i)).toISOString().slice(0, 10);
+      archive = recordCompletedBoard(
+        archive,
+        {
+          // The final day IS the fixture board, so it must carry the fixture's
+          // own id -- otherwise the component records a second row for the
+          // same date and the total is off by one.
+          board_id: date === BOARD.date ? BOARD.board_id : `daily-grid-v2-${date}`,
+          date,
+          theme: "Two-Way Night",
+          difficulty: "medium",
+          started_at: `${date}T12:00:00.000Z`,
+          completed_at: `${date}T12:07:00.000Z`,
+          elapsed_seconds: 420,
+          score: 700,
+          today_max: 800,
+          percent_of_max: 87.5,
+          grade: "Strong Run",
+          misses: 1,
+          filled_count: 9,
+          counted_for_streak: true,
+          picks: [],
+          ...overrides,
+        },
+        BOARD.date,
+      );
+    }
+    saveArchive(archive);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    // These describes are siblings of the main one, so they do not inherit its
+    // mock setup -- without this the completion effect's result fetch resolves
+    // to undefined.
+    mockSearch.mockResolvedValue({ query: "olajuwon", results: [hit()] });
+    mockGetResult.mockResolvedValue(gridResult());
+    // The fixture board is 2026-07-30; pin "now" there so it is the canonical
+    // today and the streak logic is exercised rather than short-circuited.
+    // `shouldAdvanceTime` keeps the clock moving under the fake, which is what
+    // lets testing-library's findBy* polling and userEvent still resolve.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-07-30T12:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows the streak, longest streak and total after completing", async () => {
+    seedArchive(3);
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    await vi.waitFor(() => expect(screen.getByTestId("complete-retention")).toBeInTheDocument());
+    expect(screen.getByTestId("complete-current-streak")).toHaveTextContent("3");
+    expect(screen.getByTestId("complete-longest-streak")).toHaveTextContent("3");
+    expect(screen.getByTestId("complete-total-played")).toHaveTextContent("3");
+  });
+
+  it("records the finished board into the archive", async () => {
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    await vi.waitFor(() => expect(screen.getByTestId("complete-retention")).toBeInTheDocument());
+    const archive = loadArchive(BOARD.date);
+    expect(archive.total_completed).toBe(1);
+    expect(archive.entries[0].date).toBe(BOARD.date);
+    expect(archive.entries[0].counted_for_streak).toBe(true);
+  });
+
+  it("does not double-count across re-renders", async () => {
+    seedCompleted();
+    const { rerender } = render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+    await vi.waitFor(() => expect(screen.getByTestId("complete-retention")).toBeInTheDocument());
+    rerender(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+    await vi.waitFor(() => expect(screen.getByTestId("complete-retention")).toBeInTheDocument());
+    expect(loadArchive(BOARD.date).total_completed).toBe(1);
+  });
+
+  it("tells the player to come back tomorrow, with a countdown", async () => {
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const line = await screen.findByTestId("complete-come-back");
+    expect(line).toHaveTextContent(/Come back tomorrow for a new grid/i);
+    expect(line).toHaveTextContent(/Next board in \d+h \d+m/);
+  });
+
+  it("labels local history honestly and claims no ranking", async () => {
+    seedArchive(2);
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    await vi.waitFor(() => expect(screen.getByTestId("complete-retention")).toBeInTheDocument());
+    expect(screen.getByTestId("complete-local-only")).toHaveTextContent(/Saved on this device/i);
+    expect(screen.getByTestId("complete-local-only")).toHaveAttribute("data-official", "false");
+    expect(screen.getByTestId("daily-grid-complete").textContent).not.toMatch(
+      /percentile|leaderboard|global rank|you beat \d+%/i,
+    );
+  });
+
+  it("previews recent grids and links to the full history", async () => {
+    seedArchive(3);
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    await vi.waitFor(() => expect(screen.getByTestId("recent-results")).toBeInTheDocument());
+    expect(screen.getAllByTestId("recent-results-row").length).toBeGreaterThan(1);
+    expect(screen.getByTestId("complete-history-link")).toHaveAttribute("href", "/daily/history");
+  });
+
+  it("puts the streak on the history link while playing", async () => {
+    seedArchive(4);
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    await vi.waitFor(() => expect(screen.getByTestId("daily-grid-streak-chip")).toBeInTheDocument());
+    expect(screen.getByTestId("daily-grid-streak-chip")).toHaveTextContent("4d");
+    expect(screen.getByTestId("daily-grid-history-link")).toHaveAttribute("href", "/daily/history");
+  });
+
+  it("includes a real streak in the share text but never a rank", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    seedArchive(5);
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    await user.click(await screen.findByTestId("daily-grid-share"));
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalled());
+    const text = writeText.mock.calls[0][0] as string;
+    expect(text).toContain("Streak: 5 days");
+    expect(text).not.toMatch(/percentile|leaderboard|rank/i);
+  });
+
+  it("omits the streak line when there is nothing worth claiming", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+      writable: true,
+    });
+    // A first-ever board: the streak is 1, which is just "I played".
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    await user.click(await screen.findByTestId("daily-grid-share"));
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(writeText.mock.calls[0][0]).not.toContain("Streak:");
+  });
+});
+
+describe("DailyGridGame — Phase 11D archive boards", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    mockSearch.mockResolvedValue({ query: "olajuwon", results: [hit()] });
+    mockGetResult.mockResolvedValue(gridResult());
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // A day AFTER the fixture board's date, so BOARD is a replay.
+    vi.setSystemTime(new Date("2026-08-05T12:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("labels a non-today board as an archive replay", () => {
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+    const banner = screen.getByTestId("daily-grid-archive-banner");
+    expect(banner).toHaveTextContent(/Archive board · 2026-07-30/);
+    expect(banner).toHaveTextContent(/does not count toward your streak/i);
+    expect(screen.getByTestId("daily-grid-play-today")).toHaveAttribute("href", "/daily");
+  });
+
+  it("shows no archive banner on today's board", () => {
+    vi.setSystemTime(new Date("2026-07-30T12:00:00Z"));
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+    expect(screen.queryByTestId("daily-grid-archive-banner")).not.toBeInTheDocument();
+  });
+
+  it("records a replay in history without touching the live streak", async () => {
+    window.localStorage.setItem(
+      dailyGridProgressKey(BOARD.board_id),
+      JSON.stringify(completedProgress()),
+    );
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    await vi.waitFor(() => expect(screen.getByTestId("complete-retention")).toBeInTheDocument());
+    const archive = loadArchive("2026-08-05");
+    expect(archive.total_completed).toBe(1);
+    expect(archive.entries[0].counted_for_streak).toBe(false);
+    expect(archive.current_streak).toBe(0);
+  });
+
+  it("points a finished replay back at today's grid instead of tomorrow", async () => {
+    window.localStorage.setItem(
+      dailyGridProgressKey(BOARD.board_id),
+      JSON.stringify(completedProgress()),
+    );
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const line = await screen.findByTestId("complete-come-back");
+    expect(line).toHaveTextContent(/That was an archive board/i);
+    expect(screen.getByTestId("complete-play-today")).toHaveAttribute("href", "/daily");
   });
 });

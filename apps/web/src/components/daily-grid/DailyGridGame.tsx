@@ -1,14 +1,31 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { HelpCircle } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { HelpCircle, History } from "lucide-react";
+import { useAuth } from "@/lib/auth-context";
+import { getAccessToken } from "@/lib/auth";
 import {
+  DailyGridArchive,
   DailyGridBoard,
   DailyGridProgress,
   GridResultResponse,
   PlayerSeasonSearchHit,
 } from "@/types/daily-grid";
-import { getDailyGridBoard, getDailyGridResult, submitDailyGridAnswer } from "@/lib/daily-grid-api";
+import {
+  getDailyGridBoard,
+  getDailyGridResult,
+  saveOfficialDailyGridResult,
+  submitDailyGridAnswer,
+} from "@/lib/daily-grid-api";
+import {
+  buildArchiveEntry,
+  isCanonicalToday,
+  loadArchive,
+  recordCompletedBoard,
+  reportableElapsedSeconds,
+  saveArchive,
+} from "@/lib/daily-grid-archive";
 import {
   TOTAL_CELLS,
   elapsedMs,
@@ -114,12 +131,27 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   // derived from `progress.started_at`, never accumulated here -- this state
   // exists only to make the displayed number move.
   const [, setClockTick] = useState(0);
+  // The local archive. `null` until the localStorage read happens in an effect,
+  // for the same hydration reason as `showGate`.
+  const [archive, setArchive] = useState<DailyGridArchive | null>(null);
+  // Whether this board also has a durable, server-validated copy. Only ever
+  // true for a signed-in player; drives one honest badge, nothing else.
+  const [officialSaved, setOfficialSaved] = useState(false);
+  // The board whose official save has already been attempted, so a re-render
+  // (or the archive effect firing again) cannot re-POST it.
+  const officialSavedRef = useRef<string | null>(null);
+  const { user } = useAuth();
 
   // --- rules gate ---------------------------------------------------------
   useEffect(() => {
     if (skipRulesGate) return;
     setShowGate(!hasSeenRules());
   }, [skipRulesGate]);
+
+  // --- local archive ------------------------------------------------------
+  useEffect(() => {
+    setArchive(loadArchive());
+  }, []);
 
   // --- board + restore ----------------------------------------------------
   useEffect(() => {
@@ -193,6 +225,65 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
     return () => {
       cancelled = true;
     };
+  }, [board, progress, result]);
+
+  // --- official (account-backed) save --------------------------------------
+  // Best-effort and strictly additive: a signed-in player gets a durable,
+  // server-validated copy of the result; an anonymous one keeps the local
+  // archive, which is the whole product for them. A failure here is swallowed
+  // on purpose -- the score is already on screen and correct, and an error
+  // banner about a background copy would be noise in front of someone who just
+  // finished a grid. Guarded by a ref so a re-render cannot re-POST.
+  useEffect(() => {
+    if (!board || !progress || !result || !user) return;
+    if (officialSavedRef.current === board.board_id) return;
+    officialSavedRef.current = board.board_id;
+
+    let cancelled = false;
+    (async () => {
+      const token = await getAccessToken();
+      if (!token || cancelled) return;
+      try {
+        await saveOfficialDailyGridResult(
+          {
+            date: board.date,
+            filled: progress.filled.map((c) => ({
+              row: c.row,
+              col: c.col,
+              answer_id: c.player_season.id,
+            })),
+            incorrect_attempts: progress.incorrect_attempts,
+            elapsed_seconds: reportableElapsedSeconds(progress),
+            theme: board.theme,
+          },
+          token,
+        );
+        if (!cancelled) setOfficialSaved(true);
+      } catch {
+        // Intentionally silent -- see above. The next completed board will try
+        // again on its own.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [board, progress, result, user]);
+
+  // --- record the finished board into the local archive --------------------
+  // Runs on completion and again when the comparison lands a moment later.
+  // `recordCompletedBoard` replaces by board_id, so the second pass UPGRADES
+  // the row with today's max and the grade rather than adding a duplicate --
+  // which is also what makes this safe to re-run on every mount of a finished
+  // board. Uses a functional update so `archive` stays out of the dependency
+  // array and cannot drive a render loop.
+  useEffect(() => {
+    if (!board || !progress || !isComplete(progress)) return;
+    setArchive((current) => {
+      const base = current ?? loadArchive();
+      const next = recordCompletedBoard(base, buildArchiveEntry(board, progress, result));
+      saveArchive(next);
+      return next;
+    });
   }, [board, progress, result]);
 
   const handleSelect = useCallback((row: number, col: number) => {
@@ -305,9 +396,39 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
 
   const complete = isComplete(progress);
   const selectedFilled = selected ? findFilled(progress, selected.row, selected.col) : null;
+  // A board reached through ?date= that is not today's. Fully playable, but
+  // labelled, and it never touches the live streak (see daily-grid-archive.ts).
+  const isArchiveBoard = !isCanonicalToday(board.date);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-3 pb-16 pt-6 sm:px-4">
+      {isArchiveBoard && (
+        <div
+          data-testid="daily-grid-archive-banner"
+          role="note"
+          className="mb-4 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-3 py-2 text-xs"
+          style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-default)",
+            color: "var(--text-secondary)",
+          }}
+        >
+          <History size={13} aria-hidden="true" style={{ color: "var(--comp-tm)" }} />
+          <strong style={{ color: "var(--text-primary)" }}>Archive board · {board.date}.</strong>
+          <span>
+            You are replaying an earlier day. It is scored normally but does not count toward your
+            streak.
+          </span>
+          <Link
+            href="/daily"
+            data-testid="daily-grid-play-today"
+            className="font-semibold underline underline-offset-2"
+            style={{ color: "var(--peak-accent)" }}
+          >
+            Play today&rsquo;s grid
+          </Link>
+        </div>
+      )}
       <header>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -325,16 +446,38 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
               </strong>
             </p>
           </div>
-          <button
-            type="button"
-            data-testid="daily-grid-how-to-play"
-            onClick={() => setRulesPanelOpen(true)}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-            style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
-          >
-            <HelpCircle size={13} aria-hidden="true" />
-            How to play
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              href="/daily/history"
+              data-testid="daily-grid-history-link"
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+            >
+              <History size={13} aria-hidden="true" />
+              History
+              {/* The streak is the reason to look, so it rides on the link
+                  rather than needing its own tile in an already-full bar. */}
+              {archive && archive.current_streak > 0 && (
+                <span
+                  data-testid="daily-grid-streak-chip"
+                  className="rounded-full px-1.5 py-px text-[10px] font-bold"
+                  style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent)" }}
+                >
+                  {archive.current_streak}d
+                </span>
+              )}
+            </Link>
+            <button
+              type="button"
+              data-testid="daily-grid-how-to-play"
+              onClick={() => setRulesPanelOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+            >
+              <HelpCircle size={13} aria-hidden="true" />
+              How to play
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 flex flex-wrap items-stretch gap-2">
@@ -454,6 +597,9 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
               progress={progress}
               result={result}
               resultError={resultError}
+              archive={archive}
+              isArchiveBoard={isArchiveBoard}
+              officialSaved={officialSaved}
             />
           )}
         </div>

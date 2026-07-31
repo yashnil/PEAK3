@@ -12,6 +12,8 @@ import {
   DailyGridSearchResponse,
   GridResultRequest,
   GridResultResponse,
+  OfficialResultRequest,
+  OfficialResultResponse,
   SubmitAnswerRequest,
   SubmitAnswerResponse,
 } from "@/types/daily-grid";
@@ -38,6 +40,15 @@ function parseErrorDetail(detail: unknown, status: number): { message: string; c
   return { message: `HTTP ${status}` };
 }
 
+/** What the UI says when the server rate-limits a Daily Grid request.
+ *
+ *  The server's own 429 body is deliberately vague (see the router's
+ *  `_enforce`), so the client supplies the sentence a player needs rather than
+ *  rendering "HTTP 429" at them. Exported so tests assert the exact copy the
+ *  player sees. */
+export const RATE_LIMITED_MESSAGE =
+  "You're searching faster than the grid allows. Wait a moment and try again — your board is safe.";
+
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
     headers: { "Content-Type": "application/json", ...options.headers },
@@ -47,6 +58,14 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   const json = await res.json().catch(() => ({ detail: "Unknown error" }));
   if (!res.ok) {
     const { message, code } = parseErrorDetail((json as { detail?: unknown }).detail, res.status);
+    if (res.status === 429) {
+      // A rate limit is a "wait", not a failure: the board, the locked picks
+      // and the timer are all untouched, and saying so stops it reading as
+      // data loss. Retry-After is intentionally not surfaced -- a countdown
+      // to the next allowed request is the calibration signal the server
+      // withholds on purpose.
+      throw new DailyGridAPIError(429, RATE_LIMITED_MESSAGE, code ?? "rate_limited");
+    }
     throw new DailyGridAPIError(res.status, message, code);
   }
   return json as T;
@@ -112,6 +131,29 @@ export async function getDailyGridResult(body: GridResultRequest): Promise<GridR
   return apiFetch<GridResultResponse>("/daily-grid/result", {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Save the completed board as this account's OFFICIAL result for the day.
+ *
+ * Signed-in only, and additive: an anonymous player's local archive is the
+ * whole product for them, and nothing about play is gated on this succeeding.
+ * The caller treats a failure as a no-op — the result screen has already shown
+ * the real score, and losing the durable copy is not worth an error state in
+ * front of a player who just finished a grid.
+ *
+ * The server recomputes every stored number from the board; the request body
+ * carries no score, so there is nothing here for a client to inflate.
+ */
+export async function saveOfficialDailyGridResult(
+  body: OfficialResultRequest,
+  accessToken: string,
+): Promise<OfficialResultResponse> {
+  return apiFetch<OfficialResultResponse>("/daily-grid/official", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
 }
 

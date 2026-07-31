@@ -61,6 +61,12 @@ DEFAULT_LIMIT = 25
 MAX_LIMIT = 50
 MIN_QUERY_LENGTH = 2
 
+# Longest query worth evaluating, enforced here as well as at the route's own
+# `max_length`. The route bound protects the transport; this one protects the
+# scan, and keeping it in the module means a future caller that bypasses the
+# route cannot reintroduce the cost. No real player name approaches it.
+MAX_QUERY_LENGTH = 100
+
 # The four statuses a hit can carry. See the module docstring.
 STATUS_AVAILABLE = "available"
 STATUS_USED = "used"
@@ -133,7 +139,18 @@ class SearchHit:
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"[^a-z0-9 ]+", " ", str(text).lower()).strip()
+    """Fold a raw query to the comparable form used for matching.
+
+    Phase 11D added the length clamp and the whitespace collapse. Both are
+    input hygiene rather than matching behaviour: without them, `"a" * 5000`
+    and `"jordan" + " " * 4000` are distinct cache-busting strings that each
+    cost a full scan of the pool, which makes the search endpoint a cheap way
+    to spend server CPU. Neither changes the result of any query a person
+    would type -- runs of separators already collapsed to spaces here, and a
+    name longer than the clamp is not a name.
+    """
+    folded = re.sub(r"[^a-z0-9 ]+", " ", str(text)[:MAX_QUERY_LENGTH].lower())
+    return re.sub(r"\s+", " ", folded).strip()
 
 
 def _season_matches(season: str, token: str) -> bool:

@@ -1,8 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { Clock, Crown, Target } from "lucide-react";
-import { DailyGridBoard, DailyGridProgress, GridResultResponse, ResultCell } from "@/types/daily-grid";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { CalendarClock, Clock, Crown, Target } from "lucide-react";
+import {
+  DailyGridArchive,
+  DailyGridBoard,
+  DailyGridProgress,
+  GridResultResponse,
+  ResultCell,
+} from "@/types/daily-grid";
 import {
   CellGrade,
   TOTAL_CELLS,
@@ -14,6 +21,8 @@ import {
   resultGrade,
   totalArenaPoints,
 } from "@/lib/daily-grid-state";
+import { formatCountdown, msUntilNextBoard, recentEntries } from "@/lib/daily-grid-archive";
+import RecentResults from "./RecentResults";
 
 interface Props {
   board: DailyGridBoard;
@@ -23,6 +32,16 @@ interface Props {
    *  own totals rather than disappearing. */
   result?: GridResultResponse | null;
   resultError?: string | null;
+  /** The local archive, already updated with this board. Null until the
+   *  localStorage read completes; the retention block simply does not render
+   *  until then rather than flashing a zero streak. */
+  archive?: DailyGridArchive | null;
+  /** True when this is a replay of an earlier day, which changes what the
+   *  come-back-tomorrow line can honestly say. */
+  isArchiveBoard?: boolean;
+  /** True once the signed-in player's durable, server-validated copy exists.
+   *  Changes one label; never changes a number. */
+  officialSaved?: boolean;
 }
 
 /** Colour per square grade. Always paired with a number or a word on screen --
@@ -87,13 +106,30 @@ function ScoreTile({
  * percentile or "you beat X% of players": Phase 11C has no global leaderboard,
  * so any of those would be invented.
  */
-export default function CompletionPanel({ board, progress, result, resultError }: Props) {
+export default function CompletionPanel({
+  board,
+  progress,
+  result,
+  resultError,
+  archive,
+  isArchiveBoard,
+  officialSaved,
+}: Props) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  // Ticks once a minute so the countdown to the next board stays roughly
+  // right without a per-second timer for something hours away.
+  const [countdown, setCountdown] = useState<number | null>(null);
+  useEffect(() => {
+    const update = () => setCountdown(msUntilNextBoard());
+    update();
+    const id = window.setInterval(update, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const total = totalArenaPoints(progress);
-  const shareText = buildDailyGridShareText(board, progress, result);
+  const shareText = buildDailyGridShareText(board, progress, result, undefined, archive ?? null);
   const elapsed = elapsedMs(progress);
   // "today's maximum" is a provable claim; "PEAK3's best known" is not. Say
   // whichever one is actually true (see optimal.py's module docstring).
@@ -331,6 +367,144 @@ export default function CompletionPanel({ board, progress, result, resultError }
           {resultError} Your score still stands — the comparison against today&rsquo;s maximum could not be
           loaded.
         </p>
+      )}
+
+      {/* --- the daily loop ------------------------------------------------
+          Streak, history and the reason to come back. Everything here is read
+          from this browser's own storage, and says so: there is no rank, no
+          percentile and no comparison to other players, because none of that
+          exists yet and inventing it would be the one thing that makes the
+          rest of this screen untrustworthy. */}
+      {archive && (
+        <div
+          data-testid="complete-retention"
+          className="mt-4 rounded-lg p-3"
+          style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <p
+              className="text-[10px] font-bold uppercase tracking-[0.14em]"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Your Daily Grid record
+            </p>
+            {/* Says exactly which of the two things is true, and neither
+                implies a ranking. A signed-in player's result is durable and
+                server-validated; an anonymous one's lives in this browser. */}
+            <span
+              data-testid="complete-local-only"
+              data-official={officialSaved ? "true" : "false"}
+              className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.06em]"
+              style={
+                officialSaved
+                  ? { background: "var(--correct-bg)", color: "var(--correct)" }
+                  : { background: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }
+              }
+              title={
+                officialSaved
+                  ? "Saved to your account and validated by the server. Not ranked against other players."
+                  : "Stored in this browser only. Not an account, not a global ranking."
+              }
+            >
+              {officialSaved ? "Saved to your account" : "Saved on this device"}
+            </span>
+          </div>
+
+          <div className="mt-2 flex gap-2">
+            <div className="card-surface flex-1 px-2 py-2 text-center">
+              <p
+                data-testid="complete-current-streak"
+                className="score-number font-display text-xl font-bold leading-none"
+                style={{ color: "var(--peak-accent)" }}
+              >
+                {archive.current_streak}
+              </p>
+              <p
+                className="mt-1 text-[9px] font-bold uppercase tracking-[0.1em]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Day streak
+              </p>
+            </div>
+            <div className="card-surface flex-1 px-2 py-2 text-center">
+              <p
+                data-testid="complete-longest-streak"
+                className="score-number font-display text-xl font-bold leading-none"
+              >
+                {archive.longest_streak}
+              </p>
+              <p
+                className="mt-1 text-[9px] font-bold uppercase tracking-[0.1em]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Longest
+              </p>
+            </div>
+            <div className="card-surface flex-1 px-2 py-2 text-center">
+              <p
+                data-testid="complete-total-played"
+                className="score-number font-display text-xl font-bold leading-none"
+              >
+                {archive.total_completed}
+              </p>
+              <p
+                className="mt-1 text-[9px] font-bold uppercase tracking-[0.1em]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Grids played
+              </p>
+            </div>
+          </div>
+
+          <p
+            data-testid="complete-come-back"
+            className="mt-3 flex flex-wrap items-center gap-1.5 text-xs"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+            {isArchiveBoard ? (
+              <>
+                <strong style={{ color: "var(--text-primary)" }}>That was an archive board.</strong>
+                <Link
+                  href="/daily"
+                  data-testid="complete-play-today"
+                  className="font-semibold underline underline-offset-2"
+                  style={{ color: "var(--peak-accent)" }}
+                >
+                  Play today&rsquo;s grid
+                </Link>
+                <span>to keep your streak going.</span>
+              </>
+            ) : (
+              <>
+                <strong style={{ color: "var(--text-primary)" }}>
+                  Come back tomorrow for a new grid.
+                </strong>
+                {countdown !== null && <span>Next board in {formatCountdown(countdown)}.</span>}
+              </>
+            )}
+          </p>
+
+          {archive.entries.length > 1 && (
+            <div className="mt-3">
+              <p
+                className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.14em]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Recent grids
+              </p>
+              <RecentResults entries={recentEntries(archive, 3)} />
+              <Link
+                href="/daily/history"
+                data-testid="complete-history-link"
+                className="mt-2 inline-block text-[11px] font-semibold underline-offset-2 hover:underline"
+                style={{ color: "var(--peak-accent)" }}
+              >
+                See all {archive.total_completed} grids
+              </Link>
+            </div>
+          )}
+        </div>
       )}
 
       <p className="mt-4 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>

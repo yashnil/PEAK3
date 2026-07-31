@@ -28,21 +28,58 @@ const FIXED_DATE = "2026-03-14";
 
 const DAILY_URL = `/daily?date=${FIXED_DATE}`;
 
-/** Full names, so each query stays under the search's identity gate (a bare
- * surname like "James" or "Jordan" matches too many players and comes back
- * deliberately unflagged). Spread across eras and positions so that whatever
- * six constraints the board rolls, something here fits somewhere. */
+/** Full names, so each query names ONE identity and therefore always earns an
+ * eligibility verdict (a bare surname can match enough qualifying players to
+ * trip the reveal cap and come back deliberately unflagged).
+ *
+ * Derived empirically rather than guessed: these are the players a greedy
+ * distinct-player solver actually reaches for across 200 consecutive generated
+ * boards, so the list covers every era, position and franchise the taxonomy
+ * puts on an axis. A hand-picked "all-time greats" list is not enough -- a
+ * board can pair a franchise with a decade in a way only a role player
+ * satisfies, which is exactly how this helper failed before. */
 const PROBE_NAMES = [
-  "Michael Jordan", "Hakeem Olajuwon", "Magic Johnson", "Larry Bird",
-  "Kareem Abdul-Jabbar", "Tim Duncan", "Shaquille O'Neal", "Kobe Bryant",
-  "Kevin Garnett", "Dirk Nowitzki", "Charles Barkley", "Karl Malone",
-  "David Robinson", "Patrick Ewing", "Scottie Pippen", "John Stockton",
-  "Allen Iverson", "Jason Kidd", "Steve Nash", "Dwyane Wade",
-  "Chris Paul", "Dwight Howard", "Kevin Durant", "Stephen Curry",
-  "Russell Westbrook", "James Harden", "Giannis Antetokounmpo", "Nikola Jokic",
-  "Isiah Thomas", "Clyde Drexler", "Gary Payton", "Reggie Miller",
-  "Alonzo Mourning", "Chris Webber", "Ray Allen", "Paul Pierce",
-  "Carmelo Anthony", "Pau Gasol", "Tony Parker", "Manu Ginobili",
+  "Michael Jordan", "LeBron James", "Shaquille O'Neal", "Tim Duncan",
+  "Stephen Curry", "Nikola Jokic", "Giannis Antetokounmpo", "Kevin Durant",
+  "David Robinson", "Victor Wembanyama", "Shai Gilgeous-Alexander", "Magic Johnson",
+  "Kevin Garnett", "Hakeem Olajuwon", "Larry Bird", "Charles Barkley",
+  "Chauncey Billups", "Chris Webber", "Patrick Ewing", "Paul George",
+  "Luka Doncic", "Karl Malone", "Domantas Sabonis", "Chris Paul",
+  "Grant Hill", "Dominique Wilkins", "Kawhi Leonard", "Dwight Howard",
+  "Reggie Miller", "Bernard King", "Jason Kidd", "Moses Malone",
+  "Clyde Drexler", "Damian Lillard", "Tyrese Haliburton", "Karl-Anthony Towns",
+  "Trae Young", "John Stockton", "Eddie Jones", "Kevin McHale",
+  "Gilbert Arenas", "Dikembe Mutombo", "Tracy McGrady", "Russell Westbrook",
+  "John Wall", "Isaiah Thomas", "Glen Rice", "Isiah Thomas",
+  "Steve Nash", "Kevin Love", "Kareem Abdul-Jabbar", "Rudy Gobert",
+  "Derrick Rose", "Dwyane Wade", "Manu Ginobili", "Marc Gasol",
+  "Peja Stojakovic", "Sidney Moncrief", "Jeff Ruland", "Ben Wallace",
+  "Scottie Pippen", "Anthony Davis", "Adrian Dantley", "Pau Gasol",
+  "Ray Allen", "Brook Lopez", "Joel Embiid", "Alonzo Mourning",
+  "Carmelo Anthony", "Terry Porter", "Kemba Walker", "James Harden",
+  "Vince Carter", "Kyrie Irving", "Blake Griffin", "Shareef Abdur-Rahim",
+  "Mitch Richmond", "Draymond Green", "Jayson Tatum", "Franz Wagner",
+  "DeMarcus Cousins", "Chris Mullin", "Luol Deng", "Gus Williams",
+  "Gary Payton", "Jalen Brunson", "Zach LaVine", "Goran Dragic",
+  "Allen Iverson", "Dana Barros", "Hassan Whiteside", "Kevin Johnson",
+  "Ja Morant", "Mark Williams", "Marcus Camby", "Larry Hughes",
+  "Chris Bosh", "Shawn Marion", "Anfernee Hardaway", "Derrick Coleman",
+  "Muggsy Bogues", "Stephon Marbury", "Dirk Nowitzki", "Metta World Peace",
+  "Brandon Roy", "Dennis Rodman", "Victor Oladipo", "Amar'e Stoudemire",
+  "DeAndre Jordan", "Terrell Brandon", "Mike Conley", "Zach Randolph",
+  "Marques Johnson", "Kristaps Porzingis", "Elton Brand", "Nic Claxton",
+  "Sherman Douglas", "Tyson Chandler", "Artis Gilmore", "Baron Davis",
+  "Gerald Wallace", "Billy Knight", "Danny Manning", "Josh Smith",
+  "Jimmy Butler", "Joakim Noah", "Jack Sikma", "Jalen Duren",
+  "Robert Williams", "Kobe Bryant", "Kyle Lowry", "Donovan Mitchell",
+  "De'Aaron Fox", "Bob Lanier", "Andrei Kirilenko", "Otis Birdsong",
+  "Horace Grant", "Paul Millsap", "Terry Cummings", "Chet Holmgren",
+  "Mark Aguirre", "Derek Harper", "Detlef Schrempf", "Nikola Vucevic",
+  "Julius Erving", "Darrell Armstrong", "Mookie Blaylock", "Arvydas Sabonis",
+  "Sam Cassell", "Doc Rivers", "Dan Roundfield", "Ryan Anderson",
+  "Daniel Gafford", "Jusuf Nurkic", "Otis Smith", "Paul Pierce",
+  "Al Horford", "Larry Nance", "George Gervin", "OG Anunoby",
+  "Klay Thompson", "Rasheed Wallace", "Alex English", "Fat Lever",
 ];
 
 interface FillTarget {
@@ -112,7 +149,10 @@ interface SolvedCell {
   cell_score: { arena_points: number };
 }
 
-async function solveBoardViaApi(request: APIRequestContext): Promise<SolvedCell[]> {
+async function solveBoardViaApi(
+  request: APIRequestContext,
+  date: string = FIXED_DATE,
+): Promise<SolvedCell[]> {
   const filled: SolvedCell[] = [];
   const used: string[] = [];
 
@@ -124,7 +164,7 @@ async function solveBoardViaApi(request: APIRequestContext): Promise<SolvedCell[
         // query parameter and Playwright's params object cannot express one.
         const query = new URLSearchParams({
           q: playerName,
-          date: FIXED_DATE,
+          date,
           row: String(row),
           col: String(col),
           limit: "50",
@@ -144,7 +184,7 @@ async function solveBoardViaApi(request: APIRequestContext): Promise<SolvedCell[
 
         const answer = await request.post(`${API_BASE}/api/v1/daily-grid/answer`, {
           data: {
-            date: FIXED_DATE,
+            date,
             row,
             col,
             answer_id: fits.id,
@@ -162,7 +202,7 @@ async function solveBoardViaApi(request: APIRequestContext): Promise<SolvedCell[
       }
       if (!locked) {
         throw new Error(
-          `no distinct-player answer found for square (${row}, ${col}) on ${FIXED_DATE}`,
+          `no distinct-player answer found for square (${row}, ${col}) on ${date}`,
         );
       }
     }
@@ -901,5 +941,304 @@ test.describe("Daily Grid — completed result screen", () => {
     expect(copied).toContain("# best  + close  - fair  . weak");
     expect(copied).toContain("peak3.app/daily");
     expect(copied).not.toMatch(/percentile|leaderboard/i);
+  });
+});
+
+/**
+ * Phase 11D: the daily loop, end to end. Completing a board leaves a streak, a
+ * record and a reason to come back — and none of it may imply a ranking.
+ */
+test.describe("Daily Grid — streak, history and the daily loop", () => {
+  /** Seed a completed archive for `days` consecutive days ending at `endDate`,
+   *  plus the rules-seen flag. Written through the same shape the app stores,
+   *  so the page reads it exactly as it would its own writes. */
+  async function seedArchive(page: Page, endDate: string, days: number): Promise<void> {
+    await page.addInitScript(
+      ([end, count]) => {
+        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        const entries = [];
+        for (let i = 0; i < (count as number); i += 1) {
+          const d = new Date(`${end}T00:00:00Z`);
+          d.setUTCDate(d.getUTCDate() - i);
+          const date = d.toISOString().slice(0, 10);
+          entries.push({
+            board_id: `daily-grid-v2-${date}`,
+            date,
+            theme: "Award Season",
+            difficulty: "medium",
+            started_at: `${date}T12:00:00.000Z`,
+            completed_at: `${date}T12:06:00.000Z`,
+            elapsed_seconds: 360,
+            score: 640,
+            today_max: 800,
+            percent_of_max: 80,
+            grade: "Strong Run",
+            misses: 1,
+            filled_count: 9,
+            counted_for_streak: true,
+            picks: [],
+          });
+        }
+        window.localStorage.setItem(
+          "peak3.daily-grid.archive",
+          JSON.stringify({
+            schema_version: 1,
+            entries,
+            current_streak: count,
+            longest_streak: count,
+            total_completed: count,
+            last_streak_date: end,
+            best_percent_of_max: 80,
+            best_score: 640,
+          }),
+        );
+      },
+      [endDate, days] as const,
+    );
+  }
+
+  /** Today's UTC date, the way the app computes it. */
+  function todayUtc(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  test("a completed board shows the streak, the record and a come-back prompt", async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    const today = todayUtc();
+    const filled = await solveBoardViaApi(request, today);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: today } })
+    ).json();
+
+    // Two prior days, so finishing today makes it three in a row.
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    await seedArchive(page, yesterday, 2);
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 1,
+            started_at: new Date(Date.now() - 300_000).toISOString(),
+            completed_at: new Date().toISOString(),
+          }),
+        );
+      },
+      [board.board_id, today, filled] as const,
+    );
+
+    await page.goto("/daily", { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+
+    const retention = page.getByTestId("complete-retention");
+    await expect(retention).toBeVisible();
+    await expect(page.getByTestId("complete-current-streak")).toHaveText("3");
+    await expect(page.getByTestId("complete-longest-streak")).toHaveText("3");
+    await expect(page.getByTestId("complete-total-played")).toHaveText("3");
+    await expect(page.getByTestId("complete-come-back")).toContainText(/come back tomorrow/i);
+    await expect(page.getByTestId("complete-come-back")).toContainText(/next board in/i);
+    await expect(page.getByTestId("recent-results")).toBeVisible();
+
+    // Local-only, and no invented standing anywhere on the screen.
+    await expect(page.getByTestId("complete-local-only")).toContainText(/this device/i);
+    await expect(page.getByTestId("daily-grid-complete")).not.toContainText(
+      /percentile|leaderboard|global rank/i,
+    );
+  });
+
+  test("a refresh preserves the completed result and the streak", async ({ page, request }) => {
+    test.slow();
+    const today = todayUtc();
+    const filled = await solveBoardViaApi(request, today);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: today } })
+    ).json();
+
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 0,
+            started_at: new Date(Date.now() - 300_000).toISOString(),
+            completed_at: new Date().toISOString(),
+          }),
+        );
+      },
+      [board.board_id, today, filled] as const,
+    );
+
+    await page.goto("/daily", { waitUntil: "load" });
+    await expect(page.getByTestId("complete-current-streak")).toHaveText("1", { timeout: 15_000 });
+    const score = await page.getByTestId("complete-total-score").textContent();
+
+    await page.reload({ waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("complete-total-score")).toHaveText(score!);
+    // Still one, not two -- re-mounting a finished board must not re-count it.
+    await expect(page.getByTestId("complete-current-streak")).toHaveText("1");
+    await expect(page.getByTestId("complete-total-played")).toHaveText("1");
+  });
+
+  test("an archive board is labelled and does not touch the live streak", async ({
+    page,
+    request,
+  }) => {
+    test.slow();
+    const filled = await solveBoardViaApi(request);
+    const board = await (
+      await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: FIXED_DATE } })
+    ).json();
+
+    // A live 4-day streak ending yesterday.
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    await seedArchive(page, yesterday, 4);
+    await page.addInitScript(
+      ([boardId, date, cells]) => {
+        window.localStorage.setItem(
+          `peak3.daily-grid.${boardId}`,
+          JSON.stringify({
+            board_id: boardId,
+            date,
+            schema_version: 3,
+            filled: cells,
+            incorrect_attempts: 0,
+            started_at: "2026-03-14T12:00:00.000Z",
+            completed_at: "2026-03-14T12:05:00.000Z",
+          }),
+        );
+      },
+      [board.board_id, FIXED_DATE, filled] as const,
+    );
+
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+
+    const banner = page.getByTestId("daily-grid-archive-banner");
+    await expect(banner).toBeVisible({ timeout: 15_000 });
+    await expect(banner).toContainText(FIXED_DATE);
+    await expect(banner).toContainText(/does not count toward your streak/i);
+
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible();
+    // The streak is still the 4 that were already there -- the replay was
+    // recorded (5 boards) but earned nothing.
+    await expect(page.getByTestId("complete-current-streak")).toHaveText("4");
+    await expect(page.getByTestId("complete-total-played")).toHaveText("5");
+    await expect(page.getByTestId("complete-come-back")).toContainText(/archive board/i);
+    await expect(page.getByTestId("complete-play-today")).toHaveAttribute("href", "/daily");
+  });
+
+  test("today's board is never labelled as an archive", async ({ page }) => {
+    await skipRules(page);
+    await page.goto("/daily", { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("daily-grid-archive-banner")).toHaveCount(0);
+  });
+});
+
+test.describe("Daily Grid — history page", () => {
+  test("shows an honest empty state for a new player", async ({ page }) => {
+    await skipRules(page);
+    await page.goto("/daily/history", { waitUntil: "load" });
+
+    await expect(page.getByTestId("daily-history-current-streak")).toHaveText("0", {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("daily-history-total")).toHaveText("0");
+    await expect(page.getByTestId("recent-results-empty")).toBeVisible();
+    await expect(page.getByTestId("daily-history-today")).toContainText(/not played today/i);
+    await expect(page.getByTestId("daily-history-play-today")).toHaveAttribute("href", "/daily");
+  });
+
+  test("lists completed grids and says plainly that they are local", async ({ page }) => {
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    await page.addInitScript(
+      ([end]) => {
+        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        const entries = [];
+        for (let i = 0; i < 3; i += 1) {
+          const d = new Date(`${end}T00:00:00Z`);
+          d.setUTCDate(d.getUTCDate() - i);
+          const date = d.toISOString().slice(0, 10);
+          entries.push({
+            board_id: `daily-grid-v2-${date}`,
+            date,
+            theme: "Ring Chasers",
+            difficulty: "hard",
+            started_at: `${date}T12:00:00.000Z`,
+            completed_at: `${date}T12:06:00.000Z`,
+            elapsed_seconds: 360,
+            score: 700,
+            today_max: 800,
+            percent_of_max: 87.5,
+            grade: "Strong Run",
+            misses: 2,
+            filled_count: 9,
+            counted_for_streak: true,
+            picks: [],
+          });
+        }
+        window.localStorage.setItem(
+          "peak3.daily-grid.archive",
+          JSON.stringify({
+            schema_version: 1,
+            entries,
+            current_streak: 3,
+            longest_streak: 3,
+            total_completed: 3,
+            last_streak_date: end,
+            best_percent_of_max: 87.5,
+            best_score: 700,
+          }),
+        );
+      },
+      [yesterday] as const,
+    );
+
+    await page.goto("/daily/history", { waitUntil: "load" });
+
+    await expect(page.getByTestId("daily-history-current-streak")).toHaveText("3", {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("daily-history-longest-streak")).toHaveText("3");
+    await expect(page.getByTestId("daily-history-total")).toHaveText("3");
+    await expect(page.getByTestId("daily-history-best-percent")).toHaveText("87.5%");
+    await expect(page.getByTestId("recent-results-row")).toHaveCount(3);
+
+    // Honest about what this is, and claims no ranking. Scoped to the results
+    // list rather than <main>: the page's own nav legitimately links to
+    // Rankings, and matching site chrome would make this assert nothing.
+    await expect(page.getByTestId("daily-history-local-notice")).toContainText(/this browser/i);
+    await expect(page.getByTestId("recent-results")).not.toContainText(
+      /percentile|leaderboard|global rank|#\d+/i,
+    );
+
+    // A row links back to that day's board.
+    await expect(page.getByTestId("recent-results-row").first().locator("a")).toHaveAttribute(
+      "href",
+      /\/daily\?date=\d{4}-\d{2}-\d{2}/,
+    );
+  });
+
+  test("is reachable from the grid", async ({ page }) => {
+    await skipRules(page);
+    await page.goto("/daily", { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId("daily-grid-history-link").click();
+    await expect(page.getByTestId("daily-history-total")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("daily-history-back").click();
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
   });
 });

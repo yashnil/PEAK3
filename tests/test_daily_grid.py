@@ -55,6 +55,8 @@ from nba_peak.daily_grid.scoring import (
     score_cell,
 )
 from nba_peak.daily_grid.search import (
+    MAX_LIMIT,
+    MAX_QUERY_LENGTH,
     MAX_REVEALED_ELIGIBLE_IDENTITIES,
     STATUS_AVAILABLE,
     STATUS_NO_FIT,
@@ -689,6 +691,44 @@ class TestScoring:
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
+
+class TestSearchInputHygiene:
+    """Phase 11D. Normalization is input hygiene, not matching behaviour: it
+    must not change the result of any query a person would type, and it must
+    stop a caller manufacturing thousands of distinct-looking full-pool scans."""
+
+    def test_a_pathological_query_is_clamped_before_the_scan(self, pool):
+        # Without the clamp, "a" * 5000 is a distinct string that costs a full
+        # scan of the pool -- a cheap way to spend server CPU.
+        long_query = "olajuwon" + "z" * 5000
+        assert len(long_query) > MAX_QUERY_LENGTH
+        hits = search_player_seasons(long_query, pool=pool, limit=5)
+        # Clamped to the first MAX_QUERY_LENGTH characters, which still starts
+        # with a real name, so the query behaves like the name it contains.
+        assert isinstance(hits, list)
+
+    def test_padding_does_not_create_a_distinct_query(self, pool):
+        plain = [h.player_season.id for h in search_player_seasons("olajuwon", pool=pool)]
+        for variant in ("  olajuwon  ", "olajuwon...", "--olajuwon--", "olajuwon\t\n"):
+            assert [
+                h.player_season.id for h in search_player_seasons(variant, pool=pool)
+            ] == plain, variant
+
+    def test_internal_whitespace_collapses(self, pool):
+        spaced = search_player_seasons("hakeem     olajuwon", pool=pool)
+        plain = search_player_seasons("hakeem olajuwon", pool=pool)
+        assert [h.player_season.id for h in spaced] == [h.player_season.id for h in plain]
+        assert spaced
+
+    def test_the_response_stays_capped_however_large_the_limit(self, pool):
+        hits = search_player_seasons("ja", pool=pool, limit=10_000)
+        assert len(hits) <= MAX_LIMIT
+
+    def test_a_query_below_the_minimum_returns_nothing(self, pool):
+        # Not an error -- a half-typed name is just not a query yet.
+        for short in ("", " ", "j", "  .  "):
+            assert search_player_seasons(short, pool=pool) == [], repr(short)
+
 
 class TestSearch:
     def test_finds_a_player_by_name(self, pool):
