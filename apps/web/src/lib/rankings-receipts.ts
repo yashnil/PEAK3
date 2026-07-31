@@ -194,7 +194,7 @@ function individualRecognition(explain: RankingExplain | null): ComponentReceipt
 }
 
 /**
- * Postseason Value — the component reviewers most often read as broken.
+ * Playoff Rate Impact — the component reviewers most often read as broken.
  *
  * The served block carries the SAMPLE (games, minutes, series) but not the
  * playoff rate statistics, so this describes what is knowable and then explains
@@ -234,13 +234,13 @@ function postseasonValue(
   } else if (contribution !== null && contribution > 0) {
     note =
       "This component rewards individual playoff performance, not winning. Rounds reached and " +
-      "titles are scored separately under Team Achievement.";
+      "titles are scored separately under Team Result.";
   }
 
   return { key: "postseason_individual_value", evidence, note };
 }
 
-/** Team Achievement — how far the team went, and the 3% ceiling. */
+/** Team Result — how far the team went, and the 3% ceiling. */
 function teamAchievement(explain: RankingExplain | null): ComponentReceipt {
   const championship = num(explain?.team_context, "championship");
   const finals = num(explain?.team_context, "finals_appearance");
@@ -252,18 +252,18 @@ function teamAchievement(explain: RankingExplain | null): ComponentReceipt {
   if (championship === 1) {
     evidence = "This team won the title.";
     note =
-      "Team Achievement is weighted at 3% — a maximum of 3.0 points — so a championship cannot " +
+      "Team Result is weighted at 3% — a maximum of 3.0 points — so a championship cannot " +
       "close a meaningful individual gap.";
   } else if (finals === 1) {
     evidence = "This team reached the Finals without winning it.";
   } else if (madePlayoffs === 1) {
     evidence = "This team made the playoffs but did not reach the Finals.";
     note =
-      "A first-round exit scores exactly zero here: Team Achievement only rewards winning a " +
+      "A first-round exit scores exactly zero here: Team Result only rewards winning a " +
       "series or better.";
   } else if (madePlayoffs === 0) {
     evidence = "This team did not reach the playoffs.";
-    note = "No playoffs means zero Team Achievement by definition.";
+    note = "No playoffs means zero Team Result by definition.";
   }
 
   return { key: "team_achievement", evidence, note };
@@ -326,7 +326,7 @@ export function buildHeldBack(
   if (madePlayoffs === 1 && championship !== 1 && finals !== 1) {
     const team = contributions.team_achievement ?? null;
     if (team === null || team < 1.5) {
-      out.push("Team Achievement is low: this team did not reach the Finals.");
+      out.push("Team Result is low: this team did not reach the Finals.");
     }
   }
 

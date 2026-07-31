@@ -25,8 +25,8 @@ export default function AboutPage() {
           </p>
           <p className="mt-3">
             The formula weighs five components: Statistical Impact (38%), Traditional
-            Production (21%), Individual Recognition (20%), Postseason Individual Value
-            (18%), and Team Achievement (3%). A small teammate adjustment (±0.5) accounts
+            Production (21%), Individual Recognition (20%), Playoff Rate Impact
+            (18%), and Team Result (3%). A small teammate adjustment (±0.5) accounts
             for surrounding talent.
           </p>
         </Section>

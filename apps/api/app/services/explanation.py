@@ -1,12 +1,18 @@
 """Deterministic explanation generation for PEAK3 duel results."""
 from __future__ import annotations
 
+# Phase 12B: the last two were renamed to say what they COMPUTE rather than
+# what they are for. "Postseason Value" read as "how much the postseason
+# mattered" when the component is a per-possession playoff rate measure, and
+# "Team Achievement" read as unbounded credit for winning when it is capped at
+# 3 points. Kept identical to the web `componentLabel()` map -- duel prose and
+# rankings receipts must never name the same component two different ways.
 COMPONENT_LABELS: dict[str, str] = {
     "statistical_impact": "Statistical Impact",
     "traditional_production": "Traditional Production",
     "individual_recognition": "Individual Recognition",
-    "postseason_individual_value": "Postseason Value",
-    "team_achievement": "Team Achievement",
+    "postseason_individual_value": "Playoff Rate Impact",
+    "team_achievement": "Team Result",
 }
 
 

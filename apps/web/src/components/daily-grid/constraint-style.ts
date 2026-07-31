@@ -7,7 +7,7 @@
 import { ConstraintCategory, RarityBucket } from "@/types/daily-grid";
 
 export const CATEGORY_COLOR: Record<ConstraintCategory, string> = {
-  team: "var(--comp-team)", // emerald -- Team Achievement
+  team: "var(--comp-team)", // emerald -- Team Result
   award: "var(--comp-rec)", // pink -- Individual Recognition
   era: "var(--comp-tm)", // slate -- neutral, era is not a component
   position: "var(--comp-po)", // orange

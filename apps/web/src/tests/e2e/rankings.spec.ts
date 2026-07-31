@@ -184,7 +184,9 @@ test.describe("Rankings — sorting", () => {
     await page.locator('[data-testid="pool-tab-seasons"]').click();
     await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
     await sortHeaderButton(page, "postseason_individual_value").click();
-    await expect(page.locator('[data-testid="active-sort-note"]')).toContainText(/postseason/i);
+    await expect(page.locator('[data-testid="active-sort-note"]')).toContainText(
+      /playoff rate impact/i,
+    );
   });
 
   test("the acronyms are spelled out somewhere on the page", async ({ page }) => {
@@ -193,7 +195,10 @@ test.describe("Rankings — sorting", () => {
     const legend = page.locator('[data-testid="rankings-legend"]');
     await expect(legend).toBeVisible();
     await expect(legend).toContainText(/statistical impact/i);
-    await expect(legend).toContainText(/postseason/i);
+    // "PO" expands to Playoff Rate Impact after the Phase 12B rename. The point
+    // of the test is that the abbreviation is spelled out, not which words it
+    // spells out to.
+    await expect(legend).toContainText(/playoff rate impact/i);
   });
 });
 
@@ -374,7 +379,7 @@ test.describe("Rankings — mobile", () => {
 /**
  * Phase 12A: the modal has to explain THIS row, not the formula in general.
  * The old modal produced near-identical prose for every player-season, which is
- * exactly what made a surprising Postseason Value unexplainable.
+ * exactly what made a surprising Playoff Rate Impact unexplainable.
  */
 test.describe("Rankings — row-specific receipts", () => {
   async function openFirstRow(page: import("@playwright/test").Page) {
@@ -401,7 +406,7 @@ test.describe("Rankings — row-specific receipts", () => {
     await expect(page.getByTestId("score-explain-receipt-team_achievement")).toBeVisible();
   });
 
-  test("explains what Postseason Value actually measures", async ({ page }) => {
+  test("explains what Playoff Rate Impact actually measures", async ({ page }) => {
     await openFirstRow(page);
     const note = page.getByTestId("score-explain-receipt-note-postseason_individual_value");
     await expect(note).toBeVisible({ timeout: 15_000 });
@@ -436,5 +441,64 @@ test.describe("Rankings — row-specific receipts", () => {
       (v) => v.impact === "critical" || v.impact === "serious",
     );
     expect(serious).toEqual([]);
+  });
+});
+
+/**
+ * Phase 12B: no finished season may be labelled as still being played.
+ *
+ * Both ranking generators hardcoded `_IN_PROGRESS_SEASON = "2025-26"`, so every
+ * 2025-26 row rendered "(in progress)" next to its label and carried a caveat
+ * saying its numbers were provisional. They were not — the season is complete
+ * in this dataset. The fix derives completion from the data (a champion and a
+ * Finals MVP exist) instead of a constant, and moved no score.
+ */
+test.describe("Rankings — season finalization", () => {
+  test("no row on any board is labelled in progress", async ({ page }) => {
+    await page.goto("/rankings", { waitUntil: "load" });
+    await expect(page.getByTestId("rankings-row").first()).toBeVisible({ timeout: 20_000 });
+
+    for (const tab of ["Peak Windows", "Single Seasons"]) {
+      const button = page.getByRole("button", { name: tab, exact: true });
+      if (await button.count()) {
+        await button.first().click();
+        await expect(page.getByTestId("rankings-row").first()).toBeVisible({ timeout: 15_000 });
+      }
+      const table = await page.getByTestId("rankings-table").innerText();
+      expect(table).not.toContain("(in progress)");
+    }
+  });
+
+  test("a 2025-26 row opens with final data and no provisional caveat", async ({ page }) => {
+    await page.goto("/rankings", { waitUntil: "load" });
+    await expect(page.getByTestId("rankings-row").first()).toBeVisible({ timeout: 20_000 });
+
+    // Find any 2025-26 row on the visible board; the season must be present —
+    // "fixing" the label by dropping the season would also pass a text check.
+    const row = page.getByTestId("rankings-row").filter({ hasText: "2025-26" }).first();
+    if (!(await row.count())) {
+      test.skip(true, "no 2025-26 row on the default board");
+    }
+    await row.click();
+
+    const modal = page.getByTestId("score-explain-modal");
+    await expect(modal).toBeVisible({ timeout: 15_000 });
+    const text = await modal.innerText();
+    expect(text).not.toContain("in progress");
+    expect(text).not.toMatch(/still being played|provisional/i);
+  });
+
+  test("the modal names the two renamed components", async ({ page }) => {
+    await page.goto("/rankings", { waitUntil: "load" });
+    const row = page.getByTestId("rankings-row").first();
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await row.click();
+    await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
+
+    const modal = await page.getByTestId("score-explain-modal").innerText();
+    expect(modal).toContain("Playoff Rate Impact");
+    expect(modal).toContain("Team Result");
+    expect(modal).not.toContain("Postseason Value");
+    expect(modal).not.toContain("Team Achievement");
   });
 });

@@ -91,8 +91,8 @@ export default function MethodologyPage() {
               prime_index = 0.38·<span style={{ color: "var(--comp-si)" }}>Statistical Impact</span>
               {" "}+ 0.21·<span style={{ color: "var(--comp-tp)" }}>Traditional Production</span>
               {" "}+ 0.20·<span style={{ color: "var(--comp-rec)" }}>Individual Recognition</span>
-              {" "}+ 0.18·<span style={{ color: "var(--comp-po)" }}>Postseason Value</span>
-              {" "}+ 0.03·<span style={{ color: "var(--comp-team)" }}>Team Achievement</span>
+              {" "}+ 0.18·<span style={{ color: "var(--comp-po)" }}>Playoff Rate Impact</span>
+              {" "}+ 0.03·<span style={{ color: "var(--comp-team)" }}>Team Result</span>
               {" "}± teammate_adj
             </p>
             <div className="border-t border-[var(--border-subtle)] pt-3">
@@ -108,7 +108,7 @@ export default function MethodologyPage() {
         {/* Formula bar */}
         <section aria-labelledby="formula-bar" aria-label="Component weight visualization">
           <h2 id="formula-bar" className="sr-only">Component weights</h2>
-          <div className="flex h-8 rounded-lg overflow-hidden" role="group" aria-label="Formula weight bars: 38% Statistical Impact, 21% Traditional Production, 20% Individual Recognition, 18% Postseason Value, 3% Team Achievement">
+          <div className="flex h-8 rounded-lg overflow-hidden" role="group" aria-label="Formula weight bars: 38% Statistical Impact, 21% Traditional Production, 20% Individual Recognition, 18% Playoff Rate Impact, 3% Team Result">
             {methodology.components.map((c) => (
               <button
                 key={c.id}

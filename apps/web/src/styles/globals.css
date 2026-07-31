@@ -55,8 +55,8 @@
   --comp-si: #60a5fa;    /* Statistical Impact — blue */
   --comp-tp: #a78bfa;    /* Traditional Production — violet */
   --comp-rec: #f472b6;   /* Individual Recognition — pink */
-  --comp-po: #fb923c;    /* Postseason Value — orange */
-  --comp-team: #34d399;  /* Team Achievement — emerald */
+  --comp-po: #fb923c;    /* Playoff Rate Impact — orange */
+  --comp-team: #34d399;  /* Team Result — emerald */
   --comp-tm: #94a3b8;    /* Teammate Adj — slate */
 
   /* Court geometry accent */

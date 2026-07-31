@@ -55,6 +55,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import nba_peak.leaderboards as L  # noqa: E402
 import peak3 as P  # noqa: E402
+from nba_peak.season_status import in_progress_seasons  # noqa: E402
 
 SCORED_PATH = REPO_ROOT / "cache" / "processed" / "scored_1980_2026.parquet"
 OUT_DIR = REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500"
@@ -152,7 +153,11 @@ _FALLBACK_STATUS_COLUMNS = {
 }
 
 _MULTI_TEAM_CODES = {"2TM", "3TM", "4TM", "5TM", "TOT"}
-_IN_PROGRESS_SEASON = "2025-26"
+
+# WHICH SEASONS ARE STILL BEING PLAYED is DERIVED, never hardcoded -- see
+# nba_peak/season_status.py. This used to be `_IN_PROGRESS_SEASON = "2025-26"`,
+# which went stale the moment that season concluded. A season is finished when
+# the data says who won it: a champion and a Finals MVP.
 
 # Deterministic caps for the comparison rails in the explain payload.
 _MAX_SAME_PLAYER = 5
@@ -342,6 +347,10 @@ def main() -> int:
         return 1
 
     scored = pd.read_parquet(SCORED_PATH)
+    # Derived once and threaded through, so every row in one artifact agrees
+    # about which seasons are finished.
+    unfinished = in_progress_seasons(scored)
+    print(f"seasons still in progress (derived): {sorted(unfinished) or 'none'}")
     universe = pd.DataFrame({"player": sorted(scored["player"].unique())})
     universe["canonical_player_id"] = universe["player"].map(_slug)
 
@@ -475,7 +484,7 @@ def main() -> int:
                 "components": components,
                 "percentiles": percentiles,
                 "data_completeness": r["Data completeness status"],
-                "season_in_progress": anchor_season == _IN_PROGRESS_SEASON,
+                "season_in_progress": anchor_season in unfinished,
             }
             rows.append(row)
             all_rows.append(row)

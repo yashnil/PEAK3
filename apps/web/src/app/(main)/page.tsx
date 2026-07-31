@@ -252,8 +252,8 @@ export default async function HomePage() {
               { label: "Statistical Impact", pct: "38%", color: "var(--comp-si)" },
               { label: "Traditional Production", pct: "21%", color: "var(--comp-tp)" },
               { label: "Individual Recognition", pct: "20%", color: "var(--comp-rec)" },
-              { label: "Postseason Value", pct: "18%", color: "var(--comp-po)" },
-              { label: "Team Achievement", pct: "3%", color: "var(--comp-team)" },
+              { label: "Playoff Rate Impact", pct: "18%", color: "var(--comp-po)" },
+              { label: "Team Result", pct: "3%", color: "var(--comp-team)" },
             ].map((c) => (
               <div key={c.label} className="card-surface p-3 text-center" style={{ borderTopColor: c.color, borderTopWidth: "2px" }}>
                 <p className="text-xl font-bold score-number" style={{ color: c.color }}>
