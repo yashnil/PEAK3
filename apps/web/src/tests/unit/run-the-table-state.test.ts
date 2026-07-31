@@ -1,0 +1,587 @@
+/**
+ * RUN THE TABLE pure state layer.
+ *
+ * Every case here runs against FIXTURE objects shaped exactly like
+ * `public_state()` / `build_receipt()` output — never a live server. That is
+ * the point: these helpers must be provably server-driven, so a test that
+ * needed the API running would be testing the wrong thing.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  DECIDED_BY_LABELS,
+  LANE_TOKEN_BY_FIELD,
+  NODE_TYPE_LABELS,
+  ROLE_LABELS,
+  battleVerdict,
+  buildRunShareText,
+  challengeUrl,
+  clearActiveRun,
+  currentBattle,
+  draftOffers,
+  filledCount,
+  formatSigned,
+  isTerminal,
+  isTradeLegal,
+  ladderProgress,
+  ladderRows,
+  laneColorVar,
+  laneSentence,
+  loadActiveRun,
+  makeIdempotencyKey,
+  receiptLaneProfile,
+  rosterPips,
+  runningSeries,
+  saveActiveRun,
+  screenForStatus,
+  shouldClearStoredRun,
+  signedColorVar,
+  slotLabel,
+  trackRunTheTable,
+  tradeIncoming,
+  tradeNetCost,
+  tradeOutgoing,
+} from "@/lib/run-the-table-state";
+import {
+  ActiveNode,
+  BattleLanePublic,
+  BattlePublic,
+  LaneField,
+  MapAct,
+  RunPublicState,
+  RunReceipt,
+  RunStatus,
+  RUN_THE_TABLE_STORAGE_KEY,
+} from "@/types/run-the-table";
+
+// ---------------------------------------------------------------------------
+// Fixtures — shaped field-for-field like the API contract
+// ---------------------------------------------------------------------------
+
+function lane(
+  over: Partial<BattleLanePublic> & Pick<BattleLanePublic, "lane" | "winner">,
+): BattleLanePublic {
+  return {
+    label: "Statistical Impact",
+    token: "si",
+    player_score: 62.5,
+    opponent_score: 58.25,
+    margin: 4.25,
+    tie_broken_by_rule: false,
+    player_top_card: null,
+    opponent_top_card: null,
+    ...over,
+  };
+}
+
+function battle(over: Partial<BattlePublic> = {}): BattlePublic {
+  return {
+    boss_id: "boss-a1",
+    act: 1,
+    outcome: "win",
+    decided_by: "lanes",
+    player_lanes_won: 3,
+    opponent_lanes_won: 2,
+    ties: 0,
+    summed_margin: 6.5,
+    player_roster_total: 61.2,
+    opponent_roster_total: 59.9,
+    bench_weight: 0.35,
+    rule_id: "the_wall",
+    credits_awarded: 12,
+    lives_after: 3,
+    lanes: [
+      lane({ lane: "statistical_impact", winner: "player" }),
+      lane({ lane: "traditional_production", winner: "opponent", token: "tp" }),
+      lane({ lane: "individual_recognition", winner: "player", token: "rec" }),
+      lane({ lane: "postseason_individual_value", winner: "opponent", token: "po" }),
+      lane({ lane: "team_achievement", winner: "player", token: "team" }),
+    ],
+    ...over,
+  };
+}
+
+function mapFixture(): MapAct[] {
+  return [1, 2, 3].map((act) => ({
+    act,
+    stages: [1, 2].map((stage) => ({
+      act,
+      stage,
+      state: act === 1 ? "done" : act === 2 && stage === 1 ? "current" : "locked",
+      chosen_node_id: act === 1 ? `a${act}s${stage}-draft` : null,
+      chosen_node_type: act === 1 ? ("draft_room" as const) : null,
+      option_types: ["draft_room" as const, "film_room" as const],
+      scouted: act === 2 && stage === 2,
+    })),
+    boss: {
+      boss_id: `boss-a${act}`,
+      name: `Boss ${act}`,
+      state: act === 1 ? ("won" as const) : ("locked" as const),
+    },
+  }));
+}
+
+function receiptFixture(over: Partial<RunReceipt> = {}): RunReceipt {
+  const laneFields: LaneField[] = [
+    "statistical_impact",
+    "traditional_production",
+    "individual_recognition",
+    "postseason_individual_value",
+    "team_achievement",
+  ];
+  return {
+    verdict: "RUN COMPLETE",
+    headline: "Ran the table.",
+    story: "Moneyball — defeated all three bosses with Tim Duncan 2002-03 as run MVP.",
+    ran_the_table: true,
+    bosses_defeated: 3,
+    battles_lost: 0,
+    record: "3-0",
+    lives_remaining: 2,
+    systems: [{ id: "moneyball", name: "Moneyball", summary: "Cheap cards cost 35% less." }],
+    starters: [],
+    bench: [],
+    lane_profile: laneFields.map((l, i) => ({
+      lane: l,
+      label: `Lane ${i}`,
+      value: 50 + i,
+      lanes_won: i % 2,
+    })),
+    roster_total: 63.4,
+    strongest_lane: { lane: "team_achievement", label: "Team Result", value: 54 },
+    weakest_lane: { lane: "statistical_impact", label: "Statistical Impact", value: 50 },
+    run_mvp: {
+      card_id: "tim-duncan-3yr-200203",
+      player_name: "Tim Duncan",
+      player_slug: "tim-duncan",
+      anchor_season: "2002-03",
+      window: "2001-02–2003-04",
+      prime_score: 91.2,
+      base_cost: 24,
+      marginal_contribution: 7.4211,
+      is_starter: true,
+    },
+    marginal_contributions: [],
+    best_acquisition: {
+      card_id: "x",
+      player_name: "Sidney Moncrief",
+      player_slug: "sidney-moncrief",
+      anchor_season: "1982-83",
+      window: "1981-82–1983-84",
+      prime_score: 78,
+      base_cost: 12,
+      cost: 9,
+      score_delta: 11.4,
+      value_per_credit: 1.2667,
+      replaced: null,
+      act: 2,
+    },
+    best_trade: null,
+    closest_battle: {
+      boss_id: "boss-a2",
+      act: 2,
+      outcome: "win",
+      lanes: "3-2",
+      tightest_lane_margin: 0.14,
+      summed_margin: 2.1,
+    },
+    credits_spent: 33,
+    credits_refunded: 4,
+    credits_remaining: 15,
+    starting_credits: 40,
+    reasons: [
+      { kind: "lane_strength", text: "Statistical Impact won 3 of 3 battles.", signed_value: 3 },
+      { kind: "economy", text: "Finished holding 15 unspent credits.", signed_value: -15 },
+    ],
+    battles: [],
+    seed: 123456,
+    run_type: "standard",
+    date: null,
+    versions: {
+      engine_version: "run_the_table_v1",
+      ruleset_version: "rtt_ruleset_v1",
+      card_pool_version: "v3",
+      peak3_model_version: "peak3_official_weights_v1",
+    },
+    ...over,
+  };
+}
+
+function runFixture(over: Partial<RunPublicState> = {}): RunPublicState {
+  return {
+    run_id: "run-1",
+    seed: 123456,
+    run_type: "standard",
+    date: null,
+    status: "node_select",
+    act: 1,
+    stage: 1,
+    acts_total: 3,
+    stages_per_act: 2,
+    credits: 40,
+    lives: 3,
+    max_lives: 3,
+    starting_credits: 40,
+    starters: [
+      { slot_id: "lead_creator", role: "lead_creator", is_starter: true, card: null },
+      { slot_id: "guard_wing", role: "guard_wing", is_starter: true, card: null },
+      { slot_id: "wing_forward", role: "wing_forward", is_starter: true, card: null },
+      { slot_id: "forward_big", role: "forward_big", is_starter: true, card: null },
+      { slot_id: "anchor", role: "anchor", is_starter: true, card: null },
+    ],
+    bench: [
+      { slot_id: "bench_1", role: null, is_starter: false, card: null },
+      { slot_id: "bench_2", role: null, is_starter: false, card: null },
+    ],
+    systems: [],
+    pending_system_offer: null,
+    stage_options: null,
+    active_node: null,
+    next_boss: null,
+    map: mapFixture(),
+    battles: [],
+    lane_profile: [],
+    roster_total: 0,
+    bench_weight: 0.35,
+    veteran_minimum_used_this_act: false,
+    action_count: 0,
+    receipt: null,
+    versions: receiptFixture().versions,
+    created_at: "2026-07-31T00:00:00Z",
+    last_action_at: "2026-07-31T00:00:00Z",
+    ...over,
+  };
+}
+
+// ---------------------------------------------------------------------------
+
+describe("run-the-table persistence", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("returns null when nothing is stored", () => {
+    expect(loadActiveRun()).toBeNull();
+  });
+
+  it("round-trips a saved run pointer", () => {
+    saveActiveRun({ run_id: "run-9", seed: 42, run_type: "daily" }, new Date("2026-07-31T12:00:00Z"));
+    expect(loadActiveRun()).toEqual({
+      schema_version: 1,
+      run_id: "run-9",
+      seed: 42,
+      run_type: "daily",
+      updated_at: "2026-07-31T12:00:00.000Z",
+    });
+  });
+
+  it("never throws on unparseable JSON — it returns null", () => {
+    window.localStorage.setItem(RUN_THE_TABLE_STORAGE_KEY, "{not json");
+    expect(loadActiveRun()).toBeNull();
+  });
+
+  it("rejects a payload from a different schema version", () => {
+    window.localStorage.setItem(
+      RUN_THE_TABLE_STORAGE_KEY,
+      JSON.stringify({ schema_version: 99, run_id: "x", seed: 1, run_type: "standard" }),
+    );
+    expect(loadActiveRun()).toBeNull();
+  });
+
+  it.each([
+    ["missing run_id", { schema_version: 1, seed: 1, run_type: "standard" }],
+    ["empty run_id", { schema_version: 1, run_id: "", seed: 1, run_type: "standard" }],
+    ["non-numeric seed", { schema_version: 1, run_id: "x", seed: "1", run_type: "standard" }],
+    ["unknown run_type", { schema_version: 1, run_id: "x", seed: 1, run_type: "sandbox" }],
+    ["not an object", 7],
+  ])("rejects %s", (_label, payload) => {
+    window.localStorage.setItem(RUN_THE_TABLE_STORAGE_KEY, JSON.stringify(payload));
+    expect(loadActiveRun()).toBeNull();
+  });
+
+  it("clears the pointer", () => {
+    saveActiveRun({ run_id: "run-9", seed: 42, run_type: "standard" });
+    clearActiveRun();
+    expect(loadActiveRun()).toBeNull();
+  });
+
+  it("drops the pointer for 404/409/410 and keeps it for transient failures", () => {
+    expect(shouldClearStoredRun(404)).toBe(true);
+    expect(shouldClearStoredRun(409)).toBe(true);
+    expect(shouldClearStoredRun(410)).toBe(true);
+    expect(shouldClearStoredRun(500)).toBe(false);
+    expect(shouldClearStoredRun(0)).toBe(false);
+  });
+});
+
+describe("screen derivation", () => {
+  it.each<[RunStatus, string]>([
+    ["system_select", "system_select"],
+    ["node_select", "node_select"],
+    ["node_active", "node_active"],
+    ["boss_ready", "boss_preview"],
+    ["boss_resolved", "battle"],
+    ["complete", "result"],
+    ["failed", "result"],
+  ])("maps %s to %s", (status, screen) => {
+    expect(screenForStatus(status)).toBe(screen);
+  });
+
+  it("treats only complete and failed as terminal", () => {
+    expect(isTerminal("complete")).toBe(true);
+    expect(isTerminal("failed")).toBe(true);
+    expect(isTerminal("boss_resolved")).toBe(false);
+  });
+});
+
+describe("labels and tokens", () => {
+  it("labels a starter slot by role and a bench slot by number", () => {
+    expect(slotLabel({ slot_id: "anchor", role: "anchor", is_starter: true })).toBe("Anchor");
+    expect(slotLabel({ slot_id: "bench_2", role: null, is_starter: false })).toBe("Bench 2");
+    expect(slotLabel({ slot_id: "mystery", role: null, is_starter: false })).toBe("mystery");
+  });
+
+  it("has a label for all five roles and all four node types", () => {
+    expect(Object.keys(ROLE_LABELS)).toHaveLength(5);
+    expect(Object.keys(NODE_TYPE_LABELS)).toHaveLength(4);
+  });
+
+  it("maps every lane onto its --comp-* token", () => {
+    expect(LANE_TOKEN_BY_FIELD.statistical_impact).toBe("si");
+    expect(LANE_TOKEN_BY_FIELD.postseason_individual_value).toBe("po");
+    expect(laneColorVar("team")).toBe("var(--comp-team)");
+  });
+
+  it("adapts the receipt lane profile, which carries no token", () => {
+    const adapted = receiptLaneProfile(receiptFixture().lane_profile);
+    expect(adapted).toHaveLength(5);
+    expect(adapted[0].token).toBe("si");
+    expect(adapted[4].token).toBe("team");
+    expect(adapted[2].value).toBe(52);
+  });
+});
+
+describe("run ladder", () => {
+  it("emits two stage rows then a boss row for each of three acts", () => {
+    const rows = ladderRows(mapFixture());
+    expect(rows).toHaveLength(9);
+    expect(rows.map((r) => r.kind)).toEqual([
+      "stage",
+      "stage",
+      "boss",
+      "stage",
+      "stage",
+      "boss",
+      "stage",
+      "stage",
+      "boss",
+    ]);
+  });
+
+  it("shows the chosen node for a resolved stage and only the SHAPE for a locked one", () => {
+    const rows = ladderRows(mapFixture());
+    expect(rows[0].sublabel).toBe("Draft Room");
+    expect(rows[7].sublabel).toBe("Draft Room or Film Room");
+  });
+
+  it("carries the scouted flag through", () => {
+    const rows = ladderRows(mapFixture());
+    expect(rows.find((r) => r.key === "a2s2")?.scouted).toBe(true);
+    expect(rows.find((r) => r.key === "a2s1")?.scouted).toBe(false);
+  });
+
+  it("counts resolved rows for the mobile progress strip", () => {
+    expect(ladderProgress(mapFixture())).toEqual({ done: 3, total: 9 });
+  });
+});
+
+describe("node narrowing", () => {
+  const draft: ActiveNode = {
+    node_id: "n1",
+    node_type: "draft_room",
+    title: "Draft Room",
+    summary: "s",
+    offers: [{ card_id: "c1" }] as never,
+    can_pass: true,
+  };
+  const trade: ActiveNode = {
+    node_id: "n2",
+    node_type: "trade_desk",
+    title: "Trade Desk",
+    summary: "s",
+    incoming: [{ card_id: "c2", legal_slots: ["anchor"] }] as never,
+    outgoing_options: [{ slot_id: "anchor" }] as never,
+    can_decline: true,
+  };
+
+  it("only reads a block when the node type matches", () => {
+    expect(draftOffers(draft)).toHaveLength(1);
+    expect(draftOffers(trade)).toEqual([]);
+    expect(tradeIncoming(trade)).toHaveLength(1);
+    expect(tradeIncoming(draft)).toEqual([]);
+    expect(tradeOutgoing(trade)).toHaveLength(1);
+    expect(tradeOutgoing(null)).toEqual([]);
+  });
+
+  it("reads trade legality off the server's legal_slots, never a re-derivation", () => {
+    const incoming = { legal_slots: ["anchor", "forward_big"] } as never as Parameters<
+      typeof isTradeLegal
+    >[0];
+    expect(isTradeLegal(incoming, "anchor")).toBe(true);
+    expect(isTradeLegal(incoming, "lead_creator")).toBe(false);
+  });
+
+  it("nets an incoming cost against the outgoing refund the server sent", () => {
+    expect(
+      tradeNetCost({ cost: 18 } as never, { refund: 6 } as never),
+    ).toBe(12);
+    expect(tradeNetCost({ cost: 4 } as never, { refund: 9 } as never)).toBe(-5);
+  });
+});
+
+describe("roster derivations", () => {
+  it("counts filled slots", () => {
+    const state = runFixture();
+    expect(filledCount(state.starters)).toBe(0);
+    state.starters[0].card = { player_name: "X" } as never;
+    expect(filledCount(state.starters)).toBe(1);
+  });
+
+  it("emits seven pips, starters first", () => {
+    const pips = rosterPips(runFixture());
+    expect(pips).toHaveLength(7);
+    expect(pips.slice(0, 5).every((p) => p.is_starter)).toBe(true);
+    expect(pips.slice(5).every((p) => !p.is_starter)).toBe(true);
+    expect(pips.every((p) => p.filled === false)).toBe(true);
+  });
+});
+
+describe("battle derivations", () => {
+  it("picks the battle for the current act", () => {
+    const b1 = battle({ act: 1 });
+    const b2 = battle({ act: 2, boss_id: "boss-a2" });
+    expect(currentBattle(runFixture({ battles: [b1, b2], act: 2 }))?.boss_id).toBe("boss-a2");
+    expect(currentBattle(runFixture({ battles: [] }))).toBeNull();
+  });
+
+  it("falls back to the most recent battle when no battle matches the act", () => {
+    const b1 = battle({ act: 1 });
+    expect(currentBattle(runFixture({ battles: [b1], act: 3 }))?.act).toBe(1);
+  });
+
+  it("counts the running series only over the lanes revealed so far", () => {
+    const lanes = battle().lanes;
+    expect(runningSeries(lanes, 0)).toEqual({ player: 0, opponent: 0, ties: 0 });
+    expect(runningSeries(lanes, 2)).toEqual({ player: 1, opponent: 1, ties: 0 });
+    expect(runningSeries(lanes, 5)).toEqual({ player: 3, opponent: 2, ties: 0 });
+  });
+
+  it("clamps the reveal count rather than reading past the array", () => {
+    const lanes = battle().lanes;
+    expect(runningSeries(lanes, 99)).toEqual(runningSeries(lanes, 5));
+    expect(runningSeries(lanes, -3)).toEqual({ player: 0, opponent: 0, ties: 0 });
+  });
+
+  it("counts ties as neither side's lane", () => {
+    const lanes = [
+      lane({ lane: "statistical_impact", winner: "tie" }),
+      lane({ lane: "team_achievement", winner: "player" }),
+    ];
+    expect(runningSeries(lanes, 2)).toEqual({ player: 1, opponent: 0, ties: 1 });
+  });
+
+  it("stamps a verdict that names the tiebreak the engine actually used", () => {
+    expect(battleVerdict(battle()).stamp).toBe("VICTORY");
+    expect(battleVerdict(battle({ outcome: "loss" })).stamp).toBe("DEFEAT");
+    expect(battleVerdict(battle({ outcome: "draw" })).stamp).toBe("DRAW");
+    expect(battleVerdict(battle({ decided_by: "summed_margin" })).detail).toContain(
+      DECIDED_BY_LABELS.summed_margin,
+    );
+    expect(battleVerdict(battle()).detail).toContain("3–2");
+  });
+
+  it("writes one screen-reader sentence per lane, flagging a rule-broken tie", () => {
+    expect(laneSentence(lane({ lane: "statistical_impact", winner: "player" }))).toBe(
+      "Statistical Impact: 62.5 to 58.3. You win.",
+    );
+    expect(
+      laneSentence(lane({ lane: "team_achievement", winner: "tie", tie_broken_by_rule: true })),
+    ).toContain("boss rule broke the tie");
+  });
+});
+
+describe("number formatting", () => {
+  it("never drops the sign on a positive delta", () => {
+    expect(formatSigned(3.4)).toBe("+3.4");
+    expect(formatSigned(-3.44, 2)).toBe("-3.44");
+    expect(formatSigned(0)).toBe("0.0");
+    expect(formatSigned(Number.NaN)).toBe("—");
+  });
+
+  it("stays neutral at exactly zero rather than claiming a gain", () => {
+    expect(signedColorVar(1)).toBe("var(--correct)");
+    expect(signedColorVar(-1)).toBe("var(--incorrect)");
+    expect(signedColorVar(0)).toBe("var(--text-muted)");
+  });
+});
+
+describe("share text", () => {
+  it("says only what the receipt proves", () => {
+    const text = buildRunShareText(receiptFixture(), "peak3.app/x");
+    expect(text).toContain("PEAK3 — RUN THE TABLE");
+    expect(text).toContain("Ran the table.");
+    expect(text).toContain("Record: 3-0");
+    expect(text).toContain("Run MVP: Tim Duncan 2002-03 (+7.4 roster total)");
+    expect(text).toContain("Seed 123456");
+    expect(text).toContain("peak3.app/x");
+    // No rank and no percentile — there is no global leaderboard to back one.
+    expect(text.toLowerCase()).not.toContain("rank");
+    expect(text.toLowerCase()).not.toContain("percentile");
+  });
+
+  it("omits an MVP and a best buy the receipt does not have", () => {
+    const text = buildRunShareText(receiptFixture({ run_mvp: null, best_acquisition: null }));
+    expect(text).not.toContain("Run MVP");
+    expect(text).not.toContain("Best buy");
+  });
+
+  it("builds the challenge link the RUN THE TABLE route can actually open", () => {
+    // NOT `/c/{token}`. That route is Peak Draft's challenge page and resolves
+    // tokens through /api/v1/draft/challenges/{token}/meta, so a RUN THE TABLE
+    // token sent there lands the recipient on a not-found screen. The mode's
+    // own route reads its token from `?c=`.
+    expect(challengeUrl("abc123", "https://peak3.app")).toBe(
+      "https://peak3.app/arena/run-the-table?c=abc123",
+    );
+    expect(challengeUrl("abc123", "")).toBe("/arena/run-the-table?c=abc123");
+    expect(challengeUrl("abc123", "https://peak3.app")).not.toContain("/c/abc123");
+  });
+});
+
+describe("idempotency keys", () => {
+  it("is stable for a given nonce, so a retry is not a second buy", () => {
+    const a = makeIdempotencyKey("run-1", "buy:card:anchor", "n1");
+    const b = makeIdempotencyKey("run-1", "buy:card:anchor", "n1");
+    expect(a).toBe(b);
+    expect(a).toBe("n1:run-1:buy:card:anchor");
+  });
+
+  it("stays inside the API's 128-character bound, nonce first", () => {
+    const key = makeIdempotencyKey("r".repeat(60), `buy:${"c".repeat(120)}:anchor`, "nonce-1");
+    expect(key.length).toBeLessThanOrEqual(128);
+    expect(key.startsWith("nonce-1:")).toBe(true);
+  });
+
+  it("differs between gestures", () => {
+    expect(makeIdempotencyKey("run-1", "a")).not.toBe(makeIdempotencyKey("run-1", "a"));
+  });
+});
+
+describe("analytics", () => {
+  it("emits RUN THE TABLE events without touching lib/analytics", () => {
+    const spy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    trackRunTheTable({ type: "rtt_run_started", run_type: "daily", seed: 7 });
+    expect(spy).toHaveBeenCalled();
+    expect(spy.mock.calls[0][1]).toBe("rtt_run_started");
+    spy.mockRestore();
+  });
+});

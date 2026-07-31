@@ -150,13 +150,14 @@ function SignInContent() {
           >
             Don&apos;t have an account? Create one
           </Link>
-          <Link
-            href="/forgot-password"
-            className="text-xs"
-            style={{ color: "var(--text-muted)" }}
-          >
-            Forgot password?
-          </Link>
+          {/* There is no /forgot-password route (password reset is not built
+              yet), and this used to link straight into a 404. An account is
+              optional here, so the honest line is what you can do without one
+              rather than a recovery flow that does not exist. */}
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            You can play every mode without an account — signing in only saves your runs and
+            progress.
+          </p>
         </div>
       </div>
     </div>

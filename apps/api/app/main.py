@@ -20,6 +20,7 @@ from app.api.v1 import progression as progression_router
 from app.api.v1 import ranked as ranked_router
 from app.api.v1 import perfect_season as perfect_season_router
 from app.api.v1 import daily_grid as daily_grid_router
+from app.api.v1 import run_the_table as run_the_table_router
 from app.core.config import settings
 from app.core.dataset import dataset_store
 from app.core.repository_registry import (
@@ -122,3 +123,4 @@ app.include_router(progression_router.router, prefix="/api/v1", tags=["progressi
 app.include_router(ranked_router.router, prefix="/api/v1", tags=["ranked"])
 app.include_router(perfect_season_router.router, prefix="/api/v1", tags=["perfect-season"])
 app.include_router(daily_grid_router.router, prefix="/api/v1", tags=["daily-grid"])
+app.include_router(run_the_table_router.router, prefix="/api/v1", tags=["run-the-table"])

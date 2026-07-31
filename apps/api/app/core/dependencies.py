@@ -62,6 +62,8 @@ from app.repositories.saved_run_memory import MemoryPerfectSeasonSavedRunReposit
 from app.repositories.saved_run_protocols import PerfectSeasonSavedRunRepository
 from app.repositories.daily_grid_memory import MemoryDailyGridResultRepository
 from app.repositories.daily_grid_protocols import DailyGridResultRepository
+from app.repositories.run_the_table_memory import MemoryRunTheTableRunRepository
+from app.repositories.run_the_table_protocols import RunTheTableRunRepository
 
 # ---------------------------------------------------------------------------
 # Singleton in-memory stores (only used when DATABASE_URL is unset in dev)
@@ -89,6 +91,7 @@ _memory_ranked_integrity_repo = MemoryRankedIntegrityRepository()
 _memory_perfect_season_leaderboard_repo = MemoryPerfectSeasonLeaderboardRepository()
 _memory_perfect_season_saved_run_repo = MemoryPerfectSeasonSavedRunRepository()
 _memory_daily_grid_result_repo = MemoryDailyGridResultRepository()
+_memory_run_the_table_run_repo = MemoryRunTheTableRunRepository()
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +284,28 @@ def get_daily_grid_result_repo(request: Request) -> DailyGridResultRepository:
     return _memory_daily_grid_result_repo
 
 
+def get_run_the_table_run_repo(request: Request) -> RunTheTableRunRepository:
+    """Return the active RunTheTableRunRepository (Postgres or in-memory).
+
+    Same in-memory-fallback discipline as every other repository here. Not
+    behind a feature flag, for the same reason the saved-run and daily-grid
+    repos are not: a run in progress is the player's own state, and losing it
+    on a restart is a durability question, not a product-gating one.
+
+    Unlike most repositories here, the overwhelmingly common owner is
+    ANONYMOUS (a signed `peak3_anon` cookie subject). RUN THE TABLE requires no
+    account to play, so this repo must be wired and durable even for players
+    who never sign in -- which is exactly why it is registered in
+    app.core.repository_registry.REPOSITORY_DOMAINS rather than left out the
+    way the Phase 5C CourtBuilder slice was."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.run_the_table_postgres import PostgresRunTheTableRunRepository
+        return PostgresRunTheTableRunRepository(pool)
+    _warn_memory_repo("RunTheTableRunRepository")
+    return _memory_run_the_table_run_repo
+
+
 def _warn_memory_repo(name: str) -> None:
     if not settings.DEBUG:
         raise RuntimeError(
@@ -320,4 +345,7 @@ PerfectSeasonSavedRunRepoDep = Annotated[
 ]
 DailyGridResultRepoDep = Annotated[
     DailyGridResultRepository, Depends(get_daily_grid_result_repo)
+]
+RunTheTableRunRepoDep = Annotated[
+    RunTheTableRunRepository, Depends(get_run_the_table_run_repo)
 ]

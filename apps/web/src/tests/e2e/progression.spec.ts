@@ -159,10 +159,12 @@ test.describe("Navigation", () => {
   test("arena landing renders correctly", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.locator("h1")).toBeVisible({ timeout: 8_000 });
-    // Phase 8E: primary CTA now routes to the CourtBuilder flagship, not
-    // the legacy /arena/daily hub -- see gameplay.spec.ts's "Arena landing"
-    // describe block for the full click-through routing test.
-    await expect(page.locator('[data-testid="home-primary-cta"]')).toBeVisible({ timeout: 5_000 });
+    // The primary CTA routes to the flagship, RUN THE TABLE -- see
+    // gameplay.spec.ts's "Arena landing" describe block and
+    // play-routing.spec.ts for the full click-through routing tests.
+    const cta = page.locator('[data-testid="home-primary-cta"]');
+    await expect(cta).toBeVisible({ timeout: 5_000 });
+    await expect(cta).toHaveAttribute("href", "/arena/run-the-table");
   });
 });
 

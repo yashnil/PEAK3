@@ -1,63 +1,69 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { ArrowRight, Dices, Users, Trophy, BarChart3, Grid3x3, ListOrdered, Swords } from "lucide-react";
+import { ArrowRight, Users, GitBranch, Swords, Trophy, BarChart3, Grid3x3, ListOrdered } from "lucide-react";
 import GameCard from "@/components/shared/GameCard";
+import { MODE_COPY } from "@/lib/modes";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 import { getTeamColors } from "@/lib/team-colors";
 
 export const metadata: Metadata = {
-  title: "PEAK3 Arena — Build a Perfect Season",
+  title: "PEAK3 Arena — Run the Table",
   description:
-    "Spin a team and era, draft exact NBA player-season cards onto a position-aware court, and chase an 82-0 season. A basketball strategy arcade built on a transparent, open-weight rating formula — with receipts on every pick.",
+    "Draft exact NBA peak windows across a branching run, spend scarce credits, and beat three escalating statistical lineups. A basketball strategy game built on a transparent, open-weight rating formula — with receipts on every result.",
 };
 
-const HOW_IT_WORKS: { icon: typeof Dices; title: string; body: string; team: string }[] = [
-  {
-    icon: Dices,
-    title: "Spin",
-    body: "Roll a real team and season. Team and era are independent locks — respin either one without touching the other.",
-    team: "Boston Celtics",
-  },
+const HOW_IT_WORKS: { icon: typeof Users; title: string; body: string; team: string }[] = [
   {
     icon: Users,
     title: "Draft",
-    body: "Pick from that exact roster — real player-seasons, real constraints — and place each card on a position-aware court. Ratings stay hidden until reveal.",
+    body: "Every card is one exact 3-year peak window, priced by the engine. A fixed credit budget means you cannot buy the board — and only the Trade Desk gives credits back.",
+    team: "Boston Celtics",
+  },
+  {
+    icon: GitBranch,
+    title: "Branch",
+    body: "Each act is a map, not a queue. Draft rooms, trade desks, film rooms and rest banks — you pick a path through them and never get to take them all.",
     team: "Denver Nuggets",
   },
   {
-    icon: Trophy,
-    title: "Simulate",
-    body: "Lock your 5+3 roster and reveal the season. Chase 82-0, see what PEAK3 would have picked each round, then run it back against your own best.",
+    icon: Swords,
+    title: "Battle",
+    body: "Each act ends against a boss lineup. Five lanes, one point each — statistical impact, production, recognition, playoff rate, team result — and the receipt shows every number that decided it.",
     team: "Golden State Warriors",
   },
 ];
 
 /**
- * Phase 8E: homepage rewrite -- the old version led with "Which player had
- * the greater peak?" (Peak Duel, the Phase 1 flagship) and its primary CTA
- * routed to /arena/daily, the legacy Peak Draft hub -- neither reflects
- * what the app actually is now. 82-0 Peak Season / CourtBuilder is the
- * flagship mode; this page leads with it, routes the primary CTA straight
- * to it, and demotes Peak Duel/Peak Draft to clearly-labeled secondary
- * cards rather than removing them (both still work and are intentionally
- * supported). Same fail-closed pattern as /arena/page.tsx: a readiness
- * fetch failure never breaks the page, it just falls back to the /arena
- * hub instead of assuming CourtBuilder is live.
+ * The homepage leads with RUN THE TABLE, the flagship mode.
+ *
+ * History, because the lead has moved: Peak Duel (Phase 1), then 82-0 PEAK
+ * Season (Phase 8E), now RUN THE TABLE. Each time, the previous flagship was
+ * demoted to a clearly-labeled secondary card rather than removed — every one
+ * of those modes still works and is still supported, and this page still links
+ * to all of them.
+ *
+ * Exactly one card on this page is `featured`. A second gold card would make
+ * the word meaningless, which is the whole reason the hierarchy is expressed in
+ * the card component rather than in copy.
+ *
+ * The 82-0 card stays behind the same fail-closed readiness check it has always
+ * had: a fetch failure (API down) means the card is not rendered, never a link
+ * to a mode that may not work. RUN THE TABLE is not gated on it — that flag
+ * describes CourtBuilder only.
  */
 export default async function HomePage() {
   let courtBuilderEnabled = false;
-  let coverageLabel: string | null = null;
   try {
     const readiness = await getCourtBuilderReadiness();
     courtBuilderEnabled = readiness.courtbuilder_enabled;
-    if (readiness.rollable_team_season_count > 0 && readiness.supported_start_season && readiness.supported_end_season) {
-      coverageLabel = `${readiness.rollable_team_season_count.toLocaleString()} rollable team-seasons · ${readiness.supported_start_season} to ${readiness.supported_end_season}`;
-    }
   } catch {
     courtBuilderEnabled = false;
   }
 
-  const flagshipHref = courtBuilderEnabled ? "/arena/court/practice/apex_1y" : "/arena";
+  const flagship = MODE_COPY["run-the-table"];
+  const peakSeason = MODE_COPY["peak-season"];
+  const dailyGrid = MODE_COPY["daily-grid"];
+  const peakDuel = MODE_COPY["peak-duel"];
 
   return (
     <div className="min-h-screen">
@@ -65,29 +71,28 @@ export default async function HomePage() {
       <section className="relative px-4 pt-24 pb-16 text-center home-hero-glow" aria-labelledby="hero-heading">
         <div className="mx-auto max-w-3xl">
           <p className="mb-6 text-xs font-semibold tracking-[0.2em] uppercase" style={{ color: "var(--peak-accent)" }}>
-            {courtBuilderEnabled ? "Flagship Mode · 82-0 Peak Season" : "Basketball Strategy Arcade"}
+            Flagship Mode · Run the Table
           </p>
 
           <h1 id="hero-heading" className="font-display text-5xl font-extrabold tracking-tight md:text-7xl">
-            Build a legendary roster.
+            Build a roster of peaks.
             <br />
-            <span style={{ color: "var(--peak-accent)" }}>Chase 82-0.</span>
+            <span style={{ color: "var(--peak-accent)" }}>Run the table.</span>
           </h1>
 
           <p className="mt-6 text-lg text-[var(--text-secondary)] max-w-xl mx-auto leading-relaxed">
-            Spin a real team and era, draft exact NBA player-season cards onto a position-aware
-            court, and simulate the year. Every result comes with receipts — the same open
-            five-component formula behind every card, plus a round-by-round look at what PEAK3
-            itself would have picked.
+            Draft exact NBA 3-year peak windows across a branching run, spend scarce credits, and
+            beat three escalating statistical lineups — every battle decided by the five open PEAK3
+            components, with a full receipt.
           </p>
 
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link
-              href={flagshipHref}
+              href={flagship.href}
               data-testid="home-primary-cta"
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--peak-accent)] px-6 py-3 font-semibold text-[var(--text-inverse)] transition-all hover:bg-[var(--peak-accent-dim)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
             >
-              Build Your Perfect Season
+              Start a Run
               <ArrowRight size={16} />
             </Link>
             <Link
@@ -97,12 +102,6 @@ export default async function HomePage() {
               Explore the PEAK Index
             </Link>
           </div>
-
-          {coverageLabel && (
-            <p className="mt-5 text-xs" style={{ color: "var(--text-muted)" }} data-testid="home-coverage-note">
-              {coverageLabel}
-            </p>
-          )}
         </div>
       </section>
 
@@ -152,22 +151,38 @@ export default async function HomePage() {
             Ways to play
           </h2>
 
-          {/* Phase 12A: one hierarchy, three tiers, built from the shared
-              GameCard so the flagship/daily/browse split is legible at a glance
-              instead of being asserted in copy. Exactly one card is `featured`;
-              a second gold card would make the word meaningless. */}
+          <GameCard
+            testId="home-flagship-card"
+            href={flagship.href}
+            eyebrow={flagship.eyebrow}
+            title={flagship.title}
+            description={flagship.description}
+            icon={<Swords size={18} />}
+            meta={flagship.meta}
+            featured
+            cta={flagship.cta}
+          />
+
+          {/* Every earlier mode stays on this page. Demoted, never hidden. */}
           {courtBuilderEnabled && (
-            <GameCard
-              testId="home-flagship-card"
-              href="/arena/court/practice/apex_1y"
-              eyebrow="Flagship"
-              title="82-0 PEAK Season"
-              description="Spin a team and era, draft a position-aware 5+3 roster from exact NBA player-seasons, and chase a perfect season — with a full receipt on every rating and a round-by-round comparison to what PEAK3 itself would have picked."
-              icon={<Trophy size={18} />}
-              meta={["8 roster slots", "Full-season simulation", "Play any time"]}
-              featured
-              cta="Play now"
-            />
+            <>
+              <h3
+                className="mt-8 mb-2 text-[11px] font-bold uppercase tracking-[0.18em]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Full-season mode
+              </h3>
+              <GameCard
+                testId="home-peak-season-card"
+                href={peakSeason.href}
+                eyebrow={peakSeason.eyebrow}
+                title={peakSeason.title}
+                description={peakSeason.description}
+                icon={<Trophy size={17} />}
+                meta={peakSeason.meta}
+                cta={peakSeason.cta}
+              />
+            </>
           )}
 
           <div className="mt-8 mb-2 flex items-baseline justify-between gap-3">
@@ -180,7 +195,7 @@ export default async function HomePage() {
             <Link
               href="/daily"
               data-testid="home-daily-hub-link"
-              className="text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              className="inline-flex min-h-11 items-center text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
               style={{ color: "var(--peak-accent)" }}
             >
               Daily hub →
@@ -189,21 +204,21 @@ export default async function HomePage() {
           <div className="grid gap-3 sm:grid-cols-2">
             <GameCard
               testId="home-daily-grid-card"
-              href="/daily/grid"
-              eyebrow="New board every day"
-              title="Daily Grid Challenge"
-              description="Fill a 3x3 board with exact NBA player-seasons — teams, awards, eras, playoff runs. Nine squares, nine different players, same board for everyone."
+              href={dailyGrid.href}
+              eyebrow={dailyGrid.eyebrow}
+              title={dailyGrid.title}
+              description={dailyGrid.description}
               icon={<Grid3x3 size={17} />}
-              cta="Play today's grid"
+              cta={dailyGrid.cta}
             />
             <GameCard
               testId="home-daily-duel-card"
-              href="/play/daily"
-              eyebrow="New questions every day"
-              title="Peak Duel Daily"
-              description="Ten head-to-head questions: pick which player's peak PEAK3 rates higher. Real data revealed only after you choose."
+              href={peakDuel.href}
+              eyebrow={peakDuel.eyebrow}
+              title={peakDuel.title}
+              description={peakDuel.description}
               icon={<Swords size={17} />}
-              cta="Play today's duel"
+              cta={peakDuel.cta}
             />
           </div>
 

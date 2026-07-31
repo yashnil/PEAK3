@@ -1,0 +1,1171 @@
+/**
+ * RUN THE TABLE UI.
+ *
+ * The API module is mocked wholesale so nothing here needs a running FastAPI —
+ * which also proves the tree treats the server as the only authority: every
+ * card, price and lane value rendered below exists solely because a mocked
+ * `public_state()` payload said so. Nothing is scored, priced or resolved in a
+ * component.
+ */
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import React from "react";
+
+const mockGetReadiness = vi.fn();
+const mockGetDaily = vi.fn();
+const mockGetRun = vi.fn();
+const mockCreateRun = vi.fn();
+const mockPostAction = vi.fn();
+const mockCreateChallenge = vi.fn();
+const mockGetChallenge = vi.fn();
+
+// The error class is deliberately NOT mocked: the components branch on
+// `instanceof RunTheTableAPIError`, so the tests must throw the real one.
+vi.mock("@/lib/run-the-table-api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/run-the-table-api")>(
+    "@/lib/run-the-table-api",
+  );
+  return {
+    ...actual,
+    getRunReadiness: (...a: unknown[]) => mockGetReadiness(...a),
+    getDailyRun: (...a: unknown[]) => mockGetDaily(...a),
+    getRun: (...a: unknown[]) => mockGetRun(...a),
+    createRun: (...a: unknown[]) => mockCreateRun(...a),
+    postRunAction: (...a: unknown[]) => mockPostAction(...a),
+    createChallenge: (...a: unknown[]) => mockCreateChallenge(...a),
+    getChallenge: (...a: unknown[]) => mockGetChallenge(...a),
+  };
+});
+
+import { RunTheTableAPIError } from "@/lib/run-the-table-api";
+import RunTheTableGame from "@/components/run-the-table/RunTheTableGame";
+import BattleReveal from "@/components/run-the-table/BattleReveal";
+import DraftRoom from "@/components/run-the-table/DraftRoom";
+import TradeDesk from "@/components/run-the-table/TradeDesk";
+import RunResult from "@/components/run-the-table/RunResult";
+import RunMap from "@/components/run-the-table/RunMap";
+import LaneProfile from "@/components/run-the-table/LaneProfile";
+import RunSkeleton from "@/components/run-the-table/RunSkeleton";
+import ChoiceNode from "@/components/run-the-table/ChoiceNode";
+import {
+  ActiveNode,
+  BattlePublic,
+  DraftOffer,
+  LaneField,
+  MapAct,
+  RosterSlotPublic,
+  RunCardPublic,
+  RunPublicState,
+  RunReceipt,
+  RUN_THE_TABLE_STORAGE_KEY,
+} from "@/types/run-the-table";
+
+// ---------------------------------------------------------------------------
+// Fixtures — shaped field-for-field like public.py
+// ---------------------------------------------------------------------------
+
+const LANES: LaneField[] = [
+  "statistical_impact",
+  "traditional_production",
+  "individual_recognition",
+  "postseason_individual_value",
+  "team_achievement",
+];
+
+function laneMap(v: number): Record<LaneField, number> {
+  return Object.fromEntries(LANES.map((l) => [l, v])) as Record<LaneField, number>;
+}
+
+function card(over: Partial<RunCardPublic> = {}): RunCardPublic {
+  return {
+    card_id: "tim-duncan-3yr-200203",
+    player_name: "Tim Duncan",
+    player_slug: "tim-duncan",
+    start_season: "2001-02",
+    end_season: "2003-04",
+    anchor_season: "2002-03",
+    window_label: "2001-02 – 2003-04",
+    prime_score: 91.2,
+    overall_percentile: 96.4,
+    eligible_roles: ["forward_big", "anchor"],
+    primary_role: "anchor",
+    lane_index: laneMap(72),
+    lane_percentiles: laneMap(88),
+    base_cost: 26,
+    cost: 26,
+    cost_modifiers: [],
+    refund_value: 13,
+    ...over,
+  };
+}
+
+function offer(over: Partial<DraftOffer> = {}): DraftOffer {
+  return {
+    ...card(),
+    veteran_minimum_eligible: false,
+    effective_cost: 26,
+    legal_slots: ["anchor", "forward_big"],
+    affordable: true,
+    selectable: true,
+    blocked_reason: null,
+    ...over,
+  };
+}
+
+function starters(): RosterSlotPublic[] {
+  return [
+    { slot_id: "lead_creator", role: "lead_creator", is_starter: true, card: card({ card_id: "a", player_name: "Oscar Robertson" }) },
+    { slot_id: "guard_wing", role: "guard_wing", is_starter: true, card: null },
+    { slot_id: "wing_forward", role: "wing_forward", is_starter: true, card: null },
+    { slot_id: "forward_big", role: "forward_big", is_starter: true, card: null },
+    { slot_id: "anchor", role: "anchor", is_starter: true, card: null },
+  ];
+}
+
+function bench(): RosterSlotPublic[] {
+  return [
+    { slot_id: "bench_1", role: null, is_starter: false, card: null },
+    { slot_id: "bench_2", role: null, is_starter: false, card: null },
+  ];
+}
+
+function mapFixture(): MapAct[] {
+  return [1, 2, 3].map((act) => ({
+    act,
+    stages: [1, 2].map((stage) => ({
+      act,
+      stage,
+      state: "locked" as const,
+      chosen_node_id: null,
+      chosen_node_type: null,
+      option_types: ["draft_room" as const, "trade_desk" as const],
+      scouted: false,
+    })),
+    boss: { boss_id: `boss-a${act}`, name: `Boss ${act}`, state: "locked" as const },
+  }));
+}
+
+const VERSIONS = {
+  engine_version: "run_the_table_v1",
+  ruleset_version: "rtt_ruleset_v1",
+  card_pool_version: "v3",
+  peak3_model_version: "peak3_official_weights_v1",
+};
+
+function runState(over: Partial<RunPublicState> = {}): RunPublicState {
+  return {
+    run_id: "run-1",
+    seed: 999,
+    run_type: "standard",
+    date: null,
+    status: "system_select",
+    act: 1,
+    stage: 1,
+    acts_total: 3,
+    stages_per_act: 2,
+    credits: 40,
+    lives: 3,
+    max_lives: 3,
+    starting_credits: 40,
+    starters: starters(),
+    bench: bench(),
+    systems: [],
+    pending_system_offer: [
+      { id: "moneyball", name: "Moneyball", summary: "Cheap cards cost 35% less.", affects: "price" },
+      { id: "deep_rotation", name: "Deep Rotation", summary: "Bench counts 0.65.", affects: "battle" },
+    ],
+    stage_options: null,
+    active_node: null,
+    next_boss: null,
+    map: mapFixture(),
+    battles: [],
+    lane_profile: LANES.map((l, i) => ({
+      lane: l,
+      label: `Lane ${i}`,
+      token: (["si", "tp", "rec", "po", "team"] as const)[i],
+      value: 50 + i,
+      peak3_weight: 0.2,
+    })),
+    roster_total: 52,
+    bench_weight: 0.35,
+    veteran_minimum_used_this_act: false,
+    action_count: 0,
+    receipt: null,
+    versions: VERSIONS,
+    created_at: "2026-07-31T00:00:00Z",
+    last_action_at: "2026-07-31T00:00:00Z",
+    ...over,
+  };
+}
+
+function battleFixture(over: Partial<BattlePublic> = {}): BattlePublic {
+  return {
+    boss_id: "boss-a1",
+    act: 1,
+    outcome: "win",
+    decided_by: "lanes",
+    player_lanes_won: 3,
+    opponent_lanes_won: 2,
+    ties: 0,
+    summed_margin: 6.5,
+    player_roster_total: 61.2,
+    opponent_roster_total: 59.9,
+    bench_weight: 0.35,
+    rule_id: "the_wall",
+    credits_awarded: 12,
+    lives_after: 3,
+    lanes: LANES.map((l, i) => ({
+      lane: l,
+      label: `Lane ${i}`,
+      token: (["si", "tp", "rec", "po", "team"] as const)[i],
+      player_score: 60 + i,
+      opponent_score: 58,
+      winner: i % 2 === 0 ? ("player" as const) : ("opponent" as const),
+      margin: 2 + i,
+      tie_broken_by_rule: false,
+      player_top_card: card({ player_name: "Tim Duncan" }),
+      opponent_top_card: card({ card_id: "z", player_name: "Kevin Garnett" }),
+    })),
+    ...over,
+  };
+}
+
+function receiptFixture(over: Partial<RunReceipt> = {}): RunReceipt {
+  return {
+    verdict: "RUN COMPLETE",
+    headline: "Ran the table.",
+    story: "Moneyball — defeated all three bosses.",
+    ran_the_table: true,
+    bosses_defeated: 3,
+    battles_lost: 0,
+    record: "3-0",
+    lives_remaining: 2,
+    systems: [{ id: "moneyball", name: "Moneyball", summary: "Cheap cards cost 35% less." }],
+    starters: [
+      {
+        slot_id: "anchor",
+        role: "anchor",
+        card_id: "tim",
+        player_name: "Tim Duncan",
+        player_slug: "tim-duncan",
+        anchor_season: "2002-03",
+        window: "2001-02–2003-04",
+        prime_score: 91.2,
+        base_cost: 26,
+      },
+    ],
+    bench: [],
+    lane_profile: LANES.map((l, i) => ({ lane: l, label: `Lane ${i}`, value: 50 + i, lanes_won: i % 2 })),
+    roster_total: 63.4,
+    strongest_lane: { lane: "team_achievement", label: "Team Result", value: 54 },
+    weakest_lane: { lane: "statistical_impact", label: "Statistical Impact", value: 50 },
+    run_mvp: {
+      card_id: "tim",
+      player_name: "Tim Duncan",
+      player_slug: "tim-duncan",
+      anchor_season: "2002-03",
+      window: "2001-02–2003-04",
+      prime_score: 91.2,
+      base_cost: 26,
+      marginal_contribution: 7.42,
+      is_starter: true,
+    },
+    marginal_contributions: [],
+    best_acquisition: null,
+    best_trade: null,
+    closest_battle: null,
+    credits_spent: 33,
+    credits_refunded: 4,
+    credits_remaining: 15,
+    starting_credits: 40,
+    reasons: [
+      { kind: "lane_strength", text: "Statistical Impact won 3 of 3 battles.", signed_value: 3 },
+      { kind: "economy", text: "Finished holding 15 unspent credits.", signed_value: -15 },
+    ],
+    battles: [],
+    seed: 999,
+    run_type: "standard",
+    date: null,
+    versions: VERSIONS,
+    ...over,
+  };
+}
+
+// ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  window.localStorage.clear();
+  mockGetReadiness.mockResolvedValue({
+    enabled: true,
+    daily_enabled: true,
+    card_pool: { available: true, card_count: 174 },
+  });
+  mockGetDaily.mockResolvedValue({
+    date: "2026-07-31",
+    run_id: "rtt-daily-2026-07-31",
+    seed: 4242,
+    ruleset_version: "rtt_ruleset_v1",
+  });
+  mockGetChallenge.mockResolvedValue({
+    seed: 777777,
+    run_type: "standard",
+    date: null,
+    versions: VERSIONS,
+  });
+});
+
+describe("RunTheTableGame — the start gate", () => {
+  it("creates NO run on mount; the gate is the only way in", async () => {
+    render(<RunTheTableGame />);
+    expect(await screen.findByTestId("rtt-start-gate")).toBeInTheDocument();
+    expect(mockCreateRun).not.toHaveBeenCalled();
+    expect(mockPostAction).not.toHaveBeenCalled();
+  });
+
+  it("states the promise of the mode in one sentence", async () => {
+    render(<RunTheTableGame />);
+    await screen.findByTestId("rtt-start-gate");
+    expect(
+      screen.getByText(/Build and evolve a roster of exact NBA 3-year peaks/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows today's daily seed so both entry points are distinguishable", async () => {
+    render(<RunTheTableGame />);
+    expect(await screen.findByTestId("rtt-daily-note")).toHaveTextContent("4242");
+  });
+
+  it("starts a standard run only on an explicit click", async () => {
+    mockCreateRun.mockResolvedValue(runState());
+    render(<RunTheTableGame />);
+    await userEvent.click(await screen.findByTestId("rtt-start-standard"));
+    await waitFor(() => expect(mockCreateRun).toHaveBeenCalledWith("standard", expect.anything()));
+    expect(await screen.findByTestId("rtt-shell")).toBeInTheDocument();
+  });
+
+  it("starts today's run through the daily button", async () => {
+    mockCreateRun.mockResolvedValue(runState({ run_type: "daily" }));
+    render(<RunTheTableGame />);
+    await userEvent.click(await screen.findByTestId("rtt-start-daily"));
+    await waitFor(() => expect(mockCreateRun).toHaveBeenCalledWith("daily", expect.anything()));
+  });
+
+  it("labels a database-unavailable environment instead of blanking or crashing", async () => {
+    mockGetReadiness.mockResolvedValue({
+      enabled: true,
+      daily_enabled: true,
+      card_pool: { available: false, error: "card pool not built" },
+    });
+    render(<RunTheTableGame />);
+    expect(await screen.findByTestId("rtt-local-demo-notice")).toHaveTextContent(/Local demo mode/i);
+    expect(screen.getByTestId("rtt-start-standard")).toBeEnabled();
+  });
+
+  it("says so, retryably, when the API cannot be reached", async () => {
+    mockGetReadiness.mockRejectedValue(new RunTheTableAPIError(0, "network"));
+    render(<RunTheTableGame />);
+    const err = await screen.findByTestId("rtt-start-error");
+    expect(within(err).getByRole("alert")).toHaveTextContent(/Could not reach the PEAK3 API/i);
+    expect(screen.getByTestId("rtt-start-retry")).toBeInTheDocument();
+  });
+});
+
+describe("RunTheTableGame — challenge links", () => {
+  /**
+   * The gate used to render only "Start a run" and "Today's run", so a visitor
+   * who followed a `?c=` link had nothing to press that carried the token: the
+   * obvious button silently started a fresh, unrelated seed. A challenge link
+   * that does not reproduce its board is worse than no link at all.
+   */
+  it("offers a challenge start button only when a token is present", async () => {
+    render(<RunTheTableGame />);
+    await screen.findByTestId("rtt-start-gate");
+    expect(screen.queryByTestId("rtt-start-challenge")).toBeNull();
+  });
+
+  it("names the challenged board before anything is committed", async () => {
+    render(<RunTheTableGame challengeToken="tok-abc" />);
+    expect(await screen.findByTestId("rtt-challenge-note")).toHaveTextContent("777777");
+    expect(mockGetChallenge).toHaveBeenCalledWith("tok-abc");
+    expect(mockCreateRun).not.toHaveBeenCalled();
+  });
+
+  it("starts a CHALLENGE run carrying the token, not a fresh random seed", async () => {
+    mockCreateRun.mockResolvedValue(runState({ run_type: "challenge", seed: 777777 }));
+    render(<RunTheTableGame challengeToken="tok-abc" />);
+    await userEvent.click(await screen.findByTestId("rtt-start-challenge"));
+    await waitFor(() =>
+      expect(mockCreateRun).toHaveBeenCalledWith(
+        "challenge",
+        expect.objectContaining({ challengeToken: "tok-abc" }),
+      ),
+    );
+    expect(await screen.findByTestId("rtt-shell")).toBeInTheDocument();
+  });
+
+  it("explains an expired or forged link instead of offering a dead button", async () => {
+    mockGetChallenge.mockRejectedValue(
+      new RunTheTableAPIError(404, "This challenge link is invalid or has expired."),
+    );
+    render(<RunTheTableGame challengeToken="tok-bad" />);
+    expect(await screen.findByTestId("rtt-challenge-note")).toHaveTextContent(/invalid or has expired/i);
+    expect(screen.getByTestId("rtt-start-challenge")).toBeDisabled();
+    // The visitor is not stranded — a run of their own is still one click away.
+    expect(screen.getByTestId("rtt-start-standard")).toBeEnabled();
+  });
+});
+
+describe("RunTheTableGame — resume", () => {
+  function storePointer() {
+    window.localStorage.setItem(
+      RUN_THE_TABLE_STORAGE_KEY,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: "run-1",
+        seed: 999,
+        run_type: "standard",
+        updated_at: "2026-07-31T00:00:00.000Z",
+      }),
+    );
+  }
+
+  it("resumes a stored run at the SAME screen its status maps to", async () => {
+    storePointer();
+    mockGetRun.mockResolvedValue(
+      runState({
+        status: "node_select",
+        stage_options: [
+          { node_id: "n1", node_type: "draft_room", title: "Open tryouts", summary: "Three cards." },
+          { node_id: "n2", node_type: "film_room", title: "Tape session", summary: "Look ahead." },
+        ],
+      }),
+    );
+    render(<RunTheTableGame />);
+    expect(await screen.findByTestId("rtt-node-choice")).toBeInTheDocument();
+    expect(mockGetRun).toHaveBeenCalledWith("run-1");
+    expect(mockCreateRun).not.toHaveBeenCalled();
+  });
+
+  it("clears the pointer and explains itself when the stored run is gone (404)", async () => {
+    storePointer();
+    mockGetRun.mockRejectedValue(new RunTheTableAPIError(404, "not found"));
+    render(<RunTheTableGame />);
+    expect(await screen.findByTestId("rtt-resume-notice")).toHaveTextContent(/expired/i);
+    expect(window.localStorage.getItem(RUN_THE_TABLE_STORAGE_KEY)).toBeNull();
+    expect(screen.getByTestId("rtt-start-gate")).toBeInTheDocument();
+  });
+
+  it("clears the pointer on a ruleset version mismatch (409)", async () => {
+    storePointer();
+    mockGetRun.mockRejectedValue(new RunTheTableAPIError(409, "version"));
+    render(<RunTheTableGame />);
+    expect(await screen.findByTestId("rtt-resume-notice")).toHaveTextContent(/ruleset changed/i);
+    expect(window.localStorage.getItem(RUN_THE_TABLE_STORAGE_KEY)).toBeNull();
+  });
+
+  it("keeps the pointer for a transient failure so a retry can still find the run", async () => {
+    storePointer();
+    mockGetRun.mockRejectedValue(new RunTheTableAPIError(500, "boom"));
+    render(<RunTheTableGame />);
+    await screen.findByTestId("rtt-resume-notice");
+    expect(window.localStorage.getItem(RUN_THE_TABLE_STORAGE_KEY)).not.toBeNull();
+  });
+
+  it("does not report a resumed run as a STARTED run", async () => {
+    /**
+     * `rtt_run_started` used to be an effect keyed on `run_id`, which the
+     * resume path also sets — so resuming, and every subsequent reload of that
+     * same run, re-fired "started" for a run that had started once, hours
+     * earlier. Starting is an event, not a state.
+     */
+    const { analytics } = await import("@/lib/analytics");
+    const track = vi.spyOn(analytics, "track").mockImplementation(() => {});
+    try {
+      storePointer();
+      mockGetRun.mockResolvedValue(runState({ status: "node_select", stage_options: [] }));
+      render(<RunTheTableGame />);
+      await screen.findByTestId("rtt-shell");
+
+      const types = track.mock.calls.map((c) => (c[0] as { type: string }).type);
+      expect(types).toContain("rtt_run_resumed");
+      expect(types).not.toContain("rtt_run_started");
+    } finally {
+      track.mockRestore();
+    }
+  });
+
+  it("reports a run started exactly once, from the start path", async () => {
+    const { analytics } = await import("@/lib/analytics");
+    const track = vi.spyOn(analytics, "track").mockImplementation(() => {});
+    try {
+      mockCreateRun.mockResolvedValue(runState());
+      render(<RunTheTableGame />);
+      await userEvent.click(await screen.findByTestId("rtt-start-standard"));
+      await screen.findByTestId("rtt-shell");
+
+      const started = track.mock.calls
+        .map((c) => c[0] as { type: string; seed?: number })
+        .filter((e) => e.type === "rtt_run_started");
+      expect(started).toHaveLength(1);
+      expect(started[0].seed).toBe(999);
+    } finally {
+      track.mockRestore();
+    }
+  });
+
+  it("writes the pointer once a run exists, so a reload can resume it", async () => {
+    mockCreateRun.mockResolvedValue(runState());
+    render(<RunTheTableGame />);
+    await userEvent.click(await screen.findByTestId("rtt-start-standard"));
+    await screen.findByTestId("rtt-shell");
+    expect(JSON.parse(window.localStorage.getItem(RUN_THE_TABLE_STORAGE_KEY) ?? "{}")).toMatchObject(
+      { run_id: "run-1", seed: 999, schema_version: 1 },
+    );
+  });
+});
+
+describe("RunTheTableGame — actions and errors", () => {
+  async function startAt(state: RunPublicState) {
+    mockCreateRun.mockResolvedValue(state);
+    render(<RunTheTableGame />);
+    await userEvent.click(await screen.findByTestId("rtt-start-standard"));
+    await screen.findByTestId("rtt-shell");
+  }
+
+  it("posts the system the player picked and replaces the whole state", async () => {
+    await startAt(runState());
+    mockPostAction.mockResolvedValue(
+      runState({ status: "node_select", systems: [{ id: "moneyball", name: "Moneyball", summary: "s", affects: "price" }], stage_options: [] }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-system-moneyball"));
+    await waitFor(() =>
+      expect(mockPostAction).toHaveBeenCalledWith(
+        "run-1",
+        { action_type: "select_system", system_id: "moneyball" },
+        expect.stringContaining(":run-1:system:moneyball"),
+      ),
+    );
+    expect(await screen.findByTestId("rtt-node-choice")).toBeInTheDocument();
+  });
+
+  it("surfaces a failed action as a retryable alert, not a crash", async () => {
+    await startAt(runState());
+    mockPostAction.mockRejectedValue(new RunTheTableAPIError(500, "Engine exploded"));
+    await userEvent.click(screen.getByTestId("rtt-system-moneyball"));
+    const alert = await screen.findByTestId("rtt-error");
+    expect(alert).toHaveTextContent("Engine exploded");
+    expect(within(alert).getByTestId("rtt-error-retry")).toBeInTheDocument();
+    // Still on the same screen — nothing was lost.
+    expect(screen.getByTestId("rtt-system-select")).toBeInTheDocument();
+  });
+
+  it("retries the SAME action, with the same idempotency key", async () => {
+    await startAt(runState());
+    mockPostAction.mockRejectedValueOnce(new RunTheTableAPIError(500, "boom"));
+    await userEvent.click(screen.getByTestId("rtt-system-moneyball"));
+    const firstKey = mockPostAction.mock.calls[0][2];
+    mockPostAction.mockResolvedValue(runState({ status: "node_select", stage_options: [] }));
+    await userEvent.click(await screen.findByTestId("rtt-error-retry"));
+    await waitFor(() => expect(mockPostAction).toHaveBeenCalledTimes(2));
+    expect(mockPostAction.mock.calls[1][2]).toBe(firstKey);
+  });
+
+  it("renders the persistent tray with the server's credits and lives", async () => {
+    await startAt(runState({ credits: 27, lives: 2 }));
+    expect(screen.getAllByTestId("rtt-credits")[0]).toHaveTextContent("27");
+    expect(screen.getAllByTestId("rtt-lives")[0]).toHaveTextContent("2/3");
+    expect(screen.getByTestId("rtt-mobile-tray")).toBeInTheDocument();
+  });
+
+  it("does not render a decision surface it has no payload for", async () => {
+    await startAt(runState({ status: "node_active", active_node: null }));
+    expect(await screen.findByTestId("rtt-inconsistent-state")).toBeInTheDocument();
+  });
+});
+
+describe("RunMap", () => {
+  it("draws two stage rows plus a boss row per act, boss rows marked", () => {
+    render(<RunMap map={mapFixture()} />);
+    expect(screen.getAllByTestId(/^rtt-map-row-/)).toHaveLength(9);
+    expect(screen.getByTestId("rtt-map-row-a1boss")).toHaveAttribute("data-row-kind", "boss");
+    expect(screen.getByTestId("rtt-map-row-a1s1")).toHaveAttribute("data-row-state", "locked");
+  });
+
+  it("colours the state word with a FOREGROUND token, never the row border", () => {
+    const map: MapAct[] = [
+      {
+        act: 1,
+        stages: [
+          { act: 1, stage: 1, state: "current", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "trade_desk"], scouted: false },
+          { act: 1, stage: 2, state: "locked", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "film_room"], scouted: false },
+        ],
+        boss: { boss_id: "boss-a1", name: "The Wall", state: "lost" },
+      },
+      {
+        act: 2,
+        stages: [
+          { act: 2, stage: 1, state: "done", chosen_node_id: "n", chosen_node_type: "draft_room", option_types: ["draft_room", "trade_desk"], scouted: false },
+          { act: 2, stage: 2, state: "locked", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "rest_bank"], scouted: false },
+        ],
+        boss: { boss_id: "boss-a2", name: "Strength", state: "won" },
+      },
+      {
+        act: 3,
+        stages: [
+          { act: 3, stage: 1, state: "locked", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "trade_desk"], scouted: false },
+          { act: 3, stage: 2, state: "locked", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "rest_bank"], scouted: false },
+        ],
+        boss: { boss_id: "boss-a3", name: "The Ceiling", state: "drawn" },
+      },
+    ];
+    render(<RunMap map={map} />);
+    // Border tokens as text measured 1.11:1 (locked) to 3.36:1 (done) — all
+    // fail AA, and this word is the only TEXTUAL state indicator in the rail.
+    // Each of these is >= 4.5:1 against the fill its own row paints.
+    const colorOf = (key: string) => screen.getByTestId(`rtt-map-state-${key}`).style.color;
+    expect(colorOf("a1s1")).toBe("var(--peak-accent)"); // 10.95:1 on the accent wash
+    expect(colorOf("a1s2")).toBe("var(--text-muted)"); // 5.21:1 on --bg-elevated
+    expect(colorOf("a2s1")).toBe("var(--correct)"); // 7.40:1 on --bg-surface
+    expect(colorOf("a2boss")).toBe("var(--correct)");
+    expect(colorOf("a3boss")).toBe("var(--text-secondary)"); // 5.31:1 on --bg-surface
+    // --incorrect neat is only 4.48:1 on --bg-surface, so "lost" mixes toward
+    // --text-primary to reach 5.17:1 rather than shipping a near-miss.
+    expect(colorOf("a1boss")).toContain("color-mix");
+    // And no border token is ever used as a text colour.
+    for (const key of ["a1s1", "a1s2", "a2s1", "a3boss", "a1boss", "a2boss"]) {
+      expect(colorOf(key)).not.toContain("--border-");
+      expect(colorOf(key)).not.toContain("-dim)");
+    }
+  });
+
+  it("recesses a locked row by fill and border, not by a blanket opacity", () => {
+    render(<RunMap map={mapFixture()} />);
+    const locked = screen.getByTestId("rtt-map-row-a1s1");
+    expect(locked).toHaveAttribute("data-row-state", "locked");
+    // `opacity: 0.72` dragged EVERY label in the row down with it.
+    expect(locked.style.opacity).toBe("");
+    expect(locked.style.background).toBe("var(--bg-elevated)");
+    expect(locked.style.borderColor).toBe("var(--border-subtle)");
+  });
+});
+
+describe("LaneProfile", () => {
+  const lanes = LANES.map((l, i) => ({
+    lane: l,
+    label: `Lane ${i}`,
+    token: (["si", "tp", "rec", "po", "team"] as const)[i],
+    value: 50 + i,
+    peak3_weight: 0.2,
+  }));
+
+  it("puts the scouted opponent's lane values in text, not only in a title", () => {
+    const compare = lanes.map((l) => ({ ...l, value: l.value + 4 }));
+    render(<LaneProfile lanes={lanes} compare={compare} compareLabel="The Wall" />);
+    // `title` on an `aria-hidden` tick is exposed to nobody — the entire
+    // payoff of a Film Room scout used to be unreachable.
+    expect(screen.getByTestId("rtt-lane-sr-statistical_impact")).toHaveTextContent(
+      "The Wall in Lane 0: 54.0.",
+    );
+    expect(screen.getByTestId("rtt-lane-sr-team_achievement")).toHaveTextContent(
+      "The Wall in Lane 4: 58.0.",
+    );
+  });
+
+  it("puts the PEAK3 weight in text when it is shown at all", () => {
+    render(<LaneProfile lanes={lanes} showWeights />);
+    expect(screen.getByTestId("rtt-lane-sr-statistical_impact")).toHaveTextContent(
+      "Lane 0 is 20% of the PEAK3 score.",
+    );
+  });
+
+  it("adds no extra text when there is nothing title-only to expose", () => {
+    render(<LaneProfile lanes={lanes} />);
+    expect(screen.queryByTestId("rtt-lane-sr-statistical_impact")).not.toBeInTheDocument();
+  });
+});
+
+describe("DraftRoom", () => {
+  const node: ActiveNode = {
+    node_id: "n1",
+    node_type: "draft_room",
+    title: "Open tryouts",
+    summary: "Three cards on the board.",
+    can_pass: true,
+    offers: [
+      offer(),
+      offer({
+        card_id: "b",
+        player_name: "Sidney Moncrief",
+        cost: 40,
+        effective_cost: 40,
+        affordable: false,
+        selectable: false,
+        blocked_reason: "Not enough credits",
+      }),
+      offer({
+        card_id: "c",
+        player_name: "Alex English",
+        veteran_minimum_eligible: true,
+        cost: 9,
+        effective_cost: 0,
+      }),
+    ],
+  };
+
+  it("shows the server's cost and the server's blocked reason, verbatim", () => {
+    render(
+      <DraftRoom node={node} slots={[...starters(), ...bench()]} credits={30} busy={false} onBuy={vi.fn()} onPass={vi.fn()} />,
+    );
+    expect(screen.getByText("Not enough credits")).toBeInTheDocument();
+    // A11y: blocked offers are `aria-disabled`, NOT `disabled` — `disabled`
+    // takes them out of the tab order, so a keyboard user could never reach
+    // the reason the card is grey.
+    expect(screen.getByTestId("rtt-offer-b")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByTestId("rtt-offer-b")).toBeEnabled();
+    expect(screen.getByTestId("rtt-offer-tim-duncan-3yr-200203")).toBeEnabled();
+    expect(screen.getByTestId("rtt-offer-tim-duncan-3yr-200203")).not.toHaveAttribute(
+      "aria-disabled",
+    );
+  });
+
+  it("keeps a blocked offer focusable but inert, and always explains it", async () => {
+    const blockedNode: ActiveNode = {
+      ...node,
+      offers: [
+        offer(),
+        // `selectable: false` with a NULL reason: the server is allowed to
+        // send this, and it used to grey the card with no explanation at all.
+        offer({
+          card_id: "silent",
+          player_name: "Sidney Moncrief",
+          selectable: false,
+          blocked_reason: null,
+        }),
+      ],
+    };
+    render(
+      <DraftRoom
+        node={blockedNode}
+        slots={[...starters(), ...bench()]}
+        credits={30}
+        busy={false}
+        onBuy={vi.fn()}
+        onPass={vi.fn()}
+      />,
+    );
+    const blocked = screen.getByTestId("rtt-offer-silent");
+    expect(blocked).toHaveAttribute("aria-disabled", "true");
+    // Reachable by keyboard.
+    blocked.focus();
+    expect(blocked).toHaveFocus();
+    // Fallback reason, never a silent grey card.
+    expect(screen.getByTestId("rtt-offer-blocked-silent")).toHaveTextContent(
+      "Cannot be drafted right now.",
+    );
+    // Inert: clicking it must not open the slot picker.
+    await userEvent.click(blocked);
+    expect(screen.queryByTestId("rtt-draft-slot-picker")).not.toBeInTheDocument();
+  });
+
+  it("gives the Veteran Minimum toggle a 44px label target", async () => {
+    render(
+      <DraftRoom
+        node={node}
+        slots={[...starters(), ...bench()]}
+        credits={30}
+        busy={false}
+        onBuy={vi.fn()}
+        onPass={vi.fn()}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("rtt-offer-c"));
+    // The <label> is the target and carries the min-height; the box itself is
+    // sized in `.rtt-checkbox-row input[type="checkbox"]`.
+    const row = await screen.findByTestId("rtt-vet-min-row");
+    expect(row.className).toContain("rtt-checkbox-row");
+    expect(row.tagName).toBe("LABEL");
+    expect(row).toContainElement(screen.getByTestId("rtt-vet-min-toggle"));
+  });
+
+  it("uses container breakpoints, never viewport ones, for the offer grid", () => {
+    render(
+      <DraftRoom
+        node={node}
+        slots={[...starters(), ...bench()]}
+        credits={30}
+        busy={false}
+        onBuy={vi.fn()}
+        onPass={vi.fn()}
+      />,
+    );
+    // The decision column SHRINKS as the viewport grows, so `md:`/`lg:` are
+    // measuring the wrong box entirely.
+    const grid = screen.getByTestId("rtt-draft-offers");
+    expect(grid.className).toContain("@[560px]:grid-cols-2");
+    expect(grid.className).not.toMatch(/\b(sm|md|lg):grid-cols/);
+    expect(screen.getByTestId("rtt-draft-room").className).toContain("rtt-decision-surface");
+  });
+
+  it("exposes every card's lane fingerprint as text, not only as bars", () => {
+    render(
+      <DraftRoom
+        node={node}
+        slots={[...starters(), ...bench()]}
+        credits={30}
+        busy={false}
+        onBuy={vi.fn()}
+        onPass={vi.fn()}
+      />,
+    );
+    // The bars themselves stay hidden — bar height is not information AT can
+    // use — but the percentiles must exist somewhere in the accessible tree.
+    const bars = screen.getAllByTestId("rtt-card-fingerprint");
+    expect(bars[0]).toHaveAttribute("aria-hidden", "true");
+    const sr = screen.getAllByTestId("rtt-card-fingerprint-sr");
+    expect(sr).toHaveLength(3);
+    expect(sr[0]).toHaveTextContent(
+      "Lane percentiles — Statistical Impact 88, Traditional Production 88, Individual Recognition 88, Playoff Rate Impact 88, Team Result 88.",
+    );
+  });
+
+  it("buys into a legal slot only after the slot is chosen", async () => {
+    const onBuy = vi.fn();
+    render(
+      <DraftRoom node={node} slots={[...starters(), ...bench()]} credits={30} busy={false} onBuy={onBuy} onPass={vi.fn()} />,
+    );
+    expect(screen.queryByTestId("rtt-draft-slot-picker")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("rtt-offer-tim-duncan-3yr-200203"));
+    expect(await screen.findByTestId("rtt-draft-slot-picker")).toBeInTheDocument();
+    // Only the slots the SERVER called legal are offered.
+    expect(screen.getByTestId("rtt-draft-slot-anchor")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-draft-slot-lead_creator")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("rtt-draft-slot-anchor"));
+    expect(onBuy).toHaveBeenCalledWith(expect.objectContaining({ card_id: "tim-duncan-3yr-200203" }), "anchor", false);
+  });
+
+  it("defaults the Veteran Minimum on for an eligible card and lets it be turned off", async () => {
+    const onBuy = vi.fn();
+    render(
+      <DraftRoom node={node} slots={[...starters(), ...bench()]} credits={30} busy={false} onBuy={onBuy} onPass={vi.fn()} />,
+    );
+    await userEvent.click(screen.getByTestId("rtt-offer-c"));
+    expect(screen.getByTestId("rtt-vet-min-toggle")).toBeChecked();
+    await userEvent.click(screen.getByTestId("rtt-draft-slot-anchor"));
+    expect(onBuy).toHaveBeenCalledWith(expect.objectContaining({ card_id: "c" }), "anchor", true);
+
+    onBuy.mockClear();
+    await userEvent.click(screen.getByTestId("rtt-vet-min-toggle"));
+    await userEvent.click(screen.getByTestId("rtt-draft-slot-anchor"));
+    expect(onBuy).toHaveBeenCalledWith(expect.objectContaining({ card_id: "c" }), "anchor", false);
+  });
+
+  it("offers a real button to pass", async () => {
+    const onPass = vi.fn();
+    render(
+      <DraftRoom node={node} slots={[...starters(), ...bench()]} credits={30} busy={false} onBuy={vi.fn()} onPass={onPass} />,
+    );
+    const pass = screen.getByTestId("rtt-draft-pass");
+    expect(pass.tagName).toBe("BUTTON");
+    await userEvent.click(pass);
+    expect(onPass).toHaveBeenCalled();
+  });
+});
+
+describe("TradeDesk", () => {
+  const node: ActiveNode = {
+    node_id: "n2",
+    node_type: "trade_desk",
+    title: "Phones are ringing",
+    summary: "Three names available.",
+    can_decline: true,
+    incoming: [
+      { ...card({ card_id: "in-legal", player_name: "Dave Cowens", cost: 18 }), legal_slots: ["anchor"] },
+      { ...card({ card_id: "in-illegal", player_name: "Nate Archibald", cost: 12 }), legal_slots: ["lead_creator"] },
+    ],
+    outgoing_options: [
+      {
+        slot_id: "anchor",
+        role: "anchor",
+        is_starter: true,
+        card: card({ card_id: "out", player_name: "Bill Walton" }),
+        refund: 6,
+      },
+    ],
+  };
+
+  it("nets the server's incoming cost against the server's refund", async () => {
+    render(<TradeDesk node={node} credits={40} busy={false} onTrade={vi.fn()} onDecline={vi.fn()} />);
+    await userEvent.click(screen.getByTestId("rtt-trade-in-in-legal"));
+    await userEvent.click(screen.getByTestId("rtt-trade-out-anchor"));
+    expect(screen.getByTestId("rtt-trade-summary")).toHaveTextContent("net 12 credits");
+  });
+
+  it("refuses a pairing the server did not call legal", async () => {
+    render(<TradeDesk node={node} credits={40} busy={false} onTrade={vi.fn()} onDecline={vi.fn()} />);
+    await userEvent.click(screen.getByTestId("rtt-trade-in-in-illegal"));
+    await userEvent.click(screen.getByTestId("rtt-trade-out-anchor"));
+    expect(screen.getByTestId("rtt-trade-confirm")).toBeDisabled();
+    expect(screen.getByTestId("rtt-trade-summary")).toHaveTextContent(/not eligible for Anchor/i);
+  });
+
+  it("marks an ineligible offer without washing out its own text", async () => {
+    render(<TradeDesk node={node} credits={40} busy={false} onTrade={vi.fn()} onDecline={vi.fn()} />);
+    await userEvent.click(screen.getByTestId("rtt-trade-out-anchor"));
+    const illegal = screen.getByTestId("rtt-trade-in-in-illegal");
+    // These buttons are NOT disabled — picking one is how you find out the
+    // trade is illegal — so the WCAG inactive-control exemption does not
+    // apply and `opacity: 0.55` put --text-secondary at 2.61:1.
+    expect(illegal).toBeEnabled();
+    expect(illegal.style.opacity).toBe("");
+    expect(illegal.style.borderColor).toBe("var(--incorrect-dim)");
+    expect(screen.getByTestId("rtt-trade-in-in-legal").style.opacity).toBe("");
+    expect(within(illegal).getByText(/Not eligible for Anchor/i)).toBeInTheDocument();
+  });
+
+  it("uses container breakpoints for its two columns", () => {
+    render(<TradeDesk node={node} credits={40} busy={false} onTrade={vi.fn()} onDecline={vi.fn()} />);
+    const desk = screen.getByTestId("rtt-trade-desk");
+    expect(desk.className).toContain("rtt-decision-surface");
+    expect(desk.querySelector(".grid")?.className).toContain("@[520px]:grid-cols-2");
+    expect(desk.querySelector(".grid")?.className).not.toMatch(/\blg:grid-cols/);
+  });
+
+  it("blocks a legal trade the player cannot afford", async () => {
+    render(<TradeDesk node={node} credits={5} busy={false} onTrade={vi.fn()} onDecline={vi.fn()} />);
+    await userEvent.click(screen.getByTestId("rtt-trade-in-in-legal"));
+    await userEvent.click(screen.getByTestId("rtt-trade-out-anchor"));
+    expect(screen.getByTestId("rtt-trade-confirm")).toBeDisabled();
+  });
+
+  it("passes the net cost back with the trade", async () => {
+    const onTrade = vi.fn();
+    render(<TradeDesk node={node} credits={40} busy={false} onTrade={onTrade} onDecline={vi.fn()} />);
+    await userEvent.click(screen.getByTestId("rtt-trade-in-in-legal"));
+    await userEvent.click(screen.getByTestId("rtt-trade-out-anchor"));
+    await userEvent.click(screen.getByTestId("rtt-trade-confirm"));
+    expect(onTrade).toHaveBeenCalledWith("anchor", "in-legal", 12);
+  });
+});
+
+describe("BattleReveal", () => {
+  it("has the COMPLETE verdict in a polite status region at t=0", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const live = screen.getByTestId("rtt-battle-verdict-live");
+    expect(live).toHaveAttribute("role", "status");
+    expect(live).toHaveAttribute("aria-live", "polite");
+    expect(live).toHaveTextContent("VICTORY");
+    expect(live).toHaveTextContent("Decided on lanes won");
+    // Every lane's numbers, immediately — not after five animations.
+    for (let i = 0; i < 5; i += 1) {
+      expect(live).toHaveTextContent(`Lane ${i}:`);
+    }
+    expect(live).toHaveTextContent("Credits awarded: 12");
+  });
+
+  it("keeps a persistent skip control, not one that appears mid-animation", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    expect(screen.getByTestId("rtt-battle-skip")).toBeVisible();
+  });
+
+  it("renders all five lanes with the server's winner on each", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    expect(screen.getByTestId("rtt-lane-statistical_impact")).toHaveAttribute("data-lane-winner", "player");
+    expect(screen.getByTestId("rtt-lane-traditional_production")).toHaveAttribute("data-lane-winner", "opponent");
+    expect(within(screen.getByTestId("rtt-battle-lanes")).getAllByRole("listitem")).toHaveLength(5);
+  });
+
+  it("names the top contributor the server sent on each side", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const first = screen.getByTestId("rtt-lane-statistical_impact");
+    expect(within(first).getByText("Tim Duncan")).toBeInTheDocument();
+    expect(within(first).getByText("Kevin Garnett")).toBeInTheDocument();
+  });
+
+  it("shows the full series count immediately once the reveal is skipped", async () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    await userEvent.click(screen.getByTestId("rtt-battle-skip"));
+    const series = screen.getByTestId("rtt-battle-series");
+    expect(series).toHaveTextContent("3");
+    expect(series).toHaveTextContent("2");
+    expect(screen.getByTestId("rtt-battle-stamp")).toHaveAttribute("data-outcome", "win");
+  });
+
+  it("advances on a real button", async () => {
+    const onAdvance = vi.fn();
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={onAdvance} advanceLabel="See the receipt" />,
+    );
+    const btn = screen.getByTestId("rtt-battle-advance");
+    expect(btn.tagName).toBe("BUTTON");
+    await userEvent.click(btn);
+    expect(onAdvance).toHaveBeenCalled();
+  });
+});
+
+describe("RunResult", () => {
+  function renderResult(over: Partial<RunReceipt> = {}) {
+    return render(
+      <RunResult
+        receipt={receiptFixture(over)}
+        versions={VERSIONS}
+        busy={false}
+        onRunItBack={vi.fn()}
+        onReplaySeed={vi.fn()}
+        onChallenge={vi.fn().mockResolvedValue("tok-1")}
+      />,
+    );
+  }
+
+  it("uses the share-card shell and renders the engine's verdict and story", () => {
+    const { container } = renderResult();
+    expect(container.querySelector(".share-card-shell")).not.toBeNull();
+    expect(screen.getByTestId("rtt-result-verdict")).toHaveTextContent("RUN COMPLETE");
+    expect(screen.getByText("Ran the table.")).toBeInTheDocument();
+    expect(screen.getByText("Moneyball — defeated all three bosses.")).toBeInTheDocument();
+  });
+
+  it("renders reasons[] as a signed-delta receipt", () => {
+    renderResult();
+    const reasons = screen.getByTestId("rtt-result-reasons");
+    expect(within(reasons).getByText("+3.0")).toBeInTheDocument();
+    expect(within(reasons).getByText("-15.0")).toBeInTheDocument();
+    expect(within(reasons).getByText(/Finished holding 15 unspent credits/)).toBeInTheDocument();
+  });
+
+  it("shows the MVP's marginal contribution rather than a bare name", () => {
+    renderResult();
+    expect(screen.getByText("7.42")).toBeInTheDocument();
+  });
+
+  it("puts the seed and all four version strings in the data receipt", () => {
+    renderResult();
+    const receipt = screen.getByTestId("rtt-data-receipt");
+    expect(within(receipt).getByText("999")).toBeInTheDocument();
+    expect(within(receipt).getByText("run_the_table_v1")).toBeInTheDocument();
+    expect(within(receipt).getByText("rtt_ruleset_v1")).toBeInTheDocument();
+    expect(within(receipt).getByText("v3")).toBeInTheDocument();
+    expect(within(receipt).getByText("peak3_official_weights_v1")).toBeInTheDocument();
+  });
+
+  it("confirms a copy by swapping the button's own label for two seconds — no toast", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    renderResult();
+    await userEvent.click(screen.getByTestId("rtt-copy-summary"));
+    await waitFor(() => expect(screen.getByTestId("rtt-copy-summary")).toHaveTextContent("Copied!"));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("PEAK3 — RUN THE TABLE"));
+    expect(screen.queryByRole("status")).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(2100);
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("rtt-copy-summary")).toHaveTextContent("Copy summary"),
+    );
+    vi.useRealTimers();
+  });
+
+  it("copies ${origin}/arena/run-the-table?c=${token} for a challenge", async () => {
+    // The copied link has to be one the recipient can open. `/c/{token}` is
+    // Peak Draft's challenge route and cannot resolve a RUN THE TABLE token.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    renderResult();
+    await userEvent.click(screen.getByTestId("rtt-challenge"));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        `${window.location.origin}/arena/run-the-table?c=tok-1`,
+      ),
+    );
+  });
+
+  it("reports a failed challenge as an alert rather than silently doing nothing", async () => {
+    render(
+      <RunResult
+        receipt={receiptFixture()}
+        versions={VERSIONS}
+        busy={false}
+        onRunItBack={vi.fn()}
+        onReplaySeed={vi.fn()}
+        onChallenge={vi.fn().mockResolvedValue(null)}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("rtt-challenge"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Could not create a challenge link/i);
+  });
+
+  it("offers both replays as distinct actions", async () => {
+    const onRunItBack = vi.fn();
+    const onReplaySeed = vi.fn();
+    render(
+      <RunResult
+        receipt={receiptFixture()}
+        versions={VERSIONS}
+        busy={false}
+        onRunItBack={onRunItBack}
+        onReplaySeed={onReplaySeed}
+        onChallenge={vi.fn().mockResolvedValue("t")}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("rtt-run-it-back"));
+    await userEvent.click(screen.getByTestId("rtt-replay-seed"));
+    expect(onRunItBack).toHaveBeenCalledTimes(1);
+    expect(onReplaySeed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("RunSkeleton", () => {
+  it("announces the load even though the shell itself is aria-hidden", () => {
+    render(<RunSkeleton />);
+    expect(screen.getByTestId("rtt-skeleton")).toHaveAttribute("aria-hidden", "true");
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Loading your run…");
+    // The status must NOT be inside the hidden subtree, or it says nothing.
+    expect(screen.getByTestId("rtt-skeleton")).not.toContainElement(status);
+  });
+});
+
+describe("ChoiceNode", () => {
+  function choiceNodeFixture(node_type: "film_room" | "rest_bank"): ActiveNode {
+    return {
+      node_id: "n9",
+      node_type,
+      title: "A written choice",
+      summary: "Pick one.",
+      can_pass: false,
+      choices: [
+        { id: "take", label: "Take it", description: "Do the thing." },
+        { id: "blocked", label: "Blocked", description: "Cannot.", disabled: true },
+      ],
+    };
+  }
+
+  it("uses the rest_bank sentence only on a rest_bank node", () => {
+    render(<ChoiceNode node={choiceNodeFixture("rest_bank")} busy={false} onChoose={vi.fn()} />);
+    expect(screen.getByTestId("rtt-choice-disabled-blocked")).toHaveTextContent(
+      "Nothing to recover — you are already at full lives.",
+    );
+  });
+
+  it("falls back to a neutral reason on any other node type", () => {
+    // The same component serves film_room, where "already at full lives" is
+    // simply not true.
+    render(<ChoiceNode node={choiceNodeFixture("film_room")} busy={false} onChoose={vi.fn()} />);
+    expect(screen.getByTestId("rtt-choice-disabled-blocked")).toHaveTextContent(
+      "Not available on this node.",
+    );
+    expect(screen.queryByText(/full lives/i)).not.toBeInTheDocument();
+  });
+});

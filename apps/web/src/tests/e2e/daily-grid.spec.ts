@@ -466,21 +466,26 @@ test.describe("Daily Grid — discoverability", () => {
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
   });
 
-  test("navbar Play still reaches the 82-0 start gate", async ({ page }) => {
-    // The Daily Grid sits BESIDE the flagship, never replacing it. Duplicated
-    // from play-routing.spec.ts on purpose: this file is what changed the
-    // navbar, so it should fail here first if it broke that path.
+  test("navbar Play still reaches the flagship, and 82-0 is still there too", async ({ page }) => {
+    // The Daily Grid sits BESIDE the other modes, never replacing them.
+    // Duplicated from play-routing.spec.ts on purpose: this file is what
+    // changed the navbar, so it should fail here first if it broke that path.
     await page.goto("/", { waitUntil: "load" });
     const play = page
       .getByRole("navigation", { name: "Main navigation" })
       .getByRole("link", { name: "Play" });
-    await expect(play).toHaveAttribute("href", "/arena/court/practice/apex_1y");
+    await expect(play).toHaveAttribute("href", "/arena");
 
     await play.click();
-    await expect(page).toHaveURL(/\/arena\/court\/practice\/apex_1y/);
-    await expect(page.locator('[data-testid="peak-season-start-gate"]')).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(page).toHaveURL(/\/arena$/);
+    await expect(page.getByTestId("arena-flagship-card")).toHaveAttribute(
+      "href",
+      "/arena/run-the-table",
+      { timeout: 15_000 },
+    );
+    // ...and the previous flagship kept its full entry block on the hub.
+    await expect(page.getByTestId("courtbuilder-hero")).toBeVisible();
+    await expect(page.getByRole("link", { name: /Build a Perfect Season/i })).toBeVisible();
   });
 });
 
@@ -1274,13 +1279,19 @@ test.describe("Daily hub", () => {
     await expect(page).toHaveURL(/\/play\/daily/, { timeout: 15_000 });
   });
 
-  test("links to Daily Grid history and keeps 82-0 reachable", async ({ page }) => {
+  test("links to Daily Grid history and keeps both play-any-time modes reachable", async ({ page }) => {
     await page.goto("/daily", { waitUntil: "load" });
     await expect(page.getByTestId("daily-hub-history-link")).toHaveAttribute(
       "href",
       "/daily/history",
     );
+    // The flagship card follows the product's flagship — RUN THE TABLE — and
+    // 82-0 PEAK Season keeps its own card beside it rather than being dropped.
     await expect(page.getByTestId("daily-hub-flagship-card")).toHaveAttribute(
+      "href",
+      "/arena/run-the-table",
+    );
+    await expect(page.getByTestId("daily-hub-peak-season-card")).toHaveAttribute(
       "href",
       "/arena/court/practice/apex_1y",
     );

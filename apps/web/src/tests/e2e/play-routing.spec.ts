@@ -1,16 +1,24 @@
 /**
- * Phase 10C: the main Play path leads into 82-0 PEAK Season, and nowhere else.
+ * The main Play path leads into RUN THE TABLE, the flagship mode — and every
+ * finished mode stays reachable behind it.
  *
  * Requires FastAPI (8000) and Next.js (3000) — both auto-start via
  * playwright.config.ts.
  *
- * THE BUG THESE COVER. The navbar "Play" link pointed at /arena, and /arena
- * rendered the 82-0 hero with the legacy "Peak Draft (Legacy / Labs)" section
- * — 1Y Apex / 3Y Prime / 5Y Foundation mode cards plus a Ranked closed-alpha
- * card — directly underneath it. So the two most prominent entry points in the
- * product (navbar Play, homepage CTA) both landed users on a page whose lower
- * half advertised the old 5-player draft as a co-equal option. The flagship was
- * never unambiguously *the* product.
+ * THE ORIGINAL BUG THESE COVER (Phase 10C). The navbar "Play" link pointed at
+ * /arena, and /arena rendered the flagship hero with the legacy "Peak Draft
+ * (Legacy / Labs)" section — 1Y Apex / 3Y Prime / 5Y Foundation mode cards plus
+ * a Ranked closed-alpha card — directly underneath it. So the two most
+ * prominent entry points in the product (navbar Play, homepage CTA) both landed
+ * users on a page whose lower half advertised the old 5-player draft as a
+ * co-equal option. The flagship was never unambiguously *the* product.
+ *
+ * WHAT CHANGED SINCE. The legacy modes moved to /arena/labs and stayed there,
+ * so /arena is safe to land on again: "Play" points at the hub, and the hub is
+ * an explicit hierarchy — one featured flagship card (RUN THE TABLE), then
+ * full-season modes (82-0 PEAK Season), then the daily games. These tests now
+ * assert that hierarchy, not just the absence of the legacy cards: the flagship
+ * card must be the ONLY featured card on the page, or "featured" means nothing.
  *
  * IMPORTANT SCOPE NOTE, asserted at the bottom of this file: this is about the
  * old 1Y/3Y/5Y *game modes*. The 1Y/3Y/5Y window selector on Rankings → Peak
@@ -70,28 +78,41 @@ async function assertNoLegacyModeLabels(page: Page): Promise<void> {
   }
 }
 
+/** Exactly one card on a hub may carry the flagship treatment, and it must be
+ *  the one named. A second gold card is the failure mode this guards. */
+async function assertSoleFeaturedCard(page: Page, testId: string): Promise<void> {
+  const featured = page.locator('[data-featured="true"]');
+  await expect(featured, "exactly one featured card per hub").toHaveCount(1);
+  await expect(page.locator(`[data-testid="${testId}"]`)).toHaveAttribute(
+    "data-featured",
+    "true",
+  );
+}
+
 test.describe("Navbar Play", () => {
-  test("routes to the 82-0 start gate, not the legacy draft hub", async ({ page }) => {
+  test("routes to the Arena hub, whose flagship is RUN THE TABLE", async ({ page }) => {
     await page.goto("/", { waitUntil: "load" });
     const play = page
       .getByRole("navigation", { name: "Main navigation" })
       .getByRole("link", { name: "Play" });
     await expect(play).toBeVisible();
-    // The link itself must point at the flagship, not the hub.
-    await expect(play).toHaveAttribute("href", "/arena/court/practice/apex_1y");
+    // The hub, not a deep link into one mode's route.
+    await expect(play).toHaveAttribute("href", "/arena");
 
     await play.click();
-    await expect(page).toHaveURL(/\/arena\/court\/practice\/apex_1y/);
-    await expect(page.locator('[data-testid="peak-season-start-gate"]')).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(page).toHaveURL(/\/arena$/);
+    const flagshipCard = page.locator('[data-testid="arena-flagship-card"]');
+    await expect(flagshipCard).toBeVisible({ timeout: 15_000 });
+    await expect(flagshipCard).toHaveAttribute("href", "/arena/run-the-table");
+    await expect(flagshipCard).toContainText(/RUN THE TABLE/i);
+    await assertSoleFeaturedCard(page, "arena-flagship-card");
     await assertNoLegacyModeCards(page);
   });
 
-  test("navigating via Play creates no game until Begin is pressed", async ({ page }) => {
+  test("reaching RUN THE TABLE from Play creates no run until it is started", async ({ page }) => {
     const created: string[] = [];
     page.on("request", (r) => {
-      if (r.method() === "POST" && r.url().includes("/perfect-season/games")) created.push(r.url());
+      if (r.method() === "POST" && r.url().includes("/run-the-table/runs")) created.push(r.url());
     });
 
     await page.goto("/", { waitUntil: "load" });
@@ -99,11 +120,31 @@ test.describe("Navbar Play", () => {
       .getByRole("navigation", { name: "Main navigation" })
       .getByRole("link", { name: "Play" })
       .click();
+    await page.locator('[data-testid="arena-flagship-card"]').click();
+    await expect(page).toHaveURL(/\/arena\/run-the-table/, { timeout: 15_000 });
+    // The route lands on an explicit start screen, exactly like 82-0's Begin
+    // gate — arriving is not starting.
+    await expect(page.locator('[data-testid="rtt-start-gate"]')).toBeVisible({ timeout: 15_000 });
+    await page.waitForLoadState("networkidle");
+
+    // The decisive assertion: reaching a mode from the navbar must never
+    // consume a run. A run fixes its seed and (for the daily) burns the day's
+    // attempt, so it may only begin on a deliberate click.
+    expect(created, "navigation alone must never create a run").toEqual([]);
+  });
+
+  test("navigating to 82-0 creates no game until Begin is pressed", async ({ page }) => {
+    // Same guarantee for the previous flagship, now reached one click deeper
+    // via the Arena hub rather than straight off the navbar.
+    const created: string[] = [];
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes("/perfect-season/games")) created.push(r.url());
+    });
+
+    await page.goto("/arena", { waitUntil: "load" });
+    await page.getByRole("link", { name: /Build a Perfect Season/i }).click();
     await expect(page.locator('[data-testid="begin-run-btn"]')).toBeVisible({ timeout: 15_000 });
 
-    // The decisive assertion: reaching the game from the navbar must not
-    // consume a run. A run fixes its board and (for the daily) burns the day's
-    // attempt, so it may only begin on a deliberate click.
     expect(created, "navigation alone must never create a run").toEqual([]);
     await expect(page.locator('[data-testid="court-builder"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="spin-stage"]')).toHaveCount(0);
@@ -126,9 +167,15 @@ test.describe("Navbar Play", () => {
   });
 
   test("Play stays highlighted across the arena section", async ({ page }) => {
-    // The link deep-links into the practice route, so a naive startsWith(href)
-    // active check would stop highlighting on the daily route and run history.
-    for (const path of ["/arena", "/arena/court/history", "/arena/court/daily/apex_1y"]) {
+    // activePrefix must cover every arena route, not just the hub the link
+    // points at — the flagship run, the 82-0 daily route and run history all
+    // belong to the same section.
+    for (const path of [
+      "/arena",
+      "/arena/run-the-table",
+      "/arena/court/history",
+      "/arena/court/daily/apex_1y",
+    ]) {
       await page.goto(path, { waitUntil: "domcontentloaded" });
       const play = page
         .getByRole("navigation", { name: "Main navigation" })
@@ -176,20 +223,50 @@ test.describe("82-0 start gate exposes no retired mode vocabulary", () => {
   });
 });
 
-test.describe("Homepage CTA", () => {
-  test("'Build Your Perfect Season' routes to the 82-0 start gate", async ({ page }) => {
+test.describe("Homepage", () => {
+  test("'Start a Run' routes to RUN THE TABLE", async ({ page }) => {
     await page.goto("/", { waitUntil: "load" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible();
-    await expect(cta).toContainText(/Build Your Perfect Season/i);
-    await expect(cta).toHaveAttribute("href", "/arena/court/practice/apex_1y");
+    await expect(cta).toContainText(/Start a Run/i);
+    await expect(cta).toHaveAttribute("href", "/arena/run-the-table");
 
     await cta.click();
-    await expect(page).toHaveURL(/\/arena\/court\/practice\/apex_1y/);
-    await expect(page.locator('[data-testid="peak-season-start-gate"]')).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(page).toHaveURL(/\/arena\/run-the-table/, { timeout: 15_000 });
+    await expect(page.locator('[data-testid="rtt-start-gate"]')).toBeVisible({ timeout: 15_000 });
     await assertNoLegacyModeCards(page);
+  });
+
+  test("the hero leads with RUN THE TABLE and nothing else is featured", async ({ page }) => {
+    await page.goto("/", { waitUntil: "load" });
+    const h1 = page.locator("h1");
+    await expect(h1, "exactly one h1 on the homepage").toHaveCount(1);
+    await expect(h1).toContainText("Build a roster of peaks.");
+    await expect(h1).toContainText("Run the table.");
+    // The retired hero line must be gone, not merely pushed down the page.
+    await expect(page.getByText("Chase 82-0", { exact: false })).toHaveCount(0);
+    await assertSoleFeaturedCard(page, "home-flagship-card");
+    await expect(page.locator('[data-testid="home-flagship-card"]')).toHaveAttribute(
+      "href",
+      "/arena/run-the-table",
+    );
+  });
+
+  test("every finished mode is still linked from the homepage", async ({ page }) => {
+    // Promoting the flagship must not hide the modes it outranks.
+    await page.goto("/", { waitUntil: "load" });
+    for (const [testId, href] of [
+      ["home-peak-season-card", "/arena/court/practice/apex_1y"],
+      ["home-daily-grid-card", "/daily/grid"],
+      ["home-daily-duel-card", "/play/daily"],
+      ["home-leaderboard-card", "/arena/court/leaderboard"],
+    ] as const) {
+      const card = page.locator(`[data-testid="${testId}"]`);
+      await expect(card, `${testId} must still be on the homepage`).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(card).toHaveAttribute("href", href);
+    }
   });
 
   test("the homepage never links to the legacy labs route", async ({ page }) => {
@@ -200,13 +277,42 @@ test.describe("Homepage CTA", () => {
 });
 
 test.describe("/arena hub", () => {
-  test("promotes only 82-0 and shows no legacy draft modes", async ({ page }) => {
+  test("promotes only RUN THE TABLE and shows no legacy draft modes", async ({ page }) => {
     await page.goto("/arena", { waitUntil: "load" });
-    await expect(page.locator('[data-testid="courtbuilder-hero"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('[data-testid="arena-flagship-card"]')).toBeVisible({
+      timeout: 15_000,
+    });
+    await assertSoleFeaturedCard(page, "arena-flagship-card");
+    // 82-0 keeps its full block — demoted, never hidden. `assertSoleFeaturedCard`
+    // above is what proves it is no longer the page's gold hero.
+    await expect(page.locator('[data-testid="courtbuilder-hero"]')).toBeVisible();
     await assertNoLegacyModeCards(page);
   });
 
-  test("its primary CTA reaches the start gate without starting a run", async ({ page }) => {
+  test("nothing on the hub calls the flagship a prototype", async ({ page }) => {
+    // "Flagship prototype" was the badge on the old hero. A flagship the
+    // product routes every new player to is not a prototype, and saying so
+    // undercuts the whole hierarchy this page exists to express.
+    await page.goto("/arena", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="arena-flagship-card"]')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText("prototype", { exact: false })).toHaveCount(0);
+  });
+
+  test("the flagship's own daily and run-history links are present", async ({ page }) => {
+    await page.goto("/arena", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="arena-rtt-daily-link"]')).toHaveAttribute(
+      "href",
+      "/arena/run-the-table?mode=daily",
+    );
+    await expect(page.locator('[data-testid="arena-rtt-runs-link"]')).toHaveAttribute(
+      "href",
+      "/arena/run-the-table",
+    );
+  });
+
+  test("the 82-0 CTA reaches the start gate without starting a run", async ({ page }) => {
     await page.goto("/arena", { waitUntil: "load" });
     await page.getByRole("link", { name: /Build a Perfect Season/i }).click();
     await expect(page).toHaveURL(/\/arena\/court\/practice\/apex_1y/);
@@ -216,12 +322,29 @@ test.describe("/arena hub", () => {
     await expect(page.locator('[data-testid="court-builder"]')).toHaveCount(0);
   });
 
-  test("keeps the daily and run-history entry points", async ({ page }) => {
+  test("keeps the 82-0 daily, run-history and leaderboard entry points", async ({ page }) => {
     await page.goto("/arena", { waitUntil: "load" });
     await expect(page.locator('[data-testid="daily-peak-season-cta"]')).toBeVisible({
       timeout: 15_000,
     });
     await expect(page.locator('[data-testid="court-history-link"]')).toBeVisible();
+    // The 82-0 leaderboard had no entry point on this hub at all before.
+    await expect(page.locator('[data-testid="arena-leaderboard-link"]')).toHaveAttribute(
+      "href",
+      "/arena/court/leaderboard",
+    );
+  });
+
+  test("still lists both daily games", async ({ page }) => {
+    await page.goto("/arena", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="arena-daily-grid-card"]')).toHaveAttribute(
+      "href",
+      "/daily/grid",
+    );
+    await expect(page.locator('[data-testid="arena-daily-duel-card"]')).toHaveAttribute(
+      "href",
+      "/play/daily",
+    );
   });
 });
 
@@ -250,10 +373,7 @@ test.describe("Legacy Labs", () => {
     await page.goto("/arena/labs", { waitUntil: "load" });
     const nav = page.getByRole("navigation", { name: "Main navigation" });
     await expect(nav.locator('a[href="/arena/labs"]')).toHaveCount(0);
-    await expect(nav.getByRole("link", { name: "Play" })).toHaveAttribute(
-      "href",
-      "/arena/court/practice/apex_1y",
-    );
+    await expect(nav.getByRole("link", { name: "Play" })).toHaveAttribute("href", "/arena");
   });
 });
 
@@ -275,11 +395,15 @@ test.describe("Rankings 1Y/3Y/5Y is a separate feature and survives", () => {
   });
 });
 
-test.describe("Phase 10C mobile", () => {
-  // /arena and /arena/labs both changed shape this phase (the hub lost the
-  // legacy section; labs is new), so both get an overflow guard rather than
-  // relying on the pre-existing homepage-only check.
-  for (const path of ["/arena", "/arena/labs", "/arena/court/practice/apex_1y"]) {
+test.describe("mobile", () => {
+  // Every surface whose shape changed gets an overflow guard: the hub was
+  // rebuilt around the flagship card, and /arena/run-the-table is new.
+  for (const path of [
+    "/arena",
+    "/arena/run-the-table",
+    "/arena/labs",
+    "/arena/court/practice/apex_1y",
+  ]) {
     test(`@mobile no horizontal overflow on ${path}`, async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto(path, { waitUntil: "load" });

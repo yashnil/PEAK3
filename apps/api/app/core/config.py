@@ -223,6 +223,56 @@ class Settings(BaseSettings):
 
     DAILY_GRID_RATE_LIMIT_WINDOW_SECONDS: float = 60.0
 
+    # ---------------------------------------------------------------------------
+    # RUN THE TABLE feature flags
+    #
+    # Mirrors the COURTBUILDER_* pattern above exactly: independent capability
+    # switches plus a human-facing readiness level validated for internal
+    # consistency. See docs/implementation/RUN_THE_TABLE_IMPLEMENTATION_PLAN.md.
+    #
+    # DEFAULT ON, unlike RANKED_* and COURTBUILDER_*. Those two default off
+    # because they were shipped as gated alpha slices; RUN THE TABLE is the
+    # flagship mode, its engine is deterministic and fully covered by the
+    # tests under tests/run_the_table/, and the e2e suite plays a complete run
+    # against a default local API. A flagship mode that is off by default is a
+    # mode nobody's local environment exercises.
+    # ---------------------------------------------------------------------------
+
+    # Master switch: RUN THE TABLE routes answer at all. /readiness is the one
+    # exception -- it always answers, so the web app can fail closed cleanly
+    # rather than guess why it got a 403.
+    RUN_THE_TABLE_ENABLED: bool = True
+
+    # The shared daily run. Separately switchable from the mode itself so the
+    # daily can be paused (e.g. mid-ruleset-change, when everyone's seed would
+    # move underneath them) without taking standard runs down with it.
+    RUN_THE_TABLE_DAILY_ENABLED: bool = True
+
+    # Human-facing readiness classification. Does not itself gate behavior --
+    # the booleans above do -- but is surfaced on
+    # /api/v1/run-the-table/readiness and must be kept consistent with them
+    # (validated below).
+    RUN_THE_TABLE_READINESS_LEVEL: Literal[
+        "disabled", "internal_dev", "internal_alpha", "public_beta"
+    ] = "public_beta"
+
+    @model_validator(mode="after")
+    def validate_run_the_table_readiness(self) -> "Settings":
+        level = self.RUN_THE_TABLE_READINESS_LEVEL
+        if level == "disabled" and self.RUN_THE_TABLE_ENABLED:
+            raise ValueError(
+                "PEAK3_RUN_THE_TABLE_READINESS_LEVEL is 'disabled' but "
+                "RUN_THE_TABLE_ENABLED is set. Set an appropriate readiness "
+                "level or disable the flag."
+            )
+        if self.RUN_THE_TABLE_DAILY_ENABLED and not self.RUN_THE_TABLE_ENABLED:
+            raise ValueError(
+                "PEAK3_RUN_THE_TABLE_DAILY_ENABLED is set but "
+                "RUN_THE_TABLE_ENABLED is not. The daily is a run of the same "
+                "mode; it cannot be served while the mode is off."
+            )
+        return self
+
     @model_validator(mode="after")
     def warn_insecure_secret(self) -> "Settings":
         if self.DEBUG and self.SIGNING_SECRET == "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION":

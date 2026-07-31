@@ -6,32 +6,28 @@ import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 
-// Phase 10C: "Play" now points at the flagship 82-0 PEAK Season run itself,
-// not at the /arena hub.
+// "Play" points at the /arena hub, whose first and only featured card is the
+// flagship, RUN THE TABLE.
 //
-// History, because the destination has moved twice: originally /arena/daily
-// (the legacy Peak Draft daily hub), then /arena (the hub, which put the
-// CourtBuilder flagship at the top but still listed the legacy 1Y/3Y/5Y draft
-// modes underneath). That second hop was the reported bug -- "Play" and the
-// homepage CTA both landed users on a page whose lower half advertised the old
-// 5-player draft as if it were the product, so the main path never
-// unambiguously led into 82-0.
-//
-// Pointing straight at the practice route is safe (and does NOT start a game):
-// since Phase 9B that route renders PeakSeasonStartGate, so the user lands on
-// an explicit "Begin 82-0 Run" screen and no run is created until they press
-// it. See PeakSeasonStartGate's own docstring for why creation moved out of the
-// route's server component.
+// History, because the destination has moved three times: originally
+// /arena/daily (the legacy Peak Draft daily hub), then /arena, then (Phase 10C)
+// a deep link straight into the 82-0 practice route. That deep link existed
+// because /arena at the time listed the legacy 1Y/3Y/5Y draft modes as co-equal
+// options underneath the flagship, so landing there muddied the main path. The
+// hub no longer does that: the legacy modes moved to /arena/labs and the hub is
+// now an explicit hierarchy -- flagship, full-season, daily. Deep-linking past
+// it would hide the other finished modes rather than rank them, and would
+// re-break the moment the flagship changes again.
 const NAV_LINKS: { href: string; label: string; activePrefix?: string; alsoActiveOn?: string[] }[] = [
-  // activePrefix keeps "Play" highlighted across the whole arena section --
-  // the daily route, run history, results, the hub -- even though the link
-  // itself deep-links to the flagship run. Without it the plain
-  // startsWith(href) check would light up only on the exact practice route.
-  { href: "/arena/court/practice/apex_1y", label: "Play", activePrefix: "/arena" },
+  // activePrefix is redundant with href today but is kept explicit: it is what
+  // keeps "Play" highlighted across the whole arena section -- the run itself,
+  // the daily route, run history, results -- and it must survive any future
+  // change to where the link points.
+  { href: "/arena", label: "Play", activePrefix: "/arena" },
   // Phase 12A: /daily is the HUB for every once-a-day game (the Grid at
   // /daily/grid, Peak Duel Daily at /play/daily), sitting BESIDE "Play" rather
-  // than replacing it -- 82-0 PEAK Season remains the flagship the main Play
-  // path leads to.
+  // than replacing it -- RUN THE TABLE remains the flagship the main Play path
+  // leads to.
   //
   // `alsoActiveOn` exists because Peak Duel Daily lives under /play for
   // historical reasons while belonging to Daily in the product's own IA.
