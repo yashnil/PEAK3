@@ -190,6 +190,12 @@ function normalizeBoard(payload: RankingBoardPayload): RankingBoardData {
     meta: {
       dataset_version: strOrNull(payload.dataset_version),
       formula_version: strOrNull(payload.formula_version),
+      model_version: strOrNull(payload.model_version),
+      model_label: strOrNull(payload.model_label),
+      // Absent means the API predates model versioning, which can only ever
+      // have been serving the default -- so treat it as the default rather than
+      // labelling every old board a preview.
+      is_default_model: payload.is_default_model !== false,
       supported_start_season: strOrNull(payload.supported_start_season),
       supported_end_season: strOrNull(payload.supported_end_season),
       total_available: numOrNull(payload.total_available),
@@ -260,6 +266,25 @@ export function normalizeRankingExplain(raw: Record<string, unknown>): RankingEx
   const stringList = (value: unknown): string[] =>
     Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 
+  const anchorSelection = (value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const raw = value as Record<string, unknown>;
+    const nearby = Array.isArray(raw.nearby_iconic_seasons) ? raw.nearby_iconic_seasons : [];
+    const seasons = nearby
+      .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+      .map((e) => ({
+        season: String(e.season ?? ""),
+        prime_score: numOrNull(e.prime_score),
+        margin: numOrNull(e.margin),
+        markers: stringList(e.markers),
+      }))
+      .filter((e) => e.season.length > 0);
+    const basis = strOrNull(raw.basis);
+    // Nothing worth rendering if neither half arrived.
+    if (!basis && seasons.length === 0) return null;
+    return { basis, nearby_iconic_seasons: seasons };
+  };
+
   const seasonStatsBlock = block(raw.season_stats);
 
   return {
@@ -287,6 +312,8 @@ export function normalizeRankingExplain(raw: Record<string, unknown>): RankingEx
       same_season_peers: comparisonList(comparisons.same_season_peers),
     },
     caveats: stringList(raw.caveats),
+    model_version: strOrNull(raw.model_version),
+    anchor_selection: anchorSelection(raw.anchor_selection),
   };
 }
 

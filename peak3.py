@@ -1995,7 +1995,267 @@ def postseason_value(df: pd.DataFrame, has_po: pd.Series
     return pd.Series(val, index=df.index), parts
 
 
-def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame:
+# ===========================================================================
+# PEAK3 v2 POSTSEASON  (docs/model/PEAK3_V2_FORMULA_DESIGN.md)
+# ===========================================================================
+# v1's postseason component measures playoff quality well (r = +0.61 with
+# playoff BPM) but places its ZERO in the wrong place, and shrinks the wrong
+# side of the scale. Three measured facts, from all 5,756 playoff
+# player-seasons:
+#
+#   1. PO_BASELINE = 25.0 is documented as "a routine playoff contributor sits
+#      near here". It is actually the 80th percentile of the level distribution
+#      (median 10.05; minutes-weighted median 15.24). So 68.3% of playoff
+#      seasons finish NEGATIVE -- below every player who missed the playoffs.
+#   2. abs_level is clipped at -14 and 52.3% of playoff seasons hit that clip,
+#      so within the negative region the component distinguishes nothing.
+#   3. `reliab_level = abs_level * reliability` multiplies a SIGNED value, so a
+#      long run below baseline takes the full penalty while a short one is
+#      shrunk toward zero. More playoff basketball => bigger penalty, which is
+#      backwards. Hence 50.5% of >=36-MPG playoff seasons are still negative.
+#
+# v2 keeps the measurement and fixes the frame:
+#
+#   est_edge  = (level_full - REPLACEMENT) * reliability      # shrink to prior
+#   quality   = QUALITY_SCALE * max(est_edge, 0)                        >= 0
+#   elevation = ELEV_SCALE * max(playoff_rate - regular_rate, 0) * rel  >= 0
+#   carry     = CARRY_SCALE * max(est_edge,0) * load * responsibility   >= 0
+#   dominance = DOM_SCALE * sqrt(max(est_edge - DOM_KNEE, 0)) * tail    >= 0
+#   collapse  = COLLAPSE_SCALE * max(-est_edge - DEADBAND, 0), capped   >= 0
+#
+#   postseason_v2 = quality + elevation + carry + dominance - collapse
+#
+# Everything except `collapse` is non-negative, so elevation can no longer
+# REVERSE a positive level -- which is what PO_ELEV_GUARD_* existed to patch.
+# v2 needs no such guard and does not define one.
+#
+# v1 is NOT edited. The level composite below is duplicated rather than factored
+# out of `postseason_value` precisely so that v1 stays byte-identical; a shared
+# helper would mean touching v1's body to get it.
+
+# REPLACEMENT LEVEL -- the zero point, derived rather than asserted.
+# Definition: the playoff level a contending team can readily substitute, i.e. a
+# marginal rotation player. Operationally the MINUTES-WEIGHTED 25th percentile
+# of level_full across every playoff player-season in the scored dataset.
+# Minutes-weighting describes the level of playoff minutes ACTUALLY PLAYED
+# rather than of roster spots, so two-minute cameos do not define the floor.
+# Derived value on the committed dataset: 5.6539. Frozen here so scores stay
+# reproducible as data is added; tests/test_postseason_v2.py re-derives it from
+# the parquet and fails if the data moves away from it.
+PO2_REPLACEMENT_LEVEL = 5.65
+
+# Quality above replacement. Scaled below 1.0 because carry and dominance add
+# further credit on top; the three together are held to v1's overall scale so
+# calibrate_score's anchors stay valid (design doc section 5).
+PO2_QUALITY_SCALE = 0.62
+
+# Elevation: rising to the moment, as a BOUNDED, NON-NEGATIVE supplement.
+# v1 also penalised declines here, which double-counted -- a player who played
+# badly already scores a low level, and the same badness was then subtracted a
+# second time as "negative elevation". v2 drops the decline term entirely and
+# lets the level (and, if severe, collapse) carry it.
+PO2_ELEV_SCALE = 0.30
+PO2_ELEV_CAP = 9.0
+
+# Carry: sustained quality over real playoff load. This is what gives the
+# component sensitivity to RUN LENGTH. v1's deep-run term required level > 42
+# (~p93), so it was exactly zero for ~90% of playoff seasons and the component
+# collapsed to a pure rate statistic (r = +0.078 with playoff games). v2 has no
+# quality gate beyond being above replacement, so a good long run is visibly
+# worth more than the same rates over one round.
+# Load rises with minutes AND games; rounds reached are NEVER an input here --
+# advancement is Team Result's job and must not be paid for twice.
+PO2_CARRY_SCALE = 0.42
+PO2_CARRY_MIN_FULL = 950.0     # playoff minutes at which the minutes half saturates
+PO2_CARRY_G_FULL = 21.0        # playoff games at which the games half saturates
+
+# Convex dominance tail, on the shrunk edge. Same saturating-sqrt shape as v1
+# (a v1 strength worth keeping) so an extreme rate cannot run away.
+PO2_DOM_KNEE = 34.0
+PO2_DOM_SCALE = 1.65
+
+# Collapse: the ONLY term that can be negative, and it is gated three ways.
+#
+# DEADBAND -- being a little below replacement is NEUTRAL, not negative. A bench
+# player who was merely unremarkable scores 0, the same as someone whose team
+# missed the playoffs entirely. Only a clearly-below-replacement run registers.
+# The band is applied to the SHRUNK estimate, so a short bad run falls under it
+# and scores 0: we do not believe four bad games.
+#
+# EXPOSURE -- the penalty then scales with the SAME minutes-and-games load
+# factor `carry` uses. These answer two different questions, so this is not
+# double-shrinking: reliability asks "how far below replacement do we BELIEVE
+# they were", exposure asks "how much of that actually reached the floor". A
+# dreadful three-minute cameo is believed but barely happened.
+#
+# CAP -- a safety bound on the worst case, far below v1's -14. It does not bind
+# on the committed dataset (the worst collapse there is about -1.4); it exists so
+# future data cannot produce an unbounded penalty.
+PO2_COLLAPSE_DEADBAND = 12.0
+PO2_COLLAPSE_SCALE = 0.45
+PO2_COLLAPSE_CAP = 8.0
+
+
+def _po_level_composite(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Playoff skill composite, playoff rate and regular rate.
+
+    Identical arithmetic to the level block inside `postseason_value`. Kept as a
+    separate function used ONLY by v2 so that v1's body is never edited.
+    """
+    pbpm, pobpm, pdbpm = num(df, "po_bpm"), num(df, "po_obpm"), num(df, "po_dbpm")
+    pws, pper = num(df, "po_ws_per_48"), num(df, "po_per")
+    ppts = num(df, "po_pts")
+    pr_ts, pts_plus = num(df, "po_r_ts"), num(df, "po_ts_plus")
+    past, past_pct = num(df, "po_ast"), num(df, "po_ast_pct")
+    ptrb, ptrb_pct = num(df, "po_trb"), num(df, "po_trb_pct")
+    pstocks = num(df, "po_stocks")
+
+    po_rate = _rate_impact_value(pbpm, pobpm, pdbpm, pws, pper)
+    po_eff = (0.5 * pr_ts.fillna(0.0) + 0.5 * (pts_plus.fillna(100.0) - 100.0)).to_numpy()
+    po_scoring = _hinge_value(ppts, 18.0, 2.6) * np.clip(1.0 + 0.030 * po_eff, 0.6, 1.4)
+    po_effv = _hinge_value(po_eff, 0.0, 6.0)
+    po_playmaking = (_hinge_value(past, 3.5, 6.0) +
+                     0.5 * _hinge_value(past_pct, 16.0, 0.7))
+    po_rebounding = (_hinge_value(ptrb, 7.0, 5.0) +
+                     0.5 * _hinge_value(ptrb_pct, 8.0, 0.8))
+    po_defense = (_hinge_value(pstocks, 2.5, 8.0) +
+                  0.5 * _hinge_value(pdbpm.to_numpy(), 0.0, 6.0))
+    z0 = lambda a: np.nan_to_num(np.asarray(a, dtype=float), nan=0.0)
+    level = (0.50 * z0(po_rate) + 0.18 * z0(po_scoring) +
+             0.10 * z0(po_effv) + 0.08 * z0(po_playmaking) +
+             0.06 * z0(po_rebounding) + 0.08 * z0(po_defense))
+    oq = num(df, "opponent_quality_score").fillna(50.0).to_numpy()
+    level = level * np.clip(0.90 + 0.20 * (oq - 50.0) / 50.0, 0.85, 1.15)
+
+    reg_rate = _rate_impact_value(num(df, "bpm"), num(df, "obpm"), num(df, "dbpm"),
+                                  num(df, "ws_per_48"), num(df, "per"))
+    return level, np.nan_to_num(po_rate, nan=0.0), np.nan_to_num(reg_rate, nan=0.0)
+
+
+def _po_sample_reliability(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Playoff-sample reliability in [0,1], plus the series fraction and count.
+
+    Same minutes x games x series blend v1 uses -- it is one of v1's good ideas
+    and v2 keeps it unchanged. Duplicated for the same v1-preservation reason as
+    `_po_level_composite`.
+    """
+    pm = np.nan_to_num(num(df, "po_mp").to_numpy(), nan=0.0)
+    m_rel = np.clip(pm / PO_REL_MIN_FULL, 0.0, 1.0)
+    pg = num(df, "po_g").to_numpy() if "po_g" in df.columns else np.full(len(df), np.nan)
+    g_rel = np.where(np.isnan(pg), m_rel, np.clip(pg / PO_REL_G_FULL, 0.0, 1.0))
+    prs = (num(df, "playoff_round_score").to_numpy()
+           if "playoff_round_score" in df.columns else np.full(len(df), np.nan))
+    series_n = _po_series_count(prs)
+    s_frac = np.where(np.isnan(prs), m_rel, np.clip(series_n / PO_REL_S_FULL, 0.0, 1.0))
+    reliab = np.clip(PO_REL_W_MIN * m_rel + PO_REL_W_G * g_rel + PO_REL_W_S * s_frac,
+                     0.0, 1.0)
+    return reliab, s_frac, series_n
+
+
+def postseason_value_v2(df: pd.DataFrame, has_po: pd.Series
+                        ) -> Tuple[pd.Series, Dict[str, np.ndarray]]:
+    """POSTSEASON PEAK CONTRIBUTION (18%), PEAK3 v2.
+
+    Measures how much postseason basketball a player actually contributed:
+    quality relative to a REPLACEMENT playoff contributor, believed in
+    proportion to how much of it we observed, credited for being sustained
+    across a real run, and penalised only for a well-observed collapse.
+
+    Contract:
+      * no playoffs / no playoff minutes -> exactly 0, as in v1;
+      * ZERO means replacement level, derived from the data as the
+        minutes-weighted 25th percentile of playoff level -- not asserted;
+      * confidence shrinks the estimate TOWARD replacement in BOTH directions,
+        so a short extreme run cannot dominate a long carry, and a short bad run
+        is not heavily punished;
+      * being slightly below replacement is NEUTRAL; only a clear, well-sampled
+        collapse is negative, and that penalty is capped;
+      * run length is paid for through MINUTES AND GAMES. Rounds reached enter
+        ONLY as a sample-size signal -- inside reliability, and as the gate that
+        shrinks the dominance tail for short runs -- and can only REDUCE a
+        score, never add to one. Advancement is paid for in Team Result and is
+        never paid twice. Measured: after controlling for playoff level and
+        games played, the residual correlation with rounds reached is +0.155,
+        and playoff games are themselves 0.908-correlated with advancement, so
+        crediting a long run cannot be decoupled from it;
+      * responsibility comes from playoff usage burden, as in v1;
+      * no term depends on player identity, team, or era label.
+    """
+    level_full, po_rate, reg_rate = _po_level_composite(df)
+    sample_reliab, s_frac, series_n = _po_sample_reliability(df)
+
+    pm = np.nan_to_num(num(df, "po_mp").to_numpy(), nan=0.0)
+    pg = num(df, "po_g").to_numpy() if "po_g" in df.columns else np.full(len(df), np.nan)
+
+    # ---- the shrunk edge over replacement (the spine of the component) ------
+    raw_edge = level_full - PO2_REPLACEMENT_LEVEL
+    est_edge = raw_edge * sample_reliab
+    edge_pos = np.clip(est_edge, 0.0, None)
+
+    # ---- (a) QUALITY above replacement -------------------------------------
+    quality = PO2_QUALITY_SCALE * edge_pos
+
+    # ---- (b) ELEVATION: rose above their own regular season, bounded, >= 0 --
+    elevation = np.clip(PO2_ELEV_SCALE * np.clip(po_rate - reg_rate, 0.0, None)
+                        * sample_reliab, 0.0, PO2_ELEV_CAP)
+
+    # ---- (c) CARRY: quality sustained over real playoff load ----------------
+    po_usg = num(df, "po_usg_pct").to_numpy()
+    responsibility = np.clip(
+        PO_RESP_FLOOR + PO_RESP_PER_USG * (np.nan_to_num(po_usg, nan=PO_RESP_USG_LO)
+                                           - PO_RESP_USG_LO),
+        PO_RESP_FLOOR, PO_RESP_CAP)
+    min_part = np.clip(pm / PO2_CARRY_MIN_FULL, 0.0, 1.0)
+    g_part = np.where(np.isnan(pg), min_part, np.clip(pg / PO2_CARRY_G_FULL, 0.0, 1.0))
+    load = 0.5 * min_part + 0.5 * g_part
+    carry = PO2_CARRY_SCALE * edge_pos * load * responsibility
+
+    # ---- (d) CONVEX DOMINANCE TAIL -----------------------------------------
+    dom_residual = np.clip(est_edge - PO2_DOM_KNEE, 0.0, None)
+    dominance = PO2_DOM_SCALE * np.sqrt(dom_residual) * s_frac
+
+    # ---- (e) COLLAPSE: the only negative term, dead-banded, exposed, capped --
+    deficit = np.clip(-est_edge - PO2_COLLAPSE_DEADBAND, 0.0, None)
+    collapse = np.clip(PO2_COLLAPSE_SCALE * deficit * load, 0.0, PO2_COLLAPSE_CAP)
+
+    val = quality + elevation + carry + dominance - collapse
+    played = has_po.to_numpy() & (pm > 0)
+    val = np.where(played, val, 0.0)
+
+    z = np.zeros(len(df))
+    parts = {
+        "po2_quality": np.where(played, quality, z),
+        "po2_elevation": np.where(played, elevation, z),
+        "po2_carry": np.where(played, carry, z),
+        "po2_dominance": np.where(played, dominance, z),
+        "po2_collapse": np.where(played, -collapse, z),
+        # ---- diagnostics ----
+        "po2_level_full": np.where(played, level_full, z),
+        "po2_est_edge": np.where(played, est_edge, z),
+        "po2_sample_reliab": np.where(played, sample_reliab, z),
+        "po2_load": np.where(played, load, z),
+        "po2_responsibility": np.where(played, responsibility, z),
+        "po2_series_n": np.where(played, series_n, z),
+    }
+    return pd.Series(val, index=df.index), parts
+
+
+def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame,
+                  formula_version: str = "peak3_v1") -> pd.DataFrame:
+    """Score every qualifying player-season.
+
+    `formula_version` selects the POSTSEASON component and nothing else --
+    weights, calibration and the other four components are shared. It defaults to
+    "peak3_v1" so every existing caller keeps its exact behaviour; v2 must be
+    asked for by name. See docs/model/PEAK3_V2_FORMULA_DESIGN.md.
+    """
+    if formula_version not in ("peak3_v1", "peak3_v2"):
+        raise ValueError(f"unknown formula_version {formula_version!r}")
+    return _score_dataset_impl(regular, playoffs, formula_version)
+
+
+def _score_dataset_impl(regular: pd.DataFrame, playoffs: pd.DataFrame,
+                        formula_version: str) -> pd.DataFrame:
     regular = add_derived(regular)
     regular = add_relative_efficiency(regular)
 
@@ -2113,7 +2373,19 @@ def score_dataset(regular: pd.DataFrame, playoffs: pd.DataFrame) -> pd.DataFrame
     df = classify_roles(df)
 
     # ----- POSTSEASON individual value (component 4, additive adjustment) -----
-    po_val, po_parts = postseason_value(df, has_po)
+    # The ONE component that differs between formula versions. v2's diagnostic
+    # columns are written under their own `po2_` names, and v1's `po_*` columns
+    # are still populated alongside them, so a v2 run can always be compared
+    # against what v1 would have said for the same row.
+    if formula_version == "peak3_v2":
+        po_val, po2_parts = postseason_value_v2(df, has_po)
+        for _name, _arr in po2_parts.items():
+            df[_name] = _arr
+        _v1_val, po_parts = postseason_value(df, has_po)
+        df["postseason_perf_v1"] = _v1_val
+    else:
+        po_val, po_parts = postseason_value(df, has_po)
+    df["formula_version"] = formula_version
     df["postseason_perf"] = po_val
     df["po_level_value"] = po_parts["po_level"]            # reliability-adjusted level
     df["po_elevation_value"] = po_parts["po_elevation"]   # vs own regular season

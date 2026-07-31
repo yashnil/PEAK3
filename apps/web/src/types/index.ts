@@ -125,6 +125,9 @@ export interface PeaksResponse {
   duration_years: number;
   dataset_version: string;
   formula_version: string;
+  model_version: string;
+  model_label: string;
+  is_default_model: boolean;
   supported_start_season: string;
   supported_end_season: string;
   universe_identity_count: number;
@@ -158,6 +161,9 @@ export interface SeasonRow {
 export interface SeasonsResponse {
   dataset_version: string;
   formula_version: string;
+  model_version: string;
+  model_label: string;
+  is_default_model: boolean;
   supported_start_season: string;
   supported_end_season: string;
   universe_identity_count: number;
@@ -340,6 +346,12 @@ export interface RankingRowPayload {
 export interface RankingBoardMeta {
   dataset_version: string | null;
   formula_version: string | null;
+  /** Which scoring model produced these rows, e.g. "peak3_v1". */
+  model_version: string | null;
+  /** Short human label for that model, e.g. "PEAK3 v2 (preview)". */
+  model_label: string | null;
+  /** False when the board is being previewed under a non-default model. */
+  is_default_model: boolean;
   supported_start_season: string | null;
   supported_end_season: string | null;
   total_available: number | null;
@@ -353,6 +365,9 @@ export interface RankingBoardPayload {
   rows: RankingRowPayload[];
   dataset_version?: string | null;
   formula_version?: string | null;
+  model_version?: string | null;
+  model_label?: string | null;
+  is_default_model?: boolean | null;
   supported_start_season?: string | null;
   supported_end_season?: string | null;
   total_available?: number | null;
@@ -437,6 +452,27 @@ export interface RankingExplain extends RankingRow {
     same_season_peers: RankingComparison[];
   };
   caveats: string[];
+  /** Which scoring model produced this block. */
+  model_version: string | null;
+  /** Why THIS season is the one on the board. Present on 1Y rows; the 3Y/5Y
+   *  windows already span several seasons so there is nothing to explain. */
+  anchor_selection: RankingAnchorSelection | null;
+}
+
+/** A season the board's anchor narrowly beat, and what made it iconic. */
+export interface NearbyIconicSeason {
+  season: string;
+  prime_score: number | null;
+  /** How far the anchor beat it by, in prime_score points. Always positive. */
+  margin: number | null;
+  /** e.g. ["champion", "Finals MVP", "MVP"]. */
+  markers: string[];
+}
+
+export interface RankingAnchorSelection {
+  /** How the anchor was chosen, e.g. "highest-scoring single season". */
+  basis: string | null;
+  nearby_iconic_seasons: NearbyIconicSeason[];
 }
 
 export interface DatasetMetadata {

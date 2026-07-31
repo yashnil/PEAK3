@@ -36,29 +36,56 @@ if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
 from app.core.config import settings  # noqa: E402
+from nba_peak import formula_version  # noqa: E402
 from nba_peak.perfect_season.assets import get_player_headshot_url  # noqa: E402
 
 router = APIRouter()
 
-DATA_PATH = _repo_root / "data" / "game" / "experimental" / "player_pool_1500" / "top_1000_peaks.v1.json"
+_DATA_DIR = _repo_root / "data" / "game" / "experimental" / "player_pool_1500"
+# One artifact per scoring model. v1 remains the DEFAULT; v2 is served only when
+# a caller asks for it by name, so no existing client silently changes model
+# version (docs/model/PEAK3_V2_FORMULA_DESIGN.md section 7).
+_DATA_PATHS = {
+    formula_version.PEAK3_V1: _DATA_DIR / "top_1000_peaks.v1.json",
+    formula_version.PEAK3_V2: _DATA_DIR / "top_1000_peaks.v2.json",
+}
+DATA_PATH = _DATA_PATHS[formula_version.PEAK3_V1]
 VALID_WINDOWS = {"1y", "3y", "5y"}
 
-_CACHE: Optional[dict] = None
+_CACHE: dict[str, dict] = {}
 
 
-def _load() -> dict:
-    global _CACHE
-    if _CACHE is None:
-        if not DATA_PATH.exists():
+def _resolve_version(value: Optional[str]) -> str:
+    try:
+        return formula_version.normalize(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "unknown_model_version",
+                "message": (f"model_version must be one of "
+                            f"{list(formula_version.ALL_FORMULA_VERSIONS)}, got {value!r}"),
+            },
+        )
+
+
+def _load(version: Optional[str] = None) -> dict:
+    """The served board for one model version, cached per version."""
+    resolved = _resolve_version(version)
+    cached = _CACHE.get(resolved)
+    if cached is None:
+        path = _DATA_PATHS[resolved]
+        if not path.exists():
             raise HTTPException(
                 status_code=503,
                 detail={
                     "error_code": "peaks_data_unavailable",
-                    "message": f"{DATA_PATH.name} not generated -- run scripts/build_top_peaks.py",
+                    "message": (f"{path.name} not generated -- run "
+                                f"scripts/build_top_peaks.py --formula-version {resolved}"),
                 },
             )
-        _CACHE = json.loads(DATA_PATH.read_text())
-    return _CACHE
+        cached = _CACHE[resolved] = json.loads(path.read_text())
+    return cached
 
 
 class PeakRow(BaseModel):
@@ -99,6 +126,10 @@ class PeakRow(BaseModel):
     # served population. A rank of official numbers, never a new score.
     percentiles: Optional[dict[str, Optional[float]]] = None
     season_in_progress: bool = False
+    # Which scoring model produced this row. Optional so an artifact generated
+    # before versioning still validates; the response-level field always
+    # resolves, so the UI never has to guess.
+    model_version: Optional[str] = None
     # Phase 6E Part B: asset-manifest schema readiness -- always None today.
     headshot_url: Optional[str] = None
 
@@ -108,6 +139,12 @@ class PeaksResponse(BaseModel):
     duration_years: int
     dataset_version: str
     formula_version: str
+    # The scoring model these rows come from, and whether it is the default one.
+    # Both are always present so a client can label the board without having to
+    # parse `formula_version`'s prose.
+    model_version: str
+    model_label: str
+    is_default_model: bool
     supported_start_season: str
     supported_end_season: str
     universe_identity_count: int
@@ -138,11 +175,15 @@ async def get_peaks(
     window: str = Query(..., description="1y | 3y | 5y"),
     limit: int = Query(default=1000, ge=1, le=1000),
     search: str = Query(default=""),
+    model_version: Optional[str] = Query(
+        default=None,
+        description="peak3_v1 (default) | peak3_v2 (preview)"),
 ) -> PeaksResponse:
     if window not in VALID_WINDOWS:
         raise HTTPException(status_code=422, detail=f"window must be one of {sorted(VALID_WINDOWS)}, got '{window}'")
 
-    data = _load()
+    version = _resolve_version(model_version)
+    data = _load(version)
     bucket = data["windows"][window]
     rows = bucket["rows"]
     if search:
@@ -167,6 +208,9 @@ async def get_peaks(
         duration_years=bucket["duration_years"],
         dataset_version=data["dataset_version"],
         formula_version=data["formula_version"],
+        model_version=version,
+        model_label=formula_version.label(version),
+        is_default_model=formula_version.is_default(version),
         supported_start_season=data["supported_start_season"],
         supported_end_season=data["supported_end_season"],
         universe_identity_count=data["universe_identity_count"],
@@ -179,12 +223,18 @@ async def get_peaks(
 
 
 @router.get("/peaks/{row_id}/explain", response_model=PeakExplainResponse)
-async def get_peak_explain(row_id: str) -> PeakExplainResponse:
+async def get_peak_explain(
+    row_id: str,
+    model_version: Optional[str] = Query(
+        default=None,
+        description="peak3_v1 (default) | peak3_v2 (preview)"),
+) -> PeakExplainResponse:
     """The per-row breakdown, fetched on modal open rather than shipped with the
     table. Keyed by row_id ({player_slug}-{n}yr-{anchor_season}), which embeds
     the duration, so ONE route serves the 1Y, 3Y and 5Y boards and a comparison
     entry can pivot the modal across durations."""
-    data = _load()
+    version = _resolve_version(model_version)
+    data = _load(version)
     block = (data.get("explain") or {}).get(row_id)
     if block is None:
         raise HTTPException(
@@ -194,4 +244,7 @@ async def get_peak_explain(row_id: str) -> PeakExplainResponse:
                 "message": f"No served peak window with id '{row_id}'",
             },
         )
+    # Stamp the version on the block so a modal opened from a v2 board cannot
+    # display v2 numbers under a v1 label if the artifact predates versioning.
+    block = {**block, "model_version": version}
     return PeakExplainResponse(row_id=row_id, explain=block)

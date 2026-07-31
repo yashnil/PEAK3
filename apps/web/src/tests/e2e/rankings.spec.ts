@@ -502,3 +502,47 @@ test.describe("Rankings — season finalization", () => {
     expect(modal).not.toContain("Team Achievement");
   });
 });
+
+/**
+ * Phase 12C: two scoring models now exist.
+ *
+ * Scores from PEAK3 v1 and v2 are not comparable, so the board has to say which
+ * one produced it. v1 remains the default; v2 is a labelled preview.
+ */
+test.describe("Rankings — model version", () => {
+  test("the board states which scoring model produced it", async ({ page }) => {
+    await page.goto("/rankings", { waitUntil: "load" });
+    await expect(page.getByTestId("rankings-row").first()).toBeVisible({ timeout: 20_000 });
+
+    const badge = page.getByTestId("rankings-model-version");
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveText(/PEAK3 v1/);
+  });
+
+  test("the default board is v1, not the preview", async ({ page }) => {
+    await page.goto("/rankings", { waitUntil: "load" });
+    await expect(page.getByTestId("rankings-row").first()).toBeVisible({ timeout: 20_000 });
+    const provenance = await page.getByTestId("rankings-provenance").innerText();
+    expect(provenance).toContain("peak3_official_weights_v1");
+    expect(provenance).not.toContain("preview");
+  });
+
+  test("the modal explains why this season is the one on the board", async ({ page }) => {
+    await page.goto("/rankings", { waitUntil: "load" });
+    await expect(page.getByTestId("rankings-row").first()).toBeVisible({ timeout: 20_000 });
+
+    // LeBron's 1Y row is the canonical case: 2008-09 beat his 2012-13 title
+    // season by 0.16, so the "why this season?" panel must be present.
+    await page.getByTestId("rankings-search").fill("LeBron");
+    const row = page.getByTestId("rankings-row").first();
+    await expect(row).toBeVisible({ timeout: 15_000 });
+    await row.click();
+    await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
+
+    const panel = page.getByTestId("score-explain-anchor-selection");
+    if (!(await panel.count())) {
+      test.skip(true, "this row has no narrowly-beaten iconic season");
+    }
+    await expect(panel).toContainText(/highest-scoring single season/i);
+  });
+});

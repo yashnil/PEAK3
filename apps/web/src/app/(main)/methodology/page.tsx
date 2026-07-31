@@ -87,6 +87,21 @@ export default function MethodologyPage() {
             Official formula
           </h2>
           <div className="card-elevated p-5 space-y-3">
+            {/* Two scoring models now exist. Saying which one is live matters
+             *  more than any other line on this page: scores from different
+             *  model versions are not comparable, and a reader who does not know
+             *  which produced a number cannot reason about it. */}
+            <p
+              className="text-xs text-[var(--text-muted)]"
+              data-testid="methodology-model-version"
+            >
+              Default scoring model:{" "}
+              <strong className="text-[var(--text-primary)]">PEAK3 v1</strong>. A second
+              model, <strong className="text-[var(--text-secondary)]">PEAK3 v2</strong>,
+              recalibrates the postseason component to a replacement-level baseline and is
+              available as a labelled preview. Scores from the two are not comparable, so
+              every board and modal states which model produced it.
+            </p>
             <p className="font-mono text-sm text-[var(--text-secondary)] leading-relaxed">
               prime_index = 0.38·<span style={{ color: "var(--comp-si)" }}>Statistical Impact</span>
               {" "}+ 0.21·<span style={{ color: "var(--comp-tp)" }}>Traditional Production</span>
