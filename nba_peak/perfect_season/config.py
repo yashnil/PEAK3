@@ -11,6 +11,8 @@ Decisions 3-4).
 """
 from __future__ import annotations
 
+from nba_peak import formula_version
+
 # Bumped whenever spin/eligibility resolution logic changes in a way that
 # could change which players are offered for a given spin. v1: the board
 # generator filters out any zero-candidate interim entry outright. v2
@@ -123,10 +125,7 @@ EXPERIMENTAL_TEAM_YEAR_DATA_VERSION = "courtbuilder_team_year.experimental.v3"
 # Surfaced verbatim in the team-year board's receipt metadata. Never
 # recomputed -- OFFICIAL_WEIGHTS itself lives in peak3.py and is read only,
 # never re-derived here (CLAUDE.md: never change scoring without approval).
-EXPERIMENTAL_FORMULA_VERSION = (
-    "peak3_official_weights_v1 (statistical_impact=0.38, traditional_production=0.21, "
-    "recognition=0.20, postseason=0.18, team_achievement=0.03)"
-)
+EXPERIMENTAL_FORMULA_VERSION = formula_version.V1_DESCRIPTION
 
 # Human-facing label for the team-year board's receipt -- coverage is
 # deliberately narrow in this pass (see EXPERIMENTAL_TEAM_YEAR_DATA_VERSION's

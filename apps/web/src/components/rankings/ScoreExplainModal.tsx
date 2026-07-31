@@ -732,6 +732,55 @@ export default function ScoreExplainModal({
               </Section>
             )}
 
+            {/* Why THIS season?
+             *
+             * The 1Y board publishes each player's highest-scoring single
+             * season, and for several players that is not the season the public
+             * remembers -- LeBron's 2008-09 edged his 2012-13 title year by
+             * 0.16, Kobe's 2007-08 beat 2008-09 by 0.20. Readers read the
+             * absence of the famous season as an error. This states the rule and
+             * shows what it narrowly beat, rather than changing the rule. */}
+            {explain?.anchor_selection &&
+              explain.anchor_selection.nearby_iconic_seasons.length > 0 && (
+                <Section title="Why this season?" testId="score-explain-anchor-selection">
+                  <p className="mb-2 text-xs text-[var(--text-secondary)]">
+                    This board shows each player&rsquo;s{" "}
+                    <strong className="text-[var(--text-primary)]">
+                      {explain.anchor_selection.basis ?? "highest-scoring single season"}
+                    </strong>
+                    . These came close:
+                  </p>
+                  <ul className="space-y-1.5">
+                    {explain.anchor_selection.nearby_iconic_seasons.map((season) => (
+                      <li
+                        key={season.season}
+                        data-testid={`score-explain-nearby-${season.season}`}
+                        className="flex flex-wrap items-baseline gap-x-2 text-xs"
+                      >
+                        <span className="font-semibold text-[var(--text-primary)]">
+                          {season.season}
+                        </span>
+                        {season.prime_score !== null && (
+                          <span className="score-number text-[var(--text-secondary)]">
+                            {formatScore1(season.prime_score)}
+                          </span>
+                        )}
+                        {season.margin !== null && (
+                          <span className="text-[var(--text-muted)]">
+                            &minus;{season.margin.toFixed(2)} behind
+                          </span>
+                        )}
+                        {season.markers.length > 0 && (
+                          <span className="text-[var(--peak-accent)]">
+                            {season.markers.join(" · ")}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </Section>
+              )}
+
             {/* Interactive component breakdown -- the centrepiece */}
             <Section title="Component breakdown" testId="score-explain-components">
               {explainLoading && !components && (

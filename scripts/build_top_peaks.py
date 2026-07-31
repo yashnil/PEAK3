@@ -42,6 +42,7 @@ Usage:
 """
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import re
@@ -55,13 +56,30 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import nba_peak.leaderboards as L  # noqa: E402
 import peak3 as P  # noqa: E402
+from nba_peak import formula_version  # noqa: E402
 from nba_peak.season_status import in_progress_seasons  # noqa: E402
 
-SCORED_PATH = REPO_ROOT / "cache" / "processed" / "scored_1980_2026.parquet"
 OUT_DIR = REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500"
-OUT_PATH = OUT_DIR / "top_1000_peaks.v1.json"
 
-DATASET_VERSION = "top_1000_peaks.v1"
+# Per-formula-version inputs and outputs. v1's paths are exactly what they were,
+# so a default run rewrites the same file it always did; v2 reads the derived v2
+# parquet and writes a SEPARATE artifact. Nothing can cross-write.
+_SCORED_BY_VERSION = {
+    formula_version.PEAK3_V1: REPO_ROOT / "cache" / "processed" / "scored_1980_2026.parquet",
+    formula_version.PEAK3_V2: REPO_ROOT / "cache" / "processed" / "scored_1980_2026.v2.parquet",
+}
+_OUT_BY_VERSION = {
+    formula_version.PEAK3_V1: OUT_DIR / "top_1000_peaks.v1.json",
+    formula_version.PEAK3_V2: OUT_DIR / "top_1000_peaks.v2.json",
+}
+_DATASET_VERSION_BY_VERSION = {
+    formula_version.PEAK3_V1: "top_1000_peaks.v1",
+    formula_version.PEAK3_V2: "top_1000_peaks.v2",
+}
+
+SCORED_PATH = _SCORED_BY_VERSION[formula_version.PEAK3_V1]
+OUT_PATH = _OUT_BY_VERSION[formula_version.PEAK3_V1]
+DATASET_VERSION = _DATASET_VERSION_BY_VERSION[formula_version.PEAK3_V1]
 TOP_N = 1000
 
 # ---------------------------------------------------------------------------
@@ -101,10 +119,9 @@ TOP_N = 1000
 MIN_SERVED_ANCHOR_MPG = 25.0
 SUPPORTED_START_SEASON = "1979-80"
 SUPPORTED_END_SEASON = "2025-26"
-FORMULA_VERSION = (
-    "peak3_official_weights_v1 (statistical_impact=0.38, traditional_production=0.21, "
-    "recognition=0.20, postseason=0.18, team_achievement=0.03)"
-)
+# Sourced from nba_peak.formula_version so the string cannot drift away from
+# OFFICIAL_WEIGHTS. Overridden per-run when generating a non-default version.
+FORMULA_VERSION = formula_version.V1_DESCRIPTION
 
 # ---------------------------------------------------------------------------
 # Phase 9C: the official weighted contributions, mapped from the column names
@@ -181,6 +198,84 @@ def _slug(name: str) -> str:
 def _contrib_columns(n: int) -> dict[str, str]:
     pfx = "Avg " if n > 1 else ""
     return {web: f"{pfx}{suffix}" for web, suffix in _CONTRIB_SUFFIX.items()}
+
+
+# ---------------------------------------------------------------------------
+# "Why THIS season?" -- nearby iconic seasons
+#
+# The 1Y board holds one row per player: their HIGHEST-SCORING single season.
+# For several players that is not the season the public remembers, and the
+# margin is tiny -- LeBron's 2008-09 beat his 2012-13 title season by 0.16,
+# Kobe's 2007-08 beat 2008-09 by 0.20, Pippen's 1993-94 beat 1995-96 by 0.57.
+# Readers reasonably ask "why is that the one?", and until now the modal had no
+# answer.
+#
+# This surfaces the answer instead of changing it: the player's OTHER seasons
+# that carry an iconic marker (championship, Finals MVP or MVP) and lost to the
+# chosen anchor by a small margin. It is descriptive only -- nothing here feeds
+# a score, and a title season is NOT promoted to the anchor.
+# ---------------------------------------------------------------------------
+
+# How close another season has to be, in prime_score points, to be worth
+# surfacing. Above this the anchor is not really contested and the note would be
+# noise rather than an explanation.
+NEARBY_SEASON_MAX_MARGIN = 3.0
+NEARBY_SEASON_LIMIT = 3
+
+
+def _iconic_markers(row) -> list[str]:
+    """Which iconic markers a season carries. Empty for an ordinary season."""
+    out = []
+    if _num(row, "championship") == 1:
+        out.append("champion")
+    if _num(row, "finals_mvp") == 1:
+        out.append("Finals MVP")
+    if _num(row, "mvp_rank") == 1:
+        out.append("MVP")
+    return out
+
+
+def _nearby_iconic_seasons(scored: pd.DataFrame) -> dict[tuple[str, str], list[dict]]:
+    """(player_slug, anchor_season) -> the iconic seasons it narrowly beat.
+
+    Deterministic: sorted by margin ascending then season, and capped. Computed
+    from the same scored frame the board is built from, so the margins quoted are
+    the board's own numbers rather than a re-derivation.
+    """
+    frame = scored[~scored["team"].isin(_MULTI_TEAM_CODES)] if "team" in scored.columns else scored
+    out: dict[tuple[str, str], list[dict]] = {}
+    for player, group in frame.groupby("player", sort=True):
+        group = group.dropna(subset=["prime_score"])
+        if len(group) < 2:
+            continue
+        best = group.loc[group["prime_score"].idxmax()]
+        anchor_season = str(best["season"])
+        anchor_score = float(best["prime_score"])
+        nearby = []
+        # iterrows, not itertuples: `_num` reads by column name off `row.index`,
+        # which a namedtuple does not have.
+        for _idx, row in group.iterrows():
+            season = str(row["season"])
+            if season == anchor_season:
+                continue
+            markers = _iconic_markers(row)
+            if not markers:
+                continue
+            margin = anchor_score - float(row["prime_score"])
+            # Only seasons the anchor actually BEAT, and only narrowly.
+            if margin <= 0 or margin > NEARBY_SEASON_MAX_MARGIN:
+                continue
+            nearby.append({
+                "season": season,
+                "prime_score": _round(float(row["prime_score"]), 2),
+                "margin": _round(margin, 2),
+                "markers": markers,
+            })
+        if not nearby:
+            continue
+        nearby.sort(key=lambda d: (d["margin"], d["season"]))
+        out[(_slug(player), anchor_season)] = nearby[:NEARBY_SEASON_LIMIT]
+    return out
 
 
 def _teammate_adj_column(n: int) -> str:
@@ -341,16 +436,33 @@ def _comparison_rails(
     return out
 
 
-def main() -> int:
-    if not SCORED_PATH.exists():
-        print(f"ERROR: {SCORED_PATH} missing -- broken checkout.")
-        return 1
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="Build the top-1000 peak-window artifact.")
+    ap.add_argument("--formula-version", default=formula_version.DEFAULT_FORMULA_VERSION,
+                    choices=list(formula_version.ALL_FORMULA_VERSIONS),
+                    help="Which scoring model to build for. Each version reads its own "
+                         "scored parquet and writes its own artifact.")
+    args = ap.parse_args(argv)
+    version = formula_version.normalize(args.formula_version)
+    scored_path = _SCORED_BY_VERSION[version]
+    out_path = _OUT_BY_VERSION[version]
+    dataset_version = _DATASET_VERSION_BY_VERSION[version]
 
-    scored = pd.read_parquet(SCORED_PATH)
+    if not scored_path.exists():
+        print(f"ERROR: {scored_path} missing.")
+        if version == formula_version.PEAK3_V2:
+            print("Run: python scripts/build_scored_v2.py")
+        return 1
+    print(f"Formula version: {version}")
+
+    scored = pd.read_parquet(scored_path)
     # Derived once and threaded through, so every row in one artifact agrees
     # about which seasons are finished.
     unfinished = in_progress_seasons(scored)
     print(f"seasons still in progress (derived): {sorted(unfinished) or 'none'}")
+    # "Why this season?" material for the 1Y board (descriptive only).
+    nearby_iconic = _nearby_iconic_seasons(scored)
+    print(f"players whose top season narrowly beat an iconic one: {len(nearby_iconic)}")
     universe = pd.DataFrame({"player": sorted(scored["player"].unique())})
     universe["canonical_player_id"] = universe["player"].map(_slug)
 
@@ -358,13 +470,14 @@ def main() -> int:
     print(f"Serving gate: anchor-season MPG >= {MIN_SERVED_ANCHOR_MPG} (see MIN_SERVED_ANCHOR_MPG)")
 
     payload = {
-        "dataset_version": DATASET_VERSION,
-        "generation_command": "python scripts/build_top_peaks.py",
+        "dataset_version": dataset_version,
+        "model_version": version,
+        "generation_command": f"python scripts/build_top_peaks.py --formula-version {version}",
         "source_provenance": {
-            "scored": str(SCORED_PATH.relative_to(REPO_ROOT)),
+            "scored": str(scored_path.relative_to(REPO_ROOT)),
             "windowing": "nba_peak.leaderboards.build_leaderboard -> peak3.n_year_windows/calibrate_score (unmodified official formula)",
         },
-        "formula_version": FORMULA_VERSION,
+        "formula_version": formula_version.description(version),
         "official_weights": P.OFFICIAL_WEIGHTS,
         "supported_start_season": SUPPORTED_START_SEASON,
         "supported_end_season": SUPPORTED_END_SEASON,
@@ -485,6 +598,7 @@ def main() -> int:
                 "percentiles": percentiles,
                 "data_completeness": r["Data completeness status"],
                 "season_in_progress": anchor_season in unfinished,
+                "model_version": version,
             }
             rows.append(row)
             all_rows.append(row)
@@ -601,6 +715,17 @@ def main() -> int:
                 "prime_score": row["prime_score"],
                 "prime_index": row["prime_index"],
                 "season_in_progress": row["season_in_progress"],
+                "model_version": version,
+                # Only meaningful on the 1Y board, where the row IS a single
+                # season chosen as the player's best. On 3Y/5Y the window
+                # already spans several seasons, so there is nothing to explain.
+                "anchor_selection": {
+                    "basis": "highest-scoring single season",
+                    "nearby_iconic_seasons": (
+                        nearby_iconic.get((row["player_slug"], row["anchor_season"]), [])
+                        if n == 1 else []
+                    ),
+                },
                 "mpg": row["mpg"],
                 "anchor_season_mpg": row["anchor_season_mpg"],
                 "min_anchor_season_mpg": MIN_SERVED_ANCHOR_MPG,
@@ -727,10 +852,10 @@ def main() -> int:
     # Nothing reads this file as text (it is parsed as JSON everywhere), and a
     # multi-megabyte JSON diff is not human-reviewable line-by-line either way,
     # so the readability that indent=2 buys here is theoretical.
-    OUT_PATH.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=False))
-    size = OUT_PATH.stat().st_size
+    out_path.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=False))
+    size = out_path.stat().st_size
     print(f"\nExplain blocks: {len(explain)} (keyed by row_id, across 1Y/3Y/5Y)")
-    print(f"Wrote {OUT_PATH.relative_to(REPO_ROOT)} ({size:,} bytes)")
+    print(f"Wrote {out_path.relative_to(REPO_ROOT)} ({size:,} bytes)")
     return 0
 
 

@@ -37,6 +37,7 @@ Usage:
 """
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import re
@@ -49,13 +50,30 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 import peak3 as P  # noqa: E402
+from nba_peak import formula_version  # noqa: E402
 from nba_peak.season_status import in_progress_seasons  # noqa: E402
 
-SCORED_PATH = REPO_ROOT / "cache" / "processed" / "scored_1980_2026.parquet"
 OUT_DIR = REPO_ROOT / "data" / "game" / "experimental" / "player_pool_1500"
-OUT_PATH = OUT_DIR / "top_1000_seasons.v1.json"
 
-DATASET_VERSION = "top_1000_seasons.v1"
+# Per-formula-version inputs and outputs. A default run reads and writes exactly
+# what it always did; v2 reads the derived v2 parquet and writes a SEPARATE
+# artifact, so the two versions can never cross-write.
+_SCORED_BY_VERSION = {
+    formula_version.PEAK3_V1: REPO_ROOT / "cache" / "processed" / "scored_1980_2026.parquet",
+    formula_version.PEAK3_V2: REPO_ROOT / "cache" / "processed" / "scored_1980_2026.v2.parquet",
+}
+_OUT_BY_VERSION = {
+    formula_version.PEAK3_V1: OUT_DIR / "top_1000_seasons.v1.json",
+    formula_version.PEAK3_V2: OUT_DIR / "top_1000_seasons.v2.json",
+}
+_DATASET_VERSION_BY_VERSION = {
+    formula_version.PEAK3_V1: "top_1000_seasons.v1",
+    formula_version.PEAK3_V2: "top_1000_seasons.v2",
+}
+
+SCORED_PATH = _SCORED_BY_VERSION[formula_version.PEAK3_V1]
+OUT_PATH = _OUT_BY_VERSION[formula_version.PEAK3_V1]
+DATASET_VERSION = _DATASET_VERSION_BY_VERSION[formula_version.PEAK3_V1]
 TOP_N = 1000
 
 # ---------------------------------------------------------------------------
@@ -97,10 +115,9 @@ EFFECTIVE_TIE_THRESHOLD = 0.5
 
 SUPPORTED_START_SEASON = "1979-80"
 SUPPORTED_END_SEASON = "2025-26"
-FORMULA_VERSION = (
-    "peak3_official_weights_v1 (statistical_impact=0.38, traditional_production=0.21, "
-    "recognition=0.20, postseason=0.18, team_achievement=0.03)"
-)
+# Sourced from nba_peak.formula_version so the string cannot drift away from
+# OFFICIAL_WEIGHTS. Overridden per-run when generating a non-default version.
+FORMULA_VERSION = formula_version.V1_DESCRIPTION
 
 # The five official weighted contributions, mapped from the parquet's own
 # column names to the web contract's names (already used by
@@ -383,12 +400,26 @@ def _comparison_rails(rows: list[dict]) -> dict[str, dict]:
     return out
 
 
-def main() -> int:
-    if not SCORED_PATH.exists():
-        print(f"ERROR: {SCORED_PATH} missing -- broken checkout (this file is committed).")
-        return 1
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="Build the top-1000 single-season artifact.")
+    ap.add_argument("--formula-version", default=formula_version.DEFAULT_FORMULA_VERSION,
+                    choices=list(formula_version.ALL_FORMULA_VERSIONS),
+                    help="Which scoring model to build for. Each version reads its own "
+                         "scored parquet and writes its own artifact.")
+    args = ap.parse_args(argv)
+    version = formula_version.normalize(args.formula_version)
+    scored_path = _SCORED_BY_VERSION[version]
+    out_path = _OUT_BY_VERSION[version]
+    dataset_version = _DATASET_VERSION_BY_VERSION[version]
 
-    scored = pd.read_parquet(SCORED_PATH)
+    if not scored_path.exists():
+        print(f"ERROR: {scored_path} missing.")
+        if version == formula_version.PEAK3_V2:
+            print("Run: python scripts/build_scored_v2.py")
+        return 1
+    print(f"Formula version: {version}")
+
+    scored = pd.read_parquet(scored_path)
     required = ["player", "season", "prime_raw", "prime_score"]
     missing = [c for c in required if c not in scored.columns]
     if missing:
@@ -490,6 +521,7 @@ def main() -> int:
             "mpg": round(season_mpg, 1) if season_mpg is not None else None,
             "data_completeness": completeness,
             "season_in_progress": season in unfinished,
+            "model_version": version,
         })
 
         regular_season_total = sum(by_name.get(k, 0.0) for k in _REGULAR_SEASON_COMPONENTS)
@@ -527,6 +559,7 @@ def main() -> int:
             },
             "mpg": round(season_mpg, 1) if season_mpg is not None else None,
             "season_in_progress": season in unfinished,
+            "model_version": version,
             "season_stats": {
                 "season": season,
                 "is_anchor_season_only": False,
@@ -667,10 +700,11 @@ def main() -> int:
         block["min_season_mpg"] = MIN_SERVED_SEASON_MPG
 
     payload = {
-        "dataset_version": DATASET_VERSION,
-        "generation_command": "python scripts/build_top_seasons.py",
+        "dataset_version": dataset_version,
+        "model_version": version,
+        "generation_command": f"python scripts/build_top_seasons.py --formula-version {version}",
         "source_provenance": {
-            "scored": str(SCORED_PATH.relative_to(REPO_ROOT)),
+            "scored": str(scored_path.relative_to(REPO_ROOT)),
             "method": (
                 "Pure sort/projection of already-official per-season prime_raw/prime_score and "
                 "weighted component contributions from peak3.py's own calibrate_score output. No "
@@ -681,7 +715,7 @@ def main() -> int:
                 "postseason contribution desc, season_end asc, player_slug asc"
             ),
         },
-        "formula_version": FORMULA_VERSION,
+        "formula_version": formula_version.description(version),
         "official_weights": P.OFFICIAL_WEIGHTS,
         "supported_start_season": SUPPORTED_START_SEASON,
         "supported_end_season": SUPPORTED_END_SEASON,
@@ -721,7 +755,7 @@ def main() -> int:
     # Nothing reads this file as text (it is parsed as JSON everywhere), and a
     # multi-megabyte JSON diff is not human-reviewable line-by-line either way,
     # so the readability that indent=2 buys here is theoretical.
-    OUT_PATH.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=False))
+    out_path.write_text(json.dumps(payload, separators=(",", ":"), sort_keys=False))
 
     distinct = len({r["player_slug"] for r in rows[:50]})
     print(f"Universe: {payload['universe_identity_count']} identities, {payload['total_scored_seasons']} scored seasons")
@@ -732,7 +766,7 @@ def main() -> int:
     print(f"Top {len(rows)} seasons written; top-50 contains {distinct} distinct players (repeats allowed by design)")
     for r in rows[:5]:
         print(f"  #{r['rank']} {r['player_name']} {r['season']} ({r['team']}) -- {r['prime_score']}")
-    print(f"Wrote {OUT_PATH.relative_to(REPO_ROOT)} ({OUT_PATH.stat().st_size:,} bytes)")
+    print(f"Wrote {out_path.relative_to(REPO_ROOT)} ({out_path.stat().st_size:,} bytes)")
     return 0
 
 

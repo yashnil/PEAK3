@@ -127,6 +127,20 @@ const KOBE_EXPLAIN: RankingExplain = {
     ],
   },
   caveats: ["Seasons under 25 minutes per game are not served on this board."],
+  model_version: "peak3_v1",
+  // Kobe 2007-08 is the real case: it beat his 2008-09 title season by 0.20,
+  // which is exactly the "why is THAT the one?" question this block answers.
+  anchor_selection: {
+    basis: "highest-scoring single season",
+    nearby_iconic_seasons: [
+      {
+        season: "2008-09",
+        prime_score: 83.94,
+        margin: 0.2,
+        markers: ["champion", "Finals MVP"],
+      },
+    ],
+  },
 };
 
 type ModalProps = React.ComponentProps<typeof ScoreExplainModal>;
@@ -363,5 +377,62 @@ describe("ScoreExplainModal — unavailable states stay compact and honest", () 
     // looking at a blank modal.
     await waitFor(() => expect(dialog).toHaveTextContent("Kobe Bryant"));
     expect(dialog).toHaveTextContent("22.8");
+  });
+});
+
+/**
+ * Phase 12C: "Why this season?"
+ *
+ * The 1Y board publishes each player's highest-scoring single season, so a
+ * player's famous title year can be absent — LeBron's 2008-09 edged his 2012-13
+ * by 0.16, Kobe's 2007-08 beat 2008-09 by 0.20. Readers read that absence as a
+ * bug. The modal now states the rule and shows what it narrowly beat.
+ *
+ * The load-bearing property is that this EXPLAINS the choice without changing
+ * it: no title season is promoted to the anchor.
+ */
+describe("ScoreExplainModal — why this season", () => {
+  it("states the rule the board actually used", async () => {
+    renderModal();
+    const panel = await screen.findByTestId("score-explain-anchor-selection");
+    expect(panel).toHaveTextContent(/highest-scoring single season/i);
+  });
+
+  it("names the iconic season it narrowly beat, with the margin", async () => {
+    renderModal();
+    const entry = await screen.findByTestId("score-explain-nearby-2008-09");
+    expect(entry).toHaveTextContent("2008-09");
+    expect(entry).toHaveTextContent("0.20");
+    expect(entry).toHaveTextContent(/champion/i);
+    expect(entry).toHaveTextContent(/Finals MVP/i);
+  });
+
+  it("shows the beaten season's score below the anchor's, never above", async () => {
+    renderModal();
+    const entry = await screen.findByTestId("score-explain-nearby-2008-09");
+    // 83.94 lost to the anchor; if this ever rendered higher than the row's own
+    // score the panel would be arguing the board is wrong.
+    expect(entry).toHaveTextContent("83.9");
+  });
+
+  it("renders nothing when the row has no close iconic season", async () => {
+    // Most rows are like this. An empty section would be worse than no section.
+    renderModal({
+      fetchExplain: fetcher({
+        ...KOBE_EXPLAIN,
+        anchor_selection: {
+          basis: "highest-scoring single season",
+          nearby_iconic_seasons: [],
+        },
+      }),
+    });
+    await screen.findByTestId("score-explain-modal");
+    expect(screen.queryByTestId("score-explain-anchor-selection")).toBeNull();
+  });
+
+  it("renders nothing when the API omits the block entirely", async () => {
+    renderModal({ fetchExplain: fetcher({ ...KOBE_EXPLAIN, anchor_selection: null }) });
+    await screen.findByTestId("score-explain-modal");
+    expect(screen.queryByTestId("score-explain-anchor-selection")).toBeNull();
   });
 });

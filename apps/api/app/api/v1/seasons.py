@@ -42,30 +42,56 @@ _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
+from nba_peak import formula_version  # noqa: E402
+
 router = APIRouter()
 
-DATA_PATH = (
-    _repo_root / "data" / "game" / "experimental" / "player_pool_1500" / "top_1000_seasons.v1.json"
-)
+_DATA_DIR = _repo_root / "data" / "game" / "experimental" / "player_pool_1500"
+# One artifact per scoring model; v1 stays the default. See peaks.py for the
+# same pattern and docs/model/PEAK3_V2_FORMULA_DESIGN.md section 7 for why the
+# default does not move yet.
+_DATA_PATHS = {
+    formula_version.PEAK3_V1: _DATA_DIR / "top_1000_seasons.v1.json",
+    formula_version.PEAK3_V2: _DATA_DIR / "top_1000_seasons.v2.json",
+}
+DATA_PATH = _DATA_PATHS[formula_version.PEAK3_V1]
 
-_CACHE: Optional[dict] = None
+_CACHE: dict[str, dict] = {}
 
 
-def _load() -> dict:
-    global _CACHE
-    if _CACHE is None:
-        if not DATA_PATH.exists():
+def _resolve_version(value: Optional[str]) -> str:
+    try:
+        return formula_version.normalize(value)
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "unknown_model_version",
+                "message": (f"model_version must be one of "
+                            f"{list(formula_version.ALL_FORMULA_VERSIONS)}, got {value!r}"),
+            },
+        )
+
+
+def _load(version: Optional[str] = None) -> dict:
+    """The served board for one model version, cached per version."""
+    resolved = _resolve_version(version)
+    cached = _CACHE.get(resolved)
+    if cached is None:
+        path = _DATA_PATHS[resolved]
+        if not path.exists():
             raise HTTPException(
                 status_code=503,
                 detail={
                     "error_code": "seasons_data_unavailable",
                     "message": (
-                        f"{DATA_PATH.name} not generated -- run scripts/build_top_seasons.py"
+                        f"{path.name} not generated -- run "
+                        f"scripts/build_top_seasons.py --formula-version {resolved}"
                     ),
                 },
             )
-        _CACHE = json.loads(DATA_PATH.read_text())
-    return _CACHE
+        cached = _CACHE[resolved] = json.loads(path.read_text())
+    return cached
 
 
 class SeasonRow(BaseModel):
@@ -82,6 +108,9 @@ class SeasonRow(BaseModel):
     # not just asserted by a summary field.
     season_mpg: Optional[float] = None
     season_in_progress: bool = False
+    # Which scoring model produced this row (Optional for pre-versioning
+    # artifacts; the response-level field always resolves).
+    model_version: Optional[str] = None
     # ------------------------------------------------------------------ 9C ---
     # The shared two-board rankings contract, so one frontend normalizer reads a
     # row from this board and from /api/v1/peaks identically. Every field is
@@ -104,6 +133,11 @@ class SeasonRow(BaseModel):
 class SeasonsResponse(BaseModel):
     dataset_version: str
     formula_version: str
+    # The scoring model these rows come from, plus a label and whether it is the
+    # default, so a client never has to parse `formula_version`'s prose.
+    model_version: str
+    model_label: str
+    is_default_model: bool
     supported_start_season: str
     supported_end_season: str
     universe_identity_count: int
@@ -139,8 +173,11 @@ async def get_seasons(
     limit: int = Query(default=1000, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     search: str = Query(default=""),
+    model_version: Optional[str] = Query(
+        default=None, description="peak3_v1 (default) | peak3_v2 (preview)"),
 ) -> SeasonsResponse:
-    data = _load()
+    version = _resolve_version(model_version)
+    data = _load(version)
     rows = data["rows"]
 
     if search:
@@ -155,6 +192,9 @@ async def get_seasons(
     return SeasonsResponse(
         dataset_version=data["dataset_version"],
         formula_version=data["formula_version"],
+        model_version=version,
+        model_label=formula_version.label(version),
+        is_default_model=formula_version.is_default(version),
         supported_start_season=data["supported_start_season"],
         supported_end_season=data["supported_end_season"],
         universe_identity_count=data["universe_identity_count"],
@@ -172,12 +212,17 @@ async def get_seasons(
 
 
 @router.get("/seasons/{season_id}/explain", response_model=SeasonExplainResponse)
-async def get_season_explain(season_id: str) -> SeasonExplainResponse:
+async def get_season_explain(
+    season_id: str,
+    model_version: Optional[str] = Query(
+        default=None, description="peak3_v1 (default) | peak3_v2 (preview)"),
+) -> SeasonExplainResponse:
     """The per-row breakdown, fetched on modal open rather than shipped with the
     table. Includes the `comparisons` rails (same player's other seasons, nearest
     scores, same-season peers), each entry carrying a row_id so the modal can
     pivot straight onto it."""
-    data = _load()
+    version = _resolve_version(model_version)
+    data = _load(version)
     block = data["explain"].get(season_id)
     if block is None:
         raise HTTPException(
@@ -187,4 +232,5 @@ async def get_season_explain(season_id: str) -> SeasonExplainResponse:
                 "message": f"No served season with id '{season_id}'",
             },
         )
+    block = {**block, "model_version": version}
     return SeasonExplainResponse(season_id=season_id, row_id=season_id, explain=block)

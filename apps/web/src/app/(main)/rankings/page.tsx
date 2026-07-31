@@ -352,6 +352,23 @@ export default function RankingsPage() {
               style={{ color: "var(--text-muted)" }}
               data-testid="rankings-provenance"
             >
+              {/* Which scoring model produced these numbers. Stated first
+               *  because two model versions are not comparable, so a reader
+               *  needs to know which one they are looking at before anything
+               *  else on the line means much. A non-default model is called out
+               *  in the accent colour rather than buried in grey. */}
+              {data.meta.model_label && (
+                <span
+                  data-testid="rankings-model-version"
+                  style={
+                    data.meta.is_default_model
+                      ? undefined
+                      : { color: "var(--peak-accent)", fontWeight: 600 }
+                  }
+                >
+                  {data.meta.model_label}
+                </span>
+              )}
               {data.meta.dataset_version && <span>{data.meta.dataset_version}</span>}
               {data.meta.formula_version && <span>{data.meta.formula_version}</span>}
               {data.meta.supported_start_season && data.meta.supported_end_season && (
