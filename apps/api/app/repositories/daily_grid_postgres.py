@@ -144,3 +144,38 @@ class PostgresDailyGridResultRepository:
                 owner_sub, limit,
             )
             return [_row_to_result(row) for row in rows]
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign this owner's results to `to_sub` -- the guest-claim path.
+
+        This is the one place in this file that writes `owner_sub`, and it is
+        not an exception to the table's immutability: it changes WHO a result
+        belongs to, never WHAT the result was. Every scored column is left
+        untouched.
+
+        Runs in one transaction, moves what
+        `UNIQUE (owner_sub, board_date, board_version)` allows, and sweeps the
+        rest -- the same shape as
+        PostgresDailyCompletionRepository.transfer_owner.
+        """
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                result = await conn.execute(
+                    """
+                    UPDATE daily_grid_results AS d
+                       SET owner_sub = $2
+                     WHERE d.owner_sub = $1
+                       AND NOT EXISTS (
+                            SELECT 1 FROM daily_grid_results AS existing
+                             WHERE existing.owner_sub = $2
+                               AND existing.board_date = d.board_date
+                               AND existing.board_version = d.board_version
+                       )
+                    """,
+                    from_sub, to_sub,
+                )
+                moved = int(result.split()[-1])
+                await conn.execute(
+                    "DELETE FROM daily_grid_results WHERE owner_sub = $1", from_sub
+                )
+        return moved

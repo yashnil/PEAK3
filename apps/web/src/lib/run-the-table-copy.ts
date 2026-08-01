@@ -189,6 +189,22 @@ export interface NodeTypeCopy {
   label: string;
   icon: NodeIconKey;
   /**
+   * Is the SERVER's per-node `summary` unsafe to print for this node type?
+   *
+   * True for `film_room` only, and it is a fact about the engine rather than a
+   * style preference: `generation.py:199-202` sets the Film Room's summary to
+   * "Scout the next boss's lane profile and rule, then take one prep
+   * advantage", and there is no prep-advantage mechanic anywhere in the engine.
+   * `state.action_film_room` does exactly two things — unlock stages, or add
+   * credits. Printing the server line would promise a mechanic that does not
+   * exist, so the node-type `consequence` below is shown instead.
+   *
+   * `_NODE_COPY` is a static per-type table, not per-seed text, so nothing
+   * seed-specific is lost by suppressing it. Track D owns `generation.py`; when
+   * that string is corrected this flag should be dropped.
+   */
+  suppressServerSummary?: true;
+  /**
    * CSS custom property for this node's accent, as a `var(...)` string.
    *
    * Every one is an EXISTING frozen token (plan §3.1 — no writer but W7 adds
@@ -206,11 +222,17 @@ export interface NodeTypeCopy {
 /**
  * The four node types.
  *
- * Verified against `NODE_TYPE_LABELS` / `NODE_TYPE_BLURBS` in
- * `lib/run-the-table-state.ts` and against the engine:
- * `config.OFFERS_PER_DRAFT` = 3, `config.OFFERS_PER_TRADE` = 3,
- * `config.TRADE_REFUND_PCT` = 0.50, `state.FILM_CHOICES`, `state.REST_CHOICES`,
- * and `public._node_public`, which sets `can_pass` / `can_decline` to True.
+ * `purpose` is the plain first-scan line and is FIXED BY THE SPEC — one
+ * sentence, no engine numbers, no jargon, stating both branches. `consequence`
+ * is the second layer: what literally happens, which is where the mechanic is
+ * spelled out.
+ *
+ * Verified against `NODE_TYPE_LABELS` in `lib/run-the-table-state.ts` and
+ * against the engine: `config.OFFERS_PER_DRAFT` = 3, `config.OFFERS_PER_TRADE`
+ * = 3, `config.TRADE_REFUND_PCT` = 0.50 of the card's BASE cost
+ * (`pricing.refund_for`), `state.FILM_CHOICES`, `state.REST_CHOICES`,
+ * `state.action_film_room`, and `public._node_public`, which sets `can_pass` /
+ * `can_decline` to True.
  */
 export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
   draft_room: {
@@ -218,7 +240,7 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     label: "Draft Room",
     icon: "draft",
     accentVar: "var(--peak-accent)",
-    purpose: "Buy one exact 3-year peak, or keep the credits.",
+    purpose: "Buy one player or keep your credits.",
     consequence:
       "Three priced cards. Buy one into a slot its role allows, or pass and spend nothing.",
   },
@@ -227,32 +249,47 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     label: "Trade Desk",
     icon: "trade",
     accentVar: "var(--foundation-blue)",
-    purpose: "Send one player out, bring one legal replacement in.",
+    purpose: "Replace one roster player. You receive a refund toward the incoming card.",
+    // The refund is a share of the outgoing card's ORIGINAL price, not of what
+    // you paid after a discount (`pricing.refund_for` reads `base_cost`).
+    // config.py:150-156 records that this exact ambiguity already shipped
+    // wrong once, in the guided tour, so it is stated explicitly here.
     consequence:
-      "Three players are available. Your outgoing player refunds part of their price against the incoming one. You can decline.",
+      "Three players are available. Your outgoing player refunds part of their ORIGINAL price — before any perk discount — against the incoming one. You can decline.",
   },
   film_room: {
     type: "film_room",
     label: "Film Room",
     icon: "film",
     accentVar: "var(--apex-coral)",
-    purpose: "Trade the credits for information, or the information for credits.",
+    purpose: "Learn what is coming or take a preparation benefit.",
+    // What scouting ACTUALLY does, from `state.action_film_room`: it unlocks
+    // the remaining stages of THIS act plus stage 1 of the next — not "the
+    // rest of this act and the next". And `public.py:338-341` reveals the
+    // boss's roster once `a{act}s{STAGES_PER_ACT}` is scouted, which is the
+    // highest-value consequence and the one nothing in the UI used to mention.
     consequence:
-      "Scout to reveal the offers waiting in the stages ahead, or bank credits instead. No roster change either way.",
+      "Scouting shows the stages left in this act and the first stage of the next — and if it reaches this act's last stage, it uncovers the boss's roster before you have to face it. Banking takes credits instead. No roster change either way.",
+    suppressServerSummary: true,
   },
   rest_bank: {
     type: "rest_bank",
     label: "Rest / Bank",
     icon: "rest",
     accentVar: "var(--correct)",
-    purpose: "Recover, or take the money.",
+    purpose: "Recover one life or take credits. Your roster does not change.",
     consequence:
-      "Get a lost life back, or bank credits instead. No roster change either way.",
+      "Get a lost life back, or bank credits instead. At full lives there is nothing to recover.",
   },
 };
 
 export function nodeTypeCopy(type: NodeType): NodeTypeCopy {
   return NODE_TYPE_COPY[type];
+}
+
+/** See `NodeTypeCopy.suppressServerSummary`. */
+export function shouldSuppressServerSummary(type: NodeType): boolean {
+  return NODE_TYPE_COPY[type].suppressServerSummary === true;
 }
 
 /**
@@ -274,9 +311,9 @@ export function nodeTypeCopy(type: NodeType): NodeTypeCopy {
  */
 export const NODE_CHOICE_TRADEOFF: Record<string, string> = {
   "film_room:scout_offers":
-    "You give up the credits. Nothing on your roster changes — you just stop guessing what is ahead.",
+    "You give up the credits. Nothing on your roster changes — you stop guessing what is ahead, and late in an act you see the boss you are about to play.",
   "film_room:take_credits":
-    "You give up the preview. You go into the next stages blind, with more to spend when you get there.",
+    "You give up the preview. You go into the next stages blind, and into the boss blind, with more to spend when you get there.",
   "rest_bank:recover_life":
     "You give up the credits. Only worth taking if you have actually lost a life.",
   "rest_bank:take_credits":
@@ -303,28 +340,108 @@ export function perkAffectsCopy(affects: string): string {
 }
 
 /**
- * One plain-language sentence per shipped System id.
+ * LAYER 1 — one plain-language sentence per shipped System id.
  *
- * DELIBERATELY NON-NUMERIC. Every threshold, percentile and discount stays in
- * `config.SYSTEMS[i]["summary"]`, which the API sends verbatim and which
- * `SystemSelect` shows verbatim next to this line. That is the only arrangement
- * in which the friendly sentence cannot drift from the applied rule — the
- * failure `config.py`'s `SYSTEM_PUBLISHED_THRESHOLDS` table exists to prevent.
+ * Progressive disclosure, three layers per perk card (plan §6):
+ *   1. `PERK_PLAIN_EFFECT` — what it does, in the player's words.
+ *   2. `PERK_STRATEGY_HINT` — ONE line on when it is worth taking.
+ *   3. `See exact rule` — the engine's own `summary`, verbatim, one tap away.
+ * Transparency is MOVED, never removed.
+ *
+ * Two of these lines fix real mis-descriptions the audit found:
+ *
+ *   * "Unheralded cards cost you less" implied Individual Recognition.
+ *     `pricing.qualifies_moneyball` reads the card's OVERALL prime-score
+ *     percentile and nothing else.
+ *   * "Big producers who never won the awards" implied Traditional Production.
+ *     `pricing.qualifies_no_hardware` reads STATISTICAL IMPACT (above the 60th
+ *     percentile) against Individual Recognition (below the 40th).
+ *
+ * "in most battles" in the Deep Rotation line is load-bearing rather than
+ * hedging: `battle.bench_weight_for` lets a boss rule fix the bench weight for
+ * BOTH sides, which makes the perk redundant against `strength_in_numbers` and
+ * cancels it outright against `top_heavy`.
+ *
+ * "of the original price" in the Trade Machine line is load-bearing for the
+ * same reason: `pricing.refund_for` refunds a share of `base_cost`, not of the
+ * discounted price. `config.py:150-156` records that this exact ambiguity
+ * already shipped wrong once.
+ *
+ * Numbers appear here only where the spec fixes them word-for-word; everything
+ * threshold-shaped stays in `config.SYSTEMS[i]["summary"]`, which is what
+ * layer 3 prints verbatim — the only arrangement in which the friendly
+ * sentence cannot drift from the applied rule (the failure `config.py`'s
+ * `SYSTEM_PUBLISHED_THRESHOLDS` table exists to prevent).
  *
  * An unknown id returns null and the caller falls back to the engine summary
  * alone, so shipping a new System never renders a blank card.
  */
 export const PERK_PLAIN_EFFECT: Record<string, string> = {
-  moneyball: "Unheralded cards cost you less.",
-  deep_rotation: "Your bench pulls more weight in battles.",
-  no_hardware: "Big producers who never won the awards cost you less.",
-  two_way_value: "Well-rounded cards with no glaring hole cost you less.",
-  trade_machine: "Players you trade away pay back more.",
+  moneyball: "Lower-rated cards are much cheaper.",
+  deep_rotation: "Your bench matters almost twice as much in most battles.",
+  no_hardware: "Players with big Statistical Impact but few awards cost you less.",
+  two_way_value: "Balanced players cost 30% less.",
+  trade_machine: "Trading away a player refunds more of the original price.",
   veteran_minimum: "One cheap Draft Room card per act is free.",
 };
 
 export function perkPlainEffect(systemId: string): string | null {
   return PERK_PLAIN_EFFECT[systemId] ?? null;
+}
+
+/**
+ * LAYER 2 — ONE strategic hint per perk. When is it worth taking?
+ *
+ * Deliberately one sentence each: this layer exists to make the choice
+ * decidable on the first scan, and a second sentence would put it back into
+ * the "read four paragraphs before act 1" state the pass is fixing. Nothing
+ * here states a threshold — the exact rule is always one tap away in layer 3.
+ */
+export const PERK_STRATEGY_HINT: Record<string, string> = {
+  moneyball: "Best if you plan to fill several empty slots rather than chase one star.",
+  deep_rotation: "Only pays if you actually spend on the bench — and a boss that fixes the bench weight cancels it.",
+  no_hardware: "Hunt for cards with a tall Statistical Impact bar and a short Individual Recognition bar.",
+  two_way_value: "Look for cards whose five bars are close to level; the very best cards are excluded.",
+  trade_machine: "Worth more the more Trade Desks your path still has ahead of it.",
+  veteran_minimum: "Use it every act — a free card you never claimed is credits you never get back.",
+};
+
+export function perkStrategyHint(systemId: string): string | null {
+  return PERK_STRATEGY_HINT[systemId] ?? null;
+}
+
+/** LAYER 3's affordance label. One string, so every surface names it the same. */
+export const PERK_EXACT_RULE_LABEL = "See exact rule";
+
+/* ------------------------------------------------------------------ */
+/* Boss rules                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The boss rule in plain language, shown ABOVE the engine's own summary.
+ *
+ * Same arrangement as the perks and for the same reason: `BOSS_RULES[...]
+ * ["summary"]` in `config.py` carries the exact margins and bench weights,
+ * guarded by that file's `BOSS_RULE_PUBLISHED_THRESHOLDS` table, and it is
+ * still printed verbatim. This layer only says what the rule MEANS before the
+ * player is asked to parse "0.75 points" under a battle they are about to
+ * commit to.
+ *
+ * `the_wall` and `the_standard` are the same mechanic at different margins, so
+ * they share a sentence; the margin itself is in the published summary
+ * directly below it. An unknown id returns null and the caller shows the
+ * engine summary alone, so a rule this build has never heard of still renders.
+ */
+export const BOSS_RULE_PLAIN_EFFECT: Record<string, string> = {
+  the_wall: "A lane has to be won clearly. Anything closer is drawn and neither side takes it.",
+  the_standard:
+    "A lane has to be won clearly. Anything closer is drawn and neither side takes it.",
+  strength_in_numbers: "Both benches count for much more than usual.",
+  top_heavy: "Both benches barely count — the starters decide it.",
+};
+
+export function bossRulePlainEffect(ruleId: string): string | null {
+  return BOSS_RULE_PLAIN_EFFECT[ruleId] ?? null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -337,16 +454,39 @@ export function perkPlainEffect(systemId: string): string | null {
  * per-constant citations.
  */
 export const RTT_COPY = {
-  /** One sentence: what the mode is. */
+  /**
+   * One sentence: what the mode is.
+   *
+   * Deliberately says "every boss" rather than a count. It used to say "three
+   * escalating statistical lineups", which is a run-shape number this file's
+   * own header forbids restating — and which Standard v2 changes.
+   */
   promise:
-    "Build and evolve a roster of exact NBA 3-year peaks across a branching run, manage scarce credits, and beat three escalating statistical lineups.",
+    "Build and evolve a roster of exact NBA 3-year peaks across a branching run, manage scarce credits, and beat every boss lineup in your path.",
   /** The branch rule. */
   branch: "You take one. The other closes for this run.",
-  /** How a battle is decided. LANES_TO_WIN = 3 of 5. */
-  lanesToWin: "Win three of the five lanes and you win the battle.",
   /** When a life is lost. battle.resolve_battle: only on an outright loss. */
   lifeLoss: "You lose a life only by losing a boss battle. A draw costs nothing.",
   /** What a perk can and cannot touch. */
   perkBoundary:
     "A perk changes what cards cost you, what a trade refunds, or how much your bench counts — never what a player is worth.",
 } as const;
+
+/**
+ * How a battle is decided.
+ *
+ * A FUNCTION, not a constant, because `LANES_TO_WIN` belongs to the engine and
+ * this file's header forbids restating an engine number. It used to read "Win
+ * three of the five lanes" — a literal that would silently become a lie the
+ * moment Track D retunes the ruleset.
+ *
+ * Callers that have `state.lanes_to_win` pass it. Callers that genuinely do not
+ * have it (the start gate runs before any run exists, and `readiness` does not
+ * carry it) pass nothing and get the count-free wording rather than a guess.
+ */
+export function lanesToWinSentence(lanesToWin?: number | null): string {
+  if (typeof lanesToWin === "number" && Number.isFinite(lanesToWin) && lanesToWin > 0) {
+    return `Win ${lanesToWin} of the five lanes and you win the battle.`;
+  }
+  return "Win a majority of the five lanes and you win the battle.";
+}

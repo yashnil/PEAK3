@@ -80,11 +80,24 @@ from nba_peak.perfect_season.daily import (
     today_utc_date,
     validate_challenge_date,
 )
+from nba_peak.daily_key import daily_window
 from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME, resolve_player_season_card
 from nba_peak.perfect_season.simulation import compute_exact_fit_components, simulate_exact_season
 from pydantic import BaseModel
 
 router = APIRouter()
+
+
+class DailyChallengeWithWindow(DailyChallengeResponse):
+    """The daily challenge descriptor plus the frozen daily-window block (§2.1).
+
+    Declared here rather than on the shared model: every daily response in the
+    app carries the identical object under the top-level key `daily`, produced
+    by `DailyWindow.to_payload()`. The client counts down from
+    `seconds_remaining` instead of deriving a midnight-Pacific boundary itself.
+    """
+
+    daily: dict
 
 
 def _error_detail(exc: Exception, default_code: str = "invalid_request") -> dict:
@@ -814,13 +827,16 @@ async def get_my_personal_bests(
 # own attempt count for today.
 # ---------------------------------------------------------------------------
 
-@router.get("/perfect-season/daily", response_model=DailyChallengeResponse)
+@router.get("/perfect-season/daily", response_model=DailyChallengeWithWindow)
 async def get_daily_challenge(
     auth: OptionalAuth,
     saved_run_repo: PerfectSeasonSavedRunRepoDep,
     mode: str = Query("apex_1y", description="apex_1y | prime_3y | foundation_5y"),
-    date: Optional[str] = Query(None, description="YYYY-MM-DD; defaults to today (UTC)"),
-) -> DailyChallengeResponse:
+    date: Optional[str] = Query(
+        None,
+        description="YYYY-MM-DD archive date; omit for today's (server-decided, midnight PT)",
+    ),
+) -> DailyChallengeWithWindow:
     _require_courtbuilder_enabled()
     if mode not in SUPPORTED_MODES:
         raise HTTPException(
@@ -842,10 +858,11 @@ async def get_daily_challenge(
     if auth is not None and not auth.is_anonymous:
         attempts_used = await saved_run_repo.count_daily_attempts(auth.sub, challenge_date, mode)
 
-    return DailyChallengeResponse(
+    return DailyChallengeWithWindow(
         **descriptor,
         attempts_used=attempts_used,
         already_played=attempts_used > 0,
+        daily=daily_window(challenge_date).to_payload(),
     )
 
 

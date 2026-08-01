@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CalendarClock, Grid3x3, Swords, Trophy } from "lucide-react";
 import GameCard from "@/components/shared/GameCard";
 import { MODE_COPY } from "@/lib/modes";
 import type { DailyGridArchive } from "@/types/daily-grid";
+import { hasCompleted, loadArchive } from "@/lib/daily-grid-archive";
+import { getDailyGridBoard } from "@/lib/daily-grid-api";
 import {
+  type DailyWindowPayload,
+  extractDailyWindow,
   formatCountdown,
-  hasCompleted,
-  loadArchive,
-  msUntilNextBoard,
-  todayUtc,
-} from "@/lib/daily-grid-archive";
+  localDailyWindow,
+} from "@/lib/daily-time";
+import { useDailyReset } from "@/lib/use-daily-reset";
 
 /**
  * The Daily hub: every PEAK3 game that resets once a day, in one place.
@@ -36,18 +38,48 @@ import {
  */
 export default function DailyHub() {
   const [archive, setArchive] = useState<DailyGridArchive | null>(null);
-  const [today, setToday] = useState("");
-  const [countdown, setCountdown] = useState<number | null>(null);
+  // The server's window. `today` is read off it rather than computed here, so
+  // this page and the board the player is about to open can never disagree
+  // about which day it is.
+  const [window_, setWindow] = useState<DailyWindowPayload | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    setArchive(loadArchive());
-    setToday(todayUtc());
-    const update = () => setCountdown(msUntilNextBoard());
-    update();
-    const id = window.setInterval(update, 60_000);
-    return () => window.clearInterval(id);
-  }, []);
+    let cancelled = false;
+    (async () => {
+      try {
+        const board = await getDailyGridBoard();
+        if (cancelled) return;
+        setWindow(extractDailyWindow(board) ?? localDailyWindow());
+      } catch {
+        // The hub is navigation, not gameplay: if the API is unreachable it
+        // still has to render every card. The countdown falls back to the same
+        // zone and the same arithmetic the server uses, which is right unless
+        // this device's own clock is wrong.
+        if (!cancelled) setWindow(localDailyWindow());
+      }
+      // The archive is read after the window so `today` and the streak are
+      // evaluated against the same day.
+      if (!cancelled) setArchive(loadArchive());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
 
+  // Re-derives everything at the boundary, and on returning to a tab that was
+  // away past it. This effect used to have `[]` deps and never ran again: the
+  // countdown ticked to 0s and stayed there, and "played today" kept pointing
+  // at yesterday until the page was reloaded by hand.
+  const { secondsLeft } = useDailyReset({
+    dailyKey: window_?.daily_key ?? null,
+    secondsRemaining: window_?.seconds_remaining ?? null,
+    window: window_,
+    onReset: useCallback(() => setReloadToken((t) => t + 1), []),
+  });
+
+  const today = window_?.daily_key ?? "";
+  const countdown = secondsLeft ?? window_?.seconds_remaining ?? null;
   const gridPlayed = today !== "" && archive !== null && hasCompleted(archive, today);
   const streak = archive?.current_streak ?? 0;
 
@@ -69,7 +101,7 @@ export default function DailyHub() {
           A new board every day.
         </h1>
         <p className="mt-2 max-w-xl text-sm leading-relaxed sm:text-base" style={{ color: "var(--text-secondary)" }}>
-          Two PEAK3 games reset at midnight UTC, and everyone worldwide gets the same one. Come
+          New daily board at midnight PT, and everyone worldwide gets the same one. Come
           back tomorrow for a different puzzle.
         </p>
         {countdown !== null && (
@@ -80,6 +112,7 @@ export default function DailyHub() {
           >
             <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
             Next boards in {formatCountdown(countdown)}
+            <span className="sr-only"> (new daily board at midnight PT)</span>
           </p>
         )}
       </header>

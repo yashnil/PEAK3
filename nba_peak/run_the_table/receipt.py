@@ -10,33 +10,103 @@ from __future__ import annotations
 from typing import Optional
 
 from nba_peak.run_the_table.battle import (
-    bench_weight_for,
-    roster_lane_profile,
+    player_lane_profile,
     roster_total,
 )
 from nba_peak.run_the_table.cards import CardPool, get_pool
 from nba_peak.run_the_table.config import (
     ACTS,
-    BENCH_WEIGHT_DEFAULT,
     LANE_FIELDS,
     LANE_LABELS,
     ROLES,
     STARTING_CREDITS,
+    STARTING_LIVES,
     STATUS_COMPLETE,
     system_by_id,
 )
 from nba_peak.run_the_table.schemas import RunBlueprint, RunState
 
+# ---------------------------------------------------------------------------
+# Outcome taxonomy (AUTH_DAILY_BALANCE_PLAN §2.2)
+# ---------------------------------------------------------------------------
+# Exactly three outcomes. "RUN COMPLETE" is retired: v1 printed it both for a
+# clean sweep and for a run that survived every act without beating a single
+# boss, i.e. victory framing on a losing run.
+OUTCOME_TABLE_CLEARED = "table_cleared"
+OUTCOME_ENDED_AT_FINAL_BOSS = "ended_at_final_boss"
+OUTCOME_ENDED_IN_ACT = "ended_in_act"
+
+VERDICT_TABLE_CLEARED = "TABLE CLEARED"
+VERDICT_ENDED_AT_FINAL_BOSS = "RUN ENDED AT THE FINAL BOSS"
+
+OUTCOMES = (OUTCOME_TABLE_CLEARED, OUTCOME_ENDED_AT_FINAL_BOSS, OUTCOME_ENDED_IN_ACT)
+
+# ---------------------------------------------------------------------------
+# Semantic receipt items (AUTH_DAILY_BALANCE_PLAN §2.3)
+# ---------------------------------------------------------------------------
+# `kind` — and only `kind` — carries valence. `value` is always the true,
+# unnegated magnitude of what the label states, so a holding of 68 credits is
+# 68 and is neutral, never −68 and red.
+ITEM_KINDS = ("benefit", "cost", "neutral", "record")
+ITEM_UNITS = ("credits", "score", "lanes", "percentage")
+
+# Legacy `reasons` kinds, kept so a receipt saved under v1 and a receipt built
+# now render through the same deprecated path for one release.
+_LEGACY_KINDS = ("lane_strength", "lane_weakness", "acquisition", "economy")
+
+
+def _item(
+    kind: str,
+    label: str,
+    value: Optional[float] = None,
+    unit: Optional[str] = None,
+    display: Optional[str] = None,
+) -> dict:
+    """One ReceiptItem. Omits absent optional keys rather than emitting nulls."""
+    assert kind in ITEM_KINDS, kind
+    assert unit is None or unit in ITEM_UNITS, unit
+    out: dict = {"kind": kind, "label": label}
+    if value is not None:
+        out["value"] = value
+    if unit is not None:
+        out["unit"] = unit
+    if display is not None:
+        out["display"] = display
+    return out
+
+
+def _legacy_reason(item: dict, legacy_kind: str) -> dict:
+    """Project a ReceiptItem back onto the deprecated `reasons` shape.
+
+    The sign is derived from `kind` here, at the very edge, and only for the
+    deprecated field — which is the whole point of the change: the engine no
+    longer negates a real quantity so that a shared colour helper paints it red.
+    A `neutral` holding therefore comes out positive, as it always should have.
+    """
+    value = item.get("value", 0)
+    return {
+        "kind": legacy_kind,
+        "text": item["label"],
+        "signed_value": -value if item["kind"] == "cost" else value,
+    }
+
 
 def _marginal_contribution(
-    pool: CardPool, starters: list[str], bench: list[str], card_id: str, bench_weight: float
+    pool: CardPool,
+    starters: list[str],
+    bench: list[str],
+    card_id: str,
+    systems: list[str],
 ) -> float:
     """Drop-one marginal contribution to the roster's overall weighted total.
 
     The run MVP is the card whose removal costs the roster the most. This is a
     real counterfactual on published lane values, not a popularity heuristic.
+
+    Scored under the player's own Systems so it reconciles with the
+    ``roster_total`` printed beside it.
     """
-    full = roster_total(roster_lane_profile(pool, starters, bench, bench_weight))
+    full = roster_total(player_lane_profile(pool, starters, bench, systems, None))
     if card_id in starters:
         reduced_s = [c for c in starters if c != card_id]
         reduced_b = bench
@@ -45,7 +115,9 @@ def _marginal_contribution(
         reduced_b = [c for c in bench if c != card_id]
     if not reduced_s and not reduced_b:
         return full
-    without = roster_total(roster_lane_profile(pool, reduced_s, reduced_b, bench_weight))
+    without = roster_total(
+        player_lane_profile(pool, reduced_s, reduced_b, systems, None)
+    )
     return round(full - without, 4)
 
 
@@ -76,10 +148,38 @@ def build_receipt(
 
     bosses_defeated = sum(1 for b in state.battles if b.outcome == "win")
     battles_lost = sum(1 for b in state.battles if b.outcome == "loss")
-    ran_the_table = state.status == STATUS_COMPLETE and bosses_defeated == ACTS
+    battles_drawn = sum(1 for b in state.battles if b.outcome == "draw")
 
-    p_bw, _ = bench_weight_for(state.systems, None)
-    profile = roster_lane_profile(pool, starters, bench, p_bw)
+    # --- outcome taxonomy --------------------------------------------------
+    # The Final Boss is the last act's boss. A win there is the ONLY way to
+    # clear the table: beating bosses 1-3 and then drawing or losing act 4 is
+    # explicitly not a clear, and a draw counts as neither a win nor a loss.
+    final_act = ACTS
+    final_battle = next((b for b in state.battles if b.act == final_act), None)
+    reached_final_boss = final_battle is not None
+    table_cleared = (
+        state.status == STATUS_COMPLETE
+        and final_battle is not None
+        and final_battle.outcome == "win"
+    )
+
+    if table_cleared:
+        outcome = OUTCOME_TABLE_CLEARED
+        verdict = VERDICT_TABLE_CLEARED
+        ended_in_act = None
+    elif reached_final_boss:
+        outcome = OUTCOME_ENDED_AT_FINAL_BOSS
+        verdict = VERDICT_ENDED_AT_FINAL_BOSS
+        ended_in_act = final_act
+    else:
+        outcome = OUTCOME_ENDED_IN_ACT
+        ended_in_act = state.battles[-1].act if state.battles else state.act
+        verdict = f"RUN ENDED IN ACT {ended_in_act}"
+
+    # Scored the way the player was actually scored: Deep Rotation takes the
+    # better of two bench weights per lane, so a flat re-weight here would print
+    # a roster profile that no battle ever used.
+    profile = player_lane_profile(pool, starters, bench, state.systems, None)
     total = roster_total(profile)
 
     # --- run MVP -----------------------------------------------------------
@@ -87,7 +187,7 @@ def build_receipt(
         {
             **_card_summary(pool, cid),
             "marginal_contribution": _marginal_contribution(
-                pool, starters, bench, cid, p_bw
+                pool, starters, bench, cid, list(state.systems)
             ),
             "is_starter": cid in starters,
         }
@@ -174,19 +274,16 @@ def build_receipt(
     strongest_lane, strongest_val = lane_ranked[0]
     weakest_lane, weakest_val = lane_ranked[-1]
 
-    if ran_the_table:
-        verdict = "RUN COMPLETE"
-        headline = "Ran the table."
-    elif state.status == STATUS_COMPLETE:
-        verdict = "RUN COMPLETE"
+    if table_cleared:
+        headline = "Cleared the table."
+    elif reached_final_boss:
         headline = (
-            f"Survived all three acts, beat {bosses_defeated} of {ACTS}."
-            if bosses_defeated else "Survived all three acts without a win."
+            "Drew the Final Boss."
+            if final_battle.outcome == "draw"
+            else "Reached the Final Boss and could not close it out."
         )
     else:
-        verdict = "RUN ENDED"
-        failed_act = state.battles[-1].act if state.battles else state.act
-        headline = f"Out of lives in Act {failed_act}."
+        headline = f"Out of lives in Act {ended_in_act}."
 
     lane_wins: dict[str, int] = {lane: 0 for lane in LANE_FIELDS}
     for b in state.battles:
@@ -194,68 +291,153 @@ def build_receipt(
             if l.winner == "player":
                 lane_wins[l.lane] += 1
 
-    reasons: list[dict] = []
+    # --- semantic receipt items -------------------------------------------
+    # (item, legacy `reasons` kind or None). See §2.3: `kind` carries valence,
+    # `value` is the true magnitude of what the label says.
+    paired: list[tuple[dict, Optional[str]]] = []
+
+    battles_played = len(state.battles)
     if state.battles:
         best_lane_id = max(lane_wins, key=lambda k: (lane_wins[k], k))
-        reasons.append(
-            {
-                "kind": "lane_strength",
-                "text": (
-                    f"{LANE_LABELS[best_lane_id]} won {lane_wins[best_lane_id]} of "
-                    f"{len(state.battles)} battles."
+        best_wins = lane_wins[best_lane_id]
+        paired.append(
+            (
+                _item(
+                    "benefit" if best_wins else "neutral",
+                    f"{LANE_LABELS[best_lane_id]} won {best_wins} of "
+                    f"{battles_played} battles.",
+                    value=best_wins,
+                    unit="lanes",
+                    display=f"{best_wins} of {battles_played} battles",
                 ),
-                "signed_value": lane_wins[best_lane_id],
-            }
+                "lane_strength",
+            )
         )
         worst_lane_id = min(lane_wins, key=lambda k: (lane_wins[k], k))
         if lane_wins[worst_lane_id] == 0:
-            reasons.append(
-                {
-                    "kind": "lane_weakness",
-                    "text": f"{LANE_LABELS[worst_lane_id]} never won a lane.",
-                    "signed_value": 0,
-                }
+            paired.append(
+                (
+                    _item(
+                        "cost",
+                        f"{LANE_LABELS[worst_lane_id]} never won a lane.",
+                        value=0,
+                        unit="lanes",
+                        display=f"0 of {battles_played} battles",
+                    ),
+                    "lane_weakness",
+                )
             )
-    if best_acquisition:
-        reasons.append(
-            {
-                "kind": "acquisition",
-                "text": (
-                    f"{best_acquisition['player_name']} for {best_acquisition['cost']} "
-                    f"credits was the run's best value."
+        paired.append(
+            (
+                _item(
+                    "record",
+                    f"Beat {bosses_defeated} of {ACTS} bosses.",
+                    value=bosses_defeated,
+                    display=f"{bosses_defeated} of {ACTS}",
                 ),
-                "signed_value": best_acquisition["score_delta"],
-            }
+                None,
+            )
         )
-    if state.credits >= 15 and bosses_defeated < ACTS:
-        reasons.append(
-            {
-                "kind": "economy",
-                "text": f"Finished holding {state.credits} unspent credits.",
-                "signed_value": -state.credits,
-            }
+
+    if best_acquisition:
+        delta = best_acquisition["score_delta"]
+        if delta >= 0:
+            item = _item(
+                "benefit",
+                f"{best_acquisition['player_name']} for {best_acquisition['cost']} "
+                f"credits was the run's best value, worth {delta:+.2f} PEAK3 points.",
+                value=delta,
+                unit="score",
+            )
+        else:
+            # The best move of the run was still a downgrade. Say so, with the
+            # magnitude the label states — the sign never lives in `value`.
+            item = _item(
+                "cost",
+                f"{best_acquisition['player_name']} for {best_acquisition['cost']} "
+                f"credits was the run's best buy and still cost "
+                f"{abs(delta):.2f} PEAK3 points.",
+                value=round(abs(delta), 2),
+                unit="score",
+            )
+        paired.append((item, "acquisition"))
+
+    if state.credits >= 15 and not table_cleared:
+        # NEUTRAL, and 68 rather than −68. v1 emitted `-state.credits` purely so
+        # a shared signedColorVar() would paint it red, and the UI then printed
+        # the negated number beside the sentence "Finished holding 68 unspent
+        # credits" while the Credits section two blocks above printed 68.
+        paired.append(
+            (
+                _item(
+                    "neutral",
+                    f"Finished holding {state.credits} unspent credits.",
+                    value=state.credits,
+                    unit="credits",
+                ),
+                "economy",
+            )
         )
+
+    paired.append(
+        (
+            _item(
+                "record",
+                f"Finished with {state.lives} of {STARTING_LIVES} lives.",
+                value=state.lives,
+                display=f"{state.lives} of {STARTING_LIVES}",
+            ),
+            None,
+        )
+    )
+
+    items = [item for item, _ in paired]
+    reasons = [
+        _legacy_reason(item, legacy)
+        for item, legacy in paired
+        if legacy is not None
+    ]
 
     # --- share story -------------------------------------------------------
     system_names = [system_by_id(s)["name"] for s in state.systems]
+    achievement = (
+        f"cleared the table, all {ACTS} bosses"
+        if table_cleared
+        else f"{bosses_defeated} of {ACTS} bosses"
+    )
     if system_names and mvp:
         story = (
-            f"{' + '.join(system_names)} — "
-            f"{'defeated all three bosses' if ran_the_table else f'{bosses_defeated} of {ACTS} bosses'}"
-            f" with {mvp['player_name']} {mvp['anchor_season']} as run MVP."
+            f"{' + '.join(system_names)} — {achievement} "
+            f"with {mvp['player_name']} {mvp['anchor_season']} as run MVP."
         )
     elif mvp:
-        story = f"{bosses_defeated} of {ACTS} bosses, {mvp['player_name']} as run MVP."
+        story = f"{achievement}, {mvp['player_name']} as run MVP."
     else:
         story = headline
 
     return {
         "verdict": verdict,
+        "outcome": outcome,
         "headline": headline,
         "story": story,
-        "ran_the_table": ran_the_table,
+        "table_cleared": table_cleared,
+        # Deprecated alias of `table_cleared`, kept for one release so a client
+        # that has not shipped the new field yet still renders.
+        "ran_the_table": table_cleared,
+        "reached_final_boss": reached_final_boss,
+        "final_boss": (
+            {
+                "act": final_battle.act,
+                "boss_id": final_battle.boss_id,
+                "outcome": final_battle.outcome,
+            }
+            if final_battle else None
+        ),
+        "ended_in_act": ended_in_act,
+        "acts_total": ACTS,
         "bosses_defeated": bosses_defeated,
         "battles_lost": battles_lost,
+        "battles_drawn": battles_drawn,
         "record": f"{bosses_defeated}-{battles_lost}",
         "lives_remaining": state.lives,
         "systems": [
@@ -293,6 +475,8 @@ def build_receipt(
         "credits_refunded": refunded,
         "credits_remaining": state.credits,
         "starting_credits": STARTING_CREDITS,
+        # The contract (§2.3). `reasons` is the deprecated projection of these.
+        "items": items,
         "reasons": reasons,
         "battles": [
             {

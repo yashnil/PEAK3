@@ -349,14 +349,21 @@ def test_full_run_through_the_api_reaches_a_receipt(client: TestClient):
     receipt = state["receipt"]
     assert receipt is not None, "a terminal run must carry a receipt"
     assert {
-        "verdict", "headline", "ran_the_table", "bosses_defeated",
-        "battles_lost", "record", "lane_profile",
+        "verdict", "outcome", "headline", "table_cleared", "ran_the_table",
+        "bosses_defeated", "battles_lost", "record", "lane_profile", "items",
+        "reasons", "final_boss", "ended_in_act", "acts_total",
     } <= set(receipt)
     assert len(state["battles"]) >= 1
     assert receipt["bosses_defeated"] + receipt["battles_lost"] <= ACTS
+    assert receipt["outcome"] in {
+        "table_cleared", "ended_at_final_boss", "ended_in_act"
+    }
+    assert receipt["verdict"] != "RUN COMPLETE"
+    assert receipt["acts_total"] == ACTS == 4
     # The engine's action log is what the count reports; a passive walk of a
-    # 3-act run is 20 actions.
-    assert state["action_count"] == 20
+    # 4-act run that reaches the Final Boss is 25 actions (8 decision nodes x 2
+    # + 1 System + 4 x resolve + 3 x advance).
+    assert state["action_count"] == 25
 
     # Terminal means terminal: no further action is accepted.
     resp = client.post(
@@ -485,6 +492,122 @@ def test_version_mismatch_is_409(client: TestClient):
     )
     assert resp.status_code == 409
     assert resp.json()["detail"]["error_code"] == "version_mismatch"
+
+
+def test_a_v1_run_retires_gracefully_with_a_specific_human_message(client: TestClient):
+    """Plan §2.4. v1 answered 409 with "created under a different ruleset" for
+    any of four different version fields, which told a player nothing about
+    whether the rules, the card pool or the model had moved."""
+    from app.core.dependencies import _memory_run_the_table_run_repo as repo
+
+    state = _create(client, seed=131313)
+    stored = repo._runs[state["run_id"]]
+    stored.snapshot["versions"] = {
+        **stored.snapshot["versions"], "ruleset_version": "rtt_ruleset_v1",
+    }
+
+    resp = client.get(f"{RUNS_URL}/{state['run_id']}")
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["error_code"] == "version_mismatch"
+    message = detail["message"]
+    assert "previous ruleset" in message
+    assert "rtt_ruleset_v1" in message
+    assert version_tuple()["ruleset_version"] in message
+    assert "start a new run" in message.lower()
+    # It must never crash, and it must never read as a server fault.
+    assert "Traceback" not in message
+
+
+def test_an_unsupported_snapshot_schema_is_409_not_500(client: TestClient):
+    """`serialization.state_from_dict` raised a bare ValueError, which is not in
+    the router's error ladder, so a row the server itself wrote surfaced as an
+    unhandled HTTP 500."""
+    from app.core.dependencies import _memory_run_the_table_run_repo as repo
+    from app.services.run_the_table.serialization import (
+        SNAPSHOT_SCHEMA_VERSION,
+        SnapshotSchemaMismatch,
+    )
+    from nba_peak.run_the_table.state import VersionMismatch
+
+    assert issubclass(SnapshotSchemaMismatch, VersionMismatch)
+
+    state = _create(client, seed=141414)
+    stored = repo._runs[state["run_id"]]
+    stored.snapshot["schema_version"] = SNAPSHOT_SCHEMA_VERSION + 99
+
+    resp = client.get(f"{RUNS_URL}/{state['run_id']}")
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["error_code"] == "version_mismatch"
+    assert "older format" in resp.json()["detail"]["message"]
+
+    resp = client.post(
+        f"{RUNS_URL}/{state['run_id']}/actions", json={"action_type": "advance"}
+    )
+    assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Challenge tokens carry the ruleset they were minted under (plan §2.4)
+# ---------------------------------------------------------------------------
+# These exercise `services/run_the_table/runs.py` directly. The router owns
+# minting and decoding (it holds the signing secret) and is another track's
+# file; what this track owns and therefore tests is the claim SHAPE and the
+# reader, so the router change is a two-line substitution.
+
+def test_challenge_claims_carry_the_current_ruleset():
+    from app.services.run_the_table import runs as run_service
+
+    claims = run_service.challenge_claims(
+        seed=42, run_type="standard", date=None, nonce="abcd"
+    )
+    assert claims[run_service.CHALLENGE_RULESET_CLAIM] == (
+        version_tuple()["ruleset_version"]
+    )
+    assert claims["seed"] == 42
+    assert claims["nonce"] == "abcd"
+
+
+def test_a_token_with_no_ruleset_claim_is_read_as_v1_not_as_today():
+    """Only v1 predates the claim, so "unversioned" and "v1" are the same
+    statement. v1 reported the SERVER's current versions for any token, so a
+    week-old link confidently described a board it would never produce."""
+    from app.services.run_the_table import runs as run_service
+
+    legacy = {"kind": "rtt_challenge", "seed": 7, "run_type": "standard", "date": None}
+    assert run_service.challenge_ruleset(legacy) == "rtt_ruleset_v1"
+
+    descriptor = run_service.challenge_descriptor(legacy)
+    assert descriptor["ruleset_version"] == "rtt_ruleset_v1"
+    assert descriptor["versions"]["ruleset_version"] == "rtt_ruleset_v1"
+    assert descriptor["versions"]["ruleset_version"] != version_tuple()["ruleset_version"]
+    assert descriptor["playable"] is False
+    # Still spoiler-safe: seed, type, date and versions only.
+    assert set(descriptor) == {
+        "seed", "run_type", "date", "versions", "ruleset_version", "playable"
+    }
+
+
+def test_a_current_token_is_playable_and_reports_the_current_ruleset():
+    from app.services.run_the_table import runs as run_service
+
+    payload = run_service.challenge_claims(9, "standard", None, "n")
+    descriptor = run_service.challenge_descriptor(payload)
+    assert descriptor["ruleset_version"] == version_tuple()["ruleset_version"]
+    assert descriptor["playable"] is True
+    run_service.assert_challenge_playable(payload)  # does not raise
+
+
+def test_starting_a_run_from_a_stale_challenge_token_is_refused():
+    from app.services.run_the_table import runs as run_service
+    from nba_peak.run_the_table.state import VersionMismatch
+
+    legacy = {"kind": "rtt_challenge", "seed": 7, "run_type": "standard", "date": None}
+    with pytest.raises(VersionMismatch) as exc:
+        run_service.assert_challenge_playable(legacy)
+    assert "previous ruleset" in str(exc.value)
+    assert "rtt_ruleset_v1" in str(exc.value)
+    assert "new link" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------
@@ -685,7 +808,12 @@ def test_challenge_descriptor_is_spoiler_safe(client: TestClient):
     ]
     body = client.get(f"{BASE}/challenges/{token}").json()
 
-    assert set(body) == {"seed", "run_type", "date", "versions"}
+    # `ruleset_version` and `playable` are the §2.4 fix: a token carries the
+    # rules it was minted under, so a link cannot silently claim the server's
+    # current ones. Neither reveals anything about the sender's run.
+    assert set(body) == {
+        "seed", "run_type", "date", "versions", "ruleset_version", "playable"
+    }
     for forbidden in (
         "starters", "bench", "bosses", "next_boss", "stages", "stage_options",
         "map", "active_node", "receipt", "battles", "run_id", "owner_sub",
@@ -757,3 +885,51 @@ def test_both_repository_implementations_satisfy_the_protocol():
         "create_run", "get_run", "save_run", "get_daily_run", "list_runs_for_owner"
     ):
         assert hasattr(PostgresRunTheTableRunRepository, method)
+
+
+# ---------------------------------------------------------------------------
+# The router actually uses the versioned descriptor (lead integration)
+#
+# `challenge_descriptor` / `assert_challenge_playable` existing in the service
+# proves nothing on their own: the whole defect was that the ROUTER ignored the
+# token and reported the server's current ruleset. These two tests drive the
+# HTTP surface, so re-inlining the old behaviour fails here.
+# ---------------------------------------------------------------------------
+
+
+def _mint_legacy_challenge_token() -> str:
+    """A v1-shaped token: no `ruleset` claim, exactly as v1 minted them."""
+    from app.core.config import settings
+    from app.core.security import create_session_token
+
+    return create_session_token(
+        {"kind": "run_the_table", "seed": 4242, "run_type": "standard", "date": None},
+        settings.SIGNING_SECRET,
+        ttl_seconds=3600,
+    )
+
+
+def test_the_challenge_route_reports_the_tokens_ruleset_not_the_servers(client):
+    resp = client.get(f"/api/v1/run-the-table/challenges/{_mint_legacy_challenge_token()}")
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ruleset_version"] == "rtt_ruleset_v1"
+    assert body["versions"]["ruleset_version"] == "rtt_ruleset_v1"
+    assert body["ruleset_version"] != version_tuple()["ruleset_version"]
+    assert body["playable"] is False
+
+
+def test_creating_a_run_from_an_old_challenge_link_is_409_not_a_different_board(client):
+    """The seed alone would happily generate a v2 board and present it as the
+    sender's — a silently different game, not an error. 409 with a readable
+    message is the honest outcome."""
+    resp = client.post(
+        "/api/v1/run-the-table/runs",
+        json={"run_type": "challenge", "challenge_token": _mint_legacy_challenge_token()},
+    )
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    message = detail["message"] if isinstance(detail, dict) else str(detail)
+    assert "rtt_ruleset_v1" in message or "ruleset" in message.lower()

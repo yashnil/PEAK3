@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { usePrefersReducedMotion } from "@/lib/a11y";
+import { useDailyReset } from "@/lib/use-daily-reset";
 import { TourLauncher } from "@/components/ui/GuidedTour";
 import { motionTransition } from "@/lib/motion";
 import {
@@ -27,6 +28,7 @@ import {
   clearActiveRun,
   currentBattle,
   draftOffers,
+  isStaleDailyPointer,
   isTerminal,
   loadActiveRun,
   makeIdempotencyKey,
@@ -208,7 +210,39 @@ export default function RunTheTableGame({
       );
     }
 
+    /**
+     * THE STALE-DAILY GATE (plan §4, path B).
+     *
+     * `StoredActiveRun` carried no date, `GET /runs/{id}` returns 200 for
+     * yesterday's daily (it is a perfectly valid run), and
+     * `shouldClearStoredRun` only fires on 404/409/410 — so an unfinished
+     * daily was silently resumed today, and every day after that, and the
+     * start gate never appeared again.
+     *
+     * The comparison is against the SERVER's daily key, taken from the daily
+     * descriptor fetched two statements above, never a browser-computed date:
+     * the reset is a timezone boundary the server owns (plan §2.1). If that
+     * fetch failed, `todayDailyKey` is null and nothing is discarded — a
+     * network blip must not throw away a run in progress.
+     *
+     * Track A's `useDailyReset` is wired below and calls `boot()` again when
+     * the window rolls over mid-session, so this gate is what a live rollover
+     * lands on as well as a cold start.
+     */
+    const todayDailyKey =
+      dailyResult.status === "fulfilled"
+        ? (dailyResult.value?.daily?.daily_key ?? dailyResult.value?.date ?? null)
+        : null;
+
     const stored = loadActiveRun();
+    if (isStaleDailyPointer(stored, todayDailyKey)) {
+      clearActiveRun();
+      setResumeNotice(
+        "That daily run was from an earlier day. Today's board is ready below.",
+      );
+      setBooting(false);
+      return;
+    }
     if (stored) {
       try {
         const resumed = await getRun(stored.run_id);
@@ -242,6 +276,35 @@ export default function RunTheTableGame({
   useEffect(() => {
     void boot();
   }, [boot]);
+
+  /**
+   * THE DAILY ROLLOVER, while the tab is already open (plan §2.1 / §4).
+   *
+   * Track A's `useDailyReset` fires when the server's window closes AND on
+   * `visibilitychange`/`focus`, which is the case that actually matters: a
+   * backgrounded tab's timers are throttled to a crawl and stop entirely while
+   * a machine is asleep, so a countdown alone comes back reading hours that
+   * never elapsed.
+   *
+   * ARMED ONLY WHEN A ROLLOVER COULD CHANGE ANYTHING: at the start gate, or
+   * during a daily run. Passing a null `dailyKey` disarms the hook, so a
+   * standard or challenge run — which belongs to no day — is never interrupted
+   * by a boundary that has nothing to do with it.
+   *
+   * `boot()` is the whole handler: it refetches the descriptor, and
+   * `isStaleDailyPointer` then sees yesterday's pointer against the new key and
+   * drops it, landing the player on today's start gate.
+   */
+  const dailyWindow = daily?.daily ?? null;
+  const watchDailyRollover = !state || state.run_type === "daily";
+  useDailyReset({
+    dailyKey: watchDailyRollover ? (dailyWindow?.daily_key ?? daily?.date ?? null) : null,
+    secondsRemaining: watchDailyRollover ? (dailyWindow?.seconds_remaining ?? null) : null,
+    window: watchDailyRollover ? dailyWindow : null,
+    onReset: () => {
+      void boot();
+    },
+  });
 
   // --- analytics -----------------------------------------------------------
   // Derived from the state the server sent, so an event can never describe a
@@ -295,7 +358,7 @@ export default function RunTheTableGame({
    * and is replaced by the next one. A disabled-then-removed element cannot
    * keep focus, so it falls back to `<body>` and the next Tab press restarts
    * from the skip link at the top of the document — one Tab-from-the-top per
-   * decision, six decisions and three battles per run.
+   * decision, eight decisions and four battles per run.
    *
    * Fix: after each committed state change, move focus to the new surface's
    * `<h2>` (its accessible title). `tabindex="-1"` is set at that moment rather
@@ -504,7 +567,14 @@ export default function RunTheTableGame({
         busy={busy}
         onSelect={(systemId) => {
           trackRunTheTable({ type: "rtt_system_selected", system_id: systemId });
-          act(runActions.selectSystem(systemId), `system:${systemId}`, "System selected.");
+          // "Front Office Perk", not "System": this was the only surface in
+          // the game using the internal name as the primary term, and it was
+          // the one place a screen-reader user met it first.
+          act(
+            runActions.selectSystem(systemId),
+            `system:${systemId}`,
+            "Front Office Perk selected.",
+          );
         }}
       />
     );
@@ -637,6 +707,7 @@ export default function RunTheTableGame({
       <RunResult
         receipt={state.receipt}
         versions={state.versions}
+        actsTotal={state.acts_total}
         busy={busy}
         onRunItBack={handleRunItBack}
         onReplaySeed={handleReplaySeed}

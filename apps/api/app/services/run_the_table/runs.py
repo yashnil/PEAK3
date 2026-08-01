@@ -39,7 +39,11 @@ from app.repositories.run_the_table_protocols import StoredRun
 from app.services.run_the_table.public import public_state
 from app.services.run_the_table.serialization import state_from_dict, state_to_dict
 from nba_peak.run_the_table.cards import CardPool, CardPoolUnavailable, get_pool
-from nba_peak.run_the_table.config import version_tuple
+from nba_peak.run_the_table.config import (
+    LEGACY_RULESET_VERSION,
+    RULESET_VERSION,
+    version_tuple,
+)
 from nba_peak.run_the_table.daily import (
     InvalidRunDate,
     daily_run_id,
@@ -68,6 +72,7 @@ from nba_peak.run_the_table.state import (
 
 # Re-exported so the router imports its whole error vocabulary from one place.
 __all__ = [
+    "CHALLENGE_RULESET_CLAIM",
     "CardPoolUnavailable",
     "InvalidActionRequest",
     "InvalidRunDate",
@@ -76,7 +81,11 @@ __all__ = [
     "RunNotFound",
     "VersionMismatch",
     "apply_action",
+    "assert_challenge_playable",
     "card_pool",
+    "challenge_claims",
+    "challenge_descriptor",
+    "challenge_ruleset",
     "create_run",
     "load_run",
     "public_view",
@@ -175,6 +184,101 @@ def resolve_seed(
     # unvalidated string would fail at the driver rather than at the boundary.
     run_date = validate_run_date(date) if date else None
     return int(seed), run_type, run_date
+
+
+# ---------------------------------------------------------------------------
+# Challenge tokens
+# ---------------------------------------------------------------------------
+# A challenge token carries the SEED. A seed alone is not a board: the same seed
+# produces a completely different run under a different ruleset, because
+# `generate_blueprint` is a function of (seed, versions) and v2 changed the
+# number of acts, the number of stages, the starting budget and the bosses.
+#
+# v1 tokens carried no ruleset at all, and `GET /challenges/{token}` answered
+# with the SERVER'S CURRENT versions -- so a link minted last week under v1 and
+# opened today would confidently report v2 and then hand the recipient a board
+# the sender never played. The claim below fixes that at the source: the token
+# states which rules it was minted under, and a token whose rules no longer
+# exist is refused rather than silently reinterpreted.
+
+CHALLENGE_RULESET_CLAIM = "ruleset"
+
+
+def challenge_claims(
+    seed: int,
+    run_type: str,
+    date: Optional[str],
+    nonce: str,
+) -> dict:
+    """The payload a challenge token must be signed over.
+
+    The router owns minting (it holds the signing secret and the token `kind`
+    constant); this owns the claim SHAPE, so what is signed cannot drift from
+    what `challenge_descriptor` reads back. The router adds its own `kind`:
+
+        create_session_token(
+            {**run_service.challenge_claims(
+                 stored.seed, stored.run_type, stored.run_date,
+                 secrets.token_hex(8)),
+             "kind": CHALLENGE_TOKEN_KIND},
+            settings.SIGNING_SECRET, ttl_seconds=CHALLENGE_TTL_SECONDS,
+        )
+    """
+    return {
+        "seed": int(seed),
+        "run_type": run_type,
+        "date": date,
+        CHALLENGE_RULESET_CLAIM: RULESET_VERSION,
+        "nonce": nonce,
+    }
+
+
+def challenge_ruleset(payload: dict) -> str:
+    """Which ruleset a decoded challenge token was minted under.
+
+    Absent claim => v1. Only v1 predates the field, so the inference is exact,
+    not a guess -- and it is what keeps an old link honest instead of having it
+    inherit whatever the server is running today.
+    """
+    return str(payload.get(CHALLENGE_RULESET_CLAIM) or LEGACY_RULESET_VERSION)
+
+
+def challenge_descriptor(payload: dict) -> dict:
+    """Spoiler-safe descriptor for a decoded challenge token.
+
+    `versions` reports the TOKEN's ruleset, not the server's, so the recipient's
+    landing page can say "this link was made under an older ruleset" truthfully.
+    """
+    ruleset = challenge_ruleset(payload)
+    versions = dict(version_tuple())
+    versions["ruleset_version"] = ruleset
+    return {
+        "seed": int(payload["seed"]),
+        "run_type": payload.get("run_type") or "standard",
+        "date": payload.get("date"),
+        "versions": versions,
+        "ruleset_version": ruleset,
+        "playable": ruleset == RULESET_VERSION,
+    }
+
+
+def assert_challenge_playable(payload: dict) -> None:
+    """Refuse a token minted under a ruleset this server no longer runs.
+
+    Raises VersionMismatch, which the router already maps to 409 with the
+    engine's own human message.
+    """
+    ruleset = challenge_ruleset(payload)
+    if ruleset != RULESET_VERSION:
+        raise VersionMismatch(
+            saved={**version_tuple(), "ruleset_version": ruleset},
+            current=version_tuple(),
+            message=(
+                f"This challenge link was created under the previous ruleset "
+                f"({ruleset}); the rules have since changed to {RULESET_VERSION}, so "
+                f"the same seed no longer produces the same board. Ask for a new link."
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------

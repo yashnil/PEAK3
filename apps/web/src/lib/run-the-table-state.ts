@@ -12,6 +12,7 @@
  * server already awarded and formatting numbers the server already sent.
  */
 import { analytics, type AnalyticsEvent } from "@/lib/analytics";
+import { ordinal, ordinalFixed } from "@/lib/ordinal";
 import {
   ActiveNode,
   BattleLanePublic,
@@ -24,8 +25,12 @@ import {
   LANE_FIELDS,
   MapAct,
   NodeType,
+  ReceiptItem,
+  ReceiptItemKind,
   ReceiptLaneProfileEntry,
+  ReceiptReason,
   Role,
+  RunOutcome,
   RosterSlotPublic,
   RunPublicState,
   RunReceipt,
@@ -74,6 +79,9 @@ export function loadActiveRun(): StoredActiveRun | null {
       run_id: parsed.run_id,
       seed: parsed.seed,
       run_type: parsed.run_type as RunType,
+      // A pointer written before `run_date` existed reads as null, which
+      // `isStaleDailyPointer` treats as "cannot prove it is today".
+      run_date: typeof parsed.run_date === "string" && parsed.run_date ? parsed.run_date : null,
       updated_at: typeof parsed.updated_at === "string" ? parsed.updated_at : "",
     };
   } catch {
@@ -82,7 +90,7 @@ export function loadActiveRun(): StoredActiveRun | null {
 }
 
 export function saveActiveRun(
-  state: Pick<RunPublicState, "run_id" | "seed" | "run_type">,
+  state: Pick<RunPublicState, "run_id" | "seed" | "run_type" | "date">,
   now: Date = new Date(),
 ): void {
   if (typeof window === "undefined") return;
@@ -91,6 +99,8 @@ export function saveActiveRun(
     run_id: state.run_id,
     seed: state.seed,
     run_type: state.run_type,
+    // The SERVER's daily key for this run, never a browser-computed date.
+    run_date: state.date ?? null,
     updated_at: now.toISOString(),
   };
   try {
@@ -120,6 +130,34 @@ export function clearActiveRun(): void {
  */
 export function shouldClearStoredRun(status: number): boolean {
   return status === 404 || status === 409 || status === 410;
+}
+
+/**
+ * Is this stored pointer a DAILY run from a day that is over?
+ *
+ * The stale-daily bug in full: `StoredActiveRun` carried no date, `GET
+ * /runs/{id}` returns 200 for yesterday's daily (it is a perfectly valid run),
+ * and `shouldClearStoredRun` only fires on 404/409/410 — so the resume path
+ * had nothing to notice with. An unfinished daily was therefore resumed today,
+ * and tomorrow, forever, and the start gate never appeared again.
+ *
+ * `todayDailyKey` is the SERVER's, from the daily descriptor
+ * (`GET /run-the-table/daily`), never a browser-computed date: the reset is a
+ * timezone boundary the server owns (plan §2.1), and a client that computes it
+ * itself is the class of bug §4 exists to remove. When the descriptor could not
+ * be fetched, `todayDailyKey` is null and this returns FALSE — a network
+ * failure must never throw away a run the player is mid-way through.
+ *
+ * Standard and challenge runs are never stale: they belong to no day.
+ */
+export function isStaleDailyPointer(
+  stored: StoredActiveRun | null,
+  todayDailyKey: string | null | undefined,
+): boolean {
+  if (!stored) return false;
+  if (stored.run_type !== "daily") return false;
+  if (!todayDailyKey) return false;
+  return stored.run_date !== todayDailyKey;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,12 +234,12 @@ export const NODE_TYPE_LABELS: Record<NodeType, string> = {
   rest_bank: "Rest / Bank",
 };
 
-export const NODE_TYPE_BLURBS: Record<NodeType, string> = {
-  draft_room: "Three priced cards. Buy one into a legal slot, or pass.",
-  trade_desk: "Swap a card off the roster for one of three incoming, with a refund.",
-  film_room: "Scout the offers ahead, or bank credits instead.",
-  rest_bank: "Recover a life, or bank credits instead.",
-};
+/* `NODE_TYPE_BLURBS` used to live here. It was exported, rendered by nothing,
+ * and was a second, unmaintained copy of the node descriptions that
+ * `run-the-table-copy.ts::NODE_TYPE_COPY` owns — so a copy fix could land in
+ * one and not the other with nothing to catch it. Deleted; `NODE_TYPE_COPY`
+ * is the single source of node prose. `NODE_TYPE_LABELS` above stays: it is
+ * the short label the map and the ladder render. */
 
 export const ROLE_LABELS: Record<Role, string> = {
   lead_creator: "Lead Creator",
@@ -286,10 +324,26 @@ export function describeCostModifiers(mods: readonly CostModifier[]): string[] {
 export const OVERALL_PERCENTILE_BASIS =
   "of the Run the Table card pool — every eligible PEAK3 3-year peak window";
 
-/** "75th percentile of the Run the Table card pool …". `overall_percentile`
- *  arrives already ×100 and rounded to 1dp; it is never recomputed here. */
+/** The short form the card itself prints. Still names the denominator — an
+ *  unlabelled percentile is the defect this replaces — just in fewer words,
+ *  with the full basis carried in the card's sr-only sentence. */
+export const OVERALL_PERCENTILE_SHORT_BASIS = "of the card pool";
+
+/**
+ * "75.1st percentile of the Run the Table card pool …".
+ *
+ * `overall_percentile` arrives already ×100 and rounded to 1dp; it is never
+ * recomputed here. The ordinal comes from `lib/ordinal.ts` — this function used
+ * to append `"th"` unconditionally, so every card in the game rendered
+ * `75.1th`, `21.0th`, `1.0th`.
+ */
 export function percentileSentence(overallPercentile: number): string {
-  return `${overallPercentile.toFixed(1)}th percentile ${OVERALL_PERCENTILE_BASIS}`;
+  return `${ordinalFixed(overallPercentile, 1)} percentile ${OVERALL_PERCENTILE_BASIS}`;
+}
+
+/** "75.1st percentile of the card pool" — the on-card form. */
+export function percentileShort(overallPercentile: number): string {
+  return `${ordinalFixed(overallPercentile, 1)} percentile ${OVERALL_PERCENTILE_SHORT_BASIS}`;
 }
 
 /** Slot label for a roster slot: the role for a starter, "Bench 1/2" below. */
@@ -343,6 +397,93 @@ export function receiptLaneProfile(entries: ReceiptLaneProfileEntry[]): LaneProf
     token: LANE_TOKEN_BY_FIELD[e.lane],
     value: e.value,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Card shape — strongest lane, weakest lane, profile label
+// ---------------------------------------------------------------------------
+
+/**
+ * The one-word shape of a card, per lane, when that lane is its strongest.
+ *
+ * These are DISPLAY labels for the card's own silhouette, not renames: the
+ * five frozen component labels are still what `LANE_LABELS` prints beside the
+ * numbers, and `component-labels.test.ts` still pins them app-wide.
+ */
+export const LANE_PROFILE_LABELS: Record<LaneField, string> = {
+  statistical_impact: "Impact-heavy",
+  traditional_production: "Production-heavy",
+  individual_recognition: "Award-heavy",
+  postseason_individual_value: "Playoff-heavy",
+  team_achievement: "Team-heavy",
+};
+
+export const BALANCED_PROFILE_LABEL = "Balanced";
+
+/**
+ * How level the five lane percentiles must be before a card reads "Balanced".
+ *
+ * DISPLAY ONLY. It mirrors `config.TWO_WAY_BALANCE_MAX_SPREAD` — the engine's
+ * own definition of a balanced card, and the one the player will meet again in
+ * the Two-Way Value perk's published rule — so the word on the card and the
+ * word in the perk mean the same thing. It changes no price and no lane value;
+ * the card's cost is whatever `card_public()` sent.
+ */
+export const BALANCED_LANE_SPREAD_MAX = 28;
+
+export interface CardLaneRank {
+  lane: LaneField;
+  label: string;
+  token: LaneToken;
+  /** `lane_percentiles[lane]` — the server's number, never recomputed. */
+  percentile: number;
+}
+
+export interface CardLaneSummary {
+  strongest: CardLaneRank;
+  weakest: CardLaneRank;
+  /** `"Balanced"`, `"Impact-heavy"`, `"Playoff-heavy"`, … */
+  profile: string;
+  /** `strongest.percentile - weakest.percentile`, for the balance test. */
+  spread: number;
+}
+
+/**
+ * A card's strongest lane, weakest lane and one-word profile.
+ *
+ * Pure reading and comparison of `lane_percentiles`, which the engine already
+ * computed and scaled 0-100 (`cards.build_pool`). Nothing here derives a PEAK3
+ * value, a price or a battle result — it only says which of the five numbers
+ * the server sent is the largest and which is the smallest.
+ *
+ * Ties resolve to `LANE_FIELDS` order, which is the engine's own order, so the
+ * answer is deterministic for a card whose lanes are level.
+ */
+export function cardLaneSummary(
+  lanePercentiles: Record<LaneField, number>,
+): CardLaneSummary {
+  const ranks: CardLaneRank[] = LANE_FIELDS.map((lane) => ({
+    lane,
+    label: LANE_LABELS[lane],
+    token: LANE_TOKEN_BY_FIELD[lane],
+    percentile: lanePercentiles?.[lane] ?? 0,
+  }));
+  let strongest = ranks[0];
+  let weakest = ranks[0];
+  for (const r of ranks) {
+    if (r.percentile > strongest.percentile) strongest = r;
+    if (r.percentile < weakest.percentile) weakest = r;
+  }
+  const spread = strongest.percentile - weakest.percentile;
+  return {
+    strongest,
+    weakest,
+    profile:
+      spread <= BALANCED_LANE_SPREAD_MAX
+        ? BALANCED_PROFILE_LABEL
+        : LANE_PROFILE_LABELS[strongest.lane],
+    spread,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -728,6 +869,94 @@ export function currentBattle(state: RunPublicState): BattlePublic | null {
   return forAct.length > 0 ? forAct[forAct.length - 1] : state.battles[state.battles.length - 1];
 }
 
+// ---------------------------------------------------------------------------
+// Pre-boss briefing (an ESTIMATE, and labelled as one everywhere it is shown)
+// ---------------------------------------------------------------------------
+
+export type LaneFavour = "you" | "boss" | "level";
+
+export interface LaneProjection {
+  lane: LaneField;
+  label: string;
+  token: LaneToken;
+  player: number;
+  opponent: number;
+  /** `player - opponent`. Positive means the lane currently leans your way. */
+  margin: number;
+  favour: LaneFavour;
+}
+
+export interface BossBriefing {
+  lanes: LaneProjection[];
+  /** Leaning your way, widest margin first. */
+  favouredYou: LaneProjection[];
+  /** Leaning theirs, widest margin first. */
+  favouredBoss: LaneProjection[];
+  /** Inside `LANE_LEVEL_EPSILON` — too close to call before the battle. */
+  level: LaneProjection[];
+}
+
+/**
+ * Below this, a lane is reported "too close to call" rather than as a lean.
+ *
+ * A display threshold, not the engine's decision rule: `battle.resolve_battle`
+ * rounds to `LANE_ROUNDING` and compares with `LANE_EPSILON` (1e-6), so it
+ * genuinely does separate lanes this tight. Calling a 0.3-point gap a
+ * "favoured lane" on a pre-battle screen would overstate what the comparison
+ * can tell the player.
+ */
+export const LANE_LEVEL_EPSILON = 0.5;
+
+/**
+ * Which lanes currently lean which way, before a battle is resolved.
+ *
+ * THIS IS AN ESTIMATE AND EVERY SURFACE THAT RENDERS IT MUST SAY SO. Both
+ * profiles are the server's own `roster_lane_profile` outputs, but they are not
+ * computed under identical conditions: `public_state()` builds the PLAYER's
+ * profile with `bench_weight_for(systems, None)` — no boss rule — while
+ * `boss_public()` builds the BOSS's with `bench_weight_for(systems,
+ * boss.rule_id)`. A rule that fixes the bench weight (`strength_in_numbers`,
+ * `top_heavy`) therefore applies to the boss's displayed numbers and not to
+ * yours, and the real battle applies it to both. Tie-breaks the rule may own
+ * are not modelled here at all.
+ *
+ * So this is presentation of numbers already on the client, not a prediction
+ * and emphatically not a simulation: no possession, no randomness, no model
+ * inference. Returns null when the boss is unscouted and has no lane profile.
+ */
+export function bossBriefing(
+  playerLanes: readonly LaneProfileEntry[],
+  bossLanes: readonly LaneProfileEntry[] | null | undefined,
+): BossBriefing | null {
+  if (!bossLanes || bossLanes.length === 0) return null;
+  const bossByLane = new Map(bossLanes.map((l) => [l.lane, l]));
+  const lanes: LaneProjection[] = [];
+  for (const entry of playerLanes) {
+    const opp = bossByLane.get(entry.lane);
+    if (!opp) continue;
+    const margin = entry.value - opp.value;
+    lanes.push({
+      lane: entry.lane,
+      label: entry.label,
+      token: entry.token,
+      player: entry.value,
+      opponent: opp.value,
+      margin,
+      favour:
+        Math.abs(margin) < LANE_LEVEL_EPSILON ? "level" : margin > 0 ? "you" : "boss",
+    });
+  }
+  if (lanes.length === 0) return null;
+  const byMargin = (a: LaneProjection, b: LaneProjection) =>
+    Math.abs(b.margin) - Math.abs(a.margin);
+  return {
+    lanes,
+    favouredYou: lanes.filter((l) => l.favour === "you").sort(byMargin),
+    favouredBoss: lanes.filter((l) => l.favour === "boss").sort(byMargin),
+    level: lanes.filter((l) => l.favour === "level"),
+  };
+}
+
 export interface SeriesCount {
   player: number;
   opponent: number;
@@ -790,17 +1019,17 @@ export function decisiveLane(
       if (player >= lanesToWin) {
         return {
           lane,
-          sentence: `${lane.label} was the ${lanesToWin}${
-            lanesToWin === 3 ? "rd" : "th"
-          } lane you won — that is where the battle was settled.`,
+          sentence: `${lane.label} was the ${ordinal(
+            lanesToWin,
+          )} lane you won — that is where the battle was settled.`,
         };
       }
       if (opponent >= lanesToWin) {
         return {
           lane,
-          sentence: `${lane.label} was their ${lanesToWin}${
-            lanesToWin === 3 ? "rd" : "th"
-          } lane — that is where the battle was settled.`,
+          sentence: `${lane.label} was their ${ordinal(
+            lanesToWin,
+          )} lane — that is where the battle was settled.`,
         };
       }
     }
@@ -838,12 +1067,213 @@ export function formatCredits(value: number): string {
   return `${value}`;
 }
 
-/** The colour a signed delta should read in. Neutral at exactly zero — a "0"
- *  painted green would claim a gain that did not happen. */
+/**
+ * The colour a SIGNED DELTA should read in. Neutral at exactly zero — a "0"
+ * painted green would claim a gain that did not happen.
+ *
+ * Correct wherever the sign genuinely IS the semantic: the Trade Desk's "Net
+ * credit change", a lane delta, a PEAK3 score delta on an acquisition. It is
+ * NOT how receipt lines are coloured — see `receiptItemColorVar`. Reaching for
+ * this helper on a receipt line is what made `receipt.py` negate a credit
+ * HOLDING to force it red.
+ */
 export function signedColorVar(value: number): string {
   if (value > 0) return "var(--correct)";
   if (value < 0) return "var(--incorrect)";
   return "var(--text-muted)";
+}
+
+// ---------------------------------------------------------------------------
+// Semantic receipt items (plan §2.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Colour by MEANING, never by the sign of a number.
+ *
+ * The bug this replaces: `receipt.py:235` emitted `"signed_value":
+ * -state.credits`, negating a holding so a shared `signedColorVar()` would
+ * paint it red — and the component printed the same field it coloured with. So
+ * "Finished holding 68 unspent credits" rendered as a red −68.0, two blocks
+ * below a Credits section that said `finished holding 68`. Under §2.3 that item
+ * is `{kind:"neutral", value:68, unit:"credits"}`: 68, not −68, not red.
+ */
+export const RECEIPT_ITEM_COLOR_VARS: Record<ReceiptItemKind, string> = {
+  benefit: "var(--correct)",
+  cost: "var(--incorrect)",
+  neutral: "var(--text-muted)",
+  /** Accent-neutral: a record is a fact, not a gain or a loss. */
+  record: "var(--text-secondary)",
+};
+
+export function receiptItemColorVar(kind: ReceiptItemKind): string {
+  return RECEIPT_ITEM_COLOR_VARS[kind] ?? RECEIPT_ITEM_COLOR_VARS.neutral;
+}
+
+/**
+ * The value column for one receipt item.
+ *
+ * `display` wins when the engine supplied one (`"3 of 5 lanes"`). Otherwise the
+ * magnitude is printed as-is — never re-signed, never negated — because the
+ * `label` already says whether it was spent, held, won or lost, and `kind`
+ * already carries the colour. An item with no `value` and no `display` renders
+ * an em dash rather than "undefined" or an accidental `0`.
+ */
+export function formatReceiptItem(item: ReceiptItem): string {
+  if (item.display) return item.display;
+  if (typeof item.value !== "number" || !Number.isFinite(item.value)) return "—";
+  const v = item.value;
+  switch (item.unit) {
+    case "credits":
+    case "lanes":
+      return `${Math.round(v)}`;
+    case "percentage":
+      return `${v.toFixed(1)}%`;
+    case "score":
+      return v.toFixed(1);
+    default:
+      return Number.isInteger(v) ? `${v}` : v.toFixed(1);
+  }
+}
+
+/**
+ * How a deprecated `reasons[]` row maps onto a `kind`.
+ *
+ * `acquisition` is the one row whose `signed_value` is a genuinely signed PEAK3
+ * delta, so it is classified by its sign. `economy` is deliberately NEUTRAL:
+ * it is the row the engine negated, and a v1 receipt carries no way to tell a
+ * holding from a spend — so it is shown as a plain magnitude in the muted tone
+ * rather than re-asserting the colour that was wrong in the first place.
+ */
+const LEGACY_REASON_KIND: Record<ReceiptReason["kind"], ReceiptItemKind | "signed"> = {
+  lane_strength: "benefit",
+  lane_weakness: "cost",
+  acquisition: "signed",
+  economy: "neutral",
+};
+
+/** One deprecated `reasons[]` row as a §2.3 item. */
+export function receiptItemFromReason(reason: ReceiptReason): ReceiptItem {
+  const mapped = LEGACY_REASON_KIND[reason.kind] ?? "neutral";
+  const kind: ReceiptItemKind =
+    mapped !== "signed"
+      ? mapped
+      : reason.signed_value > 0
+        ? "benefit"
+        : reason.signed_value < 0
+          ? "cost"
+          : "neutral";
+  return {
+    kind,
+    label: reason.text,
+    // The TRUE MAGNITUDE. `Math.abs` is what un-does the engine's negation on
+    // an old saved receipt, so a v1 holding stops rendering as a red minus.
+    value: Math.abs(reason.signed_value),
+  };
+}
+
+/**
+ * The receipt's explanation lines, whichever contract the receipt was saved
+ * under.
+ *
+ * Prefers §2.3's `items`. Falls back to the deprecated `reasons[]` so a
+ * completed v1 receipt stays readable (plan §2.4), and returns an empty array
+ * when a receipt has neither — the caller renders its "not enough happened to
+ * explain" line rather than an empty box.
+ */
+export function receiptItems(
+  receipt: Pick<RunReceipt, "items" | "reasons">,
+): ReceiptItem[] {
+  if (receipt.items && receipt.items.length > 0) return receipt.items;
+  return (receipt.reasons ?? []).map(receiptItemFromReason);
+}
+
+// ---------------------------------------------------------------------------
+// Outcome taxonomy (plan §2.2)
+// ---------------------------------------------------------------------------
+
+export const RUN_OUTCOME_VERDICTS: Record<RunOutcome, string> = {
+  table_cleared: "TABLE CLEARED",
+  ended_at_final_boss: "RUN ENDED AT THE FINAL BOSS",
+  // `{n}` is filled by `runVerdict`.
+  ended_in_act: "RUN ENDED IN ACT",
+};
+
+const RUN_OUTCOMES: readonly RunOutcome[] = [
+  "table_cleared",
+  "ended_at_final_boss",
+  "ended_in_act",
+];
+
+/** The act the run stopped in: the last act that actually saw a battle. */
+export function endedInAct(receipt: Pick<RunReceipt, "battles">): number {
+  const acts = receipt.battles.map((b) => b.act).filter((a) => Number.isFinite(a));
+  return acts.length > 0 ? Math.max(...acts) : 1;
+}
+
+/**
+ * Which of the three §2.2 outcomes this receipt represents.
+ *
+ * Trusts the engine's own `outcome` when it is there. Derives it otherwise, so
+ * a v1 receipt saved before the taxonomy existed still renders honest framing
+ * instead of the retired `"RUN COMPLETE"` — which was printed for a 0-for-3
+ * losing run, and is the specific thing the spec forbids.
+ *
+ * `actsTotal` is `state.acts_total` where the caller has it. WITHOUT it, the
+ * result is the weaker claim: a receipt alone cannot tell "lost the final
+ * boss" from "lost the act-2 boss and ran out of lives", because it does not
+ * carry how many acts the run had. So an unknown `actsTotal` yields
+ * `ended_in_act`, which is true of both — never `ended_at_final_boss`, which
+ * would be an assertion the data does not support.
+ */
+export function runOutcome(
+  receipt: Pick<RunReceipt, "outcome" | "ran_the_table" | "table_cleared" | "battles">,
+  actsTotal?: number | null,
+): RunOutcome {
+  if (receipt.outcome && RUN_OUTCOMES.includes(receipt.outcome)) return receipt.outcome;
+  if (receipt.table_cleared ?? receipt.ran_the_table) return "table_cleared";
+  if (typeof actsTotal !== "number" || actsTotal <= 0) return "ended_in_act";
+  return receipt.battles.some((b) => b.act === actsTotal)
+    ? "ended_at_final_boss"
+    : "ended_in_act";
+}
+
+/**
+ * The verdict stamp: `TABLE CLEARED`, `RUN ENDED AT THE FINAL BOSS`, or
+ * `RUN ENDED IN ACT {n}`.
+ *
+ * The engine's own `verdict` string is used verbatim once it also sends an
+ * `outcome` — that is the §2.2 contract, and the engine is the one that knows
+ * `{n}`. A receipt with no `outcome` is a v1 receipt whose verdict may be the
+ * retired `"RUN COMPLETE"`, so the string is re-derived rather than reprinted.
+ */
+export function runVerdict(
+  receipt: Pick<
+    RunReceipt,
+    "verdict" | "outcome" | "ran_the_table" | "table_cleared" | "battles"
+  >,
+  actsTotal?: number | null,
+): string {
+  const outcome = runOutcome(receipt, actsTotal);
+  if (receipt.outcome && receipt.verdict && receipt.verdict.trim()) {
+    return receipt.verdict.trim();
+  }
+  if (outcome === "ended_in_act") {
+    return `${RUN_OUTCOME_VERDICTS.ended_in_act} ${endedInAct(receipt)}`;
+  }
+  return RUN_OUTCOME_VERDICTS[outcome];
+}
+
+/** The stamp colour. A near-miss at the final boss is neither a win nor the
+ *  same thing as running out of lives in act 2, so it gets its own tone. */
+export function outcomeColorVar(outcome: RunOutcome): string {
+  switch (outcome) {
+    case "table_cleared":
+      return "var(--correct)";
+    case "ended_at_final_boss":
+      return "var(--peak-accent)";
+    default:
+      return "var(--incorrect)";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -861,7 +1291,9 @@ export const RUN_SHARE_URL = "peak3.app/arena/run-the-table";
  * the sharer cannot themselves see.
  */
 export function buildRunShareText(receipt: RunReceipt, url = RUN_SHARE_URL): string {
-  const lines: string[] = ["PEAK3 — RUN THE TABLE", receipt.headline];
+  // `runVerdict`, not `receipt.verdict`: a v1 receipt can still carry the
+  // retired "RUN COMPLETE", and a shared 0-for-3 run must not read as a win.
+  const lines: string[] = ["PEAK3 — RUN THE TABLE", runVerdict(receipt), receipt.headline];
   lines.push(`Record: ${receipt.record} · ${receipt.lives_remaining} lives left`);
   if (receipt.systems.length > 0) {
     lines.push(`Systems: ${receipt.systems.map((s) => s.name).join(" + ")}`);

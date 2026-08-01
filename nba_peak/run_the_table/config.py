@@ -16,7 +16,14 @@ from typing import Final
 # Versioning
 # ---------------------------------------------------------------------------
 ENGINE_VERSION: Final[str] = "run_the_table_v1"
-RULESET_VERSION: Final[str] = "rtt_ruleset_v1"
+# Standard v2: 4 acts / 8 decision nodes / 4 bosses / 3 lives / 50 credits, with
+# the final boss required to clear the table. See AUTH_DAILY_BALANCE_PLAN §2.2.
+RULESET_VERSION: Final[str] = "rtt_ruleset_v2"
+# The ruleset a saved run or a challenge token carries when it names no ruleset
+# at all. Only v1 predates the field, so "unversioned" and "v1" are the same
+# statement -- and inferring it is what lets an old challenge link report the
+# rules it was actually minted under instead of silently claiming the new ones.
+LEGACY_RULESET_VERSION: Final[str] = "rtt_ruleset_v1"
 
 # The card pool is the committed card-profile artifact. Kept in sync with
 # nba_peak.lineup.config.CARD_PROFILE_VERSION so a card-pool rebuild is a
@@ -123,7 +130,11 @@ ROSTER_SIZE: Final[int] = STARTER_SLOTS + BENCH_SLOTS
 # ---------------------------------------------------------------------------
 # Starting resources
 # ---------------------------------------------------------------------------
-STARTING_CREDITS: Final[int] = 40
+# v2 raised this from 40 to 50 because v2 adds a fourth act (two more decision
+# nodes and one more boss) without adding a life. The extra 10 credits are
+# roughly one mid-board card -- enough to arrive at the new final boss with a
+# roster that can contest it, not enough to buy the top of the board.
+STARTING_CREDITS: Final[int] = 50
 STARTING_LIVES: Final[int] = 3
 MAX_LIVES: Final[int] = 3
 
@@ -175,14 +186,23 @@ LANE_EPSILON: Final[float] = 1e-6
 # mistake does not end the experience.
 COMEBACK_CREDITS: Final[int] = 8
 
+# Winning a battle pays this. v1 paid NOTHING for a win and 8 credits for a
+# loss, so the only battle income in the game went to the player who was losing
+# -- a run that won every fight was strictly poorer than one that lost, which is
+# the opposite of what the economy should reward. The win reward is larger than
+# the comeback so winning is never the poorer branch, and both are small
+# relative to PRICE_MAX (30) so battles remain a test of the roster rather than
+# an income stream.
+BOSS_WIN_CREDITS: Final[int] = 10
+
 # ---------------------------------------------------------------------------
 # Run shape
 # ---------------------------------------------------------------------------
-ACTS: Final[int] = 3
+ACTS: Final[int] = 4
 STAGES_PER_ACT: Final[int] = 2          # decision nodes before each boss
 NODE_CHOICES_PER_STAGE: Final[int] = 2  # branching factor
-DECISION_NODES: Final[int] = ACTS * STAGES_PER_ACT   # 6
-BATTLES: Final[int] = ACTS                            # 3
+DECISION_NODES: Final[int] = ACTS * STAGES_PER_ACT   # 8
+BATTLES: Final[int] = ACTS                            # 4
 
 NODE_TYPES: Final[tuple[str, ...]] = ("draft_room", "trade_desk", "film_room", "rest_bank")
 OFFERS_PER_DRAFT: Final[int] = 3
@@ -256,14 +276,22 @@ SYSTEMS: Final[tuple[dict, ...]] = (
     {
         "id": "deep_rotation",
         "name": "Deep Rotation",
-        # The boss caveat is load-bearing, not hedging: `battle.bench_weight_for`
-        # lets a boss rule fix the bench weight for BOTH teams, which makes this
-        # System redundant against Strength in Numbers and nullifies it against
-        # Top Heavy. Saying "in every lane" without saying that was a claim the
-        # engine does not honour.
+        # v1 SHIPPED THIS AS A NET NERF. `battle.lane_score` is a weighted MEAN,
+        # so raising the bench weight pulls the roster's lane score toward the
+        # bench -- which LOWERS it whenever the bench is weaker than the
+        # starters, i.e. for every generated starting roster and for every play
+        # pattern that upgrades starters first. The published summary said the
+        # bench "counts more"; the applied effect made you worse.
+        #
+        # v2 fixes the mechanic rather than the wording: the player's lane score
+        # is the BETTER of the two bench weights, per lane. The bench can now
+        # only ever help, which is what a player buying "Deep Rotation" is
+        # buying. The boss caveat is still load-bearing: a boss rule that fixes
+        # the bench weight for both teams overrides the choice entirely.
         "summary": f"Your bench counts at {BENCH_WEIGHT_DEEP_ROTATION:.2f} instead of "
-                   f"{BENCH_WEIGHT_DEFAULT:.2f} in every lane — unless a boss rule fixes "
-                   f"the bench weight for both teams.",
+                   f"{BENCH_WEIGHT_DEFAULT:.2f} in every lane where that helps you, and "
+                   f"never in a lane where it would hurt — unless a boss rule fixes the "
+                   f"bench weight for both teams.",
         "affects": "battle",
     },
     {
@@ -334,6 +362,10 @@ SYSTEM_PUBLISHED_THRESHOLDS: Final[dict[str, dict[str, str]]] = {
     "deep_rotation": {
         "BENCH_WEIGHT_DEEP_ROTATION": f"{BENCH_WEIGHT_DEEP_ROTATION:.2f}",
         "BENCH_WEIGHT_DEFAULT": f"{BENCH_WEIGHT_DEFAULT:.2f}",
+        # `battle.player_bench_weight_candidates` reads BOSS_BENCH_WEIGHT to
+        # decide when a boss rule collapses the choice, so the summary has to
+        # say that a boss rule can take the perk away.
+        "BOSS_BENCH_WEIGHT": "unless a boss rule fixes the bench weight for both teams",
     },
     "no_hardware": {
         "NO_HARDWARE_RECOGNITION_PCT_MAX":
@@ -371,11 +403,39 @@ def system_by_id(system_id: str) -> dict:
 # ---------------------------------------------------------------------------
 # A boss rule is a transparent, symmetric modification of battle resolution.
 # It may never modify an individual player's canonical component values.
+#
+# LANE MARGIN RULES. `BOSS_LANE_MARGIN` raises the margin a lane must be won by
+# before either side takes it; anything closer is drawn and nobody gets it.
+#
+# This replaces v1's `the_wall` tie-break, which read "Traditional Production
+# wins any exact lane tie" and fired ZERO times in 120,000 audited battles:
+# lane scores are rounded to LANE_ROUNDING (4) decimals, so an exact tie between
+# two different rosters essentially cannot occur and the Act-1 tutorial boss was
+# effectively rule-less. A published margin band is the same idea -- "a lane you
+# have not really won is not yours" -- expressed as a threshold that fires.
+#
+# Symmetric by construction: the band is applied to |margin|, so it takes lanes
+# away from both teams identically.
+BOSS_LANE_MARGIN: Final[dict[str, float]] = {
+    "the_wall": 1.5,
+    "the_standard": 4.0,
+}
+
+# Boss rules that fix the bench weight for BOTH teams. Listed here rather than
+# branched on inside `battle.bench_weight_for` so the set is enumerable by the
+# published-threshold test.
+BOSS_BENCH_WEIGHT: Final[dict[str, float]] = {
+    "strength_in_numbers": BENCH_WEIGHT_DEEP_ROTATION,
+    "top_heavy": BENCH_WEIGHT_TOP_HEAVY,
+}
+
 BOSS_RULES: Final[dict[str, dict]] = {
     "the_wall": {
         "id": "the_wall",
         "name": "The Wall",
-        "summary": "Traditional Production wins any exact lane tie, for both teams.",
+        "summary": f"A lane is only taken if it is won by more than "
+                   f"{BOSS_LANE_MARGIN['the_wall']:.2f} points. Anything closer is "
+                   f"drawn and neither team gets it.",
     },
     "strength_in_numbers": {
         "id": "strength_in_numbers",
@@ -388,13 +448,40 @@ BOSS_RULES: Final[dict[str, dict]] = {
         "summary": f"Bench weight is {BENCH_WEIGHT_TOP_HEAVY:.2f} for both teams — "
                    "starters decide it.",
     },
+    "the_standard": {
+        "id": "the_standard",
+        "name": "The Standard",
+        "summary": f"A lane is only taken if it is won by more than "
+                   f"{BOSS_LANE_MARGIN['the_standard']:.2f} points. Anything closer is "
+                   f"drawn and neither team gets it.",
+    },
+}
+
+# Every constant each boss rule's APPLIED behaviour reads, mapped to the exact
+# rendering that must appear in that rule's published summary. Same contract as
+# SYSTEM_PUBLISHED_THRESHOLDS and walked by the same style of test, so a boss
+# rule can never quietly apply a threshold it did not publish.
+BOSS_RULE_PUBLISHED_THRESHOLDS: Final[dict[str, dict[str, str]]] = {
+    "the_wall": {
+        "BOSS_LANE_MARGIN": f"{BOSS_LANE_MARGIN['the_wall']:.2f} points",
+    },
+    "strength_in_numbers": {
+        "BOSS_BENCH_WEIGHT": f"{BENCH_WEIGHT_DEEP_ROTATION:.2f}",
+    },
+    "top_heavy": {
+        "BOSS_BENCH_WEIGHT": f"{BENCH_WEIGHT_TOP_HEAVY:.2f}",
+    },
+    "the_standard": {
+        "BOSS_LANE_MARGIN": f"{BOSS_LANE_MARGIN['the_standard']:.2f} points",
+    },
 }
 
 # Difficulty targets: the mean prime_score of each boss's five starters. Tuned
-# against the real 3Y pool via scripts/audit_run_the_table.py so a base roster
-# usually beats Boss 1, needs upgrades for Boss 2, and needs a strong run for
-# Boss 3. Curated boss rosters are validated against these bands in tests.
-BOSS_TARGET_STARTER_MEAN: Final[tuple[float, float, float]] = (61.0, 65.0, 70.0)
+# against the real 3Y pool via scripts/audit_run_the_table_v2.py so a base
+# roster usually beats Boss 1, needs upgrades for Boss 2, needs perk/economy
+# strategy for Boss 3, and needs a strong whole run for the Final Boss. Curated
+# boss rosters are validated against these bands in tests.
+BOSS_TARGET_STARTER_MEAN: Final[tuple[float, ...]] = (61.0, 65.0, 70.0, 74.5)
 BOSS_TARGET_TOLERANCE: Final[float] = 2.5
 
 # ---------------------------------------------------------------------------

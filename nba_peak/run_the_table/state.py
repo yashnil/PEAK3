@@ -20,6 +20,7 @@ from nba_peak.run_the_table.cards import CardPool, get_pool
 from nba_peak.run_the_table.config import (
     ACTS,
     BENCH_SLOTS,
+    BOSS_WIN_CREDITS,
     COMEBACK_CREDITS,
     FILM_CREDITS,
     MAX_LIVES,
@@ -66,16 +67,59 @@ class RunActionError(Exception):
         self.message = message
 
 
-class VersionMismatch(Exception):
-    """A saved run was created under a different ruleset/engine/card pool."""
+_VERSION_LABELS = {
+    "ruleset_version": "ruleset",
+    "engine_version": "engine",
+    "card_pool_version": "card pool",
+    "peak3_model_version": "PEAK3 model",
+}
 
-    def __init__(self, saved: dict, current: dict) -> None:
-        super().__init__(
-            "This run was created under a different ruleset and can no longer be "
-            "replayed. Start a new run."
+
+def _describe_version_change(saved: dict, current: dict, changed: list[str]) -> str:
+    """A specific, human sentence naming what actually changed.
+
+    v1 said only "a different ruleset", for any of four different fields, which
+    told a player nothing about whether their run was lost to a rules change, a
+    card-pool rebuild, or a model version bump.
+    """
+    if not changed:
+        return "This run's version fingerprint no longer matches the engine. Start a new run."
+    if changed == ["ruleset_version"]:
+        was = saved.get("ruleset_version") or "an unrecorded ruleset"
+        return (
+            f"This run was started under the previous ruleset ({was}); the rules have "
+            f"since changed to {current['ruleset_version']}, so it can no longer be "
+            f"continued. Your completed runs are unaffected — start a new run to play "
+            f"the current rules."
         )
+    parts = []
+    for key in changed:
+        was = saved.get(key) or "unrecorded"
+        parts.append(f"{_VERSION_LABELS.get(key, key)} {was} → {current.get(key)}")
+    return (
+        "This run was started under different game versions ("
+        + "; ".join(parts)
+        + "), so it can no longer be continued. Start a new run."
+    )
+
+
+class VersionMismatch(Exception):
+    """A saved run was created under a different ruleset/engine/card pool.
+
+    Carries the specific fields that differ so the API can answer 409 with a
+    sentence a player can act on rather than a generic refusal.
+    """
+
+    def __init__(
+        self, saved: dict, current: dict, message: Optional[str] = None
+    ) -> None:
+        saved = dict(saved or {})
+        current = dict(current or {})
+        changed = [k for k, v in current.items() if saved.get(k) != v]
+        super().__init__(message or _describe_version_change(saved, current, changed))
         self.saved = saved
         self.current = current
+        self.changed_fields = changed
 
 
 def _now() -> str:
@@ -228,10 +272,14 @@ def _advance_after_node(state: RunState) -> None:
 
 
 def _advance_after_boss(state: RunState, blueprint: RunBlueprint) -> None:
+    # Belt and braces: `action_resolve_boss` already ends the run the instant
+    # lives hit zero, so this branch is unreachable through the action API. It
+    # stays because a state loaded from anywhere else must not be able to walk
+    # into another act on a dead run.
     if state.lives <= 0:
         state.status = STATUS_FAILED
         return
-    if state.act >= ACTS:
+    if state.act >= ACTS or state.act >= len(blueprint.bosses):
         state.status = STATUS_COMPLETE
         return
     # A second System is offered once, after Boss 1.
@@ -551,6 +599,15 @@ def action_resolve_boss(
         return state
     _guard(state, STATUS_BOSS_READY)
     pool = pool or get_pool()
+    # Length-guarded: `blueprint.bosses` is generated from ACTS, but a state
+    # restored from a snapshot carries its own `act`, and an unguarded
+    # `bosses[act - 1]` turns any drift into an IndexError -> HTTP 500.
+    if not 1 <= state.act <= len(blueprint.bosses):
+        raise RunActionError(
+            "no_boss_for_act",
+            f"This run has no boss for act {state.act}; it has "
+            f"{len(blueprint.bosses)} acts.",
+        )
     boss = blueprint.bosses[state.act - 1]
 
     starters = [s.card_id for s in state.starters if s.card_id]
@@ -568,11 +625,18 @@ def action_resolve_boss(
         state.systems,
         lives_before=state.lives,
         comeback_credits=COMEBACK_CREDITS,
+        win_credits=BOSS_WIN_CREDITS,
     )
     state.battles.append(result)
     state.lives = result.lives_after
     state.credits += result.credits_awarded
-    state.status = STATUS_BOSS_RESOLVED
+    # THE RUN ENDS THE MOMENT LIVES HIT ZERO, checked here rather than only in
+    # `_advance_after_boss`. In v1 the only zero-lives check sat behind an
+    # `advance` action the client had to send, so a run was "still going" until
+    # it was acknowledged. The battle just resolved is in `state.battles`, and a
+    # terminal payload carries every battle plus the receipt, so the reveal is
+    # still fully available on the result screen.
+    state.status = STATUS_FAILED if state.lives <= 0 else STATUS_BOSS_RESOLVED
     _record(state, "resolve_boss", {"boss_id": boss.boss_id}, idempotency_key)
     return state
 

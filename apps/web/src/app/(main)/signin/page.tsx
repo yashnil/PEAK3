@@ -1,166 +1,58 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+/**
+ * `/signin`.
+ *
+ * `?returnTo=` is the existing convention across the app (`RankedScreen`,
+ * `/progress`, `/profile`, `/history` and the 82-0 save panels all build it) and
+ * is kept — but it now goes through `safeNext` before it is used, which it did
+ * not before. `params.get("returnTo") ?? "/"` straight into `router.push()` is
+ * an open redirect on the credential-entry page of the product.
+ *
+ * Owner: Track B (auth surface).
+ */
+
+import { Suspense } from "react";
 import Link from "next/link";
-import { signInWithEmail, supabaseConfigured } from "@/lib/auth";
+import { useSearchParams } from "next/navigation";
+import { AuthShell } from "@/components/auth/AuthShell";
+import { SignInPanel } from "@/components/auth/SignInPanel";
+import { supabaseConfigured } from "@/lib/auth";
+import { safeNext } from "@/lib/supabase/safe-next";
 
 function SignInContent() {
-  const router = useRouter();
   const params = useSearchParams();
-  const returnTo = params.get("returnTo") ?? "/";
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!supabaseConfigured) return;
-    setError(null);
-    setLoading(true);
-    const { error: err } = await signInWithEmail(email, password);
-    setLoading(false);
-    if (err) {
-      setError(err);
-      return;
-    }
-    router.push(returnTo);
-  }
+  const returnTo = safeNext(params.get("returnTo"));
 
   if (!supabaseConfigured) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4">
-        <div className="card-elevated max-w-md w-full p-8 text-center space-y-4">
-          <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
-            Sign In
-          </h1>
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            Authentication is not configured in this environment. You can still
-            play all game modes anonymously.
-          </p>
-          <Link
-            href="/"
-            className="inline-block text-sm underline"
-            style={{ color: "var(--peak-accent)" }}
-          >
-            Back to PEAK3 Arena
-          </Link>
-        </div>
-      </div>
+      <AuthShell
+        title="Sign in"
+        subtitle="Authentication is not configured in this environment."
+        testId="signin-unconfigured"
+      >
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+          You can still play every game mode anonymously — nothing is gated behind an account.
+        </p>
+        <Link
+          href="/"
+          className="block text-center text-sm underline"
+          style={{ color: "var(--peak-accent)" }}
+        >
+          Back to PEAK3 Arena
+        </Link>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-12">
-      <div className="card-elevated max-w-md w-full p-8 space-y-6">
-        <div className="text-center">
-          <p
-            className="text-xs font-semibold tracking-[0.2em] uppercase"
-            style={{ color: "var(--text-muted)" }}
-          >
-            PEAK3 Arena
-          </p>
-          <h1
-            className="mt-2 text-2xl font-bold"
-            style={{ color: "var(--text-primary)" }}
-          >
-            Sign In
-          </h1>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label
-              htmlFor="email"
-              className="block text-sm font-medium mb-1"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg px-3 py-2 text-sm border"
-              style={{
-                background: "var(--bg-surface)",
-                borderColor: "var(--border-default)",
-                color: "var(--text-primary)",
-              }}
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium mb-1"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg px-3 py-2 text-sm border"
-              style={{
-                background: "var(--bg-surface)",
-                borderColor: "var(--border-default)",
-                color: "var(--text-primary)",
-              }}
-            />
-          </div>
-
-          {error && (
-            <p
-              role="alert"
-              className="text-sm rounded-lg px-3 py-2"
-              style={{ background: "#ef444420", color: "#ef4444" }}
-            >
-              {error}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-60"
-            style={{
-              background: "var(--peak-accent)",
-              color: "var(--text-inverse)",
-            }}
-          >
-            {loading ? "Signing in…" : "Sign In"}
-          </button>
-        </form>
-
-        <div className="flex flex-col gap-2 text-center text-sm">
-          <Link
-            href={`/signup?returnTo=${encodeURIComponent(returnTo)}`}
-            className="text-sm underline"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Don&apos;t have an account? Create one
-          </Link>
-          {/* There is no /forgot-password route (password reset is not built
-              yet), and this used to link straight into a 404. An account is
-              optional here, so the honest line is what you can do without one
-              rather than a recovery flow that does not exist. */}
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            You can play every mode without an account — signing in only saves your runs and
-            progress.
-          </p>
-        </div>
-      </div>
-    </div>
+    <AuthShell
+      title="Sign in"
+      subtitle="Keep your runs, streaks and personal bests"
+      testId="signin-page"
+    >
+      <SignInPanel mode="signin" next={returnTo} />
+    </AuthShell>
   );
 }
 

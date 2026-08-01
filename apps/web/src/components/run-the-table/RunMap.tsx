@@ -5,7 +5,7 @@ import { LadderRow, ladderRows } from "@/lib/run-the-table-state";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 
 /**
- * The run ladder: three acts, each `STAGES_PER_ACT` stage rows then a heavier
+ * The run ladder: `ACTS` acts, each `STAGES_PER_ACT` stage rows then a heavier
  * boss row.
  *
  * Renders only what `_map_public` sends. An unreached stage shows its SHAPE
@@ -165,10 +165,15 @@ export default function RunMap({ map }: Props) {
                   >
                     {row.label}
                   </span>
+                  {/* `row.sublabel` unconditionally. This used to be a ternary
+                      whose two branches were the identical expression — dead
+                      code that read as if a locked, unscouted stage showed
+                      something different, which it never did. What a locked row
+                      may show is decided by the SERVER (`_map_public` sends
+                      only the stage's shape), and `ladderRows` already resolves
+                      it into `sublabel`. */}
                   <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    {row.state === "locked" && !row.scouted && row.kind === "stage"
-                      ? row.sublabel
-                      : row.sublabel}
+                    {row.sublabel}
                     {row.scouted ? " · scouted" : ""}
                   </span>
                 </span>

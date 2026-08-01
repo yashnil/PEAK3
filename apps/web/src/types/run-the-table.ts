@@ -12,6 +12,8 @@
  * arrived on one of these payloads with the exact value the engine used.
  */
 
+import type { DailyWindowPayload } from "@/lib/daily-time";
+
 // ---------------------------------------------------------------------------
 // Lanes — the five canonical PEAK3 component lanes
 // ---------------------------------------------------------------------------
@@ -367,11 +369,56 @@ export interface ReceiptClosestBattle {
   summed_margin: number;
 }
 
+/**
+ * DEPRECATED — the pre-§2.3 receipt line.
+ *
+ * `signed_value` was a single overloaded column carrying four different things
+ * (a lane count, a PEAK3 point delta, a bare `0`, and a credit holding) and it
+ * doubled as the colour channel. `receipt.py:235` emitted
+ * `"signed_value": -state.credits` — negating a HOLDING purely so a shared
+ * `signedColorVar()` helper would paint it red — so the receipt printed
+ * "Finished holding 68 unspent credits" beside `-68.0`, two blocks below a
+ * Credits section that said `finished holding 68`.
+ *
+ * Kept because completed v1 receipts are still readable and must stay so.
+ * New receipts carry `items` instead; see `ReceiptItem`.
+ */
 export interface ReceiptReason {
   kind: "lane_strength" | "lane_weakness" | "acquisition" | "economy";
   text: string;
   signed_value: number;
 }
+
+/** Plan §2.3. Colour comes from `kind` and from nothing else. */
+export type ReceiptItemKind = "benefit" | "cost" | "neutral" | "record";
+
+export type ReceiptItemUnit = "credits" | "score" | "lanes" | "percentage";
+
+/**
+ * One semantic line of the run receipt (plan §2.3).
+ *
+ * `value` is always the TRUE MAGNITUDE, unnegated: "Finished holding 68
+ * unspent credits" is `{kind:"neutral", value:68, unit:"credits"}` — 68, not
+ * −68, and not red. A sign in this payload means the quantity is genuinely
+ * signed, never that a renderer wanted a colour.
+ *
+ * `display` overrides formatting when a unit needs it ("3 of 5 lanes").
+ */
+export interface ReceiptItem {
+  kind: ReceiptItemKind;
+  label: string;
+  value?: number;
+  unit?: ReceiptItemUnit;
+  display?: string;
+}
+
+/**
+ * Plan §2.2's outcome taxonomy — exactly three values.
+ *
+ * `"RUN COMPLETE"` is retired: it was printed for a 0-for-3 losing run, which
+ * is victory framing on a defeat.
+ */
+export type RunOutcome = "table_cleared" | "ended_at_final_boss" | "ended_in_act";
 
 export interface ReceiptLaneProfileEntry {
   lane: LaneField;
@@ -393,9 +440,17 @@ export interface ReceiptBattleSummary {
 /** `build_receipt()`. Present only while `status` is terminal. */
 export interface RunReceipt {
   verdict: string;
+  /**
+   * Plan §2.2. Optional so a v1 receipt saved before the taxonomy existed
+   * still type-checks and still renders — `runOutcome()` derives it.
+   */
+  outcome?: RunOutcome;
   headline: string;
   story: string;
   ran_the_table: boolean;
+  /** Plan §2.2's clear condition, once the engine emits it. Falls back to
+   *  `ran_the_table` on an older receipt. */
+  table_cleared?: boolean;
   bosses_defeated: number;
   battles_lost: number;
   record: string;
@@ -416,7 +471,15 @@ export interface RunReceipt {
   credits_refunded: number;
   credits_remaining: number;
   starting_credits: number;
-  reasons: ReceiptReason[];
+  /**
+   * §2.3's semantic lines. Optional: the engine keeps `reasons` as a
+   * deprecated alias for one release, and old saved receipts have only that,
+   * so the renderer falls back rather than blanking the section.
+   */
+  items?: ReceiptItem[];
+  /** DEPRECATED — see `ReceiptReason`. Optional so a §2.3-only receipt is
+   *  legal too. */
+  reasons?: ReceiptReason[];
   battles: ReceiptBattleSummary[];
   seed: number;
   run_type: RunType;
@@ -545,12 +608,17 @@ export interface RunReadiness {
   note?: string | null;
 }
 
-/** `GET /run-the-table/daily` — `daily_descriptor()` in daily.py. */
+/** `GET /run-the-table/daily` — `daily_descriptor()` in daily.py, plus the
+ *  frozen daily-window block every daily response in the app now embeds
+ *  (plan §2.1, `DailyWindow.to_payload()`). */
 export interface DailyDescriptor {
   date: string;
   run_id: string;
   seed: number;
   ruleset_version: string;
+  /** Optional so a client built against an older API still type-checks; the
+   *  countdown simply does not arm. */
+  daily?: DailyWindowPayload;
 }
 
 /** `POST /run-the-table/runs/{run_id}/challenge`.
@@ -614,5 +682,20 @@ export interface StoredActiveRun {
   run_id: string;
   seed: number;
   run_type: RunType;
+  /**
+   * `RunPublicState.date` — the daily key the SERVER assigned this run, or
+   * null for a standard/challenge run.
+   *
+   * Added because the pointer had no date at all, `getRun` happily returns 200
+   * for yesterday's daily, and `shouldClearStoredRun` only clears on
+   * 404/409/410 — so an unfinished daily from yesterday was silently resumed
+   * today, and every day after that, and the start gate never appeared again.
+   * `isStaleDailyPointer()` in `lib/run-the-table-state.ts` is the check.
+   *
+   * Optional in practice: a pointer written before this field existed parses
+   * with `run_date: null`, which a daily pointer cannot prove is today, so it
+   * is discarded — exactly the runs the bug had stranded.
+   */
+  run_date: string | null;
   updated_at: string;
 }

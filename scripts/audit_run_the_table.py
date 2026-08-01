@@ -3,6 +3,22 @@ audit_run_the_table.py
 ----------------------
 Statistical and invariant audit of the RUN THE TABLE engine.
 
+SUPERSEDED BY ``scripts/audit_run_the_table_v2.py`` FOR BALANCE WORK.
+
+This harness is parameterised on ``ACTS`` and still runs correctly against
+Standard v2, and its eight hard invariants are still worth having, but two of
+the things it MEASURES are no longer the right questions:
+
+* it reports ``ran_the_table`` = "won every battle", whereas v2's win condition
+  is "beat the FINAL boss" (`receipt["outcome"] == "table_cleared"`), and it
+  reports a `survived` column that v2 deliberately stopped treating as success;
+* its four policies all pick cards by ``prime_score`` while battles resolve on
+  ``lane_index``, so every win rate here is a LOWER BOUND. The v2 harness adds
+  a lane-aware policy for exactly that reason.
+
+Use v2 for balance decisions; keep this one as the smaller, single-process
+smoke check.
+
 Samples N run seeds, plays each one to a terminal status under four
 deterministic policies, and reports the shape of what the generator actually
 produces: roster legality, node feasibility, content reach, economy, boss

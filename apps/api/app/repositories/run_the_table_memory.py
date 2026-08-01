@@ -61,6 +61,30 @@ class MemoryRunTheTableRunRepository:
         rows.sort(key=lambda r: r.created_at, reverse=True)
         return [_clone(r) for r in rows[:limit]]
 
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Mirror of the Postgres transfer, including the daily collision rule.
+
+        The `_daily_index` here plays the part the partial unique index plays
+        in Postgres, so a guest daily for a date the destination account has
+        already played is dropped in CI exactly as it is in production rather
+        than quietly becoming a second official daily for that date.
+        """
+        async with self._lock:
+            moved = 0
+            for run in [r for r in self._runs.values() if r.owner_sub == from_sub]:
+                is_daily = run.run_type == "daily" and bool(run.run_date)
+                if is_daily and (to_sub, run.run_date) in self._daily_index:
+                    # Destination already has its official daily for that date.
+                    self._daily_index.pop((from_sub, run.run_date), None)
+                    self._runs.pop(run.run_id, None)
+                    continue
+                if is_daily:
+                    self._daily_index.pop((from_sub, run.run_date), None)
+                    self._daily_index[(to_sub, run.run_date)] = run.run_id
+                run.owner_sub = to_sub
+                moved += 1
+            return moved
+
 
 # Protocol conformance is structural (runtime_checkable Protocol) -- this
 # assertion documents the intent and fails fast at import time if a method

@@ -67,6 +67,12 @@ def _error_detail(exc: Exception, default_code: str = "invalid_request") -> dict
     code = exc.code if isinstance(exc, DraftError) else default_code
     return {"error_code": code, "message": str(exc)}
 
+from nba_peak.daily_key import (
+    InvalidDailyKey,
+    daily_key,
+    daily_window,
+    validate_daily_key,
+)
 from nba_peak.lineup.config import (
     CARD_PROFILE_VERSION,
     LINEUP_MODEL_VERSION,
@@ -76,6 +82,18 @@ from nba_peak.lineup.config import (
 )
 
 router = APIRouter()
+
+
+class DailyGameStateResponse(PublicGameStateResponse):
+    """`PublicGameStateResponse` plus the frozen daily-window block (plan §2.1).
+
+    Declared here rather than on the shared model: every daily response in the
+    app carries the identical object under the top-level key `daily`, produced
+    by `DailyWindow.to_payload()`. The client counts down from
+    `seconds_remaining` and never recomputes a timezone boundary itself.
+    """
+
+    daily: dict
 
 ROLES = ["lead_creator", "guard_wing", "wing_forward", "forward_big", "anchor"]
 DNA_DIMENSIONS = [
@@ -117,7 +135,7 @@ async def create_game(
 # Daily shortcut
 # ---------------------------------------------------------------------------
 
-@router.get("/draft/daily", response_model=PublicGameStateResponse)
+@router.get("/draft/daily", response_model=DailyGameStateResponse)
 async def get_daily(
     auth: OptionalAuth,
     response: Response,
@@ -125,14 +143,28 @@ async def get_daily(
     mode: str = Query(default="prime_3y"),
     date: str = Query(default=""),
     peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
-) -> PublicGameStateResponse:
-    if not date:
-        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+) -> DailyGameStateResponse:
+    """Today's daily board, or an explicitly requested archive date's.
+
+    THE SERVER DECIDES WHAT DAY IT IS. The browser used to compute `today` from
+    its own clock and send it; the route only fell back to its own clock when
+    the parameter was absent, so a device an hour ahead played tomorrow's board
+    and a stale tab played yesterday's forever. `date` now means "give me the
+    archive board for this date" and nothing else.
+    """
+    try:
+        board_date = validate_daily_key(date) if date else daily_key()
+    except InvalidDailyKey as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "invalid_daily_key", "message": str(exc)},
+        )
+
     try:
         game_state = state_machine.create_draft_game(
             mode=mode,
             board_type="daily",
-            date=date,
+            date=board_date,
             seed=None,
             signing_secret=settings.SIGNING_SECRET,
         )
@@ -142,7 +174,10 @@ async def get_daily(
     game_state.owner_sub = resolve_owner_sub(auth, peak3_anon, response, settings.SIGNING_SECRET)
     game_id = await game_repo.create_game(game_state)
     game_state.game_id = game_id
-    return PublicGameStateResponse(**state_machine.get_public_state(game_state))
+    return DailyGameStateResponse(
+        **state_machine.get_public_state(game_state),
+        daily=daily_window(board_date).to_payload(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -650,13 +685,32 @@ async def load_challenge(
 ) -> PublicGameStateResponse:
     payload = _verify_challenge_token(token)
 
+    # A CHALLENGE IS PROVENANCE, NEVER A DAILY ATTEMPT.
+    #
+    # The token carries the board params of the game it was minted from, and a
+    # link minted from a DAILY carried `board_type: "daily"` plus the sender's
+    # date. Passing those straight through meant opening a friend's link
+    # created a board the recipient's own daily completion was then written
+    # against — and if they had already played that day, the daily-completion
+    # write hit `ON CONFLICT DO NOTHING` and their real result was silently
+    # discarded. Someone else's link must never be able to consume, or
+    # overwrite, your one attempt.
+    #
+    # This is the same rule RUN THE TABLE already enforces; see the comment at
+    # apps/api/app/api/v1/run_the_table.py in `create_run`. The board is still
+    # reproduced exactly — `reproduce_as` builds it under the token's own
+    # board_type, so the seed derivation and `board_id` are identical and the
+    # comparison against the challenger still matches — only the recipient's
+    # GAME is labelled `challenge`, which is what `_record_completion` keys the
+    # daily write on.
     try:
         game_state = state_machine.create_draft_game(
             mode=payload["mode"],
-            board_type=payload.get("board_type", "challenge"),
+            board_type="challenge",
             date=payload.get("date"),
             seed=payload.get("seed"),
             signing_secret=settings.SIGNING_SECRET,
+            reproduce_as=payload.get("board_type", "challenge"),
         )
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc, "board_error"))

@@ -1,7 +1,11 @@
 "use client";
 import type { CSSProperties } from "react";
 import { ActiveNode } from "@/types/run-the-table";
-import { nodeChoiceTradeoff, nodeTypeCopy } from "@/lib/run-the-table-copy";
+import {
+  nodeChoiceTradeoff,
+  nodeTypeCopy,
+  shouldSuppressServerSummary,
+} from "@/lib/run-the-table-copy";
 import { Coachmark } from "@/components/ui/GuidedTour";
 import { NodeTypeIcon } from "./NodeChoice";
 
@@ -52,8 +56,13 @@ export default function ChoiceNode({ node, busy, onChoose }: Props) {
             </h2>
           </div>
         </div>
+        {/* The generator's own line for this node — EXCEPT for the Film Room,
+            whose generated summary ("…then take one prep advantage",
+            generation.py:199-202) describes a mechanic the engine does not
+            have. `copy.purpose` stands in there. See
+            `NodeTypeCopy.suppressServerSummary`. */}
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-          {node.summary}
+          {shouldSuppressServerSummary(node.node_type) ? copy.purpose : node.summary}
         </p>
         {/* The static rule for this KIND of node, so the choice below is read
             against something. Never anything about this node's contents. */}

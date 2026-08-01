@@ -50,6 +50,25 @@ class MemoryDailyGridResultRepository:
         rows.sort(key=lambda r: (r.board_date, r.created_at), reverse=True)
         return rows[:limit]
 
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Mirror of the Postgres transfer, including the collision rule --
+        `_by_owner_board` plays the part the UNIQUE constraint plays there."""
+        async with self._lock:
+            moved = 0
+            for result in [r for r in self._results.values() if r.owner_sub == from_sub]:
+                old_key = (from_sub, result.board_date, result.board_version)
+                new_key = (to_sub, result.board_date, result.board_version)
+                self._by_owner_board.pop(old_key, None)
+                if new_key in self._by_owner_board:
+                    # Destination already has its own official result for this
+                    # board -- first attempt wins, the guest's copy is dropped.
+                    self._results.pop(result.id, None)
+                    continue
+                result.owner_sub = to_sub
+                self._by_owner_board[new_key] = result.id
+                moved += 1
+            return moved
+
 
 # Protocol conformance is structural (runtime_checkable Protocol) -- this
 # assertion documents the intent and fails fast at import time if a method

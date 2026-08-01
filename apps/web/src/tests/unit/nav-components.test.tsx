@@ -11,9 +11,29 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
+/**
+ * The auth state the chrome reads.
+ *
+ * This used to be a frozen `{ user: null, supabaseEnabled: false }`, which meant
+ * the account control was never rendered in any test — the entire signed-in
+ * header, and the drawer's Account section, were untested. It is mutable now,
+ * and reset in `beforeEach` below, so both states are covered.
+ */
+const authState = {
+  user: null as null | { id: string; email?: string; isAnonymous: boolean; name?: string },
+  loading: false,
+  supabaseEnabled: false,
+  signOut: vi.fn(),
+};
+
 vi.mock("@/lib/auth-context", () => ({
-  useAuth: () => ({ user: null, loading: false, supabaseEnabled: false }),
+  useAuth: () => authState,
 }));
+
+function signedIn(email = "ada.lovelace@example.com") {
+  authState.user = { id: "u-1", email, isAnonymous: false };
+  authState.supabaseEnabled = true;
+}
 
 import { Nav } from "@/components/layout/nav";
 import { PlayMenu } from "@/components/layout/PlayMenu";
@@ -25,6 +45,9 @@ import { RUN_THE_TABLE_SCHEMA_VERSION, RUN_THE_TABLE_STORAGE_KEY } from "@/types
 
 beforeEach(() => {
   window.localStorage.clear();
+  authState.user = null;
+  authState.supabaseEnabled = false;
+  authState.signOut = vi.fn().mockResolvedValue(undefined);
 });
 
 function trigger() {
@@ -69,6 +92,48 @@ describe("Nav shell", () => {
     render(<Nav />);
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     expect(within(nav).queryByRole("link", { name: /Sign In|Profile/ })).toBeNull();
+  });
+
+  it("offers guests a sign-in link and nothing that blocks play", () => {
+    authState.supabaseEnabled = true;
+    render(<Nav />);
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(within(nav).getByTestId("nav-signin")).toHaveTextContent("Sign in");
+    // Every game link is still a plain link — no interception, no gate.
+    expect(within(nav).getByRole("button", { name: "Play" })).toBeEnabled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("shows an account menu — not a bare Profile link — once signed in", async () => {
+    const user = userEvent.setup();
+    signedIn();
+    render(<Nav />);
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+
+    // The old header rendered exactly this and nothing else.
+    expect(within(nav).queryByRole("link", { name: "Profile" })).toBeNull();
+    expect(within(nav).queryByTestId("nav-signin")).toBeNull();
+
+    const trigger = within(nav).getByTestId("nav-account-trigger");
+    expect(within(trigger).getByTestId("account-avatar")).toHaveAttribute(
+      "data-initials",
+      "AL",
+    );
+
+    await user.click(trigger);
+    const panel = screen.getByTestId("nav-account-panel");
+    expect(panel.querySelector('[data-nav-item="profile"]')).toHaveAttribute("href", "/profile");
+    expect(panel.querySelector('[data-nav-item="progress"]')).toHaveAttribute("href", "/progress");
+    expect(panel.querySelector('[data-nav-item="history"]')).toHaveAttribute("href", "/history");
+  });
+
+  it("puts sign-out in the header, where it has never been before", async () => {
+    const user = userEvent.setup();
+    signedIn();
+    render(<Nav />);
+    await user.click(screen.getByTestId("nav-account-trigger"));
+    await user.click(screen.getByTestId("nav-signout"));
+    expect(authState.signOut).toHaveBeenCalledTimes(1);
   });
 
   it("opens the mobile drawer from the hamburger", async () => {
@@ -466,6 +531,72 @@ describe("MobileNavDrawer", () => {
     const user = userEvent.setup();
     const { onClose } = renderDrawer();
     await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe("MobileNavDrawer — account", () => {
+  it("offers nothing at all when Supabase is not configured", () => {
+    renderDrawer();
+    expect(screen.queryByTestId("mobile-nav-account")).toBeNull();
+    expect(screen.queryByTestId("mobile-nav-toggle-account")).toBeNull();
+  });
+
+  it("offers a guest one sign-in row that returns them to where they were", () => {
+    renderDrawer({ supabaseEnabled: true, pathname: "/arena/run-the-table" });
+    const row = screen.getByTestId("mobile-nav-account");
+    expect(row).toHaveTextContent("Sign in");
+    expect(row).toHaveAttribute("href", "/signin?returnTo=%2Farena%2Frun-the-table");
+    // Not buried in an accordion: signing in must stay one tap away.
+    expect(row.closest(".pk-nav-drawer-section-body")).toBeNull();
+  });
+
+  it("renders the Account section its SectionId has always declared", () => {
+    // `SectionId` carried an "account" member from the day this drawer was
+    // written, and no `Section id="account"` was ever rendered — so a phone user
+    // could not reach /progress or /history and could not sign out at all.
+    renderDrawer({ supabaseEnabled: true, signedIn: true });
+    const toggle = screen.getByTestId("mobile-nav-toggle-account");
+    expect(toggle).toBeInTheDocument();
+    for (const [id, href] of [
+      ["profile", "/profile"],
+      ["progress", "/progress"],
+      ["history", "/history"],
+    ] as const) {
+      expect(screen.getByTestId(`mobile-nav-${id}`)).toHaveAttribute("href", href);
+    }
+    expect(screen.getByTestId("mobile-nav-signout")).toBeInTheDocument();
+    expect(screen.queryByTestId("mobile-nav-account")).toBeNull();
+  });
+
+  it("expands Account when the user is already inside it, in preference to Play", () => {
+    renderDrawer({ supabaseEnabled: true, signedIn: true, pathname: "/progress" });
+    expect(screen.getByTestId("mobile-nav-toggle-account")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByTestId("mobile-nav-toggle-play")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("keeps the 44px touch target on the account rows too", () => {
+    renderDrawer({ supabaseEnabled: true, signedIn: true, pathname: "/progress" });
+    for (const testId of ["mobile-nav-profile", "mobile-nav-signout"]) {
+      expect(screen.getByTestId(testId).style.minHeight).toBe(`${MIN_TAP_TARGET_PX}px`);
+    }
+  });
+
+  it("signs out and closes the sheet in one action", async () => {
+    const user = userEvent.setup();
+    const { onClose } = renderDrawer({
+      supabaseEnabled: true,
+      signedIn: true,
+      pathname: "/progress",
+    });
+    await user.click(screen.getByTestId("mobile-nav-signout"));
+    expect(authState.signOut).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalled();
   });
 });

@@ -10,7 +10,10 @@ from nba_peak.run_the_table import state as S
 from nba_peak.run_the_table.cards import get_pool
 from nba_peak.run_the_table.config import (
     ACTS,
+    BATTLES,
+    BOSS_WIN_CREDITS,
     COMEBACK_CREDITS,
+    DECISION_NODES,
     FILM_CREDITS,
     MAX_LIVES,
     MAX_SYSTEMS,
@@ -41,9 +44,14 @@ SEED_VET_MIN = 98
 # SEED_VET_MIN, which coupled two unrelated fixtures to one seed; split out so
 # re-picking one of them cannot break the other.
 SEED_TRADE_MACHINE = 0
-SEED_ALL_LOSSES = 12     # the "pass" policy loses all three battles here
+# Under Standard v2 the "pass" policy loses acts 1, 2 and 3 here, which burns
+# all three lives before the Final Boss -- the seed the immediate-game-over rule
+# is asserted against. Re-picked from 12, which under v2 survives to act 4.
+SEED_ALL_LOSSES = 6
 SEED_FILM_EARLY = 3      # Film Room at act 1 stage 2, so scouting has something to unlock
-SEED_FILM_LAST = 12      # Film Room only at act 3 stage 2, the final stage
+# Film Room ONLY at act 4 stage 2, the final stage of the run. Re-picked from 12
+# when v2 added a fourth act.
+SEED_FILM_LAST = 9
 
 
 def _volatile(state: S.RunState) -> dict:
@@ -62,10 +70,42 @@ def _drive_to_node(bp, pool, node_id, system_id=None):
     return st
 
 
+class TestStandardV2Shape:
+    """The frozen v2 run shape (AUTH_DAILY_BALANCE_PLAN §2.2).
+
+    Written as literals on purpose: these are a cross-track contract, so a
+    change to any of them must fail here rather than propagate silently into
+    the API payload and the UI.
+    """
+
+    def test_the_run_shape_is_four_acts_eight_nodes_four_bosses(self):
+        assert ACTS == 4
+        assert STAGES_PER_ACT == 2
+        assert DECISION_NODES == ACTS * STAGES_PER_ACT == 8
+        assert BATTLES == ACTS == 4
+
+    def test_the_starting_resources_are_three_lives_and_fifty_credits(self):
+        assert STARTING_LIVES == 3
+        assert MAX_LIVES == 3
+        assert STARTING_CREDITS == 50
+
+    def test_the_ruleset_is_versioned_v2(self):
+        from nba_peak.run_the_table.config import RULESET_VERSION
+
+        assert RULESET_VERSION == "rtt_ruleset_v2"
+        assert version_tuple()["ruleset_version"] == "rtt_ruleset_v2"
+
+    def test_every_generated_run_has_a_boss_for_every_act(self, blueprints):
+        bp = blueprints(1)
+        assert len(bp.bosses) == ACTS
+        assert [b.act for b in bp.bosses] == list(range(1, ACTS + 1))
+        assert len(bp.stages) == DECISION_NODES
+
+
 class TestRunCreation:
     def test_a_new_run_starts_at_the_published_resources(self, pool, blueprints):
         st = S.create_run(blueprints(1), "r1")
-        assert st.credits == STARTING_CREDITS == 40
+        assert st.credits == STARTING_CREDITS == 50
         assert st.lives == STARTING_LIVES == 3
         assert st.status == "system_select"
         assert st.act == 1 and st.stage == 1
@@ -345,7 +385,9 @@ class TestVeteranMinimumInPlay:
         # Act 1 — first use is free.
         cid1 = self._cheap(pool, stage_for(bp, 1, 1).payloads["a1s1o1"]["offer_ids"])[0]
         S.action_draft_buy(st, bp, cid1, "bench_1", pool, use_veteran_minimum=True)
-        assert st.veteran_minimum_used_in_act == {1: True, 2: False, 3: False}
+        assert st.veteran_minimum_used_in_act == {
+            1: True, **{a: False for a in range(2, ACTS + 1)}
+        }
 
         # Walk to act 2.
         S.action_choose_node(st, bp, stage_for(bp, 1, 2).options[0].node_id)
@@ -509,7 +551,7 @@ class TestFilmAndRest:
 
     def test_scouting_at_the_final_stage_unlocks_nothing(self, pool):
         """Documented no-op: the Film Room's scout option has no future to reveal
-        at act 3 stage 2. The audit script counts these as no-op nodes."""
+        at the last stage of the last act. The audit counts these as no-op nodes."""
         bp = generate_blueprint(SEED_FILM_LAST, pool=pool)
         st = self._open_first_of_type(bp, pool, "film_room")
         assert (st.act, st.stage) == (ACTS, STAGES_PER_ACT)
@@ -615,6 +657,66 @@ class TestBossProgression:
         ]
         assert st.lives == 0
         assert st.status == "failed"
+        # THE RUN ENDS AT THE THIRD LOSS, in act 3, with the act-4 Final Boss
+        # never fought. Three lives against four bosses is what makes running out
+        # of lives a real ending rather than an arithmetic impossibility.
+        assert len(st.battles) == 3
+        assert st.battles[-1].act == 3
+        assert st.act < ACTS
+
+    def test_the_run_ends_the_instant_lives_hit_zero_without_an_advance(
+        self, pool, blueprints
+    ):
+        """v1 only checked lives inside `_advance_after_boss`, so a run was still
+        live until the client acknowledged the battle. Resolving the boss is now
+        itself terminal."""
+        bp = blueprints(SEED_ALL_LOSSES)
+        st = S.create_run(bp, "r")
+        S.action_select_system(st, bp, bp.system_offers[0][0])
+        st.lives = 1
+        while st.status != "boss_ready":
+            if st.status == "node_select":
+                S.action_choose_node(st, bp, stage_for(bp, st.act, st.stage).options[0].node_id)
+            else:
+                TestVeteranMinimumInPlay._resolve_open_node(st, bp, pool)
+        S.action_resolve_boss(st, bp, pool)
+        assert st.battles[-1].outcome == "loss"
+        assert st.lives == 0
+        assert st.status == "failed"
+        with pytest.raises(RunActionError) as exc:
+            S.action_advance(st, bp)
+        assert exc.value.code == "run_finished"
+
+    def test_winning_a_boss_pays_the_published_win_reward(self, pool, blueprints):
+        """v1 paid a winner NOTHING and a loser 8 credits, so the only battle
+        income in the game went to the player who was losing."""
+        bp = blueprints(8)
+        st = S.create_run(bp, "r")
+        S.action_select_system(st, bp, bp.system_offers[0][0])
+        for stage in range(1, STAGES_PER_ACT + 1):
+            S.action_choose_node(st, bp, stage_for(bp, 1, stage).options[0].node_id)
+            TestVeteranMinimumInPlay._resolve_open_node(st, bp, pool)
+        before = st.credits
+        S.action_resolve_boss(st, bp, pool)
+        battle = st.battles[0]
+        assert battle.outcome == "win"
+        assert battle.credits_awarded == BOSS_WIN_CREDITS
+        assert st.credits == before + BOSS_WIN_CREDITS
+        assert st.lives == STARTING_LIVES
+        assert BOSS_WIN_CREDITS > COMEBACK_CREDITS
+
+    def test_a_boss_index_beyond_the_blueprint_is_refused_not_an_index_error(
+        self, pool, blueprints
+    ):
+        """`blueprint.bosses[state.act - 1]` had no length guard, so any drift
+        between a stored act and the generated boss list was a 500."""
+        bp = blueprints(SEED_TRADE)
+        st = S.create_run(bp, "r")
+        st.status = "boss_ready"
+        st.act = len(bp.bosses) + 1
+        with pytest.raises(RunActionError) as exc:
+            S.action_resolve_boss(st, bp, pool)
+        assert exc.value.code == "no_boss_for_act"
 
     def test_comeback_credits_actually_land_in_the_players_balance(self, pool, blueprints):
         bp = blueprints(SEED_ALL_LOSSES)
@@ -631,10 +733,10 @@ class TestBossProgression:
             assert battle.credits_awarded == COMEBACK_CREDITS
             assert st.lives == STARTING_LIVES - 1
 
-    def test_a_run_that_survives_all_three_acts_completes(self, pool, play_policy):
+    def test_a_run_that_survives_all_four_acts_completes(self, pool, play_policy):
         bp, st = play_policy(8, random.Random(5), pool, "greedy")
         assert st.status == "complete"
-        assert len(st.battles) == ACTS
+        assert len(st.battles) == ACTS == 4
         assert st.lives >= 1
 
 
@@ -858,3 +960,39 @@ class TestVersionCompatibility:
     def test_a_saved_run_stamps_the_versions_it_was_created_under(self, blueprints):
         st = S.create_run(blueprints(1), "r")
         S.assert_version_compatible(st.versions)
+
+    def test_a_v1_run_is_refused_with_a_message_that_names_the_ruleset(self):
+        """Plan §2.4: strict rejection stays, but the message must be specific
+        and human. v1 said "a different ruleset" for any of four fields."""
+        saved = dict(version_tuple())
+        saved["ruleset_version"] = "rtt_ruleset_v1"
+        with pytest.raises(VersionMismatch) as exc:
+            S.assert_version_compatible(saved)
+        message = str(exc.value)
+        assert "previous ruleset" in message
+        assert "rtt_ruleset_v1" in message
+        assert version_tuple()["ruleset_version"] in message
+        assert "start a new run" in message.lower()
+        assert exc.value.changed_fields == ["ruleset_version"]
+
+    def test_a_non_ruleset_change_names_the_field_that_moved(self):
+        """A card-pool rebuild and a rules change are different events and a
+        player deserves to be told which one cost them their run."""
+        saved = dict(version_tuple())
+        saved["card_pool_version"] = "v2"
+        with pytest.raises(VersionMismatch) as exc:
+            S.assert_version_compatible(saved)
+        message = str(exc.value)
+        assert "card pool v2" in message
+        assert version_tuple()["card_pool_version"] in message
+        assert exc.value.changed_fields == ["card_pool_version"]
+
+    def test_several_changed_fields_are_all_named(self):
+        saved = dict(version_tuple())
+        saved["card_pool_version"] = "v2"
+        saved["engine_version"] = "run_the_table_v0"
+        with pytest.raises(VersionMismatch) as exc:
+            S.assert_version_compatible(saved)
+        assert set(exc.value.changed_fields) == {"card_pool_version", "engine_version"}
+        assert "card pool" in str(exc.value)
+        assert "engine" in str(exc.value)

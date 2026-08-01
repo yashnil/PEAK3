@@ -73,3 +73,21 @@ class PerfectSeasonLeaderboardRepository(Protocol):
         ...
 
     async def list_runs_for_owner(self, owner_sub: str) -> list[PerfectSeasonRun]: ...
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign every submitted run owned by `from_sub` to `to_sub`.
+        Returns the number of runs actually moved.
+
+        Present so this domain cannot be the one the guest claim silently
+        forgets. Today's submit route requires a signed-in account, so an
+        anon-owned row should not exist here in practice and this normally
+        moves 0 -- reported honestly rather than by being absent.
+
+        `display_name` is deliberately NOT rewritten. A submitted run is an
+        immutable record of what was submitted, and the leaderboard shows the
+        name that was standing behind the submission at the time; ownership
+        moving does not retroactively change who the board says played it.
+        `UNIQUE (game_id)` is global rather than owner-scoped, so unlike the
+        other claimable domains there is no per-owner collision to resolve.
+        """
+        ...

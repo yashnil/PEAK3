@@ -99,3 +99,25 @@ class RunTheTableRunRepository(Protocol):
     async def list_runs_for_owner(self, owner_sub: str, limit: int = 20) -> list[StoredRun]:
         """Most recently created first."""
         ...
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign every run owned by `from_sub` to `to_sub`. Returns the
+        number of runs actually moved.
+
+        THIS IS THE HIGHEST-IMPACT HALF OF THE GUEST CLAIM. RUN THE TABLE is
+        anonymous-first by design, so the typical run here is owned by a signed
+        anon-cookie subject; without this method, signing in permanently
+        detached a guest from every run they had played.
+
+        ONE DAILY STILL MEANS ONE DAILY. The partial unique index on
+        `(owner_sub, run_type, run_date) WHERE run_type = 'daily'` survives the
+        transfer: if the destination account already has its own official daily
+        for a date the guest also played, the guest's row cannot move without
+        creating a second official daily for that account. Those rows are
+        dropped rather than moved, exactly as
+        `DailyCompletionRepository.transfer_owner` resolves the same collision
+        on `UNIQUE (owner_sub, board_id)` -- first attempt wins, and the count
+        returned reports only what really moved. Standard and challenge runs
+        are unconstrained and always move.
+        """
+        ...

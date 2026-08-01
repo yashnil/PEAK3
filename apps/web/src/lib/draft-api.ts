@@ -70,7 +70,11 @@ export async function getDailyDraft(
 ): Promise<DraftGameState> {
   const params = new URLSearchParams({ mode });
   if (date) params.set("date", date);
-  return apiFetch<DraftGameState>(`/draft/daily?${params}`);
+  // See the note on getDailyChallenge: a daily board's freshness is declared
+  // here, not inherited from a framework default that could change.
+  return apiFetch<DraftGameState>(`/draft/daily?${params}`, {
+    cache: "no-store",
+  } as RequestInit);
 }
 
 // Get current game state

@@ -33,14 +33,18 @@ import { ChevronDown, RotateCcw } from "lucide-react";
 import { Dialog } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import {
+  accountLinks,
   isActive,
   navGroups,
   topLevelLinks,
   MIN_TAP_TARGET_PX,
   PLAY_TRIGGER_ACTIVE,
+  SIGN_IN_HREF,
   type NavAvailability,
   type NavItem,
 } from "@/lib/nav-model";
+import { useAuth } from "@/lib/auth-context";
+import { signInHref } from "@/lib/supabase/safe-next";
 import { useResumeState } from "@/lib/resume-state";
 
 /** A row's fixed minimum height, as an inline style object. */
@@ -69,6 +73,7 @@ export function MobileNavDrawer({
 }: MobileNavDrawerProps) {
   const groups = navGroups(availability);
   const resume = useResumeState(open);
+  const { signOut } = useAuth();
 
   const daily = topLevelLinks.find((l) => l.id === "daily");
   const rankings = topLevelLinks.find((l) => l.id === "rankings");
@@ -81,6 +86,7 @@ export function MobileNavDrawer({
   const playActive = isActive(pathname, PLAY_TRIGGER_ACTIVE, search);
   const dailyActive = daily ? isActive(pathname, daily, search) : false;
   const learnActive = learnLinks.some((l) => isActive(pathname, l, search));
+  const accountActive = accountLinks.some((l) => isActive(pathname, l, search));
 
   // Exactly one section is ever expanded. Everything open at once would push
   // Rankings below the fold, which is the exact complaint this drawer was
@@ -98,8 +104,10 @@ export function MobileNavDrawer({
   const [expanded, setExpanded] = useState<SectionId | null>(null);
   useEffect(() => {
     if (!open) return;
-    setExpanded(dailyActive ? "daily" : learnActive ? "learn" : "play");
-  }, [open, playActive, dailyActive, learnActive]);
+    setExpanded(
+      dailyActive ? "daily" : learnActive ? "learn" : accountActive ? "account" : "play",
+    );
+  }, [open, playActive, dailyActive, learnActive, accountActive]);
 
   const toggle = (id: SectionId) => setExpanded((current) => (current === id ? null : id));
 
@@ -226,15 +234,57 @@ export function MobileNavDrawer({
           </ul>
         </Section>
 
-        {supabaseEnabled && (
-          <TopRow
-            href={signedIn ? "/profile" : "/signin"}
-            label={signedIn ? "Profile" : "Sign In"}
-            active={isActive(pathname, { href: signedIn ? "/profile" : "/signin" }, search)}
-            onNavigate={onClose}
-            testId="mobile-nav-account"
-          />
-        )}
+        {/* The Account section. `SectionId` has declared an "account" member
+            since this drawer was written, but no `Section id="account"` was ever
+            rendered — the drawer offered one flat row to `/profile`, so a
+            phone user could not reach `/progress` or `/history` from the chrome
+            and could not sign out at all. */}
+        {supabaseEnabled &&
+          (signedIn ? (
+            <Section
+              id="account"
+              label="Account"
+              expanded={expanded === "account"}
+              onToggle={toggle}
+              active={accountActive}
+            >
+              <ul role="list">
+                {accountLinks.map((entry) => (
+                  <li key={entry.id}>
+                    <TopRow
+                      href={entry.href}
+                      label={entry.label}
+                      active={isActive(pathname, entry, search)}
+                      onNavigate={onClose}
+                      testId={`mobile-nav-${entry.id}`}
+                    />
+                  </li>
+                ))}
+                <li>
+                  <button
+                    type="button"
+                    className="pk-nav-drawer-toprow w-full text-left"
+                    style={TAP_TARGET_STYLE}
+                    data-testid="mobile-nav-signout"
+                    onClick={async () => {
+                      onClose();
+                      await signOut();
+                    }}
+                  >
+                    <span>Sign out</span>
+                  </button>
+                </li>
+              </ul>
+            </Section>
+          ) : (
+            <TopRow
+              href={signInHref(`${pathname}${search ? `?${search}` : ""}`)}
+              label="Sign in"
+              active={isActive(pathname, { href: SIGN_IN_HREF }, search)}
+              onNavigate={onClose}
+              testId="mobile-nav-account"
+            />
+          ))}
       </nav>
     </Dialog>
   );

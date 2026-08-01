@@ -185,3 +185,41 @@ class PostgresRunTheTableRunRepository:
                 owner_sub, limit,
             )
             return [_row_to_run(row) for row in rows]
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign this owner's runs to `to_sub` -- the guest-claim path.
+
+        Runs in ONE transaction, and respects the partial unique index on
+        `(owner_sub, run_type, run_date) WHERE run_type = 'daily'`: a guest
+        daily whose date the destination account has already played cannot move
+        without minting a second official daily for that account, so it is left
+        out of the UPDATE and removed with the sweep below. Same
+        first-attempt-wins resolution, and the same move-then-sweep shape, as
+        PostgresDailyCompletionRepository.transfer_owner. The count returned is
+        what actually moved, never what was attempted.
+        """
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                result = await conn.execute(
+                    """
+                    UPDATE run_the_table_runs AS r
+                       SET owner_sub = $2, updated_at = NOW()
+                     WHERE r.owner_sub = $1
+                       AND (
+                            r.run_type <> 'daily'
+                         OR r.run_date IS NULL
+                         OR NOT EXISTS (
+                                SELECT 1 FROM run_the_table_runs AS existing
+                                 WHERE existing.owner_sub = $2
+                                   AND existing.run_type = 'daily'
+                                   AND existing.run_date = r.run_date
+                            )
+                       )
+                    """,
+                    from_sub, to_sub,
+                )
+                moved = int(result.split()[-1])
+                await conn.execute(
+                    "DELETE FROM run_the_table_runs WHERE owner_sub = $1", from_sub
+                )
+        return moved

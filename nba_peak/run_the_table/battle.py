@@ -13,7 +13,8 @@ from nba_peak.run_the_table.cards import CardPool
 from nba_peak.run_the_table.config import (
     BENCH_WEIGHT_DEEP_ROTATION,
     BENCH_WEIGHT_DEFAULT,
-    BENCH_WEIGHT_TOP_HEAVY,
+    BOSS_BENCH_WEIGHT,
+    BOSS_LANE_MARGIN,
     LANE_EPSILON,
     LANE_FIELDS,
     LANE_LABELS,
@@ -31,17 +32,53 @@ def bench_weight_for(systems: Sequence[str], boss_rule_id: Optional[str]) -> tup
     Boss rules are symmetric by contract: they set the same weight for both
     sides and override any System, so a boss can never secretly advantage
     itself. Deep Rotation only applies when no boss rule has fixed the weight.
+
+    The player value is the HIGHEST weight Deep Rotation may use; under v2 the
+    perk takes the better of the two per lane (see
+    :func:`player_bench_weight_candidates`), so this is the headline weight the
+    UI reports rather than the single weight every lane was scored at.
     """
-    if boss_rule_id == "strength_in_numbers":
-        return BENCH_WEIGHT_DEEP_ROTATION, BENCH_WEIGHT_DEEP_ROTATION
-    if boss_rule_id == "top_heavy":
-        return BENCH_WEIGHT_TOP_HEAVY, BENCH_WEIGHT_TOP_HEAVY
+    fixed = BOSS_BENCH_WEIGHT.get(boss_rule_id) if boss_rule_id else None
+    if fixed is not None:
+        return fixed, fixed
     player = (
         BENCH_WEIGHT_DEEP_ROTATION
         if "deep_rotation" in systems
         else BENCH_WEIGHT_DEFAULT
     )
     return player, BENCH_WEIGHT_DEFAULT
+
+
+def player_bench_weight_candidates(
+    systems: Sequence[str], boss_rule_id: Optional[str]
+) -> tuple[float, ...]:
+    """Every bench weight the player's side is scored at, best-of per lane.
+
+    One value normally. Two under Deep Rotation, because v2's Deep Rotation is
+    "the better of the two weights, per lane" rather than a flat re-weight —
+    ``lane_score`` is a weighted mean, so a flat re-weight LOWERS the score of
+    any roster whose bench is weaker than its starters, which is the default.
+
+    A boss rule that fixes the bench weight for both teams collapses this back
+    to exactly one value, which is why the perk's published summary says so.
+    """
+    fixed = BOSS_BENCH_WEIGHT.get(boss_rule_id) if boss_rule_id else None
+    if fixed is not None:
+        return (fixed,)
+    if "deep_rotation" in systems:
+        return (BENCH_WEIGHT_DEFAULT, BENCH_WEIGHT_DEEP_ROTATION)
+    return (BENCH_WEIGHT_DEFAULT,)
+
+
+def lane_margin_threshold(boss_rule_id: Optional[str]) -> float:
+    """How far apart two lane scores must be before either side takes the lane.
+
+    ``LANE_EPSILON`` normally — it only guards float representation. A boss
+    whose published rule raises the band returns that band instead, applied to
+    ``|margin|`` so it removes lanes from both teams identically.
+    """
+    band = BOSS_LANE_MARGIN.get(boss_rule_id, 0.0) if boss_rule_id else 0.0
+    return max(LANE_EPSILON, band)
 
 
 def lane_score(
@@ -85,6 +122,44 @@ def roster_lane_profile(
     }
 
 
+def best_lane_score(
+    pool: CardPool,
+    starter_ids: Sequence[str],
+    bench_ids: Sequence[str],
+    lane: str,
+    bench_weights: Sequence[float],
+) -> float:
+    """The best of several bench weightings for one lane.
+
+    With a single weight this is exactly :func:`lane_score`. With two (Deep
+    Rotation) it is the better of them, which is the whole of that perk's
+    mechanic and the reason it is a buff rather than the v1 nerf.
+    """
+    return max(
+        lane_score(pool, starter_ids, bench_ids, lane, w) for w in bench_weights
+    )
+
+
+def player_lane_profile(
+    pool: CardPool,
+    starter_ids: Sequence[str],
+    bench_ids: Sequence[str],
+    systems: Sequence[str] = (),
+    boss_rule_id: Optional[str] = None,
+) -> dict[str, float]:
+    """The player's five lane scores under their Systems and the active rule.
+
+    This — not :func:`roster_lane_profile` — is what the player is scored at,
+    and therefore what the UI must display, so that the number on the roster
+    screen is the number the battle uses.
+    """
+    weights = player_bench_weight_candidates(systems, boss_rule_id)
+    return {
+        lane: best_lane_score(pool, starter_ids, bench_ids, lane, weights)
+        for lane in LANE_FIELDS
+    }
+
+
 def roster_total(profile: dict[str, float]) -> float:
     """Overall roster strength: lane profile recombined with official weights.
 
@@ -113,47 +188,37 @@ def resolve_battle(
     systems: Sequence[str],
     lives_before: int,
     comeback_credits: int,
+    win_credits: int = 0,
 ) -> BattleResult:
     """Resolve one boss battle. Pure function of its arguments."""
+    p_weights = player_bench_weight_candidates(systems, opponent.rule_id)
     p_bw, o_bw = bench_weight_for(systems, opponent.rule_id)
+    threshold = lane_margin_threshold(opponent.rule_id)
 
     lanes: list[LaneResult] = []
     p_wins = o_wins = ties = 0
     summed_margin = 0.0
 
     for lane in LANE_FIELDS:
-        p = lane_score(pool, player_starters, player_bench, lane, p_bw)
+        p = best_lane_score(pool, player_starters, player_bench, lane, p_weights)
         o = lane_score(pool, opponent.starter_ids, opponent.bench_ids, lane, o_bw)
         margin = round(p - o, LANE_ROUNDING)
         summed_margin += margin
 
+        # `tie_broken_by_rule` means "the boss rule, not the raw margin,
+        # determined this lane's result". Under a lane-margin rule that means
+        # a lane one side would otherwise have taken is drawn instead.
         tie_broken = False
-        if margin > LANE_EPSILON:
+        if margin > threshold:
             winner = "player"
             p_wins += 1
-        elif margin < -LANE_EPSILON:
+        elif margin < -threshold:
             winner = "opponent"
             o_wins += 1
         else:
-            # "The Wall": Traditional Production wins exact lane ties, for both
-            # sides. It is symmetric — whoever leads TP takes the tied lane.
-            if opponent.rule_id == "the_wall":
-                p_tp = lane_score(pool, player_starters, player_bench, "traditional_production", p_bw)
-                o_tp = lane_score(pool, opponent.starter_ids, opponent.bench_ids, "traditional_production", o_bw)
-                if abs(p_tp - o_tp) > LANE_EPSILON:
-                    tie_broken = True
-                    if p_tp > o_tp:
-                        winner = "player"
-                        p_wins += 1
-                    else:
-                        winner = "opponent"
-                        o_wins += 1
-                else:
-                    winner = "tie"
-                    ties += 1
-            else:
-                winner = "tie"
-                ties += 1
+            winner = "tie"
+            ties += 1
+            tie_broken = abs(margin) > LANE_EPSILON
 
         lanes.append(
             LaneResult(
@@ -173,7 +238,9 @@ def resolve_battle(
             )
         )
 
-    p_profile = roster_lane_profile(pool, player_starters, player_bench, p_bw)
+    p_profile = player_lane_profile(
+        pool, player_starters, player_bench, systems, opponent.rule_id
+    )
     o_profile = roster_lane_profile(pool, opponent.starter_ids, opponent.bench_ids, o_bw)
     p_total = roster_total(p_profile)
     o_total = roster_total(o_profile)
@@ -195,10 +262,14 @@ def resolve_battle(
     else:
         outcome, decided_by = "draw", "exact_draw"
 
-    # A draw is not a loss: it costs nothing and does not award comeback credits.
+    # A draw is not a loss: it costs nothing, and it pays neither the win reward
+    # nor the comeback. It is also not a win, so it never clears the table.
     if outcome == "loss":
         lives_after = lives_before - 1
         credits_awarded = comeback_credits if lives_after > 0 else 0
+    elif outcome == "win":
+        lives_after = lives_before
+        credits_awarded = win_credits
     else:
         lives_after = lives_before
         credits_awarded = 0

@@ -7,22 +7,50 @@ import {
   DECIDED_BY_LABELS,
   buildRunShareText,
   challengeUrl,
+  formatReceiptItem,
   formatSigned,
+  outcomeColorVar,
+  receiptItemColorVar,
+  receiptItems,
   receiptLaneProfile,
+  runOutcome,
+  runVerdict,
   signedColorVar,
   slotLabel,
   trackRunTheTable,
 } from "@/lib/run-the-table-state";
+import {
+  PERK_EXACT_RULE_LABEL,
+  perkPlainEffect,
+  perkStrategyHint,
+} from "@/lib/run-the-table-copy";
 import LaneProfile from "./LaneProfile";
 
 /**
  * The run receipt.
  *
- * Every claim on this screen is a field on `build_receipt()` — the verdict,
- * the MVP's marginal contribution, the best acquisition's value per credit,
- * the closest battle's tightest lane margin, and the `reasons[]` list, which
- * the engine emits already carrying a `signed_value`. Nothing is re-derived,
- * ranked or editorialised here; the component's job is to lay it out.
+ * Every claim on this screen is a field on `build_receipt()` — the MVP's
+ * marginal contribution, the best acquisition's value per credit, the closest
+ * battle's tightest lane margin, and the explanation lines. Nothing is
+ * re-derived, ranked or editorialised here; the component's job is to lay it
+ * out.
+ *
+ * TWO CONTRACT CHANGES LAND HERE.
+ *
+ * 1. THE VERDICT (plan §2.2). `"RUN COMPLETE"` is retired — it was printed for
+ *    a 0-for-3 losing run, which is victory framing on a defeat. The three
+ *    strings are `TABLE CLEARED`, `RUN ENDED AT THE FINAL BOSS` and
+ *    `RUN ENDED IN ACT {n}`, and `runVerdict()` derives them for a v1 receipt
+ *    saved before the engine emitted an `outcome`.
+ *
+ * 2. THE RECEIPT LINES (plan §2.3). Colour now comes from `item.kind` and from
+ *    NOTHING ELSE. It used to come from the sign of `reason.signed_value`, and
+ *    the engine negated a credit HOLDING to force that colour — so this screen
+ *    printed "Finished holding 68 unspent credits" beside a red −68.0, two
+ *    sections below a Credits block that said `finished holding 68`. Old
+ *    receipts still render: `receiptItems()` falls back to `reasons[]`.
+ *    `signedColorVar` survives only where a signed delta genuinely IS the
+ *    semantic — a PEAK3 score delta on an acquisition or a trade.
  *
  * The confirmation pattern is ShareRunPanel's: the button's own label swaps
  * for two seconds. No toast.
@@ -31,6 +59,10 @@ interface Props {
   receipt: RunReceipt;
   versions: RunVersions;
   busy: boolean;
+  /** `state.acts_total`. Optional: without it the outcome is derived from the
+   *  battles on the receipt, which can only under-report "reached the final
+   *  boss" and never claims a clear that did not happen. */
+  actsTotal?: number | null;
   onRunItBack: () => void;
   onReplaySeed: () => void;
   onChallenge: () => Promise<string | null>;
@@ -42,6 +74,7 @@ export default function RunResult({
   receipt,
   versions,
   busy,
+  actsTotal,
   onRunItBack,
   onReplaySeed,
   onChallenge,
@@ -49,11 +82,10 @@ export default function RunResult({
   const [copied, setCopied] = useState<CopiedKind>(null);
   const [challengeError, setChallengeError] = useState<string | null>(null);
   const roster = [...receipt.starters, ...receipt.bench];
-  const stampColor = receipt.ran_the_table
-    ? "var(--correct)"
-    : receipt.verdict === "RUN ENDED"
-      ? "var(--incorrect)"
-      : "var(--peak-accent)";
+  const outcome = runOutcome(receipt, actsTotal);
+  const verdict = runVerdict(receipt, actsTotal);
+  const stampColor = outcomeColorVar(outcome);
+  const items = receiptItems(receipt);
 
   function flash(kind: Exclude<CopiedKind, null>) {
     setCopied(kind);
@@ -92,8 +124,9 @@ export default function RunResult({
           className="text-[11px] font-black uppercase tracking-[0.22em]"
           style={{ color: stampColor }}
           data-testid="rtt-result-verdict"
+          data-outcome={outcome}
         >
-          {receipt.verdict}
+          {verdict}
         </span>
         <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
           {receipt.headline}
@@ -189,14 +222,47 @@ export default function RunResult({
             No perk was ever selected.
           </p>
         ) : (
-          receipt.systems.map((sys) => (
-            <p key={sys.id} className="text-xs" style={{ color: "var(--text-secondary)" }}>
-              <span className="font-semibold" style={{ color: "var(--peak-accent)" }}>
-                {sys.name}
-              </span>{" "}
-              — {sys.summary}
-            </p>
-          ))
+          // Three layers, same as `SystemSelect` and the tray (plan §6). This
+          // surface used to show NO plain line at all — just the name and the
+          // dense threshold summary — so the one screen a player reads after
+          // the run was the one that never said what their perk did.
+          receipt.systems.map((sys) => {
+            const plain = perkPlainEffect(sys.id);
+            const hint = perkStrategyHint(sys.id);
+            return (
+              <div key={sys.id} className="flex flex-col" data-testid={`rtt-result-system-${sys.id}`}>
+                <p className="text-xs" style={{ color: "var(--text-primary)" }}>
+                  <span className="font-semibold" style={{ color: "var(--peak-accent)" }}>
+                    {sys.name}
+                  </span>{" "}
+                  — {plain ?? sys.summary}
+                </p>
+                {hint && (
+                  <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                    {hint}
+                  </p>
+                )}
+                {plain && (
+                  <details data-testid={`rtt-result-system-rule-${sys.id}`}>
+                    <summary
+                      className="cursor-pointer select-none text-[11px]"
+                      style={{
+                        color: "var(--text-muted)",
+                        textDecoration: "underline",
+                        textUnderlineOffset: "2px",
+                      }}
+                    >
+                      {PERK_EXACT_RULE_LABEL}
+                      <span className="sr-only"> for {sys.name}</span>
+                    </summary>
+                    <p className="pt-0.5 text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                      {sys.summary}
+                    </p>
+                  </details>
+                )}
+              </div>
+            );
+          })
         )}
       </section>
 
@@ -303,29 +369,39 @@ export default function RunResult({
         </p>
       </section>
 
-      {/* Reasons — the signed-delta receipt */}
+      {/* The semantic receipt (plan §2.3).
+          COLOUR COMES FROM `kind` AND FROM NOTHING ELSE — never from the sign
+          of the number beside it. `value` is printed as the true magnitude the
+          engine sent, so a credit HOLDING reads as 68 in the muted tone and
+          not as a red −68. `receiptItems()` adapts a v1 `reasons[]` receipt
+          into the same shape, so an old saved run still renders. */}
       <section className="flex flex-col gap-1.5">
         <h3 className="rtt-result-heading">Why this run ended this way</h3>
-        {receipt.reasons.length === 0 ? (
+        {items.length === 0 ? (
           <p className="text-xs" style={{ color: "var(--text-muted)" }}>
             Not enough happened to explain.
           </p>
         ) : (
           <ul className="flex flex-col gap-1" data-testid="rtt-result-reasons">
-            {receipt.reasons.map((reason, i) => (
+            {items.map((item, i) => (
               <li
-                key={`${reason.kind}-${i}`}
+                key={`${item.kind}-${i}`}
+                data-testid={`rtt-result-item-${i}`}
+                data-kind={item.kind}
                 className="flex items-baseline gap-2 rounded-lg px-2 py-1.5"
                 style={{ background: "var(--bg-surface)" }}
               >
+                {/* `min-w`, not a fixed `w-12`: a `display` string is real
+                    copy ("3 of 5 battles"), not a number, and a fixed column
+                    would clip it. */}
                 <span
-                  className="score-number w-12 shrink-0 text-right text-xs font-bold"
-                  style={{ color: signedColorVar(reason.signed_value) }}
+                  className="score-number min-w-12 shrink-0 whitespace-nowrap text-right text-xs font-bold"
+                  style={{ color: receiptItemColorVar(item.kind) }}
                 >
-                  {formatSigned(reason.signed_value, 1)}
+                  {formatReceiptItem(item)}
                 </span>
                 <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                  {reason.text}
+                  {item.label}
                 </span>
               </li>
             ))}

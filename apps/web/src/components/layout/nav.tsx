@@ -16,8 +16,17 @@
  *     navigation landmark by that exact name.
  *   - The active class string `bg-[var(--bg-surface)]`, asserted literally by
  *     `play-routing.spec.ts`.
- *   - The wordmark link to `/`, and the Profile/Sign In link gated on
+ *   - The wordmark link to `/`, and the account control gated on
  *     `supabaseEnabled`.
+ *
+ * WHAT THE AUTH PASS CHANGED. The account control was a single text link reading
+ * `user ? "Profile" : "Sign In"`. Signed in, that offered no way to tell which
+ * account, no route to `/progress` or `/history`, and no sign-out without first
+ * visiting `/profile`. It is now `AccountMenu`: still one link when signed out
+ * (now carrying `?returnTo=` for the current page), an initials avatar and a
+ * disclosure panel when signed in. `supabaseEnabled` still gates the whole
+ * thing, so an anonymous-only deployment renders exactly what it did before —
+ * nothing.
  *
  * WHY NOT `useSearchParams`. Two nav rows share a path and differ only by query
  * (`/arena/run-the-table` and `?mode=daily`), so the highlight wants the query.
@@ -45,6 +54,7 @@ import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { isActive, topLevelLinks } from "@/lib/nav-model";
+import { AccountMenu } from "@/components/auth/AccountMenu";
 import { PlayMenu } from "./PlayMenu";
 import { MobileNavDrawer } from "./MobileNavDrawer";
 
@@ -108,17 +118,9 @@ export function Nav() {
               );
             })}
           </ul>
-          {supabaseEnabled && (
-            <Link
-              href={user ? "/profile" : "/signin"}
-              className={cn(
-                "pk-nav-account ml-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
-                "text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]",
-              )}
-            >
-              {user ? "Profile" : "Sign In"}
-            </Link>
-          )}
+          {/* Gating lives inside AccountMenu (it needs `user` anyway), so the
+              anonymous-only deployment still renders no account affordance. */}
+          <AccountMenu pathname={pathname} search={search} />
         </nav>
 
         {/* Mobile trigger. No `aria-controls`: the drawer is portalled and only

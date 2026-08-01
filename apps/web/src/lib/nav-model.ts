@@ -393,6 +393,50 @@ export const topLevelLinks: readonly TopLevelNavLink[] = [
   { id: "about", label: "About", href: "/about" },
 ] as const;
 
+/* ------------------------------------------------------------------ */
+/* Account                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The signed-in destinations.
+ *
+ * WHY THEY ARE HERE NOW. Before this pass `/profile`, `/signin`, `/signup`,
+ * `/progress` and `/history` were string literals inside `nav.tsx` and
+ * `MobileNavDrawer.tsx` and appeared in this module nowhere at all — so the
+ * reachability invariant in `nav-model.test.ts` ("every nav href resolves to a
+ * real route") could not see them, and `/progress` had no nav entry of any kind:
+ * a finished, tested page reachable only by typing its URL. Listing them as data
+ * puts them under the same test as every other destination.
+ *
+ * WHY THEY ARE NOT IN `navGroups()`. `navModelIssues` enforces that every entry
+ * in the launcher has a blurb, is a game or a supporting link, and maps to
+ * `MODE_COPY` where applicable. These are none of those things — they are the
+ * account menu, they are gated on a live session, and they must not appear in a
+ * "which games exist" listing. They join `allNavHrefs()` for reachability and
+ * stop there.
+ */
+export const accountLinks: readonly TopLevelNavLink[] = [
+  { id: "profile", label: "Profile", href: "/profile" },
+  { id: "progress", label: "Progress", href: "/progress" },
+  { id: "history", label: "Match history", href: "/history" },
+] as const;
+
+/** Where an unauthenticated visitor is sent. */
+export const SIGN_IN_HREF = "/signin";
+
+/** Where a visitor without an account is sent to make one. */
+export const SIGN_UP_HREF = "/signup";
+
+/**
+ * Every account href, signed-in and signed-out alike.
+ *
+ * Exported for the reachability test, which must cover the signed-out routes
+ * too — `/signin` and `/signup` are the two most linked-to pages in the product.
+ */
+export function accountNavHrefs(): string[] {
+  return [...accountLinks.map((item) => item.href), SIGN_IN_HREF, SIGN_UP_HREF];
+}
+
 /**
  * What makes the Play trigger read as the current section.
  *
@@ -465,13 +509,20 @@ export function allGameHrefs(availability: NavAvailability = {}): string[] {
   return [...seen];
 }
 
-/** Every href the launcher exposes, games and supporting links alike. */
+/**
+ * Every href the chrome exposes: launcher, top level, and the account menu.
+ *
+ * The account hrefs are included so the reachability test covers them. They were
+ * invisible to it until this pass, which is how `/auth/reset-password` — linked
+ * from `sendPasswordReset` — went a whole phase without ever existing.
+ */
 export function allNavHrefs(availability: NavAvailability = {}): string[] {
   const seen = new Set<string>();
   for (const group of navGroups(availability)) {
     for (const item of group.items) seen.add(item.href);
   }
   for (const item of topLevelLinks) seen.add(item.href);
+  for (const href of accountNavHrefs()) seen.add(href);
   return [...seen];
 }
 

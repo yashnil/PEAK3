@@ -27,6 +27,12 @@ import {
   saveArchive,
 } from "@/lib/daily-grid-archive";
 import {
+  type DailyWindowPayload,
+  extractDailyWindow,
+  formatCountdown,
+} from "@/lib/daily-time";
+import { useDailyReset } from "@/lib/use-daily-reset";
+import {
   TOTAL_CELLS,
   elapsedMs,
   emptyProgress,
@@ -50,7 +56,8 @@ import CompletionPanel from "./CompletionPanel";
 import HowToPlay from "./HowToPlay";
 
 interface Props {
-  /** Optional YYYY-MM-DD override; omitted means today (UTC), decided server-side. */
+  /** Optional YYYY-MM-DD ARCHIVE date. Omitted means today's board, which the
+   *  server decides (midnight America/Los_Angeles) — never this component. */
   date?: string;
   /** Test seam: pre-loaded board, so unit tests never need the API. */
   initialBoard?: DailyGridBoard;
@@ -113,6 +120,19 @@ function StatTile({
  */
 export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Props) {
   const [board, setBoard] = useState<DailyGridBoard | null>(initialBoard ?? null);
+  // The server's window for the board on screen: which day it is and how long
+  // it has left. Never derived here -- see lib/daily-time.ts.
+  const [window_, setWindow] = useState<DailyWindowPayload | null>(
+    extractDailyWindow(initialBoard),
+  );
+  // Bumped to force the board effect to run again at a rollover. The effect's
+  // real dependencies (`date`, `initialBoard`) are BOTH permanently undefined
+  // on the canonical /daily/grid route, so without this the board was fetched
+  // exactly once per mount and never again -- a tab left open through midnight
+  // kept playing yesterday's board while posting answers against yesterday's
+  // date, and the server correctly filed the whole session as an archive
+  // replay, silently breaking a streak the player had actually earned.
+  const [reloadToken, setReloadToken] = useState(0);
   const [loading, setLoading] = useState(!initialBoard);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [progress, setProgress] = useState<DailyGridProgress | null>(
@@ -165,10 +185,15 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
       .then((b) => {
         if (cancelled) return;
         setBoard(b);
+        setWindow(extractDailyWindow(b));
         // A new date means a new board_id means a new storage key, so
         // yesterday's grid can never bleed into today's.
         setProgress(loadProgress(b.board_id) ?? emptyProgress(b));
         setLoadError(null);
+        setResult(null);
+        setResultError(null);
+        setSelected(null);
+        setCellMessage(null);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -182,7 +207,26 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
     return () => {
       cancelled = true;
     };
-  }, [date, initialBoard]);
+  }, [date, initialBoard, reloadToken]);
+
+  // --- the rollover -------------------------------------------------------
+  // Fires when this board's window closes -- either because the countdown ran
+  // out in a foreground tab, or because the tab came back from the background
+  // (or the machine from sleep) past the boundary. An ARCHIVE board reports
+  // `seconds_remaining: 0` and never arms, so opening `?date=` deliberately is
+  // not yanked out from under the player. `date` is likewise left alone: a
+  // rollover refetches the SAME request the mount made, which for the canonical
+  // route means today's board and for an archive route means the same archive
+  // board (which cannot roll over at all).
+  const { secondsLeft } = useDailyReset({
+    dailyKey: window_?.daily_key ?? null,
+    secondsRemaining: window_?.seconds_remaining ?? null,
+    window: window_,
+    onReset: useCallback(() => {
+      if (date) return; // an explicit archive board has nothing to roll over to
+      setReloadToken((t) => t + 1);
+    }, [date]),
+  });
 
   // --- persist ------------------------------------------------------------
   useEffect(() => {
@@ -398,7 +442,15 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   const selectedFilled = selected ? findFilled(progress, selected.row, selected.col) : null;
   // A board reached through ?date= that is not today's. Fully playable, but
   // labelled, and it never touches the live streak (see daily-grid-archive.ts).
-  const isArchiveBoard = !isCanonicalToday(board.date);
+  //
+  // Decided from the SERVER's window when there is one -- an archive board's
+  // window has already closed, which is a fact about the board rather than an
+  // opinion about the browser's clock. `isCanonicalToday` is the fallback for
+  // an API old enough not to send the block, and for the unit-test seam that
+  // injects a board directly.
+  const isArchiveBoard = window_
+    ? window_.seconds_remaining <= 0
+    : !isCanonicalToday(board.date);
 
   return (
     <div className="mx-auto w-full max-w-6xl px-3 pb-16 pt-6 sm:px-4">
@@ -535,6 +587,16 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
           &ldquo;1999-00 Shaquille O&rsquo;Neal&rdquo;, not just &ldquo;Shaquille O&rsquo;Neal&rdquo;.{" "}
           <span data-testid="daily-grid-theme">{board.theme}</span> ·{" "}
           <span data-testid="daily-grid-date">{board.date}</span>
+          {/* Counted down from the server's own window, not from a boundary
+              derived in the browser — the two used to disagree by up to a day. */}
+          {!isArchiveBoard && secondsLeft !== null && (
+            <>
+              {" · "}
+              <span data-testid="daily-grid-countdown">
+                New board in {formatCountdown(secondsLeft)}
+              </span>
+            </>
+          )}
         </p>
       </header>
 

@@ -169,13 +169,24 @@ class TestMoneyball:
 
 
 class TestDeepRotation:
-    """"Your bench counts at 0.65 instead of 0.35 in every lane." """
+    """"Your bench counts at 0.65 instead of 0.35 in every lane where that
+    helps you, and never in a lane where it would hurt." """
 
     def test_summary_string_matches_the_constants(self):
         assert system_by_id("deep_rotation")["summary"] == (
-            "Your bench counts at 0.65 instead of 0.35 in every lane — unless a "
-            "boss rule fixes the bench weight for both teams."
+            "Your bench counts at 0.65 instead of 0.35 in every lane where that "
+            "helps you, and never in a lane where it would hurt — unless a boss "
+            "rule fixes the bench weight for both teams."
         )
+
+    def test_the_summary_no_longer_promises_a_flat_re_weight(self):
+        """v1 published "in every lane" for a flat re-weight of a weighted MEAN,
+        which LOWERS the score of any roster whose bench is weaker than its
+        starters — the default for every generated roster. The claim and the
+        applied effect pointed in opposite directions."""
+        summary = system_by_id("deep_rotation")["summary"]
+        assert "where that helps you" in summary
+        assert "never in a lane where it would hurt" in summary
 
     def test_the_summary_admits_that_a_boss_rule_overrides_it(self):
         """`bench_weight_for` lets a boss rule fix the weight for both teams,
@@ -210,6 +221,27 @@ class TestDeepRotation:
 
         assert bench_weight_for((), None) == (0.35, 0.35)
         assert bench_weight_for(("deep_rotation",), None) == (0.65, 0.35)
+
+    def test_deep_rotation_can_never_lower_a_lane_score(self, pool, blueprints):
+        """The v1 defect, asserted directly against the real pool: over every
+        starting roster the engine generates, the perk must not produce a single
+        lane below what the player would have had without it."""
+        from nba_peak.run_the_table.battle import player_lane_profile
+
+        raised = 0
+        for seed in range(120):
+            bp = blueprints(seed)
+            s, b = list(bp.starting_starters), list(bp.starting_bench)
+            base = player_lane_profile(pool, s, b, ())
+            perked = player_lane_profile(pool, s, b, ("deep_rotation",))
+            for lane, value in perked.items():
+                assert value >= base[lane], (
+                    f"seed {seed}: Deep Rotation LOWERED {lane} "
+                    f"({base[lane]} -> {value})"
+                )
+                raised += value > base[lane]
+        # ... and it must actually do something, or it is a dead perk.
+        assert raised > 0
 
 
 class TestNoHardware:
@@ -527,7 +559,9 @@ class TestPublishedThresholds:
             "two_way_value": pricing.qualifies_two_way,
             "veteran_minimum": pricing.qualifies_veteran_minimum,
             "trade_machine": pricing.refund_for,
-            "deep_rotation": battle.bench_weight_for,
+            # The function that APPLIES Deep Rotation is the candidate-weight
+            # chooser, not the display helper beside it.
+            "deep_rotation": battle.player_bench_weight_candidates,
         }
         assert set(rules) == set(SYSTEM_IDS)
 

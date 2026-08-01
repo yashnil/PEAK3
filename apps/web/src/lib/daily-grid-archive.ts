@@ -7,7 +7,9 @@
  * of it is eligible for a leaderboard (CLAUDE.md § Security).
  *
  * THE STREAK RULE, AND WHY IT IS THE STRICT ONE
- * Only a board played on its OWN UTC date counts. Finishing today's grid
+ * Only a board played on its OWN date counts — where "its own date" is the
+ * server's daily key, midnight America/Los_Angeles (`nba_peak/daily_key.py`,
+ * mirrored client-side by `lib/daily-time.ts`). Finishing today's grid
  * continues the streak; finishing an archive board through `?date=` is
  * recorded in history and shown, but never touches `current_streak`.
  *
@@ -37,6 +39,12 @@ import {
   GridResultResponse,
 } from "@/types/daily-grid";
 import { elapsedMs, resultGrade, totalArenaPoints } from "@/lib/daily-grid-state";
+import {
+  daysBetweenKeys,
+  formatCountdown as formatCountdownSeconds,
+  secondsUntilNextPacificMidnight,
+  todayPacific as pacificDateKey,
+} from "@/lib/daily-time";
 
 export function emptyArchive(): DailyGridArchive {
   return {
@@ -57,40 +65,44 @@ export function emptyArchive(): DailyGridArchive {
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Today in UTC as YYYY-MM-DD — the same clock the server generates boards on
- *  (nba_peak/daily_grid/generator.py::today_utc_date). Using the browser's
- *  local date instead would put a player in UTC+13 on "tomorrow's" streak day
- *  while the API is still serving today's board. */
-export function todayUtc(now: Date = new Date()): string {
-  return now.toISOString().slice(0, 10);
+/**
+ * Today's board date as YYYY-MM-DD, in the product-wide reset zone.
+ *
+ * This is the LOCAL fallback: the authoritative value is `daily.daily_key` on
+ * whatever the server last answered, and any surface holding a response should
+ * prefer it. The archive, though, is a purely client-side store that has to be
+ * readable with no network at all, so it derives the same key the same way the
+ * server does -- through the browser's IANA tz database, never a fixed offset,
+ * so the two DST days come out right.
+ *
+ * It was UTC until this pass, which meant a player in Los Angeles rolled onto
+ * "tomorrow's" streak day at 5pm their time, while the API was still serving
+ * the board they were looking at.
+ */
+export function todayPacific(now: Date = new Date()): string {
+  return pacificDateKey(now);
 }
+
+/** @deprecated The boundary is Pacific, not UTC. Kept as an alias so no caller
+ *  breaks mid-rename; use `todayPacific`. */
+export const todayUtc = todayPacific;
 
 /** Whole days from `from` to `to`, both YYYY-MM-DD. Negative if `to` is
  *  earlier. Parsed as UTC midnight, so DST cannot make a day 23 or 25 hours. */
 export function daysBetween(from: string, to: string): number {
-  const a = Date.parse(`${from}T00:00:00Z`);
-  const b = Date.parse(`${to}T00:00:00Z`);
-  if (Number.isNaN(a) || Number.isNaN(b)) return Number.NaN;
-  return Math.round((b - a) / 86_400_000);
+  return daysBetweenKeys(from, to);
 }
 
 /** Is `date` the board the player is meant to be playing right now? */
 export function isCanonicalToday(date: string, now: Date = new Date()): boolean {
-  return DATE_PATTERN.test(date) && date === todayUtc(now);
+  return DATE_PATTERN.test(date) && date === todayPacific(now);
 }
 
-/** Milliseconds until the next UTC midnight, when a new board appears. */
+/** Milliseconds until the next reset (midnight Pacific), when a new board
+ *  appears. Local fallback only — a surface holding a server response should
+ *  count down from its `daily.seconds_remaining` instead. */
 export function msUntilNextBoard(now: Date = new Date()): number {
-  const next = Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate() + 1,
-    0,
-    0,
-    0,
-    0,
-  );
-  return Math.max(0, next - now.getTime());
+  return secondsUntilNextPacificMidnight(now) * 1000;
 }
 
 /** The API's own bound on a reported duration (`OfficialResultRequest`).
@@ -121,15 +133,13 @@ export function reportableElapsedSeconds(
   return seconds > MAX_REPORTABLE_ELAPSED_SECONDS ? null : seconds;
 }
 
-/** "6h 41m", or "48s" in the last minute. Coarse on purpose: a second-by-second
- *  countdown to a board 14 hours away is noise, not information. */
+/** "6h 41m", or "48s" in the last minute. Takes MILLISECONDS, because that is
+ *  what `msUntilNextBoard` returns; the shared implementation in
+ *  `lib/daily-time.ts` takes SECONDS, because that is what the server's
+ *  `daily.seconds_remaining` is. One formatter, two call shapes -- the
+ *  conversion happens here so neither caller has to think about it. */
 export function formatCountdown(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m`;
-  return `${totalSeconds}s`;
+  return formatCountdownSeconds(Math.max(0, Math.floor(ms / 1000)));
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +164,7 @@ function streakDates(entries: DailyGridArchiveEntry[]): string[] {
  */
 export function currentStreak(
   entries: DailyGridArchiveEntry[],
-  asOf: string = todayUtc(),
+  asOf: string = todayPacific(),
 ): number {
   const dates = streakDates(entries);
   if (dates.length === 0) return 0;
@@ -232,7 +242,7 @@ function isValidEntry(value: unknown): value is DailyGridArchiveEntry {
  * hand-edited to claim a 900-day streak is corrected the moment it is loaded,
  * rather than being displayed once and fixed later.
  */
-export function loadArchive(asOf: string = todayUtc()): DailyGridArchive {
+export function loadArchive(asOf: string = todayPacific()): DailyGridArchive {
   if (typeof window === "undefined") return emptyArchive();
   let raw: string | null = null;
   try {
@@ -332,7 +342,7 @@ export function buildArchiveEntry(
 export function recordCompletedBoard(
   archive: DailyGridArchive,
   entry: DailyGridArchiveEntry,
-  asOf: string = todayUtc(),
+  asOf: string = todayPacific(),
 ): DailyGridArchive {
   const others = archive.entries.filter((e) => e.board_id !== entry.board_id);
   const entries = sortEntries([entry, ...others]).slice(0, DAILY_GRID_ARCHIVE_MAX);

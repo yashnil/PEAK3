@@ -15,6 +15,7 @@ from nba_peak.run_the_table.config import (
     LANE_LABELS,
     RULESET_VERSION,
     STARTING_CREDITS,
+    STARTING_LIVES,
     version_tuple,
 )
 from nba_peak.run_the_table.daily import (
@@ -27,7 +28,12 @@ from nba_peak.run_the_table.daily import (
     validate_run_date,
 )
 from nba_peak.run_the_table.generation import generate_blueprint
-from nba_peak.run_the_table.receipt import build_receipt
+from nba_peak.run_the_table.receipt import (
+    ITEM_KINDS,
+    ITEM_UNITS,
+    OUTCOMES,
+    build_receipt,
+)
 
 RECEIPT_SEEDS = (0, 8, 12, 44, 101, 777)
 
@@ -81,7 +87,12 @@ class TestReceiptContent:
         assert receipt["bosses_defeated"] == wins
         assert receipt["battles_lost"] == losses
         assert receipt["record"] == f"{wins}-{losses}"
-        assert receipt["ran_the_table"] == (st.status == "complete" and wins == ACTS)
+        # v2: the record is a record, and clearing the table is decided by the
+        # FINAL boss alone — not by a count of wins.
+        final = next((b for b in st.battles if b.act == ACTS), None)
+        expected = st.status == "complete" and final is not None and final.outcome == "win"
+        assert receipt["table_cleared"] is expected
+        assert receipt["ran_the_table"] is expected  # deprecated alias
         assert len(receipt["battles"]) == len(st.battles)
 
     def test_the_roster_on_the_receipt_is_the_roster_in_the_state(self, pool, finished):
@@ -142,22 +153,32 @@ class TestReceiptContent:
             assert isinstance(reason["signed_value"], (int, float))
 
     def test_a_failed_run_reports_the_act_it_ended_in(self, pool, play_policy):
-        bp, st = play_policy(12, random.Random(3), pool, "pass")
+        """Seed 6 under the do-nothing policy loses acts 1-3, which is all three
+        lives before the Final Boss is ever fought."""
+        bp, st = play_policy(6, random.Random(3), pool, "pass")
         assert st.status == "failed"
+        assert st.battles[-1].act < ACTS
         receipt = build_receipt(st, bp, pool)
-        assert receipt["verdict"] == "RUN ENDED"
+        assert receipt["outcome"] == "ended_in_act"
+        assert receipt["verdict"] == f"RUN ENDED IN ACT {st.battles[-1].act}"
         assert receipt["headline"] == f"Out of lives in Act {st.battles[-1].act}."
-        assert receipt["ran_the_table"] is False
+        assert receipt["table_cleared"] is False
+        assert receipt["reached_final_boss"] is False
+        assert receipt["final_boss"] is None
+        assert receipt["ended_in_act"] == st.battles[-1].act
         assert receipt["lives_remaining"] == 0
 
-    def test_a_run_the_table_receipt_says_so(self, pool, play_policy):
+    def test_a_cleared_table_receipt_says_so(self, pool, play_policy):
         bp, st = play_policy(8, random.Random(8), pool, "greedy")
         receipt = build_receipt(st, bp, pool)
-        if not receipt["ran_the_table"]:
-            pytest.skip("seed 8 no longer runs the table under the greedy policy")
-        assert receipt["verdict"] == "RUN COMPLETE"
-        assert receipt["headline"] == "Ran the table."
+        if not receipt["table_cleared"]:
+            pytest.skip("seed 8 no longer clears the table under the greedy policy")
+        assert receipt["outcome"] == "table_cleared"
+        assert receipt["verdict"] == "TABLE CLEARED"
+        assert receipt["headline"] == "Cleared the table."
         assert receipt["record"] == f"{ACTS}-0"
+        assert receipt["final_boss"]["act"] == ACTS
+        assert receipt["final_boss"]["outcome"] == "win"
 
     def test_the_share_story_names_the_systems_and_the_mvp(self, finished):
         _, st, receipt = finished
@@ -174,6 +195,181 @@ class TestReceiptContent:
             min(abs(l.margin) for l in b.lanes) for b in st.battles
         )
         assert receipt["closest_battle"]["tightest_lane_margin"] == round(tightest, 4)
+
+
+class TestOutcomeTaxonomy:
+    """Exactly three outcomes (plan §2.2). "RUN COMPLETE" is retired: v1 printed
+    it both for a clean sweep and for a run that beat nobody."""
+
+    def _receipts(self, pool, play_policy):
+        out = []
+        for policy in ("greedy", "random", "first", "pass"):
+            for seed in range(40):
+                bp, st = play_policy(seed, random.Random(seed), pool, policy)
+                out.append((st, build_receipt(st, bp, pool)))
+        return out
+
+    def test_every_receipt_carries_one_of_exactly_three_outcomes(self, pool, play_policy):
+        seen = set()
+        for _, receipt in self._receipts(pool, play_policy):
+            assert receipt["outcome"] in OUTCOMES
+            seen.add(receipt["outcome"])
+        assert seen == set(OUTCOMES), f"unreached outcomes: {set(OUTCOMES) - seen}"
+
+    def test_run_complete_is_never_printed_again(self, pool, play_policy):
+        for _, receipt in self._receipts(pool, play_policy):
+            assert receipt["verdict"] != "RUN COMPLETE"
+            assert receipt["verdict"] != "RUN ENDED"
+
+    def test_the_verdict_always_matches_the_outcome(self, pool, play_policy):
+        for _, receipt in self._receipts(pool, play_policy):
+            if receipt["outcome"] == "table_cleared":
+                assert receipt["verdict"] == "TABLE CLEARED"
+            elif receipt["outcome"] == "ended_at_final_boss":
+                assert receipt["verdict"] == "RUN ENDED AT THE FINAL BOSS"
+            else:
+                assert receipt["verdict"] == f"RUN ENDED IN ACT {receipt['ended_in_act']}"
+
+    def test_clearing_requires_winning_the_final_boss_not_counting_wins(
+        self, pool, play_policy
+    ):
+        for st, receipt in self._receipts(pool, play_policy):
+            final = next((b for b in st.battles if b.act == ACTS), None)
+            won_final = final is not None and final.outcome == "win"
+            assert receipt["table_cleared"] is (st.status == "complete" and won_final)
+            if receipt["table_cleared"]:
+                assert receipt["bosses_defeated"] >= 1
+
+    def test_surviving_every_act_without_beating_the_final_boss_is_not_a_clear(
+        self, pool, play_policy
+    ):
+        found = False
+        for st, receipt in self._receipts(pool, play_policy):
+            if st.status == "complete" and not receipt["table_cleared"]:
+                found = True
+                assert receipt["outcome"] == "ended_at_final_boss"
+                assert receipt["verdict"] == "RUN ENDED AT THE FINAL BOSS"
+                assert "could not close it out" in receipt["headline"] or (
+                    "Drew the Final Boss" in receipt["headline"]
+                )
+        assert found, "no policy/seed survived four acts without clearing"
+
+    def test_a_drawn_final_boss_is_neither_a_win_nor_a_clear(self, pool, blueprints):
+        """A draw costs no life and pays nothing, and it does not clear."""
+        import dataclasses
+
+        from nba_peak.run_the_table import state as S
+        from nba_peak.run_the_table.battle import resolve_battle
+        from nba_peak.run_the_table.config import (
+            BOSS_WIN_CREDITS,
+            COMEBACK_CREDITS,
+            STATUS_COMPLETE,
+        )
+
+        bp = blueprints(4)
+        st = S.create_run(bp, "draw")
+        # A roster mirroring the boss draws exactly; injected directly because
+        # no seed is guaranteed to produce a mirror at act 4.
+        boss = bp.bosses[-1]
+        mirror = dataclasses.replace(boss)
+        result = resolve_battle(
+            pool_or_none := __import__(
+                "nba_peak.run_the_table.cards", fromlist=["get_pool"]
+            ).get_pool(),
+            list(boss.starter_ids), list(boss.bench_ids), mirror, (),
+            lives_before=3, comeback_credits=COMEBACK_CREDITS,
+            win_credits=BOSS_WIN_CREDITS,
+        )
+        assert result.outcome == "draw"
+        assert result.credits_awarded == 0
+        assert result.lives_after == 3
+
+        st.battles = [dataclasses.replace(result, act=ACTS)]
+        st.status = STATUS_COMPLETE
+        st.act = ACTS
+        receipt = build_receipt(st, bp, pool_or_none)
+        assert receipt["table_cleared"] is False
+        assert receipt["outcome"] == "ended_at_final_boss"
+        assert receipt["headline"] == "Drew the Final Boss."
+
+
+class TestSemanticReceiptItems:
+    """Plan §2.3. `kind` — and only `kind` — carries valence; `value` is always
+    the true magnitude of what the label states."""
+
+    @pytest.fixture(scope="class")
+    def rich(self, pool, play_policy):
+        """A finished run that holds credits it never spent, which is the case
+        v1 rendered as a negative number beside a positive sentence."""
+        for seed in range(60):
+            bp, st = play_policy(seed, random.Random(seed), pool, "pass")
+            if st.credits >= 15:
+                return bp, st, build_receipt(st, bp, pool)
+        raise AssertionError("no seed finished holding credits")
+
+    def test_every_item_is_well_formed(self, pool, play_policy):
+        for policy in ("greedy", "random", "first", "pass"):
+            for seed in range(25):
+                bp, st = play_policy(seed, random.Random(seed), pool, policy)
+                receipt = build_receipt(st, bp, pool)
+                assert receipt["items"]
+                for item in receipt["items"]:
+                    assert item["kind"] in ITEM_KINDS
+                    assert item["label"] and isinstance(item["label"], str)
+                    assert set(item) <= {"kind", "label", "value", "unit", "display"}
+                    if "unit" in item:
+                        assert item["unit"] in ITEM_UNITS
+                    if "value" in item:
+                        assert isinstance(item["value"], (int, float))
+
+    def test_no_item_value_is_ever_negated_to_drive_a_colour(
+        self, pool, play_policy
+    ):
+        """The v1 bug: `signed_value: -state.credits` on a HOLDING, purely so a
+        shared signedColorVar() would paint it red."""
+        for policy in ("greedy", "random", "first", "pass"):
+            for seed in range(25):
+                bp, st = play_policy(seed, random.Random(seed), pool, policy)
+                for item in build_receipt(st, bp, pool)["items"]:
+                    assert item.get("value", 0) >= 0, item
+
+    def test_unspent_credits_are_neutral_and_positive(self, rich):
+        _, st, receipt = rich
+        item = next(
+            i for i in receipt["items"] if i["label"].startswith("Finished holding")
+        )
+        assert item == {
+            "kind": "neutral",
+            "label": f"Finished holding {st.credits} unspent credits.",
+            "value": st.credits,
+            "unit": "credits",
+        }
+        # The same number the Credits section prints, with the same sign.
+        assert receipt["credits_remaining"] == item["value"]
+
+    def test_the_lives_record_item_reports_lives_not_a_penalty(self, pool, play_policy):
+        bp, st = play_policy(8, random.Random(8), pool, "greedy")
+        receipt = build_receipt(st, bp, pool)
+        item = next(i for i in receipt["items"] if i["kind"] == "record"
+                    and "lives" in i["label"])
+        assert item["value"] == st.lives
+        assert item["display"] == f"{st.lives} of {STARTING_LIVES}"
+
+    def test_reasons_is_a_deprecated_projection_of_items(self, pool, play_policy):
+        """Kept for one release so a client that has not shipped `items` yet
+        still renders — with the sign bug fixed even there."""
+        for policy in ("greedy", "pass"):
+            for seed in range(25):
+                bp, st = play_policy(seed, random.Random(seed), pool, policy)
+                receipt = build_receipt(st, bp, pool)
+                labels = {i["label"] for i in receipt["items"]}
+                for reason in receipt["reasons"]:
+                    assert reason["text"] in labels
+                    assert reason["kind"] in {
+                        "lane_strength", "lane_weakness", "acquisition", "economy"
+                    }
+                    if reason["kind"] == "economy":
+                        assert reason["signed_value"] >= 0
 
 
 class TestDailySeed:
@@ -228,12 +424,24 @@ class TestDateValidation:
     def test_today_is_accepted(self):
         assert validate_run_date("2026-07-31", now=self.NOW) == "2026-07-31"
 
-    def test_utc_date_rollover_uses_utc_not_local_time(self):
-        assert today_utc_date(datetime(2026, 7, 31, 23, 59, tzinfo=timezone.utc)) == "2026-07-31"
-        assert today_utc_date(datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc)) == "2026-08-01"
+    def test_the_rollover_is_midnight_pacific_not_midnight_utc(self):
+        """The daily boundary is midnight America/Los_Angeles (nba_peak.daily_key).
 
-    def test_a_naive_datetime_is_treated_as_utc(self):
-        assert today_utc_date(datetime(2026, 7, 31, 6, 0)) == "2026-07-31"
+        17:00 UTC is mid-afternoon in California and must NOT roll the board
+        over; 07:00 UTC the next morning is exactly midnight PDT and must.
+        """
+        # 23:59 PDT on the 31st -- still the 31st's run.
+        assert today_utc_date(datetime(2026, 8, 1, 6, 59, tzinfo=timezone.utc)) == "2026-07-31"
+        # 00:00 PDT on the 1st -- the new run.
+        assert today_utc_date(datetime(2026, 8, 1, 7, 0, tzinfo=timezone.utc)) == "2026-08-01"
+        # Midnight UTC is 17:00 PDT the previous day: not a rollover.
+        assert today_utc_date(datetime(2026, 8, 1, 0, 0, tzinfo=timezone.utc)) == "2026-07-31"
+
+    def test_a_naive_datetime_is_read_as_utc_then_converted(self):
+        """A naive reference instant is UTC, never the container's local zone --
+        reading an accident of deployment is exactly the ambiguity this module
+        exists to remove. 06:00 UTC is 23:00 PDT the previous day."""
+        assert today_utc_date(datetime(2026, 7, 31, 6, 0)) == "2026-07-30"
 
     def test_future_dates_are_rejected(self):
         for date in ("2026-08-01", "2026-12-25", "2030-01-01"):

@@ -1,7 +1,12 @@
 "use client";
 import type { CSSProperties } from "react";
 import { NodeType, StageOption } from "@/types/run-the-table";
-import { NODE_ICON_PATHS, RTT_COPY, nodeTypeCopy } from "@/lib/run-the-table-copy";
+import {
+  NODE_ICON_PATHS,
+  RTT_COPY,
+  nodeTypeCopy,
+  shouldSuppressServerSummary,
+} from "@/lib/run-the-table-copy";
 
 /**
  * The branch: two nodes, one stage. Both are plain `<button>`s so the whole
@@ -124,10 +129,15 @@ export default function NodeChoice({
                   {copy.purpose}
                 </span>
 
-                {/* What this PARTICULAR node is, in the generator's own words. */}
-                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                  {option.summary}
-                </span>
+                {/* What this PARTICULAR node is, in the generator's own words —
+                    except for the Film Room, whose generated summary promises a
+                    "prep advantage" mechanic the engine does not implement.
+                    See `NodeTypeCopy.suppressServerSummary`. */}
+                {!shouldSuppressServerSummary(option.node_type) && (
+                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    {option.summary}
+                  </span>
+                )}
 
                 {/* What actually happens if you take it. */}
                 <span className="rtt-node-consequence">{copy.consequence}</span>

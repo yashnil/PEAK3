@@ -256,12 +256,23 @@ class ChallengeDescriptorResponse(BaseModel):
     SPOILER-SAFE BY OMISSION. Seed, run type, date and versions only: no
     roster, no bosses, no offers, no map. The recipient plays the same run the
     sender did; they do not get to read it first.
+
+    `versions.ruleset_version` is the TOKEN's ruleset, never the server's. A
+    seed alone is not a board -- the same seed generates a different run under a
+    different ruleset -- so reporting the server's current version for a link
+    minted under an older one told the recipient something untrue. `playable`
+    says outright whether starting it will work. See
+    `services/run_the_table/runs.challenge_descriptor`.
     """
+
+    model_config = ConfigDict(extra="allow")
 
     seed: int
     run_type: str
     date: Optional[str] = None
     versions: dict[str, str]
+    ruleset_version: Optional[str] = None
+    playable: Optional[bool] = None
 
 
 def error_detail(message: str, error_code: str) -> dict[str, Any]:

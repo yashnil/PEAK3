@@ -56,17 +56,24 @@ supabase migration new <description>
 ### Configure environment
 
 **`apps/api/.env`** (copy from `.env.example`):
+
+> **Local stack ports are shifted +100**: API `54421`, DB `54422`, Studio
+> `54423`, Mailpit `54424`. PEAK3 shares a machine with another local Supabase
+> project that holds the default `5432x` block, and two stacks cannot bind the
+> same ports. `supabase status` always prints the live values — read them from
+> there rather than from any document, including this one.
+
 ```env
 PEAK3_SIGNING_SECRET=<random-32-char-string>
 PEAK3_DEBUG=true
-PEAK3_DATABASE_URL=postgresql://postgres:postgres@localhost:54322/postgres
+PEAK3_DATABASE_URL=postgresql://postgres:postgres@localhost:54422/postgres
 PEAK3_SUPABASE_JWT_SECRET=<jwt-secret-from-supabase-start>
 ```
 
 **`apps/web/.env.local`** (copy from `.env.example`):
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321
+NEXT_PUBLIC_SUPABASE_URL=http://localhost:54421
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key-from-supabase-start>
 ```
 
@@ -92,8 +99,8 @@ These are normally skipped ("not configured") in a plain `pytest` run — they
 require the local stack above to actually be running:
 
 ```bash
-export PEAK3_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
-export PEAK3_TEST_SUPABASE_URL=http://127.0.0.1:54321
+export PEAK3_TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54422/postgres
+export PEAK3_TEST_SUPABASE_URL=http://127.0.0.1:54421
 export PEAK3_TEST_SUPABASE_ANON_KEY=<ANON_KEY-from-supabase-status>
 export PEAK3_TEST_SUPABASE_SERVICE_ROLE_KEY=<SERVICE_ROLE_KEY-from-supabase-status>
 export PEAK3_TEST_SUPABASE_JWT_SECRET=<JWT_SECRET-from-supabase-status>
@@ -115,12 +122,26 @@ clean slate.
 1. Create a project at [supabase.com](https://supabase.com).
 2. Go to **Settings → API** and copy:
    - Project URL → `NEXT_PUBLIC_SUPABASE_URL`
-   - `anon` public key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - JWT Secret → `PEAK3_SUPABASE_JWT_SECRET`
+   - `anon` (or publishable) key → `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - JWT Secret → `PEAK3_SUPABASE_JWT_SECRET` — **legacy projects only.**
+
+   > Projects created after Supabase's asymmetric signing-key rollout have **no
+   > JWT secret at all**: they publish public keys at
+   > `{URL}/auth/v1/.well-known/jwks.json`, and setting `PEAK3_SUPABASE_URL` is
+   > all the API needs. Do not go looking for a secret such a project does not
+   > have. Check which regime you are on, and confirm what the running API can
+   > actually verify, with the two commands in
+   > `docs/implementation/AUTH_CONFIGURATION.md` §0.
 3. Go to **Settings → Database** and copy the connection string → `PEAK3_DATABASE_URL`.
 4. Apply migrations from `supabase/migrations/` via `supabase link` (hosted project) then
-   `supabase db push`, or paste them into the Supabase SQL editor in order. **Phase 4.0A
-   deliberately does not do this** — no hosted project is linked from this codebase.
+   `supabase db push`.
+
+   > **Updated.** Phase 4.0A deliberately linked no hosted project. That is no
+   > longer true: a hosted **development** project is linked and the full
+   > migration chain is applied to it with `supabase db push`. Never paste
+   > migrations into the SQL editor — `scripts/validate_migrations.py` enforces
+   > ordering, forward-reference safety and policy uniqueness across the whole
+   > chain, and a hand-applied file silently breaks that guarantee.
 5. Enable **Email** auth under **Authentication → Providers**.
 
 ---
@@ -137,7 +158,7 @@ clean slate.
 | `PEAK3_DEBUG` | No | `true` in dev; `false` in prod (enables production safety checks) |
 | `PEAK3_CORS_ORIGINS` | No | JSON array of allowed CORS origins |
 | `PEAK3_TEST_DATABASE_URL` | No | Local-stack Postgres URL for `tests/integration/` + conformance suite only |
-| `PEAK3_TEST_SUPABASE_URL` / `_ANON_KEY` / `_SERVICE_ROLE_KEY` / `_JWT_SECRET` | No | Local-stack values for real auth/RLS integration tests only — never a hosted project |
+| `PEAK3_TEST_SUPABASE_URL` / `_ANON_KEY` / `_SERVICE_ROLE_KEY` / `_JWT_SECRET` | No | Values for the real auth/RLS integration tests. The local stack is the fast path; a dedicated hosted *test* project also works. Never point these at a project holding real user data. |
 
 ### Web (`apps/web/.env.local`)
 

@@ -17,7 +17,10 @@ from nba_peak.run_the_table.cards import CardPool
 from nba_peak.run_the_table.config import (
     ACTS,
     BENCH_SLOTS,
+    BOSS_BENCH_WEIGHT,
+    BOSS_LANE_MARGIN,
     BOSS_RULES,
+    BOSS_RULE_PUBLISHED_THRESHOLDS,
     BOSS_TARGET_STARTER_MEAN,
     BOSS_TARGET_TOLERANCE,
     ROLES,
@@ -94,6 +97,7 @@ class TestCuratedBosses:
         means = [boss_starter_mean(pool, b) for b in resolve_bosses(pool)]
         assert means == sorted(means)
         assert means[-1] - means[0] >= 5.0
+        assert len(means) == ACTS == 4
 
     def test_curated_bosses_are_the_ones_actually_served(self, pool):
         bosses = resolve_bosses(pool)
@@ -116,6 +120,44 @@ class TestCuratedBosses:
             assert boss.name and boss.tagline
             assert boss.name != boss.boss_id
 
+    def test_the_last_boss_is_the_final_boss_and_carries_a_published_rule(self, pool):
+        """Winning act ACTS is the only way to clear the table (plan §2.2), so
+        the run must actually have an act-ACTS boss and it must be ruled."""
+        bosses = resolve_bosses(pool)
+        final = bosses[-1]
+        assert final.act == ACTS == 4
+        assert final.boss_id == "the_standard"
+        assert final.rule_id in BOSS_RULES
+        assert final.rule_id in BOSS_LANE_MARGIN
+        assert BOSS_RULES[final.rule_id]["summary"]
+
+    def test_the_boss_rules_are_the_published_progression(self, pool):
+        """1 teaches lanes, 2 punishes a thin roster, 3 forces perk/economy
+        strategy, 4 is the Final Boss. Asserted as an ordered list because the
+        progression is a design contract, not an accident of ordering."""
+        assert [b.rule_id for b in resolve_bosses(pool)] == [
+            "the_wall", "strength_in_numbers", "top_heavy", "the_standard"
+        ]
+
+    def test_every_boss_rule_publishes_every_constant_it_applies(self):
+        """Same machine-checkable contract as SYSTEM_PUBLISHED_THRESHOLDS: a
+        rule may not apply a threshold its summary does not name. v1's
+        `the_wall` published a tie-break it never actually performed."""
+        assert set(BOSS_RULE_PUBLISHED_THRESHOLDS) == set(BOSS_RULES)
+        for rule_id, thresholds in BOSS_RULE_PUBLISHED_THRESHOLDS.items():
+            summary = BOSS_RULES[rule_id]["summary"]
+            assert thresholds, f"{rule_id} publishes no thresholds"
+            for constant, rendering in thresholds.items():
+                assert rendering in summary, (
+                    f"{rule_id} applies {constant} but its summary does not "
+                    f"contain {rendering!r}: {summary!r}"
+                )
+        # And every constant a rule reads is declared.
+        for rule_id in BOSS_LANE_MARGIN:
+            assert "BOSS_LANE_MARGIN" in BOSS_RULE_PUBLISHED_THRESHOLDS[rule_id]
+        for rule_id in BOSS_BENCH_WEIGHT:
+            assert "BOSS_BENCH_WEIGHT" in BOSS_RULE_PUBLISHED_THRESHOLDS[rule_id]
+
 
 class TestGeneratedFallback:
     def test_a_missing_curated_card_forces_the_fallback_for_that_boss_only(self, pool):
@@ -124,7 +166,9 @@ class TestGeneratedFallback:
         assert not subset.has(dropped)
 
         bosses = resolve_bosses(subset)
-        assert [b.source for b in bosses] == ["curated", "generated_fallback", "curated"]
+        expected = ["curated"] * ACTS
+        expected[1] = "generated_fallback"
+        assert [b.source for b in bosses] == expected
 
         fallback = bosses[1]
         assert fallback.boss_id == CURATED_BOSSES[1]["boss_id"]

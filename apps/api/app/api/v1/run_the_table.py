@@ -75,6 +75,7 @@ from app.models.run_the_table import (
 )
 from app.services.run_the_table import runs as run_service
 from app.services.run_the_table.public import ruleset_meta
+from nba_peak.daily_key import daily_window
 from nba_peak.run_the_table.cards import CardPoolUnavailable
 from nba_peak.run_the_table.config import version_tuple
 from nba_peak.run_the_table.daily import (
@@ -92,6 +93,19 @@ router = APIRouter()
 # the ruleset it encodes by much.
 CHALLENGE_TTL_SECONDS = 7 * 86400
 CHALLENGE_TOKEN_KIND = "run_the_table"
+
+
+class DailyDescriptorWithWindow(DailyDescriptorResponse):
+    """The daily descriptor plus the frozen daily-window block (plan §2.1).
+
+    Declared here rather than on the shared model: every daily response in the
+    app carries the identical object under the top-level key `daily`, produced
+    by `DailyWindow.to_payload()`. It is the only thing a client needs in order
+    to know when this run stops being today's -- no timezone arithmetic in the
+    browser, which is what let the five daily modes drift apart.
+    """
+
+    daily: dict
 
 
 # ---------------------------------------------------------------------------
@@ -255,15 +269,17 @@ async def get_meta() -> RulesetMetaResponse:
 # Daily descriptor
 # ---------------------------------------------------------------------------
 
-@router.get("/run-the-table/daily", response_model=DailyDescriptorResponse)
+@router.get("/run-the-table/daily", response_model=DailyDescriptorWithWindow)
 async def get_daily(
     auth: OptionalAuth,
     repo: RunTheTableRunRepoDep,
     date: Optional[str] = Query(
-        None, max_length=32, description="YYYY-MM-DD (UTC); defaults to today"
+        None,
+        max_length=32,
+        description="YYYY-MM-DD archive date; omit for today's (server-decided, midnight PT)",
     ),
     peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
-) -> DailyDescriptorResponse:
+) -> DailyDescriptorWithWindow:
     """Today's daily run descriptor, or an archive date's.
 
     The seed is published deliberately: it is a pure function of the date, so
@@ -283,12 +299,13 @@ async def get_daily(
         )
 
     payload = dict(daily_descriptor(run_date))
+    payload["daily"] = daily_window(run_date).to_payload()
     owner_sub = _existing_owner(auth, peak3_anon)
     if owner_sub:
         existing = await repo.get_daily_run(owner_sub, run_date)
         payload["already_played"] = existing is not None
         payload["existing_run_id"] = existing.run_id if existing else None
-    return DailyDescriptorResponse(**payload)
+    return DailyDescriptorWithWindow(**payload)
 
 
 # ---------------------------------------------------------------------------
@@ -320,7 +337,8 @@ async def create_run(
     Three sources of a seed, and only one of them is the client:
       standard  -- `secrets.randbelow(2**31)`, or the client's seed if it sent
                    one (which is what makes a shared standard run replayable)
-      daily     -- derived from the UTC date; a client seed is ignored, because
+      daily     -- derived from the server's daily key (midnight PT); a client
+                   seed is ignored, because
                    a re-rollable daily is not a daily
       challenge -- read from the HMAC-signed token, together with the run type
                    and date it was minted from, so the recipient plays the
@@ -347,6 +365,15 @@ async def create_run(
                 ),
             )
         payload = _decode_challenge_token(body.challenge_token)
+        # A link minted under an older ruleset would otherwise regenerate a
+        # different board from the same seed and silently present it as the
+        # sender's. Routed through the same error ladder as every other engine
+        # error so it surfaces as 409 with a readable message, rather than
+        # escaping this early branch as a 500.
+        try:
+            run_service.assert_challenge_playable(payload)
+        except Exception as exc:  # VersionMismatch -> 409
+            _raise_for_engine_error(exc)
         seed = int(payload["seed"])
         # The token's seed is what makes the run identical; its `run_type` is
         # only provenance. The new run stays `challenge` regardless, for two
@@ -479,11 +506,15 @@ async def create_challenge(
 
     token = create_session_token(
         {
+            **run_service.challenge_claims(
+                stored.seed,
+                stored.run_type,
+                stored.run_date,
+                secrets.token_hex(8),
+            ),
+            # `challenge_claims` deliberately omits `kind` so this constant
+            # stays the router's, not the service's.
             "kind": CHALLENGE_TOKEN_KIND,
-            "seed": stored.seed,
-            "run_type": stored.run_type,
-            "date": stored.run_date,
-            "nonce": secrets.token_hex(8),
         },
         settings.SIGNING_SECRET,
         ttl_seconds=CHALLENGE_TTL_SECONDS,
@@ -511,12 +542,12 @@ async def get_challenge(token: str) -> ChallengeDescriptorResponse:
 
     `versions` is included so the landing page can say "this link was made
     under an older ruleset" instead of failing confusingly at create time.
+
+    That claim used to be false: this route reported `version_tuple()` — the
+    *server's current* ruleset — for every token, so a link minted under v1
+    silently described itself as v2 and regenerated a different board from the
+    same seed. The descriptor now comes from the token's own claims.
     """
     _require_enabled()
     payload = _decode_challenge_token(token)
-    return ChallengeDescriptorResponse(
-        seed=int(payload["seed"]),
-        run_type=payload.get("run_type") or "standard",
-        date=payload.get("date"),
-        versions=version_tuple(),
-    )
+    return ChallengeDescriptorResponse(**run_service.challenge_descriptor(payload))

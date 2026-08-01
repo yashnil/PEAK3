@@ -64,6 +64,8 @@ from app.repositories.daily_grid_memory import MemoryDailyGridResultRepository
 from app.repositories.daily_grid_protocols import DailyGridResultRepository
 from app.repositories.run_the_table_memory import MemoryRunTheTableRunRepository
 from app.repositories.run_the_table_protocols import RunTheTableRunRepository
+from app.repositories.peak_duel_daily_memory import MemoryPeakDuelDailyResultRepository
+from app.repositories.peak_duel_daily_protocols import PeakDuelDailyResultRepository
 
 # ---------------------------------------------------------------------------
 # Singleton in-memory stores (only used when DATABASE_URL is unset in dev)
@@ -92,6 +94,7 @@ _memory_perfect_season_leaderboard_repo = MemoryPerfectSeasonLeaderboardReposito
 _memory_perfect_season_saved_run_repo = MemoryPerfectSeasonSavedRunRepository()
 _memory_daily_grid_result_repo = MemoryDailyGridResultRepository()
 _memory_run_the_table_run_repo = MemoryRunTheTableRunRepository()
+_memory_peak_duel_daily_result_repo = MemoryPeakDuelDailyResultRepository()
 
 
 # ---------------------------------------------------------------------------
@@ -112,11 +115,14 @@ def get_game_repo(request: Request) -> GameRepository:
 def get_court_lineup_repo(request: Request) -> CourtLineupRepository:
     """Return the active CourtLineupRepository (Postgres or in-memory).
 
-    Not registered in app.core.repository_registry.REPOSITORY_DOMAINS yet --
-    CourtBuilder is feature-flagged off by default (COURTBUILDER_ENABLED)
-    and this is a Phase 5C vertical slice, not yet promoted to the same
-    production-readiness gate as the domains ranked/history depend on. See
-    docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md.
+    Registered in app.core.repository_registry.REPOSITORY_DOMAINS. It was
+    previously left out on the grounds that CourtBuilder is a feature-flagged
+    Phase 5C vertical slice (see
+    docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md), but that made
+    the registry's own docstring false and, worse, exempted a wired domain from
+    assert_production_ready's durability check -- a flag that is off today can
+    be turned on without anyone re-reading this comment, and the check exists
+    precisely so nothing reaches production on the in-memory fallback.
     """
     pool = getattr(request.app.state, "db_pool", None)
     if pool is not None:
@@ -306,6 +312,27 @@ def get_run_the_table_run_repo(request: Request) -> RunTheTableRunRepository:
     return _memory_run_the_table_run_repo
 
 
+def get_peak_duel_daily_result_repo(request: Request) -> PeakDuelDailyResultRepository:
+    """Return the active PeakDuelDailyResultRepository (Postgres or in-memory).
+
+    Same in-memory-fallback discipline as every other repository here. Like
+    RUN THE TABLE and unlike most repositories in this module, the owner here
+    is very often ANONYMOUS -- Peak Duel Daily needs no account to play, and
+    recording a guest's attempt under their signed anon-cookie subject is
+    precisely what makes it claimable when they sign in later. That is why it
+    is registered in app.core.repository_registry.REPOSITORY_DOMAINS: an
+    attempt that only ever lived in memory would be a daily result the server
+    forgot on restart."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.peak_duel_daily_postgres import (
+            PostgresPeakDuelDailyResultRepository,
+        )
+        return PostgresPeakDuelDailyResultRepository(pool)
+    _warn_memory_repo("PeakDuelDailyResultRepository")
+    return _memory_peak_duel_daily_result_repo
+
+
 def _warn_memory_repo(name: str) -> None:
     if not settings.DEBUG:
         raise RuntimeError(
@@ -348,4 +375,7 @@ DailyGridResultRepoDep = Annotated[
 ]
 RunTheTableRunRepoDep = Annotated[
     RunTheTableRunRepository, Depends(get_run_the_table_run_repo)
+]
+PeakDuelDailyResultRepoDep = Annotated[
+    PeakDuelDailyResultRepository, Depends(get_peak_duel_daily_result_repo)
 ]

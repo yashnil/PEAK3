@@ -63,9 +63,12 @@ import RunMap from "@/components/run-the-table/RunMap";
 import LaneProfile from "@/components/run-the-table/LaneProfile";
 import RunSkeleton from "@/components/run-the-table/RunSkeleton";
 import ChoiceNode from "@/components/run-the-table/ChoiceNode";
+import SystemSelect from "@/components/run-the-table/SystemSelect";
+import BossPreview from "@/components/run-the-table/BossPreview";
 import {
   ActiveNode,
   BattlePublic,
+  BossPublic,
   DraftOffer,
   LaneField,
   MapAct,
@@ -653,6 +656,86 @@ describe("RunTheTableGame — resume", () => {
       { run_id: "run-1", seed: 999, schema_version: 1 },
     );
   });
+
+  it("records the SERVER's daily key on a daily pointer", async () => {
+    mockCreateRun.mockResolvedValue(runState({ run_type: "daily", date: "2026-07-31" }));
+    render(<RunTheTableGame />);
+    await userEvent.click(await screen.findByTestId("rtt-start-daily"));
+    await screen.findByTestId("rtt-shell");
+    expect(JSON.parse(window.localStorage.getItem(RUN_THE_TABLE_STORAGE_KEY) ?? "{}")).toMatchObject(
+      { run_type: "daily", run_date: "2026-07-31" },
+    );
+  });
+
+  /**
+   * THE STALE-DAILY BUG (plan §4, path B). `StoredActiveRun` had no date,
+   * `getRun` returns 200 for yesterday's daily, and `shouldClearStoredRun`
+   * only fires on 404/409/410 — so an unfinished daily was resumed today, and
+   * every day after, and the start gate never appeared again.
+   */
+  it("discards yesterday's unfinished daily and shows today's gate", async () => {
+    window.localStorage.setItem(
+      RUN_THE_TABLE_STORAGE_KEY,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: "run-yesterday",
+        seed: 1,
+        run_type: "daily",
+        run_date: "2026-07-30",
+        updated_at: "2026-07-30T23:59:00.000Z",
+      }),
+    );
+    // `mockGetDaily` resolves 2026-07-31 — the server's key, never the
+    // browser's clock.
+    render(<RunTheTableGame />);
+    expect(await screen.findByTestId("rtt-resume-notice")).toHaveTextContent(/earlier day/i);
+    expect(screen.getByTestId("rtt-start-gate")).toBeInTheDocument();
+    expect(window.localStorage.getItem(RUN_THE_TABLE_STORAGE_KEY)).toBeNull();
+    expect(mockGetRun).not.toHaveBeenCalled();
+  });
+
+  it("resumes TODAY's daily normally", async () => {
+    window.localStorage.setItem(
+      RUN_THE_TABLE_STORAGE_KEY,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: "run-today",
+        seed: 4242,
+        run_type: "daily",
+        run_date: "2026-07-31",
+        updated_at: "2026-07-31T09:00:00.000Z",
+      }),
+    );
+    mockGetRun.mockResolvedValue(
+      runState({ run_type: "daily", date: "2026-07-31", status: "node_select", stage_options: [] }),
+    );
+    render(<RunTheTableGame />);
+    await screen.findByTestId("rtt-shell");
+    expect(mockGetRun).toHaveBeenCalledWith("run-today");
+  });
+
+  /** A failed daily-descriptor fetch must never throw away a run in progress:
+   *  unknown is not the same as stale. */
+  it("keeps the pointer when the server's daily key could not be fetched", async () => {
+    mockGetDaily.mockRejectedValue(new RunTheTableAPIError(0, "network"));
+    window.localStorage.setItem(
+      RUN_THE_TABLE_STORAGE_KEY,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: "run-daily",
+        seed: 1,
+        run_type: "daily",
+        run_date: "2026-07-30",
+        updated_at: "2026-07-30T23:59:00.000Z",
+      }),
+    );
+    mockGetRun.mockResolvedValue(
+      runState({ run_type: "daily", date: "2026-07-30", status: "node_select", stage_options: [] }),
+    );
+    render(<RunTheTableGame />);
+    await screen.findByTestId("rtt-shell");
+    expect(mockGetRun).toHaveBeenCalledWith("run-daily");
+  });
 });
 
 describe("RunTheTableGame — actions and errors", () => {
@@ -662,6 +745,20 @@ describe("RunTheTableGame — actions and errors", () => {
     await userEvent.click(await screen.findByTestId("rtt-start-standard"));
     await screen.findByTestId("rtt-shell");
   }
+
+  /**
+   * "System selected." was the only surface in the game using the internal
+   * name as the primary term — and it was the one place a screen-reader user
+   * met it first. The display term is "Front Office Perk".
+   */
+  it("announces the display term, not the internal one", async () => {
+    await startAt(runState());
+    mockPostAction.mockResolvedValue(runState({ status: "node_select", stage_options: [] }));
+    await userEvent.click(screen.getByTestId("rtt-system-moneyball"));
+    await waitFor(() =>
+      expect(screen.getByTestId("rtt-live")).toHaveTextContent("Front Office Perk selected."),
+    );
+  });
 
   it("posts the system the player picked and replaces the whole state", async () => {
     await startAt(runState());
@@ -706,6 +803,35 @@ describe("RunTheTableGame — actions and errors", () => {
     expect(screen.getAllByTestId("rtt-credits")[0]).toHaveTextContent("27");
     expect(screen.getAllByTestId("rtt-lives")[0]).toHaveTextContent("2/3");
     expect(screen.getByTestId("rtt-mobile-tray")).toBeInTheDocument();
+  });
+
+  /**
+   * The rail used to print the plain line AND the dense threshold line
+   * unconditionally, so the thing a player glances at mid-run was two
+   * sentences of percentiles. Three layers here too — and the exact rule is
+   * still in the document, just collapsed.
+   */
+  it("gives the tray's active perks all three layers", async () => {
+    await startAt(
+      runState({
+        status: "node_select",
+        stage_options: [],
+        systems: [
+          {
+            id: "deep_rotation",
+            name: "Deep Rotation",
+            summary: "Your bench counts at 0.65 instead of 0.35 in every lane.",
+            affects: "battle",
+          },
+        ],
+      }),
+    );
+    const block = screen.getByTestId("rtt-tray-system-deep_rotation");
+    expect(block).toHaveTextContent("Your bench matters almost twice as much in most battles.");
+    expect(block).toHaveTextContent(/actually spend on the bench/i);
+    const rule = screen.getByTestId("rtt-tray-system-rule-deep_rotation");
+    expect(rule).not.toHaveAttribute("open");
+    expect(rule).toHaveTextContent("Your bench counts at 0.65 instead of 0.35 in every lane.");
   });
 
   it("does not render a decision surface it has no payload for", async () => {
@@ -856,18 +982,78 @@ describe("RunCard", () => {
   });
 
   /**
-   * "75.1th pct" of WHAT was the defect. The denominator is verified against
-   * `cards.build_pool()`, which percentile-ranks `prime_score` over the
-   * SELECTED (eligible) profiles — so it is the RUN THE TABLE card pool, not
-   * "all PEAK3 3-year peak windows", which would be a larger, different set.
+   * "75.1th pct" of WHAT was HALF the defect. The denominator is verified
+   * against `cards.build_pool()`, which percentile-ranks `prime_score` over
+   * the SELECTED (eligible) profiles — so it is the RUN THE TABLE card pool,
+   * not "all PEAK3 3-year peak windows", which would be a larger, different
+   * set.
+   *
+   * The other half was the ordinal: this assertion used to PIN `"75.1th"`,
+   * which is not a word. `percentileSentence` appended "th" unconditionally and
+   * `RunCard` hard-coded the same "th" as a JSX text node, so every card in the
+   * Draft Room and both Trade Desk columns rendered it. Both now go through
+   * `lib/ordinal.ts`.
    */
-  it("says what the percentile is a percentile of", () => {
+  it("says what the percentile is a percentile of, with a real ordinal", () => {
     render(<RunCard card={card({ overall_percentile: 75.1 })} cost={26} />);
     const pct = screen.getByTestId("rtt-card-percentile");
-    expect(pct).toHaveTextContent("75.1th percentile of the card pool");
+    expect(pct).toHaveTextContent("75.1st percentile of the card pool");
+    expect(pct.textContent).not.toContain("75.1th");
     expect(pct).toHaveTextContent(/every eligible PEAK3 3-year peak window/i);
     // The wrong denominator would be a fabricated claim about the model.
     expect(pct.textContent).not.toMatch(/all PEAK3 3-year peak windows/i);
+  });
+
+  it.each<[number, string]>([
+    [1.0, "1.0th"],
+    [21.1, "21.1st"],
+    [12.2, "12.2nd"],
+    [96.3, "96.3rd"],
+  ])("ordinalises %f as %s", (percentile, expected) => {
+    render(<RunCard card={card({ overall_percentile: percentile })} cost={26} />);
+    expect(screen.getByTestId("rtt-card-percentile")).toHaveTextContent(expected);
+  });
+
+  /**
+   * FIRST-SCAN ORDER (plan §6): player · window · role · cost · PEAK3 score ·
+   * strongest lane · weakest lane · profile label. The last three did not
+   * exist — five equal-height bars were the only statement of a card's shape,
+   * and a player cannot read three bar charts under a decision.
+   */
+  it("names the strongest lane, the weakest lane and the profile", () => {
+    render(
+      <RunCard
+        card={card({
+          lane_percentiles: {
+            statistical_impact: 94,
+            traditional_production: 61,
+            individual_recognition: 40,
+            postseason_individual_value: 72,
+            team_achievement: 12,
+          },
+        })}
+        cost={26}
+      />,
+    );
+    const shape = screen.getByTestId("rtt-card-shape");
+    expect(within(shape).getByTestId("rtt-card-strongest")).toHaveTextContent(
+      "Statistical Impact",
+    );
+    expect(within(shape).getByTestId("rtt-card-weakest")).toHaveTextContent("Team Result");
+    // A lopsided card is labelled by its strongest lane.
+    expect(within(shape).getByTestId("rtt-card-profile")).toHaveTextContent("Impact-heavy");
+  });
+
+  it("calls a level card Balanced", () => {
+    render(<RunCard card={card()} cost={26} />);
+    expect(screen.getByTestId("rtt-card-profile")).toHaveTextContent("Balanced");
+  });
+
+  it("keeps the full five-lane sr-only sentence alongside the new summary", () => {
+    render(<RunCard card={card()} cost={26} />);
+    expect(screen.getByTestId("rtt-card-fingerprint-sr")).toHaveTextContent(
+      "Lane percentiles — Statistical Impact 88, Traditional Production 88, Individual Recognition 88, Playoff Rate Impact 88, Team Result 88.",
+    );
   });
 });
 
@@ -1249,11 +1435,12 @@ describe("BattleReveal", () => {
 });
 
 describe("RunResult", () => {
-  function renderResult(over: Partial<RunReceipt> = {}) {
+  function renderResult(over: Partial<RunReceipt> = {}, actsTotal?: number) {
     return render(
       <RunResult
         receipt={receiptFixture(over)}
         versions={VERSIONS}
+        actsTotal={actsTotal}
         busy={false}
         onRunItBack={vi.fn()}
         onReplaySeed={vi.fn()}
@@ -1262,20 +1449,123 @@ describe("RunResult", () => {
     );
   }
 
-  it("uses the share-card shell and renders the engine's verdict and story", () => {
+  /**
+   * `"RUN COMPLETE"` is RETIRED (plan §2.2). This assertion used to pin it —
+   * and the engine printed it for a 0-for-3 losing run, which is victory
+   * framing on a defeat. The three legal strings are `TABLE CLEARED`,
+   * `RUN ENDED AT THE FINAL BOSS` and `RUN ENDED IN ACT {n}`.
+   */
+  it("uses the share-card shell and stamps the §2.2 verdict", () => {
     const { container } = renderResult();
     expect(container.querySelector(".share-card-shell")).not.toBeNull();
-    expect(screen.getByTestId("rtt-result-verdict")).toHaveTextContent("RUN COMPLETE");
+    const stamp = screen.getByTestId("rtt-result-verdict");
+    expect(stamp).toHaveTextContent("TABLE CLEARED");
+    expect(stamp).toHaveAttribute("data-outcome", "table_cleared");
+    expect(stamp.textContent).not.toContain("RUN COMPLETE");
+    // The engine's own prose is still the engine's.
     expect(screen.getByText("Ran the table.")).toBeInTheDocument();
     expect(screen.getByText("Moneyball — defeated all three bosses.")).toBeInTheDocument();
   });
 
-  it("renders reasons[] as a signed-delta receipt", () => {
+  it("never shows victory framing for a losing run", () => {
+    renderResult({
+      verdict: "RUN COMPLETE",
+      ran_the_table: false,
+      record: "0-3",
+      battles: [1, 2, 3].map((act) => ({
+        act,
+        boss_id: `b${act}`,
+        outcome: "loss" as const,
+        decided_by: "lanes" as const,
+        player_lanes_won: 1,
+        opponent_lanes_won: 3,
+        rule_id: null,
+      })),
+    }, 3);
+    const stamp = screen.getByTestId("rtt-result-verdict");
+    expect(stamp).toHaveTextContent("RUN ENDED AT THE FINAL BOSS");
+    expect(stamp.textContent).not.toContain("COMPLETE");
+  });
+
+  it("names the act a run ran out of lives in", () => {
+    renderResult({
+      verdict: "RUN ENDED",
+      ran_the_table: false,
+      record: "1-1",
+      battles: [1, 2].map((act) => ({
+        act,
+        boss_id: `b${act}`,
+        outcome: act === 1 ? ("win" as const) : ("loss" as const),
+        decided_by: "lanes" as const,
+        player_lanes_won: act === 1 ? 3 : 0,
+        opponent_lanes_won: act === 1 ? 2 : 3,
+        rule_id: null,
+      })),
+    }, 4);
+    expect(screen.getByTestId("rtt-result-verdict")).toHaveTextContent("RUN ENDED IN ACT 2");
+  });
+
+  it("renders the engine's own verdict verbatim once it also sends an outcome", () => {
+    renderResult({ outcome: "ended_in_act", verdict: "RUN ENDED IN ACT 3", ran_the_table: false });
+    expect(screen.getByTestId("rtt-result-verdict")).toHaveTextContent("RUN ENDED IN ACT 3");
+  });
+
+  /**
+   * THE RECEIPT BUG (plan §2.3). This assertion used to pin `"-15.0"`, which is
+   * the engine negating a HOLDING purely so a shared `signedColorVar()` would
+   * paint it red — so the receipt said "Finished holding 15 unspent credits"
+   * beside -15.0, two sections below a Credits block that said
+   * `finished holding 15`. Colour now comes from `kind` and the value is the
+   * true magnitude.
+   */
+  it("renders §2.3 items, colouring by kind and never by the sign of a number", () => {
+    renderResult({
+      items: [
+        { kind: "benefit", label: "Statistical Impact won 3 of 3 battles.", value: 3, unit: "lanes" },
+        { kind: "neutral", label: "Finished holding 68 unspent credits.", value: 68, unit: "credits" },
+        { kind: "record", label: "Boss record", display: "3 of 3" },
+      ],
+    });
+    const reasons = screen.getByTestId("rtt-result-reasons");
+    const holding = within(reasons).getByTestId("rtt-result-item-1");
+    expect(holding).toHaveAttribute("data-kind", "neutral");
+    expect(holding).toHaveTextContent("68");
+    expect(holding.textContent).not.toContain("-68");
+    expect(within(holding).getByText("68").style.color).toBe("var(--text-muted)");
+    expect(within(reasons).getByTestId("rtt-result-item-0").style).toBeTruthy();
+    expect(within(within(reasons).getByTestId("rtt-result-item-0")).getByText("3").style.color).toBe(
+      "var(--correct)",
+    );
+    expect(within(reasons).getByText("3 of 3")).toBeInTheDocument();
+  });
+
+  /** Plan §2.4: a completed v1 receipt must still render. */
+  it("falls back to the deprecated reasons[] for an old saved receipt", () => {
     renderResult();
     const reasons = screen.getByTestId("rtt-result-reasons");
-    expect(within(reasons).getByText("+3.0")).toBeInTheDocument();
-    expect(within(reasons).getByText("-15.0")).toBeInTheDocument();
     expect(within(reasons).getByText(/Finished holding 15 unspent credits/)).toBeInTheDocument();
+    // Read back as a magnitude in the neutral tone, NOT as the red -15.0 the
+    // engine's negation used to produce.
+    const holding = within(reasons).getByTestId("rtt-result-item-1");
+    expect(holding).toHaveAttribute("data-kind", "neutral");
+    expect(holding).toHaveTextContent("15");
+    expect(holding.textContent).not.toContain("-15");
+  });
+
+  /**
+   * Progressive disclosure (plan §6). This surface showed NO plain line at
+   * all — just the perk name and the dense threshold summary — so the one
+   * screen a player reads after the run never said what their perk did.
+   */
+  it("gives each perk all three layers, with the exact rule still present", async () => {
+    renderResult();
+    const block = screen.getByTestId("rtt-result-system-moneyball");
+    expect(block).toHaveTextContent("Lower-rated cards are much cheaper.");
+    expect(block).toHaveTextContent(/fill several empty slots/i);
+    const rule = screen.getByTestId("rtt-result-system-rule-moneyball");
+    expect(within(rule).getByText(/See exact rule/)).toBeInTheDocument();
+    // Transparency is MOVED, never removed: the engine's own summary is there.
+    expect(rule).toHaveTextContent("Cheap cards cost 35% less.");
   });
 
   it("shows the MVP's marginal contribution rather than a bare name", () => {
@@ -1401,5 +1691,211 @@ describe("ChoiceNode", () => {
       "Not available on this node.",
     );
     expect(screen.queryByText(/full lives/i)).not.toBeInTheDocument();
+  });
+});
+
+
+describe("SystemSelect — progressive disclosure (plan §6)", () => {
+  const offerSystems = [
+    {
+      id: "moneyball",
+      name: "Moneyball",
+      summary: "Cards in the bottom 55% of PEAK3 3Y overall cost 35% less.",
+      affects: "price",
+    },
+    {
+      id: "deep_rotation",
+      name: "Deep Rotation",
+      summary: "Your bench counts at 0.65 instead of 0.35 in every lane.",
+      affects: "battle",
+    },
+  ];
+
+  function renderSelect() {
+    return render(
+      <SystemSelect offer={offerSystems} active={[]} act={1} busy={false} onSelect={vi.fn()} />,
+    );
+  }
+
+  it("leads with the plain effect, then ONE hint — the thresholds are not on the first scan", () => {
+    renderSelect();
+    expect(screen.getByTestId("rtt-system-effect-moneyball")).toHaveTextContent(
+      "Lower-rated cards are much cheaper.",
+    );
+    expect(screen.getByTestId("rtt-system-hint-moneyball")).toHaveTextContent(
+      /fill several empty slots/i,
+    );
+    // The dense line is present but collapsed, not competing with the choice.
+    expect(screen.getByTestId("rtt-system-rule-moneyball")).not.toHaveAttribute("open");
+  });
+
+  /**
+   * TRANSPARENCY IS MOVED, NEVER REMOVED. The engine's own `summary` — guarded
+   * by `config.py`'s `SYSTEM_PUBLISHED_THRESHOLDS` table — is still in the DOM,
+   * verbatim, one interaction away.
+   */
+  it("carries the engine's exact rule verbatim behind `See exact rule`", async () => {
+    renderSelect();
+    const rule = screen.getByTestId("rtt-system-rule-moneyball");
+    expect(within(rule).getByText(/See exact rule/)).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-system-summary-moneyball")).toHaveTextContent(
+      "Cards in the bottom 55% of PEAK3 3Y overall cost 35% less.",
+    );
+    await userEvent.click(within(rule).getByText(/See exact rule/));
+    expect(rule).toHaveAttribute("open");
+  });
+
+  /**
+   * DOM ORDER IS LOAD-BEARING. `e2e/run-the-table.spec.ts:108` clicks the FIRST
+   * button inside this surface. Layer 3 is a `<details>`, not a `<button>`, so
+   * it cannot capture that click.
+   */
+  it("keeps the first button in the subtree an option button", () => {
+    const { container } = renderSelect();
+    const first = container.querySelector('[data-testid="rtt-system-select"] button');
+    expect(first).toHaveAttribute("data-testid", "rtt-system-moneyball");
+  });
+
+  it("falls back to the engine summary alone for a perk this build does not know", () => {
+    render(
+      <SystemSelect
+        offer={[{ id: "brand_new", name: "Brand New", summary: "Does a thing.", affects: "price" }]}
+        active={[]}
+        act={1}
+        busy={false}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("rtt-system-effect-brand_new")).toHaveTextContent("Does a thing.");
+    // Never printed twice.
+    expect(screen.queryByTestId("rtt-system-rule-brand_new")).not.toBeInTheDocument();
+  });
+});
+
+describe("BossPreview — the pre-boss briefing (plan §6)", () => {
+  const playerLanes = LANES.map((l, i) => ({
+    lane: l,
+    label: `Lane ${i}`,
+    token: (["si", "tp", "rec", "po", "team"] as const)[i],
+    value: [70, 40, 50, 62, 50][i],
+  }));
+
+  function boss(over: Partial<BossPublic> = {}): BossPublic {
+    return {
+      boss_id: "boss-a1",
+      name: "The Wall",
+      tagline: "Nothing gets through.",
+      act: 1,
+      rule: {
+        id: "the_wall",
+        name: "The Wall",
+        summary: "A lane is only taken if it is won by more than 0.75 points.",
+      },
+      source: "generated",
+      revealed: true,
+      starters: [],
+      bench: [],
+      roster_total: 58.4,
+      lane_profile: LANES.map((l, i) => ({
+        lane: l,
+        label: `Lane ${i}`,
+        token: (["si", "tp", "rec", "po", "team"] as const)[i],
+        value: [50, 55, 50, 40, 50][i],
+      })),
+      ...over,
+    };
+  }
+
+  function renderPreview(over: Partial<BossPublic> = {}, lanesToWin: number | undefined = 3) {
+    return render(
+      <BossPreview
+        boss={boss(over)}
+        playerLanes={playerLanes}
+        playerTotal={61.2}
+        benchWeight={0.35}
+        lives={3}
+        busy={false}
+        onResolve={vi.fn()}
+        lanesToWin={lanesToWin}
+      />,
+    );
+  }
+
+  it("states the win condition from the payload, never a literal", () => {
+    renderPreview({}, 4);
+    expect(screen.getByTestId("rtt-boss-win-condition")).toHaveTextContent("First to 4 of 5 lanes");
+  });
+
+  it("puts the boss rule in plain language ABOVE the engine's exact summary", () => {
+    renderPreview();
+    expect(screen.getByTestId("rtt-boss-rule-plain")).toHaveTextContent(
+      "A lane has to be won clearly.",
+    );
+    // The published threshold is still there, verbatim.
+    expect(screen.getByTestId("rtt-boss-rule-summary")).toHaveTextContent("0.75 points");
+  });
+
+  it("summarises the five comparisons the player used to have to eyeball", () => {
+    renderPreview();
+    const briefing = screen.getByTestId("rtt-boss-briefing");
+    expect(within(briefing).getByTestId("rtt-boss-briefing-you")).toHaveTextContent("Lane 0");
+    expect(within(briefing).getByTestId("rtt-boss-briefing-you")).toHaveTextContent("Lane 3");
+    expect(within(briefing).getByTestId("rtt-boss-briefing-boss")).toHaveTextContent("Lane 1");
+    expect(within(briefing).getByTestId("rtt-boss-strengths")).toHaveTextContent("Lane 0");
+  });
+
+  /**
+   * The two profiles are NOT computed under identical bench-weight conditions
+   * (`public_state` passes no boss rule for the player, `boss_public` passes
+   * one for the boss), and a rule's tie-break is not modelled at all. So the
+   * word "estimate" is on the screen, not only in a comment.
+   */
+  it("labels the lean an estimate, and never implies a simulated game", () => {
+    renderPreview();
+    const briefing = screen.getByTestId("rtt-boss-briefing");
+    expect(briefing).toHaveTextContent(/estimate/i);
+    expect(briefing).toHaveTextContent(/Nothing is played out/i);
+    expect(screen.getByTestId("rtt-boss-win-condition")).toHaveTextContent(/No game is simulated/i);
+  });
+
+  it("shows no briefing at all for an unscouted boss — it invents nothing", () => {
+    renderPreview({ revealed: false, lane_profile: undefined, starters: undefined });
+    expect(screen.queryByTestId("rtt-boss-briefing")).not.toBeInTheDocument();
+  });
+});
+
+describe("ChoiceNode — Film Room copy", () => {
+  /**
+   * `generation.py:199-202` sets the Film Room's server summary to "scout the
+   * next boss's lane profile and rule, then take one prep advantage" — a
+   * mechanic the engine does not implement. `state.action_film_room:499-508`
+   * unlocks stages; `public.py:338-341` reveals the boss roster once this act's
+   * last stage is scouted. That is what the player is told.
+   */
+  it("never repeats the engine's phantom 'prep advantage' node summary", () => {
+    const node: ActiveNode = {
+      node_id: "n9",
+      node_type: "film_room",
+      title: "Tape session",
+      summary: "Scout the next boss's lane profile and rule, then take one prep advantage.",
+      choices: [{ id: "scout_offers", label: "Scout ahead", description: "Reveal what is next." }],
+    };
+    const { container } = render(<ChoiceNode node={node} busy={false} onChoose={vi.fn()} />);
+    expect(container.textContent).not.toContain("prep advantage");
+    expect(container.textContent).toContain("Learn what is coming");
+    // And it states the consequence nothing used to mention.
+    expect(container.textContent).toMatch(/uncovers the boss/i);
+  });
+
+  it("still prints the generator's own summary for every other node type", () => {
+    const node: ActiveNode = {
+      node_id: "n1",
+      node_type: "rest_bank",
+      title: "Down week",
+      summary: "A distinctive per-node line.",
+      choices: [{ id: "recover_life", label: "Recover", description: "Get a life back." }],
+    };
+    render(<ChoiceNode node={node} busy={false} onChoose={vi.fn()} />);
+    expect(screen.getByText("A distinctive per-node line.")).toBeInTheDocument();
   });
 });

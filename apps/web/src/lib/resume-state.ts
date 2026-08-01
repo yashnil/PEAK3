@@ -22,7 +22,7 @@
 
 import { useEffect, useState } from "react";
 import { loadActiveRun } from "@/lib/run-the-table-state";
-import { hasCompleted, loadArchive, todayUtc } from "@/lib/daily-grid-archive";
+import { hasCompleted, loadArchive, todayPacific } from "@/lib/daily-grid-archive";
 import { RUN_THE_TABLE_RUNS_HREF } from "@/lib/modes";
 import type { RunType } from "@/types/run-the-table";
 
@@ -38,7 +38,8 @@ export interface ResumableRun {
 }
 
 export interface DailyGridStanding {
-  /** UTC date the archive was evaluated against. */
+  /** The daily key (midnight America/Los_Angeles) the archive was evaluated
+   *  against — the same day the server would call today. */
   date: string;
   /** Has today's board already been finished? */
   completedToday: boolean;
@@ -84,7 +85,7 @@ function readRun(): ResumableRun | null {
 
 function readDailyGrid(now: Date): DailyGridStanding | null {
   try {
-    const date = todayUtc(now);
+    const date = todayPacific(now);
     const archive = loadArchive(date);
     if (!archive || archive.entries.length === 0) return null;
     return {
@@ -101,7 +102,7 @@ function readDailyGrid(now: Date): DailyGridStanding | null {
  * Reads every resumable surface. Synchronous, cheap, and safe to call from an
  * effect on every route change.
  *
- * `now` is injectable so a test can pin the UTC day rather than racing midnight.
+ * `now` is injectable so a test can pin the day rather than racing midnight.
  */
 export function readResumeState(now: Date = new Date()): ResumeSummary {
   if (typeof window === "undefined") return EMPTY_RESUME_STATE;

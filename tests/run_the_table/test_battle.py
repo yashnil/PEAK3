@@ -11,7 +11,10 @@ import pytest
 
 from nba_peak.run_the_table.battle import (
     bench_weight_for,
+    lane_margin_threshold,
     lane_score,
+    player_bench_weight_candidates,
+    player_lane_profile,
     resolve_battle,
     roster_lane_profile,
     roster_total,
@@ -21,8 +24,12 @@ from nba_peak.run_the_table.config import (
     BENCH_WEIGHT_DEEP_ROTATION,
     BENCH_WEIGHT_DEFAULT,
     BENCH_WEIGHT_TOP_HEAVY,
+    BOSS_BENCH_WEIGHT,
+    BOSS_LANE_MARGIN,
     BOSS_RULES,
+    BOSS_WIN_CREDITS,
     COMEBACK_CREDITS,
+    LANE_EPSILON,
     LANE_FIELDS,
     LANE_LABELS,
     LANE_PEAK3_WEIGHTS,
@@ -135,8 +142,12 @@ class TestBenchWeightSelection:
             BENCH_WEIGHT_DEFAULT,
         )
 
-    def test_the_wall_does_not_touch_bench_weight(self):
-        assert bench_weight_for((), "the_wall") == (BENCH_WEIGHT_DEFAULT, BENCH_WEIGHT_DEFAULT)
+    def test_lane_margin_rules_do_not_touch_bench_weight(self):
+        for rule_id in BOSS_LANE_MARGIN:
+            assert bench_weight_for((), rule_id) == (
+                BENCH_WEIGHT_DEFAULT,
+                BENCH_WEIGHT_DEFAULT,
+            )
 
     def test_boss_bench_rules_are_symmetric_and_override_every_system(self):
         for rule_id, expected in (
@@ -152,11 +163,65 @@ class TestBenchWeightSelection:
     def test_every_declared_boss_rule_is_handled(self):
         for rule_id in BOSS_RULES:
             player, opponent = bench_weight_for(("deep_rotation",), rule_id)
-            if rule_id == "the_wall":
-                # A tie-break rule, not a weight rule: Deep Rotation still applies.
-                assert (player, opponent) == (BENCH_WEIGHT_DEEP_ROTATION, BENCH_WEIGHT_DEFAULT)
+            if rule_id in BOSS_BENCH_WEIGHT:
+                assert player == opponent == BOSS_BENCH_WEIGHT[rule_id]
             else:
-                assert player == opponent
+                # A lane-margin rule, not a weight rule: Deep Rotation applies.
+                assert (player, opponent) == (BENCH_WEIGHT_DEEP_ROTATION, BENCH_WEIGHT_DEFAULT)
+
+    def test_every_boss_rule_is_either_a_bench_rule_or_a_lane_margin_rule(self):
+        """No boss may carry a rule the engine does not implement — that is how
+        v1 shipped a tutorial boss whose rule never fired."""
+        assert set(BOSS_RULES) == set(BOSS_BENCH_WEIGHT) | set(BOSS_LANE_MARGIN)
+        assert not set(BOSS_BENCH_WEIGHT) & set(BOSS_LANE_MARGIN)
+
+
+class TestDeepRotationIsABuff:
+    """v1's Deep Rotation was a NET NERF: `lane_score` is a weighted mean, so a
+    flat re-weight lowers the score of any roster whose bench is weaker than its
+    starters — the default. v2 takes the better of the two weights per lane."""
+
+    @pytest.fixture
+    def weak_bench(self):
+        starters = [make_card(f"s{i}", 80.0, slug=f"s{i}") for i in range(5)]
+        bench = [make_card("b0", 10.0, slug="b0"), make_card("b1", 20.0, slug="b1")]
+        return make_pool(starters + bench), [c.peak_window_id for c in starters], [
+            c.peak_window_id for c in bench
+        ]
+
+    def test_a_flat_re_weight_would_lower_every_lane(self, weak_bench):
+        pool, starters, bench = weak_bench
+        assert lane_score(pool, starters, bench, SI, BENCH_WEIGHT_DEEP_ROTATION) < (
+            lane_score(pool, starters, bench, SI, BENCH_WEIGHT_DEFAULT)
+        )
+
+    def test_the_perk_never_lowers_a_lane(self, weak_bench):
+        pool, starters, bench = weak_bench
+        base = player_lane_profile(pool, starters, bench, ())
+        with_perk = player_lane_profile(pool, starters, bench, ("deep_rotation",))
+        for lane in LANE_FIELDS:
+            assert with_perk[lane] >= base[lane]
+        assert with_perk == base  # a weak bench is simply not used
+
+    def test_the_perk_raises_a_lane_when_the_bench_is_stronger(self):
+        starters = [make_card(f"s{i}", 40.0, slug=f"s{i}") for i in range(5)]
+        bench = [make_card("b0", 90.0, slug="b0"), make_card("b1", 90.0, slug="b1")]
+        pool = make_pool(starters + bench)
+        s = [c.peak_window_id for c in starters]
+        b = [c.peak_window_id for c in bench]
+        base = player_lane_profile(pool, s, b, ())
+        with_perk = player_lane_profile(pool, s, b, ("deep_rotation",))
+        for lane in LANE_FIELDS:
+            assert with_perk[lane] > base[lane]
+
+    def test_a_boss_bench_rule_collapses_the_perk_to_one_weight(self):
+        for rule_id, weight in BOSS_BENCH_WEIGHT.items():
+            assert player_bench_weight_candidates(("deep_rotation",), rule_id) == (weight,)
+        for rule_id in BOSS_LANE_MARGIN:
+            assert player_bench_weight_candidates(("deep_rotation",), rule_id) == (
+                BENCH_WEIGHT_DEFAULT,
+                BENCH_WEIGHT_DEEP_ROTATION,
+            )
 
 
 class TestTieBreakerLadder:
@@ -248,11 +313,18 @@ class TestTieBreakerLadder:
         )
         assert result.outcome == "draw"
         assert result.lives_after == 2
+        # A draw is neither a win nor a loss: no life, no comeback, no reward,
+        # and — at the Final Boss — no cleared table.
         assert result.credits_awarded == 0
 
 
-class TestTheWallRule:
-    def _wall(self, player_lanes, opponent_lanes, rule_id):
+class TestLaneMarginRules:
+    """`the_wall` (act 1) and `the_standard` (the Final Boss) both raise the
+    margin a lane must be won by. v1's `the_wall` broke EXACT ties instead, and
+    fired 0 times in 120,000 audited battles because lane scores are rounded to
+    4 decimals — a rule that cannot fire is not a rule."""
+
+    def _battle(self, player_lanes, opponent_lanes, rule_id):
         player = _side("p", player_lanes)
         opponent = _side("o", opponent_lanes)
         pool = make_pool(player + opponent)
@@ -264,33 +336,64 @@ class TestTheWallRule:
             (),
             lives_before=3,
             comeback_credits=COMEBACK_CREDITS,
+            win_credits=BOSS_WIN_CREDITS,
         )
 
-    def test_traditional_production_takes_every_exact_lane_tie(self):
-        player = _flat(**{TP: 60.0})
-        opponent = _flat(**{TP: 40.0})
-        without = self._wall(player, opponent, None)
-        assert (without.player_lanes_won, without.ties) == (1, 4)
-        assert without.decided_by == "summed_margin"
+    def test_the_published_threshold_is_the_applied_threshold(self):
+        assert lane_margin_threshold(None) == LANE_EPSILON
+        assert lane_margin_threshold("strength_in_numbers") == LANE_EPSILON
+        for rule_id, band in BOSS_LANE_MARGIN.items():
+            assert lane_margin_threshold(rule_id) == band
 
-        with_rule = self._wall(player, opponent, "the_wall")
-        assert with_rule.player_lanes_won == 5
-        assert with_rule.ties == 0
-        assert with_rule.decided_by == "lanes"
-        broken = [l for l in with_rule.lanes if l.tie_broken_by_rule]
-        assert {l.lane for l in broken} == set(LANE_FIELDS) - {TP}
+    def test_a_lane_inside_the_band_is_drawn_and_marked_as_the_rules_doing(self):
+        band = BOSS_LANE_MARGIN["the_wall"]
+        # Won by half the band: taken without the rule, drawn with it.
+        player = _flat(**{SI: 50.0 + band / 2, TP: 50.0 + band / 2,
+                          REC: 50.0 + band / 2})
+        without = self._battle(player, _flat(), None)
+        assert without.player_lanes_won == 3 >= LANES_TO_WIN
+        assert without.outcome == "win"
 
-    def test_the_rule_is_symmetric_and_can_hand_the_lanes_to_the_boss(self):
-        player = _flat(**{TP: 40.0})
-        opponent = _flat(**{TP: 60.0})
-        result = self._wall(player, opponent, "the_wall")
-        assert result.opponent_lanes_won == 5
-        assert result.player_lanes_won == 0
-        assert result.outcome == "loss"
+        with_rule = self._battle(player, _flat(), "the_wall")
+        assert with_rule.player_lanes_won == 0
+        assert with_rule.ties == len(LANE_FIELDS)
+        assert [l.tie_broken_by_rule for l in with_rule.lanes] == [
+            True, True, True, False, False
+        ]
+        # No lane reached three, so the published ladder decides it.
+        assert with_rule.decided_by == "summed_margin"
+        assert with_rule.outcome == "win"
 
-    def test_a_tie_in_traditional_production_itself_stays_a_tie(self):
-        result = self._wall(_flat(), _flat(), "the_wall")
+    def test_a_lane_outside_the_band_is_still_taken(self):
+        band = BOSS_LANE_MARGIN["the_wall"]
+        player = _flat(**{SI: 50.0 + band + 1, TP: 50.0 + band + 1,
+                          REC: 50.0 + band + 1})
+        result = self._battle(player, _flat(), "the_wall")
+        assert result.player_lanes_won == 3
+        assert result.decided_by == "lanes"
+        assert result.outcome == "win"
+        assert not any(l.tie_broken_by_rule for l in result.lanes[:3])
+
+    def test_the_band_is_symmetric_and_takes_lanes_from_the_boss_too(self):
+        band = BOSS_LANE_MARGIN["the_standard"]
+        opponent = _flat(**{SI: 50.0 + band / 2, TP: 50.0 + band / 2,
+                            REC: 50.0 + band / 2})
+        without = self._battle(_flat(), opponent, None)
+        assert without.opponent_lanes_won == 3
+        assert without.outcome == "loss"
+
+        with_rule = self._battle(_flat(), opponent, "the_standard")
+        assert with_rule.opponent_lanes_won == 0
+        assert with_rule.ties == len(LANE_FIELDS)
+        assert with_rule.outcome == "loss"  # summed margin still favours the boss
+
+    def test_the_final_boss_band_is_the_wider_of_the_two(self):
+        assert BOSS_LANE_MARGIN["the_standard"] > BOSS_LANE_MARGIN["the_wall"] > 0
+
+    def test_an_exact_mirror_is_still_an_exact_draw_under_the_rule(self):
+        result = self._battle(_flat(), _flat(), "the_wall")
         assert result.ties == len(LANE_FIELDS)
+        # Drawn because the scores are equal, not because the rule intervened.
         assert not any(l.tie_broken_by_rule for l in result.lanes)
         assert result.decided_by == "exact_draw"
 
@@ -313,6 +416,7 @@ class TestBossRuleSafety:
         for boss_id, expected in (
             ("strength_in_numbers", BENCH_WEIGHT_DEEP_ROTATION),
             ("the_ceiling", BENCH_WEIGHT_TOP_HEAVY),
+            # the_wall / the_standard are lane-margin rules; covered above.
         ):
             boss = bosses[boss_id]
             result = resolve_battle(
@@ -383,7 +487,7 @@ class TestLivesAndComebackCredits:
         assert result.lives_after == 0
         assert result.credits_awarded == 0
 
-    def test_a_win_costs_nothing_and_pays_nothing(self):
+    def test_a_win_pays_the_win_reward_and_costs_no_life(self):
         player = _side("p", _flat(**{SI: 90.0, TP: 90.0, REC: 90.0}))
         opponent = _side("o", _flat())
         pool = make_pool(player + opponent)
@@ -395,7 +499,11 @@ class TestLivesAndComebackCredits:
             (),
             lives_before=3,
             comeback_credits=COMEBACK_CREDITS,
+            win_credits=BOSS_WIN_CREDITS,
         )
         assert result.outcome == "win"
         assert result.lives_after == 3
-        assert result.credits_awarded == 0
+        assert result.credits_awarded == BOSS_WIN_CREDITS
+        # v1 paid a winner nothing while paying a loser COMEBACK_CREDITS, so the
+        # only battle income in the game went to the player who was losing.
+        assert BOSS_WIN_CREDITS > COMEBACK_CREDITS

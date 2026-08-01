@@ -18,8 +18,20 @@ logger = logging.getLogger(__name__)
 
 # Every durable domain wired through core/dependencies.py's get_*_repo
 # functions. Keep in sync when a new domain/table is added.
+#
+# THIS LIST IS THE CHECK. `assert_production_ready` can only refuse to start on
+# a non-durable domain it has been told about, so a wired domain that is
+# missing here is not merely undocumented -- it is silently exempt from the
+# guarantee this module exists to enforce. Three were missing (`court_lineup`,
+# `perfect_season_leaderboard`, `perfect_season_saved_run`), each on the
+# reasoning that its feature was flagged off or still a vertical slice. A flag
+# can be turned on without anyone re-reading that reasoning, and the failure it
+# permits -- production serving a player's saved history out of a dict that
+# empties on restart -- is exactly the one being guarded against. Being wired
+# in core/dependencies.py is the only criterion for membership.
 REPOSITORY_DOMAINS: list[str] = [
     "game",
+    "court_lineup",
     "challenge",
     "daily_completion",
     "result_snapshot",
@@ -32,8 +44,11 @@ REPOSITORY_DOMAINS: list[str] = [
     "ranked_matchmaking",
     "ranked_rating",
     "ranked_integrity",
+    "perfect_season_leaderboard",
+    "perfect_season_saved_run",
     "daily_grid_result",
     "run_the_table_run",
+    "peak_duel_daily_result",
 ]
 
 

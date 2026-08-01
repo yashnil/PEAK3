@@ -8,7 +8,7 @@ interface Props {
 export const metadata: Metadata = {
   title: "Run the Table | PEAK3 Arena",
   description:
-    "Build and evolve a roster of exact NBA 3-year peaks across a branching run, manage scarce credits, and beat three escalating statistical lineups.",
+    "Build and evolve a roster of exact NBA 3-year peaks across a branching run, manage scarce credits, and beat four escalating statistical lineups.",
 };
 
 function first(value: string | string[] | undefined): string | undefined {

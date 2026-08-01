@@ -156,22 +156,33 @@
 }
 
 .pk-playmenu-panel {
-  position: absolute;
-  top: calc(100% + 0.5rem);
-
   /*
-   * Anchored to the trigger's RIGHT edge, not its left.
+   * Anchored to the VIEWPORT's right edge, not the trigger's.
    *
-   * `left: 0` was correct only while a stray hamburger button was pushing the
-   * desktop nav toward the middle of the header. With that removed the nav sits
-   * hard right, so a left-anchored 40rem panel starts around x=948 on a 1440px
-   * viewport and runs ~150px past the edge. Clamping the WIDTH (`min(92vw,…)`)
-   * never fixed this, because the overflow came from the panel's POSITION.
+   * History, because this has now been got wrong twice in opposite directions:
    *
-   * Right-anchoring makes the panel grow leftward into the empty header, which
-   * is where the space actually is.
+   *   1. `left: 0` (trigger-anchored, growing right) hung a 40rem panel ~150px
+   *      off the RIGHT edge at 1440px, once a stray hamburger stopped pushing
+   *      the nav toward the middle.
+   *   2. `right: 0` (trigger-anchored, growing left) fixed that — until the
+   *      account menu was added to the nav's right side. That moved the trigger
+   *      left, and at 1024px the panel's left edge landed at x = -50.7, i.e.
+   *      off the LEFT edge.
+   *
+   * Both failures share a cause: the panel's position depended on where the
+   * trigger happened to sit, so any change to the nav's contents could push it
+   * out of the viewport. Anchoring to the viewport removes that coupling
+   * entirely — the panel's left edge is `100vw - padding - width`, which is on
+   * screen at every width the desktop nav is used at, whatever else the header
+   * gains later.
+   *
+   * `position: fixed` is safe for the same reason the 640–860px band below
+   * already relies on it: the header is sticky, and the panel is dismissed by
+   * the same outside-interaction handling that closes it on click.
    */
-  right: 0;
+  position: fixed;
+  top: calc(3.5rem + var(--pk-space-2));
+  right: var(--pk-space-3);
   left: auto;
   z-index: var(--pk-z-dropdown);
 
@@ -193,20 +204,16 @@
 
 /*
  * Between the `sm` breakpoint (640px, where the desktop nav replaces the
- * drawer) and ~860px there is no anchor that works: a 40rem panel hung off
- * either edge of the trigger leaves the viewport on one side or the other.
- * A 1440x900 screen at 200% zoom reports 720px CSS pixels and lands squarely in
- * this band, which is exactly the case the brief requires to stay usable.
+ * drawer) and ~860px, go full-bleed rather than merely on-screen.
  *
- * So in that band the panel stops being trigger-anchored and clamps to the
- * viewport itself. `position: fixed` is safe here because the header is sticky
- * and the panel is dismissed on scroll-away by the same outside-interaction
- * handling that closes it on click.
+ * A 1440x900 screen at 200% zoom reports 720 CSS pixels and lands squarely in
+ * this band, which the brief requires to stay usable. The base rule above
+ * already keeps the panel inside the viewport at these widths; this band is
+ * about the remaining margin being too mean to read comfortably, so the panel
+ * spans both gutters instead of hugging the right one.
  */
 @media (min-width: 640px) and (max-width: 860px) {
   .pk-playmenu-panel {
-    position: fixed;
-    top: calc(3.5rem + var(--pk-space-2));
     left: var(--pk-space-3);
     right: var(--pk-space-3);
     width: auto;

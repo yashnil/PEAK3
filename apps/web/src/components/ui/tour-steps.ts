@@ -102,16 +102,22 @@ export const RUN_THE_TABLE_TOUR_ID = "run-the-table";
  * previous version. Bump it whenever a step's *rule* changes — not for a typo.
  * `lib/tour-state.ts` treats any other stored version as "not seen".
  */
-export const RUN_THE_TABLE_TOUR_VERSION = 1;
+export const RUN_THE_TABLE_TOUR_VERSION = 2;
 
 export const RUN_THE_TABLE_TOUR: readonly TourStep[] = [
   {
     id: "run-map",
     title: "The run map",
-    // ACTS = 3, STAGES_PER_ACT = 2, NODE_CHOICES_PER_STAGE = 2 (config.py).
+    // NODE_CHOICES_PER_STAGE = 2 (config.py).
     body: "Choose one path at each stage. The other closes.",
+    // NO ACT/STAGE/BATTLE COUNTS. This step used to read "Three acts. Two
+    // stages in each act… six stages and three battles in all", which was
+    // three engine constants retyped into prose — and Standard v2 changes all
+    // three (ACTS 3 → 4, DECISION_NODES 6 → 8, BATTLES 3 → 4). The ladder the
+    // step is spotlighting draws the real shape from `state.map`, so the copy
+    // describes the pattern and lets the map supply the numbers.
     detail:
-      "Three acts. Two stages in each act, then that act's boss — six stages and three battles in all.",
+      "Every act is a run of stages and then that act's boss. The ladder beside this step shows exactly how many of each your run has.",
     targets: ["rtt-run-map", "rtt-progress-strip"],
   },
   {
@@ -125,10 +131,13 @@ export const RUN_THE_TABLE_TOUR: readonly TourStep[] = [
   {
     id: "credits",
     title: "Credits",
-    // STARTING_CREDITS = 40 (config.py). Draft buys and the net cost of a trade
-    // are the only spends (state.action_draft_buy / action_trade).
+    // Draft buys and the net cost of a trade are the only spends
+    // (state.action_draft_buy / action_trade). The STARTING_CREDITS figure is
+    // deliberately NOT retyped here — it is a balance constant (40 under v1,
+    // 50 under Standard v2), and the Credits tile this step spotlights shows
+    // the live value from `public_state()`.
     body:
-      "You start with 40. Credits buy cards in the Draft Room and pay the net cost of a trade — the incoming price minus what your outgoing player refunds.",
+      "Your whole budget, shown in the tile beside this step. Credits buy cards in the Draft Room and pay the net cost of a trade — the incoming price minus what your outgoing player refunds.",
     // receipt.py: "Finished holding {credits} unspent credits." There is no
     // end-of-run credit bonus, so this deliberately does not promise one.
     detail:
@@ -143,8 +152,10 @@ export const RUN_THE_TABLE_TOUR: readonly TourStep[] = [
     // only when lives_after > 0. state._advance_after_boss: lives <= 0 → failed.
     body:
       "Three, and never more than three. You lose one only by losing a boss battle — a draw costs nothing.",
+    // COMEBACK_CREDITS is a balance constant Track D is retuning, so the amount
+    // is not retyped; the battle screen prints the awarded figure itself.
     detail:
-      "Lose your last life and the run ends there. A loss you survive pays 8 comeback credits.",
+      "Lose your last life and the run ends there, immediately. A loss you survive pays comeback credits.",
     targets: ["rtt-lives", "rtt-mobile-tray"],
   },
   {
@@ -155,10 +166,11 @@ export const RUN_THE_TABLE_TOUR: readonly TourStep[] = [
     // is in the card's eligible roles, and the same player can never be held twice.
     body:
       "Five starters — Lead Creator, Guard / Wing, Wing / Forward, Forward / Big, Anchor — plus two bench. A card can only go where its role is legal, and you can never hold the same player twice.",
-    // BENCH_WEIGHT_DEFAULT = 0.35 (config.py); boss rules and the Deep Rotation
-    // perk are the only things that change it (battle.bench_weight_for).
+    // BENCH_WEIGHT_DEFAULT is a balance constant; boss rules and the Deep
+    // Rotation perk are the only things that change it
+    // (battle.bench_weight_for). The tray prints the live `bench_weight`.
     detail:
-      "Bench players count for 0.35 of a starter in every lane, unless a perk or a boss rule changes that.",
+      "A bench player counts for a fraction of a starter in every lane — the exact fraction is in the lane-profile panel, and a perk or a boss rule can change it.",
     targets: ["rtt-roster", "rtt-mobile-tray"],
   },
   {
@@ -220,30 +232,37 @@ export const COACHMARKS: Record<CoachmarkId, Coachmark> = {
     body:
       "Three priced cards. Buy one into a slot its role allows, or pass and keep the credits — passing is always legal.",
   },
-  // TRADE_REFUND_PCT = 0.50; TRADE_MACHINE_REFUND_PCT = 0.70.
+  // pricing.refund_for reads `base_cost`, so the refund is a share of the
+  // ORIGINAL price — the exact ambiguity config.py:150-156 records as having
+  // shipped wrong once, in this very coachmark. The PERCENTAGE is not retyped:
+  // it is a balance constant, and the desk prints the credit figure itself.
   // public.py sets can_decline = True; isTradeLegal reads the server's legal_slots.
   trade_desk: {
     id: "trade_desk",
     title: "First Trade Desk",
     body:
-      "Send one player out and bring one of three incoming players in. The outgoing player refunds half their ORIGINAL price — before any perk discount, and more with the Trade Machine perk — and the pairing has to be legal for that slot. You can always decline.",
+      "Send one player out and bring one of three incoming players in. The outgoing player refunds part of their ORIGINAL price — before any perk discount, and more with the Trade Machine perk — and the pairing has to be legal for that slot. You can always decline.",
   },
-  // FILM_CHOICES = ("scout_offers", "take_credits"); FILM_CREDITS = 10.
-  // state.action_film_room unlocks the rest of this act plus the next act's
-  // first stage.
+  // FILM_CHOICES = ("scout_offers", "take_credits").
+  // state.action_film_room:499-508 unlocks the remaining stages of THIS act
+  // plus stage 1 of the next — nothing further. public.py:338-341 then reveals
+  // the boss's roster once `a{act}s{STAGES_PER_ACT}` is scouted, which is the
+  // highest-value consequence and the one no surface used to mention.
+  // FILM_CREDITS is not retyped: the choice button carries the live figure.
   film_room: {
     id: "film_room",
     title: "First Film Room",
     body:
-      "Two choices, and no wrong one: scout — which reveals the stages left in this act and the first stage of the next — or take 10 credits instead.",
+      "Two choices, and no wrong one: scout, which reveals the stages left in this act and the first stage of the next — and, if it reaches this act's last stage, uncovers the boss's roster before you play them — or bank the credits instead.",
   },
-  // REST_CHOICES = ("recover_life", "take_credits"); REST_CREDITS = 12;
-  // REST_LIFE_RECOVERY = 1, capped at MAX_LIVES = 3.
+  // REST_CHOICES = ("recover_life", "take_credits"); REST_LIFE_RECOVERY = 1,
+  // capped at MAX_LIVES = 3. REST_CREDITS is not retyped: the choice button
+  // carries the live figure.
   rest_bank: {
     id: "rest_bank",
     title: "First Rest / Bank",
     body:
-      "Recover one life, up to the maximum of three, or take 12 credits instead. At full lives there is nothing to recover, so that choice is closed.",
+      "Recover one life, up to the maximum of three, or bank the credits instead. At full lives there is nothing to recover, so that choice is closed.",
   },
   // battle.resolve_battle; BOSS_RULES are symmetric by contract.
   boss_battle: {

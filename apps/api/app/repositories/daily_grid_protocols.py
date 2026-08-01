@@ -93,3 +93,22 @@ class DailyGridResultRepository(Protocol):
     ) -> list[DailyGridResult]:
         """Most recent board date first."""
         ...
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign every result owned by `from_sub` to `to_sub`. Returns the
+        number of results actually moved.
+
+        The guest-claim half of this protocol: a player who completes boards as
+        a guest and then signs in keeps them, instead of the server record
+        being stranded under a subject whose cookie has just been consumed.
+
+        ONE OFFICIAL RESULT PER BOARD SURVIVES THE TRANSFER. Where the
+        destination account already has its own result for a
+        (board_date, board_version) the guest also played, the guest's row
+        cannot move without breaking
+        `UNIQUE (owner_sub, board_date, board_version)` -- it is dropped rather
+        than moved, matching how `DailyCompletionRepository.transfer_owner`
+        resolves the identical collision. The account's own attempt is the one
+        that counts, and the returned count reports only what really moved.
+        """
+        ...

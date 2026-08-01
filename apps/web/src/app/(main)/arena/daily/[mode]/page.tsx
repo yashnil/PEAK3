@@ -11,28 +11,46 @@ import {
   MODE_LABELS,
 } from "@/types/draft";
 import { getDailyDraft, getDraftGame, DraftAPIError } from "@/lib/draft-api";
-import { draftProgress } from "@/lib/draft-progress";
-import { todayUTC } from "@/lib/utils";
+import { boardIdDate, draftProgress } from "@/lib/draft-progress";
+import { type DailyWindowPayload, extractDailyWindow } from "@/lib/daily-time";
+import { useDailyReset } from "@/lib/use-daily-reset";
 import { analytics } from "@/lib/analytics";
 
 const VALID_MODES: DraftMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
 
 type PageState =
   | { status: "loading" }
-  | { status: "already_completed"; summary: DraftCompletionSummary }
-  | { status: "playing"; gameState: DraftGameState; isReplay?: boolean }
+  | { status: "already_completed"; summary: DraftCompletionSummary; date: string }
+  | { status: "playing"; gameState: DraftGameState; date: string; isReplay?: boolean }
   | { status: "error"; message: string };
 
 interface Props {
   params: Promise<{ mode: string }>;
 }
 
+/**
+ * Peak Draft Daily.
+ *
+ * TWO STALE-BOARD BUGS LIVED HERE, and they compounded.
+ *
+ * 1. `today` was computed from the browser clock in render scope and sent to
+ *    the API as `?date=`. The server only used its own clock when the parameter
+ *    was ABSENT, so the browser was the one deciding what day it was.
+ * 2. The resume branch checked `board_type` and `mode` but never compared the
+ *    stored `board_id`'s embedded date to today, and returned BEFORE fetching
+ *    today's board — so yesterday's unfinished daily was resumed forever and
+ *    the new board was never requested at all.
+ *
+ * Both are fixed by the same principle: the server names the day, the client
+ * discards anything that does not match the day it was named.
+ */
 export default function DailyDraftPage({ params }: Props) {
   const { mode } = use(params);
   const router = useRouter();
-  const today = todayUTC();
 
   const [pageState, setPageState] = useState<PageState>({ status: "loading" });
+  const [window_, setWindow] = useState<DailyWindowPayload | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   const loadGame = useCallback(async () => {
     setPageState({ status: "loading" });
@@ -44,8 +62,30 @@ export default function DailyDraftPage({ params }: Props) {
     }
 
     const draftMode = mode as DraftMode;
-    const hasPriorCompletion = draftProgress.hasDailyCompletion(today, draftMode);
 
+    // TODAY'S BOARD, FROM THE SERVER, FIRST. No `date` argument: the request
+    // carries no opinion about what day it is, and the answer names the day.
+    // Fetching before consulting local state is what makes every check below
+    // reliable — the old order asked "have I played today?" against a date the
+    // server had never agreed to.
+    let gameState: DraftGameState;
+    try {
+      gameState = await getDailyDraft(draftMode);
+    } catch (e) {
+      const message =
+        e instanceof DraftAPIError
+          ? e.detail
+          : "Could not load today's board. Is the API running?";
+      setPageState({ status: "error", message });
+      return;
+    }
+
+    const dailyWindow = extractDailyWindow(gameState);
+    setWindow(dailyWindow);
+    const today =
+      dailyWindow?.daily_key ?? boardIdDate(gameState.board_metadata?.board_id) ?? "";
+
+    const hasPriorCompletion = draftProgress.hasDailyCompletion(today, draftMode);
     analytics.track({
       type: "daily_board_opened",
       mode: draftMode,
@@ -53,55 +93,62 @@ export default function DailyDraftPage({ params }: Props) {
       has_prior_completion: hasPriorCompletion,
     });
 
-    // Already completed today?
     if (hasPriorCompletion) {
       const summary = draftProgress.getDailyCompletion(today, draftMode)!;
-      setPageState({ status: "already_completed", summary });
+      setPageState({ status: "already_completed", summary, date: today });
       return;
     }
 
-    // Try to resume an active game for this mode
+    // Resume an active game — but only if it is a daily, in this mode, AND on
+    // TODAY'S board. A pointer at yesterday's board is not a resumable game,
+    // it is a stale pointer, and it is discarded rather than followed.
     const active = draftProgress.getActiveGame();
+    const activeIsToday =
+      active !== null && boardIdDate(active.board_id) === today && today !== "";
     if (active && active.board_type === "daily" && active.mode === draftMode) {
-      try {
-        const gameState = await getDraftGame(active.game_id);
-        if (
-          gameState.status !== "draft_complete" &&
-          gameState.status !== "expired"
-        ) {
-          setPageState({ status: "playing", gameState });
-          return;
+      if (!activeIsToday) {
+        draftProgress.clearActiveGame();
+      } else {
+        try {
+          const resumed = await getDraftGame(active.game_id);
+          if (
+            resumed.status !== "draft_complete" &&
+            resumed.status !== "expired"
+          ) {
+            setPageState({ status: "playing", gameState: resumed, date: today });
+            return;
+          }
+          // Expired or already complete — clear and fall through to the board
+          // that was already fetched above.
+          draftProgress.clearActiveGame();
+        } catch {
+          draftProgress.clearActiveGame();
         }
-        // Expired or already complete — clear and fall through
-        draftProgress.clearActiveGame();
-      } catch {
-        draftProgress.clearActiveGame();
-        // Fall through to create a new game
       }
     }
 
-    // Create / fetch today's daily game
-    try {
-      const gameState = await getDailyDraft(draftMode, today);
-      setPageState({ status: "playing", gameState });
-    } catch (e) {
-      const message =
-        e instanceof DraftAPIError
-          ? e.detail
-          : "Could not load today's board. Is the API running?";
-      setPageState({ status: "error", message });
-    }
-  }, [mode, today, router]);
+    setPageState({ status: "playing", gameState, date: today });
+  }, [mode, router]);
 
   useEffect(() => {
     loadGame();
-  }, [loadGame]);
+    // `reloadToken` changes when the board rolls over; see useDailyReset below.
+  }, [loadGame, reloadToken]);
+
+  // The rollover. Refetches today's board when the countdown reaches zero and
+  // when the tab returns from the background past the boundary.
+  useDailyReset({
+    dailyKey: window_?.daily_key ?? null,
+    secondsRemaining: window_?.seconds_remaining ?? null,
+    window: window_,
+    onReset: useCallback(() => setReloadToken((t) => t + 1), []),
+  });
 
   const handleViewResult = useCallback(
-    async (summary: DraftCompletionSummary) => {
+    async (summary: DraftCompletionSummary, date: string) => {
       try {
         const gameState = await getDraftGame(summary.game_id);
-        setPageState({ status: "playing", gameState, isReplay: true });
+        setPageState({ status: "playing", gameState, date, isReplay: true });
       } catch {
         setPageState({
           status: "error",
@@ -166,7 +213,7 @@ export default function DailyDraftPage({ params }: Props) {
 
   // ── Already completed ──────────────────────────────────────────────────────
   if (pageState.status === "already_completed") {
-    const { summary } = pageState;
+    const { summary, date } = pageState;
     return (
       <div className="mx-auto max-w-md px-4 py-16 text-center">
         <div className="card-elevated p-6 rounded-xl space-y-4">
@@ -201,7 +248,7 @@ export default function DailyDraftPage({ params }: Props) {
           </div>
 
           <button
-            onClick={() => handleViewResult(summary)}
+            onClick={() => handleViewResult(summary, date)}
             className="w-full py-2 rounded-lg text-sm font-medium border transition-all hover:bg-[var(--bg-surface)]"
             style={{
               borderColor: "var(--border-default)",
@@ -256,7 +303,7 @@ export default function DailyDraftPage({ params }: Props) {
         )}
         <DraftScreen
           initialGameState={pageState.gameState}
-          boardDate={today}
+          boardDate={pageState.date}
         />
       </>
     );

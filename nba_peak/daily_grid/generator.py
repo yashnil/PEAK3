@@ -61,13 +61,19 @@ import hashlib
 import random
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional, Sequence
 
 import numpy as np
 
 from nba_peak.daily_grid.constraints import Constraint, all_constraints
 from nba_peak.daily_grid.pool import GridPool, load_pool
+from nba_peak.daily_key import (
+    InvalidDailyKey,
+    daily_key,
+    parse_daily_key,
+    validate_daily_key,
+)
 
 # v2: Phase 11C. The composition rules changed enough that every date's board
 # changes, so the version salt moves with them -- a v1 board_id must never
@@ -166,8 +172,13 @@ def _native_allowance(seed: int) -> int:
     return MAX_PEAK3_NATIVE if seed % _SPICE_MODULUS == 0 else 0
 
 
-class InvalidGridDate(ValueError):
-    """Raised for a date string that is not a real YYYY-MM-DD calendar date."""
+class InvalidGridDate(InvalidDailyKey):
+    """Raised for a date string that is not a real YYYY-MM-DD calendar date.
+
+    Subclasses ``InvalidDailyKey`` (itself a ``ValueError``) so the shared
+    daily-key validator's failures arrive here under the name this package's
+    callers already catch, and so a caller that catches either one is right.
+    """
 
 
 class BoardGenerationFailed(RuntimeError):
@@ -179,26 +190,57 @@ class BoardGenerationFailed(RuntimeError):
     """
 
 
-def today_utc_date() -> str:
-    """Today in UTC as YYYY-MM-DD.
+# How far back a *request* may reach. Every past Daily Grid board is
+# permanently addressable by design -- the streak rule in
+# apps/web/src/lib/daily-grid-archive.ts is built on it, and history links
+# point at boards by date forever -- so this bound exists only to keep the
+# key finite, not to retire the archive. The future, by contrast, is closed:
+# a board that has not opened yet must not be enumerable.
+GRID_ARCHIVE_DAYS = 36_525  # a century
 
-    UTC rather than server-local time so the board rolls over at the same
-    instant for every player worldwide -- the same choice the Peak Duel and
-    PEAK Season daily routes already make.
+
+def today_utc_date(now: datetime | None = None) -> str:
+    """Today's board date as YYYY-MM-DD, in the product-wide daily reset zone.
+
+    Named ``today_utc_date`` for its callers' sake only; since the daily reset
+    moved to midnight America/Los_Angeles this returns the PACIFIC date. UTC was
+    the wrong boundary in exactly the way the name suggests it was right, which
+    is why the decision now lives in one place (``nba_peak.daily_key``) instead
+    of being restated per game.
     """
-    return datetime.now(timezone.utc).strftime(DATE_FORMAT)
+    return daily_key(now)
 
 
 def validate_grid_date(date_str: str) -> str:
     """Return `date_str` if it is a real YYYY-MM-DD date, else raise.
-    strptime validates the actual calendar, so '2026-02-30' is rejected."""
+
+    SHAPE ONLY, on purpose. A board is a pure function of its date, so any
+    calendar date -- including one years from now -- names exactly one board,
+    and the generator/test surfaces depend on being able to build them. What a
+    *client* is allowed to ask for is a separate question, answered by
+    `validate_grid_request_date`.
+    """
     try:
-        datetime.strptime(date_str, DATE_FORMAT)
-    except (ValueError, TypeError) as exc:
+        return parse_daily_key(date_str).strftime(DATE_FORMAT)
+    except InvalidDailyKey as exc:
         raise InvalidGridDate(
             f"date must be a real YYYY-MM-DD date, got '{date_str}'"
         ) from exc
-    return date_str
+
+
+def validate_grid_request_date(date_str: str, *, now: datetime | None = None) -> str:
+    """Validate a CLIENT-supplied board date against the server's clock.
+
+    Rejects a future date (that board has not opened) and anything past the
+    archive bound. The server, never the browser, decides what "today" is --
+    callers pass `date or today_utc_date()`.
+    """
+    try:
+        return validate_daily_key(date_str, now=now, max_age_days=GRID_ARCHIVE_DAYS)
+    except InvalidGridDate:
+        raise
+    except InvalidDailyKey as exc:
+        raise InvalidGridDate(str(exc)) from exc
 
 
 def grid_seed(date_str: str, version: str = DAILY_GRID_VERSION) -> int:

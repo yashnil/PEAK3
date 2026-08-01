@@ -38,14 +38,27 @@ const STORAGE_KEY = "peak3.run-the-table.active";
  * itself has its own coverage (`src/tests/unit/guided-tour.test.tsx`, plus the
  * auto-start assertion below), so suppressing it here hides nothing.
  *
- * These constants mirror `lib/tour-state.ts` and `components/ui/tour-steps.ts`.
- * They are duplicated rather than imported because this file runs in Playwright's
- * Node context and the values are written into the PAGE's localStorage.
+ * These constants are IMPORTED, not duplicated.
+ *
+ * They used to be copied into this file "because it runs in Playwright's Node
+ * context" — but both source modules are plain TypeScript with no React and no
+ * browser API at module scope, so the import works fine, and the copy was pure
+ * drift risk. It duly drifted: Standard v2 bumped
+ * `RUN_THE_TABLE_TOUR_VERSION` to 2 (correctly — the run changed from 3 acts
+ * to 4, so returning players should see the tour again), the copy here stayed
+ * at 1, and `seedTourSeen` began writing a version that no longer matched.
+ * `shouldAutoStartTour` then returned true for every gameplay test and the
+ * tour's full-screen scrim swallowed the clicks, failing six specs with
+ * timeouts that looked like slowness and were not.
+ *
+ * Values are still written into the PAGE's localStorage via page.evaluate;
+ * only where the numbers come from has changed.
  */
-const TOUR_STORAGE_KEY = "peak3.tour.state";
-const TOUR_STORAGE_SCHEMA_VERSION = 1;
-const RUN_THE_TABLE_TOUR_ID = "run-the-table";
-const RUN_THE_TABLE_TOUR_VERSION = 1;
+import {
+  RUN_THE_TABLE_TOUR_ID,
+  RUN_THE_TABLE_TOUR_VERSION,
+} from "@/components/ui/tour-steps";
+import { TOUR_STORAGE_KEY, TOUR_STORAGE_SCHEMA_VERSION } from "@/lib/tour-state";
 
 /** Mark the RUN THE TABLE tour as already seen, as a returning player's browser
  *  would have it. Must be called after a same-origin navigation. */
@@ -70,10 +83,17 @@ async function suppressTour(page: Page): Promise<void> {
   );
 }
 
-// A full run is: 1-2 System picks, 6 node choices, 6 node resolutions, 3 boss
-// resolutions and 3 advances — ~20 sequential POSTs, each a real server
-// round-trip. This is a fixed structural cost of the mode, not slow test code.
-const FULL_RUN_TIMEOUT_MS = 60_000;
+// A full run is: 1-2 Front Office Perk picks, 8 node choices, 8 node
+// resolutions, 4 boss resolutions and 4 advances — ~26 sequential POSTs, each a
+// real server round-trip. This is a fixed structural cost of the mode, not slow
+// test code.
+//
+// Standard v2 raised the run from 3 acts / 6 decisions / 3 bosses to
+// 4 / 8 / 4, which is ~30% more round-trips. The old 60s budget was sized for
+// the 3-act run and these tests began timing out at ~66s — the run was correct,
+// the clock was stale. Sized with headroom rather than to the observed figure,
+// because the budget exists to catch a hang, not to police normal variance.
+const FULL_RUN_TIMEOUT_MS = 120_000;
 
 /** Every decision surface, in the order they are probed. `rtt-result` leads:
  *  it is the terminal state and the only one the driver stops on. */
@@ -192,9 +212,14 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
   await expect(page.locator(`[data-testid="${surface}"]`)).toHaveCount(0, { timeout: 20_000 });
 }
 
-/** Drive the run to its receipt. A run ends either by finishing act 3 or by
- *  losing three battles; both land on `rtt-result`, so the driver stops on the
- *  surface rather than on a particular outcome. */
+/** Drive the run to its receipt.
+ *
+ *  A run ends either by resolving the final boss in act 4 or by running out of
+ *  lives, which under Standard v2 ends the run the moment it happens rather
+ *  than at the next advance. Both land on `rtt-result`, so the driver stops on
+ *  the SURFACE rather than on a particular outcome — which is why it needed no
+ *  change when the outcome taxonomy became TABLE CLEARED / RUN ENDED AT THE
+ *  FINAL BOSS / RUN ENDED IN ACT N. */
 async function playToResult(page: Page, maxSteps = 60): Promise<void> {
   for (let i = 0; i < maxSteps; i++) {
     const surface = await currentSurface(page);
@@ -246,6 +271,52 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
 // ---------------------------------------------------------------------------
 // Full runs
 // ---------------------------------------------------------------------------
+
+test.describe("RUN THE TABLE clarity", () => {
+  /**
+   * PROGRESSIVE DISCLOSURE (plan §6). The first decision of the run is a perk
+   * choice, and it used to open with a wall of percentile thresholds. Three
+   * layers now: plain effect, one hint, and the engine's exact rule collapsed
+   * behind `See exact rule` — MOVED, never removed, so this asserts both that
+   * the plain line leads AND that the threshold text is still in the document.
+   */
+  test("the perk chooser leads with plain language and keeps the exact rule", async ({ page }) => {
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    const select = page.locator('[data-testid="rtt-system-select"]');
+    await expect(select).toBeVisible();
+
+    const firstOption = select.locator("button").first();
+    const optionId = await firstOption.getAttribute("data-testid");
+    const perkId = (optionId ?? "").replace("rtt-system-", "");
+
+    // Layer 1 is inside the option button itself, so it is on the first scan.
+    await expect(page.locator(`[data-testid="rtt-system-effect-${perkId}"]`)).toBeVisible();
+
+    // Layer 3 exists, is collapsed, and carries the engine's own summary.
+    const rule = page.locator(`[data-testid="rtt-system-rule-${perkId}"]`);
+    await expect(rule).toHaveCount(1);
+    await expect(rule).not.toHaveAttribute("open", "");
+    await rule.locator("summary").click();
+    await expect(page.locator(`[data-testid="rtt-system-summary-${perkId}"]`)).toBeVisible();
+  });
+
+  /**
+   * "75.1th" was rendered on every card in the game — `percentileSentence`
+   * appended "th" unconditionally and `RunCard` hard-coded the same "th" as a
+   * JSX text node. Swept across the whole board rather than one card.
+   */
+  test("no card anywhere renders a broken ordinal", async ({ page }) => {
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    await page.locator('[data-testid="rtt-system-select"] button').first().click();
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible();
+    const text = (await page.locator('[data-testid="rtt-shell"]').innerText()) ?? "";
+    // "75.1th" / "21.2th" / "96.3th". A trailing 0 legitimately takes "th"
+    // ("1.0th"), so only 1, 2 and 3 are the tell.
+    expect(text).not.toMatch(/\.[123]th\b/);
+  });
+});
 
 test.describe("RUN THE TABLE full run", () => {
   test("an anonymous visitor plays a whole standard run to a receipt", async ({ page }) => {

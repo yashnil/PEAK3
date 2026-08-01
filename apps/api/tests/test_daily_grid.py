@@ -14,6 +14,7 @@ These tests cover only what the HTTP layer adds:
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -165,11 +166,17 @@ def test_different_dates_give_different_boards(client: TestClient):
     ] != [c["id"] for c in second["cols"]]
 
 
-def test_board_defaults_to_todays_utc_board(client: TestClient):
+def test_board_defaults_to_the_servers_own_today(client: TestClient):
+    """The browser never gets a vote. With no `date` the server answers with
+    its own daily key -- midnight America/Los_Angeles, not the client's clock
+    and not UTC."""
     default = client.get(BOARD_URL).json()
     today = today_utc_date()
     explicit = client.get(BOARD_URL, params={"date": today}).json()
     assert default["date"] == today
+    # `seconds_remaining` is measured at request time and legitimately ticks
+    # down between the two calls; everything else must be byte-identical.
+    assert default.pop("daily")["daily_key"] == explicit.pop("daily")["daily_key"] == today
     assert default == explicit
 
 
@@ -224,7 +231,48 @@ def test_board_top_level_keys_are_exactly_the_contract(client: TestClient):
         "cols",
         "cells",
         "rules",
+        # The shared daily window every daily response carries. See
+        # nba_peak/daily_key.py and the `daily` assertions below.
+        "daily",
     }
+
+
+def test_board_carries_the_shared_daily_window(client: TestClient):
+    """Every daily response embeds `DailyWindow.to_payload()` at the top level,
+    so no client ever recomputes a timezone boundary for itself."""
+    body = client.get(BOARD_URL, params={"date": FIXED_DATE}).json()
+    window = body["daily"]
+    assert set(window) == {
+        "daily_key",
+        "timezone",
+        "starts_at",
+        "ends_at",
+        "seconds_remaining",
+    }
+    assert window["daily_key"] == FIXED_DATE
+    assert window["timezone"] == "America/Los_Angeles"
+    assert window["starts_at"].endswith("Z") and window["ends_at"].endswith("Z")
+    # An archive board's window closed long ago: 0, never a negative countdown.
+    assert window["seconds_remaining"] == 0
+
+
+def test_todays_board_reports_a_live_countdown(client: TestClient):
+    body = client.get(BOARD_URL).json()
+    window = body["daily"]
+    assert window["daily_key"] == body["date"] == today_utc_date()
+    # Bounded by the longest possible day (25 hours on the fall-back date).
+    assert 0 < window["seconds_remaining"] <= 25 * 3600
+
+
+def test_a_future_board_date_is_refused(client: TestClient):
+    """The board for tomorrow has not opened. A client one timezone ahead must
+    not be able to open it early simply by naming its date."""
+    tomorrow = (
+        datetime.strptime(today_utc_date(), "%Y-%m-%d") + timedelta(days=1)
+    ).strftime("%Y-%m-%d")
+    response = client.get(BOARD_URL, params={"date": tomorrow})
+    assert response.status_code == 400
+    assert response.json()["detail"]["error_code"] == "invalid_grid_date"
 
 
 # ---------------------------------------------------------------------------

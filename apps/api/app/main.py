@@ -21,6 +21,7 @@ from app.api.v1 import ranked as ranked_router
 from app.api.v1 import perfect_season as perfect_season_router
 from app.api.v1 import daily_grid as daily_grid_router
 from app.api.v1 import run_the_table as run_the_table_router
+from app.api.v1 import telemetry as telemetry_router
 from app.core.config import settings
 from app.core.dataset import dataset_store
 from app.core.repository_registry import (
@@ -94,7 +95,9 @@ app = FastAPI(
 # CORS
 allowed_origins = list(settings.CORS_ORIGINS)
 if settings.DEBUG:
-    for origin in ("http://localhost:3000", "http://localhost:3001"):
+    # 3000 = dev/e2e, 3001 = UX-polish capture config,
+    # 3002 = auth/daily capture config (playwright.auth-daily-shots.config.ts).
+    for origin in ("http://localhost:3000", "http://localhost:3001", "http://localhost:3002"):
         if origin not in allowed_origins:
             allowed_origins.append(origin)
 
@@ -124,3 +127,9 @@ app.include_router(ranked_router.router, prefix="/api/v1", tags=["ranked"])
 app.include_router(perfect_season_router.router, prefix="/api/v1", tags=["perfect-season"])
 app.include_router(daily_grid_router.router, prefix="/api/v1", tags=["daily-grid"])
 app.include_router(run_the_table_router.router, prefix="/api/v1", tags=["run-the-table"])
+# Product telemetry. Always mounted, but the route itself is gated on
+# PEAK3_TELEMETRY_ENABLED (default OFF) and answers 403 telemetry_disabled
+# otherwise — mounting conditionally would make "the feature is off" and "this
+# build does not have it" indistinguishable to the client, and would mean the
+# disabled path was never exercised by the test suite.
+app.include_router(telemetry_router.router, prefix="/api/v1", tags=["telemetry"])

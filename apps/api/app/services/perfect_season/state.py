@@ -1644,7 +1644,8 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
         "open_pool_enabled": (not team_year_board) and any(s.spin_type == "open_pool" for s in state.board.spins),
         "simulation_result": simulation_public,
         # Phase 9A: which loop this attempt belongs to ("free_play" | "daily")
-        # and, for a daily attempt, the UTC date whose shared seed it uses.
+        # and, for a daily attempt, the daily key (midnight America/Los_Angeles)
+        # whose shared seed it uses.
         # The client uses these to label the scorecard ("Daily PEAK Season --
         # July 29, 2026") rather than re-deriving the date from the seed.
         "challenge_kind": state.challenge_kind,

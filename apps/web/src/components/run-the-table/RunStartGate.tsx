@@ -2,7 +2,12 @@
 import { DailyDescriptor, RunReadiness, RunType } from "@/types/run-the-table";
 import type { ChallengeDescriptor } from "@/lib/run-the-table-api";
 import { TourLauncher } from "@/components/ui/GuidedTour";
-import { NODE_TYPE_COPY, PERK_TERM, RTT_COPY } from "@/lib/run-the-table-copy";
+import {
+  NODE_TYPE_COPY,
+  PERK_TERM,
+  RTT_COPY,
+  lanesToWinSentence,
+} from "@/lib/run-the-table-copy";
 
 /**
  * The explicit Start gate.
@@ -119,13 +124,17 @@ export default function RunStartGate({
             <Step n={3} />
             <span>
               At the end of each act, your five starters and two bench play a boss lineup across the{" "}
-              <strong>five PEAK3 component lanes</strong>. {RTT_COPY.lanesToWin}
+              <strong>five PEAK3 component lanes</strong>. {lanesToWinSentence()}
             </span>
           </li>
           <li className="flex gap-2.5">
             <Step n={4} />
             <span>
-              Three acts, three lives. {RTT_COPY.lifeLoss} Finish and you get a full receipt — MVP,
+              {/* No act count: the gate runs before any run exists, so there is
+                  no `acts_total` to thread, and a literal here is exactly the
+                  drift `lanesToWinSentence()` was introduced to stop. */}
+              Every act ends in a boss battle, and you have three lives. {RTT_COPY.lifeLoss} Finish
+              and you get a full receipt — MVP,
               best buy, closest battle — then run it back or challenge a friend on the same seed.
             </span>
           </li>

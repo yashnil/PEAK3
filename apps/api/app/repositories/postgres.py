@@ -458,13 +458,22 @@ class PostgresOwnershipClaimRepository:
         self._pool = pool
 
     async def record_claim(self, claim: OwnershipClaim) -> None:
+        """First claim of an anon subject wins.
+
+        `ON CONFLICT (anon_subject_id) DO NOTHING` is not a convenience: the
+        UNIQUE constraint on that column is the entire concurrency control for
+        the claim flow. Two browser tabs signing in at the same moment both
+        reach this statement, and exactly one row survives. Callers must
+        re-read with `get_claim_by_anon` afterwards rather than assuming their
+        own `claim.id` was the one persisted -- see app/api/v1/auth.py.
+        """
         async with self._pool.acquire() as conn:
             await conn.execute(
                 """
                 INSERT INTO ownership_claims (
                     id, real_user_sub, anon_subject_id, claimed_at,
-                    game_count, completion_count, challenge_count
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+                    game_count, completion_count, challenge_count, domain_counts
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
                 ON CONFLICT (anon_subject_id) DO NOTHING
                 """,
                 claim.id,
@@ -474,6 +483,7 @@ class PostgresOwnershipClaimRepository:
                 claim.game_count,
                 claim.completion_count,
                 claim.challenge_count,
+                json.dumps(claim.domain_counts or {}),
             )
 
     async def get_claim_by_anon(self, anon_subject_id: str) -> OwnershipClaim | None:
@@ -492,6 +502,7 @@ class PostgresOwnershipClaimRepository:
             game_count=row["game_count"],
             completion_count=row["completion_count"],
             challenge_count=row["challenge_count"],
+            domain_counts=_json_int_map(row["domain_counts"]),
         )
 
 
@@ -509,6 +520,27 @@ async def create_pool(database_url: str) -> Any:
 # ---------------------------------------------------------------------------
 # Private helpers
 # ---------------------------------------------------------------------------
+
+
+def _json_int_map(raw: Any) -> dict[str, int]:
+    """Decode `ownership_claims.domain_counts` defensively.
+
+    asyncpg returns JSONB as a `str` unless a codec is registered on the pool,
+    and this column was added by a later migration, so a row written before it
+    existed reads back as NULL. Non-integer values are dropped rather than
+    coerced -- a count that is not a count is missing data, and reporting it as
+    0 would be indistinguishable from "nothing was imported".
+    """
+    if raw is None:
+        return {}
+    if isinstance(raw, (str, bytes)):
+        try:
+            raw = json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): int(v) for k, v in raw.items() if isinstance(v, int)}
 
 
 def _row_to_daily_completion(row: Any) -> DailyCompletion:

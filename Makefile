@@ -40,7 +40,7 @@ help:
 	@echo "  make dev           Print instructions for running both"
 	@echo ""
 	@echo "  $(YELLOW)Testing — fast (no browser)$(RESET)"
-	@echo "  make test-model                 186 canonical model tests"
+	@echo "  make test-model                 864 canonical model tests"
 	@echo "  make test-lineup                Experimental lineup model unit tests"
 	@echo "  make test-card-profiles         Card profile builder invariants"
 	@echo "  make test-api                   FastAPI integration tests"
@@ -121,7 +121,7 @@ test-full: test-fast test-e2e
 	@echo "$(GREEN)✓ Full test suite complete (including Playwright)$(RESET)"
 
 test-model:
-	@echo "Running PEAK3 model tests (186 required)..."
+	@echo "Running PEAK3 model tests (864 required)..."
 	@$(PYTHON) -m pytest tests/ -v --tb=short --ignore=tests/lineup
 
 test-lineup:
@@ -133,7 +133,7 @@ test-card-profiles:
 	@$(PYTHON) scripts/build_card_profiles.py
 
 test-api:
-	@echo "Running API tests (92 required, 0 skipped)..."
+	@echo "Running API tests (1043 required, 1 skipped)..."
 	@cd apps/api && $(PYTHON) -m pytest tests/ -v --tb=short
 
 test-web:

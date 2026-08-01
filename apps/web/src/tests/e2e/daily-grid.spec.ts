@@ -5,7 +5,8 @@
  * playwright.config.ts. Unlike CourtBuilder, the Daily Grid sits behind no
  * server flag, so these need no special environment.
  *
- * WHY THESE PIN A DATE. The board is a pure function of the UTC date, so
+ * WHY THESE PIN A DATE. The board is a pure function of the daily key --
+ * the date in `America/Los_Angeles`, not UTC -- so
  * "today" is a different puzzle every run — and a test that fills a square has
  * to know a real answer for the square it clicks. Every test here loads
  * `/daily/grid?date=FIXED_DATE` and discovers a genuine answer at run time by
@@ -22,11 +23,29 @@ import { test, expect, Page, APIRequestContext } from "@playwright/test";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-// A fixed, real date so every run gets the same board. Any valid date works —
-// the generator has no special cases — so this is just "a date, chosen once".
+// A fixed, real date so every run gets the same board. It must be a PAST date:
+// a client-supplied date is an archive request, and a board that has not opened
+// yet is a 422 rather than a preview.
 const FIXED_DATE = "2026-03-14";
 
 const DAILY_URL = `/daily/grid?date=${FIXED_DATE}`;
+
+/**
+ * A *past* board, deliberately.
+ *
+ * These two tests used to navigate to `?date=2026-09-09`, a date in the
+ * future. That only worked because the Daily Grid accepted any well-formed
+ * date, so "tomorrow's board" was servable today — the same permissiveness
+ * that let a client's clock decide which day it was playing. Client-supplied
+ * dates are now validated as ARCHIVE requests and a future board is a 422,
+ * because it does not exist yet.
+ *
+ * A past date proves exactly what these tests are for (a different date is a
+ * different board, and progress does not bleed across board_ids) without
+ * asserting that the server will serve a board that has not opened.
+ */
+const ARCHIVE_DATE = "2026-07-15";
+
 
 /** Full names, so each query names ONE identity and therefore always earns an
  * eligibility verdict (a bare surname can match enough qualifying players to
@@ -284,7 +303,7 @@ test.describe("Daily Grid — page", () => {
       ...(await page.getByTestId("grid-col-header").allInnerTexts()),
     ];
 
-    await page.goto("/daily/grid?date=2026-09-09", { waitUntil: "load" });
+    await page.goto(`/daily/grid?date=${ARCHIVE_DATE}`, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     const second = [
       ...(await page.getByTestId("grid-row-header").allInnerTexts()),
@@ -397,7 +416,7 @@ test.describe("Daily Grid — gameplay", () => {
     await fillCell(page, target);
 
     // Progress is keyed by board_id, so a different date must not inherit it.
-    await page.goto("/daily/grid?date=2026-09-09", { waitUntil: "load" });
+    await page.goto(`/daily/grid?date=${ARCHIVE_DATE}`, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     await expect(
       page.locator('[data-testid="grid-cell"][data-state="filled"]'),
@@ -1015,9 +1034,22 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
     );
   }
 
-  /** Today's UTC date, the way the app computes it. */
+  /**
+   * Today's daily key, the way the server computes it.
+   *
+   * Shared daily boards roll over at midnight America/Los_Angeles, not at
+   * midnight UTC. A `toISOString().slice(0,10)` here was wrong for the seven or
+   * eight hours between 17:00 PT and midnight PT — i.e. exactly the evening
+   * window, where it would have navigated to tomorrow's board and asserted
+   * against today's.
+   */
   function todayUtc(): string {
-    return new Date().toISOString().slice(0, 10);
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
   }
 
   test("a completed board shows the streak, the record and a come-back prompt", async ({

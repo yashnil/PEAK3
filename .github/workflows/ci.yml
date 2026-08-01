@@ -9,7 +9,7 @@ on:
 jobs:
   # ── Model tests ─────────────────────────────────────────────────────────────
   model-tests:
-    name: Python model tests (186)
+    name: Python model tests (864)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -141,7 +141,7 @@ jobs:
 
   # ── FastAPI tests ────────────────────────────────────────────────────────────
   api-tests:
-    name: FastAPI tests (264, 0 skipped)
+    name: FastAPI tests (1043, 1 skipped)
     runs-on: ubuntu-latest
     needs: web-dataset
     steps:
@@ -211,7 +211,7 @@ jobs:
         run: npm run lint -- --max-warnings 0
         working-directory: apps/web
 
-      - name: Unit tests (vitest, 87)
+      - name: Unit tests (vitest, 1089)
         run: npm run test
         working-directory: apps/web
 
@@ -226,7 +226,7 @@ jobs:
 
   # ── Playwright e2e + accessibility ───────────────────────────────────────────
   playwright:
-    name: Playwright browser tests + axe accessibility (62, 0 retries)
+    name: Playwright browser tests + axe accessibility (331, 0 retries)
     runs-on: ubuntu-latest
     needs: [web-dataset, frontend]
     steps:

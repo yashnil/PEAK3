@@ -4,7 +4,13 @@ import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { AnimatedNumber } from "@/components/ui";
 import { RunPublicState } from "@/types/run-the-table";
 import { filledCount, slotLabel } from "@/lib/run-the-table-state";
-import { LANE_PROFILE_TERM, PERK_TERM, perkPlainEffect } from "@/lib/run-the-table-copy";
+import {
+  LANE_PROFILE_TERM,
+  PERK_EXACT_RULE_LABEL,
+  PERK_TERM,
+  perkPlainEffect,
+  perkStrategyHint,
+} from "@/lib/run-the-table-copy";
 import LaneProfile from "./LaneProfile";
 
 /**
@@ -178,24 +184,52 @@ export default function RunTray({ state, laneProfileRelevant = false }: Props) {
             None yet.
           </p>
         ) : (
-          state.systems.map((sys) => (
-            <div key={sys.id} className="flex flex-col">
-              <span className="text-[11px] font-semibold" style={{ color: "var(--peak-accent)" }}>
-                {sys.name}
-              </span>
-              {/* The friendly line first, then the engine's own summary
-                  verbatim — the arrangement `run-the-table-copy` documents,
-                  so the plain sentence can never drift from the applied rule. */}
-              {perkPlainEffect(sys.id) && (
-                <span className="text-[10px]" style={{ color: "var(--text-primary)" }}>
-                  {perkPlainEffect(sys.id)}
+          state.systems.map((sys) => {
+            const plain = perkPlainEffect(sys.id);
+            const hint = perkStrategyHint(sys.id);
+            return (
+              <div key={sys.id} className="flex flex-col" data-testid={`rtt-tray-system-${sys.id}`}>
+                <span className="text-[11px] font-semibold" style={{ color: "var(--peak-accent)" }}>
+                  {sys.name}
                 </span>
-              )}
-              <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>
-                {sys.summary}
-              </span>
-            </div>
-          ))
+                {/* The same three layers as `SystemSelect` (plan §6): plain
+                    effect, one hint, then the engine's own summary verbatim
+                    behind `See exact rule`. The rail used to print the plain
+                    line AND the dense threshold line unconditionally, so the
+                    thing a player glances at mid-run was two sentences of
+                    percentiles. It is still one tap away, never removed. */}
+                <span className="text-[10px]" style={{ color: "var(--text-primary)" }}>
+                  {plain ?? sys.summary}
+                </span>
+                {hint && (
+                  <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                    {hint}
+                  </span>
+                )}
+                {plain && (
+                  <details data-testid={`rtt-tray-system-rule-${sys.id}`}>
+                    <summary
+                      className="cursor-pointer select-none text-[10px]"
+                      style={{
+                        color: "var(--text-muted)",
+                        textDecoration: "underline",
+                        textUnderlineOffset: "2px",
+                      }}
+                    >
+                      {PERK_EXACT_RULE_LABEL}
+                      <span className="sr-only"> for {sys.name}</span>
+                    </summary>
+                    <span
+                      className="block pt-0.5 text-[10px]"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      {sys.summary}
+                    </span>
+                  </details>
+                )}
+              </div>
+            );
+          })
         )}
         <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
           {PERK_TERM.tooltip}

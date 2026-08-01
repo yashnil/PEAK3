@@ -367,7 +367,13 @@ export async function getDailyChallenge(
 ): Promise<DailyChallenge> {
   const params = new URLSearchParams({ years: String(years) });
   if (date) params.set("date", date);
-  return apiFetch<DailyChallenge>(`/api/v1/game/daily?${params}`);
+  // Declared, not inherited: Next 15 happens to default `fetch` to no-store,
+  // but a daily board must never be served from a cache that outlives the
+  // board. Relying on a framework default for that is how a tab ends up
+  // playing yesterday's puzzle after midnight PT.
+  return apiFetch<DailyChallenge>(`/api/v1/game/daily?${params}`, {
+    cache: "no-store",
+  });
 }
 
 export async function getEndlessSession(

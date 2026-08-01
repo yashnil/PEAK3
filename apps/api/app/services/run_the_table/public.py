@@ -21,6 +21,7 @@ from typing import Optional
 
 from nba_peak.run_the_table.battle import (
     bench_weight_for,
+    player_lane_profile,
     roster_lane_profile,
     roster_total,
 )
@@ -42,6 +43,7 @@ from nba_peak.run_the_table.config import (
     STATUS_NODE_SELECT,
     STATUS_SYSTEM_SELECT,
     SYSTEMS,
+    BOSS_LANE_MARGIN,
     BOSS_RULES,
     LANES_TO_WIN,
     TERMINAL_STATUSES,
@@ -114,6 +116,11 @@ def boss_public(
         "tagline": boss.tagline,
         "act": boss.act,
         "rule": rule,
+        # The Final Boss is the one act-4 fight a win in which clears the table
+        # (plan §2.2). Published here so the pre-boss briefing can say so
+        # without the client having to compare `act` to a hardcoded 4.
+        "is_final": boss.act >= ACTS,
+        "lane_margin": BOSS_LANE_MARGIN.get(boss.rule_id, 0.0) if boss.rule_id else 0.0,
         "source": boss.source,
         "revealed": revealed,
     }
@@ -279,7 +286,7 @@ def _stage_options_public(state: RunState, blueprint: RunBlueprint) -> Optional[
 def _map_public(state: RunState, blueprint: RunBlueprint) -> list[dict]:
     """The run ladder. Never leaks unresolved future node content, only shape."""
     out = []
-    for act in range(1, ACTS + 1):
+    for act in range(1, min(ACTS, len(blueprint.bosses)) + 1):
         stages = []
         for stage in range(1, STAGES_PER_ACT + 1):
             plan = stage_for(blueprint, act, stage)
@@ -312,6 +319,7 @@ def _map_public(state: RunState, blueprint: RunBlueprint) -> list[dict]:
                 "boss": {
                     "boss_id": blueprint.bosses[act - 1].boss_id,
                     "name": blueprint.bosses[act - 1].name,
+                    "is_final": act >= ACTS,
                     "state": (
                         "won" if battle and battle.outcome == "win"
                         else "lost" if battle and battle.outcome == "loss"
@@ -330,10 +338,13 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
     p_bw, _ = bench_weight_for(state.systems, None)
     starters = [s.card_id for s in state.starters if s.card_id]
     bench = [s.card_id for s in state.bench if s.card_id]
-    profile = roster_lane_profile(pool, starters, bench, p_bw)
+    # Scored exactly the way a battle would score it right now (no boss rule
+    # applied yet), so the roster panel and the battle agree. Under Deep
+    # Rotation that is the better of two bench weights per lane.
+    profile = player_lane_profile(pool, starters, bench, state.systems, None)
 
     next_boss = None
-    if state.act <= ACTS:
+    if state.act <= ACTS and state.act <= len(blueprint.bosses):
         boss = blueprint.bosses[state.act - 1]
         revealed = (
             state.status in (STATUS_BOSS_READY, STATUS_BOSS_RESOLVED)
@@ -357,6 +368,8 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
         "stage": state.stage,
         "acts_total": ACTS,
         "stages_per_act": STAGES_PER_ACT,
+        # The act whose boss must be BEATEN to clear the table (plan §2.2).
+        "final_boss_act": ACTS,
         # ADDED (never renamed anything): the battle screen has to say "first
         # to N lanes" BEFORE the reveal, and `LANES_TO_WIN` was reachable only
         # through `ruleset_meta()`, which the game screen does not fetch. The
@@ -405,10 +418,14 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
 def ruleset_meta(pool: CardPool) -> dict:
     """Static, cacheable description of the whole ruleset for the rules screen."""
     from nba_peak.run_the_table.config import (
+        BATTLES,
         BENCH_SLOTS,
         BENCH_WEIGHT_DEFAULT as BWD,
+        BOSS_WIN_CREDITS,
         COMEBACK_CREDITS,
+        DECISION_NODES,
         LANES_TO_WIN,
+        NODE_CHOICES_PER_STAGE,
         PRICE_BASE,
         PRICE_EXPONENT,
         PRICE_SPAN,
@@ -418,9 +435,20 @@ def ruleset_meta(pool: CardPool) -> dict:
         TRADE_REFUND_PCT,
         version_tuple,
     )
+    from nba_peak.run_the_table.receipt import OUTCOMES
 
     return {
         "versions": version_tuple(),
+        # The whole v2 run shape, published so the client never hardcodes it.
+        "run_shape": {
+            "acts": ACTS,
+            "stages_per_act": STAGES_PER_ACT,
+            "node_choices_per_stage": NODE_CHOICES_PER_STAGE,
+            "decision_nodes": DECISION_NODES,
+            "battles": BATTLES,
+            "final_boss_act": ACTS,
+            "outcomes": list(OUTCOMES),
+        },
         "lanes": [
             {
                 "lane": lane,
@@ -433,7 +461,10 @@ def ruleset_meta(pool: CardPool) -> dict:
             for lane in LANE_FIELDS
         ],
         "systems": [_system_public(s["id"]) for s in SYSTEMS],
-        "boss_rules": list(BOSS_RULES.values()),
+        "boss_rules": [
+            {**rule, "lane_margin": BOSS_LANE_MARGIN.get(rule["id"], 0.0)}
+            for rule in BOSS_RULES.values()
+        ],
         "roster": {
             "starters": STARTER_SLOTS,
             "bench": BENCH_SLOTS,
@@ -444,6 +475,7 @@ def ruleset_meta(pool: CardPool) -> dict:
             "starting_lives": STARTING_LIVES,
             "max_lives": MAX_LIVES,
             "comeback_credits": COMEBACK_CREDITS,
+            "boss_win_credits": BOSS_WIN_CREDITS,
             "trade_refund_pct": TRADE_REFUND_PCT,
             "price_formula": (
                 f"base_cost = {PRICE_BASE} + round({PRICE_SPAN} × percentile^{PRICE_EXPONENT:g})"

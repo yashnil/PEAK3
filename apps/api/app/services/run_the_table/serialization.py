@@ -13,8 +13,36 @@ from nba_peak.run_the_table.schemas import (
     RunAction,
     RunState,
 )
+from nba_peak.run_the_table.state import VersionMismatch
 
 SNAPSHOT_SCHEMA_VERSION = 1
+
+
+class SnapshotSchemaMismatch(VersionMismatch):
+    """A stored snapshot written by a different serialiser generation.
+
+    A SUBCLASS OF VersionMismatch ON PURPOSE. This used to be a bare
+    ``ValueError``, which is not in the router's error ladder
+    (``apps/api/app/api/v1/run_the_table.py``) and therefore surfaced as an
+    unhandled **HTTP 500** — a stored row the server itself wrote being reported
+    as a server crash. The ladder already maps ``VersionMismatch`` to 409 with a
+    human message, and "this save predates the current format" is exactly that
+    answer, so inheriting is what makes the mapping correct without the router
+    (owned by another track) having to change at all.
+    """
+
+    def __init__(self, found: object, expected: int = SNAPSHOT_SCHEMA_VERSION) -> None:
+        super().__init__(
+            saved={"snapshot_schema_version": str(found)},
+            current={"snapshot_schema_version": str(expected)},
+            message=(
+                f"This run was saved in an older format (snapshot schema "
+                f"{found!r}, current {expected}) and can no longer be continued. "
+                f"Start a new run."
+            ),
+        )
+        self.found = found
+        self.expected = expected
 
 
 def _lane_to_dict(l: LaneResult) -> dict:
@@ -105,10 +133,7 @@ def state_to_dict(state: RunState) -> dict:
 
 def state_from_dict(d: dict) -> RunState:
     if d.get("schema_version") != SNAPSHOT_SCHEMA_VERSION:
-        raise ValueError(
-            f"Unsupported run snapshot schema_version {d.get('schema_version')!r}; "
-            f"expected {SNAPSHOT_SCHEMA_VERSION}"
-        )
+        raise SnapshotSchemaMismatch(d.get("schema_version"))
     return RunState(
         run_id=d["run_id"],
         seed=d["seed"],

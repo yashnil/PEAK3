@@ -76,8 +76,9 @@ from nba_peak.daily_grid.generator import (
     InvalidGridDate,
     get_board,
     today_utc_date,
-    validate_grid_date,
+    validate_grid_request_date,
 )
+from nba_peak.daily_key import daily_window
 from nba_peak.daily_grid.optimal import build_result
 from nba_peak.daily_grid.search import (
     DEFAULT_LIMIT,
@@ -88,6 +89,20 @@ from nba_peak.daily_grid.search import (
 from nba_peak.daily_grid.validation import InvalidCell, validate_answer
 
 router = APIRouter()
+
+
+class DailyGridBoardWithWindow(DailyGridBoardResponse):
+    """The board plus the frozen daily-window block (plan §2.1).
+
+    Declared here rather than on the shared model: every daily response in the
+    app carries the identical object under the top-level key `daily`, produced
+    by `DailyWindow.to_payload()`. It is what lets the client know, without
+    doing timezone arithmetic of its own, exactly when this board stops being
+    today's -- and therefore when to go and fetch the next one.
+    """
+
+    daily: dict
+
 
 # Longest query string worth evaluating. Anything past this is not a player
 # name; the search scans every season in the pool, so the input is bounded
@@ -162,13 +177,22 @@ def _raise_if_denied(verdict) -> None:
 
 
 def _resolve_board(date: Optional[str]) -> GridBoard:
-    """The board for `date`, or today's (UTC) when omitted.
+    """The board for `date`, or TODAY'S when omitted.
+
+    "Today" is the server's daily key -- midnight America/Los_Angeles, defined
+    once in `nba_peak.daily_key` -- never a browser-supplied date. A `date`
+    parameter is an explicit ARCHIVE request: it is validated for shape, bounded
+    to the archive window, and refused if it names a board that has not opened
+    yet. Every past board stays permanently addressable, which the client-side
+    streak rule depends on.
 
     `get_board` is process-cached and a pure function of (date, version), so
     repeat requests for the same day cost nothing and can never disagree.
     """
     try:
-        board_date = validate_grid_date(date) if date is not None else today_utc_date()
+        board_date = (
+            validate_grid_request_date(date) if date is not None else today_utc_date()
+        )
     except InvalidGridDate as exc:
         raise HTTPException(
             status_code=400, detail=_error_detail(str(exc), "invalid_grid_date")
@@ -191,13 +215,15 @@ def _require_in_bounds(row: int, col: int) -> None:
 # Board
 # ---------------------------------------------------------------------------
 
-@router.get("/daily-grid/board", response_model=DailyGridBoardResponse)
+@router.get("/daily-grid/board", response_model=DailyGridBoardWithWindow)
 def get_daily_grid_board(
     request: Request,
     date: Optional[str] = Query(
-        None, max_length=32, description="YYYY-MM-DD (UTC); defaults to today"
+        None,
+        max_length=32,
+        description="YYYY-MM-DD archive date; omit for today's board (server-decided)",
     ),
-) -> DailyGridBoardResponse:
+) -> DailyGridBoardWithWindow:
     """Today's board, or a specific date's.
 
     Same date, same board, for every player worldwide -- the board is derived
@@ -214,7 +240,12 @@ def get_daily_grid_board(
     board = _resolve_board(date)
     _enforce(request, "daily_grid:board", settings.DAILY_GRID_BOARD_RATE_LIMIT)
     _enforce_distinct_dates(request, board.date)
-    return DailyGridBoardResponse(**board.as_public_dict())
+    # An archive board reports `seconds_remaining: 0` -- its window closed long
+    # ago -- so a client counting down from it never schedules a refetch for a
+    # board that is not today's.
+    return DailyGridBoardWithWindow(
+        **board.as_public_dict(), daily=daily_window(board.date).to_payload()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +257,9 @@ def search_daily_grid(
     request: Request,
     q: str = Query(..., max_length=_MAX_QUERY_LENGTH, description="player name, optionally with a season"),
     date: Optional[str] = Query(
-        None, max_length=32, description="YYYY-MM-DD (UTC); defaults to today"
+        None,
+        max_length=32,
+        description="YYYY-MM-DD archive date; omit for today's (server-decided)",
     ),
     row: Optional[int] = Query(None, description="0-2; scope results to a cell"),
     col: Optional[int] = Query(None, description="0-2; required whenever row is given"),

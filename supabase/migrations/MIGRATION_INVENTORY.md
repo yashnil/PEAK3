@@ -24,6 +24,12 @@ migration change rather than hand-editing this file.
 | 17 | `20260630130100_default_privileges` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 18 | `20260724150000_perfect_season_leaderboard` | 2 | 3 | 1 | 0 | 0 | 2 | 6 |
 | 19 | `20260729180000_perfect_season_saved_runs` | 1 | 2 | 2 | 0 | 0 | 1 | 3 |
+| 20 | `20260730190000_daily_grid_results` | 1 | 1 | 1 | 0 | 0 | 1 | 3 |
+| 21 | `20260731090000_run_the_table` | 1 | 2 | 0 | 0 | 0 | 1 | 4 |
+| 22 | `20260801100000_rls_gaps` | 0 | 0 | 0 | 0 | 0 | 3 | 3 |
+| 23 | `20260801110000_guest_claim_and_daily` | 1 | 1 | 2 | 0 | 0 | 1 | 5 |
+| 24 | `20260801120000_telemetry_events` | 1 | 3 | 2 | 1 | 0 | 1 | 1 |
+| 25 | `20260801130000_peak_duel_results_revoke` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 ## Detail per migration
 
@@ -563,3 +569,163 @@ migration change rather than hand-editing this file.
 **External table dependencies (not created in this file):** none
 
 **Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260730190000_daily_grid_results.sql`
+
+**Tables created:** daily_grid_results
+  - `daily_grid_results`: id, owner_sub, board_id, board_date, board_version, board_theme, score, optimal_total, percent_of_best, squares_matching_optimal, incorrect_attempts, elapsed_seconds, played_on_board_date, answers, created_at
+
+**Indexes:** daily_grid_results_owner_recent_idx
+
+**Constraints:** daily_grid_results_unique_owner_board
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** daily_grid_results
+
+**Policies:** daily_grid_results_owner_read, daily_grid_results_owner_insert, daily_grid_results_owner_delete
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260731090000_run_the_table.sql`
+
+**Tables created:** run_the_table_runs
+  - `run_the_table_runs`: run_id, owner_sub, seed, run_type, status, snapshot, engine_version, ruleset_version, card_pool_version, created_at, updated_at
+
+**Indexes:** run_the_table_runs_owner_recent_idx, run_the_table_runs_unique_daily_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** run_the_table_runs
+
+**Policies:** run_the_table_runs_owner_read, run_the_table_runs_owner_insert, run_the_table_runs_owner_update, run_the_table_runs_owner_delete
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260801100000_rls_gaps.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** card_pool_versions, lineup_model_versions, ruleset_versions
+
+**Policies:** lineup_model_versions_public_read, ruleset_versions_public_read, card_pool_versions_public_read
+
+**Grants:** ['board_snapshots', 'challenges']
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260801110000_guest_claim_and_daily.sql`
+
+**Tables created:** peak_duel_daily_results
+  - `peak_duel_daily_results`: id, owner_sub, mode, daily_key, duration_years, duels_total, correct_count, arena_points, best_streak, elapsed_seconds, played_on_daily_key, answers, created_at
+
+**Indexes:** peak_duel_daily_results_owner_recent_idx
+
+**Constraints:** peak_duel_daily_results_correct_within_total, peak_duel_daily_results_unique_owner_daily
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** peak_duel_daily_results
+
+**Policies:** peak_duel_daily_results_owner_read, peak_duel_daily_results_owner_insert, peak_duel_daily_results_owner_delete, profiles_owner_write, user_settings_owner_write
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260801120000_telemetry_events.sql`
+
+**Tables created:** telemetry_events
+  - `telemetry_events`: id, subject_hash, subject_kind, event_name, props, created_at, expires_at
+
+**Indexes:** telemetry_events_name_recent_idx, telemetry_events_subject_idx, telemetry_events_expiry_idx
+
+**Constraints:** telemetry_events_expiry_after_creation, telemetry_events_props_is_object
+
+**Functions:** telemetry_events_purge_expired
+
+**Triggers:** none
+
+**RLS enabled on:** telemetry_events
+
+**Policies:** telemetry_events_no_client_access
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260801130000_peak_duel_results_revoke.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected

@@ -101,7 +101,7 @@ export default async function ArenaPage() {
         <GroupHeading
           id="arena-flagship-heading"
           label="Flagship"
-          description="One branching run, three boss battles, roughly a quarter of an hour."
+          description="One branching run, four boss battles, roughly a quarter of an hour."
         />
         <GameCard
           testId="arena-flagship-card"

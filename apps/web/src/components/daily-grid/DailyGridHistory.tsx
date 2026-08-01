@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CalendarClock, Flame } from "lucide-react";
 import { DailyGridArchive } from "@/types/daily-grid";
+import { hasCompleted, loadArchive } from "@/lib/daily-grid-archive";
+import { getDailyGridBoard } from "@/lib/daily-grid-api";
 import {
+  type DailyWindowPayload,
+  extractDailyWindow,
   formatCountdown,
-  hasCompleted,
-  loadArchive,
-  msUntilNextBoard,
-  todayUtc,
-} from "@/lib/daily-grid-archive";
+  localDailyWindow,
+} from "@/lib/daily-time";
+import { useDailyReset } from "@/lib/use-daily-reset";
 import RecentResults from "./RecentResults";
 
 function Stat({ label, value, accent, testId }: { label: string; value: string; accent?: string; testId: string }) {
@@ -45,17 +47,41 @@ function Stat({ label, value, accent, testId }: { label: string; value: string; 
  */
 export default function DailyGridHistory() {
   const [archive, setArchive] = useState<DailyGridArchive | null>(null);
-  const [today, setToday] = useState<string>("");
-  const [countdown, setCountdown] = useState<number | null>(null);
+  // The day the streak is evaluated against comes from the server's window, so
+  // history and the board itself can never disagree about which day it is.
+  const [window_, setWindow] = useState<DailyWindowPayload | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    setArchive(loadArchive());
-    setToday(todayUtc());
-    const update = () => setCountdown(msUntilNextBoard());
-    update();
-    const id = window.setInterval(update, 60_000);
-    return () => window.clearInterval(id);
-  }, []);
+    let cancelled = false;
+    (async () => {
+      try {
+        const board = await getDailyGridBoard();
+        if (!cancelled) setWindow(extractDailyWindow(board) ?? localDailyWindow());
+      } catch {
+        // History is local data; it must render with no API at all. The
+        // countdown falls back to the same zone the server uses.
+        if (!cancelled) setWindow(localDailyWindow());
+      }
+      if (!cancelled) setArchive(loadArchive());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
+
+  // Previously `[]`: `today` was captured once at mount and the countdown ran
+  // to 0s and stopped there, so a page left open overnight showed a streak
+  // evaluated against yesterday with an expired countdown beside it.
+  const { secondsLeft } = useDailyReset({
+    dailyKey: window_?.daily_key ?? null,
+    secondsRemaining: window_?.seconds_remaining ?? null,
+    window: window_,
+    onReset: useCallback(() => setReloadToken((t) => t + 1), []),
+  });
+
+  const today = window_?.daily_key ?? "";
+  const countdown = secondsLeft ?? window_?.seconds_remaining ?? null;
 
   if (archive === null) {
     return (

@@ -1,10 +1,13 @@
 "use client";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { LANE_FIELDS, RunCardPublic } from "@/types/run-the-table";
+import { ordinalFixed } from "@/lib/ordinal";
 import {
   LANE_LABELS,
+  OVERALL_PERCENTILE_SHORT_BASIS,
   ROLE_COLOR_VARS,
   ROLE_LABELS,
+  cardLaneSummary,
   describeCostModifiers,
   laneColorVar,
   percentileSentence,
@@ -26,10 +29,21 @@ const LANE_SR_LABELS = LANE_FIELDS.map((lane) => LANE_LABELS[lane]);
 /**
  * One exact 3-year peak card.
  *
- * Shows what the Draft Room is required to show: cost, role eligibility,
- * overall PEAK3 score, and a compact five-lane fingerprint. Every one of those
- * numbers is read straight off the payload — the fingerprint bars use
- * `lane_percentiles`, which the engine already scaled 0-100.
+ * FIRST-SCAN ORDER (plan §6), and the DOM follows it exactly:
+ *
+ *   player · exact 3Y window · role · cost · PEAK3 score ·
+ *   strongest lane · weakest lane · profile label
+ *
+ * The last three are new. Five bars of equal height told a player nothing they
+ * could act on without measuring them by eye, one card at a time, against two
+ * other cards on the same board — so the card now NAMES its best lane, its
+ * worst lane and its one-word shape. All three come from `cardLaneSummary`,
+ * which is pure comparison of the `lane_percentiles` the engine already sent;
+ * nothing is scored, priced or re-derived here.
+ *
+ * Every other number is likewise read straight off the payload — the
+ * fingerprint bars use `lane_percentiles`, which the engine already scaled
+ * 0-100.
  *
  * No player photograph and no team logo: `PlayerAvatar` renders an initials
  * medallion, which is the licensed-safe treatment used everywhere else.
@@ -57,6 +71,7 @@ export default function RunCard({
   children,
 }: Props) {
   const roleColor = ROLE_COLOR_VARS[card.primary_role] ?? "var(--peak-accent)";
+  const shape = cardLaneSummary(card.lane_percentiles);
   return (
     <div className="flex flex-col gap-2 min-w-0" data-testid="rtt-run-card">
       <div className="flex items-start gap-2.5 min-w-0">
@@ -88,18 +103,21 @@ export default function RunCard({
             <span className="score-number">{card.window_label}</span>
             <span className="sr-only"> — exact 3-year peak window.</span>
           </span>
-          {/* "75.1th pct" of WHAT was the whole defect: a bare percentile a
-              player cannot act on. The denominator is the RUN THE TABLE
-              eligible card pool (cards.build_pool ranks `prime_score` over the
-              selected profiles), NOT every PEAK3 3-year window — see
-              OVERALL_PERCENTILE_BASIS. */}
+          {/* TWO defects lived on this one line.
+              (1) "75.1th pct" of WHAT — a bare percentile a player cannot act
+              on. The denominator is the RUN THE TABLE eligible card pool
+              (cards.build_pool ranks `prime_score` over the selected profiles),
+              NOT every PEAK3 3-year window — see OVERALL_PERCENTILE_BASIS.
+              (2) The `th` was a hard-coded JSX text node, so EVERY card in the
+              game rendered "75.1th", "21.0th", "1.0th". Both the visible short
+              form and the sr-only full form now come from `lib/ordinal.ts`. */}
           <span
             className="text-[10px]"
             style={{ color: "var(--text-muted)" }}
             data-testid="rtt-card-percentile"
           >
-            <span className="score-number">{card.overall_percentile.toFixed(1)}</span>
-            th percentile of the card pool
+            <span className="score-number">{ordinalFixed(card.overall_percentile, 1)}</span>{" "}
+            percentile {OVERALL_PERCENTILE_SHORT_BASIS}
             <span className="sr-only"> — {percentileSentence(card.overall_percentile)}.</span>
           </span>
         </div>
@@ -152,6 +170,48 @@ export default function RunCard({
             </span>
           ))}
       </div>
+
+      {/* STRONGEST LANE · WEAKEST LANE · PROFILE LABEL.
+          The card's shape, named. Before this the five bars were the only
+          statement of it, and reading a bar chart is not something a player
+          can do three times in a row under a decision. Every value is the
+          server's `lane_percentiles`; `cardLaneSummary` only sorts them.
+          The lane names are the five FROZEN component labels — `Playoff Rate
+          Impact` and `Team Result` included — and the profile word is a
+          separate display term that never replaces them. */}
+      {showFingerprint && (
+        <div
+          className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]"
+          data-testid="rtt-card-shape"
+        >
+          <span style={{ color: "var(--text-muted)" }} data-testid="rtt-card-strongest">
+            Strongest{" "}
+            <span style={{ color: laneColorVar(shape.strongest.token) }}>
+              {shape.strongest.label}
+            </span>{" "}
+            <span className="score-number">{shape.strongest.percentile.toFixed(0)}</span>
+          </span>
+          <span style={{ color: "var(--text-muted)" }} data-testid="rtt-card-weakest">
+            Weakest{" "}
+            <span style={{ color: laneColorVar(shape.weakest.token) }}>
+              {shape.weakest.label}
+            </span>{" "}
+            <span className="score-number">{shape.weakest.percentile.toFixed(0)}</span>
+          </span>
+          <span
+            className="rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider"
+            style={{
+              color: "var(--text-primary)",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-subtle)",
+            }}
+            data-testid="rtt-card-profile"
+            data-profile={shape.profile}
+          >
+            {shape.profile}
+          </span>
+        </div>
+      )}
 
       {showFingerprint && (
         <>

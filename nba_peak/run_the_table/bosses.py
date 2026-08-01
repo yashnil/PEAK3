@@ -1,6 +1,6 @@
 """Boss lineups for RUN THE TABLE.
 
-Three curated opponents, each assembled entirely from canonical exact 3-year
+Four curated opponents, each assembled entirely from canonical exact 3-year
 prime windows that exist in the committed card pool. Every window id below was
 verified present, role-legal for its slot, and duplicate-free before being
 written here; ``tests/run_the_table/test_bosses.py`` re-verifies all of that on
@@ -38,6 +38,15 @@ from nba_peak.run_the_table.schemas import Opponent, RunCard
 # Curated definitions
 # ---------------------------------------------------------------------------
 # Each starter tuple is ordered to match ``config.ROLES``.
+#
+# The four-act progression each boss is built to test (plan §2.2):
+#   1. The Wall            — teaches the lane system; beatable with the starting five.
+#   2. Strength in Numbers — punishes a one-dimensional roster: a balanced
+#                            opponent under a rule that makes your bench count.
+#   3. The Ceiling         — makes perk/economy strategy matter: the bench is
+#                            nearly switched off, so credits had to go into starters.
+#   4. The Standard        — the Final Boss. Hard, one published rule, and the
+#                            only battle a win in which clears the table.
 CURATED_BOSSES: tuple[dict, ...] = (
     {
         "boss_id": "the_wall",
@@ -93,6 +102,25 @@ CURATED_BOSSES: tuple[dict, ...] = (
             "ben-wallace-3yr-200203",        # 64.83
         ),
     },
+    {
+        "boss_id": "the_standard",
+        "name": "The Standard",
+        "tagline": "Close is not good enough here. Beat them by a clear margin in three "
+                   "lanes or the lane goes to nobody.",
+        "act": 4,
+        "rule_id": "the_standard",
+        "starter_ids": (
+            "steve-nash-3yr-200506",         # lead_creator   77.79
+            "tracy-mcgrady-3yr-200203",      # guard_wing     77.45
+            "julius-erving-3yr-198081",      # wing_forward   76.47
+            "victor-wembanyama-3yr-202526",  # forward_big    76.50
+            "draymond-green-3yr-201516",     # anchor         63.82
+        ),
+        "bench_ids": (
+            "john-stockton-3yr-198788",      # 76.21
+            "jimmy-butler-3yr-202223",       # 73.11
+        ),
+    },
 )
 
 
@@ -121,10 +149,22 @@ def _theme_ceiling(card: RunCard) -> float:
     return 0.5 * p["individual_recognition"] + 0.5 * p["statistical_impact"]
 
 
+def _theme_standard(card: RunCard) -> float:
+    """No exploitable lane: a high floor across all five, then peak on top.
+
+    The Final Boss's published rule only awards a lane to a decisive winner, so
+    the opponent it is fair to build for it is one with no lane you can beat by
+    four points almost by accident.
+    """
+    vals = list(card.lane_percentiles.values())
+    return 0.55 * min(vals) + 0.45 * statistics.mean(vals)
+
+
 _THEMES: dict[str, Callable[[RunCard], float]] = {
     "the_wall": _theme_wall,
     "strength_in_numbers": _theme_depth,
     "the_ceiling": _theme_ceiling,
+    "the_standard": _theme_standard,
 }
 
 
@@ -224,11 +264,12 @@ def _curated_is_resolvable(pool: CardPool, spec: dict) -> bool:
 
 
 def resolve_bosses(pool: CardPool) -> tuple[Opponent, ...]:
-    """Return the three act bosses, curated where possible.
+    """Return the four act bosses, in act order, curated where possible.
 
     Deterministic and independent of the run seed — every run faces the same
-    three opponents, which is what makes runs comparable to each other and to
-    the daily board.
+    four opponents, which is what makes runs comparable to each other and to
+    the daily board. The last entry is the Final Boss: winning it is the only
+    way to clear the table (``receipt.build_receipt``).
     """
     out: list[Opponent] = []
     for idx, spec in enumerate(CURATED_BOSSES):
