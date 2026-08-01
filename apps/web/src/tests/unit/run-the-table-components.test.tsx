@@ -1864,27 +1864,34 @@ describe("BossPreview — the pre-boss briefing (plan §6)", () => {
   });
 });
 
-describe("ChoiceNode — Film Room copy", () => {
+describe("ChoiceNode — node copy", () => {
   /**
-   * `generation.py:199-202` sets the Film Room's server summary to "scout the
-   * next boss's lane profile and rule, then take one prep advantage" — a
-   * mechanic the engine does not implement. `state.action_film_room:499-508`
-   * unlocks stages; `public.py:338-341` reveals the boss roster once this act's
-   * last stage is scouted. That is what the player is told.
+   * THE SUPPRESSION IS GONE, AND THAT IS THE ASSERTION.
+   *
+   * Under v2, `generation.py` set the Film Room's server summary to "…then take
+   * one prep advantage" and the engine had no such mechanic, so the component
+   * substituted its own line. v3's Scout & Prepare implements exactly what its
+   * generated summary describes, so the substitution would now HIDE the correct
+   * sentence — and `shouldSuppressServerSummary` returns false for every node
+   * type. This test proves the server line reaches the screen, which is the
+   * property the old one could not have.
    */
-  it("never repeats the engine's phantom 'prep advantage' node summary", () => {
+  it("prints the generator's own summary for a v3 node", () => {
     const node: ActiveNode = {
       node_id: "n9",
       node_type: "film_room",
       title: "Tape session",
-      summary: "Scout the next boss's lane profile and rule, then take one prep advantage.",
-      choices: [{ id: "scout_offers", label: "Scout ahead", description: "Reveal what is next." }],
+      summary:
+        "Scout the next boss and prepare one lane, shape the next market, or reserve a future card at today's price.",
+      choices: [
+        { id: "scout_boss", label: "Scout the boss", description: "Free.", cost: 0 },
+      ],
     };
     const { container } = render(<ChoiceNode node={node} busy={false} onChoose={vi.fn()} />);
+    expect(container.textContent).toContain("shape the next market");
+    // The two mechanics the engine has never had must not appear anywhere.
     expect(container.textContent).not.toContain("prep advantage");
-    expect(container.textContent).toContain("Learn what is coming");
-    // And it states the consequence nothing used to mention.
-    expect(container.textContent).toMatch(/uncovers the boss/i);
+    expect(container.textContent?.toLowerCase()).not.toContain("bank 10 credits");
   });
 
   it("still prints the generator's own summary for every other node type", () => {

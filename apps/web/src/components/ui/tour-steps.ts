@@ -34,7 +34,7 @@
  *                                        STARTER_SLOTS, BENCH_SLOTS,
  *                                        BENCH_WEIGHT_DEFAULT, LANES_TO_WIN,
  *                                        ACTS, STAGES_PER_ACT, MAX_SYSTEMS,
- *                                        REST_CREDITS, FILM_CREDITS,
+ *                                        REST_CREDITS, CREDIT_SINKS,
  *                                        OFFERS_PER_DRAFT, TRADE_REFUND_PCT
  *   nba_peak/run_the_table/battle.py   — lane comparison and the tie-break ladder
  *   nba_peak/run_the_table/state.py    — when a life is lost, when the second
@@ -74,6 +74,25 @@ export const TOUR_TARGET_IDS = [
   "rtt-system-select",
   /** The five-lane roster profile in the tray. */
   "rtt-lane-profile",
+
+  /* ---- Daily Grid (W3, hardening pass) ---------------------------------- *
+   * Added to the SAME union rather than a parallel one so `TourStep.targets`
+   * keeps its single closed type and the RUN THE TABLE tour compiles
+   * unchanged. The `dg-` prefix is what keeps the two vocabularies apart; a
+   * step from one tour naming an id from the other is a review question, not a
+   * type error, because both surfaces are legitimately allowed to be on screen
+   * at once only in tests.                                                   */
+
+  /** The 3x3 board and its row/column headers. */
+  "dg-board",
+  /** The right-hand column: the selected-square panel, or the idle hint. */
+  "dg-workbench",
+  /** The elapsed-time tile in the stat row. */
+  "dg-timer",
+  /** The whole stat-tile row (score, locked, misses, time, difficulty). */
+  "dg-score",
+  /** The one-player-per-board / picks-are-final paragraph. */
+  "dg-rule",
 ] as const;
 
 export type TourTargetId = (typeof TOUR_TARGET_IDS)[number];
@@ -102,7 +121,7 @@ export const RUN_THE_TABLE_TOUR_ID = "run-the-table";
  * previous version. Bump it whenever a step's *rule* changes — not for a typo.
  * `lib/tour-state.ts` treats any other stored version as "not seen".
  */
-export const RUN_THE_TABLE_TOUR_VERSION = 2;
+export const RUN_THE_TABLE_TOUR_VERSION = 3;
 
 export const RUN_THE_TABLE_TOUR: readonly TourStep[] = [
   {
@@ -198,6 +217,123 @@ export const RUN_THE_TABLE_TOUR: readonly TourStep[] = [
 ];
 
 /* ------------------------------------------------------------------ */
+/* The Daily Grid tour                                                 */
+/* ------------------------------------------------------------------ */
+
+export const DAILY_GRID_TOUR_ID = "daily-grid";
+
+/**
+ * Bump to replay the walkthrough — and, because the same record backs the
+ * start gate, to show the gate again — for everyone, including players who
+ * completed the previous version. Bump it whenever a step's *rule* changes,
+ * not for a typo.
+ *
+ * 1 is the first versioned value. The flag it replaces
+ * (`peak3.daily-grid.rules-seen`) was an unversioned `"1"` that could never be
+ * replayed at all; see `DAILY_GRID_RULES_SEEN_KEY` in `types/daily-grid.ts`
+ * for the one-way migration.
+ */
+export const DAILY_GRID_TOUR_VERSION = 1;
+
+/**
+ * The seven briefed steps, in order.
+ *
+ * SAME COPY RULE AS ABOVE: every rule stated here is one the Daily Grid
+ * actually enforces, and the source is cited.
+ *
+ *   nba_peak/daily_grid/generator.py  — the board, its axes, its rarity buckets
+ *   apps/api/.../daily_grid.py        — /answer validation, /result gating
+ *   apps/web/src/lib/daily-grid-state.ts — withFilledCell (a lock is final)
+ *   apps/web/src/types/daily-grid.ts  — CellScore, GridResultResponse
+ *
+ * No number that belongs to the board is retyped: the grid is 3x3 by
+ * `GRID_SIZE`, and the step spotlighting it says "nine" only because the same
+ * constant makes `TOTAL_CELLS` nine and the unique-identity rule is stated in
+ * those terms on the page itself.
+ */
+export const DAILY_GRID_TOUR: readonly TourStep[] = [
+  {
+    id: "objective",
+    title: "The objective",
+    // The mode is an OPTIMISATION puzzle, not a fill-in puzzle: every square
+    // pays, so a full board is the floor rather than the goal.
+    body:
+      "Fill all nine squares and maximize your total PEAK3 score. Any valid answer beats an empty square — but the best valid answer is what you are actually playing for.",
+    detail:
+      "Your running total is in the Score tile beside this step. It only moves when a square locks.",
+    targets: ["dg-score", "dg-board"],
+  },
+  {
+    id: "rows-and-columns",
+    title: "Rows and columns",
+    // generator.py builds each cell from one row axis and one column axis, and
+    // /answer rejects with `constraint_failed` unless BOTH hold.
+    body:
+      "Every square sits where a row condition meets a column condition. An answer has to satisfy both of them, not just the one that looks easier.",
+    detail:
+      "The conditions are basketball facts — teams, awards, eras, playoff runs. PEAK3 only decides what a pick was worth, never whether it qualifies.",
+    targets: ["dg-board"],
+  },
+  {
+    id: "exact-seasons",
+    title: "Exact seasons",
+    // The answer id is a player-season id; a bare player is not a valid answer.
+    body:
+      "Answers are exact player-seasons — “1999-00 Shaquille O’Neal”, not just “Shaquille O’Neal”. The same player’s other seasons may not qualify at all.",
+    detail:
+      "Search from the panel beside the board. It confirms whether a season fits the square, and it never shows you what that season is worth.",
+    targets: ["dg-workbench", "dg-board"],
+  },
+  {
+    id: "one-player-per-board",
+    title: "One player per board",
+    // rules.unique_player_identity; /answer rejects `player_already_used`.
+    body:
+      "Nine squares, nine different players. Once a player is on the board, every one of their seasons is out for the rest of it.",
+    detail:
+      "That is the real tension: spending your best season on an easy square is what costs you the hard one later.",
+    targets: ["dg-rule"],
+  },
+  {
+    id: "picks-lock",
+    title: "Picks lock",
+    // withFilledCell returns the progress UNCHANGED for an occupied square,
+    // and there is deliberately no reset control anywhere in the mode.
+    body:
+      "A valid pick is final. There is no swapping, no undo and no reset — clicking a locked square only reviews it.",
+    detail:
+      "A wrong answer is rejected and counted as a miss, and costs you nothing else. Only a valid pick commits.",
+    targets: ["dg-rule", "dg-board"],
+  },
+  {
+    id: "scoring",
+    title: "Scoring",
+    // CellScore: arena_points = quality_points (the season's own prime_score)
+    // scaled by rarity_multiplier. The multiplier itself is not retyped — the
+    // locked square prints its own figures.
+    body:
+      "A square pays the season’s own PEAK3 score, scaled up for how small that square’s pool of qualifying seasons is. Higher-rated seasons score more; rarer squares pay more for the same season.",
+    // /result is gated on all nine squares being locked and re-validated
+    // server-side, and `exact_optimal` decides which of the two names it earns.
+    detail:
+      "Nothing is revealed until a square locks. The best grid available today is released only once all nine are done, and it is named as a proven maximum only when it is one.",
+    targets: ["dg-score"],
+  },
+  {
+    id: "timer",
+    title: "The timer",
+    // The clock is started by the explicit start action (POST
+    // /daily-grid/{daily_key}/start), never by loading the page or opening
+    // this walkthrough.
+    body:
+      "The clock starts only when you press Start. Reading this walkthrough, loading the page and reopening these steps later all cost you nothing.",
+    detail:
+      "Time is shown for you and for your own history. It is not scored, not ranked and not compared against anyone else.",
+    targets: ["dg-timer", "dg-score"],
+  },
+];
+
+/* ------------------------------------------------------------------ */
 /* Coachmarks                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -243,17 +379,17 @@ export const COACHMARKS: Record<CoachmarkId, Coachmark> = {
     body:
       "Send one player out and bring one of three incoming players in. The outgoing player refunds part of their ORIGINAL price — before any perk discount, and more with the Trade Machine perk — and the pairing has to be legal for that slot. You can always decline.",
   },
-  // FILM_CHOICES = ("scout_offers", "take_credits").
-  // state.action_film_room:499-508 unlocks the remaining stages of THIS act
-  // plus stage 1 of the next — nothing further. public.py:338-341 then reveals
-  // the boss's roster once `a{act}s{STAGES_PER_ACT}` is scouted, which is the
-  // highest-value consequence and the one no surface used to mention.
-  // FILM_CREDITS is not retyped: the choice button carries the live figure.
+  // SCOUT_CHOICES = ("scout_boss", "shape_market", "reserve_card") in
+  // nba_peak/run_the_table/config.py. v3 replaced the old Film Room outright:
+  // there is no `take_credits` branch any more (FILM_CREDITS was DELETED, not
+  // zeroed), so the previous "bank the credits instead" line described a
+  // button that no longer exists. Prices are not retyped here — each branch
+  // carries its live cost from `config.CREDIT_SINKS` via the payload.
   film_room: {
     id: "film_room",
-    title: "First Film Room",
+    title: "First Scout & Prepare",
     body:
-      "Two choices, and no wrong one: scout, which reveals the stages left in this act and the first stage of the next — and, if it reaches this act's last stage, uncovers the boss's roster before you play them — or bank the credits instead.",
+      "Three choices, and none of them pay you: scout the boss for free to see its rule, its strongest and weakest lanes, and whether a preparation would actually flip a lane — then arm one; shape the next market to guarantee an offer in a role you need; or reserve a future card at today's price.",
   },
   // REST_CHOICES = ("recover_life", "take_credits"); REST_LIFE_RECOVERY = 1,
   // capped at MAX_LIVES = 3. REST_CREDITS is not retyped: the choice button

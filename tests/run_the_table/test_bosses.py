@@ -8,17 +8,21 @@ import pytest
 from nba_peak.run_the_table import bosses as B
 from nba_peak.run_the_table.bosses import (
     CURATED_BOSSES,
+    boss_reveal_order,
     boss_starter_mean,
     boss_within_target,
     generate_themed_boss,
     resolve_bosses,
+    scout_report,
 )
+from nba_peak.run_the_table.generation import generate_blueprint
 from nba_peak.run_the_table.cards import CardPool
 from nba_peak.run_the_table.config import (
     ACTS,
     BENCH_SLOTS,
     BOSS_BENCH_WEIGHT,
     BOSS_LANE_MARGIN,
+    BOSS_LANES_TO_WIN,
     BOSS_RULES,
     BOSS_RULE_PUBLISHED_THRESHOLDS,
     BOSS_TARGET_STARTER_MEAN,
@@ -97,7 +101,7 @@ class TestCuratedBosses:
         means = [boss_starter_mean(pool, b) for b in resolve_bosses(pool)]
         assert means == sorted(means)
         assert means[-1] - means[0] >= 5.0
-        assert len(means) == ACTS == 4
+        assert len(means) == ACTS == 5
 
     def test_curated_bosses_are_the_ones_actually_served(self, pool):
         bosses = resolve_bosses(pool)
@@ -125,18 +129,23 @@ class TestCuratedBosses:
         the run must actually have an act-ACTS boss and it must be ruled."""
         bosses = resolve_bosses(pool)
         final = bosses[-1]
-        assert final.act == ACTS == 4
-        assert final.boss_id == "the_standard"
+        assert final.act == ACTS == 5
+        assert final.boss_id == "the_long_series"
         assert final.rule_id in BOSS_RULES
-        assert final.rule_id in BOSS_LANE_MARGIN
+        # v3's Final Boss rule raises the lane bar rather than the lane margin,
+        # so the published-rule check is on BOSS_RULES plus whichever mechanic
+        # table the rule actually reads.
+        assert final.rule_id in BOSS_LANES_TO_WIN
         assert BOSS_RULES[final.rule_id]["summary"]
 
     def test_the_boss_rules_are_the_published_progression(self, pool):
         """1 teaches lanes, 2 punishes a thin roster, 3 forces perk/economy
-        strategy, 4 is the Final Boss. Asserted as an ordered list because the
-        progression is a design contract, not an accident of ordering."""
+        strategy, 4 demands a decisive margin, 5 is the Final Boss. Asserted as
+        an ordered list because the progression is a design contract, not an
+        accident of ordering."""
         assert [b.rule_id for b in resolve_bosses(pool)] == [
-            "the_wall", "strength_in_numbers", "top_heavy", "the_standard"
+            "the_wall", "strength_in_numbers", "top_heavy", "the_standard",
+            "the_long_series",
         ]
 
     def test_every_boss_rule_publishes_every_constant_it_applies(self):
@@ -157,6 +166,8 @@ class TestCuratedBosses:
             assert "BOSS_LANE_MARGIN" in BOSS_RULE_PUBLISHED_THRESHOLDS[rule_id]
         for rule_id in BOSS_BENCH_WEIGHT:
             assert "BOSS_BENCH_WEIGHT" in BOSS_RULE_PUBLISHED_THRESHOLDS[rule_id]
+        for rule_id in BOSS_LANES_TO_WIN:
+            assert "BOSS_LANES_TO_WIN" in BOSS_RULE_PUBLISHED_THRESHOLDS[rule_id]
 
 
 class TestGeneratedFallback:
@@ -275,3 +286,85 @@ class TestResolvabilityCheck:
     def test_the_shipped_specs_are_all_resolvable(self, pool):
         for spec in CURATED_BOSSES:
             assert B._curated_is_resolvable(pool, spec) is True
+
+
+class TestScoutReport:
+    """Spec §5A. Everything the report reveals must be reproducible from values
+    the player is already shown — scouting buys the work, not private data."""
+
+    def _report(self, pool, act_index=0, systems=()):
+        boss = resolve_bosses(pool)[act_index]
+        bp = generate_blueprint(1, pool=pool)
+        return boss, scout_report(
+            pool, boss, bp.starting_starters, bp.starting_bench, systems
+        )
+
+    def test_it_names_the_rule_two_strongest_lanes_and_the_weakest(self, pool):
+        boss, report = self._report(pool)
+        assert report["boss_id"] == boss.boss_id
+        assert report["rule_id"] == boss.rule_id
+        assert report["rule"]["summary"] == BOSS_RULES[boss.rule_id]["summary"]
+        assert len(report["strongest_lanes"]) == 2
+        assert report["weakest_lane"] not in report["strongest_lanes"]
+        scores = {row["lane"]: row["opponent_score"] for row in report["lanes"]}
+        ordered = sorted(scores, key=lambda k: (-scores[k], k))
+        assert report["strongest_lanes"] == ordered[:2]
+        assert report["weakest_lane"] == ordered[-1]
+
+    def test_the_projection_matches_a_real_battle_resolution(self, pool):
+        """The projected matchup must not be a second, looser model of the
+        fight — it has to agree with `resolve_battle` on lane counts."""
+        from nba_peak.run_the_table.battle import resolve_battle
+        from nba_peak.run_the_table.config import BOSS_WIN_CREDITS, COMEBACK_CREDITS
+
+        bp = generate_blueprint(1, pool=pool)
+        for boss in resolve_bosses(pool):
+            report = scout_report(
+                pool, boss, bp.starting_starters, bp.starting_bench, ()
+            )
+            actual = resolve_battle(
+                pool, bp.starting_starters, bp.starting_bench, boss, (),
+                lives_before=3, comeback_credits=COMEBACK_CREDITS,
+                win_credits=BOSS_WIN_CREDITS,
+            )
+            assert report["projected_lanes_won"] == actual.player_lanes_won
+            assert report["projected_lanes_lost"] == actual.opponent_lanes_won
+            assert report["projected_summed_margin"] == actual.summed_margin
+            assert report["lanes_to_win"] == actual.lanes_to_win
+
+    def test_every_lane_offers_a_preparation_with_an_honest_flip_flag(self, pool):
+        from nba_peak.run_the_table.config import LANE_FIELDS, SCOUT_PREP_LANE_BONUS
+
+        _, report = self._report(pool, act_index=3)
+        assert [row["lane"] for row in report["preparations"]] == list(LANE_FIELDS)
+        for row in report["preparations"]:
+            assert row["bonus"] == SCOUT_PREP_LANE_BONUS
+            assert row["margin_after"] == round(row["margin_before"] + row["bonus"], 4)
+            lane = next(l for l in report["lanes"] if l["lane"] == row["lane"])
+            expected = (
+                lane["projected_winner"] != "player"
+                and row["margin_after"] > report["lane_margin_threshold"]
+            )
+            assert row["would_flip"] is expected
+
+    def test_it_is_a_pure_function_of_its_arguments(self, pool):
+        assert self._report(pool, 2)[1] == self._report(pool, 2)[1]
+
+
+class TestBossReveal:
+    """Spec §3: a short deterministic reveal before each boss, labelled as seed
+    and rule generated rather than built live."""
+
+    def test_the_reveal_is_the_seven_slots_in_the_published_order(self, pool):
+        for boss in resolve_bosses(pool):
+            rows = boss_reveal_order(pool, boss)
+            assert [r["order"] for r in rows] == list(range(STARTER_SLOTS + BENCH_SLOTS))
+            assert [r["slot_id"] for r in rows] == list(ROLES) + ["bench_1", "bench_2"]
+            assert [r["card_id"] for r in rows] == (
+                list(boss.starter_ids) + list(boss.bench_ids)
+            )
+            assert [r["is_starter"] for r in rows] == [True] * 5 + [False] * 2
+
+    def test_it_is_identical_every_time(self, pool):
+        boss = resolve_bosses(pool)[-1]
+        assert boss_reveal_order(pool, boss) == boss_reveal_order(pool, boss)

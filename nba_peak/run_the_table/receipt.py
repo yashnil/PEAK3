@@ -262,9 +262,18 @@ def build_receipt(
             closest = row
 
     # --- economy -----------------------------------------------------------
-    spent = sum(a["cost"] for a in state.acquisitions) + sum(
+    # v3 counts the four published credit sinks. Leaving them out of
+    # `credits_spent` would have printed a ledger that does not balance the
+    # moment a player refreshes a market, which is exactly the class of bug the
+    # semantic-items rewrite existed to stop.
+    card_spend = sum(a["cost"] for a in state.acquisitions) + sum(
         max(0, t["net_cost"]) for t in state.trades
     )
+    sink_spend_total = sum(row["cost"] for row in state.sink_spend)
+    sink_spend_by_id: dict[str, int] = {}
+    for row in state.sink_spend:
+        sink_spend_by_id[row["sink_id"]] = sink_spend_by_id.get(row["sink_id"], 0) + row["cost"]
+    spent = card_spend + sink_spend_total
     refunded = sum(a["refund"] for a in state.acquisitions) + sum(
         t["outgoing_refund"] for t in state.trades
     )
@@ -472,9 +481,26 @@ def build_receipt(
         "best_trade": best_trade,
         "closest_battle": closest,
         "credits_spent": spent,
+        "credits_spent_on_cards": card_spend,
+        "credits_spent_on_sinks": sink_spend_total,
+        "credits_spent_by_sink": sink_spend_by_id,
         "credits_refunded": refunded,
         "credits_remaining": state.credits,
         "starting_credits": STARTING_CREDITS,
+        # Scout & Prepare, so the result screen can say what the node actually
+        # bought rather than that it was visited.
+        "scouted_boss_acts": list(state.scouted_boss_acts),
+        "lane_preparations": [
+            {
+                "act": b.act,
+                "boss_id": b.boss_id,
+                "lane": lane,
+                "label": LANE_LABELS[lane],
+                "bonus": bonus,
+            }
+            for b in state.battles
+            for lane, bonus in sorted(b.lane_bonuses.items())
+        ],
         # The contract (§2.3). `reasons` is the deprecated projection of these.
         "items": items,
         "reasons": reasons,

@@ -90,13 +90,44 @@ class DailyGridBoardResponse(BaseModel):
     """GET /api/v1/daily-grid/board"""
 
     board_id: str
-    date: str = Field(..., description="YYYY-MM-DD, UTC")
+    date: str = Field(
+        ...,
+        description=(
+            "YYYY-MM-DD board date in the product daily-reset zone "
+            "(America/Los_Angeles, not UTC -- see nba_peak/daily_key.py)"
+        ),
+    )
     version: str
     difficulty: GridDifficulty
     # Deliberately an open `str`, not a Literal: the theme is descriptive copy
     # derived from the axes the client already has, and adding a theme name
     # should not be a breaking schema change on a field nothing switches on.
     theme: str = Field(..., description='e.g. "Ring Chasers"; derived from the axes')
+    theme_id: str = Field(
+        ...,
+        description=(
+            'Stable slug for `theme`, e.g. "ring-chasers". Switch on this, not '
+            "on the display string."
+        ),
+    )
+    board_hash: str = Field(
+        ...,
+        description=(
+            "Hex digest of the board's criteria signature (row ids + col ids + "
+            "version). Two boards with the same hash are the same puzzle. "
+            "Carries no answer information -- it summarises ids already listed "
+            "in `rows`/`cols`."
+        ),
+    )
+    seed: int = Field(
+        ...,
+        description=(
+            "The board's generation seed, sha256('peak3-daily-grid:<version>:"
+            "<date>') mod 2**31. Public: the derivation has no secret in it, so "
+            "any caller could already compute it, and it is not an input to any "
+            "answer set (see GridBoard.as_public_dict)."
+        ),
+    )
     rows: list[GridConstraint]
     cols: list[GridConstraint]
     cells: list[GridCellSpec]
@@ -187,7 +218,11 @@ class SubmitAnswerRequest(BaseModel):
     more, and defaulting to empty so a fresh board needs neither.
     """
 
-    date: str = Field(..., max_length=32, description="YYYY-MM-DD, UTC")
+    date: str = Field(
+        ...,
+        max_length=32,
+        description="YYYY-MM-DD board date, America/Los_Angeles (not UTC)",
+    )
     row: int = Field(..., ge=0, le=GRID_SIZE - 1)
     col: int = Field(..., ge=0, le=GRID_SIZE - 1)
     answer_id: str = Field(..., min_length=1, max_length=128)
@@ -251,7 +286,11 @@ class GridResultRequest(BaseModel):
     to unlock the answer key by simply claiming a finished board.
     """
 
-    date: str = Field(..., max_length=32, description="YYYY-MM-DD, UTC")
+    date: str = Field(
+        ...,
+        max_length=32,
+        description="YYYY-MM-DD board date, America/Los_Angeles (not UTC)",
+    )
     filled: list[FilledCellInput] = Field(
         ..., min_length=1, max_length=MAX_BOARD_CELLS
     )
@@ -376,3 +415,85 @@ class OfficialResultResponse(BaseModel):
         ),
     )
     saved_at: str = Field(..., description="ISO-8601 UTC")
+
+
+# ---------------------------------------------------------------------------
+# Server-authoritative attempt timer (Phase 12, spec §2)
+# ---------------------------------------------------------------------------
+
+#: Where the caller stands on one board.
+#:
+#: `not_started` -- no attempt row and no official result for this owner and
+#:                  this daily key. Also what an unidentified caller always
+#:                  sees: with no credential there is nothing to look up.
+#: `in_progress` -- the clock has been started and no official result exists.
+#: `completed`   -- an official result exists. Terminal: a completed board
+#:                  never goes back to in_progress, because
+#:                  `daily_grid_results` is immutable and one-per-board.
+AttemptStatus = Literal["not_started", "in_progress", "completed"]
+
+
+class DailyGridStartResponse(BaseModel):
+    """POST /api/v1/daily-grid/{daily_key}/start
+
+    THE CLOCK IS THE SERVER'S. Before this route the elapsed time was measured
+    entirely in the browser (`daily-grid-state.ts`), which meant it ran while
+    the tab was closed, reset with local storage, and was trivially editable --
+    and it was still written to the durable result. `started_at` is now written
+    exactly once, server-side, and `elapsed_seconds` is derived from it.
+
+    IDEMPOTENT. A second call returns the SAME `started_at`: a double-click, a
+    refresh and a second tab are all one attempt, not three.
+    """
+
+    daily_key: str = Field(..., description="YYYY-MM-DD, America/Los_Angeles")
+    started_at: str = Field(
+        ...,
+        description=(
+            "ISO-8601 UTC instant the attempt's clock started. Stable across "
+            "repeat calls -- this is the idempotency guarantee, observable."
+        ),
+    )
+    server_now: str = Field(
+        ...,
+        description=(
+            "ISO-8601 UTC server time at the moment of the response, so a "
+            "client with a skewed clock can render a countdown without "
+            "trusting its own."
+        ),
+    )
+    elapsed_seconds: int = Field(
+        ...,
+        ge=0,
+        description="server_now - started_at, floored at 0. Computed, never accepted.",
+    )
+    attempt_status: AttemptStatus
+
+
+class OfficialResultSummary(BaseModel):
+    """One row of the caller's own official Daily Grid history.
+
+    A summary, not a replay: no answer ids, no optimal assignment, nothing the
+    result-comparison route guards. It exists so a signed-in player on a second
+    device -- or one who cleared site data -- can see the boards the server
+    watched them finish, which localStorage alone can never prove.
+    """
+
+    board_id: str
+    board_date: str
+    board_version: str
+    board_theme: Optional[str] = None
+    score: int
+    optimal_total: int
+    percent_of_best: float
+    squares_matching_optimal: int
+    incorrect_attempts: int
+    elapsed_seconds: Optional[int] = None
+    played_on_board_date: bool
+    saved_at: str = Field(..., description="ISO-8601 UTC")
+
+
+class OfficialResultHistoryResponse(BaseModel):
+    """GET /api/v1/daily-grid/results -- the caller's own official results."""
+
+    results: list[OfficialResultSummary]

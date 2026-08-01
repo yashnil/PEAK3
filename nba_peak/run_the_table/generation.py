@@ -21,11 +21,11 @@ from nba_peak.run_the_table.config import (
     ACTS,
     BENCH_SLOTS,
     DRAFT_GUARANTEED_AFFORDABLE_COST,
-    FILM_CREDITS,
     MAX_GENERATION_ATTEMPTS,
     NODE_CHOICES_PER_STAGE,
     OFFERS_PER_DRAFT,
     OFFERS_PER_TRADE,
+    RESERVE_CHOICES_OFFERED,
     REST_CREDITS,
     ROLES,
     STAGES_PER_ACT,
@@ -187,6 +187,24 @@ def _trade_offers(
     return [c.peak_window_id for c in picks]
 
 
+def _reserve_candidates(
+    pool: CardPool, seed: int, node_id: str, exclude_slugs: frozenset[str]
+) -> list[str]:
+    """The future cards "Reserve a Future Card" reveals at this node.
+
+    Deterministic per node and generated up front, so the set a player is shown
+    is part of the blueprint rather than something the server invents when
+    asked. Drawn from the whole pool minus the starting roster, exactly like a
+    Draft Room board, so a reservation can be genuinely aspirational.
+    """
+    rng = _rng(seed, f"reserve:{node_id}")
+    candidates = [c for c in pool.cards if c.player_slug not in exclude_slugs]
+    if len(candidates) < RESERVE_CHOICES_OFFERED:
+        raise RunGenerationError(f"Not enough cards to fill reserve node {node_id}")
+    picks = rng.sample(candidates, RESERVE_CHOICES_OFFERED)
+    return [c.peak_window_id for c in picks]
+
+
 _NODE_COPY: dict[str, tuple[str, str]] = {
     "draft_room": (
         "Draft Room",
@@ -197,8 +215,9 @@ _NODE_COPY: dict[str, tuple[str, str]] = {
         "Send one card out for a published refund, and choose from three legal replacements.",
     ),
     "film_room": (
-        "Film Room",
-        "Scout the next boss's lane profile and rule, then take one prep advantage.",
+        "Scout & Prepare",
+        "Scout the next boss and prepare one lane, shape the next market, or "
+        "reserve a future card at today's price.",
     ),
     "rest_bank": (
         "Rest / Bank",
@@ -286,7 +305,15 @@ def generate_blueprint(
                         "incoming_ids": _trade_offers(pool, seed, node_id, exclude)
                     }
                 elif node_type == "film_room":
-                    payloads[node_id] = {"credits": FILM_CREDITS}
+                    # No "credits" key at all. Scout & Prepare pays nothing —
+                    # that is the point of the v3 replacement, and leaving a
+                    # zeroed credit field here would let a client keep
+                    # advertising an ATM that no longer exists.
+                    payloads[node_id] = {
+                        "reserve_candidate_ids": _reserve_candidates(
+                            pool, seed, node_id, exclude
+                        )
+                    }
                 else:
                     payloads[node_id] = {"credits": REST_CREDITS}
 
@@ -329,6 +356,229 @@ def node_option(blueprint: RunBlueprint, node_id: str) -> tuple[StagePlan, NodeO
             if o.node_id == node_id:
                 return s, o
     raise KeyError(f"Unknown node id '{node_id}'")
+
+
+# ---------------------------------------------------------------------------
+# Live market offers (v3)
+# ---------------------------------------------------------------------------
+# A node's board is no longer simply ``plan.payloads[node_id]``. Three published
+# player actions can change it before it is played:
+#
+#   * Market Refresh replaces it once, with a deterministic second board;
+#   * Role Focus guarantees it carries at least one offer for a chosen role;
+#   * a live reservation adds the reserved card to the next Draft Room.
+#
+# :func:`market_offers` is the single place those three compose, and it is a
+# pure function of (blueprint, pool, node_id, refresh_index, role_focus,
+# reserved_card_id). The state machine calls it to validate a purchase and the
+# API layer calls it to render the board, so what is shown and what is legal
+# cannot drift apart. Everything it draws uses its own keyed stream, so none of
+# it can shift an existing stream's output.
+_OFFER_KEY = {"draft_room": "offer_ids", "trade_desk": "incoming_ids"}
+
+
+def starting_roster_slugs(pool: CardPool, blueprint: RunBlueprint) -> frozenset[str]:
+    """The identities excluded from every generated board for this run."""
+    return frozenset(
+        pool.get(cid).player_slug
+        for cid in list(blueprint.starting_starters) + list(blueprint.starting_bench)
+    )
+
+
+def refreshed_offers(
+    pool: CardPool,
+    blueprint: RunBlueprint,
+    node_id: str,
+    refresh_index: int,
+) -> list[str]:
+    """The deterministic replacement board for a refreshed market.
+
+    Stream key is exactly spec §6's ``seed + act + stage + node_type +
+    refresh_index``, so the same seed always buys the same second board and a
+    client can never re-roll for a better one.
+
+    The replacement excludes the identities on the board it replaces, so paying
+    7 credits always produces a genuinely different market rather than a shuffle
+    that may return the same three cards.
+    """
+    plan, option = node_option(blueprint, node_id)
+    key = _OFFER_KEY.get(option.node_type)
+    if key is None:
+        raise RunGenerationError(f"Node {node_id} has no refreshable market")
+    if refresh_index < 1:
+        raise RunGenerationError("refresh_index must be at least 1")
+
+    base_ids = plan.payloads[node_id][key]
+    exclude = starting_roster_slugs(pool, blueprint) | {
+        pool.get(cid).player_slug for cid in base_ids
+    }
+    stream = (
+        f"refresh:{plan.act}:{plan.stage}:{option.node_type}:{refresh_index}"
+    )
+    rng = _rng(blueprint.seed, stream)
+    candidates = [c for c in pool.cards if c.player_slug not in exclude]
+
+    if option.node_type == "trade_desk":
+        if len(candidates) < OFFERS_PER_TRADE:
+            raise RunGenerationError(f"Not enough cards to refresh trade node {node_id}")
+        return [c.peak_window_id for c in rng.sample(candidates, OFFERS_PER_TRADE)]
+
+    # A refreshed Draft Room keeps the affordability guarantee: a player who
+    # just spent 7 of their last credits refreshing must not be handed a board
+    # they cannot touch.
+    affordable = [c for c in candidates if c.base_cost <= DRAFT_GUARANTEED_AFFORDABLE_COST]
+    if not affordable or len(candidates) < OFFERS_PER_DRAFT:
+        raise RunGenerationError(f"Not enough cards to refresh draft node {node_id}")
+    anchor = rng.choice(affordable)
+    rest = [c for c in candidates if c.player_slug != anchor.player_slug]
+    rng.shuffle(rest)
+    picks = [anchor]
+    seen = {anchor.player_slug}
+    for c in rest:
+        if len(picks) >= OFFERS_PER_DRAFT:
+            break
+        if c.player_slug in seen:
+            continue
+        picks.append(c)
+        seen.add(c.player_slug)
+    rng.shuffle(picks)
+    return [c.peak_window_id for c in picks]
+
+
+def _apply_role_focus(
+    pool: CardPool,
+    blueprint: RunBlueprint,
+    node_id: str,
+    ids: list[str],
+    role: str,
+    refresh_index: int,
+) -> list[str]:
+    """Guarantee at least one offer on this board is legal for ``role``.
+
+    If the board already carries one, Role Focus changes nothing — the player
+    paid for a guarantee, not for a shuffle. Otherwise the LAST offer is
+    replaced by a deterministically drawn card that can play the role. The last
+    slot is chosen rather than the first because slot 0 of a Draft Room carries
+    the affordability guarantee.
+    """
+    if any(role in pool.get(cid).eligible_roles for cid in ids):
+        return ids
+    exclude = starting_roster_slugs(pool, blueprint) | {
+        pool.get(cid).player_slug for cid in ids
+    }
+    candidates = [
+        c for c in pool.cards
+        if role in c.eligible_roles and c.player_slug not in exclude
+    ]
+    if not candidates:
+        # Unreachable with the real pool (the scarcest role, `anchor`, has 28
+        # eligible cards) but the engine must not fabricate an offer.
+        raise RunGenerationError(
+            f"No card outside the roster can play '{role}' for node {node_id}"
+        )
+    rng = _rng(blueprint.seed, f"role-focus:{node_id}:{role}:{refresh_index}")
+    out = list(ids)
+    out[-1] = rng.choice(candidates).peak_window_id
+    return out
+
+
+def market_offers(
+    pool: CardPool,
+    blueprint: RunBlueprint,
+    node_id: str,
+    *,
+    refresh_index: int = 0,
+    role_focus: Optional[str] = None,
+    reserved_card_id: Optional[str] = None,
+) -> list[str]:
+    """The card ids actually on this node's board, after every live modifier.
+
+    Composition order is fixed and published: refresh first (it replaces the
+    whole board), then role focus (it repairs whatever board survived), then the
+    reservation (it is an addition the player already paid for and can never be
+    refreshed away).
+    """
+    plan, option = node_option(blueprint, node_id)
+    key = _OFFER_KEY.get(option.node_type)
+    if key is None:
+        raise RunGenerationError(f"Node {node_id} has no market")
+
+    if refresh_index:
+        ids = refreshed_offers(pool, blueprint, node_id, refresh_index)
+    else:
+        ids = list(plan.payloads[node_id][key])
+
+    if role_focus:
+        ids = _apply_role_focus(
+            pool, blueprint, node_id, ids, role_focus, refresh_index
+        )
+
+    if reserved_card_id and option.node_type == "draft_room":
+        if reserved_card_id not in ids:
+            ids = ids + [reserved_card_id]
+
+    return ids
+
+
+# ---------------------------------------------------------------------------
+# Opening reveal (spec §3)
+# ---------------------------------------------------------------------------
+REVEAL_SLOT_LABELS: dict[str, str] = {
+    "lead_creator": "Lead Creator",
+    "guard_wing": "Guard/Wing",
+    "wing_forward": "Wing/Forward",
+    "forward_big": "Forward/Big",
+    "anchor": "Anchor",
+    "bench_1": "Bench 1",
+    "bench_2": "Bench 2",
+}
+
+
+def opening_reveal(pool: CardPool, blueprint: RunBlueprint) -> list[dict]:
+    """The authoritative, ordered opening-roster reveal.
+
+    Seven slots in the published order: Lead Creator, Guard/Wing, Wing/Forward,
+    Forward/Big, Anchor, Bench 1, Bench 2. The server preselects every card; the
+    client only animates to what is already decided, which is what makes "same
+    seed = same roster" survive a reel, a skip, and a mid-reveal refresh.
+    """
+    out: list[dict] = []
+    for idx, (role, card_id) in enumerate(zip(ROLES, blueprint.starting_starters)):
+        card = pool.get(card_id)
+        out.append(
+            {
+                "order": idx,
+                "slot_id": role,
+                "label": REVEAL_SLOT_LABELS[role],
+                "role": role,
+                "is_starter": True,
+                "card_id": card_id,
+                "player_name": card.player_name,
+                "anchor_season": card.anchor_season,
+                "window": f"{card.start_season}–{card.end_season}",
+                "prime_score": card.prime_score,
+                "base_cost": card.base_cost,
+            }
+        )
+    for idx, card_id in enumerate(blueprint.starting_bench):
+        slot_id = f"bench_{idx + 1}"
+        card = pool.get(card_id)
+        out.append(
+            {
+                "order": len(ROLES) + idx,
+                "slot_id": slot_id,
+                "label": REVEAL_SLOT_LABELS[slot_id],
+                "role": None,
+                "is_starter": False,
+                "card_id": card_id,
+                "player_name": card.player_name,
+                "anchor_season": card.anchor_season,
+                "window": f"{card.start_season}–{card.end_season}",
+                "prime_score": card.prime_score,
+                "base_cost": card.base_cost,
+            }
+        )
+    return out
 
 
 def offer_prices(

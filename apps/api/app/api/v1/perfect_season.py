@@ -36,6 +36,7 @@ if str(_repo_root) not in sys.path:
 
 from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, RequiredAuth, resolve_owner_sub
 from app.core.config import settings
+from app.core.ownership import assert_owns, existing_owner_sub
 from app.core.dependencies import (
     CourtLineupRepoDep,
     PerfectSeasonLeaderboardRepoDep,
@@ -61,6 +62,7 @@ from app.models.perfect_season import (
     SaveRunRequest,
     SaveRunResponse,
     SelectPlayerRequest,
+    SharedCourtResultResponse,
     SubmitRunRequest,
     SwapSlotsRequest,
 )
@@ -228,13 +230,86 @@ async def create_game(
 # Get game state
 # ---------------------------------------------------------------------------
 
-@router.get("/perfect-season/games/{game_id}", response_model=PublicCourtStateResponse)
-async def get_game(game_id: str, court_repo: CourtLineupRepoDep) -> PublicCourtStateResponse:
-    _require_courtbuilder_enabled()
+async def _load_owned_lineup(
+    game_id: str,
+    court_repo,
+    auth,
+    anon_cookie: Optional[str],
+):
+    """Load a lineup and prove the caller owns it, or raise 404/403.
+
+    The single gate for every mutating CourtBuilder route. Seven of them --
+    select, cancel, respin-team, respin-season, place, swap-slots, complete --
+    previously took a `game_id` and no identity whatsoever, so anyone holding a
+    leaked id could burn a stranger's three-respin budget, misplace their
+    cards, or force `/complete` to irreversibly freeze a sabotaged simulation.
+    `submit` (`:485`) and `save` (`:729`) already did this correctly; this
+    helper is that same check, hoisted so it cannot be forgotten again.
+    """
     game_state = await court_repo.get_lineup(game_id)
     if game_state is None:
         raise HTTPException(status_code=404, detail="Game not found or expired")
+    assert_owns(
+        game_state.owner_sub,
+        existing_owner_sub(auth, anon_cookie, settings.SIGNING_SECRET),
+        message="This game belongs to a different player.",
+    )
+    return game_state
+
+
+@router.get("/perfect-season/games/{game_id}", response_model=PublicCourtStateResponse)
+async def get_game(
+    game_id: str,
+    court_repo: CourtLineupRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
+) -> PublicCourtStateResponse:
+    _require_courtbuilder_enabled()
+    game_state = await _load_owned_lineup(game_id, court_repo, auth, peak3_anon)
     return PublicCourtStateResponse(**state_machine.get_public_state(game_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
+
+
+@router.get(
+    "/perfect-season/games/{game_id}/shared-result",
+    response_model=SharedCourtResultResponse,
+)
+async def get_shared_result(
+    game_id: str,
+    court_repo: CourtLineupRepoDep,
+) -> SharedCourtResultResponse:
+    """The public, read-only scorecard for a COMPLETED run.
+
+    Deliberately takes no identity at all -- not because ownership stopped
+    mattering, but because there is nothing here for ownership to protect. The
+    route above (`get_game`) is owner-only and stays that way: its payload is
+    the live board plus the handle every mutator keys off, so possessing an id
+    must not be enough to read it. This route answers a strictly different
+    question -- "what did this finished run score?" -- through
+    `get_shared_result_state`, which returns None for anything not
+    `result_ready` and strips the owner-scoped and mutable keys by name
+    (`SHARED_RESULT_WITHHELD_KEYS`), onto a response model that cannot
+    represent them at all.
+
+    No mutation is reachable from what it returns, and it is not a back door
+    into `get_game`: an in-progress run answers 404 here, so the endpoint
+    cannot be used to watch a stranger's board as they play it. A leaked id
+    still buys an attacker exactly one thing -- the scorecard its owner
+    shares by link on purpose.
+
+    404, never 403, and the same shape for "no such run" and "not finished
+    yet": the two are indistinguishable to a caller, so this route is not an
+    oracle for which unguessable ids exist.
+    """
+    _require_courtbuilder_enabled()
+    game_state = await court_repo.get_lineup(game_id)
+    if game_state is None:
+        raise HTTPException(status_code=404, detail="Result not found")
+    shared = state_machine.get_shared_result_state(
+        game_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS
+    )
+    if shared is None:
+        raise HTTPException(status_code=404, detail="Result not found")
+    return SharedCourtResultResponse(**shared)
 
 
 # ---------------------------------------------------------------------------
@@ -246,14 +321,14 @@ async def select_player(
     game_id: str,
     body: SelectPlayerRequest,
     court_repo: CourtLineupRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
 ) -> PublicCourtStateResponse:
     _require_courtbuilder_enabled()
     if body.game_id != game_id:
         raise HTTPException(status_code=400, detail="game_id in body must match URL")
 
-    game_state = await court_repo.get_lineup(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    game_state = await _load_owned_lineup(game_id, court_repo, auth, peak3_anon)
 
     try:
         new_state = state_machine.action_select_player(game_state, body.player_slug)
@@ -269,14 +344,14 @@ async def cancel_selection(
     game_id: str,
     body: CancelSelectionRequest,
     court_repo: CourtLineupRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
 ) -> PublicCourtStateResponse:
     _require_courtbuilder_enabled()
     if body.game_id != game_id:
         raise HTTPException(status_code=400, detail="game_id in body must match URL")
 
-    game_state = await court_repo.get_lineup(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    game_state = await _load_owned_lineup(game_id, court_repo, auth, peak3_anon)
 
     try:
         new_state = state_machine.action_cancel_selection(game_state)
@@ -292,14 +367,14 @@ async def respin_team(
     game_id: str,
     body: RespinRequest,
     court_repo: CourtLineupRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
 ) -> PublicCourtStateResponse:
     _require_courtbuilder_enabled()
     if body.game_id != game_id:
         raise HTTPException(status_code=400, detail="game_id in body must match URL")
 
-    game_state = await court_repo.get_lineup(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    game_state = await _load_owned_lineup(game_id, court_repo, auth, peak3_anon)
 
     try:
         # W5: idempotent by key. A replayed key returns the current state
@@ -320,14 +395,14 @@ async def respin_season(
     game_id: str,
     body: RespinRequest,
     court_repo: CourtLineupRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
 ) -> PublicCourtStateResponse:
     _require_courtbuilder_enabled()
     if body.game_id != game_id:
         raise HTTPException(status_code=400, detail="game_id in body must match URL")
 
-    game_state = await court_repo.get_lineup(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    game_state = await _load_owned_lineup(game_id, court_repo, auth, peak3_anon)
 
     try:
         # W5: idempotent by key -- see respin_team above.
@@ -344,14 +419,14 @@ async def place_card(
     game_id: str,
     body: PlaceCardRequest,
     court_repo: CourtLineupRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
 ) -> PublicCourtStateResponse:
     _require_courtbuilder_enabled()
     if body.game_id != game_id:
         raise HTTPException(status_code=400, detail="game_id in body must match URL")
 
-    game_state = await court_repo.get_lineup(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    game_state = await _load_owned_lineup(game_id, court_repo, auth, peak3_anon)
 
     try:
         new_state = state_machine.action_place_card(game_state, body.slot_type)
@@ -367,6 +442,8 @@ async def swap_slots(
     game_id: str,
     body: SwapSlotsRequest,
     court_repo: CourtLineupRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
 ) -> PublicCourtStateResponse:
     """Phase 9B: move/swap two already-placed cards between slots.
 
@@ -385,9 +462,7 @@ async def swap_slots(
     if body.game_id != game_id:
         raise HTTPException(status_code=400, detail="game_id in body must match URL")
 
-    game_state = await court_repo.get_lineup(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    game_state = await _load_owned_lineup(game_id, court_repo, auth, peak3_anon)
 
     try:
         new_state = state_machine.action_swap_slots(game_state, body.slot_a, body.slot_b)
@@ -403,14 +478,14 @@ async def complete_game(
     game_id: str,
     body: CompleteGameRequest,
     court_repo: CourtLineupRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
 ) -> PublicCourtStateResponse:
     _require_courtbuilder_enabled()
     if body.game_id != game_id:
         raise HTTPException(status_code=400, detail="game_id in body must match URL")
 
-    game_state = await court_repo.get_lineup(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    game_state = await _load_owned_lineup(game_id, court_repo, auth, peak3_anon)
 
     try:
         new_state = state_machine.action_complete_game(game_state)

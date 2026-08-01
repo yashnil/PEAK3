@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { AnimatedNumber } from "@/components/ui";
 import { RunPublicState } from "@/types/run-the-table";
-import { filledCount, slotLabel } from "@/lib/run-the-table-state";
+import { ROLE_LABELS, filledCount, slotLabel } from "@/lib/run-the-table-state";
 import {
   LANE_PROFILE_TERM,
   PERK_EXACT_RULE_LABEL,
@@ -42,6 +42,23 @@ interface Props {
 export default function RunTray({ state, laneProfileRelevant = false }: Props) {
   const roster = [...state.starters, ...state.bench];
   const filled = filledCount(roster);
+  /**
+   * The v3 "armed" block, or null when nothing is armed.
+   *
+   * A reservation only counts while it can still be BOUGHT (`live` or
+   * `offered`): once it is used or has expired it is history, and printing it
+   * would tell the player they still hold something they do not.
+   */
+  const reservation =
+    state.armed?.reserved_card &&
+    (state.armed.reserved_card.status === "live" ||
+      state.armed.reserved_card.status === "offered")
+      ? state.armed.reserved_card
+      : null;
+  const armed =
+    state.armed && (state.armed.prep || state.armed.role_focus || reservation)
+      ? state.armed
+      : null;
   const [laneOpen, setLaneOpen] = useState(laneProfileRelevant);
 
   // Follows relevance when the screen changes, but a manual toggle survives
@@ -240,6 +257,59 @@ export default function RunTray({ state, laneProfileRelevant = false }: Props) {
           </p>
         )}
       </section>
+
+      {/*
+        WHAT IS ARMED RIGHT NOW (v3, spec §4/§5).
+
+        A preparation, a Role Focus and a reservation are all things the player
+        has already spent on and will not see again until the moment they fire —
+        a lane bonus lands inside a battle two nodes later, a Role Focus shapes a
+        market the player has not opened yet, a reservation turns up in a Draft
+        Room that does not exist on screen. Without this block the credits are
+        simply gone from the counter with nothing to show for them.
+
+        Rendered only when something IS armed, so the rail costs nothing on the
+        many nodes where none of it applies. Every value is `state.armed`'s.
+      */}
+      {armed && (
+        <section
+          className="flex flex-col gap-1 rounded-xl border p-2.5"
+          style={{ background: "var(--bg-elevated)", borderColor: "var(--peak-accent)" }}
+          data-testid="rtt-armed"
+        >
+          <h3
+            className="text-[10px] font-bold uppercase tracking-widest"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Armed
+          </h3>
+          {armed.prep && (
+            <p className="text-[11px]" data-testid="rtt-armed-prep" style={{ color: "var(--text-primary)" }}>
+              <span style={{ color: "var(--peak-accent)" }}>{armed.prep.label}</span> prepared{" "}
+              <span className="score-number">+{armed.prep.bonus}</span> for the act{" "}
+              {armed.prep.act} boss. Spent in that battle either way.
+            </p>
+          )}
+          {armed.role_focus && (
+            <p className="text-[11px]" data-testid="rtt-armed-role-focus" style={{ color: "var(--text-primary)" }}>
+              Role Focus on{" "}
+              <span style={{ color: "var(--peak-accent)" }}>
+                {ROLE_LABELS[armed.role_focus.role]}
+              </span>{" "}
+              — the next market will carry a legal offer for it.
+            </p>
+          )}
+          {reservation && (
+            <p className="text-[11px]" data-testid="rtt-armed-reservation" style={{ color: "var(--text-primary)" }}>
+              One card reserved at{" "}
+              <span className="score-number">{reservation.locked_cost}</span> credits
+              {reservation.status === "offered"
+                ? " — it is on this board now."
+                : " — it appears in the next Draft Room."}
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Lane profile — collapsible, because it is the decision only at a boss */}
       <details

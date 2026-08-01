@@ -621,3 +621,99 @@ async def test_an_owner_can_still_read_their_own_daily_results(db_pool):
     finally:
         await conn.execute("RESET ROLE")
         await db_pool.release(conn)
+
+
+# ---------------------------------------------------------------------------
+# Payload forgery: the four owner-scoped result tables that were still writable.
+#
+# This is the same finding the peak_duel_daily_results tests above cover, and
+# the same fix (20260801140000_owned_results_revoke.sql). It was worth writing
+# separately because the whole suite above this line is SELECT-only: before
+# these cases, no test anywhere asserted that a stranger — or an owner — could
+# not WRITE through PostgREST at all. An owner-scoped `WITH CHECK` pins
+# *ownership*, not the *payload*, so RLS alone let a client INSERT its own
+# `score`, its own `snapshot`, or its own 82-0 leaderboard row.
+#
+# `run_the_table_runs` is the sharpest of the four: it granted UPDATE on
+# `snapshot`, which is the entire engine state blob, so server-authoritative
+# play was fully bypassable.
+# ---------------------------------------------------------------------------
+
+_REVOKED_WRITE_TABLES = [
+    "daily_grid_results",
+    "run_the_table_runs",
+    "perfect_season_runs",
+    "perfect_season_saved_runs",
+    "perfect_season_run_cards",
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("table", _REVOKED_WRITE_TABLES)
+@pytest.mark.parametrize("role_sub", [None, "authenticated"])
+async def test_clients_cannot_insert_into_owned_result_tables(db_pool, table, role_sub):
+    """Neither anon nor a signed-in user may INSERT — the privilege is revoked.
+
+    Asserted as InsufficientPrivilegeError specifically, not "affects zero
+    rows": a REVOKE fails loudly at the privilege check, whereas a write that
+    merely matches no policy silently affects nothing and reads to a client as
+    success. That difference is the reason the fix is a REVOKE and not another
+    policy.
+    """
+    sub = str(uuid.uuid4()) if role_sub else None
+    conn = await _connection_as(db_pool, sub)
+    try:
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute(f"INSERT INTO {table} DEFAULT VALUES")
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("table", _REVOKED_WRITE_TABLES)
+async def test_clients_cannot_delete_from_owned_result_tables(db_pool, table):
+    """DELETE is revoked too — DELETE-then-INSERT is an UPDATE in disguise once
+    a UNIQUE constraint is cleared, which is exactly how the immutability these
+    tables claim would otherwise be defeated."""
+    sub = str(uuid.uuid4())
+    conn = await _connection_as(db_pool, sub)
+    try:
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute(f"DELETE FROM {table}")
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_run_the_table_snapshot_cannot_be_updated_by_a_client(db_pool):
+    """The single most valuable write to deny: `snapshot` is the run's whole
+    engine state, so a client UPDATE is a forged, table-cleared run."""
+    sub = str(uuid.uuid4())
+    conn = await _connection_as(db_pool, sub)
+    try:
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.execute(
+                "UPDATE run_the_table_runs SET snapshot = '{}'::jsonb"
+            )
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("table", _REVOKED_WRITE_TABLES)
+async def test_select_is_still_granted_on_owned_result_tables(db_pool, table):
+    """SELECT must survive the REVOKE: the owner-read policies already narrow
+    it to the caller's own rows, and reading one's own history directly is a
+    legitimate client path. A blanket REVOKE ALL would have been the easy
+    over-correction."""
+    sub = str(uuid.uuid4())
+    conn = await _connection_as(db_pool, sub)
+    try:
+        rows = await conn.fetch(f"SELECT 1 FROM {table} LIMIT 1")
+        assert rows == [] or len(rows) == 1
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)

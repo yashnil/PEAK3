@@ -15,7 +15,18 @@ from nba_peak.run_the_table.schemas import (
 )
 from nba_peak.run_the_table.state import VersionMismatch
 
-SNAPSHOT_SCHEMA_VERSION = 1
+# 1 -> 2 with rtt_ruleset_v3. The snapshot SHAPE changed, not just the rules:
+# `RunState` gained Scout & Prepare state (`scouted_boss_acts`, `pending_prep`,
+# `role_focus`), the credit-sink ledger (`reserved_card`, `node_refreshes`,
+# `emergency_recoveries_used`, `sink_spend`) and reveal progress
+# (`reveal_index`, `boss_reveal_index`); `BattleResult` gained `lanes_to_win`
+# and `lane_bonuses`, and `LaneResult` gained `player_prep_bonus`.
+#
+# A v1 snapshot deserialised under this schema would silently default every one
+# of those to "nothing armed, nothing spent, nothing revealed" — a run that
+# never happened. The bump refuses it instead, which is the same answer the
+# ruleset gate gives and is reported through the same 409.
+SNAPSHOT_SCHEMA_VERSION = 2
 
 
 class SnapshotSchemaMismatch(VersionMismatch):
@@ -56,6 +67,10 @@ def _lane_to_dict(l: LaneResult) -> dict:
         "tie_broken_by_rule": l.tie_broken_by_rule,
         "player_top_card_id": l.player_top_card_id,
         "opponent_top_card_id": l.opponent_top_card_id,
+        # v3: the Scout & Prepare bonus already folded into `player_score`.
+        # Persisted because the result screen states which lane the preparation
+        # actually moved, and a re-read must be able to say the same thing.
+        "player_prep_bonus": l.player_prep_bonus,
     }
 
 
@@ -76,6 +91,11 @@ def _battle_to_dict(b: BattleResult) -> dict:
         "rule_id": b.rule_id,
         "lives_after": b.lives_after,
         "credits_awarded": b.credits_awarded,
+        # v3: a boss rule may raise the lanes an outright win takes
+        # (config.BOSS_LANES_TO_WIN), and the preparation the player brought in
+        # is published per lane. Both are read back by the receipt.
+        "lanes_to_win": b.lanes_to_win,
+        "lane_bonuses": dict(b.lane_bonuses),
     }
 
 
@@ -128,6 +148,23 @@ def state_to_dict(state: RunState) -> dict:
         "last_action_at": state.last_action_at,
         "owner_sub": state.owner_sub,
         "versions": dict(state.versions),
+        # -- v3 -------------------------------------------------------------
+        # Scout & Prepare, the four credit sinks, and reveal progress. Every one
+        # of these is state the player PAID for or progress they already made,
+        # so none of it may be re-derived on load: a reservation, a role focus
+        # and a half-finished reveal all have to survive a refresh exactly as
+        # they were. `boss_reveal_index` is keyed by act, and JSON object keys
+        # are strings, so it is stringified here and re-inted below — the same
+        # treatment `veteran_minimum_used_in_act` already gets.
+        "scouted_boss_acts": list(state.scouted_boss_acts),
+        "pending_prep": dict(state.pending_prep) if state.pending_prep else None,
+        "role_focus": dict(state.role_focus) if state.role_focus else None,
+        "reserved_card": dict(state.reserved_card) if state.reserved_card else None,
+        "node_refreshes": dict(state.node_refreshes),
+        "emergency_recoveries_used": state.emergency_recoveries_used,
+        "sink_spend": [dict(row) for row in state.sink_spend],
+        "reveal_index": state.reveal_index,
+        "boss_reveal_index": {str(k): v for k, v in state.boss_reveal_index.items()},
     }
 
 
@@ -169,4 +206,15 @@ def state_from_dict(d: dict) -> RunState:
         last_action_at=d["last_action_at"],
         owner_sub=d.get("owner_sub"),
         versions=dict(d.get("versions", {})),
+        scouted_boss_acts=list(d.get("scouted_boss_acts", [])),
+        pending_prep=dict(d["pending_prep"]) if d.get("pending_prep") else None,
+        role_focus=dict(d["role_focus"]) if d.get("role_focus") else None,
+        reserved_card=dict(d["reserved_card"]) if d.get("reserved_card") else None,
+        node_refreshes=dict(d.get("node_refreshes", {})),
+        emergency_recoveries_used=int(d.get("emergency_recoveries_used", 0)),
+        sink_spend=[dict(row) for row in d.get("sink_spend", [])],
+        reveal_index=int(d.get("reveal_index", 0)),
+        boss_reveal_index={
+            int(k): v for k, v in (d.get("boss_reveal_index") or {}).items()
+        },
     )

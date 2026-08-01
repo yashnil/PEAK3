@@ -37,6 +37,15 @@ export type RarityBucket =
 
 export type GridDifficulty = "easy" | "medium" | "hard";
 
+/** Where THIS account's attempt on today's board stands, decided server-side.
+ *
+ *  - `not_started` — no timed attempt exists yet, so pressing Start is what
+ *    writes the timestamp.
+ *  - `in_progress` — a start timestamp exists; the clock is already running.
+ *  - `completed`   — the board has an official, server-validated result.
+ */
+export type DailyGridAttemptStatus = "not_started" | "in_progress" | "completed";
+
 /** One row or column condition. */
 export interface GridConstraint {
   id: string;
@@ -78,7 +87,68 @@ export interface DailyGridBoard {
   cols: GridConstraint[];
   cells: GridCellSpec[];
   rules: GridRules;
+
+  // -------------------------------------------------------------------------
+  // Freshness / attempt block (hardening pass).
+  //
+  // EVERY FIELD BELOW IS OPTIONAL, and that is deliberate rather than lazy: the
+  // server change that adds them ships independently of this client, and a
+  // board response that predates it must degrade to exactly the previous
+  // behaviour instead of rendering `undefined` or throwing on a property read.
+  // Nothing in the UI may become unreachable because one of these is missing.
+  // -------------------------------------------------------------------------
+
+  /** YYYY-MM-DD in `timezone` — the board's identity, promoted to the top level
+   *  so a caller does not have to reach into the nested `daily` block. */
+  daily_key?: string;
+  /** IANA zone the daily key is computed in. "America/Los_Angeles" today. */
+  timezone?: string;
+  /** The generator seed for this key. Public: the board is already public and
+   *  no answer is seed-derived. */
+  seed?: number;
+  /** Stable id for the theme label, e.g. "two-way-night". `theme` stays the
+   *  human string; nothing switches on either. */
+  theme_id?: string;
+  /** Stable digest over the criteria signature. Two adjacent days having the
+   *  same hash is a generator defect, which is why it is exposed. */
+  board_hash?: string;
+  /** ISO-8601 UTC instant the window opens (inclusive). */
+  starts_at?: string;
+  /** ISO-8601 UTC instant the window closes (exclusive). */
+  ends_at?: string;
+  /** Seconds from when the server answered until `ends_at`. Floored at 0. */
+  seconds_remaining?: number;
+  /** This account's standing on today's board. */
+  attempt_status?: DailyGridAttemptStatus;
 }
+
+/** POST /api/v1/daily-grid/{daily_key}/start response.
+ *
+ *  Idempotent by contract: a second call returns the FIRST call's
+ *  `started_at`, so a double-click, a refresh and a second tab all resume the
+ *  same attempt rather than resetting the clock.
+ *
+ *  `server_now` is paired with `started_at` so the client can derive elapsed
+ *  time from the server's clock instead of its own; `elapsed_seconds` is the
+ *  same subtraction done server-side, and is what the client actually uses. */
+export interface DailyGridStartResponse {
+  daily_key: string;
+  /** ISO-8601 UTC instant the attempt's clock started. Written once. */
+  started_at: string;
+  /** ISO-8601 UTC instant the server answered. */
+  server_now: string;
+  /** `server_now - started_at`, floored at 0. */
+  elapsed_seconds: number;
+  attempt_status: DailyGridAttemptStatus;
+}
+
+/** The error code the start route returns for a key that is not today's.
+ *
+ *  Archive and challenge views must never start today's timed attempt, so the
+ *  client refuses to send the request at all; this exists so that a request
+ *  that slips through is recognised and swallowed rather than surfaced as a
+ *  failure the player can do nothing about. */
+export const DAILY_GRID_NOT_TODAYS_KEY = "not_todays_key";
 
 /** An exact NBA player-season, WITHOUT its score.
  *
@@ -414,9 +484,15 @@ export const DAILY_GRID_ARCHIVE_MAX = 365;
  *  Daily Grid value that deliberately OUTLIVES a single day. */
 export const DAILY_GRID_ARCHIVE_KEY = "peak3.daily-grid.archive";
 
-/** localStorage key for "this player has seen the rules".
+/** LEGACY localStorage key for "this player has seen the rules".
  *
- *  Global, not per-board: the rules do not change daily, and re-explaining
- *  them every morning to a returning player is friction, not onboarding. The
- *  panel stays reachable from a "How to play" control regardless. */
+ *  Superseded by the versioned multi-tour store in `lib/tour-state.ts` under
+ *  the `"daily-grid"` tour id. It was an unversioned bare `"1"`, so a copy
+ *  change could never replay onboarding for anyone who had already dismissed
+ *  it once — which is the whole reason the tour store is versioned.
+ *
+ *  STILL READ, NEVER WRITTEN. The migration is one-way: `hasSeenRules()`
+ *  accepts this key as proof the gate was already dismissed, so an existing
+ *  player is not shown onboarding again on the day this ships, and every new
+ *  acknowledgement goes to the versioned store. Do not reintroduce a write. */
 export const DAILY_GRID_RULES_SEEN_KEY = "peak3.daily-grid.rules-seen";

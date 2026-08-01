@@ -10,23 +10,25 @@ import { Coachmark } from "@/components/ui/GuidedTour";
 import { NodeTypeIcon } from "./NodeChoice";
 
 /**
- * Film Room and Rest / Bank — both are "pick one of two written choices", and
- * the API gives them the identical `choices: [{id, label, description,
- * disabled?}]` shape, so they share one screen rather than two near-copies.
+ * The written-choice node surface: "pick one of these, taking one closes the
+ * others".
  *
- * The labels carry real numbers ("Bank 12 credits") because the server built
+ * UNDER rtt_ruleset_v3 THIS IS REST / BANK. It used to serve the Film Room as
+ * well, because v2 gave both node types the identical two-choice payload. v3's
+ * Scout & Prepare has three branches, each of which needs a SECOND selection (a
+ * lane, a role, a card) and each of which shows data the player must read
+ * first, so it has its own surface (`ScoutPrepare.tsx`). This component stays
+ * generic rather than being renamed to `RestBank`: the payload shape it renders
+ * is the shared `choices: [{id, label, description, disabled?}]` one, and any
+ * future written-choice node arrives here with no change.
+ *
+ * The labels carry real numbers ("Bank 11 credits") because the server built
  * them from the node's own payload. They are printed, never recomputed.
  *
- * FILM ROOM'S THIRD CHOICE IS DEFERRED, NOT FORGOTTEN. Plan §5.3:
- * `nba_peak/run_the_table/generation.py` derives the whole node blueprint from
- * the seed, so adding a third branch would make every existing daily seed and
- * challenge token produce a different run — a correctness regression wearing a
- * feature's clothes. What this component does instead is make the two real
- * choices unmistakable: each one now states what it COSTS you
- * (`nodeChoiceTradeoff`), which is the part the payload never says and the part
- * the decision actually turns on.
+ * Each choice states what it COSTS you (`nodeChoiceTradeoff`) — the part the
+ * payload never says, and the part the decision actually turns on.
  *
- * DOM ORDER IS LOAD-BEARING. `e2e/run-the-table.spec.ts:124` clicks the first
+ * DOM ORDER IS LOAD-BEARING. `e2e/run-the-table.spec.ts` clicks the first
  * ENABLED `<button>` inside this subtree, so the coachmark — which renders a
  * "Got it" button — is mounted AFTER the choices, never before them.
  */
@@ -56,11 +58,11 @@ export default function ChoiceNode({ node, busy, onChoose }: Props) {
             </h2>
           </div>
         </div>
-        {/* The generator's own line for this node — EXCEPT for the Film Room,
-            whose generated summary ("…then take one prep advantage",
-            generation.py:199-202) describes a mechanic the engine does not
-            have. `copy.purpose` stands in there. See
-            `NodeTypeCopy.suppressServerSummary`. */}
+        {/* The generator's own line for this node. `shouldSuppressServerSummary`
+            is false for every node type under v3 — the one string it existed
+            for (the v2 Film Room's phantom "prep advantage") no longer exists —
+            but the check stays, because it is the mechanism that keeps a
+            generated line the engine cannot honour off the screen. */}
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
           {shouldSuppressServerSummary(node.node_type) ? copy.purpose : node.summary}
         </p>

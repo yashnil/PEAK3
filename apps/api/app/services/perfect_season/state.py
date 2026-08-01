@@ -1685,6 +1685,70 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
     }
 
 
+#: Keys of `get_public_state` that a *shared* scorecard must never carry.
+#:
+#: This set is the whole security argument of `get_shared_result_state`, so it
+#: is spelled out rather than inlined, and each entry says why it is here:
+#:
+#: * `current_spin` / `pending_selection` -- live, mutable, in-progress board
+#:   state. A finished run has both as None already; naming them makes the
+#:   projection safe by construction rather than safe by coincidence, so a
+#:   future status that leaves one populated cannot leak an unplayed board.
+#: * `live_build` -- the mid-run running evaluation, same reasoning.
+#: * `eligibility` -- the OWNER's leaderboard-submission verdict
+#:   (`compute_eligibility`), which is about what *they* are allowed to do
+#:   with the run, not about what the run scored. A viewer has no submission
+#:   rights to describe.
+#: * `respin_policy_debug` -- explicitly documented above as an audit/support
+#:   surface that "the normal UI must not render" (it carries sampled pool
+#:   sizes). Its own docstring is the reason it does not belong on a link
+#:   anyone can open.
+SHARED_RESULT_WITHHELD_KEYS = frozenset({
+    "current_spin",
+    "pending_selection",
+    "live_build",
+    "eligibility",
+    "respin_policy_debug",
+})
+
+
+def get_shared_result_state(
+    state: CourtLineupState, include_asset_urls: bool = False
+) -> Optional[dict]:
+    """The read-only scorecard a *shared results link* may show, or None.
+
+    WHY THIS EXISTS AS A SEPARATE FUNCTION. `GET /perfect-season/games/{id}`
+    is owner-only (`_load_owned_lineup`) because possessing an id must not
+    grant mutation rights, and the same id is the handle for seven mutators.
+    But a *completed* run has always been shareable by link, and that is real
+    product behaviour, not an accident of a missing check. Those two facts are
+    only compatible if the shared view is a different, narrower thing than the
+    game state -- which is what this is.
+
+    THE TWO RULES:
+
+    1. **Completed runs only.** `None` for anything not `result_ready`. An
+       in-progress run is a live board; handing one out by id would leak the
+       candidate pool of a game someone is still playing, and every score is
+       withheld before `result_ready` anyway (see `get_public_state`).
+    2. **Withhold by name, not by hope.** Every key in
+       `SHARED_RESULT_WITHHELD_KEYS` is removed, whatever its value. See that
+       set for the per-key reasoning.
+
+    What remains is the scorecard itself: the eight resolved cards with their
+    revealed scores, the simulation result, and the data receipt (seed, card
+    pool, formula/coverage versions, respin counts). No owner subject appears
+    anywhere in `get_public_state`'s output, so there is nothing to strip on
+    that front -- but note that this projection is also the reason the route
+    is safe to serve unauthenticated: it returns a *result*, and there is no
+    action reachable from it.
+    """
+    if state.status != "result_ready":
+        return None
+    public = get_public_state(state, include_asset_urls=include_asset_urls)
+    return {k: v for k, v in public.items() if k not in SHARED_RESULT_WITHHELD_KEYS}
+
+
 def _display_name_for_slug(player_slug: str, duration_years: int) -> str:
     card = resolve_card(player_slug, duration_years)
     return card.player_name if card else player_slug

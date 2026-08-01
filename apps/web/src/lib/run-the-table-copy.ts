@@ -191,19 +191,17 @@ export interface NodeTypeCopy {
   /**
    * Is the SERVER's per-node `summary` unsafe to print for this node type?
    *
-   * True for `film_room` only, and it is a fact about the engine rather than a
-   * style preference: `generation.py:199-202` sets the Film Room's summary to
-   * "Scout the next boss's lane profile and rule, then take one prep
-   * advantage", and there is no prep-advantage mechanic anywhere in the engine.
-   * `state.action_film_room` does exactly two things — unlock stages, or add
-   * credits. Printing the server line would promise a mechanic that does not
-   * exist, so the node-type `consequence` below is shown instead.
+   * FALSE FOR EVERY NODE TYPE UNDER rtt_ruleset_v3, and the flag is kept only
+   * as the mechanism that made that provable.
    *
-   * `_NODE_COPY` is a static per-type table, not per-seed text, so nothing
-   * seed-specific is lost by suppressing it. Track D owns `generation.py`; when
-   * that string is corrected this flag should be dropped.
+   * It existed for `film_room` alone: the v2 generator's summary promised
+   * "then take one prep advantage" and the v2 engine had no such mechanic, so
+   * printing the server line advertised something that did not exist. v3's
+   * Scout & Prepare *does* have the preparation, and `generation._NODE_COPY`
+   * now describes exactly the three branches `action_film_room` implements, so
+   * the suppression would hide the correct sentence.
    */
-  suppressServerSummary?: true;
+  suppressServerSummary?: boolean;
   /**
    * CSS custom property for this node's accent, as a `var(...)` string.
    *
@@ -241,8 +239,13 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     icon: "draft",
     accentVar: "var(--peak-accent)",
     purpose: "Buy one player or keep your credits.",
+    // NO OFFER COUNT. This used to read "Three priced cards", which is a run
+    // shape number this file's own header forbids restating — and v3 can put a
+    // fourth card on the board when a reservation is live, so the literal was
+    // already capable of being wrong. `nodeConsequence()` below splices in the
+    // count for the callers that actually have the board in front of them.
     consequence:
-      "Three priced cards. Buy one into a slot its role allows, or pass and spend nothing.",
+      "Buy one card into a slot its role allows, or pass and spend nothing.",
   },
   trade_desk: {
     type: "trade_desk",
@@ -255,22 +258,24 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     // config.py:150-156 records that this exact ambiguity already shipped
     // wrong once, in the guided tour, so it is stated explicitly here.
     consequence:
-      "Three players are available. Your outgoing player refunds part of their ORIGINAL price — before any perk discount — against the incoming one. You can decline.",
+      "Your outgoing player refunds part of their ORIGINAL price — before any perk discount — against the incoming one. You can decline.",
   },
   film_room: {
     type: "film_room",
-    label: "Film Room",
+    // "Scout & Prepare" under rtt_ruleset_v3. The node_type id stays
+    // `film_room` — it is the engine's stable identifier and renaming it would
+    // break every switch on it — but nothing player-facing says "Film Room"
+    // any more, because the node no longer does what that name described.
+    label: "Scout & Prepare",
     icon: "film",
     accentVar: "var(--apex-coral)",
-    purpose: "Learn what is coming or take a preparation benefit.",
-    // What scouting ACTUALLY does, from `state.action_film_room`: it unlocks
-    // the remaining stages of THIS act plus stage 1 of the next — not "the
-    // rest of this act and the next". And `public.py:338-341` reveals the
-    // boss's roster once `a{act}s{STAGES_PER_ACT}` is scouted, which is the
-    // highest-value consequence and the one nothing in the UI used to mention.
+    purpose: "Scout the boss, shape the next market, or reserve a future card.",
+    // Exactly the three branches `state.action_film_room` implements. There is
+    // no "take the credits" option at all in v3 — it was deleted, not zeroed —
+    // so this line must not imply one.
     consequence:
-      "Scouting shows the stages left in this act and the first stage of the next — and if it reaches this act's last stage, it uncovers the boss's roster before you have to face it. Banking takes credits instead. No roster change either way.",
-    suppressServerSummary: true,
+      "Scouting is free: you see the boss's rule, its strongest and weakest lanes and a projected matchup, then prepare ONE lane for that battle only. The other two branches cost credits — shape the next market toward a role, or reserve a revealed future card at today's price. Your roster does not change here.",
+    suppressServerSummary: false,
   },
   rest_bank: {
     type: "rest_bank",
@@ -287,6 +292,30 @@ export function nodeTypeCopy(type: NodeType): NodeTypeCopy {
   return NODE_TYPE_COPY[type];
 }
 
+/**
+ * The node-type consequence, with the board's own counts spliced in.
+ *
+ * The static `consequence` strings above carry no counts on purpose: how many
+ * cards a market shows is the engine's number and it is not even constant —
+ * a live reservation adds a fourth card to a Draft Room. Callers that can SEE
+ * the board pass what they can see; callers that cannot (the start gate, which
+ * runs before any run exists) pass nothing and get the count-free wording
+ * rather than a guess.
+ */
+export function nodeConsequence(type: NodeType, offerCount?: number | null): string {
+  const base = NODE_TYPE_COPY[type].consequence;
+  if (typeof offerCount !== "number" || !Number.isFinite(offerCount) || offerCount < 1) {
+    return base;
+  }
+  if (type === "draft_room") {
+    return `${offerCount} priced ${offerCount === 1 ? "card" : "cards"} on the board. ${base}`;
+  }
+  if (type === "trade_desk") {
+    return `${offerCount} ${offerCount === 1 ? "player is" : "players are"} available. ${base}`;
+  }
+  return base;
+}
+
 /** See `NodeTypeCopy.suppressServerSummary`. */
 export function shouldSuppressServerSummary(type: NodeType): boolean {
   return NODE_TYPE_COPY[type].suppressServerSummary === true;
@@ -299,21 +328,23 @@ export function shouldSuppressServerSummary(type: NodeType): boolean {
  * says what you gain and never what you give up — and since taking one closes
  * the other, the thing given up is the actual decision. These lines say it.
  *
- * This is the whole of the Film Room work in this pass: plan §5.3 DEFERS a
- * third Film Room choice, because `nba_peak/run_the_table/generation.py`
- * derives the entire node blueprint from the seed, so a third branch would make
- * every existing daily seed and challenge token generate a different run. The
- * remedy is to make the two real choices unmistakable, not to invent a third.
+ * Choice ids are the engine's: `config.SCOUT_CHOICES` = ("scout_boss",
+ * "shape_market", "reserve_card") and `state.REST_CHOICES` = ("recover_life",
+ * "take_credits"). An unknown pairing returns null and the caller renders
+ * nothing extra — which is what keeps a stale entry from ever being printed
+ * against a choice the engine no longer has.
  *
- * Choice ids are the engine's: `state.FILM_CHOICES` = ("scout_offers",
- * "take_credits"), `state.REST_CHOICES` = ("recover_life", "take_credits").
- * An unknown pairing returns null and the caller renders nothing extra.
+ * v2's `film_room:scout_offers` and `film_room:take_credits` are GONE, not
+ * repointed: `take_credits` does not exist at a Scout & Prepare any more, and
+ * leaving a line for it would keep advertising an ATM the engine deleted.
  */
 export const NODE_CHOICE_TRADEOFF: Record<string, string> = {
-  "film_room:scout_offers":
-    "You give up the credits. Nothing on your roster changes — you stop guessing what is ahead, and late in an act you see the boss you are about to play.",
-  "film_room:take_credits":
-    "You give up the preview. You go into the next stages blind, and into the boss blind, with more to spend when you get there.",
+  "film_room:scout_boss":
+    "You give up the other two branches. Free, and it never leaves you unable to act — but it buys information and one prepared lane, not a player.",
+  "film_room:shape_market":
+    "You spend credits on the shape of the next market rather than on a card in this one, and the guarantee covers one role only.",
+  "film_room:reserve_card":
+    "You spend credits to lock ONE named card at today's price. It appears in the next Draft Room and expires after it, so you still have to be able to afford it there.",
   "rest_bank:recover_life":
     "You give up the credits. Only worth taking if you have actually lost a life.",
   "rest_bank:take_credits":
@@ -438,10 +469,69 @@ export const BOSS_RULE_PLAIN_EFFECT: Record<string, string> = {
     "A lane has to be won clearly. Anything closer is drawn and neither side takes it.",
   strength_in_numbers: "Both benches count for much more than usual.",
   top_heavy: "Both benches barely count — the starters decide it.",
+  // v3's Final Boss rule. Symmetric like every other one: `battle.resolve_battle`
+  // reads a single threshold and compares BOTH sides' lane counts against it,
+  // so all the rule can do is push more battles down into the published
+  // summed-margin tie-break.
+  the_long_series:
+    "Three lanes is no longer enough for either side. Anything short of the raised bar is settled by the total margin across all five lanes.",
 };
 
 export function bossRulePlainEffect(ruleId: string): string | null {
   return BOSS_RULE_PLAIN_EFFECT[ruleId] ?? null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Credit sinks (v3, spec §4)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One plain-language line per published sink — what it BUYS you, in the
+ * player's words.
+ *
+ * NOT A PRICE. Every price, limit and exact rule arrives on the payload from
+ * `config.CREDIT_SINKS` and is printed verbatim beside these lines, exactly the
+ * arrangement the perks use. Nothing here can drift from `config.py`, because
+ * nothing here restates a number.
+ *
+ * An unknown id returns null and the caller shows the engine's own summary
+ * alone, so a sink this build has never heard of still renders.
+ */
+export const CREDIT_SINK_PLAIN_EFFECT: Record<string, string> = {
+  market_refresh:
+    "Replace this board with a different one. The replacement is fixed by the seed, so it is a decision, not a re-roll.",
+  reserve_card:
+    "Lock one revealed future card at today's price. It turns up in the next Draft Room.",
+  role_focus:
+    "Point the next market at one role. At least one offer there will be able to play it.",
+  emergency_recovery:
+    "Buy a life back, on top of whatever you take from this node.",
+};
+
+export function creditSinkPlainEffect(sinkId: string): string | null {
+  return CREDIT_SINK_PLAIN_EFFECT[sinkId] ?? null;
+}
+
+/**
+ * Why a priced control is locked, in a sentence, keyed by the ENGINE's own
+ * stable reason code.
+ *
+ * A disabled button with no reason is the thing this exists to prevent: the
+ * player cannot tell "I cannot afford it" from "I already used it" from "there
+ * is nothing to fix", and all three have different answers.
+ */
+export const SINK_UNAVAILABLE_REASON: Record<string, string> = {
+  insufficient_credits: "Not enough credits.",
+  refresh_limit: "This market has already been refreshed.",
+  recovery_limit: "Already used this run.",
+  lives_full: "Nothing to recover — you are already at full lives.",
+  role_focus_active: "A Role Focus is already waiting on a market.",
+  reservation_active: "You already have a card reserved.",
+};
+
+export function sinkUnavailableReason(code: string | null | undefined): string | null {
+  if (!code) return null;
+  return SINK_UNAVAILABLE_REASON[code] ?? "Not available right now.";
 }
 
 /* ------------------------------------------------------------------ */
@@ -470,6 +560,20 @@ export const RTT_COPY = {
   /** What a perk can and cannot touch. */
   perkBoundary:
     "A perk changes what cards cost you, what a trade refunds, or how much your bench counts — never what a player is worth.",
+  /**
+   * What a reveal is, and what it is NOT.
+   *
+   * Said explicitly on both reveal surfaces because a card-by-card reel reads
+   * like something being decided as you watch. It is not: the opening roster
+   * and every boss lineup are fixed by the seed and the ruleset before the run
+   * starts, the server preselects each card, and the client only animates to
+   * it. Same seed, same roster, every time — which is the whole basis of a
+   * daily board and a challenge link.
+   */
+  revealSource:
+    "Seed and rule generated. This roster was fixed before the run started — the same seed always deals the same cards in the same order.",
+  bossRevealSource:
+    "Seed and rule generated. This lineup is part of the ruleset, not a team being built live — the same rules always field the same opponent.",
 } as const;
 
 /**

@@ -16,9 +16,18 @@ from typing import Final
 # Versioning
 # ---------------------------------------------------------------------------
 ENGINE_VERSION: Final[str] = "run_the_table_v1"
-# Standard v2: 4 acts / 8 decision nodes / 4 bosses / 3 lives / 50 credits, with
-# the final boss required to clear the table. See AUTH_DAILY_BALANCE_PLAN §2.2.
-RULESET_VERSION: Final[str] = "rtt_ruleset_v2"
+# Standard v3: 5 acts / 10 decision nodes / 5 bosses / 3 lives / 50 credits, with
+# the final boss required to clear the table. See
+# DAILY_RTT_PVP_SECURITY_PLAN §4.3.
+#
+# v3 changes the rules in three ways that make a v2 run unreplayable, which is
+# why this bump is mandatory rather than cosmetic:
+#   1. the run is five acts long, not four;
+#   2. the Film Room is now Scout & Prepare and pays no credits at all;
+#   3. mid-run income is cut and four published credit sinks are added.
+# `state.assert_version_compatible` refuses a saved v2 run on sight, and
+# `daily.daily_seed` is salted by this string so every daily board changes too.
+RULESET_VERSION: Final[str] = "rtt_ruleset_v3"
 # The ruleset a saved run or a challenge token carries when it names no ruleset
 # at all. Only v1 predates the field, so "unversioned" and "v1" are the same
 # statement -- and inferring it is what lets an old challenge link report the
@@ -134,6 +143,14 @@ ROSTER_SIZE: Final[int] = STARTER_SLOTS + BENCH_SLOTS
 # nodes and one more boss) without adding a life. The extra 10 credits are
 # roughly one mid-board card -- enough to arrive at the new final boss with a
 # roster that can contest it, not enough to buy the top of the board.
+#
+# v3 adds a FIFTH act and holds this at 50 on purpose. The measured v2 problem
+# was not a small starting purse, it was mid-run income: the do-nothing control
+# finished holding a mean of 87.6 unspent credits against a 50-credit start,
+# because Rest (12) + Film (10) + boss win (10) + comeback (8) roughly doubled
+# the budget over eight nodes. v3 cuts every one of those income lines and adds
+# four published sinks instead of touching the starting purse, so the opening
+# decision a player already understands is unchanged.
 STARTING_CREDITS: Final[int] = 50
 STARTING_LIVES: Final[int] = 3
 MAX_LIVES: Final[int] = 3
@@ -184,7 +201,12 @@ LANE_EPSILON: Final[float] = 1e-6
 
 # Losing a battle costs one life and grants this consolation so one early
 # mistake does not end the experience.
-COMEBACK_CREDITS: Final[int] = 8
+#
+# v3: 8 -> 6. There is one more battle in the run, so the same per-battle
+# consolation would have paid MORE in total on a five-act run than it did on a
+# four-act one, in a version whose whole economic problem was that mid-run
+# income doubled the budget.
+COMEBACK_CREDITS: Final[int] = 6
 
 # Winning a battle pays this. v1 paid NOTHING for a win and 8 credits for a
 # loss, so the only battle income in the game went to the player who was losing
@@ -193,17 +215,26 @@ COMEBACK_CREDITS: Final[int] = 8
 # the comeback so winning is never the poorer branch, and both are small
 # relative to PRICE_MAX (30) so battles remain a test of the roster rather than
 # an income stream.
-BOSS_WIN_CREDITS: Final[int] = 10
+#
+# v3: 10 -> 9. Same reasoning as COMEBACK_CREDITS, and the ordering invariant
+# (win pays strictly more than the comeback) is preserved and asserted in tests.
+BOSS_WIN_CREDITS: Final[int] = 9
 
 # ---------------------------------------------------------------------------
 # Run shape
 # ---------------------------------------------------------------------------
-ACTS: Final[int] = 4
+# v3: 4 -> 5 acts. Everything below derives from it, so the run shape is one
+# number rather than five that can drift apart.
+ACTS: Final[int] = 5
 STAGES_PER_ACT: Final[int] = 2          # decision nodes before each boss
 NODE_CHOICES_PER_STAGE: Final[int] = 2  # branching factor
-DECISION_NODES: Final[int] = ACTS * STAGES_PER_ACT   # 8
-BATTLES: Final[int] = ACTS                            # 4
+DECISION_NODES: Final[int] = ACTS * STAGES_PER_ACT   # 10
+BATTLES: Final[int] = ACTS                            # 5
 
+# ``film_room`` is the stable node-type identifier. Its player-facing identity
+# in v3 is "Scout & Prepare" (see _NODE_COPY in generation.py): the id is kept
+# so an API/UI switch on node_type keeps resolving, while the *choices* changed
+# completely -- which is where a stale client fails loudly instead of quietly.
 NODE_TYPES: Final[tuple[str, ...]] = ("draft_room", "trade_desk", "film_room", "rest_bank")
 OFFERS_PER_DRAFT: Final[int] = 3
 OFFERS_PER_TRADE: Final[int] = 3
@@ -212,26 +243,135 @@ OFFERS_PER_TRADE: Final[int] = 3
 # or below this number, so a player who has spent down to nothing still has a
 # real move rather than only the escape hatch of passing.
 #
-# It is chosen, not derived. It equals FILM_CREDITS and sits below
-# REST_CREDITS, so taking a single low-agency node always restores the ability
-# to take the guaranteed offer; and it covers half the card pool (87 of 174 at
-# CARD_POOL_VERSION v3), so the guarantee never collapses every board onto the
-# same handful of cheap cards.
+# It is chosen, not derived. v3 lowers it from 10 to 8 so it stays at or below
+# REST_CREDITS: the Film Room no longer pays credits at all, so Rest / Bank is
+# now the ONLY node that restores a spent-out player, and the guarantee has to
+# be reachable from a single visit to it. It still covers a large share of the
+# card pool (72 of 174 at CARD_POOL_VERSION v3), so the guarantee never
+# collapses every board onto the same handful of cheap cards.
 #
 # It must stay >= the pool's minimum base cost (PRICE_BASE, or the guarantee is
 # unsatisfiable) and < STARTING_CREDITS (or it is the identity filter and
 # therefore no guarantee at all -- which is exactly the bug this constant
 # replaces). tests/run_the_table/test_generation.py asserts both, and asserts
 # the guarantee holds on every Draft Room over a seed sweep.
-DRAFT_GUARANTEED_AFFORDABLE_COST: Final[int] = 10
+DRAFT_GUARANTEED_AFFORDABLE_COST: Final[int] = 8
 
 # Rest / Bank
-REST_CREDITS: Final[int] = 12
+# v3: 12 -> 11. Two more decision nodes in the run means the same deposit is
+# taken more often; the total banked over a run is what the balance pass
+# measures, not the per-visit number.
+REST_CREDITS: Final[int] = 11
 REST_LIFE_RECOVERY: Final[int] = 1
 
-# Film Room
-FILM_SCOUT_REVEALS_OFFERS: Final[bool] = True
-FILM_CREDITS: Final[int] = 10
+# ---------------------------------------------------------------------------
+# Scout & Prepare (the v2 Film Room)
+# ---------------------------------------------------------------------------
+# MEASURED PROBLEM (docs/implementation/run-the-table-balance-v2.json, 100k
+# seeds x 6 policies): the v2 Film Room was dead content. Pick rate was 0.0%
+# for `lane_aware` -- zero visits in 100,000 runs -- 5.5% for `look_ahead`, and
+# 8.7% for `greedy_overall`, which took `scout_offers` ZERO times against 69,455
+# `take_credits`. Its information could not change a later decision, so every
+# competent policy either avoided the node or treated it as a 10-credit ATM.
+#
+# v3 replaces it rather than expanding it. There is no "take credits" option at
+# all -- FILM_CREDITS is deleted, not set to zero -- and all three choices are
+# actionable:
+#
+#   A. Scout the Boss   free    boss rule + its two best lanes + its worst lane
+#                               + a projected matchup, then ONE capped
+#                               preparation bonus on one lane of your choosing
+#                               for the next battle only.
+#   B. Shape the Market  6      pick a role; the next market is guaranteed to
+#                               carry at least one legal offer for it, and the
+#                               next stage's boards are revealed.
+#   C. Reserve a Card    5      three deterministic future cards are revealed;
+#                               reserve one at its price TODAY and it appears in
+#                               the next Draft Room.
+#
+# A is free by design: it is what keeps the node from dead-ending a player who
+# has spent everything, exactly as `draft_pass` does at a Draft Room.
+SCOUT_CHOICES: Final[tuple[str, ...]] = ("scout_boss", "shape_market", "reserve_card")
+
+# The preparation bonus is a player-side, single-lane, single-battle modifier on
+# the 0-100 lane index. Chosen at 2.5: large enough to flip a lane the player is
+# losing narrowly, small enough that it cannot carry an outclassed roster (the
+# Final Boss's published margin band alone is 4.0).
+SCOUT_PREP_LANE_BONUS: Final[float] = 2.5
+
+# How many future cards "Reserve a Future Card" reveals. Deterministic per node.
+RESERVE_CHOICES_OFFERED: Final[int] = 3
+
+# ---------------------------------------------------------------------------
+# Credit sinks (spec §4)
+# ---------------------------------------------------------------------------
+# Four published prices. Every one of them is server-authoritative: the engine
+# charges, the client only displays.
+#
+# MARKET_REFRESH_COST is the spec's number. It is deliberately just under a
+# mid-board card so refreshing is a real alternative to buying, and it is capped
+# at one refresh per node so it cannot become a re-roll slot machine.
+MARKET_REFRESH_COST: Final[int] = 7
+MARKET_REFRESHES_PER_NODE: Final[int] = 1
+
+# Reserving costs less than shaping the market because it commits the player to
+# one named card, while a role focus keeps every card in that role live.
+RESERVE_CARD_COST: Final[int] = 5
+ROLE_FOCUS_COST: Final[int] = 6
+
+# Emergency Recovery is the run's largest sink and its only way to convert
+# credits directly into survival. It is deliberately expensive -- 40% of the
+# starting purse, more than the priciest card on the board minus its refund --
+# and capped at once per run, so a bank strategy can buy exactly one mistake
+# back and never a whole run's worth. It is additive to the free `recover_life`
+# choice at the same node, so a Rest / Bank visit can take a player from one
+# life to three; that is what makes it worth its price rather than a strictly
+# worse version of the free option.
+EMERGENCY_RECOVERY_COST: Final[int] = 20
+EMERGENCY_RECOVERY_MAX_PER_RUN: Final[int] = 1
+
+#: Every published credit sink, id -> (price, where it is offered). Enumerated
+#: so the API can publish the price list without restating any number, and so
+#: the audit can walk it.
+CREDIT_SINKS: Final[dict[str, dict]] = {
+    "market_refresh": {
+        "id": "market_refresh",
+        "name": "Market Refresh",
+        "cost": MARKET_REFRESH_COST,
+        "offered_at": ("draft_room", "trade_desk"),
+        "limit": f"{MARKET_REFRESHES_PER_NODE} per node",
+        "summary": f"Spend {MARKET_REFRESH_COST} credits to replace the current offers "
+                   f"once. The replacement board is fixed by the seed, not rolled.",
+    },
+    "reserve_card": {
+        "id": "reserve_card",
+        "name": "Reserve a Card",
+        "cost": RESERVE_CARD_COST,
+        "offered_at": ("film_room",),
+        "limit": "one live reservation at a time",
+        "summary": f"Spend {RESERVE_CARD_COST} credits to reserve one revealed future card "
+                   f"at its price today. It appears in the next Draft Room and expires "
+                   f"after it.",
+    },
+    "role_focus": {
+        "id": "role_focus",
+        "name": "Role Focus",
+        "cost": ROLE_FOCUS_COST,
+        "offered_at": ("film_room",),
+        "limit": "applies to the next market only",
+        "summary": f"Spend {ROLE_FOCUS_COST} credits to guarantee at least one offer in the "
+                   f"next market fits the role you choose.",
+    },
+    "emergency_recovery": {
+        "id": "emergency_recovery",
+        "name": "Emergency Recovery",
+        "cost": EMERGENCY_RECOVERY_COST,
+        "offered_at": ("rest_bank",),
+        "limit": f"{EMERGENCY_RECOVERY_MAX_PER_RUN} per run",
+        "summary": f"Spend {EMERGENCY_RECOVERY_COST} credits to recover one life, on top of "
+                   f"whatever you take from this node. Once per run.",
+    },
+}
 
 # Maximum generation attempts before the seed is declared infeasible. A seed
 # that exhausts this is a bug, not a valid state — generation raises.
@@ -429,6 +569,16 @@ BOSS_BENCH_WEIGHT: Final[dict[str, float]] = {
     "top_heavy": BENCH_WEIGHT_TOP_HEAVY,
 }
 
+# Boss rules that raise how many lanes an outright win takes, for BOTH teams.
+# v3's Final Boss uses this. Symmetric by construction: `battle.resolve_battle`
+# reads one threshold and compares both sides' lane counts against it, so the
+# only thing the rule can do is push more battles down into the published
+# summed-margin tie-break -- which is a statement about the whole roster rather
+# than about three lanes.
+BOSS_LANES_TO_WIN: Final[dict[str, int]] = {
+    "the_long_series": 4,
+}
+
 BOSS_RULES: Final[dict[str, dict]] = {
     "the_wall": {
         "id": "the_wall",
@@ -455,6 +605,13 @@ BOSS_RULES: Final[dict[str, dict]] = {
                    f"{BOSS_LANE_MARGIN['the_standard']:.2f} points. Anything closer is "
                    f"drawn and neither team gets it.",
     },
+    "the_long_series": {
+        "id": "the_long_series",
+        "name": "The Long Series",
+        "summary": f"{BOSS_LANES_TO_WIN['the_long_series']} of the 5 lanes are needed to win "
+                   f"outright, for both teams. Anything short of that is settled by the "
+                   f"total margin across all five lanes.",
+    },
 }
 
 # Every constant each boss rule's APPLIED behaviour reads, mapped to the exact
@@ -474,6 +631,9 @@ BOSS_RULE_PUBLISHED_THRESHOLDS: Final[dict[str, dict[str, str]]] = {
     "the_standard": {
         "BOSS_LANE_MARGIN": f"{BOSS_LANE_MARGIN['the_standard']:.2f} points",
     },
+    "the_long_series": {
+        "BOSS_LANES_TO_WIN": f"{BOSS_LANES_TO_WIN['the_long_series']} of the 5 lanes",
+    },
 }
 
 # Difficulty targets: the mean prime_score of each boss's five starters. Tuned
@@ -481,7 +641,13 @@ BOSS_RULE_PUBLISHED_THRESHOLDS: Final[dict[str, dict[str, str]]] = {
 # roster usually beats Boss 1, needs upgrades for Boss 2, needs perk/economy
 # strategy for Boss 3, and needs a strong whole run for the Final Boss. Curated
 # boss rosters are validated against these bands in tests.
-BOSS_TARGET_STARTER_MEAN: Final[tuple[float, ...]] = (61.0, 65.0, 70.0, 74.5)
+# v3 appends a fifth band that continues the existing +4 / +5 / +4.5 ramp with
+# +3.5. It is deliberately the smallest step in the ramp: the anchor slot has
+# only 28 eligible cards in the 3Y pool and none above 67.33, so every lineup at
+# this level -- the player's included -- is four strong cards and one weak
+# anchor, and pushing the band higher would only widen the gap in the four slots
+# where both sides are already spending everything they have.
+BOSS_TARGET_STARTER_MEAN: Final[tuple[float, ...]] = (61.0, 65.0, 70.0, 74.5, 76.5)
 BOSS_TARGET_TOLERANCE: Final[float] = 2.5
 
 # ---------------------------------------------------------------------------

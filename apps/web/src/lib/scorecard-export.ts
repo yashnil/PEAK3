@@ -10,7 +10,7 @@
  * on a read-only shared result page (both call this with the same public
  * state/result shape).
  */
-import { CourtLineupPublicState, CourtSlotPublic, SimulationResultPublic, SlotType, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
+import { CourtSlotPublic, SharedCourtResult, SimulationResultPublic, SlotType, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import { resultTier } from "@/components/court/SeasonResultStub";
 import { getTeamColors } from "@/lib/team-colors";
 
@@ -66,7 +66,7 @@ function truncate(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
  * touching the DOM download flow. */
 export function drawScorecard(
   canvas: HTMLCanvasElement,
-  state: CourtLineupPublicState,
+  state: SharedCourtResult,
   result: SimulationResultPublic,
   shareUrl: string,
 ): void {
@@ -228,7 +228,7 @@ export function scorecardFilename(result: SimulationResultPublic): string {
  * false if this browser/environment can't produce a blob -- callers should
  * not claim success without checking this. */
 export async function downloadScorecardPng(
-  state: CourtLineupPublicState,
+  state: SharedCourtResult,
   result: SimulationResultPublic,
   shareUrl: string,
 ): Promise<boolean> {

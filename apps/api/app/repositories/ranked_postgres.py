@@ -52,6 +52,75 @@ def _require_asyncpg() -> None:
         )
 
 
+async def ensure_queue_versions_seeded(pool: Any) -> int:
+    """Make sure `ranked_queue_versions` holds a row for every queue version
+    the RUNNING CODE can pin. Returns the number of rows inserted.
+
+    WHY THIS EXISTS, AND WHY IT IS CODE RATHER THAN A SEED MIGRATION.
+
+    `ranked_queue_entries` and `ranked_matches` both carry
+    `FOREIGN KEY (mode, queue_version) REFERENCES ranked_queue_versions`
+    (20260630125600_ranked_matchmaking.sql:37,119). Migration 011 creates that
+    parent table but never inserts a single row into it -- so against a real
+    Postgres, the very first `join_queue` for any mode failed with
+
+        insert or update on table "ranked_queue_entries" violates foreign key
+        constraint "ranked_queue_entries_queue_version_fk"
+        DETAIL: Key (mode, queue_version)=(prime_3y, ranked_queue_v1) is not
+        present in table "ranked_queue_versions".
+
+    and the player saw that raw constraint text on the ranked screen. Ranked
+    has therefore never worked on the Postgres backend at all. Nothing caught
+    it because every pytest suite runs on the in-memory repository, which has
+    no foreign keys; the browser e2e suite is the only thing in this repo that
+    drives ranked against a real database, and it is where this surfaced.
+
+    THE SEED BELONGS IN CODE, NOT IN A NUMBERED SQL FILE, because the values
+    are *derived*. `app/services/ranked/versions.py` is already documented as
+    the single source of truth ("Application code reads defaults from that
+    module; these tables exist so a match/ledger entry can pin the exact
+    version tuple active when it was created"). A hand-copied INSERT in a
+    migration would be a second copy of those constants, free to drift from
+    the module the application actually pins against -- and the failure mode
+    of that drift is precisely the FK violation above, just later and with a
+    subtler cause. Deriving the rows from `default_queue_versions()` makes the
+    two incapable of disagreeing.
+
+    ON CONFLICT DO NOTHING, deliberately: an existing row is HISTORY. Matches
+    and ledger entries point at it, so its pinned tuple must never be rewritten
+    underneath them. Retiring a version means inserting a new one, which is
+    what the table's own `status`/`retired_at` columns are for.
+    """
+    _require_asyncpg()
+    from app.services.ranked.versions import default_queue_versions
+
+    inserted = 0
+    async with pool.acquire() as conn:
+        for version in default_queue_versions().values():
+            result = await conn.execute(
+                """
+                INSERT INTO ranked_queue_versions
+                    (mode, queue_version, status, ruleset_version, lineup_model_version,
+                     card_pool_version, board_generator_version, anchor_eligibility_version,
+                     rating_algorithm_version, placement_count)
+                VALUES ($1, $2, 'active', $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (mode, queue_version) DO NOTHING
+                """,
+                version.mode,
+                version.queue_version,
+                version.ruleset_version,
+                version.lineup_model_version,
+                version.card_pool_version,
+                version.board_generator_version,
+                version.anchor_eligibility_version,
+                version.rating_algorithm_version,
+                version.placement_count,
+            )
+            if result.endswith(" 1"):
+                inserted += 1
+    return inserted
+
+
 def _row_to_queue_entry(row: Any) -> QueueEntry:
     return QueueEntry(
         id=str(row["id"]),
@@ -181,6 +250,24 @@ class PostgresRankedMatchmakingRepository:
                 mode, exclude_owner_sub,
             )
             return [_row_to_queue_entry(r) for r in rows]
+
+    async def expire_stale_queue_entries(self, mode: str, joined_before: datetime) -> int:
+        """See `RankedMatchmakingRepository.expire_stale_queue_entries`.
+
+        One UPDATE, no read-then-write: two API workers sweeping the same
+        queue concurrently both narrow on `status = 'waiting'`, so the second
+        simply matches zero rows instead of double-expiring anything.
+        """
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE ranked_queue_entries
+                SET status = 'expired'
+                WHERE mode = $1 AND status = 'waiting' AND joined_at < $2
+                """,
+                mode, joined_before,
+            )
+            return int(result.rsplit(" ", 1)[-1] or 0)
 
     async def recent_opponents(self, owner_sub: str, mode: str, since: datetime) -> set[str]:
         async with self._pool.acquire() as conn:

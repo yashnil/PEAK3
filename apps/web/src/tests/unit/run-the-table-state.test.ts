@@ -468,7 +468,10 @@ describe("run ladder", () => {
   it("shows the chosen node for a resolved stage and only the SHAPE for a locked one", () => {
     const rows = ladderRows(mapFixture());
     expect(rows[0].sublabel).toBe("Draft Room");
-    expect(rows[7].sublabel).toBe("Draft Room or Film Room");
+    // "Scout & Prepare", not "Film Room": the engine node_type id is unchanged
+    // (every switch resolves on it) but the node's player-facing identity moved
+    // with rtt_ruleset_v3, and the ladder is one of the surfaces that prints it.
+    expect(rows[7].sublabel).toBe("Draft Room or Scout & Prepare");
   });
 
   it("carries the scouted flag through", () => {

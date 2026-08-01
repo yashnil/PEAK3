@@ -37,6 +37,14 @@ async function apiFetch<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
+    // `credentials: "include"` is load-bearing, not hygiene. Peak Draft games
+    // are owned by the caller's `peak3_anon` cookie, which the API sets on its
+    // own origin; without this the browser omits it cross-origin and every
+    // action on your own game comes back 403 `not_your_game`. Every other
+    // client in the app already does this (daily-grid-api, perfect-season-api,
+    // run-the-table-api, supabase/claim) — draft-api was the one that did not,
+    // which went unnoticed while these routes accepted any caller at all.
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
   });

@@ -5,10 +5,20 @@ interface Props {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
+/**
+ * NO RUN-SHAPE COUNTS IN THIS FILE.
+ *
+ * The description used to say "four escalating statistical lineups" and the
+ * subtitle below said "Three acts, three lives" — one was stale by a version,
+ * the other by two, and neither could be caught by a test because a sentence is
+ * not a value. This page is a server component that fetches nothing (see the
+ * docstring below), so it has no payload to read a count from; the counts now
+ * live on the start gate, which reads them from `GET /run-the-table/meta`.
+ */
 export const metadata: Metadata = {
   title: "Run the Table | PEAK3 Arena",
   description:
-    "Build and evolve a roster of exact NBA 3-year peaks across a branching run, manage scarce credits, and beat four escalating statistical lineups.",
+    "Build and evolve a roster of exact NBA 3-year peaks across a branching run, manage scarce credits, and beat every boss lineup in your path.",
 };
 
 function first(value: string | string[] | undefined): string | undefined {
@@ -41,8 +51,8 @@ export default async function RunTheTablePage({ searchParams }: Props) {
           Run the Table
         </h1>
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          A front-office run over exact PEAK3 3-year peak windows. Three acts, three lives, five
-          component lanes.
+          A front-office run over exact PEAK3 3-year peak windows. Branching acts, scarce credits,
+          five component lanes.
         </p>
       </header>
 

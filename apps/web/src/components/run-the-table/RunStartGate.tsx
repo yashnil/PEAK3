@@ -1,11 +1,12 @@
 "use client";
-import { DailyDescriptor, RunReadiness, RunType } from "@/types/run-the-table";
+import { DailyDescriptor, RulesetMeta, RunReadiness, RunType } from "@/types/run-the-table";
 import type { ChallengeDescriptor } from "@/lib/run-the-table-api";
 import { TourLauncher } from "@/components/ui/GuidedTour";
 import {
   NODE_TYPE_COPY,
   PERK_TERM,
   RTT_COPY,
+  creditSinkPlainEffect,
   lanesToWinSentence,
 } from "@/lib/run-the-table-copy";
 
@@ -35,6 +36,16 @@ import {
 interface Props {
   readiness: RunReadiness | null;
   daily: DailyDescriptor | null;
+  /**
+   * `GET /run-the-table/meta` — the whole ruleset, static and cacheable.
+   *
+   * THIS IS WHAT REPLACED THE HARDCODED COUNTS. The gate used to print "three
+   * acts, three lives" in prose; both were literals, both were already wrong by
+   * v2, and nothing could catch it because a sentence is not a value. Every
+   * count on this card now comes from `run_shape` / `economy` / `battle`, and a
+   * missing meta simply drops the sentence rather than guessing.
+   */
+  meta?: RulesetMeta | null;
   busy: boolean;
   error: string | null;
   /** Set when a stored run pointer could not be resumed — explains why the
@@ -59,6 +70,7 @@ const NODE_ORDER = ["draft_room", "trade_desk", "film_room", "rest_bank"] as con
 export default function RunStartGate({
   readiness,
   daily,
+  meta,
   busy,
   error,
   resumeNotice,
@@ -81,6 +93,13 @@ export default function RunStartGate({
   // A separate flag from `enabled`: the mode can be on while today's shared
   // run is off, and a dead "Today's run" button would be a lie either way.
   const dailyDisabled = readiness?.daily_enabled === false;
+
+  // Every count below is the server's or it is not printed. See `Props.meta`.
+  const acts = meta?.run_shape?.acts ?? null;
+  const battles = meta?.run_shape?.battles ?? null;
+  const lives = meta?.economy?.starting_lives ?? null;
+  const lanesToWin = meta?.battle?.lanes_to_win ?? null;
+  const sinks = meta?.credit_sinks ?? [];
 
   return (
     <div className="mx-auto max-w-2xl" data-testid="rtt-start-gate">
@@ -117,25 +136,35 @@ export default function RunStartGate({
           <li className="flex gap-2.5">
             <Step n={2} />
             <span>
-              Take one of two nodes per stage. {RTT_COPY.branch}
+              Take one of two nodes per stage
+              {acts ? <> across <strong data-testid="rtt-gate-acts">{acts} acts</strong></> : null}.{" "}
+              {RTT_COPY.branch}
             </span>
           </li>
           <li className="flex gap-2.5">
             <Step n={3} />
             <span>
               At the end of each act, your five starters and two bench play a boss lineup across the{" "}
-              <strong>five PEAK3 component lanes</strong>. {lanesToWinSentence()}
+              <strong>five PEAK3 component lanes</strong>. {lanesToWinSentence(lanesToWin)}
             </span>
           </li>
           <li className="flex gap-2.5">
             <Step n={4} />
             <span>
-              {/* No act count: the gate runs before any run exists, so there is
-                  no `acts_total` to thread, and a literal here is exactly the
-                  drift `lanesToWinSentence()` was introduced to stop. */}
-              Every act ends in a boss battle, and you have three lives. {RTT_COPY.lifeLoss} Finish
-              and you get a full receipt — MVP,
-              best buy, closest battle — then run it back or challenge a friend on the same seed.
+              {/* NO LITERAL COUNTS. This sentence used to read "you have three
+                  lives" and was hardcoded; `lives` and `battles` now come from
+                  `GET /meta`, and if that fetch failed the clause is simply
+                  omitted rather than guessed. */}
+              {battles ? (
+                <span data-testid="rtt-gate-battles">
+                  {battles} boss battles in a run
+                  {lives ? <>, and you have <span data-testid="rtt-gate-lives">{lives} lives</span></> : null}.{" "}
+                </span>
+              ) : (
+                <>Every act ends in a boss battle. </>
+              )}
+              {RTT_COPY.lifeLoss} Finish and you get a full receipt — MVP, best buy, closest
+              battle — then run it back or challenge a friend on the same seed.
             </span>
           </li>
         </ol>
@@ -171,6 +200,51 @@ export default function RunStartGate({
             );
           })}
         </ul>
+
+        {/* The four published credit sinks, with their prices, BEFORE the run.
+            Prices come from `config.CREDIT_SINKS` through `GET /meta` — nothing
+            here restates one, so a re-tune moves this list automatically. */}
+        {sinks.length > 0 && (
+          <div className="flex flex-col gap-1.5" data-testid="rtt-gate-credit-sinks">
+            <span
+              className="text-[10px] font-bold uppercase tracking-widest"
+              style={{ color: "var(--text-muted)" }}
+            >
+              What credits buy besides players
+            </span>
+            <ul className="grid gap-1.5 sm:grid-cols-2">
+              {sinks.map((sink) => (
+                <li
+                  key={sink.id}
+                  className="flex flex-col gap-0.5 rounded-lg px-3 py-2"
+                  style={{ background: "var(--bg-surface)" }}
+                  data-testid={`rtt-gate-sink-${sink.id}`}
+                >
+                  <span className="flex items-baseline justify-between gap-2">
+                    <span
+                      className="text-xs font-bold"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      {sink.name}
+                    </span>
+                    <span
+                      className="score-number shrink-0 text-[11px] font-bold"
+                      style={{ color: "var(--peak-accent)" }}
+                    >
+                      {sink.cost} cr
+                    </span>
+                  </span>
+                  <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                    {creditSinkPlainEffect(sink.id) ?? sink.summary}
+                  </span>
+                  <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                    {sink.limit}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {resumeNotice && (
           <p

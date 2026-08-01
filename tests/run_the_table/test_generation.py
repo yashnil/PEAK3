@@ -294,17 +294,39 @@ class TestNodeGeneration:
                             f"seed {seed}: offered {cid}, already on the roster"
                         )
 
-    def test_film_and_rest_nodes_publish_their_credit_amounts(self, blueprints):
-        from nba_peak.run_the_table.config import FILM_CREDITS, REST_CREDITS
+    def test_rest_nodes_publish_their_credit_amount_and_scout_nodes_publish_none(
+        self, pool, blueprints
+    ):
+        """v3: Scout & Prepare pays nothing, so its payload carries no `credits`
+        key at all rather than a zero. A zeroed field would let a client keep
+        advertising income that no longer exists."""
+        from nba_peak.run_the_table.config import RESERVE_CHOICES_OFFERED, REST_CREDITS
 
         for seed in range(0, SWEEP, 5):
             bp = blueprints(seed)
+            owned = {
+                pool.get(cid).player_slug
+                for cid in list(bp.starting_starters) + list(bp.starting_bench)
+            }
             for plan in bp.stages:
                 for opt in plan.options:
                     if opt.node_type == "film_room":
-                        assert plan.payloads[opt.node_id] == {"credits": FILM_CREDITS}
+                        payload = plan.payloads[opt.node_id]
+                        assert set(payload) == {"reserve_candidate_ids"}
+                        ids = payload["reserve_candidate_ids"]
+                        assert len(ids) == RESERVE_CHOICES_OFFERED
+                        slugs = [pool.get(cid).player_slug for cid in ids]
+                        assert len(set(slugs)) == len(slugs)
+                        assert not (set(slugs) & owned)
                     elif opt.node_type == "rest_bank":
                         assert plan.payloads[opt.node_id] == {"credits": REST_CREDITS}
+
+    def test_the_reserve_candidates_are_a_pure_function_of_the_seed(self, pool):
+        for seed in (0, 4, 91, 4242):
+            a = generate_blueprint(seed, pool=pool)
+            b = generate_blueprint(seed, pool=pool)
+            for pa, pb in zip(a.stages, b.stages):
+                assert pa.payloads == pb.payloads
 
     def test_all_four_node_types_actually_appear_across_the_sweep(self, blueprints):
         seen = Counter(

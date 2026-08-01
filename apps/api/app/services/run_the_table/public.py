@@ -4,7 +4,10 @@ This module is the single source of truth for what the browser is allowed to
 see. Two rules it enforces:
 
 1. **No future content.** Offers for a stage the player has not reached are
-   never included unless a Film Room scout unlocked that stage.
+   never included unless a Scout & Prepare unlocked that stage, and an
+   unrevealed roster slot or boss lineup is never included at all — the reveal
+   blocks below carry exactly what the player has already turned over, plus the
+   single card the next reveal will land on.
 2. **No hidden numbers.** Everything the UI displays — price, lane value,
    discount, boss rule — is present here with the same value the engine used,
    so a player can always reconcile what they were shown against what happened.
@@ -29,12 +32,20 @@ from nba_peak.run_the_table.cards import CardPool
 from nba_peak.run_the_table.config import (
     ACTS,
     BENCH_WEIGHT_DEFAULT,
+    CREDIT_SINKS,
+    EMERGENCY_RECOVERY_COST,
+    EMERGENCY_RECOVERY_MAX_PER_RUN,
     LANE_FIELDS,
     LANE_LABELS,
     LANE_PEAK3_WEIGHTS,
     LANE_TOKENS,
+    MARKET_REFRESH_COST,
+    MARKET_REFRESHES_PER_NODE,
     MAX_LIVES,
     ROLES,
+    ROSTER_SIZE,
+    SCOUT_CHOICES,
+    SCOUT_PREP_LANE_BONUS,
     STAGES_PER_ACT,
     STARTING_CREDITS,
     STATUS_BOSS_READY,
@@ -44,6 +55,7 @@ from nba_peak.run_the_table.config import (
     STATUS_SYSTEM_SELECT,
     SYSTEMS,
     BOSS_LANE_MARGIN,
+    BOSS_LANES_TO_WIN,
     BOSS_RULES,
     LANES_TO_WIN,
     TERMINAL_STATUSES,
@@ -57,7 +69,17 @@ from nba_peak.run_the_table.pricing import (
 )
 from nba_peak.run_the_table.receipt import build_receipt
 from nba_peak.run_the_table.schemas import Opponent, RunBlueprint, RunState
-from nba_peak.run_the_table.state import available_system_offer, legal_slots_for
+from nba_peak.run_the_table.state import (
+    MARKET_NODE_TYPES,
+    active_reservation,
+    active_role_focus,
+    available_system_offer,
+    credit_sink_total,
+    legal_slots_for,
+    node_offers,
+    reveal_progress,
+    scout_and_prepare_options,
+)
 
 
 def card_public(pool: CardPool, card_id: str, systems: list[str] | None = None) -> dict:
@@ -116,12 +138,23 @@ def boss_public(
         "tagline": boss.tagline,
         "act": boss.act,
         "rule": rule,
-        # The Final Boss is the one act-4 fight a win in which clears the table
-        # (plan §2.2). Published here so the pre-boss briefing can say so
-        # without the client having to compare `act` to a hardcoded 4.
+        # The Final Boss is the one fight a win in which clears the table (plan
+        # §2.2). Published here so the pre-boss briefing can say so without the
+        # client having to compare `act` to a hardcoded number.
         "is_final": boss.act >= ACTS,
         "lane_margin": BOSS_LANE_MARGIN.get(boss.rule_id, 0.0) if boss.rule_id else 0.0,
+        # A boss rule may raise the lanes an outright win takes, for BOTH sides
+        # (config.BOSS_LANES_TO_WIN). The battle screen states the win condition
+        # before the reveal, so it has to be this boss's number, not the default.
+        "lanes_to_win": (
+            BOSS_LANES_TO_WIN.get(boss.rule_id, LANES_TO_WIN) if boss.rule_id
+            else LANES_TO_WIN
+        ),
         "source": boss.source,
+        # The slate is fixed by the ruleset and the seed — no clock, no model
+        # inference, no opponent assembled live. Said outright so the reveal
+        # animation cannot imply otherwise.
+        "deterministic": True,
         "revealed": revealed,
     }
     if revealed:
@@ -158,6 +191,12 @@ def _battle_public(pool: CardPool, b) -> dict:
         "rule_id": b.rule_id,
         "credits_awarded": b.credits_awarded,
         "lives_after": b.lives_after,
+        # v3: what an outright win took here, and the Scout & Prepare bonus the
+        # player brought in. Both are already folded into the result; they are
+        # published so the result screen can say which lane the preparation
+        # actually moved rather than leaving it invisible.
+        "lanes_to_win": b.lanes_to_win,
+        "lane_bonuses": dict(b.lane_bonuses),
         "lanes": [
             {
                 "lane": l.lane,
@@ -168,6 +207,7 @@ def _battle_public(pool: CardPool, b) -> dict:
                 "winner": l.winner,
                 "margin": l.margin,
                 "tie_broken_by_rule": l.tie_broken_by_rule,
+                "player_prep_bonus": l.player_prep_bonus,
                 "player_top_card": (
                     card_public(pool, l.player_top_card_id, [])
                     if l.player_top_card_id else None
@@ -182,6 +222,221 @@ def _battle_public(pool: CardPool, b) -> dict:
     }
 
 
+def credit_sink_catalogue() -> list[dict]:
+    """The four published sinks, price list only (spec §4).
+
+    Read straight off ``config.CREDIT_SINKS`` so no price is ever restated — in
+    Python here or in TypeScript downstream. ``offered_at`` is a tuple in the
+    config and a list on the wire.
+    """
+    return [
+        {**sink, "offered_at": list(sink["offered_at"])}
+        for sink in CREDIT_SINKS.values()
+    ]
+
+
+def _sink_public(
+    sink_id: str,
+    state: RunState,
+    *,
+    available: bool,
+    unavailable_reason: Optional[str],
+    used: int,
+    limit_total: Optional[int],
+) -> dict:
+    """One credit sink as the node is offering it right now.
+
+    ``available`` and ``affordable`` are deliberately separate: a locked sink is
+    shown WITH its reason rather than hidden, which is how a player learns the
+    sink exists at all. ``selectable`` is the single boolean a button binds to,
+    so the client never has to re-derive the conjunction.
+    """
+    sink = CREDIT_SINKS[sink_id]
+    cost = int(sink["cost"])
+    affordable = state.credits >= cost
+    reason = unavailable_reason
+    if available and not affordable:
+        reason = "insufficient_credits"
+    return {
+        "id": sink["id"],
+        "name": sink["name"],
+        "cost": cost,
+        "summary": sink["summary"],
+        "limit": sink["limit"],
+        "offered_at": list(sink["offered_at"]),
+        "available": available,
+        "affordable": affordable,
+        "selectable": available and affordable,
+        "unavailable_reason": reason,
+        "used": used,
+        "limit_total": limit_total,
+        "remaining": None if limit_total is None else max(0, limit_total - used),
+    }
+
+
+def _node_credit_sinks(
+    state: RunState, node_type: str, node_id: str
+) -> list[dict]:
+    """Every sink this node offers, priced and gated (spec §4).
+
+    Membership comes from each sink's own ``offered_at``, so a sink cannot
+    appear on a node the engine would refuse it at.
+    """
+    out: list[dict] = []
+    if node_type in MARKET_NODE_TYPES:
+        used = state.node_refreshes.get(node_id, 0)
+        out.append(
+            _sink_public(
+                "market_refresh",
+                state,
+                available=used < MARKET_REFRESHES_PER_NODE,
+                unavailable_reason=(
+                    None if used < MARKET_REFRESHES_PER_NODE else "refresh_limit"
+                ),
+                used=used,
+                limit_total=MARKET_REFRESHES_PER_NODE,
+            )
+        )
+    if node_type == "film_room":
+        focus_held = state.role_focus is not None
+        out.append(
+            _sink_public(
+                "role_focus",
+                state,
+                available=not focus_held,
+                unavailable_reason="role_focus_active" if focus_held else None,
+                used=1 if focus_held else 0,
+                limit_total=None,
+            )
+        )
+        reservation_live = state.reserved_card is not None and state.reserved_card[
+            "status"
+        ] in ("live", "offered")
+        out.append(
+            _sink_public(
+                "reserve_card",
+                state,
+                available=not reservation_live,
+                unavailable_reason=(
+                    "reservation_active" if reservation_live else None
+                ),
+                used=1 if reservation_live else 0,
+                limit_total=None,
+            )
+        )
+    if node_type == "rest_bank":
+        used = state.emergency_recoveries_used
+        spent = used >= EMERGENCY_RECOVERY_MAX_PER_RUN
+        full = state.lives >= MAX_LIVES
+        out.append(
+            _sink_public(
+                "emergency_recovery",
+                state,
+                available=not spent and not full,
+                unavailable_reason=(
+                    "recovery_limit" if spent else "lives_full" if full else None
+                ),
+                used=used,
+                limit_total=EMERGENCY_RECOVERY_MAX_PER_RUN,
+            )
+        )
+    return out
+
+
+def armed_effects_public(state: RunState) -> dict:
+    """What the player currently has armed, bought or spent (spec §4/§5).
+
+    One block so the tray can show "a Role Focus is waiting on the next market"
+    and "one card is reserved" without inferring either from a node payload it
+    may not be looking at.
+    """
+    reserved = dict(state.reserved_card) if state.reserved_card else None
+    if reserved is not None:
+        # `locked_modifiers` is the pricing explanation, already published on
+        # the reserved card itself; keep it, it is not hidden information.
+        reserved["locked_modifiers"] = list(reserved.get("locked_modifiers", []))
+    return {
+        "prep": dict(state.pending_prep) if state.pending_prep else None,
+        "prep_bonus": SCOUT_PREP_LANE_BONUS,
+        "role_focus": dict(state.role_focus) if state.role_focus else None,
+        "reserved_card": reserved,
+        "scouted_boss_acts": list(state.scouted_boss_acts),
+        "emergency_recoveries_used": state.emergency_recoveries_used,
+        "emergency_recoveries_max": EMERGENCY_RECOVERY_MAX_PER_RUN,
+        "sink_spend": [dict(row) for row in state.sink_spend],
+        "sink_spend_total": credit_sink_total(state),
+    }
+
+
+def reveal_public(
+    state: RunState, blueprint: RunBlueprint, pool: CardPool, boss_revealed: bool
+) -> dict:
+    """The opening-roster and boss reveals, trimmed to what has been turned over.
+
+    Spec §3. THE SERVER PRESELECTS THE CARD: `next_slot` is the authoritative
+    card the next reveal lands on, so the client animates to a decided value and
+    never rolls its own. `revealed` is run state, not browser state, so a
+    refresh mid-reveal resumes rather than restarting.
+
+    Slots past `next_slot` are omitted entirely — the whole point of a reveal is
+    that the next card is not known yet, and shipping all seven would make the
+    animation theatre over information the client already had.
+    """
+    progress = reveal_progress(state, blueprint, pool)
+    roster = progress["roster"]
+    slots = roster["slots"]
+    revealed = int(roster["revealed"])
+
+    out: dict = {
+        "roster": {
+            "revealed": revealed,
+            "total": int(roster["total"]),
+            "complete": bool(roster["complete"]),
+            # Shape only: the seven slot ids and labels in their fixed order.
+            # Carries no card, so it is safe before a single reveal.
+            "order": [
+                {"order": s["order"], "slot_id": s["slot_id"], "label": s["label"]}
+                for s in slots
+            ],
+            "revealed_slots": slots[:revealed],
+            "next_slot": slots[revealed] if revealed < len(slots) else None,
+            # Skip-all is offered only after the first card is on the table, so
+            # the player has seen what a reveal IS before they can dismiss it.
+            "can_skip": 0 < revealed < len(slots),
+            "remaining": max(0, len(slots) - revealed),
+        },
+        "boss": None,
+    }
+
+    boss = progress["boss"]
+    if boss and boss_revealed:
+        b_slots = boss["slots"]
+        b_revealed = int(boss["revealed"])
+        out["boss"] = {
+            "act": boss["act"],
+            "boss_id": boss["boss_id"],
+            "name": boss["name"],
+            "tagline": boss["tagline"],
+            "rule": BOSS_RULES.get(boss["rule_id"]) if boss["rule_id"] else None,
+            # `curated` or `generated_fallback` — either way the slate is fixed
+            # by the ruleset and the seed. Published so the UI can say so
+            # outright rather than letting the reveal imply a live opponent.
+            "source": boss["source"],
+            "deterministic": True,
+            "revealed": b_revealed,
+            "total": int(boss["total"]),
+            "complete": bool(boss["complete"]),
+            "order": [
+                {"order": s["order"], "slot_id": s["slot_id"]} for s in b_slots
+            ],
+            "revealed_slots": b_slots[:b_revealed],
+            "next_slot": b_slots[b_revealed] if b_revealed < len(b_slots) else None,
+            "can_skip": 0 < b_revealed < len(b_slots),
+            "remaining": max(0, len(b_slots) - b_revealed),
+        }
+    return out
+
+
 def _active_node_public(
     state: RunState, blueprint: RunBlueprint, pool: CardPool
 ) -> Optional[dict]:
@@ -194,17 +449,32 @@ def _active_node_public(
         "node_type": option.node_type,
         "title": option.title,
         "summary": option.summary,
+        "credit_sinks": _node_credit_sinks(state, option.node_type, option.node_id),
     }
 
     if option.node_type == "draft_room":
         offers = []
-        for cid in payload["offer_ids"]:
+        # `node_offers` — NOT `payload["offer_ids"]`. It is the same accessor
+        # `action_draft_buy` validates against, so a refreshed board, a Role
+        # Focus repair and a reserved card all show up here exactly as the
+        # engine will accept them. Reading the raw blueprint payload instead
+        # would render the ORIGINAL board after a 7-credit refresh.
+        reservation = active_reservation(state, option.node_id)
+        for cid in node_offers(state, blueprint, option.node_id, pool):
             card = pool.get(cid)
             pub = card_public(pool, cid, state.systems)
             free = veteran_minimum_available(
                 card, state.systems, state.veteran_minimum_used_in_act[state.act]
             )
             legal = [s for s in legal_slots_for(state, pool, cid)]
+            # A reserved card is charged the price it was RESERVED at — that
+            # lock is the whole of what the 5-credit reservation buys, so the
+            # board has to print the locked number rather than today's.
+            reserved_here = bool(reservation and reservation["card_id"] == cid)
+            if reserved_here:
+                pub["cost"] = reservation["locked_cost"]
+                pub["cost_modifiers"] = list(reservation["locked_modifiers"])
+            pub["reserved"] = reserved_here
             pub["veteran_minimum_eligible"] = free
             pub["effective_cost"] = 0 if free else pub["cost"]
             pub["legal_slots"] = legal
@@ -217,14 +487,18 @@ def _active_node_public(
             offers.append(pub)
         out["offers"] = offers
         out["can_pass"] = True
+        out["role_focus"] = active_role_focus(state, option.node_id)
+        out["refreshes_used"] = state.node_refreshes.get(option.node_id, 0)
 
     elif option.node_type == "trade_desk":
         incoming = []
-        for cid in payload["incoming_ids"]:
+        for cid in node_offers(state, blueprint, option.node_id, pool):
             pub = card_public(pool, cid, state.systems)
             pub["legal_slots"] = legal_slots_for(state, pool, cid)
             incoming.append(pub)
         out["incoming"] = incoming
+        out["role_focus"] = active_role_focus(state, option.node_id)
+        out["refreshes_used"] = state.node_refreshes.get(option.node_id, 0)
         out["outgoing_options"] = [
             {
                 "slot_id": s.slot_id,
@@ -239,16 +513,53 @@ def _active_node_public(
         out["can_decline"] = True
 
     elif option.node_type == "film_room":
+        # Scout & Prepare (spec §5). `scout_and_prepare_options` is the engine's
+        # own accessor: what it returns is exactly what `action_film_room` will
+        # accept, so a choice the player can see is a choice the player can
+        # take. The API restates no price and re-derives no legality rule.
+        scout = scout_and_prepare_options(state, blueprint, pool)
+        by_id = {c["id"]: c for c in scout["choices"]}
+        out["scout"] = {
+            "node_id": scout["node_id"],
+            "choice_ids": list(SCOUT_CHOICES),
+            "prep_bonus": SCOUT_PREP_LANE_BONUS,
+            "lanes": [
+                {"lane": lane, "label": LANE_LABELS[lane], "token": LANE_TOKENS[lane]}
+                for lane in LANE_FIELDS
+            ],
+            "roles": list(ROLES),
+            "choices": scout["choices"],
+        }
+        # The same three choices in the shared {id,label,description,disabled}
+        # shape every written-choice node uses, so a client that only knows the
+        # generic surface still renders three real options rather than nothing.
         out["choices"] = [
             {
-                "id": "scout_offers",
-                "label": "Scout ahead",
-                "description": "Reveal the offers waiting in the rest of this act and the next.",
+                "id": "scout_boss",
+                "label": "Scout the boss",
+                "description": (
+                    "Free. See the next boss's rule, its strongest and weakest "
+                    "lanes and a projected matchup, then prepare one lane by "
+                    f"{SCOUT_PREP_LANE_BONUS:g} points for that battle only."
+                ),
+                "cost": 0,
+                "disabled": False,
             },
             {
-                "id": "take_credits",
-                "label": f"Bank {payload['credits']} credits",
-                "description": "Take the credits instead of the intel.",
+                "id": "shape_market",
+                "label": by_id["shape_market"]["name"],
+                "description": by_id["shape_market"]["summary"],
+                "cost": by_id["shape_market"]["cost"],
+                "disabled": not by_id["shape_market"]["available"],
+                "unavailable_reason": by_id["shape_market"]["unavailable_reason"],
+            },
+            {
+                "id": "reserve_card",
+                "label": by_id["reserve_card"]["name"],
+                "description": by_id["reserve_card"]["summary"],
+                "cost": by_id["reserve_card"]["cost"],
+                "disabled": not by_id["reserve_card"]["available"],
+                "unavailable_reason": by_id["reserve_card"]["unavailable_reason"],
             },
         ]
     else:  # rest_bank
@@ -344,14 +655,16 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
     profile = player_lane_profile(pool, starters, bench, state.systems, None)
 
     next_boss = None
+    boss_revealed = False
     if state.act <= ACTS and state.act <= len(blueprint.bosses):
         boss = blueprint.bosses[state.act - 1]
-        revealed = (
+        boss_revealed = (
             state.status in (STATUS_BOSS_READY, STATUS_BOSS_RESOLVED)
             or f"a{state.act}s{STAGES_PER_ACT}" in state.scouted_stage_keys
+            or state.act in state.scouted_boss_acts
             or any(b.act == state.act for b in state.battles)
         )
-        next_boss = boss_public(pool, boss, revealed, state.systems)
+        next_boss = boss_public(pool, boss, boss_revealed, state.systems)
 
     receipt = (
         build_receipt(state, blueprint, pool)
@@ -407,6 +720,16 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
         "roster_total": roster_total(profile),
         "bench_weight": p_bw,
         "veteran_minimum_used_this_act": state.veteran_minimum_used_in_act.get(state.act, False),
+        # -- v3 --------------------------------------------------------------
+        # The reveal is presentation, but its PROGRESS is run state: a refresh
+        # mid-reveal must resume, so it cannot live in the browser.
+        "reveal": reveal_public(state, blueprint, pool, boss_revealed),
+        # What is armed right now — a preparation, a Role Focus, a reservation —
+        # so the tray can show it without reading a node payload.
+        "armed": armed_effects_public(state),
+        # The published price list, so no client ever restates a sink's cost.
+        "credit_sinks": credit_sink_catalogue(),
+        "roster_size": ROSTER_SIZE,
         "action_count": len(state.action_log),
         "receipt": receipt,
         "versions": state.versions,
@@ -429,6 +752,8 @@ def ruleset_meta(pool: CardPool) -> dict:
         PRICE_BASE,
         PRICE_EXPONENT,
         PRICE_SPAN,
+        RESERVE_CHOICES_OFFERED,
+        REST_CREDITS,
         STARTER_SLOTS,
         STARTER_WEIGHT,
         STARTING_LIVES,
@@ -439,7 +764,7 @@ def ruleset_meta(pool: CardPool) -> dict:
 
     return {
         "versions": version_tuple(),
-        # The whole v2 run shape, published so the client never hardcodes it.
+        # The whole v3 run shape, published so the client never hardcodes it.
         "run_shape": {
             "acts": ACTS,
             "stages_per_act": STAGES_PER_ACT,
@@ -447,7 +772,16 @@ def ruleset_meta(pool: CardPool) -> dict:
             "decision_nodes": DECISION_NODES,
             "battles": BATTLES,
             "final_boss_act": ACTS,
+            "roster_size": ROSTER_SIZE,
             "outcomes": list(OUTCOMES),
+        },
+        # Spec §4. The client shows prices; it never states one.
+        "credit_sinks": credit_sink_catalogue(),
+        # Spec §5. The three Scout & Prepare branches and the capped bonus.
+        "scout_and_prepare": {
+            "choices": list(SCOUT_CHOICES),
+            "prep_bonus": SCOUT_PREP_LANE_BONUS,
+            "reserve_choices_offered": RESERVE_CHOICES_OFFERED,
         },
         "lanes": [
             {
@@ -462,7 +796,11 @@ def ruleset_meta(pool: CardPool) -> dict:
         ],
         "systems": [_system_public(s["id"]) for s in SYSTEMS],
         "boss_rules": [
-            {**rule, "lane_margin": BOSS_LANE_MARGIN.get(rule["id"], 0.0)}
+            {
+                **rule,
+                "lane_margin": BOSS_LANE_MARGIN.get(rule["id"], 0.0),
+                "lanes_to_win": BOSS_LANES_TO_WIN.get(rule["id"], LANES_TO_WIN),
+            }
             for rule in BOSS_RULES.values()
         ],
         "roster": {
@@ -476,7 +814,11 @@ def ruleset_meta(pool: CardPool) -> dict:
             "max_lives": MAX_LIVES,
             "comeback_credits": COMEBACK_CREDITS,
             "boss_win_credits": BOSS_WIN_CREDITS,
+            "rest_credits": REST_CREDITS,
             "trade_refund_pct": TRADE_REFUND_PCT,
+            "market_refresh_cost": MARKET_REFRESH_COST,
+            "emergency_recovery_cost": EMERGENCY_RECOVERY_COST,
+            "emergency_recovery_max_per_run": EMERGENCY_RECOVERY_MAX_PER_RUN,
             "price_formula": (
                 f"base_cost = {PRICE_BASE} + round({PRICE_SPAN} × percentile^{PRICE_EXPONENT:g})"
             ),

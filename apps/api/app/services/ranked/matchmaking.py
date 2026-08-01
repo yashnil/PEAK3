@@ -45,9 +45,40 @@ MAX_SEARCH_RANGE = 1000.0
 REPEAT_OPPONENT_WINDOW = timedelta(hours=2)
 MATCH_DEADLINE = timedelta(hours=48)
 
+#: How long a `waiting` entry stays matchable before it is swept to `expired`.
+#:
+#: A queue entry is DURABLE -- it is a row, and it outlives the tab that
+#: created it. Nothing else in this module makes a player who closed their
+#: browser stop being a candidate, so on a persistent database the queue
+#: accumulates ghosts and the next genuine joiner is paired with one. That
+#: match's other half is never played, so it has to be unwound by the
+#: abandonment policy, and in the meantime the real player is told they are in
+#: a duel with someone who left.
+#:
+#: The value is set against the module's own timings rather than picked round:
+#: `_search_range` saturates at `MAX_SEARCH_RANGE` after
+#: (1000 - 100) / 5 = 180 seconds, so by ten minutes an entry has been
+#: searching the entire rating space, unmatched, for eight of them. In a queue
+#: with population that means nobody is there; in one without, the player is.
+#: Either way the entry is not a live opponent.
+#:
+#: This is a sweep on join, not a background worker: the same design decision
+#: the module docstring already records for pairing itself ("no separate worker
+#: process in closed alpha"), and for the same reason -- the only moment the
+#: staleness matters is the moment someone is about to be paired.
+QUEUE_ENTRY_TTL = timedelta(minutes=10)
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+async def sweep_stale_entries(
+    mode: str, matchmaking_repo: RankedMatchmakingRepository, now: datetime | None = None
+) -> int:
+    """Expire abandoned `waiting` entries in `mode`. See `QUEUE_ENTRY_TTL`."""
+    cutoff = (now or _now()) - QUEUE_ENTRY_TTL
+    return await matchmaking_repo.expire_stale_queue_entries(mode, cutoff)
 
 
 async def join_queue(
@@ -58,6 +89,13 @@ async def join_queue(
 ) -> QueueEntry:
     if mode not in RANKED_QUEUE_MODES:
         raise ValueError(f"Unknown ranked mode '{mode}'")
+
+    # Before this entry can be paired against anything, drop the entries that
+    # are no longer real opponents. Done here rather than inside `try_match`
+    # so the sweep also runs for the joiner who finds nobody -- otherwise the
+    # queue only ever gets cleaned by the player unlucky enough to be paired
+    # with a ghost, which is precisely the case the sweep exists to prevent.
+    await sweep_stale_entries(mode, matchmaking_repo)
 
     rating = await rating_repo.get_queue_rating(owner_sub, mode)
     placement = await rating_repo.get_placement_state(owner_sub, mode)

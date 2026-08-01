@@ -61,7 +61,7 @@ import hashlib
 import random
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Sequence
 
 import numpy as np
@@ -202,11 +202,18 @@ GRID_ARCHIVE_DAYS = 36_525  # a century
 def today_utc_date(now: datetime | None = None) -> str:
     """Today's board date as YYYY-MM-DD, in the product-wide daily reset zone.
 
-    Named ``today_utc_date`` for its callers' sake only; since the daily reset
-    moved to midnight America/Los_Angeles this returns the PACIFIC date. UTC was
-    the wrong boundary in exactly the way the name suggests it was right, which
-    is why the decision now lives in one place (``nba_peak.daily_key``) instead
-    of being restated per game.
+    THE NAME IS A MISNOMER AND THE BEHAVIOUR IS CORRECT -- not the other way
+    round. This is a one-line re-export of ``nba_peak.daily_key.daily_key``, so
+    it returns the **America/Los_Angeles** date, never a UTC one. The name is
+    left alone deliberately: it is imported by the API router, both API test
+    modules and the model tests, and renaming it would be a wide rename that
+    changes no behaviour. New code should import ``daily_key`` directly; this
+    exists so the Daily Grid package keeps a single, obvious "what is today"
+    entry point for its existing callers.
+
+    (UTC was the wrong boundary in exactly the way the name suggests it was
+    right, which is why the decision now lives in one place instead of being
+    restated per game.)
     """
     return daily_key(now)
 
@@ -267,6 +274,42 @@ def board_id(date_str: str, version: str = DAILY_GRID_VERSION) -> str:
     return f"daily-grid-{short_version}-{date_str}"
 
 
+# How many hex characters of the SHA-256 digest a board hash keeps. 16 hex
+# chars = 64 bits: far beyond collision range for a few thousand daily boards,
+# short enough to eyeball in a log line or a test failure.
+BOARD_HASH_LENGTH = 16
+
+
+def board_hash(
+    rows: Sequence[Constraint],
+    cols: Sequence[Constraint],
+    version: str = DAILY_GRID_VERSION,
+) -> str:
+    """A stable digest of a board's CRITERIA SIGNATURE: its row ids, its column
+    ids and the taxonomy version.
+
+    What it is for: a client (or a test, or the freshness audit) can compare two
+    boards for "is this actually the same puzzle?" without shipping the answer
+    key, without trusting the date label, and without diffing twelve constraint
+    objects. Two dates whose boards carry the same hash are the same puzzle;
+    two dates whose hashes differ are not, whatever their themes say.
+
+    ORDER-SENSITIVE ON PURPOSE. The same six constraints arranged with the rows
+    and columns swapped is a different board to play -- different cells, a
+    different optimal assignment -- so it gets a different hash. Sorting the ids
+    first would have made the hash agree with the lead's "sorted criteria"
+    freshness probe while disagreeing with the game.
+
+    Carries no answer information: it is computed from ids the response already
+    contains in full, and SHA-256 is one-way, so it reveals strictly less than
+    the payload it summarises.
+    """
+    row_ids = ",".join(c.id for c in rows)
+    col_ids = ",".join(c.id for c in cols)
+    raw = f"{_SEED_NAMESPACE}:board-hash:{version}|rows={row_ids}|cols={col_ids}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:BOARD_HASH_LENGTH]
+
+
 @dataclass(frozen=True)
 class GridCell:
     """One cell's generation-time facts.
@@ -306,6 +349,22 @@ class GridBoard:
     difficulty: str
     theme: str
     attempts: int
+    # Stable slug for `theme`, e.g. "two-way-night". Defaulted so the handful
+    # of hand-built GridBoards in tests keep working; __post_init__ derives it
+    # from the display string when it is not supplied, so the two can never
+    # disagree on a board that came out of the generator.
+    theme_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.theme_id:
+            object.__setattr__(
+                self, "theme_id", THEME_IDS_BY_LABEL.get(self.theme, _slugify(self.theme))
+            )
+
+    @property
+    def board_hash(self) -> str:
+        """Digest of this board's criteria signature -- see `board_hash()`."""
+        return board_hash(self.rows, self.cols, self.version)
 
     def cell(self, row: int, col: int) -> GridCell:
         for candidate in self.cells:
@@ -334,6 +393,25 @@ class GridBoard:
             # Safe to expose: derived from the axis labels the client already
             # has, so it carries no answer information the board did not.
             "theme": self.theme,
+            # Stable machine key for the same thing, so a client can style or
+            # switch on the theme without string-matching display copy.
+            "theme_id": self.theme_id,
+            # A one-way digest of the row/col ids already listed below. Lets a
+            # client prove "this is a different puzzle to the one I had cached"
+            # in one comparison. See `board_hash()`.
+            "board_hash": self.board_hash,
+            # SAFE TO EXPOSE, and re-verified before it was (Phase 12, T2).
+            # The seed is `sha256("peak3-daily-grid:<version>:<date>") % 2**31`
+            # -- open, unkeyed, no server secret anywhere in the derivation --
+            # so any client could already compute it for any date, past or
+            # future, from published code. Its only consumers are the axis
+            # sampler (whose output IS `rows`/`cols` below) and
+            # `_native_allowance`. It is not an input to any answer set: a
+            # cell's answers are (axes x committed player pool), and the pool
+            # is what is actually withheld. Nothing signs with it and nothing
+            # derives a token from it. Publishing it therefore adds exactly
+            # zero information a caller did not already hold.
+            "seed": self.seed,
             "rows": [c.as_dict() for c in self.rows],
             "cols": [c.as_dict() for c in self.cols],
             "cells": [
@@ -389,6 +467,46 @@ _DIFFICULTY_MEDIUM_BELOW = 122
 # ---------------------------------------------------------------------------
 # Board theme
 # ---------------------------------------------------------------------------
+#
+# THE DEFECT THIS SECTION FIXES (Phase 12, D5 -- the reported "stale board").
+#
+# Board GENERATION was never stale: over 365 consecutive daily keys the seeds,
+# the sorted-criteria hashes and the board ids are 365/365 distinct. What
+# repeated was the LABEL. The old `board_theme` was a memoryless first-match
+# ladder over eight rules, and measured over 365 days it produced:
+#
+#     adjacent-day identical theme      93/364 = 25.5 %
+#     ... identical theme AND difficulty 42/364 = 11.5 %
+#     longest identical-theme run        6 days
+#     Award Season                     141/365 = 38.6 %
+#     Open Court                         0/365   (unreachable: it was the
+#                                                 no-match fallback, and some
+#                                                 rule always matched)
+#
+# 2026-07-31 and 2026-08-01 were identical in both theme and difficulty. The
+# theme is the most prominent identity on the page, so one day in four a
+# genuinely-new board read as yesterday's.
+#
+# TWO CHANGES:
+#
+# 1. A board no longer has ONE true description, it has a RANKED LIST of them
+#    (`theme_candidates`), ordered rarest-predicate-first. Ordering by rarity is
+#    what flattens the distribution: a common description only wins when no
+#    rarer one is true. "Open Court" stops being a fallback and gets a real
+#    rule -- a board whose axes are about who was on the floor (positions,
+#    minutes, games) rather than hardware.
+#
+# 2. `resolve_theme_id` picks, from that list, the first description that was
+#    NOT also true of yesterday's board. Today's label is therefore something
+#    yesterday's board could not have been called, which makes an adjacent
+#    repeat structurally impossible rather than statistically unlikely.
+#
+# WHAT IS PRESERVED. The theme is still a DESCRIPTION, never a generation
+# input: `_board_core` -- which decides which six constraints a date gets -- is
+# computed before any theme work and cannot see a theme. The anti-repeat term
+# reads only the daily key and its predecessor key, both of which are already
+# public (every past board is permanently addressable), so which board a date
+# gets is bit-for-bit what it was before this change.
 
 # Constraint ids whose subject is defence. Named explicitly rather than
 # pattern-matched on the label, so renaming a label cannot silently change a
@@ -398,36 +516,102 @@ _DEFENSIVE_CONSTRAINT_IDS = frozenset(
 )
 _MODERN_ERA_IDS = frozenset({"era_2010s", "era_2020s"})
 _THROWBACK_ERA_IDS = frozenset({"era_1980s", "era_1990s"})
+# "Open Court": the board is asking who was actually on the floor -- listed
+# position, minutes per game, games played -- rather than what they won.
+_OPEN_COURT_CATEGORIES = frozenset({"position", "context"})
+
+#: Every theme the game can print, `theme_id -> display label`.
+#:
+#: ORDER IS THE PRIORITY ORDER, rarest applicable predicate first (measured
+#: over 1,100 consecutive daily keys: outcome>=2 9.9 %, throwback 30.6 %,
+#: defence 39.7 %, modern 40.2 %, award>=2 40.3 %, team>=2 60.5 %,
+#: outcome>=1 67.5 %, position-or-context ~92 %). A dict preserves insertion
+#: order, and `theme_candidates` walks it once.
+THEME_LABELS: "OrderedDict[str, str]" = OrderedDict(
+    (
+        ("ring-chasers", "Ring Chasers"),
+        ("throwback-night", "Throwback Night"),
+        ("two-way-night", "Two-Way Night"),
+        ("modern-era", "Modern Era"),
+        ("award-season", "Award Season"),
+        ("franchise-icons", "Franchise Icons"),
+        ("playoff-pressure", "Playoff Pressure"),
+        ("open-court", "Open Court"),
+    )
+)
+
+#: Reverse map, for reconstructing an id from a stored/hand-written label.
+THEME_IDS_BY_LABEL: dict[str, str] = {label: key for key, label in THEME_LABELS.items()}
 
 
-def board_theme(rows: Sequence[Constraint], cols: Sequence[Constraint]) -> str:
-    """A short name for what this board is ABOUT.
+def _slugify(label: str) -> str:
+    """Last-resort id for a label that is not in the shipped taxonomy.
 
-    Read off the axes the board actually has -- it is a description, never a
-    generation input, so it cannot drift from the board it labels and cannot
-    influence which board a date gets. Rules are checked in order and the first
-    match wins, which keeps it a pure function of the axis set: two boards with
-    the same axes always get the same theme.
+    Only reachable for a hand-constructed GridBoard (tests build a couple), so
+    it is deliberately trivial rather than a general slugifier.
+    """
+    return "-".join(part for part in label.lower().replace("/", " ").split() if part)
+
+
+def theme_candidates(
+    rows: Sequence[Constraint], cols: Sequence[Constraint]
+) -> tuple[str, ...]:
+    """Every theme id that TRUTHFULLY describes this axis set, rarest first.
+
+    A pure function of the axis set -- two boards with the same axes always get
+    the same candidate list -- and every entry is a statement that is actually
+    true of the board, so whichever one is finally shown is never a lie about
+    what the player is looking at.
+
+    Guaranteed non-empty, and in practice always at least two long: the
+    composition rules force at least one team axis and at least two
+    award/outcome/era anchors onto every published board, and the last rule
+    below fires on any position or season-context axis. `resolve_theme_id`
+    needs that headroom -- a board with only one true description could not
+    avoid repeating it.
     """
     axes = list(rows) + list(cols)
     ids = {c.id for c in axes}
     categories = [c.category for c in axes]
 
+    candidates: list[str] = []
     if categories.count("outcome") >= 2:
-        return "Ring Chasers"
-    if categories.count("award") >= 2:
-        return "Award Season"
-    if ids & _DEFENSIVE_CONSTRAINT_IDS:
-        return "Two-Way Night"
-    if categories.count("team") >= 2:
-        return "Franchise Icons"
-    if categories.count("outcome") >= 1:
-        return "Playoff Pressure"
-    if ids & _MODERN_ERA_IDS:
-        return "Modern Era"
+        candidates.append("ring-chasers")
     if ids & _THROWBACK_ERA_IDS:
-        return "Throwback Night"
-    return "Open Court"
+        candidates.append("throwback-night")
+    if ids & _DEFENSIVE_CONSTRAINT_IDS:
+        candidates.append("two-way-night")
+    if ids & _MODERN_ERA_IDS:
+        candidates.append("modern-era")
+    if categories.count("award") >= 2:
+        candidates.append("award-season")
+    if categories.count("team") >= 2:
+        candidates.append("franchise-icons")
+    if categories.count("outcome") >= 1:
+        candidates.append("playoff-pressure")
+    if any(category in _OPEN_COURT_CATEGORIES for category in categories):
+        candidates.append("open-court")
+
+    if not candidates:
+        # Unreachable with the shipped composition rules (every board carries a
+        # team axis and two anchors), but a board must never be unlabelled.
+        candidates.append("open-court")
+    return tuple(candidates)
+
+
+def board_theme(rows: Sequence[Constraint], cols: Sequence[Constraint]) -> str:
+    """The board's PRIMARY description, as a display label.
+
+    The rarest true statement about these axes, ignoring what yesterday's board
+    was called. Still a pure function of the axis set, and still the value a
+    caller wants when it has axes but no date -- for instance a hand-built
+    board in a test.
+
+    The published label goes one step further and skips a description that was
+    also true yesterday; see `resolve_theme_id`, which is what
+    `generate_board` actually calls.
+    """
+    return THEME_LABELS[theme_candidates(rows, cols)[0]]
 
 
 def _difficulty_label(cells: Sequence[GridCell]) -> str:
@@ -625,13 +809,31 @@ def _build_cells(
 # Generation
 # ---------------------------------------------------------------------------
 
-def generate_board(
+@dataclass(frozen=True)
+class _BoardCore:
+    """Everything a date's board is, EXCEPT its label.
+
+    Split out so the theme resolver can read yesterday's axes without calling
+    `generate_board`, which would ask for yesterday's theme, which would ask
+    for the day-before's axes -- an unbounded walk backwards down the calendar.
+    The core is the recursion-free half: a pure function of
+    (date, version, taxonomy) that never consults another date.
+    """
+
+    seed: int
+    rows: tuple[Constraint, ...]
+    cols: tuple[Constraint, ...]
+    cells: tuple[GridCell, ...]
+    attempts: int
+
+
+def _generate_core(
     date_str: str,
-    pool: GridPool | None = None,
-    constraints: Sequence[Constraint] | None = None,
-    version: str = DAILY_GRID_VERSION,
-) -> GridBoard:
-    """The board for one date. Pure function of (date, version, taxonomy)."""
+    pool: GridPool | None,
+    constraints: Sequence[Constraint] | None,
+    version: str,
+) -> _BoardCore:
+    """The seeded search for a composition-valid, solvable board."""
     validate_grid_date(date_str)
     grid_pool = pool if pool is not None else load_pool()
     taxonomy = list(constraints) if constraints is not None else all_constraints(
@@ -659,22 +861,161 @@ def generate_board(
         if cells is None:
             continue
 
-        return GridBoard(
-            board_id=board_id(date_str, version),
-            date=date_str,
+        return _BoardCore(
             seed=seed,
-            version=version,
             rows=tuple(rows),
             cols=tuple(cols),
             cells=cells,
-            difficulty=_difficulty_label(cells),
-            theme=board_theme(rows, cols),
             attempts=attempt,
         )
 
     raise BoardGenerationFailed(
         f"no solvable board for {date_str} after {_MAX_ATTEMPTS} attempts "
         "-- the constraint taxonomy or the solvability floors need review"
+    )
+
+
+# Cores are cached separately from boards, and for the same reason `get_board`
+# caches: generation is a pure function of (date, version) over committed data.
+# It matters more here than it looks -- resolving one date's theme reads the
+# PREVIOUS date's core, so without this cache a sweep over N days would do 2N
+# generations instead of N+1. Cells are shared by reference with the GridBoard
+# built from the core, so holding both caches does not hold two copies of any
+# answer key.
+_CORE_CACHE: "OrderedDict[tuple[str, str], _BoardCore]" = OrderedDict()
+_CORE_CACHE_MAX = 400
+
+
+def _board_core(
+    date_str: str,
+    pool: GridPool | None,
+    constraints: Sequence[Constraint] | None,
+    version: str,
+) -> _BoardCore:
+    """Cached `_generate_core`.
+
+    Only the DEFAULT taxonomy is cached. A caller that passes its own `pool` or
+    `constraints` (tests do) gets a fresh generation every time, because the
+    cache key cannot describe an arbitrary caller-supplied taxonomy and a stale
+    hit there would be a silently wrong board.
+    """
+    cacheable = pool is None and constraints is None
+    key = (date_str, version)
+    if cacheable:
+        cached = _CORE_CACHE.get(key)
+        if cached is not None:
+            _CORE_CACHE.move_to_end(key)
+            return cached
+    core = _generate_core(date_str, pool, constraints, version)
+    if cacheable:
+        _CORE_CACHE[key] = core
+        if len(_CORE_CACHE) > _CORE_CACHE_MAX:
+            _CORE_CACHE.popitem(last=False)
+    return core
+
+
+# How far back the theme resolver may walk when a date's descriptions were ALL
+# true yesterday too (measured at 9.9 % of days). Each extra step costs one
+# board generation, so the walk is capped and falls back to the primary
+# description -- a label is never worth an unbounded amount of work, and the
+# cap is far above the longest run this ever needs (see the freshness audit).
+_THEME_LOOKBACK_LIMIT = 8
+
+
+def _previous_date(date_str: str) -> Optional[str]:
+    """The calendar day before `date_str`, or None at the edge of the calendar."""
+    try:
+        return (parse_daily_key(date_str) - timedelta(days=1)).strftime(DATE_FORMAT)
+    except (InvalidDailyKey, OverflowError, ValueError):
+        return None
+
+
+def resolve_theme_id(
+    date_str: str,
+    pool: GridPool | None = None,
+    constraints: Sequence[Constraint] | None = None,
+    version: str = DAILY_GRID_VERSION,
+    _depth: int = 0,
+) -> str:
+    """The theme id this date PUBLISHES: the rarest true description of its
+    axes that was not also true of yesterday's board.
+
+    Why this cannot repeat on adjacent days: the value returned for a date is,
+    by construction, a description that is *not* in the previous date's
+    candidate list -- while the previous date's own published value is
+    necessarily *in* that list. Two adjacent days therefore draw from disjoint
+    sets. The one exception is the degenerate case where every description true
+    of today was also true yesterday, and that is handled explicitly below by
+    resolving yesterday's actual label and stepping past it.
+
+    NOT A GENERATION INPUT. This runs after `_board_core` has already decided
+    the axes, reads only public information (the previous daily key, whose
+    board is permanently addressable through the archive), and its result is
+    never fed back. Which board a date gets is unchanged by this function's
+    existence.
+    """
+    today = theme_candidates(*_axes_for(date_str, pool, constraints, version))
+
+    previous = _previous_date(date_str)
+    if previous is None or _depth >= _THEME_LOOKBACK_LIMIT:
+        return today[0]
+
+    try:
+        yesterday = theme_candidates(*_axes_for(previous, pool, constraints, version))
+    except (BoardGenerationFailed, InvalidGridDate):
+        # A label must never cost a date its board. If yesterday cannot be
+        # generated at all, publish today's primary description and move on.
+        return today[0]
+
+    fresh = next((theme for theme in today if theme not in yesterday), None)
+    if fresh is not None:
+        return fresh
+
+    # Degenerate: every description true today was true yesterday too. Fall
+    # back to skipping yesterday's ACTUAL published label, which needs one more
+    # step backwards. `theme_candidates` is never shorter than two entries for
+    # a generated board, so a different one always exists.
+    previous_id = resolve_theme_id(previous, pool, constraints, version, _depth + 1)
+    return next((theme for theme in today if theme != previous_id), today[0])
+
+
+def _axes_for(
+    date_str: str,
+    pool: GridPool | None,
+    constraints: Sequence[Constraint] | None,
+    version: str,
+) -> tuple[tuple[Constraint, ...], tuple[Constraint, ...]]:
+    core = _board_core(date_str, pool, constraints, version)
+    return core.rows, core.cols
+
+
+def generate_board(
+    date_str: str,
+    pool: GridPool | None = None,
+    constraints: Sequence[Constraint] | None = None,
+    version: str = DAILY_GRID_VERSION,
+) -> GridBoard:
+    """The board for one date. Pure function of (date, version, taxonomy).
+
+    The axes, cells and difficulty come from this date alone. Only the THEME
+    LABEL consults the previous daily key, and only to avoid repeating it --
+    see `resolve_theme_id`.
+    """
+    core = _board_core(date_str, pool, constraints, version)
+    theme_id = resolve_theme_id(date_str, pool, constraints, version)
+
+    return GridBoard(
+        board_id=board_id(date_str, version),
+        date=date_str,
+        seed=core.seed,
+        version=version,
+        rows=core.rows,
+        cols=core.cols,
+        cells=core.cells,
+        difficulty=_difficulty_label(core.cells),
+        theme=THEME_LABELS[theme_id],
+        attempts=core.attempts,
+        theme_id=theme_id,
     )
 
 

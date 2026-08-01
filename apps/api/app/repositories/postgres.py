@@ -32,6 +32,23 @@ except ImportError:
     _ASYNCPG_AVAILABLE = False
 
 
+def _is_uuid(value: str) -> bool:
+    """Is this string something the `uuid` columns can even hold?
+
+    `games.id` is a real `uuid` column, so asyncpg refuses to bind a malformed
+    id and raises `DataError` — which surfaced as a 500 for a request that
+    should simply be "no such game". Treating an unparseable id as a miss keeps
+    the route's 404 honest and, now that these lookups also gate ownership,
+    stops a malformed id from becoming an unhandled exception on an
+    authorization path.
+    """
+    try:
+        uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
+
+
 def _require_asyncpg() -> None:
     if not _ASYNCPG_AVAILABLE:
         raise RuntimeError(
@@ -69,6 +86,8 @@ class PostgresGameRepository:
         return game_id
 
     async def get_game(self, game_id: str) -> DraftGameState | None:
+        if not _is_uuid(game_id):
+            return None
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT owner_sub, payload FROM games WHERE id = $1", game_id
@@ -150,6 +169,8 @@ class PostgresCourtLineupRepository:
         return game_id
 
     async def get_lineup(self, game_id: str) -> CourtLineupState | None:
+        if not _is_uuid(game_id):
+            return None
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT owner_sub, payload FROM games WHERE id = $1", game_id

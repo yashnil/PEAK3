@@ -88,8 +88,19 @@ export function useDailyReset({
   // The absolute instant this board stops being today's. Recomputed only when
   // the board itself changes, so a re-render cannot extend the deadline.
   const deadlineRef = useRef<number | null>(null);
-  // The board a reset has already been fired for, so a rollover fires exactly
-  // one refetch however many listeners notice it at once.
+  // The DAILY KEY a reset has already been fired for, so a rollover fires
+  // exactly one refetch however many listeners notice it at once.
+  //
+  // KEYED ON THE DAILY KEY, NEVER ON THE WINDOW OBJECT. This ref used to be
+  // cleared in the effect below, whose dependency list includes `dailyWindow`
+  // — and every refetch produces a NEW window object even when the server
+  // returns the very same day. On a device whose clock is ahead, `keyMovedOn`
+  // is true against a board the server keeps insisting is current, so the
+  // sequence was: fire -> refetch -> new object identity -> guard re-armed ->
+  // fire again, once per TICK_MS, until the board rate limit (120/min) 429ed
+  // the player out of their own grid. The guard is now permanent per key: a
+  // key that has already triggered a refetch can never trigger another one,
+  // and a genuinely new key clears it by simply not matching.
   const firedForRef = useRef<string | null>(null);
   // Latest callback without making it a dependency of the timer effect — a
   // caller that re-creates `onReset` every render must not restart the clock.
@@ -109,7 +120,8 @@ export function useDailyReset({
       dailyWindow !== null
         ? reference + windowSecondsRemaining(dailyWindow, nowRef.current()) * 1000
         : reference + secondsRemaining * 1000;
-    firedForRef.current = null;
+    // DELIBERATELY DOES NOT CLEAR `firedForRef` — see its declaration. A new
+    // deadline for the SAME key must not re-arm a fire that already happened.
     setSecondsLeft(Math.max(0, Math.round((deadlineRef.current - reference) / 1000)));
   }, [armed, dailyKey, secondsRemaining, dailyWindow]);
 

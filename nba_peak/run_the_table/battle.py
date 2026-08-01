@@ -15,6 +15,7 @@ from nba_peak.run_the_table.config import (
     BENCH_WEIGHT_DEFAULT,
     BOSS_BENCH_WEIGHT,
     BOSS_LANE_MARGIN,
+    BOSS_LANES_TO_WIN,
     LANE_EPSILON,
     LANE_FIELDS,
     LANE_LABELS,
@@ -79,6 +80,20 @@ def lane_margin_threshold(boss_rule_id: Optional[str]) -> float:
     """
     band = BOSS_LANE_MARGIN.get(boss_rule_id, 0.0) if boss_rule_id else 0.0
     return max(LANE_EPSILON, band)
+
+
+def lanes_to_win_for(boss_rule_id: Optional[str]) -> int:
+    """How many lanes an outright win takes under this rule, for BOTH teams.
+
+    ``LANES_TO_WIN`` (3 of 5) normally. A boss whose published rule raises the
+    bar returns that number instead. The threshold is compared against each
+    side's lane count identically, so the rule can only ever push a battle down
+    into the published summed-margin tie-break — it can never award the boss a
+    battle on a count the player was held to.
+    """
+    if boss_rule_id and boss_rule_id in BOSS_LANES_TO_WIN:
+        return BOSS_LANES_TO_WIN[boss_rule_id]
+    return LANES_TO_WIN
 
 
 def lane_score(
@@ -189,18 +204,33 @@ def resolve_battle(
     lives_before: int,
     comeback_credits: int,
     win_credits: int = 0,
+    lane_bonuses: Optional[dict[str, float]] = None,
 ) -> BattleResult:
-    """Resolve one boss battle. Pure function of its arguments."""
+    """Resolve one boss battle. Pure function of its arguments.
+
+    ``lane_bonuses`` is the player's Scout & Prepare preparation: a capped,
+    published, single-battle addition to named lanes, chosen by the player at a
+    Scout & Prepare node after seeing this exact matchup. It is NOT a boss rule
+    and is deliberately asymmetric — it is the thing the player bought — so it
+    is recorded on the result and reported beside the lane it moved rather than
+    folded silently into the score.
+    """
     p_weights = player_bench_weight_candidates(systems, opponent.rule_id)
     p_bw, o_bw = bench_weight_for(systems, opponent.rule_id)
     threshold = lane_margin_threshold(opponent.rule_id)
+    lanes_needed = lanes_to_win_for(opponent.rule_id)
+    bonuses = {k: float(v) for k, v in (lane_bonuses or {}).items() if v}
 
     lanes: list[LaneResult] = []
     p_wins = o_wins = ties = 0
     summed_margin = 0.0
 
     for lane in LANE_FIELDS:
-        p = best_lane_score(pool, player_starters, player_bench, lane, p_weights)
+        bonus = bonuses.get(lane, 0.0)
+        p = round(
+            best_lane_score(pool, player_starters, player_bench, lane, p_weights) + bonus,
+            LANE_ROUNDING,
+        )
         o = lane_score(pool, opponent.starter_ids, opponent.bench_ids, lane, o_bw)
         margin = round(p - o, LANE_ROUNDING)
         summed_margin += margin
@@ -229,6 +259,7 @@ def resolve_battle(
                 winner=winner,
                 margin=margin,
                 tie_broken_by_rule=tie_broken,
+                player_prep_bonus=bonus,
                 player_top_card_id=_top_contributor(
                     pool, list(player_starters) + list(player_bench), lane
                 ),
@@ -241,15 +272,21 @@ def resolve_battle(
     p_profile = player_lane_profile(
         pool, player_starters, player_bench, systems, opponent.rule_id
     )
+    if bonuses:
+        p_profile = {
+            lane: round(value + bonuses.get(lane, 0.0), LANE_ROUNDING)
+            for lane, value in p_profile.items()
+        }
     o_profile = roster_lane_profile(pool, opponent.starter_ids, opponent.bench_ids, o_bw)
     p_total = roster_total(p_profile)
     o_total = roster_total(o_profile)
     summed_margin = round(summed_margin, LANE_ROUNDING)
 
-    # Primary: first to three lanes.
-    if p_wins >= LANES_TO_WIN:
+    # Primary: first to `lanes_needed` lanes — three of five normally, more if
+    # the boss's published rule raises it for both sides.
+    if p_wins >= lanes_needed:
         outcome, decided_by = "win", "lanes"
-    elif o_wins >= LANES_TO_WIN:
+    elif o_wins >= lanes_needed:
         outcome, decided_by = "loss", "lanes"
     # Ties prevented either side from reaching three. Fall through the
     # published tie-break ladder.
@@ -290,4 +327,6 @@ def resolve_battle(
         rule_id=opponent.rule_id,
         lives_after=lives_after,
         credits_awarded=credits_awarded,
+        lanes_to_win=lanes_needed,
+        lane_bonuses=dict(sorted(bonuses.items())),
     )

@@ -21,7 +21,7 @@ import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 export const metadata: Metadata = {
   title: "PEAK3 Arena — Run the Table",
   description:
-    "Draft exact NBA peak windows across a branching run, spend scarce credits, and beat four escalating statistical lineups. A basketball strategy game built on a transparent, open-weight rating formula — with receipts on every result.",
+    "Draft exact NBA peak windows across a branching run, spend scarce credits, and beat five escalating statistical lineups. A basketball strategy game built on a transparent, open-weight rating formula — with receipts on every result.",
 };
 
 const HOW_IT_WORKS: { icon: typeof Users; title: string; body: string }[] = [
@@ -148,7 +148,7 @@ export default async function HomePage() {
 
             <p className="mt-4 max-w-xl text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
               Draft exact 3-year peak windows across a branching run, spend scarce credits, and
-              beat four escalating lineups — every battle decided by the five components, with a
+              beat five escalating lineups — every battle decided by the five components, with a
               full receipt.
             </p>
 

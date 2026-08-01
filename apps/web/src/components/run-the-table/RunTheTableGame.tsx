@@ -7,6 +7,10 @@ import { useDailyReset } from "@/lib/use-daily-reset";
 import { TourLauncher } from "@/components/ui/GuidedTour";
 import { motionTransition } from "@/lib/motion";
 import {
+  CreditSink,
+  LaneField,
+  Role,
+  RulesetMeta,
   RunPublicState,
   RunReadiness,
   RunType,
@@ -19,6 +23,7 @@ import {
   createRun,
   getChallenge,
   getDailyRun,
+  getRulesetMeta,
   getRun,
   getRunReadiness,
   postRunAction,
@@ -32,12 +37,17 @@ import {
   isTerminal,
   loadActiveRun,
   makeIdempotencyKey,
+  needsBossReveal,
+  needsOpeningReveal,
   saveActiveRun,
   screenForStatus,
   shouldClearStoredRun,
   tradeIncoming,
   trackRunTheTable,
 } from "@/lib/run-the-table-state";
+import CreditSinks from "./CreditSinks";
+import RevealReel from "./RevealReel";
+import ScoutPrepare from "./ScoutPrepare";
 import RunStartGate from "./RunStartGate";
 import RunSkeleton from "./RunSkeleton";
 import RunMap from "./RunMap";
@@ -124,6 +134,13 @@ export default function RunTheTableGame({
   const [state, setState] = useState<RunPublicState | null>(null);
   const [readiness, setReadiness] = useState<RunReadiness | null>(null);
   const [daily, setDaily] = useState<DailyDescriptor | null>(null);
+  /**
+   * The whole ruleset, so the start gate can state the run's real shape — five
+   * acts, three lives, the four sink prices — instead of hardcoding counts that
+   * a ruleset bump silently falsifies. Static and cacheable; a failure to fetch
+   * it is not fatal, the gate simply drops the count-bearing sentences.
+   */
+  const [meta, setMeta] = useState<RulesetMeta | null>(null);
   const [challenge, setChallenge] = useState<ChallengeDescriptor | null>(null);
   const [challengeError, setChallengeError] = useState<string | null>(null);
   const [booting, setBooting] = useState(true);
@@ -178,16 +195,20 @@ export default function RunTheTableGame({
     setBooting(true);
     setError(null);
     setChallengeError(null);
-    const [readinessResult, dailyResult, challengeResult] = await Promise.allSettled([
-      getRunReadiness(),
-      getDailyRun(),
-      // Resolved eagerly so the gate can SHOW the seed the visitor was
-      // challenged to before they commit, and so an expired link says so up
-      // front instead of failing on the button press.
-      challengeToken ? getChallenge(challengeToken) : Promise.resolve(null),
-    ]);
+    const [readinessResult, dailyResult, challengeResult, metaResult] =
+      await Promise.allSettled([
+        getRunReadiness(),
+        getDailyRun(),
+        // Resolved eagerly so the gate can SHOW the seed the visitor was
+        // challenged to before they commit, and so an expired link says so up
+        // front instead of failing on the button press.
+        challengeToken ? getChallenge(challengeToken) : Promise.resolve(null),
+        // Optional: the gate degrades to count-free copy without it.
+        getRulesetMeta(),
+      ]);
     if (readinessResult.status === "fulfilled") setReadiness(readinessResult.value);
     if (dailyResult.status === "fulfilled") setDaily(dailyResult.value);
+    if (metaResult.status === "fulfilled") setMeta(metaResult.value);
     if (challengeResult.status === "fulfilled") {
       setChallenge(challengeResult.value);
     } else if (challengeToken) {
@@ -534,6 +555,7 @@ export default function RunTheTableGame({
       <RunStartGate
         readiness={readiness}
         daily={daily}
+        meta={meta}
         preferredMode={preferredMode}
         challengeToken={challengeToken}
         challenge={challenge}
@@ -558,7 +580,74 @@ export default function RunTheTableGame({
   let mobilePrimaryLabel: string | null = null;
   let mobilePrimary: (() => void) | null = null;
 
-  if (screen === "system_select") {
+  /**
+   * One `reveal` action. The count decides "next" versus "skip all"; the engine
+   * saturates, so skip-all is a single round trip.
+   *
+   * The idempotency key includes `action_count`, which advances with every
+   * accepted reveal — so a double-click on "Reveal next player" is one card,
+   * and pressing it again after the first landed is genuinely the next one.
+   */
+  const reveal = (target: "roster" | "boss", count: number): void => {
+    act(
+      runActions.reveal(target, count),
+      `reveal:${target}:${state.action_count}`,
+      count > 1 ? "Roster revealed." : "Revealed.",
+    );
+  };
+
+  /** Every priced control routes through here, so a sink is charged by exactly
+   *  one action type and the client never guesses which. */
+  const spendSink = (sink: CreditSink): void => {
+    if (sink.id === "market_refresh") {
+      act(runActions.marketRefresh(), `refresh:${nodeId}`, "Market refreshed.");
+      return;
+    }
+    if (sink.id === "emergency_recovery") {
+      act(
+        runActions.emergencyRecovery(),
+        `recovery:${state.run_id}`,
+        "Life recovered.",
+      );
+    }
+    // `role_focus` and `reserve_card` are Scout & Prepare branches, not
+    // standalone actions: they need a role or a card id before they mean
+    // anything, so `ScoutPrepare`'s panels call `act` directly and this
+    // function is never reached with either id.
+  };
+
+  if (needsOpeningReveal(state) && state.reveal) {
+    // Before act 1, and before the first decision: the seven slots, one at a
+    // time. `needsOpeningReveal` reads the SERVER's completion flag, so a
+    // refresh mid-reveal lands back here at the same card rather than
+    // restarting — and once it is complete this branch never fires again.
+    surface = (
+      <RevealReel
+        track={state.reveal.roster}
+        kind="roster"
+        title="Meet your roster"
+        subtitle="Five starters and two bench players, dealt one at a time."
+        busy={busy}
+        onReveal={(count) => reveal("roster", count)}
+      />
+    );
+    mobilePrimaryLabel = "Reveal";
+    mobilePrimary = () => reveal("roster", 1);
+  } else if (needsBossReveal(state) && state.reveal?.boss) {
+    const bossReveal = state.reveal.boss;
+    surface = (
+      <RevealReel
+        track={bossReveal}
+        kind="boss"
+        title={bossReveal.name}
+        subtitle={bossReveal.tagline}
+        busy={busy}
+        onReveal={(count) => reveal("boss", count)}
+      />
+    );
+    mobilePrimaryLabel = "Reveal";
+    mobilePrimary = () => reveal("boss", 1);
+  } else if (screen === "system_select") {
     surface = (
       <SystemSelect
         offer={state.pending_system_offer ?? []}
@@ -598,8 +687,16 @@ export default function RunTheTableGame({
       />
     );
   } else if (screen === "node_active" && node) {
+    // Every node's priced controls, in one place, under the node's own
+    // decision. `credit_sinks` is empty on a node that offers none, and
+    // `CreditSinks` renders nothing for an empty list — so this composes with
+    // all four node types without a branch per type.
+    const sinks = (
+      <CreditSinks sinks={node.credit_sinks ?? []} busy={busy} onSpend={spendSink} />
+    );
     if (node.node_type === "draft_room") {
       surface = (
+        <>
         <DraftRoom
           node={node}
           slots={[...state.starters, ...state.bench]}
@@ -623,9 +720,12 @@ export default function RunTheTableGame({
             act(runActions.draftPass(), "draft_pass", "Passed on the draft room.");
           }}
         />
+        {sinks}
+        </>
       );
     } else if (node.node_type === "trade_desk") {
       surface = (
+        <>
         <TradeDesk
           node={node}
           credits={state.credits}
@@ -643,21 +743,59 @@ export default function RunTheTableGame({
             act(runActions.declineTrade(), "decline_trade", "Trade declined.");
           }}
         />
+        {sinks}
+        </>
+      );
+    } else if (node.node_type === "film_room") {
+      // Scout & Prepare gets its own surface: each of its three branches needs
+      // a second selection (a lane, a role, a card) before it is a legal
+      // action, and the outcome of each is data the player has to read first.
+      // Its two priced branches ARE the Role Focus and Reserve a Card sinks, so
+      // they are rendered inside the panel rather than duplicated below it.
+      surface = (
+        <ScoutPrepare
+          node={node}
+          credits={state.credits}
+          busy={busy}
+          onScoutBoss={(lane: LaneField) =>
+            act(
+              runActions.filmRoom("scout_boss", { lane }),
+              `scout:${node.node_id}:${lane}`,
+              "Boss scouted. One lane prepared.",
+            )
+          }
+          onShapeMarket={(role: Role) =>
+            act(
+              runActions.filmRoom("shape_market", { role }),
+              `focus:${node.node_id}:${role}`,
+              "Role Focus armed for the next market.",
+            )
+          }
+          onReserveCard={(cardId: string) =>
+            act(
+              runActions.filmRoom("reserve_card", { card_id: cardId }),
+              `reserve:${node.node_id}:${cardId}`,
+              "Card reserved at today's price.",
+            )
+          }
+        />
       );
     } else {
-      const isFilm = node.node_type === "film_room";
       surface = (
+        <>
         <ChoiceNode
           node={node}
           busy={busy}
           onChoose={(choiceId) =>
             act(
-              isFilm ? runActions.filmRoom(choiceId) : runActions.restBank(choiceId),
+              runActions.restBank(choiceId),
               `${node.node_type}:${choiceId}`,
               "Choice taken.",
             )
           }
         />
+        {sinks}
+        </>
       );
     }
   } else if (screen === "boss_preview" && state.next_boss) {
@@ -677,7 +815,13 @@ export default function RunTheTableGame({
         lives={state.lives}
         busy={busy}
         onResolve={resolve}
-        lanesToWin={state.lanes_to_win}
+        /* THIS BOSS's number, not the ruleset default. A boss rule may raise
+           the lanes an outright win takes for both sides
+           (`config.BOSS_LANES_TO_WIN` — v3's Final Boss does), so stating the
+           run-wide `lanes_to_win` here would print the wrong win condition on
+           the one battle where it matters most. Falls back to the run's value
+           for a payload that predates `boss.lanes_to_win`. */
+        lanesToWin={boss.lanes_to_win ?? state.lanes_to_win}
       />
     );
   } else if (screen === "battle" && battle) {
@@ -699,7 +843,10 @@ export default function RunTheTableGame({
         busy={busy}
         onAdvance={advance}
         advanceLabel={battle.act >= state.acts_total ? "See the receipt" : "Next act"}
-        lanesToWin={state.lanes_to_win}
+        /* The number THIS battle was actually decided against, recorded on the
+           result itself, so the reveal cannot narrate a threshold the fight did
+           not use. */
+        lanesToWin={battle.lanes_to_win ?? state.lanes_to_win}
       />
     );
   } else if (screen === "result" && state.receipt) {
@@ -868,6 +1015,13 @@ export default function RunTheTableGame({
 /** The identity of the decision surface currently on screen: one value per
  *  distinct thing the player can be looking at. Exported for tests. */
 export function surfaceKeyFor(state: RunPublicState): string {
+  // A reveal is a distinct surface that OCCUPIES another screen's slot, so the
+  // key has to say so — otherwise finishing the opening reveal would replace it
+  // with the System select under the identical key `system_select:1`, and the
+  // focus effect (which fires only on a key change) would never move focus to
+  // the surface that just arrived.
+  if (needsOpeningReveal(state)) return "reveal_roster:1";
+  if (needsBossReveal(state)) return `reveal_boss:${state.act}`;
   return `${screenForStatus(state.status)}:${state.active_node?.node_id ?? state.act}`;
 }
 

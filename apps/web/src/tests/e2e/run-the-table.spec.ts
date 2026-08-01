@@ -83,26 +83,38 @@ async function suppressTour(page: Page): Promise<void> {
   );
 }
 
-// A full run is: 1-2 Front Office Perk picks, 8 node choices, 8 node
-// resolutions, 4 boss resolutions and 4 advances — ~26 sequential POSTs, each a
-// real server round-trip. This is a fixed structural cost of the mode, not slow
-// test code.
+// A full run is a fixed structural cost of the mode, not slow test code: one
+// perk pick per offer, one choice and one resolution per decision node, one
+// resolution and one advance per boss, plus the two reveals — every one a real
+// server round-trip.
 //
-// Standard v2 raised the run from 3 acts / 6 decisions / 3 bosses to
-// 4 / 8 / 4, which is ~30% more round-trips. The old 60s budget was sized for
-// the 3-act run and these tests began timing out at ~66s — the run was correct,
-// the clock was stale. Sized with headroom rather than to the observed figure,
-// because the budget exists to catch a hang, not to police normal variance.
-const FULL_RUN_TIMEOUT_MS = 120_000;
+// The shape has grown twice. v2 took it from 3 acts / 6 decisions / 3 bosses to
+// 4 / 8 / 4; rtt_ruleset_v3 takes it to 5 / 10 / 5 and adds the opening-roster
+// reveal and one boss reveal per act. Each budget was sized with headroom
+// rather than to the observed figure, because it exists to catch a hang, not to
+// police normal variance — and each time the previous one was left stale the
+// suite failed with timeouts that looked like slowness and were not.
+const FULL_RUN_TIMEOUT_MS = 180_000;
 
-/** Every decision surface, in the order they are probed. `rtt-result` leads:
- *  it is the terminal state and the only one the driver stops on. */
+/**
+ * Every decision surface, in the order they are probed. `rtt-result` leads: it
+ * is the terminal state and the only one the driver stops on.
+ *
+ * The two reveal surfaces come next, BEFORE the screens they sit in front of.
+ * `rtt-opening-reveal` occupies the system-select slot and `rtt-boss-reveal`
+ * the boss-preview slot, and the probe returns the first id it finds, so a
+ * reveal must be checked before the surface it is covering or the driver would
+ * click a control that is not on screen.
+ */
 const SURFACE_IDS = [
   "rtt-result",
+  "rtt-opening-reveal",
+  "rtt-boss-reveal",
   "rtt-system-select",
   "rtt-node-choice",
   "rtt-draft-room",
   "rtt-trade-desk",
+  "rtt-scout-prepare",
   "rtt-choice-node",
   "rtt-boss-preview",
   "rtt-battle-reveal",
@@ -173,6 +185,28 @@ async function currentSurface(page: Page): Promise<SurfaceId> {
  */
 async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
   switch (surface) {
+    case "rtt-opening-reveal":
+    case "rtt-boss-reveal": {
+      // Reveal one card, then skip the rest — one round trip for the remainder,
+      // because `count` saturates server-side. Asserting the END state rather
+      // than watching the reel is the same reasoning as the battle skip below.
+      const kind = surface === "rtt-opening-reveal" ? "roster" : "boss";
+      await page.locator(`[data-testid="rtt-reveal-next-${kind}"]`).click();
+      const skip = page.locator(`[data-testid="rtt-reveal-skip-${kind}"]`);
+      await skip.waitFor({ state: "visible", timeout: 20_000 });
+      await skip.click();
+      break;
+    }
+    case "rtt-scout-prepare":
+      // Scout the Boss is the FREE branch and the only one that can never be
+      // refused, whatever the run has spent — which is exactly why the driver
+      // uses it, the same reason it passes at a Draft Room. Preparing the first
+      // lane resolves the node.
+      await page
+        .locator('[data-testid="rtt-scout-prepare"] [data-testid^="rtt-scout-prepare-"]')
+        .first()
+        .click();
+      break;
     case "rtt-system-select":
       await page.locator('[data-testid="rtt-system-select"] button').first().click();
       break;
@@ -212,15 +246,54 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
   await expect(page.locator(`[data-testid="${surface}"]`)).toHaveCount(0, { timeout: 20_000 });
 }
 
+/**
+ * Get past the Opening Draft Reveal to the first DECISION.
+ *
+ * Under rtt_ruleset_v3 a run no longer opens on the System choice. It opens on
+ * the opening-roster reveal, which occupies the same slot (see
+ * `needsOpeningReveal` — it gates on `status === "system_select"`), and the
+ * System choice is behind it. That is intended v3 UX, not an obstacle, so this
+ * helper skips it rather than the product suppressing it.
+ *
+ * TWO ROUND TRIPS, WHICH IS THE MINIMUM. `can_skip` is the server's own rule
+ * (`0 < revealed < total`), so "skip all" does not exist until one card has
+ * been turned over — a routine test cannot get past the reveal in fewer calls
+ * without the product lying about what the player has seen. `count` saturates
+ * server-side, so the second call finishes the rest of the roster whatever its
+ * length.
+ *
+ * WHAT THIS DOES NOT COST IN COVERAGE. The reveal itself is proven card by
+ * card, including its server-authoritative count and its mid-reveal resume, by
+ * "the opening draft reveal deals the roster one card at a time" below. Every
+ * other test in this file is about something else and pays the two calls to
+ * get to it — the same bargain `suppressTour` already strikes with the tour.
+ *
+ * Tolerant of not being needed: a caller that is already past the reveal (or a
+ * run that had none) gets a no-op, so it is safe to call unconditionally right
+ * after `startRun`.
+ */
+async function skipOpeningReveal(page: Page): Promise<void> {
+  const surface = await currentSurface(page);
+  if (surface !== "rtt-opening-reveal") return;
+  await stepOnce(page, surface);
+}
+
+/** How many roster slots the reveal has actually turned over, read off the
+ *  server-rendered rows rather than off the progress line — so the count and
+ *  the cards have to agree. */
+async function revealedSlotCount(page: Page): Promise<number> {
+  return page.locator('[data-testid^="rtt-reveal-slot-"][data-revealed="true"]').count();
+}
+
 /** Drive the run to its receipt.
  *
- *  A run ends either by resolving the final boss in act 4 or by running out of
- *  lives, which under Standard v2 ends the run the moment it happens rather
- *  than at the next advance. Both land on `rtt-result`, so the driver stops on
+ *  A run ends either by resolving the FINAL boss — act 5 under rtt_ruleset_v3,
+ *  and the driver never names the number — or by running out of lives, which
+ *  ends the run the moment it happens rather than at the next advance. Both land on `rtt-result`, so the driver stops on
  *  the SURFACE rather than on a particular outcome — which is why it needed no
  *  change when the outcome taxonomy became TABLE CLEARED / RUN ENDED AT THE
  *  FINAL BOSS / RUN ENDED IN ACT N. */
-async function playToResult(page: Page, maxSteps = 60): Promise<void> {
+async function playToResult(page: Page, maxSteps = 90): Promise<void> {
   for (let i = 0; i < maxSteps; i++) {
     const surface = await currentSurface(page);
     // Every surface, every step — see `expectNoRawObjects`.
@@ -283,6 +356,8 @@ test.describe("RUN THE TABLE clarity", () => {
   test("the perk chooser leads with plain language and keeps the exact rule", async ({ page }) => {
     await freshGate(page);
     await startRun(page, "rtt-start-standard");
+    // v3 opens on the Opening Draft Reveal; the perk chooser is behind it.
+    await skipOpeningReveal(page);
     const select = page.locator('[data-testid="rtt-system-select"]');
     await expect(select).toBeVisible();
 
@@ -309,6 +384,7 @@ test.describe("RUN THE TABLE clarity", () => {
   test("no card anywhere renders a broken ordinal", async ({ page }) => {
     await freshGate(page);
     await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
     await page.locator('[data-testid="rtt-system-select"] button').first().click();
     await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible();
     const text = (await page.locator('[data-testid="rtt-shell"]').innerText()) ?? "";
@@ -318,14 +394,126 @@ test.describe("RUN THE TABLE clarity", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Opening Draft Reveal
+// ---------------------------------------------------------------------------
+
+test.describe("RUN THE TABLE opening reveal", () => {
+  /**
+   * THE ONE TEST THAT PLAYS THE REVEAL IN FULL, and the reason every other
+   * test in this file is allowed to call `skipOpeningReveal`.
+   *
+   * The reveal is the surface most likely to be mistaken for decoration, so
+   * what is asserted here is precisely the part that makes it NOT theatre:
+   * the count is run state on the server, not a number the browser is
+   * keeping. `RevealReel`'s own docstring makes that claim ("Progress is run
+   * state, not browser state... a refresh mid-reveal resumes at the same card
+   * instead of restarting"); this is what would notice if it stopped being
+   * true.
+   */
+  test("the opening draft reveal deals the roster one card at a time, and the server owns the count", async ({
+    page,
+  }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+
+    const reveal = page.locator('[data-testid="rtt-opening-reveal"]');
+    await expect(reveal).toBeVisible();
+    await expect(reveal).toHaveAttribute("data-reveal-complete", "false");
+
+    // Nothing is turned over until the player asks — the roster exists, but
+    // the run does not spoil it on arrival.
+    const progress = page.locator('[data-testid="rtt-reveal-progress-roster"]');
+    await expect(progress).toContainText(/\b0 of \d+ revealed\b/);
+    // `textContent`, not `innerText`: the progress line is styled
+    // `uppercase`, and `innerText` returns what is RENDERED ("0 OF 7
+    // REVEALED") while `toContainText` above matches on textContent. Reading
+    // the two different ways is how the number and the assertion disagree.
+    const total = Number(/of (\d+)/.exec((await progress.textContent()) ?? "")![1]);
+    expect(total).toBeGreaterThan(1);
+    expect(await revealedSlotCount(page)).toBe(0);
+
+    // "Skip all" is the SERVER's `can_skip` (`0 < revealed < total`), so it
+    // does not exist yet: there is nothing to skip past that the player has
+    // seen. Its absence here is what makes `skipOpeningReveal`'s two round
+    // trips the floor rather than laziness.
+    await expect(page.locator('[data-testid="rtt-reveal-skip-roster"]')).toHaveCount(0);
+
+    const next = page.locator('[data-testid="rtt-reveal-next-roster"]');
+    await next.click();
+    await expect(progress).toContainText(`1 of ${total} revealed`);
+    expect(await revealedSlotCount(page)).toBe(1);
+    await expect(page.locator('[data-testid="rtt-reveal-skip-roster"]')).toBeVisible();
+
+    // The whole point: reload mid-reveal and the run comes back on the SAME
+    // card. A client-side counter would restart at zero here.
+    await page.reload({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="rtt-reveal-progress-roster"]')).toContainText(
+      `1 of ${total} revealed`,
+    );
+    expect(await revealedSlotCount(page)).toBe(1);
+
+    // Then the rest, card by card rather than skipped — the full reveal this
+    // test exists to preserve.
+    for (let revealed = 1; revealed < total - 1; revealed++) {
+      await page.locator('[data-testid="rtt-reveal-next-roster"]').click();
+      await expect(page.locator('[data-testid="rtt-reveal-progress-roster"]')).toContainText(
+        `${revealed + 1} of ${total} revealed`,
+      );
+      expect(await revealedSlotCount(page)).toBe(revealed + 1);
+    }
+
+    // The last card completes the reveal, and completing it IS the handover:
+    // `needsOpeningReveal` reads the server's `complete` flag, so the surface
+    // unmounts in favour of the first real decision rather than sitting there
+    // with a "continue" button.
+    await page.locator('[data-testid="rtt-reveal-next-roster"]').click();
+    await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
+
+    // And it does not replay: the reveal is done for this run, not for this
+    // page load.
+    await page.reload({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
+  });
+
+  test("the skip affordance finishes the roster in one call", async ({ page }) => {
+    // The efficient path every other test takes, asserted once here so those
+    // tests are not each proving it. `skipAllCount` saturates server-side, so
+    // one press finishes whatever is left however long the roster is.
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toBeVisible();
+
+    await page.locator('[data-testid="rtt-reveal-next-roster"]').click();
+    const skip = page.locator('[data-testid="rtt-reveal-skip-roster"]');
+    await skip.waitFor({ state: "visible", timeout: 20_000 });
+    await skip.click();
+
+    await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
+    // Skipped, not discarded: every slot was still dealt, and the player can
+    // see all of them on the next surface's tray.
+    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
+  });
+});
+
 test.describe("RUN THE TABLE full run", () => {
   test("an anonymous visitor plays a whole standard run to a receipt", async ({ page }) => {
     test.setTimeout(FULL_RUN_TIMEOUT_MS);
     await freshGate(page);
     await startRun(page, "rtt-start-standard");
 
-    // The run opens on the System choice — the one decision that is made
-    // before anything else exists.
+    // THE REAL v3 OPENING SEQUENCE, in order. A run no longer opens on the
+    // System choice: rtt_ruleset_v3 deals the opening roster first, one card
+    // at a time, and the System choice is the first DECISION behind it. This
+    // asserts both halves rather than skipping straight past the reveal,
+    // because "which surface does a run open on" is exactly what this test's
+    // first line has always been for.
+    expect(await currentSurface(page)).toBe("rtt-opening-reveal");
+    await skipOpeningReveal(page);
     expect(await currentSurface(page)).toBe("rtt-system-select");
 
     await playToResult(page);
@@ -368,8 +556,11 @@ test.describe("RUN THE TABLE resume", () => {
     await freshGate(page);
     await startRun(page, "rtt-start-standard");
 
-    // Get a few decisions in, so "the same screen" is a screen the player
-    // actually navigated to rather than the one every run opens on.
+    // Get a few DECISIONS in, so "the same screen" is a screen the player
+    // actually navigated to rather than the one every run opens on. The reveal
+    // is skipped first so the two steps below are decisions, not a reveal and
+    // one decision — mid-reveal resume has its own test above.
+    await skipOpeningReveal(page);
     await stepOnce(page, await currentSurface(page)); // system -> node choice
     await stepOnce(page, await currentSurface(page)); // node choice -> node
     const before = await currentSurface(page);

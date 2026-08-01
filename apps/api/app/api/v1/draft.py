@@ -33,6 +33,7 @@ if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
 from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, resolve_owner_sub
+from app.core.ownership import assert_owns, existing_owner_sub
 from app.core.config import settings
 from app.core.dependencies import (
     AchievementRepoDep,
@@ -184,11 +185,42 @@ async def get_daily(
 # Get game state
 # ---------------------------------------------------------------------------
 
-@router.get("/draft/games/{game_id}", response_model=PublicGameStateResponse)
-async def get_game(game_id: str, game_repo: GameRepoDep) -> PublicGameStateResponse:
+async def _load_owned_game(
+    game_id: str,
+    game_repo,
+    auth,
+    anon_cookie: Optional[str],
+):
+    """Load a draft game and prove the caller owns it, or raise 404/403.
+
+    `POST /draft/games/{game_id}/actions` previously took no identity at all --
+    this file's own docstring says private board state must never leak, yet
+    anyone holding a leaked `game_id` could drive a stranger's game to
+    completion. That is worse than a read leak: on completion
+    `_record_completion` writes a `DailyCompletion` under
+    `ON CONFLICT DO NOTHING`, so a garbage lineup permanently consumes the
+    victim's daily attempt, and their XP, records, achievements and streak are
+    all written under their `owner_sub`.
+    """
     game_state = await game_repo.get_game(game_id)
     if game_state is None:
         raise HTTPException(status_code=404, detail="Game not found or expired")
+    assert_owns(
+        getattr(game_state, "owner_sub", None),
+        existing_owner_sub(auth, anon_cookie, settings.SIGNING_SECRET),
+        message="This game belongs to a different player.",
+    )
+    return game_state
+
+
+@router.get("/draft/games/{game_id}", response_model=PublicGameStateResponse)
+async def get_game(
+    game_id: str,
+    game_repo: GameRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
+) -> PublicGameStateResponse:
+    game_state = await _load_owned_game(game_id, game_repo, auth, peak3_anon)
     return PublicGameStateResponse(**state_machine.get_public_state(game_state))
 
 
@@ -207,13 +239,13 @@ async def submit_action(
     record_repo: RecordRepoDep,
     achievement_repo: AchievementRepoDep,
     streak_repo: StreakRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
 ) -> PublicGameStateResponse:
     if body.game_id != game_id:
         raise HTTPException(status_code=400, detail="game_id in body must match URL")
 
-    game_state = await game_repo.get_game(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    game_state = await _load_owned_game(game_id, game_repo, auth, peak3_anon)
 
     was_already_complete = game_state.status == "draft_complete"
 
@@ -444,11 +476,16 @@ async def create_challenge(
     game_id: str,
     game_repo: GameRepoDep,
     challenge_repo: ChallengeRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
     include_spoilers: bool = False,
 ) -> dict:
-    game_state = await game_repo.get_game(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    # Ownership matters here even though minting a token mutates nothing in the
+    # game itself: the stored record carries the challenger's full lineup
+    # snapshot and their `owner_sub`. Without this check anyone holding a
+    # completed game's id could mint a challenge from a stranger's game, then
+    # read that stranger's lineup back out through `/comparison`.
+    game_state = await _load_owned_game(game_id, game_repo, auth, peak3_anon)
 
     if game_state.status != "draft_complete":
         raise HTTPException(
@@ -583,9 +620,20 @@ async def get_challenge_comparison(
     token: str,
     challenge_repo: ChallengeRepoDep,
     game_repo: GameRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
     recipient_game_id: str = Query(...),
 ) -> ChallengeComparisonResponse:
-    """Compare a completed recipient game against the stored challenger snapshot."""
+    """Compare a completed recipient game against the stored challenger snapshot.
+
+    This route WRITES: the first successful call persists a settlement
+    (`save_settlement` below) which is then cached and returned forever. With
+    `recipient_game_id` taken on trust, anyone holding the challenge link could
+    therefore pre-settle the challenge against a game of their choosing, and
+    the genuine recipient would never get a real comparison. The caller must
+    own the game they are submitting -- reading the challenge is open by
+    design, settling it on someone else's behalf is not.
+    """
     _verify_challenge_token(token)
 
     token_hash = hashlib.sha256(token.encode()).hexdigest()[:32]
@@ -597,10 +645,9 @@ async def get_challenge_comparison(
     if record.settlement is not None:
         return ChallengeComparisonResponse.model_validate(record.settlement)
 
-    # Validate recipient game
-    recipient_game = await game_repo.get_game(recipient_game_id)
-    if recipient_game is None:
-        raise HTTPException(status_code=404, detail="Recipient game not found or expired")
+    # Validate recipient game -- ownership first, so a stranger's completed
+    # game can never be conscripted as the settling result.
+    recipient_game = await _load_owned_game(recipient_game_id, game_repo, auth, peak3_anon)
 
     if recipient_game.status != "draft_complete":
         raise HTTPException(status_code=400, detail="Recipient game must be complete")

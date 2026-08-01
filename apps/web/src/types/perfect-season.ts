@@ -390,6 +390,25 @@ export interface CourtLineupPublicState {
   eligibility?: RunEligibility | null;
 }
 
+/**
+ * What a SHARED results link is allowed to know about a finished run.
+ *
+ * Mirrors `SharedCourtResultResponse` in apps/api/app/models/perfect_season.py
+ * and, through it, `SHARED_RESULT_WITHHELD_KEYS` in the state machine. The
+ * four omitted keys are the live-board ones (`current_spin`,
+ * `pending_selection`, `live_build`) plus the debug trail; `eligibility` stays
+ * in the type because it is already optional and the read-only scorecard has
+ * to compile against a state that simply does not carry it.
+ *
+ * A full `CourtLineupPublicState` is structurally assignable to this, so the
+ * components below take the NARROW type and serve both the owner's live
+ * result screen and a shared link with one code path.
+ */
+export type SharedCourtResult = Omit<
+  CourtLineupPublicState,
+  "current_spin" | "pending_selection" | "live_build" | "respin_policy_debug"
+>;
+
 // Duration-aware coverage audit of the interim dataset -- see
 // nba_peak/perfect_season/board.py::coverage_summary. Mainly a diagnostic
 // (dev script / manual review), not currently rendered in the play UI.

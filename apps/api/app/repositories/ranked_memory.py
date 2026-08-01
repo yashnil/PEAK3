@@ -99,6 +99,22 @@ class MemoryRankedMatchmakingRepository:
                 if e.mode == mode and e.status == "waiting" and e.owner_sub != exclude_owner_sub
             ]
 
+    async def expire_stale_queue_entries(self, mode: str, joined_before: datetime) -> int:
+        """See `RankedMatchmakingRepository.expire_stale_queue_entries`.
+
+        Implemented here too even though an in-memory queue is emptied by a
+        restart anyway: the two backends must behave identically or a
+        behaviour only reachable on Postgres has no test that can see it, which
+        is exactly how the missing queue-version seed survived this long.
+        """
+        async with self._lock:
+            swept = 0
+            for entry in self._queue_entries.values():
+                if entry.mode == mode and entry.status == "waiting" and entry.joined_at < joined_before:
+                    entry.status = "expired"
+                    swept += 1
+            return swept
+
     async def recent_opponents(self, owner_sub: str, mode: str, since: datetime) -> set[str]:
         async with self._lock:
             return {

@@ -50,6 +50,14 @@ ActionType = Literal[
     "rest_bank",
     "resolve_boss",
     "advance",
+    # -- v3 (rtt_ruleset_v3) -------------------------------------------------
+    # Three new engine actions. `market_refresh` and `emergency_recovery` are
+    # priced sinks that leave the node OPEN (they buy a different board or a
+    # life, they are not the node's move); `reveal` advances the server-side
+    # opening-roster / boss reveal so a refresh mid-reveal resumes.
+    "market_refresh",
+    "emergency_recovery",
+    "reveal",
 ]
 
 # Same readiness ladder as COURTBUILDER_READINESS_LEVEL.
@@ -126,6 +134,19 @@ class RunActionRequest(BaseModel):
     incoming_card_id: Optional[str] = Field(default=None, max_length=_MAX_ID_LENGTH)
     # film_room / rest_bank
     choice: Optional[str] = Field(default=None, max_length=_MAX_ID_LENGTH)
+    # film_room, choice="scout_boss" — which of the five lanes to prepare.
+    # Validated against `config.LANE_FIELDS` by the engine, not here: the set of
+    # legal lanes is a rules fact, and restating it would be a second copy that
+    # can drift.
+    lane: Optional[str] = Field(default=None, max_length=_MAX_ID_LENGTH)
+    # film_room, choice="shape_market" — which of the five roles to guarantee.
+    role: Optional[str] = Field(default=None, max_length=_MAX_ID_LENGTH)
+    # reveal
+    target: Optional[str] = Field(default=None, max_length=_MAX_ID_LENGTH)
+    # How many slots to turn over. `1` is "reveal next"; anything at or above
+    # the roster size is "skip all" — the engine saturates, which is what makes
+    # skip-all a single call rather than a loop.
+    count: int = Field(default=1, ge=1, le=64)
 
 
 # ---------------------------------------------------------------------------

@@ -1959,10 +1959,24 @@ test.describe("W5: respin quality and idempotency", () => {
     await expect(page.locator('[data-testid="spin-live-region"]')).toContainText(/eligible player/);
   });
 
-  test("re-reading the game mid-animation does not reroll it", async ({ page, request }) => {
+  test("re-reading the game mid-animation does not reroll it", async ({ page }) => {
     // "Refreshing during the animation does not reroll" -- a reload is a GET,
     // and a GET must never be an action. Asserted against the REAL running
     // API, sampled while the respin reel is still visibly travelling.
+    //
+    // READ THROUGH `page.request`, NOT THE `request` FIXTURE. GET
+    // /perfect-season/games/{id} is owner-only: the caller must present the
+    // same `peak3_anon` cookie the browser was issued when it created the
+    // game. Playwright's top-level `request` fixture is a SEPARATE APIRequest
+    // context with its own empty cookie jar, so it reads as an anonymous
+    // stranger and is correctly refused with 403 -- which is the security
+    // property working, not a bug to route around. `page.request` shares the
+    // BrowserContext's storage, so it is the same player the reload would be.
+    //
+    // That distinction is what this test is actually about: the thing being
+    // proven is that the OWNER's own re-read is idempotent. A read by someone
+    // else is a different question, and it has its own coverage in
+    // apps/api/tests/test_ownership_idor.py.
     await startCourtBuilder(page);
     const [response] = await Promise.all([
       page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
@@ -1975,7 +1989,7 @@ test.describe("W5: respin quality and idempotency", () => {
     // Mid-animation (the respin reel runs ~1.25s), then again after it lands.
     for (const delay of [300, 1_600]) {
       await page.waitForTimeout(delay === 300 ? 300 : 1_300);
-      const res = await request.get(`http://localhost:8000/api/v1/perfect-season/games/${gameId}`);
+      const res = await page.request.get(`http://localhost:8000/api/v1/perfect-season/games/${gameId}`);
       expect(res.status()).toBe(200);
       const state = await res.json();
       expect([state.current_spin.franchise_display_name, state.current_spin.era_label]).toEqual(landed);

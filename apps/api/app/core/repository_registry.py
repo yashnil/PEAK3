@@ -48,6 +48,7 @@ REPOSITORY_DOMAINS: list[str] = [
     "perfect_season_saved_run",
     "daily_grid_result",
     "run_the_table_run",
+    "head_to_head",
     "peak_duel_daily_result",
 ]
 

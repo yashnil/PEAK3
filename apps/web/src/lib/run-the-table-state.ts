@@ -29,6 +29,7 @@ import {
   ReceiptItemKind,
   ReceiptLaneProfileEntry,
   ReceiptReason,
+  RevealTrack,
   Role,
   RunOutcome,
   RosterSlotPublic,
@@ -224,13 +225,66 @@ export function isTerminal(status: RunStatus): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Reveals (v3, spec §3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Should the opening-roster reveal be on screen instead of the first decision?
+ *
+ * Gated on the SERVER's `reveal.roster.complete`, never on a browser flag, so a
+ * refresh mid-reveal resumes exactly where it stopped rather than replaying it
+ * — which is the whole reason the progress lives in run state.
+ *
+ * Only before act 1: a run resumed at act 3 has long since met its roster, and
+ * an unfinished reveal there is a curiosity, not a screen. A payload from an
+ * older API carries no `reveal` block at all and simply never shows it.
+ */
+export function needsOpeningReveal(
+  state: Pick<RunPublicState, "status" | "act" | "reveal">,
+): boolean {
+  const roster = state.reveal?.roster;
+  if (!roster) return false;
+  return state.act === 1 && state.status === "system_select" && !roster.complete;
+}
+
+/**
+ * Should the boss reveal be on screen instead of the boss briefing?
+ *
+ * Only at `boss_ready` — the payload carries no boss reveal block before the
+ * boss is revealed, so this can never fire early.
+ */
+export function needsBossReveal(
+  state: Pick<RunPublicState, "status" | "reveal">,
+): boolean {
+  const boss = state.reveal?.boss;
+  if (!boss) return false;
+  return state.status === "boss_ready" && !boss.complete;
+}
+
+/**
+ * The `count` a "skip all" press should send.
+ *
+ * Sends what is actually left rather than a fixed number: the engine saturates
+ * either way, but sending the true remainder keeps the recorded action honest
+ * about how many cards the player skipped.
+ */
+export function skipAllCount(track: Pick<RevealTrack, "total" | "revealed">): number {
+  return Math.max(1, track.total - track.revealed);
+}
+
+// ---------------------------------------------------------------------------
 // Labels
 // ---------------------------------------------------------------------------
 
 export const NODE_TYPE_LABELS: Record<NodeType, string> = {
   draft_room: "Draft Room",
   trade_desk: "Trade Desk",
-  film_room: "Film Room",
+  // `film_room` is the ENGINE's stable node-type id and is deliberately
+  // unchanged — every switch in the API and the client resolves on it. Its
+  // player-facing identity under rtt_ruleset_v3 is "Scout & Prepare", because
+  // the node no longer does anything the old name described. Kept identical to
+  // `NODE_TYPE_COPY.film_room.label`, which the copy test pins.
+  film_room: "Scout & Prepare",
   rest_bank: "Rest / Bank",
 };
 
@@ -503,8 +557,12 @@ export interface LadderRow {
 }
 
 /**
- * Flattens `state.map` into the vertical 3-act ladder the left rail renders:
+ * Flattens `state.map` into the vertical ladder the left rail renders:
  * `STAGES_PER_ACT` stage rows then one boss row, per act.
+ *
+ * NO ACT COUNT IS ASSUMED — it iterates `map`, which the server sizes from
+ * `config.ACTS` (5 under rtt_ruleset_v3). The docstring used to say "3-act",
+ * which was two rulesets stale by the time anyone read it.
  *
  * A stage the player has not reached shows only its SHAPE (which node types
  * were on offer) — never their content. That restriction is enforced by the

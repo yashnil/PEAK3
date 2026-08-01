@@ -20,6 +20,9 @@ from nba_peak.run_the_table import state as S  # noqa: E402
 from nba_peak.run_the_table.cards import CardPool, get_pool  # noqa: E402
 from nba_peak.run_the_table.config import (  # noqa: E402
     LANE_FIELDS,
+    MAX_LIVES,
+    RESERVE_CARD_COST,
+    ROLE_FOCUS_COST,
     ROLES,
 )
 from nba_peak.run_the_table.generation import generate_blueprint, stage_for  # noqa: E402
@@ -30,6 +33,40 @@ from nba_peak.run_the_table.schemas import PoolStats, RunCard  # noqa: E402
 # ---------------------------------------------------------------------------
 # Deterministic play policies
 # ---------------------------------------------------------------------------
+def resolve_scout_and_prepare(st, bp, plan, opt, pool, policy, rng):
+    """Play one v3 Scout & Prepare node under a fixed policy.
+
+    ``scout_boss`` is the only branch that is free, so it is the one every
+    policy can always fall back to — which is exactly the property that keeps a
+    broke player from dead-ending at this node.
+    """
+    if policy == "random":
+        options = ["scout_boss"]
+        if st.credits >= ROLE_FOCUS_COST and st.role_focus is None:
+            options.append("shape_market")
+        reservable = [
+            cid for cid in plan.payloads[opt.node_id]["reserve_candidate_ids"]
+            if S.legal_slots_for(st, pool, cid)
+            and price_for(pool.get(cid), st.systems)[0] + RESERVE_CARD_COST <= st.credits
+        ]
+        live = st.reserved_card is not None and st.reserved_card["status"] in (
+            "live", "offered"
+        )
+        if reservable and not live:
+            options.append("reserve_card")
+        choice = rng.choice(options)
+        if choice == "scout_boss":
+            S.action_film_room(st, bp, choice, lane=rng.choice(list(LANE_FIELDS)), pool=pool)
+        elif choice == "shape_market":
+            S.action_film_room(st, bp, choice, role=rng.choice(list(ROLES)), pool=pool)
+        else:
+            S.action_film_room(
+                st, bp, choice, card_id=rng.choice(reservable), pool=pool
+            )
+        return
+    S.action_film_room(st, bp, "scout_boss", lane=LANE_FIELDS[0], pool=pool)
+
+
 def play(seed, rng, pool=None, policy="greedy", bp=None):
     """Drive a whole run to a terminal status under a fixed, deterministic policy.
 
@@ -47,7 +84,7 @@ def play(seed, rng, pool=None, policy="greedy", bp=None):
     guard = 0
     while st.status not in ("complete", "failed"):
         guard += 1
-        if guard > 80:
+        if guard > 120:
             raise RuntimeError(f"stuck at {st.status} act{st.act} stage{st.stage}")
         if st.status == "system_select":
             offer = S.available_system_offer(st)
@@ -109,14 +146,10 @@ def play(seed, rng, pool=None, policy="greedy", bp=None):
                 if not done:
                     S.action_decline_trade(st, bp)
             elif t == "film_room":
-                S.action_film_room(
-                    st,
-                    bp,
-                    "take_credits" if policy == "greedy" else rng.choice(list(S.FILM_CHOICES)),
-                )
+                resolve_scout_and_prepare(st, bp, plan, opt, pool, policy, rng)
             else:
                 S.action_rest_bank(
-                    st, bp, "recover_life" if st.lives < 3 else "take_credits"
+                    st, bp, "recover_life" if st.lives < MAX_LIVES else "take_credits"
                 )
         elif st.status == "boss_ready":
             S.action_resolve_boss(st, bp, pool)

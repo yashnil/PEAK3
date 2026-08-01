@@ -12,7 +12,11 @@ import asyncio
 import uuid
 from typing import Optional
 
-from app.repositories.daily_grid_protocols import DailyGridResult, DailyGridResultRepository
+from app.repositories.daily_grid_protocols import (
+    DailyGridAttempt,
+    DailyGridResult,
+    DailyGridResultRepository,
+)
 
 
 class MemoryDailyGridResultRepository:
@@ -20,7 +24,29 @@ class MemoryDailyGridResultRepository:
         self._results: dict[str, DailyGridResult] = {}
         # (owner_sub, board_date, board_version) -> result_id.
         self._by_owner_board: dict[tuple[str, str, str], str] = {}
+        # (owner_sub, daily_key) -> attempt. Plays the part of the Postgres
+        # UNIQUE (owner_sub, daily_key) constraint, so `start_attempt` is
+        # idempotent here for exactly the reason it is idempotent there.
+        self._attempts: dict[tuple[str, str], DailyGridAttempt] = {}
         self._lock = asyncio.Lock()
+
+    async def start_attempt(
+        self, attempt: DailyGridAttempt
+    ) -> tuple[DailyGridAttempt, bool]:
+        async with self._lock:
+            key = (attempt.owner_sub, attempt.daily_key)
+            existing = self._attempts.get(key)
+            if existing is not None:
+                # The clock is not restartable. See the protocol docstring.
+                return existing, False
+            attempt.id = attempt.id or str(uuid.uuid4())
+            self._attempts[key] = attempt
+            return attempt, True
+
+    async def get_attempt(
+        self, owner_sub: str, daily_key: str
+    ) -> Optional[DailyGridAttempt]:
+        return self._attempts.get((owner_sub, daily_key))
 
     async def save_result(self, result: DailyGridResult) -> tuple[DailyGridResult, bool]:
         async with self._lock:
@@ -67,6 +93,16 @@ class MemoryDailyGridResultRepository:
                 result.owner_sub = to_sub
                 self._by_owner_board[new_key] = result.id
                 moved += 1
+
+            # In-progress clocks follow their owner, under the same
+            # first-attempt-wins rule and not counted in `moved`.
+            for key in [k for k in self._attempts if k[0] == from_sub]:
+                attempt = self._attempts.pop(key)
+                new_key = (to_sub, attempt.daily_key)
+                if new_key in self._attempts:
+                    continue
+                attempt.owner_sub = to_sub
+                self._attempts[new_key] = attempt
             return moved
 
 

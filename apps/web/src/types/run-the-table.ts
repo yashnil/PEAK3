@@ -132,6 +132,12 @@ export interface DraftOffer extends RunCardPublic {
   affordable: boolean;
   selectable: boolean;
   blocked_reason: string | null;
+  /**
+   * v3: this offer is the card a paid Reserve a Card put on the board, and
+   * `cost` is therefore the price it was RESERVED at rather than today's.
+   * Optional so a payload from an older API still type-checks.
+   */
+  reserved?: boolean;
 }
 
 /** An incoming trade card: `card_public()` plus legal slots. */
@@ -209,6 +215,18 @@ export interface BossPublic {
   bench?: RunCardPublic[];
   lane_profile?: LaneProfileEntry[];
   roster_total?: number;
+  /** True for the last act's boss — the only one a win in which clears the
+   *  table. Server-derived, so no client compares `act` to a literal. */
+  is_final?: boolean;
+  /**
+   * The boss slate is fixed by the ruleset and the seed: no clock, no model
+   * inference, no opponent assembled live. Published so the reveal can say so
+   * outright rather than implying otherwise.
+   */
+  deterministic?: boolean;
+  /** This boss's win condition. A boss rule may raise it above the default
+   *  (`BOSS_LANES_TO_WIN`), for both sides. */
+  lanes_to_win?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +244,9 @@ export interface BattleLanePublic {
   tie_broken_by_rule: boolean;
   player_top_card: RunCardPublic | null;
   opponent_top_card: RunCardPublic | null;
+  /** v3: the Scout & Prepare bonus already folded into `player_score`, carried
+   *  separately so the result screen can say which lane it moved. */
+  player_prep_bonus?: number;
 }
 
 export interface BattlePublic {
@@ -244,6 +265,11 @@ export interface BattlePublic {
   credits_awarded: number;
   lives_after: number;
   lanes: BattleLanePublic[];
+  /** How many lanes an outright win took here — 3 normally, more under a boss
+   *  rule that raises it for both sides. */
+  lanes_to_win?: number;
+  /** lane -> the published preparation the player brought into this battle. */
+  lane_bonuses?: Partial<Record<LaneField, number>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -254,8 +280,243 @@ export interface NodeChoice {
   id: string;
   label: string;
   description: string;
-  /** Only `rest_bank`'s "recover_life" choice carries this. */
+  /** `rest_bank`'s "recover_life" at full lives, and the two priced Scout &
+   *  Prepare branches when they are unavailable. */
   disabled?: boolean;
+  /** v3: what a priced choice costs, in credits. `0` for a free branch. */
+  cost?: number;
+  /** v3: the engine's stable reason code when `disabled` is true. */
+  unavailable_reason?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// v3 — credit sinks (spec §4)
+// ---------------------------------------------------------------------------
+
+/**
+ * `CREDIT_SINKS[id]` in `nba_peak/run_the_table/config.py`, as the node is
+ * offering it right now.
+ *
+ * NO PRICE IS EVER RESTATED IN TYPESCRIPT. `cost`, `limit` and `summary` all
+ * arrive on the payload with the exact values the engine charges, which is the
+ * only arrangement in which the button's label cannot drift from the debit.
+ *
+ * `available` and `affordable` are deliberately separate so a locked control
+ * can be SHOWN with its reason rather than hidden — that is how a player learns
+ * the sink exists. `selectable` is the conjunction, so a button binds to one
+ * boolean.
+ */
+export interface CreditSink {
+  id: "market_refresh" | "reserve_card" | "role_focus" | "emergency_recovery";
+  name: string;
+  cost: number;
+  summary: string;
+  /** Human phrase from the config, e.g. "1 per node". */
+  limit: string;
+  /** Node types this sink is offered at. */
+  offered_at: NodeType[];
+  available: boolean;
+  affordable: boolean;
+  selectable: boolean;
+  /** Stable code: "refresh_limit" | "insufficient_credits" | "lives_full" |
+   *  "recovery_limit" | "role_focus_active" | "reservation_active". */
+  unavailable_reason: string | null;
+  used: number;
+  /** null when the limit is not a count (one live reservation at a time). */
+  limit_total: number | null;
+  remaining: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// v3 — Scout & Prepare (spec §5)
+// ---------------------------------------------------------------------------
+
+export interface ScoutLaneProjection {
+  lane: LaneField;
+  label: string;
+  opponent_score: number;
+  player_score: number;
+  margin: number;
+  projected_winner: LaneWinner;
+}
+
+/** One capped lane preparation. `would_flip` is the whole reason this node is
+ *  no longer dead content: it says, before the player commits, whether 2.5
+ *  points actually changes a lane result in the fight they are about to take. */
+export interface ScoutPreparation {
+  lane: LaneField;
+  label: string;
+  bonus: number;
+  margin_before: number;
+  margin_after: number;
+  would_flip: boolean;
+}
+
+/** `bosses.scout_report()`. Every number here is one the player could already
+ *  reproduce from the lane profiles the UI shows — scouting buys the work. */
+export interface ScoutReport {
+  boss_id: string;
+  name: string;
+  tagline: string;
+  act: number;
+  rule_id: string | null;
+  rule: BossRule | null;
+  lane_margin_threshold: number;
+  lanes_to_win: number;
+  lanes: ScoutLaneProjection[];
+  strongest_lanes: LaneField[];
+  weakest_lane: LaneField;
+  projected_lanes_won: number;
+  projected_lanes_lost: number;
+  projected_summed_margin: number;
+  projection: "win" | "loss" | "win_on_margin" | "loss_on_margin" | "draw";
+  preparations: ScoutPreparation[];
+  starter_mean: number;
+}
+
+export interface ReserveCandidate {
+  card_id: string;
+  player_name: string;
+  anchor_season: string;
+  prime_score: number;
+  /** The price the reservation locks in. Charged at that number in the next
+   *  Draft Room even if a perk changes later. */
+  locked_cost: number;
+  modifiers: CostModifier[];
+  legal_slots: string[];
+}
+
+/** One of `SCOUT_CHOICES`, as `state.scout_and_prepare_options` returns it. */
+export interface ScoutChoice {
+  id: "scout_boss" | "shape_market" | "reserve_card";
+  name: string;
+  cost: number;
+  available: boolean;
+  unavailable_reason: string | null;
+  summary?: string;
+  /** scout_boss only. */
+  prep_bonus?: number;
+  report?: ScoutReport | null;
+  /** shape_market only. */
+  roles?: Role[];
+  /** reserve_card only. */
+  candidates?: ReserveCandidate[];
+}
+
+export interface ScoutBlock {
+  node_id: string;
+  choice_ids: string[];
+  prep_bonus: number;
+  lanes: { lane: LaneField; label: string; token: LaneToken }[];
+  roles: Role[];
+  choices: ScoutChoice[];
+}
+
+// ---------------------------------------------------------------------------
+// v3 — reveals (spec §3)
+// ---------------------------------------------------------------------------
+
+/** One slot of a reveal, as the SERVER preselected it. The client animates to
+ *  this; it never rolls its own card. */
+export interface RevealSlot {
+  order: number;
+  slot_id: string;
+  /** Present on the opening-roster reveal; the boss reveal is slot ids only. */
+  label?: string;
+  role?: Role | null;
+  is_starter?: boolean;
+  card_id: string;
+  player_name: string;
+  anchor_season: string;
+  window?: string;
+  prime_score: number;
+  base_cost?: number;
+}
+
+/** The published slot order, cards withheld. Safe before a single reveal. */
+export interface RevealSlotOrder {
+  order: number;
+  slot_id: string;
+  label?: string;
+}
+
+export interface RevealTrack {
+  revealed: number;
+  total: number;
+  complete: boolean;
+  order: RevealSlotOrder[];
+  revealed_slots: RevealSlot[];
+  /** The authoritative next card, or null once the reveal is complete. */
+  next_slot: RevealSlot | null;
+  /** Skip-all is offered only after the first card is on the table. */
+  can_skip: boolean;
+  remaining: number;
+}
+
+export interface BossRevealTrack extends RevealTrack {
+  act: number;
+  boss_id: string;
+  name: string;
+  tagline: string;
+  rule: BossRule | null;
+  source: string;
+  /** Always true. The slate is a pure function of the ruleset and the seed. */
+  deterministic: boolean;
+}
+
+export interface RunReveal {
+  roster: RevealTrack;
+  /** Null until the boss is revealed — before that there is no block at all,
+   *  not an empty lineup. */
+  boss: BossRevealTrack | null;
+}
+
+// ---------------------------------------------------------------------------
+// v3 — what is armed right now
+// ---------------------------------------------------------------------------
+
+export interface PendingPrep {
+  lane: LaneField;
+  label: string;
+  bonus: number;
+  act: number;
+}
+
+export interface ActiveRoleFocus {
+  role: Role;
+  acquired_act: number;
+  acquired_stage: number;
+  consumed_node_id: string | null;
+}
+
+export interface ActiveReservation {
+  card_id: string;
+  locked_cost: number;
+  locked_modifiers: CostModifier[];
+  reserved_act: number;
+  reserved_stage: number;
+  offered_node_id: string | null;
+  status: "live" | "offered" | "used" | "expired";
+}
+
+export interface SinkSpendRow {
+  sink_id: string;
+  cost: number;
+  act: number;
+  stage: number;
+  [key: string]: unknown;
+}
+
+export interface ArmedEffects {
+  prep: PendingPrep | null;
+  prep_bonus: number;
+  role_focus: ActiveRoleFocus | null;
+  reserved_card: ActiveReservation | null;
+  scouted_boss_acts: number[];
+  emergency_recoveries_used: number;
+  emergency_recoveries_max: number;
+  sink_spend: SinkSpendRow[];
+  sink_spend_total: number;
 }
 
 export interface StageOption {
@@ -281,6 +542,17 @@ export interface ActiveNode {
   can_decline?: boolean;
   // film_room | rest_bank
   choices?: NodeChoice[];
+  // -- v3 -------------------------------------------------------------------
+  /** The sinks THIS node offers, priced and gated. Empty on a node that offers
+   *  none. Optional so a payload from an older API still type-checks. */
+  credit_sinks?: CreditSink[];
+  /** film_room only — the three Scout & Prepare branches in full. */
+  scout?: ScoutBlock;
+  /** draft_room | trade_desk — the role a paid Role Focus is guaranteeing on
+   *  this board, or null. */
+  role_focus?: Role | null;
+  /** draft_room | trade_desk — how many times this market has been refreshed. */
+  refreshes_used?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -529,6 +801,22 @@ export interface RunPublicState {
   roster_total: number;
   bench_weight: number;
   veteran_minimum_used_this_act: boolean;
+  /**
+   * The act whose boss must be BEATEN to clear the table. Always `acts_total`
+   * today; published separately so nothing compares `act` to a literal.
+   */
+  final_boss_act?: number;
+  /** `ROSTER_SIZE` — 5 starters + 2 bench. Drives the reveal's slot count. */
+  roster_size?: number;
+  /**
+   * v3 reveals. Optional so a client built against an older API still
+   * type-checks and simply skips the reveal surfaces.
+   */
+  reveal?: RunReveal;
+  /** v3: preparation / role focus / reservation currently armed. */
+  armed?: ArmedEffects;
+  /** v3: the published price list, for a run-level rules panel. */
+  credit_sinks?: CreditSink[];
   action_count: number;
   receipt: RunReceipt | null;
   versions: RunVersions;
@@ -555,6 +843,24 @@ export interface RulesetMeta {
   systems: SystemPublic[];
   boss_rules: BossRule[];
   roster: { starters: number; bench: number; roles: Role[] };
+  /** The whole run shape, published so the client never hardcodes it. */
+  run_shape?: {
+    acts: number;
+    stages_per_act: number;
+    node_choices_per_stage: number;
+    decision_nodes: number;
+    battles: number;
+    final_boss_act: number;
+    roster_size: number;
+    outcomes: string[];
+  };
+  /** v3's four published prices. */
+  credit_sinks?: CreditSink[];
+  scout_and_prepare?: {
+    choices: string[];
+    prep_bonus: number;
+    reserve_choices_offered: number;
+  };
   economy: {
     starting_credits: number;
     starting_lives: number;
@@ -562,6 +868,11 @@ export interface RulesetMeta {
     comeback_credits: number;
     trade_refund_pct: number;
     price_formula: string;
+    rest_credits?: number;
+    boss_win_credits?: number;
+    market_refresh_cost?: number;
+    emergency_recovery_cost?: number;
+    emergency_recovery_max_per_run?: number;
   };
   battle: {
     starter_weight: number;
@@ -651,7 +962,13 @@ export type RunActionType =
   | "film_room"
   | "rest_bank"
   | "resolve_boss"
-  | "advance";
+  | "advance"
+  | "market_refresh"
+  | "emergency_recovery"
+  | "reveal";
+
+/** `action_reveal`'s targets. */
+export type RevealTarget = "roster" | "boss";
 
 export type RunActionBody =
   | { action_type: "select_system"; system_id: string }
@@ -665,10 +982,25 @@ export type RunActionBody =
   | { action_type: "draft_pass" }
   | { action_type: "trade"; outgoing_slot_id: string; incoming_card_id: string }
   | { action_type: "decline_trade" }
-  | { action_type: "film_room"; choice: string }
+  /**
+   * Scout & Prepare. Which extra field a branch needs is the ENGINE's rule:
+   * `scout_boss` needs `lane`, `shape_market` needs `role`, `reserve_card`
+   * needs `card_id`. Sending the wrong one is a 409 with a named reason rather
+   * than a silent no-op, so this union stays one member and the server decides.
+   */
+  | {
+      action_type: "film_room";
+      choice: string;
+      lane?: LaneField;
+      role?: Role;
+      card_id?: string;
+    }
   | { action_type: "rest_bank"; choice: string }
   | { action_type: "resolve_boss" }
-  | { action_type: "advance" };
+  | { action_type: "advance" }
+  | { action_type: "market_refresh" }
+  | { action_type: "emergency_recovery" }
+  | { action_type: "reveal"; target: RevealTarget; count: number };
 
 // ---------------------------------------------------------------------------
 // localStorage

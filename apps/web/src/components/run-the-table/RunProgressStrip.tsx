@@ -3,9 +3,15 @@ import { MapAct } from "@/types/run-the-table";
 import { ladderProgress, ladderRows } from "@/lib/run-the-table-state";
 
 /**
- * Mobile-only progress strip: the same nine ladder rows as the desktop map,
+ * Mobile-only progress strip: the same ladder rows as the desktop map,
  * collapsed into one horizontal run of ticks. It answers "how far in am I"
- * without asking a phone to render a nine-row rail above the decision.
+ * without asking a phone to render the whole rail above the decision.
+ *
+ * NO ROW COUNT IS ASSUMED. `ladderRows` derives them from `state.map`, which
+ * the server sizes from `config.ACTS` — 15 rows under rtt_ruleset_v3, 9 under
+ * v1. `flex-1` on every tick means the strip re-divides the same width instead
+ * of overflowing when the run gets longer, which is what a fixed tick width
+ * would have done at the v2 and v3 bumps.
  */
 interface Props {
   map: MapAct[];

@@ -36,6 +36,9 @@ from nba_peak.run_the_table.receipt import (
 )
 
 RECEIPT_SEEDS = (0, 8, 12, 44, 101, 777)
+# A greedy run that sweeps all five v3 bosses. Was 8, which under v3's five acts
+# and cut mid-run income runs out of lives in act 4.
+SEED_GREEDY_SWEEP = 27
 
 
 def _canonical(receipt: dict) -> str:
@@ -77,7 +80,9 @@ class TestReceiptDeterminism:
 class TestReceiptContent:
     @pytest.fixture(scope="class")
     def finished(self, pool, play_policy):
-        bp, st = play_policy(8, random.Random(8), pool, "greedy")
+        bp, st = play_policy(
+            SEED_GREEDY_SWEEP, random.Random(SEED_GREEDY_SWEEP), pool, "greedy"
+        )
         return bp, st, build_receipt(st, bp, pool)
 
     def test_the_record_matches_the_battles_that_were_played(self, finished):
@@ -134,11 +139,18 @@ class TestReceiptContent:
         )
 
     def test_the_credit_ledger_balances(self, finished):
+        """v3 counts the four published credit sinks. Leaving them out would
+        print a ledger that stops balancing the moment a player refreshes a
+        market."""
         _, st, receipt = finished
-        spent = sum(a["cost"] for a in st.acquisitions) + sum(
+        cards = sum(a["cost"] for a in st.acquisitions) + sum(
             max(0, t["net_cost"]) for t in st.trades
         )
-        assert receipt["credits_spent"] == spent
+        sinks = sum(row["cost"] for row in st.sink_spend)
+        assert receipt["credits_spent_on_cards"] == cards
+        assert receipt["credits_spent_on_sinks"] == sinks
+        assert receipt["credits_spent"] == cards + sinks
+        assert sum(receipt["credits_spent_by_sink"].values()) == sinks
         assert receipt["credits_remaining"] == st.credits
         assert receipt["starting_credits"] == STARTING_CREDITS
 
@@ -169,10 +181,13 @@ class TestReceiptContent:
         assert receipt["lives_remaining"] == 0
 
     def test_a_cleared_table_receipt_says_so(self, pool, play_policy):
-        bp, st = play_policy(8, random.Random(8), pool, "greedy")
+        bp, st = play_policy(
+            SEED_GREEDY_SWEEP, random.Random(SEED_GREEDY_SWEEP), pool, "greedy"
+        )
         receipt = build_receipt(st, bp, pool)
-        if not receipt["table_cleared"]:
-            pytest.skip("seed 8 no longer clears the table under the greedy policy")
+        assert receipt["table_cleared"] is True, (
+            f"seed {SEED_GREEDY_SWEEP} no longer sweeps under the greedy policy"
+        )
         assert receipt["outcome"] == "table_cleared"
         assert receipt["verdict"] == "TABLE CLEARED"
         assert receipt["headline"] == "Cleared the table."
@@ -195,6 +210,48 @@ class TestReceiptContent:
             min(abs(l.margin) for l in b.lanes) for b in st.battles
         )
         assert receipt["closest_battle"]["tightest_lane_margin"] == round(tightest, 4)
+
+
+class TestReceiptV3Fields:
+    """Scout & Prepare and the credit sinks have to reach the result screen, or
+    the player cannot tell what the node bought them."""
+
+    def test_a_receipt_reports_every_lane_preparation_that_was_spent(
+        self, pool, play_policy
+    ):
+        from nba_peak.run_the_table.config import LANE_LABELS, SCOUT_PREP_LANE_BONUS
+
+        found = False
+        for seed in range(30):
+            bp, st = play_policy(seed, random.Random(seed), pool, "first")
+            receipt = build_receipt(st, bp, pool)
+            expected = [
+                {
+                    "act": b.act,
+                    "boss_id": b.boss_id,
+                    "lane": lane,
+                    "label": LANE_LABELS[lane],
+                    "bonus": bonus,
+                }
+                for b in st.battles
+                for lane, bonus in sorted(b.lane_bonuses.items())
+            ]
+            assert receipt["lane_preparations"] == expected
+            if expected:
+                found = True
+                assert all(row["bonus"] == SCOUT_PREP_LANE_BONUS for row in expected)
+        assert found, "no seed under the `first` policy ever armed a preparation"
+
+    def test_a_receipt_reports_which_acts_were_scouted(self, pool, play_policy):
+        for seed in range(10):
+            bp, st = play_policy(seed, random.Random(seed), pool, "first")
+            receipt = build_receipt(st, bp, pool)
+            assert receipt["scouted_boss_acts"] == st.scouted_boss_acts
+
+    def test_the_receipt_counts_five_acts(self, pool, play_policy):
+        bp, st = play_policy(0, random.Random(0), pool, "greedy")
+        receipt = build_receipt(st, bp, pool)
+        assert receipt["acts_total"] == ACTS == 5
 
 
 class TestOutcomeTaxonomy:
@@ -348,7 +405,9 @@ class TestSemanticReceiptItems:
         assert receipt["credits_remaining"] == item["value"]
 
     def test_the_lives_record_item_reports_lives_not_a_penalty(self, pool, play_policy):
-        bp, st = play_policy(8, random.Random(8), pool, "greedy")
+        bp, st = play_policy(
+            SEED_GREEDY_SWEEP, random.Random(SEED_GREEDY_SWEEP), pool, "greedy"
+        )
         receipt = build_receipt(st, bp, pool)
         item = next(i for i in receipt["items"] if i["kind"] == "record"
                     and "lives" in i["label"])

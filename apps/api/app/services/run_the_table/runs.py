@@ -61,9 +61,12 @@ from nba_peak.run_the_table.state import (
     action_decline_trade,
     action_draft_buy,
     action_draft_pass,
+    action_emergency_recovery,
     action_film_room,
+    action_market_refresh,
     action_rest_bank,
     action_resolve_boss,
+    action_reveal,
     action_select_system,
     action_trade,
     assert_version_compatible,
@@ -442,13 +445,38 @@ def apply_action(
     if action_type == "decline_trade":
         return action_decline_trade(state, blueprint, idempotency_key=key)
     if action_type == "film_room":
+        # `lane`, `role` and `card_id` are branch-specific and NOT required
+        # here: which one a choice needs is a rules fact the engine owns, and
+        # `action_film_room` raises `unknown_lane` / `unknown_role` /
+        # `card_not_offered` with the exact reason. Demanding them at this layer
+        # would answer 422 "missing field" for what is really a 409 "that is not
+        # a legal move", and would hard-code the branch table twice.
         return action_film_room(
             state, blueprint, _required(fields, "choice", action_type),
+            lane=fields.get("lane"),
+            role=fields.get("role"),
+            card_id=fields.get("card_id"),
+            pool=pool,
             idempotency_key=key,
         )
     if action_type == "rest_bank":
         return action_rest_bank(
             state, blueprint, _required(fields, "choice", action_type),
+            idempotency_key=key,
+        )
+    if action_type == "market_refresh":
+        return action_market_refresh(state, blueprint, pool=pool, idempotency_key=key)
+    if action_type == "emergency_recovery":
+        return action_emergency_recovery(state, blueprint, idempotency_key=key)
+    if action_type == "reveal":
+        # `target` defaults to "roster" and `count` to 1 in the request model,
+        # so "reveal the next card" is the empty body. An out-of-range target is
+        # the engine's `unknown_reveal_target` (409), not a schema error: the
+        # legal set is a rules fact.
+        return action_reveal(
+            state, blueprint,
+            target=fields.get("target") or "roster",
+            count=int(fields.get("count") or 1),
             idempotency_key=key,
         )
     if action_type == "resolve_boss":

@@ -24,16 +24,20 @@ import {
   PERK_STRATEGY_HINT,
   PERK_TERM,
   RTT_COPY,
+  CREDIT_SINK_PLAIN_EFFECT,
   bossRulePlainEffect,
   componentLabels,
+  creditSinkPlainEffect,
   lanesToWinSentence,
   nodeChoiceTradeoff,
+  nodeConsequence,
   nodeTypeCopy,
+  sinkUnavailableReason,
   perkPlainEffect,
   perkStrategyHint,
   shouldSuppressServerSummary,
 } from "@/lib/run-the-table-copy";
-import { SYSTEM_LABELS } from "@/lib/run-the-table-state";
+import { NODE_TYPE_LABELS, SYSTEM_LABELS } from "@/lib/run-the-table-state";
 import type { NodeType } from "@/types/run-the-table";
 
 /** `config.SYSTEMS` ids, mirrored. `SYSTEM_LABELS` is the app's own mirror of
@@ -147,9 +151,22 @@ describe("node copy", () => {
     expect(NODE_TYPE_COPY.trade_desk.purpose).toBe(
       "Replace one roster player. You receive a refund toward the incoming card.",
     );
+    // rtt_ruleset_v3: the node is Scout & Prepare and its three branches ARE
+    // the first-scan line. "Learn what is coming or take a preparation benefit"
+    // described a two-choice node that no longer exists.
     expect(NODE_TYPE_COPY.film_room.purpose).toBe(
-      "Learn what is coming or take a preparation benefit.",
+      "Scout the boss, shape the next market, or reserve a future card.",
     );
+  });
+
+  /** The node's player-facing identity changed with the ruleset; its engine
+   *  node_type id deliberately did not. Both facts are pinned, because getting
+   *  either backwards breaks something: renaming the id breaks every switch,
+   *  and leaving the label breaks the promise the node now makes. */
+  it("calls the film_room node Scout & Prepare, and keeps the engine id", () => {
+    expect(NODE_TYPE_COPY.film_room.label).toBe("Scout & Prepare");
+    expect(NODE_TYPE_COPY.film_room.type).toBe("film_room");
+    expect(NODE_TYPE_LABELS.film_room).toBe(NODE_TYPE_COPY.film_room.label);
   });
 
   it("gives every node type a label, an icon, an accent and a consequence", () => {
@@ -164,26 +181,58 @@ describe("node copy", () => {
   });
 
   /**
-   * WHAT SCOUTING ACTUALLY DOES (`state.action_film_room:499-508`): it unlocks
-   * the remaining stages of THIS act plus stage 1 of the next. And
-   * `public.py:338-341` reveals the boss's roster once this act's LAST stage is
-   * scouted — the highest-value consequence, which no surface used to state.
+   * WHAT SCOUT & PREPARE ACTUALLY DOES (`state.action_film_room`): three
+   * branches — scout the boss and prepare one lane (free), shape the next
+   * market toward a role, or reserve a revealed future card at today's price.
+   * There is NO "take the credits" branch: `FILM_CREDITS` was deleted in v3,
+   * not set to zero, so any copy implying one is advertising an ATM that does
+   * not exist.
    */
-  it("states the real Film Room mechanic, boss reveal included", () => {
+  it("states all three v3 branches and promises no credits", () => {
     const c = NODE_TYPE_COPY.film_room.consequence;
-    expect(c).toMatch(/first stage of the next/i);
-    expect(c).toMatch(/boss/i);
-    // There is no prep-advantage mechanic anywhere in the engine.
+    expect(c).toMatch(/scout/i);
+    expect(c).toMatch(/market/i);
+    expect(c).toMatch(/reserve/i);
+    expect(c).toMatch(/one lane/i);
+    // The two mechanics the engine has never had.
     expect(c.toLowerCase()).not.toContain("prep advantage");
+    expect(c.toLowerCase()).not.toContain("bank");
   });
 
-  /** `generation.py:199-202` sets the Film Room's server summary to a mechanic
-   *  the engine does not implement, so that one string is not printed. */
-  it("suppresses the server summary for the Film Room and for nothing else", () => {
-    expect(shouldSuppressServerSummary("film_room")).toBe(true);
-    for (const type of NODE_TYPES.filter((t) => t !== "film_room")) {
-      expect(shouldSuppressServerSummary(type)).toBe(false);
+  /**
+   * The suppression flag existed for ONE string: the v2 generator's Film Room
+   * summary promised "then take one prep advantage" and the v2 engine had no
+   * such mechanic. v3's `_NODE_COPY["film_room"]` describes exactly the three
+   * branches `action_film_room` implements, so suppressing it would now hide
+   * the correct sentence. Nothing is suppressed, and that is asserted for every
+   * node type rather than assumed.
+   */
+  it("suppresses no server summary under v3", () => {
+    for (const type of NODE_TYPES) {
+      expect(shouldSuppressServerSummary(type), type).toBe(false);
     }
+  });
+
+  /**
+   * The count-free consequence lines, and where a count is allowed back in.
+   *
+   * "Three priced cards" was hardcoded and was already capable of being wrong:
+   * a live reservation adds a FOURTH card to a Draft Room. `nodeConsequence`
+   * takes the count from a caller that can see the board, and returns the
+   * count-free line to a caller that cannot.
+   */
+  it("keeps run-shape counts out of the static consequence lines", () => {
+    for (const type of NODE_TYPES) {
+      expect(nodeTypeCopy(type).consequence.toLowerCase()).not.toMatch(
+        /\b(three|four|five|two)\s+(priced|players|cards)\b/,
+      );
+    }
+    expect(nodeConsequence("draft_room")).toBe(NODE_TYPE_COPY.draft_room.consequence);
+    expect(nodeConsequence("draft_room", 4)).toContain("4 priced cards");
+    expect(nodeConsequence("draft_room", 1)).toContain("1 priced card");
+    expect(nodeConsequence("trade_desk", 3)).toContain("3 players are available");
+    // A node with no market gets no invented count.
+    expect(nodeConsequence("rest_bank", 3)).toBe(NODE_TYPE_COPY.rest_bank.consequence);
   });
 
   it("says what each written choice COSTS, for both two-choice nodes", () => {
@@ -197,7 +246,12 @@ describe("node copy", () => {
 
 describe("boss rule copy", () => {
   it("has a plain line for every rule the engine ships", () => {
-    for (const id of ["the_wall", "strength_in_numbers", "top_heavy", "the_standard"]) {
+    // Every id in `config.BOSS_RULES`, `the_long_series` (v3's Final Boss rule)
+    // included — a rule with no plain line renders the raw published summary
+    // under a heading that promised an explanation.
+    for (const id of [
+      "the_wall", "strength_in_numbers", "top_heavy", "the_standard", "the_long_series",
+    ]) {
       expect(bossRulePlainEffect(id), `no plain line for ${id}`).toBeTruthy();
     }
   });
@@ -270,5 +324,99 @@ describe("terminology", () => {
       "postseason_individual_value",
     );
     expect(COMPONENT_COPY.team_achievement.explainer).toContain("team_achievement");
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Credit sinks (v3, spec §4)
+ * ------------------------------------------------------------------------- */
+
+describe("credit sink copy", () => {
+  /** `config.CREDIT_SINKS` ids, mirrored. */
+  const SINK_IDS = ["market_refresh", "reserve_card", "role_focus", "emergency_recovery"];
+
+  it("has a plain line for every sink the engine publishes", () => {
+    for (const id of SINK_IDS) {
+      expect(creditSinkPlainEffect(id), `no plain line for ${id}`).toBeTruthy();
+    }
+    expect(Object.keys(CREDIT_SINK_PLAIN_EFFECT).sort()).toEqual([...SINK_IDS].sort());
+  });
+
+  /**
+   * THE WHOLE POINT OF THIS LAYER. Every price, limit and exact rule arrives on
+   * the payload from `config.CREDIT_SINKS`; if a friendly line restated one it
+   * could drift from the number the engine actually charges, and the player
+   * would be told two different prices on the same screen.
+   */
+  it("states no price, so it cannot drift from config.py", () => {
+    for (const line of Object.values(CREDIT_SINK_PLAIN_EFFECT)) {
+      expect(line).not.toMatch(/\d/);
+    }
+  });
+
+  it("degrades to null for a sink this build has never heard of", () => {
+    expect(creditSinkPlainEffect("free_money")).toBeNull();
+  });
+
+  /**
+   * A disabled priced control with no reason is the thing this exists to
+   * prevent: "I cannot afford it", "I already used it" and "there is nothing to
+   * fix" are three different problems with three different answers, and a
+   * greyed-out button says none of them.
+   */
+  it("turns every engine reason code into a distinct sentence", () => {
+    const codes = [
+      "insufficient_credits",
+      "refresh_limit",
+      "recovery_limit",
+      "lives_full",
+      "role_focus_active",
+      "reservation_active",
+    ];
+    const sentences = codes.map((c) => sinkUnavailableReason(c));
+    expect(sentences.every(Boolean)).toBe(true);
+    expect(new Set(sentences).size).toBe(codes.length);
+  });
+
+  it("never renders a bare code, and says nothing when there is nothing to say", () => {
+    expect(sinkUnavailableReason(null)).toBeNull();
+    expect(sinkUnavailableReason(undefined)).toBeNull();
+    // An unknown code still produces a sentence rather than leaking the code.
+    expect(sinkUnavailableReason("some_new_rule")).toBe("Not available right now.");
+  });
+});
+
+describe("Scout & Prepare tradeoffs", () => {
+  /**
+   * v2's `scout_offers` / `take_credits` are GONE from the tradeoff table, not
+   * repointed. `take_credits` does not exist at a Scout & Prepare any more, and
+   * a leftover line for it would keep advertising an ATM the engine deleted.
+   */
+  it("covers exactly the three v3 branches and neither v2 choice", () => {
+    const filmKeys = Object.keys(NODE_CHOICE_TRADEOFF).filter((k) =>
+      k.startsWith("film_room:"),
+    );
+    expect(filmKeys.sort()).toEqual([
+      "film_room:reserve_card",
+      "film_room:scout_boss",
+      "film_room:shape_market",
+    ]);
+    expect(nodeChoiceTradeoff("film_room", "take_credits")).toBeNull();
+    expect(nodeChoiceTradeoff("film_room", "scout_offers")).toBeNull();
+  });
+});
+
+describe("reveal copy", () => {
+  /**
+   * A card-by-card reel reads like something being decided as you watch. It is
+   * not: the opening roster and every boss lineup are fixed by the seed and the
+   * ruleset before the run starts. Both lines have to say so, because "an LLM
+   * building a team live" is exactly the wrong impression to leave.
+   */
+  it("labels both reveals as seed and rule generated", () => {
+    expect(RTT_COPY.revealSource).toMatch(/seed and rule generated/i);
+    expect(RTT_COPY.bossRevealSource).toMatch(/seed and rule generated/i);
+    expect(RTT_COPY.revealSource).toMatch(/before the run started/i);
+    expect(RTT_COPY.bossRevealSource).toMatch(/not a team being built live/i);
   });
 });

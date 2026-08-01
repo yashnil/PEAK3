@@ -493,6 +493,52 @@ class PublicCourtStateResponse(BaseModel):
     eligibility: Optional[RunEligibilityPublic] = None
 
 
+class SharedCourtResultResponse(BaseModel):
+    """The read-only scorecard behind a shared `/arena/court/results/{id}` link.
+
+    A DELIBERATELY NARROWER MODEL, not `PublicCourtStateResponse` with some
+    fields left null. The withheld fields (`current_spin`,
+    `pending_selection`, `live_build`, `eligibility`, `respin_policy_debug` --
+    see `state.py::SHARED_RESULT_WITHHELD_KEYS` for why each one) are absent
+    from this schema entirely, so they are *unrepresentable* on this route
+    rather than merely unset by the current projection. If a later change to
+    `get_shared_result_state` stopped stripping one, this model would still
+    refuse to emit it.
+
+    Every field here is a property of a FINISHED run: the eight resolved
+    cards, the simulation result, and the data receipt. Nothing on it is an
+    action, which is what makes serving it unauthenticated correct while
+    `GET /perfect-season/games/{game_id}` stays owner-only.
+    """
+
+    model_config = {"extra": "ignore"}
+
+    game_id: str
+    status: str
+    mode: str
+    current_round: int
+    total_rounds: int
+    slots: list[CourtSlotPublic]
+    board_seed: int
+    card_pool_version: str
+    board_generator_version: str
+    interim_team_data_version: Optional[str] = None
+    experimental_team_year_data_version: Optional[str] = None
+    formula_version: Optional[str] = None
+    coverage_mode: Optional[str] = None
+    open_pool_enabled: bool = False
+    simulation_result: Optional[SimulationResultPublic] = None
+    respin_history: list[dict] = []
+    team_respins_used_total: int = 0
+    team_respins_remaining_total: int = 3
+    season_respins_used_total: int = 0
+    season_respins_remaining_total: int = 3
+    respin_policy_version: Optional[str] = None
+    challenge_kind: str = "free_play"
+    challenge_date: Optional[str] = None
+    board_type: str = "practice"
+
+
 class CourtBuilderCoverageSummary(BaseModel):
     """Per-mode (duration-aware) audit of interim-dataset candidate depth --
     see nba_peak.perfect_season.board.coverage_summary's docstring. Exists

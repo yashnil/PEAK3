@@ -14,6 +14,7 @@ import {
   PerfectSeasonRunPublic,
   SavedRunsResponse,
   SaveRunResponse,
+  SharedCourtResult,
   SlotType,
 } from "@/types/perfect-season";
 
@@ -78,6 +79,26 @@ export async function createCourtGame(
 
 export async function getCourtGame(gameId: string): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}`, { cache: "no-store" } as RequestInit);
+}
+
+/**
+ * The read-only scorecard behind a shared results link.
+ *
+ * A DIFFERENT ENDPOINT from `getCourtGame`, on purpose. `GET
+ * /perfect-season/games/{id}` is the owner's live game: it carries the
+ * candidate pool and is the handle every mutator keys off, so it is
+ * owner-only and a shared link cannot use it (that is exactly why the shared
+ * page 404'd once ownership was enforced). `/shared-result` serves only
+ * finished runs, strips the owner-scoped and mutable fields server-side, and
+ * 404s identically for "no such run" and "not finished yet".
+ *
+ * No `credentials: "include"` is needed or wanted -- the response does not
+ * depend on who is asking, which is the whole point.
+ */
+export async function getSharedCourtResult(gameId: string): Promise<SharedCourtResult> {
+  return apiFetch<SharedCourtResult>(`/perfect-season/games/${gameId}/shared-result`, {
+    cache: "no-store",
+  } as RequestInit);
 }
 
 export async function selectPlayer(gameId: string, playerSlug: string): Promise<CourtLineupPublicState> {

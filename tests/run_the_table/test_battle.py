@@ -13,6 +13,7 @@ from nba_peak.run_the_table.battle import (
     bench_weight_for,
     lane_margin_threshold,
     lane_score,
+    lanes_to_win_for,
     player_bench_weight_candidates,
     player_lane_profile,
     resolve_battle,
@@ -26,6 +27,7 @@ from nba_peak.run_the_table.config import (
     BENCH_WEIGHT_TOP_HEAVY,
     BOSS_BENCH_WEIGHT,
     BOSS_LANE_MARGIN,
+    BOSS_LANES_TO_WIN,
     BOSS_RULES,
     BOSS_WIN_CREDITS,
     COMEBACK_CREDITS,
@@ -169,11 +171,24 @@ class TestBenchWeightSelection:
                 # A lane-margin rule, not a weight rule: Deep Rotation applies.
                 assert (player, opponent) == (BENCH_WEIGHT_DEEP_ROTATION, BENCH_WEIGHT_DEFAULT)
 
-    def test_every_boss_rule_is_either_a_bench_rule_or_a_lane_margin_rule(self):
+    def test_every_boss_rule_is_implemented_by_exactly_one_mechanic(self):
         """No boss may carry a rule the engine does not implement — that is how
-        v1 shipped a tutorial boss whose rule never fired."""
-        assert set(BOSS_RULES) == set(BOSS_BENCH_WEIGHT) | set(BOSS_LANE_MARGIN)
-        assert not set(BOSS_BENCH_WEIGHT) & set(BOSS_LANE_MARGIN)
+        v1 shipped a tutorial boss whose rule never fired. v3 adds a third
+        mechanic (BOSS_LANES_TO_WIN), so the union grows and the
+        mutual-exclusion check grows with it."""
+        mechanics = (BOSS_BENCH_WEIGHT, BOSS_LANE_MARGIN, BOSS_LANES_TO_WIN)
+        assert set(BOSS_RULES) == set().union(*(set(m) for m in mechanics))
+        for i, a in enumerate(mechanics):
+            for b in mechanics[i + 1:]:
+                assert not set(a) & set(b)
+
+    def test_the_raised_lane_bar_applies_to_both_teams(self):
+        """Symmetry is the boss-rule contract: `lanes_to_win_for` returns one
+        threshold that `resolve_battle` compares BOTH lane counts against."""
+        assert lanes_to_win_for(None) == LANES_TO_WIN == 3
+        assert lanes_to_win_for("the_wall") == LANES_TO_WIN
+        assert lanes_to_win_for("the_long_series") == BOSS_LANES_TO_WIN["the_long_series"]
+        assert BOSS_LANES_TO_WIN["the_long_series"] > LANES_TO_WIN
 
 
 class TestDeepRotationIsABuff:
@@ -507,3 +522,126 @@ class TestLivesAndComebackCredits:
         # v1 paid a winner nothing while paying a loser COMEBACK_CREDITS, so the
         # only battle income in the game went to the player who was losing.
         assert BOSS_WIN_CREDITS > COMEBACK_CREDITS
+
+
+class TestLanePreparation:
+    """The Scout & Prepare preparation (spec §5A): capped, published, one lane,
+    one battle, and always the player's — it is the thing they bought."""
+
+    @pytest.fixture
+    def even(self):
+        mine = _side("m", _flat())
+        theirs = _side("o", _flat())
+        pool = make_pool(mine + theirs)
+        return (
+            pool,
+            [c.peak_window_id for c in mine],
+            _opponent([c.peak_window_id for c in theirs]),
+        )
+
+    def test_no_bonus_is_the_default_and_changes_nothing(self, even):
+        pool, mine, boss = even
+        a = resolve_battle(pool, mine, [], boss, (), lives_before=3, comeback_credits=0)
+        b = resolve_battle(
+            pool, mine, [], boss, (), lives_before=3, comeback_credits=0, lane_bonuses={}
+        )
+        assert a == b
+        assert a.lane_bonuses == {}
+        assert all(l.player_prep_bonus == 0.0 for l in a.lanes)
+
+    def test_a_bonus_moves_only_the_named_lane_and_is_recorded(self, even):
+        pool, mine, boss = even
+        result = resolve_battle(
+            pool, mine, [], boss, (), lives_before=3, comeback_credits=0,
+            lane_bonuses={TP: 2.5},
+        )
+        assert result.lane_bonuses == {TP: 2.5}
+        for lane in result.lanes:
+            if lane.lane == TP:
+                assert lane.player_score == 52.5
+                assert lane.margin == 2.5
+                assert lane.winner == "player"
+                assert lane.player_prep_bonus == 2.5
+            else:
+                assert lane.player_score == 50.0
+                assert lane.winner == "tie"
+                assert lane.player_prep_bonus == 0.0
+
+    def test_a_zero_bonus_is_dropped_rather_than_recorded(self, even):
+        pool, mine, boss = even
+        result = resolve_battle(
+            pool, mine, [], boss, (), lives_before=3, comeback_credits=0,
+            lane_bonuses={TP: 0.0},
+        )
+        assert result.lane_bonuses == {}
+
+    def test_the_bonus_reaches_the_summed_margin_tie_break(self, even):
+        pool, mine, boss = even
+        result = resolve_battle(
+            pool, mine, [], boss, (), lives_before=3, comeback_credits=0,
+            lane_bonuses={TEAM: 2.5},
+        )
+        assert result.summed_margin == 2.5
+        assert result.outcome == "win"
+
+
+class TestRaisedLaneBar:
+    """`the_long_series` (v3 Final Boss): four of five lanes to win outright,
+    for both teams, and everything short of that falls to the summed margin."""
+
+    def _sides(self, mine_lanes, theirs_lanes):
+        mine = _side("m", mine_lanes)
+        theirs = _side("o", theirs_lanes)
+        return make_pool(mine + theirs), [c.peak_window_id for c in mine], [
+            c.peak_window_id for c in theirs
+        ]
+
+    def test_three_lanes_no_longer_wins_outright(self):
+        pool, mine, theirs = self._sides(
+            _flat(**{SI: 60.0, TP: 60.0, REC: 60.0, PO: 10.0, TEAM: 10.0}),
+            _flat(**{SI: 50.0, TP: 50.0, REC: 50.0, PO: 90.0, TEAM: 90.0}),
+        )
+        boss = _opponent(theirs, rule_id="the_long_series", act=5)
+        result = resolve_battle(
+            pool, mine, [], boss, (), lives_before=3, comeback_credits=0
+        )
+        assert result.player_lanes_won == 3
+        assert result.lanes_to_win == 4
+        # Three lanes is short of the bar, so the total margin decides -- and the
+        # total is negative here, which is exactly the point of the rule.
+        assert result.decided_by == "summed_margin"
+        assert result.outcome == "loss"
+
+    def test_four_lanes_still_wins_outright(self):
+        pool, mine, theirs = self._sides(
+            _flat(**{SI: 60.0, TP: 60.0, REC: 60.0, PO: 60.0, TEAM: 10.0}),
+            _flat(**{SI: 50.0, TP: 50.0, REC: 50.0, PO: 50.0, TEAM: 90.0}),
+        )
+        boss = _opponent(theirs, rule_id="the_long_series", act=5)
+        result = resolve_battle(
+            pool, mine, [], boss, (), lives_before=3, comeback_credits=0
+        )
+        assert result.player_lanes_won == 4
+        assert result.outcome == "win"
+        assert result.decided_by == "lanes"
+
+    def test_the_bar_binds_the_boss_identically(self):
+        pool, mine, theirs = self._sides(
+            _flat(**{SI: 50.0, TP: 50.0, REC: 50.0, PO: 90.0, TEAM: 90.0}),
+            _flat(**{SI: 60.0, TP: 60.0, REC: 60.0, PO: 10.0, TEAM: 10.0}),
+        )
+        boss = _opponent(theirs, rule_id="the_long_series", act=5)
+        result = resolve_battle(
+            pool, mine, [], boss, (), lives_before=3, comeback_credits=0
+        )
+        assert result.opponent_lanes_won == 3
+        assert result.decided_by == "summed_margin"
+        assert result.outcome == "win"
+
+    def test_the_default_bar_is_recorded_on_every_other_battle(self):
+        pool, mine, theirs = self._sides(_flat(), _flat())
+        boss = _opponent(theirs, rule_id="the_wall")
+        result = resolve_battle(
+            pool, mine, [], boss, (), lives_before=3, comeback_credits=0
+        )
+        assert result.lanes_to_win == LANES_TO_WIN == 3

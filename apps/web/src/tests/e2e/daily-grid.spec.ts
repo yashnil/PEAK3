@@ -229,12 +229,24 @@ async function solveBoardViaApi(
   return filled;
 }
 
-/** Mark the how-to-play rules as already seen, so a test that is not about
+/** Mark Daily Grid onboarding as already seen, so a test that is not about
  *  onboarding lands straight on the board. Must run before the first
- *  navigation, hence addInitScript. */
+ *  navigation, hence addInitScript.
+ *
+ *  Writes the VERSIONED tour store (`lib/tour-state.ts`) under the
+ *  `"daily-grid"` tour id. It used to write the unversioned
+ *  `"peak3.daily-grid.rules-seen"` flag, which the app now only ever READS, as
+ *  a one-way migration for players who dismissed the old gate. */
 async function skipRules(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+    window.localStorage.setItem(
+      "peak3.tour.state",
+      JSON.stringify({
+        schema_version: 1,
+        tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+        coachmarks: {},
+      }),
+    );
   });
 }
 
@@ -608,16 +620,47 @@ test.describe("Daily Grid — answer-key confidentiality", () => {
  * board is measured against today's maximum.
  */
 test.describe("Daily Grid — objective and onboarding", () => {
-  test("explains the objective before the board is playable", async ({ page }) => {
+  test("states the objective and the timer rule before the board is playable", async ({ page }) => {
     // Deliberately NO skipRules: this is the first-visit path.
     await page.goto(DAILY_URL, { waitUntil: "load" });
 
-    const gate = page.getByTestId("how-to-play-gate");
+    const gate = page.getByTestId("daily-grid-start-gate");
     await expect(gate).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("how-to-play-objective")).toContainText(
-      /maximize your PEAK3 total with nine different players/i,
-    );
-    // The board is not reachable until the player starts.
+    await expect(gate).toContainText("9 squares · 9 different exact player-seasons");
+    await expect(gate).toContainText("Build the highest-scoring valid grid you can.");
+    await expect(gate).toContainText("The timer starts only when you press Start.");
+
+    // The three briefed actions.
+    await expect(page.getByTestId("start-daily-grid")).toHaveText(/Start Timed Grid/);
+    await expect(page.getByTestId("daily-grid-gate-how-to-play")).toHaveText(/How to Play/);
+    await expect(page.getByTestId("daily-grid-gate-skip-tour")).toHaveText(/Skip Tour and Start/);
+
+    // The board is not reachable until the player starts, so there is no square
+    // to select and therefore no search surface to inspect candidates with.
+    await expect(page.getByTestId("daily-grid-board")).toHaveCount(0);
+    await expect(page.getByTestId("grid-cell")).toHaveCount(0);
+    await expect(page.getByTestId("cell-search-input")).toHaveCount(0);
+  });
+
+  test("the walkthrough runs untimed from the gate, seven steps, and closes", async ({ page }) => {
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-start-gate")).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId("daily-grid-gate-how-to-play").click();
+    await expect(page.getByTestId("guided-tour-popover")).toBeVisible();
+    await expect(page.getByTestId("guided-tour-progress")).toHaveText("1 of 7");
+
+    for (let i = 2; i <= 7; i += 1) {
+      await page.getByTestId("guided-tour-next").click();
+      await expect(page.getByTestId("guided-tour-progress")).toHaveText(`${i} of 7`);
+    }
+    await page.getByTestId("guided-tour-back").click();
+    await expect(page.getByTestId("guided-tour-progress")).toHaveText("6 of 7");
+
+    // Escape closes it, and the gate is still the screen: nothing was started.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("guided-tour-popover")).toHaveCount(0);
+    await expect(page.getByTestId("daily-grid-start-gate")).toBeVisible();
     await expect(page.getByTestId("daily-grid-board")).toHaveCount(0);
   });
 
@@ -634,6 +677,14 @@ test.describe("Daily Grid — objective and onboarding", () => {
     );
   });
 
+  test("Skip Tour and Start goes straight to the board", async ({ page }) => {
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-start-gate")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("daily-grid-gate-skip-tour").click();
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("guided-tour-popover")).toHaveCount(0);
+  });
+
   test("the rules can be reopened from the board", async ({ page }) => {
     await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
@@ -643,6 +694,24 @@ test.describe("Daily Grid — objective and onboarding", () => {
     await expect(page.getByTestId("how-to-play-panel")).toBeVisible();
     await page.getByTestId("how-to-play-close").click();
     await expect(page.getByTestId("how-to-play-panel")).toHaveCount(0);
+  });
+
+  test("the walkthrough is replayable from the permanent ? control", async ({ page }) => {
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    const launcher = page.getByTestId("daily-grid-tour-launcher");
+    await expect(launcher).toContainText("?");
+    await launcher.click();
+    await expect(page.getByTestId("guided-tour-popover")).toBeVisible();
+    await expect(page.getByTestId("guided-tour-progress")).toHaveText("1 of 7");
+
+    // Closing it leaves the board exactly as it was — no reset, nothing lost.
+    await page.getByTestId("guided-tour-skip").click();
+    await expect(page.getByTestId("guided-tour-popover")).toHaveCount(0);
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible();
+    await expect(page.getByTestId("daily-grid-progress")).toHaveText("0/9");
   });
 });
 
@@ -892,7 +961,17 @@ test.describe("Daily Grid — completed result screen", () => {
 
     await page.addInitScript(
       ([boardId, date, cells]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         window.localStorage.setItem(
           `peak3.daily-grid.${boardId}`,
           JSON.stringify({
@@ -948,7 +1027,17 @@ test.describe("Daily Grid — completed result screen", () => {
 
     await page.addInitScript(
       ([boardId, date, cells]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         window.localStorage.setItem(
           `peak3.daily-grid.${boardId}`,
           JSON.stringify({
@@ -987,12 +1076,22 @@ test.describe("Daily Grid — completed result screen", () => {
  */
 test.describe("Daily Grid — streak, history and the daily loop", () => {
   /** Seed a completed archive for `days` consecutive days ending at `endDate`,
-   *  plus the rules-seen flag. Written through the same shape the app stores,
+   *  plus the onboarding-seen record. Written through the same shape the app stores,
    *  so the page reads it exactly as it would its own writes. */
   async function seedArchive(page: Page, endDate: string, days: number): Promise<void> {
     await page.addInitScript(
       ([end, count]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         const entries = [];
         for (let i = 0; i < (count as number); i += 1) {
           const d = new Date(`${end}T00:00:00Z`);
@@ -1113,7 +1212,17 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
 
     await page.addInitScript(
       ([boardId, date, cells]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         window.localStorage.setItem(
           `peak3.daily-grid.${boardId}`,
           JSON.stringify({
@@ -1215,7 +1324,17 @@ test.describe("Daily Grid — history page", () => {
     const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
     await page.addInitScript(
       ([end]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         const entries = [];
         for (let i = 0; i < 3; i += 1) {
           const d = new Date(`${end}T00:00:00Z`);
@@ -1377,7 +1496,17 @@ test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
 
     await page.addInitScript(
       ([boardId, date, cells]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         window.localStorage.setItem(
           `peak3.daily-grid.${boardId}`,
           JSON.stringify({
@@ -1441,7 +1570,17 @@ test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
     ).json();
     await page.addInitScript(
       ([boardId, date, cells]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         window.localStorage.setItem(
           `peak3.daily-grid.${boardId}`,
           JSON.stringify({

@@ -108,6 +108,46 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const INGEST_URL = `${API_BASE}/api/v1/telemetry/events`;
 
 /**
+ * Whether this deployment collects telemetry at all. OFF unless set.
+ *
+ * WHY THIS EXISTS: THE CLIENT WAS SENDING REQUESTS IT KNEW WOULD BE REFUSED.
+ *
+ * The server is off by default and answers 403 `telemetry_disabled`
+ * (apps/api/app/api/v1/telemetry.py). The client below handles that
+ * correctly — one 403 and it stops for the rest of the page session — but
+ * "page session" is the operative word: module state dies with the document,
+ * so every navigation started a fresh session and posted a fresh batch. Across
+ * the browser suite that is one unauthorized POST per page load, hundreds of
+ * them, each one a request the caller could have known in advance would be
+ * refused. The API log fills with 403s that mean nothing, which is the real
+ * cost: a genuine authorization failure has nowhere to stand out.
+ *
+ * The honest fix is not to make the endpoint accept them. It is to stop
+ * sending them. The client now mirrors the server's own switch, so a
+ * deployment that does not collect telemetry does not generate the traffic —
+ * and rule 3 in the module docstring ("no-op cleanly when the endpoint is
+ * absent, disabled or failing") is satisfied without a round trip.
+ *
+ * `NEXT_PUBLIC_*` is compiled in, so this is a build-time constant, and the
+ * queueing/flushing code below is unreachable in a build without it. Turning
+ * collection on is therefore a two-sided, deliberate act: this variable AND
+ * `PEAK3_TELEMETRY_ENABLED` on the API. Neither alone does anything, which is
+ * the right shape for a privacy-affecting path.
+ */
+const COLLECTION_ENABLED = process.env.NEXT_PUBLIC_TELEMETRY_ENABLED === "true";
+
+/** Where a server refusal is remembered ACROSS page loads within one tab.
+ *
+ *  The second line of defence behind `COLLECTION_ENABLED`, for the case that
+ *  flag cannot cover: a build with collection on, pointed at an API that has
+ *  it off (or too old to have the route). Without this, each navigation asks
+ *  again and is refused again. `sessionStorage` is the right lifetime — per
+ *  tab, cleared when it closes — because "this API is not collecting" is true
+ *  for as long as the visit lasts but must not be cached forever across
+ *  visits, or enabling the server would need every user to clear storage. */
+const REFUSED_KEY = "peak3:telemetry:refused";
+
+/**
  * The event names forwarded to the server. Must stay identical to
  * `EVENT_NAMES` in `apps/api/app/models/telemetry.py`; anything not here is
  * console-only and is never transmitted.
@@ -231,6 +271,8 @@ function privacySignalPresent(): boolean {
       const win = window as Window & { doNotTrack?: string };
       if (win.doNotTrack === "1" || win.doNotTrack === "yes") return true;
       if (window.localStorage?.getItem("peak3:telemetry") === "off") return true;
+      // The API already told this tab it is not collecting — see REFUSED_KEY.
+      if (window.sessionStorage?.getItem(REFUSED_KEY) === "1") return true;
     }
   } catch {
     // A browser that throws on any of the above (private mode, blocked
@@ -302,6 +344,10 @@ function scheduleFlush(): void {
  */
 async function flush(): Promise<void> {
   if (disabled || queue.length === 0) return;
+  // Belt and braces with `enqueue`: with collection off the queue is always
+  // empty, so this is unreachable — but `flush` is exported and a caller
+  // nudging it must never be the thing that makes an unauthorized request.
+  if (!COLLECTION_ENABLED) return;
   if (typeof fetch !== "function") return;
 
   const batch = queue.slice(0, MAX_BATCH);
@@ -328,6 +374,17 @@ async function flush(): Promise<void> {
       if (response.status === 403 || response.status === 404 || response.status === 422) {
         disabled = true;
         queue = [];
+        // Remember it for the whole TAB, not just this document. Module state
+        // dies on navigation, and re-asking an endpoint that has already said
+        // no is the behaviour that filled the API log with 403s. See
+        // REFUSED_KEY.
+        try {
+          window.sessionStorage?.setItem(REFUSED_KEY, "1");
+        } catch {
+          // Storage unavailable (private mode, blocked): the in-memory flag
+          // above still holds for this document, which is the old behaviour
+          // and no worse than it.
+        }
       }
       // Everything else (429, 5xx) simply drops this batch. No retry queue:
       // telemetry is not worth a backoff state machine, and re-sending into a
@@ -346,6 +403,10 @@ async function flush(): Promise<void> {
 
 function enqueue(event: AnalyticsEvent): void {
   if (disabled) return;
+  // This deployment does not collect. Nothing is queued, so nothing is ever
+  // sent — see COLLECTION_ENABLED. `console.debug` in `emit` is unaffected:
+  // the dev-console sink was never the thing making requests.
+  if (!COLLECTION_ENABLED) return;
   if (typeof window === "undefined") return; // SSR: nothing to report
   if (!COLLECTED_EVENTS.has(event.type)) return;
   if (privacySignalPresent()) {
@@ -388,10 +449,11 @@ export const analytics = {
   track: emit,
   flush,
   optOut,
-  /** True when collection has been switched off (privacy signal, opt-out, or
-   *  a server that told us it is not collecting). */
+  /** True when nothing will be collected — because this deployment does not
+   *  collect at all (`COLLECTION_ENABLED`), or because a privacy signal, an
+   *  explicit opt-out or a server refusal switched it off. */
   get isDisabled(): boolean {
-    return disabled;
+    return disabled || !COLLECTION_ENABLED;
   },
   /** Test seam: reset module state between cases. */
   __resetForTests(): void {
@@ -400,6 +462,13 @@ export const analytics = {
     if (timer !== null) {
       clearTimeout(timer);
       timer = null;
+    }
+    try {
+      // The refusal outlives the module, so resetting the module without
+      // clearing it would leak one case's server response into the next.
+      window.sessionStorage?.removeItem(REFUSED_KEY);
+    } catch {
+      // No storage in this environment; nothing to clear.
     }
   },
 };

@@ -9,12 +9,16 @@
 import {
   ChallengeResponse,
   DailyDescriptor,
+  LaneField,
+  RevealTarget,
+  Role,
   RunActionBody,
   RunPublicState,
   RunReadiness,
   RulesetMeta,
   RunType,
 } from "@/types/run-the-table";
+import { getAccessToken } from "@/lib/auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -41,9 +45,35 @@ function parseErrorDetail(detail: unknown, status: number): { message: string; c
 
 async function rttFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   let res: Response;
+  // Attach the signed-in bearer token when there is one.
+  //
+  // WHY: `resolve_owner_sub` (apps/api/app/core/auth.py) returns the account's
+  // `auth.sub` ONLY when an Authorization header is present; otherwise it falls
+  // back to the `peak3_anon` cookie. Sending the cookie alone therefore filed a
+  // signed-in player's runs under their *guest* subject. That was invisible
+  // while runs were only ever read back the same way — but head-to-head is
+  // account-backed, so `POST /h2h` compared the run's anon owner against
+  // `auth.sub` and returned 403 `not_your_run`, making PvP unreachable end to
+  // end. It also meant a guest run claimed into an account became unloadable by
+  // the browser that was playing it.
+  //
+  // Read here rather than threaded through ~10 call sites so no future caller
+  // can forget it. `getAccessToken` returns null when signed out or on the
+  // server, and a null token leaves the request exactly as it was.
+  let authHeader: Record<string, string> = {};
+  try {
+    const accessToken = await getAccessToken();
+    if (accessToken) authHeader = { Authorization: `Bearer ${accessToken}` };
+  } catch {
+    // Never let an auth-layer hiccup block a guest-playable request.
+  }
   try {
     res = await fetch(`${API_BASE}/api/v1${path}`, {
-      headers: { "Content-Type": "application/json", ...options.headers },
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeader,
+        ...options.headers,
+      },
       credentials: "include",
       ...options,
     });
@@ -189,8 +219,34 @@ export const runActions = {
     incoming_card_id: incomingCardId,
   }),
   declineTrade: (): RunActionBody => ({ action_type: "decline_trade" }),
-  filmRoom: (choice: string): RunActionBody => ({ action_type: "film_room", choice }),
+  /**
+   * Scout & Prepare (v3). `extra` carries the branch-specific field:
+   * `{ lane }` for `scout_boss`, `{ role }` for `shape_market`,
+   * `{ card_id }` for `reserve_card`. Which one a branch needs is the engine's
+   * rule, so this helper does not enforce it — sending the wrong one comes back
+   * as a 409 with a named reason instead of being silently reinterpreted.
+   */
+  filmRoom: (
+    choice: string,
+    extra: { lane?: LaneField; role?: Role; card_id?: string } = {},
+  ): RunActionBody => ({ action_type: "film_room", choice, ...extra }),
   restBank: (choice: string): RunActionBody => ({ action_type: "rest_bank", choice }),
   resolveBoss: (): RunActionBody => ({ action_type: "resolve_boss" }),
   advance: (): RunActionBody => ({ action_type: "advance" }),
+  /** Buy a different board at this node, once, at the published price. */
+  marketRefresh: (): RunActionBody => ({ action_type: "market_refresh" }),
+  /** Buy one life back at a Rest / Bank. Once per run. */
+  emergencyRecovery: (): RunActionBody => ({ action_type: "emergency_recovery" }),
+  /**
+   * Turn over the next `count` slots of a reveal, server-side.
+   *
+   * `count` is what makes skip-all ONE call rather than a loop: the engine
+   * saturates at the roster size, so asking for more than remains is legal and
+   * lands exactly on complete.
+   */
+  reveal: (target: RevealTarget = "roster", count = 1): RunActionBody => ({
+    action_type: "reveal",
+    target,
+    count,
+  }),
 };

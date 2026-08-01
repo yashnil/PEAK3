@@ -148,6 +148,10 @@ class LaneResult:
     tie_broken_by_rule: bool
     player_top_card_id: Optional[str]
     opponent_top_card_id: Optional[str]
+    # The Scout & Prepare preparation applied to this lane, if any. Already
+    # included in ``player_score``; carried separately so the result screen can
+    # say which lane the player's preparation actually moved.
+    player_prep_bonus: float = 0.0
 
 
 @dataclass
@@ -169,6 +173,11 @@ class BattleResult:
     rule_id: Optional[str]
     lives_after: int
     credits_awarded: int
+    # How many lanes an outright win took here. 3 normally; a boss rule may
+    # raise it for both sides (config.BOSS_LANES_TO_WIN).
+    lanes_to_win: int = 3
+    # lane -> published preparation bonus the player brought into this battle.
+    lane_bonuses: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -197,8 +206,11 @@ class RunState:
     date: Optional[str]
 
     status: str
-    act: int                       # 1-3
-    stage: int                     # 1-2 within the act; 3 == boss
+    # 1..config.ACTS (5 under rtt_ruleset_v3). The old comment here said "1-3",
+    # which was already wrong by two acts.
+    act: int
+    # 1..config.STAGES_PER_ACT within the act; STAGES_PER_ACT + 1 == the boss.
+    stage: int
     credits: int
     lives: int
 
@@ -221,6 +233,34 @@ class RunState:
     last_action_at: str
     owner_sub: Optional[str] = None
     versions: dict = field(default_factory=dict)
+
+    # -- v3: Scout & Prepare, credit sinks, and reveal progress --------------
+    # Acts whose boss has been scouted. Informational; the preparation itself
+    # lives in ``pending_prep``.
+    scouted_boss_acts: list[int] = field(default_factory=list)
+    # {"lane", "bonus", "act"} — one capped lane preparation, spent by the boss
+    # battle of ``act`` and cleared there whether it helped or not.
+    pending_prep: Optional[dict] = None
+    # {"role", "acquired_act", "acquired_stage", "consumed_node_id"} — Shape the
+    # Market. Guarantees the next market carries a legal offer for ``role``.
+    role_focus: Optional[dict] = None
+    # {"card_id", "locked_cost", "offered_node_id", "status"} — Reserve a Card.
+    # ``locked_cost`` is the price at the moment of reservation, which is what
+    # the player paid to lock.
+    reserved_card: Optional[dict] = None
+    # node_id -> how many times its market has been refreshed. Bounded by
+    # config.MARKET_REFRESHES_PER_NODE and used as the deterministic
+    # ``refresh_index`` in the offer stream key (spec §6).
+    node_refreshes: dict[str, int] = field(default_factory=dict)
+    emergency_recoveries_used: int = 0
+    # Ledger of every credit spent on a sink rather than on a card, so the
+    # receipt can balance without inferring it.
+    sink_spend: list[dict] = field(default_factory=list)
+    # Opening-roster reveal progress, 0..ROSTER_SIZE. Server-side so a refresh
+    # mid-reveal resumes instead of restarting (spec §3).
+    reveal_index: int = 0
+    # act -> boss-lineup reveal progress, 0..ROSTER_SIZE. Same contract.
+    boss_reveal_index: dict[int, int] = field(default_factory=dict)
 
     def all_card_ids(self) -> list[str]:
         out = [s.card_id for s in self.starters if s.card_id]

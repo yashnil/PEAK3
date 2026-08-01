@@ -64,6 +64,8 @@ from app.repositories.daily_grid_memory import MemoryDailyGridResultRepository
 from app.repositories.daily_grid_protocols import DailyGridResultRepository
 from app.repositories.run_the_table_memory import MemoryRunTheTableRunRepository
 from app.repositories.run_the_table_protocols import RunTheTableRunRepository
+from app.repositories.head_to_head_memory import MemoryHeadToHeadRepository
+from app.repositories.head_to_head_protocols import HeadToHeadRepository
 from app.repositories.peak_duel_daily_memory import MemoryPeakDuelDailyResultRepository
 from app.repositories.peak_duel_daily_protocols import PeakDuelDailyResultRepository
 
@@ -94,6 +96,7 @@ _memory_perfect_season_leaderboard_repo = MemoryPerfectSeasonLeaderboardReposito
 _memory_perfect_season_saved_run_repo = MemoryPerfectSeasonSavedRunRepository()
 _memory_daily_grid_result_repo = MemoryDailyGridResultRepository()
 _memory_run_the_table_run_repo = MemoryRunTheTableRunRepository()
+_memory_head_to_head_repo = MemoryHeadToHeadRepository()
 _memory_peak_duel_daily_result_repo = MemoryPeakDuelDailyResultRepository()
 
 
@@ -312,6 +315,22 @@ def get_run_the_table_run_repo(request: Request) -> RunTheTableRunRepository:
     return _memory_run_the_table_run_repo
 
 
+def get_head_to_head_repo(request: Request) -> HeadToHeadRepository:
+    """Return the active HeadToHeadRepository (Postgres or in-memory).
+
+    Same in-memory-fallback discipline as every other repository here, and
+    registered in app.core.repository_registry.REPOSITORY_DOMAINS for the same
+    reason: a head-to-head is a record between two accounts, and one that only
+    ever lived in a dict would be a match the server forgot on restart --
+    including its settled result."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.head_to_head_postgres import PostgresHeadToHeadRepository
+        return PostgresHeadToHeadRepository(pool)
+    _warn_memory_repo("HeadToHeadRepository")
+    return _memory_head_to_head_repo
+
+
 def get_peak_duel_daily_result_repo(request: Request) -> PeakDuelDailyResultRepository:
     """Return the active PeakDuelDailyResultRepository (Postgres or in-memory).
 
@@ -379,3 +398,4 @@ RunTheTableRunRepoDep = Annotated[
 PeakDuelDailyResultRepoDep = Annotated[
     PeakDuelDailyResultRepository, Depends(get_peak_duel_daily_result_repo)
 ]
+HeadToHeadRepoDep = Annotated[HeadToHeadRepository, Depends(get_head_to_head_repo)]
