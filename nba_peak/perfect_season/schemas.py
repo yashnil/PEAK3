@@ -246,6 +246,31 @@ class CourtLineupState:
     team_respins_used: int = 0
     season_respins_used: int = 0
     respin_history: list[dict] = field(default_factory=list)
+    # W5 (UX polish pass): the distance-aware respin policy's own receipt --
+    # one entry per applied respin, parallel to respin_history. Records which
+    # exclusion tier actually fired, the exclusion radius / recent-team depth
+    # it used, and how many entries the allowed post-exclusion pool held.
+    #
+    # This is DEBUG/AUDIT metadata, deliberately kept out of the normal UI
+    # (docs/implementation/UX_ORGANIZATION_POLISH_PLAN.md Sec 5.5 step 6): the
+    # player should feel the reroll travel, not read a pool-size number. It
+    # exists so the relaxation ladder is provable in tests and in
+    # scripts/audit_spinner_reroll_policy.py rather than merely asserted.
+    respin_policy_debug: list[dict] = field(default_factory=list)
+    # W5: APPLIED idempotency keys per respin kind ("team" / "season"), oldest
+    # first, bounded to the whole run-level budget.
+    #
+    # A repeat of any remembered key is a replay (double-click, retried fetch,
+    # refresh mid-animation, a second tab) and returns the current state
+    # untouched instead of consuming another respin.
+    #
+    # This was a single string in the first cut, which only defended against
+    # two ADJACENT duplicates: respin #2's key overwrote respin #1's, so a
+    # delayed duplicate of #1 stopped being recognised, passed validation, and
+    # both burned a respin and rerolled a board the player had already accepted.
+    # `str` values are still read (see `_remembered_respin_keys`) so games
+    # persisted under the old shape load without raising.
+    last_respin_keys: dict[str, list[str]] = field(default_factory=dict)
     # Phase 9A: "free_play" | "daily". A daily attempt runs the exact same
     # engine on a date-derived seed (nba_peak.perfect_season.daily), so this
     # is NOT a game-mode switch -- it only records which loop the attempt

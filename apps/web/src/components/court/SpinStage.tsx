@@ -56,6 +56,12 @@ interface Props {
    * team that ends up landed -- falls back to the initials badge per-item
    * when a name has no entry (asset gate off, or that team unresolved). */
   teamLogoUrls?: Record<string, string>;
+  /** W5: what the most recent respin rolled AWAY from (the server's own
+   * respin_history receipt, not a client guess). Rendered as the respin
+   * flourish's "moved from X" chip, which is what makes a respin read as
+   * materially different from the round's first roll instead of a faster
+   * repeat of it. null when no respin has happened this round. */
+  respinFrom?: { team: string | null; season: string | null } | null;
 }
 
 type CeremonyPhase = "spinning" | "locked" | "revealed";
@@ -378,7 +384,11 @@ function ReelWindow({
           );
         })}
       </div>
-      <div className="spin-reel-payline" aria-hidden="true" />
+      {/* W5: the payline doubles as the detent indicator -- it pulses on the
+          reel's own `settling` stage, so the "click" the player sees is
+          literally the moment the physics changes, not a decorative timer
+          that could drift out of sync with the reel. */}
+      <div className="spin-reel-payline" data-detent={run.stage === "settling"} aria-hidden="true" />
       <span data-testid={centerTestId} data-final-value={run.finalLabel} hidden />
     </div>
   );
@@ -424,6 +434,7 @@ export default function SpinStage({
   respinKind = null,
   collapsed = false,
   teamLogoUrls = {},
+  respinFrom = null,
 }: Props) {
   // Phase 8C: explicit gate for every new `motion.*` animation added this
   // pass -- the project's existing global CSS `prefers-reduced-motion`
@@ -467,6 +478,21 @@ export default function SpinStage({
   // CourtBuilder.tsx's respin-controls gate), so this is a purely additive
   // overlay state, not a re-entry into the spinning/locked state machine.
   const [respinning, setRespinning] = useState(false);
+  // W5 suspense ticks. Incremented every time a reel crosses from its long
+  // glide into the settle rebound -- so the initial roll produces exactly two
+  // ticks (team at SPIN_TEAM_MS, season 250ms later at SPIN_SEASON_MS) and a
+  // respin produces exactly one. Deliberately DERIVED from the reel state
+  // machine rather than driven by new timers: it cannot drift from what the
+  // reel is actually doing, and it adds nothing to the timing budget the e2e
+  // suite is calibrated against (SPIN_MS is unchanged).
+  const [snapTick, setSnapTick] = useState(0);
+  // W5: pause decorative keyframe animations while the tab is hidden. The
+  // reel transitions themselves are deliberately NOT suspended -- a
+  // half-frozen strip would sit on a row that is not the authoritative
+  // result, and the existing TRANSITION_FALLBACK_MS timers already carry a
+  // backgrounded reel to its real value. Only the ambient streak/tick/seal
+  // animations, which burn compositor work for nothing off-screen, pause.
+  const [tabHidden, setTabHidden] = useState(false);
   const isTwoWheel = spin.spin_type !== "open_pool";
   const isTeamYear = spin.spin_type === "team_year";
   // Defensive fallback only -- every two-wheel spin (team_decade,
@@ -586,6 +612,48 @@ export default function SpinStage({
     });
   }, []);
 
+  // W5: the suspense tick, observed from OUTSIDE the state updater. A reel
+  // entering "settling" means its long glide just ended and the detent
+  // rebound is about to fire -- one perceptible beat per reel, right where
+  // the eye is already tracking the payline. Deliberately not incremented
+  // inside the setter above: React may re-run an updater, and a
+  // double-counted animation restart would read as a stutter.
+  useEffect(() => {
+    if (teamRun?.stage === "settling") setSnapTick((n) => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamRun?.stage, teamRun?.runKey]);
+  useEffect(() => {
+    if (seasonRun?.stage === "settling") setSnapTick((n) => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonRun?.stage, seasonRun?.runKey]);
+
+  // W5: pause the ambient animations when the tab is backgrounded (and stop
+  // paying for them while nobody can see them).
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibility = () => setTabHidden(document.hidden);
+    onVisibility();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  // W5: an 8ms confirmation tap on the decisive lock beat, only where a
+  // vibration motor actually exists and only when the user has not asked for
+  // reduced motion. Never a substitute for the visual or the announcement.
+  //
+  // SOUND: this build ships NO audio at all. The brief permits opt-in,
+  // muted-by-default sound; shipping none is the simplest way to be correct
+  // about it, and avoids an autoplay-policy surface for a 2-second reveal.
+  useEffect(() => {
+    if (phase !== "locked" || reduceMotion) return;
+    if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+    try {
+      navigator.vibrate(8);
+    } catch {
+      // Vibration is strictly best-effort; a rejection is never an error.
+    }
+  }, [phase, reduceMotion]);
+
   // Two-frame arm. Setting the start and end transform in the same commit
   // produces NO transition at all (the browser never observes the start value),
   // so the strip is mounted at startIndex for one frame, then flipped to
@@ -652,6 +720,29 @@ export default function SpinStage({
   // would also leak the answer before the reel arrives.
   const colors = getTeamColors(spin.franchise_display_name);
   const teamAccentReady = !teamIsTicking;
+  // W5: the Franchise x Season lockup is "sealed" only once BOTH reels have
+  // physically arrived. That is the synchronized beat -- two independent
+  // reels landing 250ms apart, then one shared snap that binds the pair.
+  const lockupSealed = isTwoWheel && !teamIsTicking && !seasonIsTicking;
+  // W5: what this respin moved away from, straight off the server's
+  // respin_history receipt. Only shown for the axis that actually rerolled,
+  // and only while the respin flourish is on screen.
+  const respinAwayFrom =
+    respinFrom && respinKind
+      ? respinKind === "team"
+        ? respinFrom.team
+        : respinFrom.season
+      : null;
+  // W5: ONE authoritative announcement of the complete pair, instead of the
+  // two fragments the old `role="status"` wrapper produced as each reel
+  // settled independently. Empty until the ceremony resolves, so a screen
+  // reader is never told a half-finished roll.
+  const liveMessage =
+    phase === "revealed" && !respinning
+      ? isTwoWheel
+        ? `Rolled ${teamDisplayName}, ${secondDisplay}. ${spin.candidates.length} eligible player${spin.candidates.length === 1 ? "" : "s"}.`
+        : `Full player pool. ${spin.candidates.length} eligible player${spin.candidates.length === 1 ? "" : "s"}.`
+      : "";
 
   const coverageNote =
     isTeamYear && rollableTeamSeasonCount > 0 && supportedStartSeason && supportedEndSeason
@@ -726,9 +817,26 @@ export default function SpinStage({
       data-testid="spin-stage"
       data-phase={phase}
       data-was-locked={wasLocked}
+      // W5 reveal instrumentation. `data-snap-tick` increments once per reel
+      // detent (two on the initial roll, one on a respin) and is what CSS
+      // keys the tick pulse off; `data-lockup` flips true the instant both
+      // reels have arrived; `data-respinning` marks the respin flourish so it
+      // can read as materially different from the first roll; `data-paused`
+      // parks the ambient animations while the tab is hidden.
+      data-snap-tick={snapTick}
+      data-lockup={lockupSealed}
+      data-respinning={respinning}
+      data-paused={tabHidden}
       className="spin-reel p-4 flex flex-col gap-3"
       style={{ "--reel-accent": teamAccentReady ? colors.primary : "var(--text-muted)" } as CSSProperties}
     >
+      {/* W5: the single authoritative announcement of the finished roll.
+          Replaces the old `role="status"` wrapper around BOTH wheels, which
+          announced the team and the season as two separate fragments as each
+          reel settled, and re-announced on every respin flourish frame. */}
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="spin-live-region">
+        {liveMessage}
+      </div>
       <div className="flex items-center justify-between gap-2">
         <div className="round-progress-dots" aria-hidden="true">
           {Array.from({ length: totalRounds }).map((_, i) => {
@@ -790,12 +898,41 @@ export default function SpinStage({
 
       {respinning && (
         <div className="respin-banner text-center" data-testid="respin-banner">
-          Respinning…
+          Respinning {respinKind === "team" ? "the franchise" : "the season"}…
+          {/* W5: the respin's own distinguishing beat. The first roll of a
+              round has no "from" -- only a respin can say what it moved away
+              from, and saying it is what stops a respin reading as a faster
+              repeat of the same ceremony. Text, so it survives reduced
+              motion and a screen reader. */}
+          {respinAwayFrom && (
+            <span className="respin-away-chip" data-testid="respin-away-chip">
+              away from {respinAwayFrom}
+            </span>
+          )}
         </div>
       )}
 
       {isTwoWheel ? (
-        <div className="grid grid-cols-2 gap-3" role="status" aria-live="polite">
+        <div
+          className="grid grid-cols-2 gap-3 spin-lockup-grid"
+          role="group"
+          aria-label="Franchise and season roll"
+        >
+          {/* W5: the Franchise x Season lockup joint. Sits between the two
+              reels and seals with a single scale/opacity beat once BOTH have
+              arrived, which is what binds two independently-landing reels
+              into one result. Purely decorative -- the pair is stated in
+              text below and announced through the live region above.
+              Absolutely positioned + pointer-events:none, so it can never
+              affect layout or the mobile no-horizontal-overflow guarantee. */}
+          <span
+            className="spin-lockup-joint"
+            data-testid="spin-lockup-joint"
+            data-sealed={lockupSealed}
+            aria-hidden="true"
+          >
+            ×
+          </span>
           <div
             data-testid="team-wheel"
             data-respinning={justRespun}
@@ -848,20 +985,36 @@ export default function SpinStage({
                 onError={() => setLogoFailed(true)}
               />
             ) : (
+              // The crest LEAKED THE ANSWER. `colors` is resolved from
+              // `spin.franchise_display_name` -- the landed value -- and this
+              // badge rendered it unconditionally, so a mid-flight frame showed
+              // "HOU" in Rockets red while the reel below was still cycling
+              // through Charlotte. The comment on `teamAccentReady` already
+              // named this hazard and the accent variables were gated on it;
+              // the badge itself was not, which made the whole deceleration
+              // animate toward a conclusion that was already printed on screen.
+              //
+              // While the reel is ticking the crest is a neutral, identity-free
+              // placeholder. It keeps its 60x60 box so nothing reflows on the
+              // snap -- only the identity arrives.
               <div
                 data-testid="team-badge"
+                data-revealed={teamAccentReady ? "true" : "false"}
                 aria-hidden="true"
                 className="rounded-full flex items-center justify-center font-black text-lg"
                 style={{
                   width: 60,
                   height: 60,
-                  background: colors.primary,
-                  color: colors.secondary,
-                  border: `2.5px solid ${colors.secondary}`,
-                  boxShadow: phase === "revealed" && !respinning ? `0 0 0 4px color-mix(in srgb, ${colors.primary} 25%, transparent)` : undefined,
+                  background: teamAccentReady ? colors.primary : "var(--bg-surface)",
+                  color: teamAccentReady ? colors.secondary : "var(--text-muted)",
+                  border: `2.5px solid ${teamAccentReady ? colors.secondary : "var(--border-default)"}`,
+                  boxShadow:
+                    teamAccentReady && phase === "revealed" && !respinning
+                      ? `0 0 0 4px color-mix(in srgb, ${colors.primary} 25%, transparent)`
+                      : undefined,
                 }}
               >
-                {colors.initials}
+                {teamAccentReady ? colors.initials : "\u00b7\u00b7\u00b7"}
               </div>
             )}
             <div className="min-w-0 w-full">
@@ -957,7 +1110,12 @@ export default function SpinStage({
           </div>
         </div>
       ) : (
-        <div className="py-3 flex items-center justify-center gap-2" data-testid="spin-ceremony-spinning" role="status" aria-live="polite">
+        /* W5: `role="status"`/`aria-live` removed here for the same reason as
+           the two-wheel grid above -- the stage now owns exactly one live
+           region (spin-live-region), which announces the complete result
+           once instead of every intermediate render. The frozen
+           `spin-ceremony-spinning` testid is unchanged. */
+        <div className="py-3 flex items-center justify-center gap-2" data-testid="spin-ceremony-spinning">
           {phase === "spinning" && <span className="spin-ceremony-dot" aria-hidden="true" />}
           <span className="text-lg font-bold" style={{ color: "var(--text-secondary)" }}>
             {/* Legacy team+decade fallback only -- team_year mode never
@@ -974,8 +1132,26 @@ export default function SpinStage({
       {phase === "revealed" && !respinning && (
         <div className="text-xs" style={{ color: "var(--text-secondary)" }} data-testid="eligible-count-reveal">
           {spin.spin_type !== "open_pool" && (
-            <div data-testid="roll-summary" className="text-sm font-bold mb-0.5" style={{ color: "var(--text-primary)" }}>
-              You rolled: {spin.franchise_display_name} · {spin.era_label}
+            /* W5: the text half of the Franchise x Season lockup. Same
+               testid and same information as before -- the separator becomes
+               the lockup's own glyph so the sealed pair reads as one unit
+               rather than two facts joined by a dot, and both halves stay
+               plain selectable text for accessibility. */
+            <div data-testid="roll-summary" className="spin-lockup-text text-sm font-bold mb-0.5" style={{ color: "var(--text-primary)" }}>
+              {/* The separator is decorative and `aria-hidden`, so the SPOKEN
+                  and extracted text needs its own delimiter. Without one the
+                  DOM text was "Washington Bullets\u00d71992-93" -- one
+                  unpunctuated token for a screen reader, and a string that no
+                  longer matched the "Team \u00b7 Season" form used on every
+                  candidate row (which is what caught it: courtbuilder.spec.ts
+                  cross-checks the two so an alphabetical re-sort can never
+                  silently swap in another team-season's roster).
+                  The visible \u00d7 is unchanged; only the text layer gains a
+                  real separator. */}
+              You rolled: <strong>{spin.franchise_display_name}</strong>
+              <span className="spin-lockup-text-sep" aria-hidden="true" />
+              <span className="sr-only"> · </span>
+              <strong>{spin.era_label}</strong>
             </div>
           )}
           <span>

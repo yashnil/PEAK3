@@ -1174,14 +1174,4 @@ The final report must include:
 16. Explicit confirmation that canonical methodology was not changed except through already-existing authoritative source changes, if applicable.
 17. Explicit confirmation that no commit/push/PR/merge/stash occurred.
 
----
 
-# 17. First command to Claude Code
-
-From the repository root, provide this file to Claude Code and use:
-
-```text
-/goal Implement every materially achievable P0 requirement in @PEAK3_UX_ORGANIZATION_POLISH_CLAUDE_PASS.md. Begin with parallel read-only discovery, write the integration plan, then use isolated worktrees or strict disjoint ownership for parallel writers. Preserve all pre-existing uncommitted work. Do not commit, push, open a PR, merge, or stash. Do not alter canonical methodology merely to make rankings look different: prove and fix synchronization through the authoritative pipeline. Continue through implementation, full integration, real-browser review, spinner distribution audit, rankings parity verification, accessibility review, full relevant tests, production build, and the final report. Completion must be demonstrated by surfaced command output, hashes, audit artifacts, and inspected screenshots rather than assertions. If a genuine blocker exists, finish all unblocked work and document the blocker precisely.
-```
-
-The lead should not stop after producing a plan, mockup, screenshots, or partial component implementation. The goal is one integrated, reviewable product-quality pass.

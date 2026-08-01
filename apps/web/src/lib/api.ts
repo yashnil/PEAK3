@@ -203,6 +203,11 @@ function normalizeBoard(payload: RankingBoardPayload): RankingBoardData {
       serving_gate_note: strOrNull(payload.serving_gate_note),
       effective_tie_threshold: numOrNull(payload.effective_tie_threshold),
       min_season_mpg: numOrNull(payload.min_season_mpg),
+      // Provenance. The API sends the digest of the artifact IT loaded, which is
+      // what makes a stale never-invalidated process cache detectable from the
+      // page rather than only from the filesystem.
+      artifact_digest: strOrNull(payload.artifact_digest),
+      generated_at: strOrNull(payload.generated_at),
     },
   };
 }

@@ -1,105 +1,80 @@
 "use client";
 
+/**
+ * The global header.
+ *
+ * WHAT CHANGED IN THIS PASS. "Play" was a single link to `/arena`, so the
+ * product's eleven doors were represented in the chrome by one word. It is now
+ * a disclosure button opening `PlayMenu`, which lists every finished mode
+ * grouped by what it is, with `/arena` still present as the menu's final
+ * "View all games" entry. The mobile dropdown — an in-flow div that pushed the
+ * page down and trapped no focus — is now `MobileNavDrawer`, built on the
+ * shared `Dialog`.
+ *
+ * WHAT DID NOT CHANGE, AND MUST NOT:
+ *   - `aria-label="Main navigation"` on the desktop `<nav>`: six specs find the
+ *     navigation landmark by that exact name.
+ *   - The active class string `bg-[var(--bg-surface)]`, asserted literally by
+ *     `play-routing.spec.ts`.
+ *   - The wordmark link to `/`, and the Profile/Sign In link gated on
+ *     `supabaseEnabled`.
+ *
+ * WHY NOT `useSearchParams`. Two nav rows share a path and differ only by query
+ * (`/arena/run-the-table` and `?mode=daily`), so the highlight wants the query.
+ * `useSearchParams` would opt the entire header into a Suspense boundary and
+ * remove the navigation landmark from the server-rendered HTML — a real
+ * accessibility and first-paint cost for a cosmetic distinction that is only
+ * visible inside an already-client-only menu panel. `useLocationSearch` reads
+ * it after mount instead: identical on the server and on the first client
+ * render, so there is no hydration mismatch and no layout shift.
+ *
+ * ROUTES WITHOUT THIS HEADER. `/c/[token]` (a shared challenge) and
+ * `/auth/callback` live outside the `(main)` route group and render no header
+ * at all. That is deliberate isolation, not an oversight: a challenge link is a
+ * single-purpose surface opened from someone else's message, and the auth
+ * callback is a redirect target that exists for milliseconds. Neither is
+ * touched here.
+ *
+ * Owner: W1 (UX / Organization / Polish pass).
+ */
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
+import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
+import { isActive, topLevelLinks } from "@/lib/nav-model";
+import { PlayMenu } from "./PlayMenu";
+import { MobileNavDrawer } from "./MobileNavDrawer";
 
-// "Play" points at the /arena hub, whose first and only featured card is the
-// flagship, RUN THE TABLE.
-//
-// History, because the destination has moved three times: originally
-// /arena/daily (the legacy Peak Draft daily hub), then /arena, then (Phase 10C)
-// a deep link straight into the 82-0 practice route. That deep link existed
-// because /arena at the time listed the legacy 1Y/3Y/5Y draft modes as co-equal
-// options underneath the flagship, so landing there muddied the main path. The
-// hub no longer does that: the legacy modes moved to /arena/labs and the hub is
-// now an explicit hierarchy -- flagship, full-season, daily. Deep-linking past
-// it would hide the other finished modes rather than rank them, and would
-// re-break the moment the flagship changes again.
-const NAV_LINKS: { href: string; label: string; activePrefix?: string; alsoActiveOn?: string[] }[] = [
-  // activePrefix is redundant with href today but is kept explicit: it is what
-  // keeps "Play" highlighted across the whole arena section -- the run itself,
-  // the daily route, run history, results -- and it must survive any future
-  // change to where the link points.
-  { href: "/arena", label: "Play", activePrefix: "/arena" },
-  // Phase 12A: /daily is the HUB for every once-a-day game (the Grid at
-  // /daily/grid, Peak Duel Daily at /play/daily), sitting BESIDE "Play" rather
-  // than replacing it -- RUN THE TABLE remains the flagship the main Play path
-  // leads to.
-  //
-  // `alsoActiveOn` exists because Peak Duel Daily lives under /play for
-  // historical reasons while belonging to Daily in the product's own IA.
-  // Highlighting "Daily" there is the honest answer: it is where the user
-  // navigated from and where they would go back to. Moving the route itself
-  // would break existing links for no user-visible gain.
-  { href: "/daily", label: "Daily", alsoActiveOn: ["/play/daily"] },
-  { href: "/rankings", label: "Rankings" },
-  { href: "/methodology", label: "Methodology" },
-  { href: "/about", label: "About" },
-];
-
-function matchesPrefix(pathname: string, base: string): boolean {
-  return pathname === base || pathname.startsWith(base + "/");
-}
-
-function isActive(
-  pathname: string,
-  link: { href: string; activePrefix?: string; alsoActiveOn?: string[] },
-): boolean {
-  if (matchesPrefix(pathname, link.activePrefix ?? link.href)) return true;
-  return (link.alsoActiveOn ?? []).some((extra) => matchesPrefix(pathname, extra));
+/** The current query string, without the leading `?`. Empty until mounted. */
+function useLocationSearch(pathname: string): string {
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setSearch(window.location.search.replace(/^\?/, ""));
+  }, [pathname]);
+  return search;
 }
 
 export function Nav() {
   const pathname = usePathname();
+  const search = useLocationSearch(pathname);
   const { user, supabaseEnabled } = useAuth();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // Close on route change
+  // Arriving somewhere closes the menu that took you there.
   useEffect(() => {
-    setMenuOpen(false);
+    setDrawerOpen(false);
   }, [pathname]);
 
-  // Close on outside click
-  useEffect(() => {
-    if (!menuOpen) return;
-    function handle(e: MouseEvent) {
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(e.target as Node) &&
-        triggerRef.current &&
-        !triggerRef.current.contains(e.target as Node)
-      ) {
-        setMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [menuOpen]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!menuOpen) return;
-    function handle(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        setMenuOpen(false);
-        triggerRef.current?.focus();
-      }
-    }
-    document.addEventListener("keydown", handle);
-    return () => document.removeEventListener("keydown", handle);
-  }, [menuOpen]);
-
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--border-subtle)] bg-[var(--bg-page)]/90 backdrop-blur-sm">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
+    <header className="pk-nav-header sticky top-0 z-40">
+      <div className="pk-nav-bar mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
         <Link
           href="/"
-          className="font-display text-lg font-bold tracking-tight hover:text-[var(--peak-accent)] transition-colors"
+          className="pk-nav-wordmark font-display text-lg font-bold tracking-tight"
           aria-label="PEAK3 Arena home"
         >
           <span className="text-[var(--peak-accent)]">PEAK</span>
@@ -109,32 +84,36 @@ export function Nav() {
           </span>
         </Link>
 
-        {/* Desktop nav */}
+        {/* Desktop nav. The landmark name is frozen. */}
         <nav aria-label="Main navigation" className="hidden sm:flex items-center gap-1">
+          <PlayMenu pathname={pathname} search={search} />
           <ul className="flex items-center gap-1" role="list">
-            {NAV_LINKS.map((link) => (
-              <li key={link.href}>
-                <Link
-                  href={link.href}
-                  aria-current={isActive(pathname, link) ? "page" : undefined}
-                  className={cn(
-                    "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                    isActive(pathname, link)
-                      ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
-                  )}
-                >
-                  {link.label}
-                </Link>
-              </li>
-            ))}
+            {topLevelLinks.map((link) => {
+              const current = isActive(pathname, link, search);
+              return (
+                <li key={link.id}>
+                  <Link
+                    href={link.href}
+                    aria-current={current ? "page" : undefined}
+                    className={cn(
+                      "pk-nav-link px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                      current
+                        ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
+                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]",
+                    )}
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
           {supabaseEnabled && (
             <Link
               href={user ? "/profile" : "/signin"}
               className={cn(
-                "ml-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
-                "text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]"
+                "pk-nav-account ml-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
+                "text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]",
               )}
             >
               {user ? "Profile" : "Sign In"}
@@ -142,81 +121,31 @@ export function Nav() {
           )}
         </nav>
 
-        {/* Mobile hamburger */}
+        {/* Mobile trigger. No `aria-controls`: the drawer is portalled and only
+            exists while open, and an `aria-controls` pointing at an absent id
+            is worse than none — `aria-expanded` already carries the state. */}
         <button
-          ref={triggerRef}
-          className="sm:hidden flex flex-col justify-center items-center w-9 h-9 rounded-md gap-1.5 hover:bg-[var(--bg-elevated)] transition-colors"
-          aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
-          aria-expanded={menuOpen}
-          aria-controls="mobile-nav-menu"
-          onClick={() => setMenuOpen((v) => !v)}
+          type="button"
+          className="pk-nav-burger sm:hidden"
+          aria-label={drawerOpen ? "Close navigation menu" : "Open navigation menu"}
+          aria-expanded={drawerOpen}
+          data-testid="mobile-nav-trigger"
+          onClick={() => setDrawerOpen((v) => !v)}
         >
-          {/* Three-bar icon that morphs to X */}
-          <span
-            className={cn(
-              "block h-0.5 w-5 bg-current transition-all duration-200",
-              menuOpen ? "translate-y-2 rotate-45" : ""
-            )}
-          />
-          <span
-            className={cn(
-              "block h-0.5 w-5 bg-current transition-all duration-200",
-              menuOpen ? "opacity-0" : ""
-            )}
-          />
-          <span
-            className={cn(
-              "block h-0.5 w-5 bg-current transition-all duration-200",
-              menuOpen ? "-translate-y-2 -rotate-45" : ""
-            )}
-          />
+          {drawerOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
         </button>
       </div>
 
-      {/* Mobile dropdown */}
-      {menuOpen && (
-        <div
-          id="mobile-nav-menu"
-          ref={menuRef}
-          role="dialog"
-          aria-label="Navigation menu"
-          className="sm:hidden border-t border-[var(--border-subtle)] bg-[var(--bg-page)]"
-        >
-          <nav aria-label="Mobile navigation">
-            <ul className="flex flex-col py-2 px-4" role="list">
-              {NAV_LINKS.map((link) => (
-                <li key={link.href}>
-                  <Link
-                    href={link.href}
-                    aria-current={isActive(pathname, link) ? "page" : undefined}
-                    className={cn(
-                      "block py-2.5 px-3 rounded-md text-sm font-medium transition-colors",
-                      isActive(pathname, link)
-                        ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
-                        : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
-                    )}
-                  >
-                    {link.label}
-                  </Link>
-                </li>
-              ))}
-              {supabaseEnabled && (
-                <li>
-                  <Link
-                    href={user ? "/profile" : "/signin"}
-                    className={cn(
-                      "block py-2.5 px-3 rounded-md text-sm font-medium transition-colors",
-                      "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
-                    )}
-                  >
-                    {user ? "Profile" : "Sign In"}
-                  </Link>
-                </li>
-              )}
-            </ul>
-          </nav>
-        </div>
-      )}
+      <MobileNavDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        pathname={pathname}
+        search={search}
+        supabaseEnabled={supabaseEnabled}
+        signedIn={Boolean(user)}
+      />
     </header>
   );
 }
+
+export default Nav;

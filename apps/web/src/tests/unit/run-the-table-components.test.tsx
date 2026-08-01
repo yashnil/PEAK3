@@ -38,11 +38,26 @@ vi.mock("@/lib/run-the-table-api", async () => {
   };
 });
 
+// `next/navigation` is mocked globally in `tests/setup.ts` with a fresh
+// `vi.fn()` per call, which cannot be inspected. This override keeps one
+// shared `replace` spy so the `?start=` contract's "strip the param" half is
+// actually observable.
+const mockRouterReplace = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn(), replace: mockRouterReplace, prefetch: vi.fn() }),
+  usePathname: () => "/arena/run-the-table",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
 import { RunTheTableAPIError } from "@/lib/run-the-table-api";
-import RunTheTableGame from "@/components/run-the-table/RunTheTableGame";
+import RunTheTableGame, {
+  readStartParam,
+  urlWithoutStartParam,
+} from "@/components/run-the-table/RunTheTableGame";
 import BattleReveal from "@/components/run-the-table/BattleReveal";
 import DraftRoom from "@/components/run-the-table/DraftRoom";
 import TradeDesk from "@/components/run-the-table/TradeDesk";
+import RunCard from "@/components/run-the-table/RunCard";
 import RunResult from "@/components/run-the-table/RunResult";
 import RunMap from "@/components/run-the-table/RunMap";
 import LaneProfile from "@/components/run-the-table/LaneProfile";
@@ -94,10 +109,28 @@ function card(over: Partial<RunCardPublic> = {}): RunCardPublic {
     lane_percentiles: laneMap(88),
     base_cost: 26,
     cost: 26,
+    // The DEFAULT is empty, and that emptiness is why `[object Object]`
+    // shipped: `cost_modifiers` is `list[dict]` on the server, was typed
+    // `string[]` on the client, and every fixture in this file hardcoded `[]`
+    // so `.join(" · ")` was never exercised. `discountedCard()` below is the
+    // non-empty counterpart, and it is used by the RunCard tests.
     cost_modifiers: [],
     refund_value: 13,
     ...over,
   };
+}
+
+/** A card a System actually discounted — shaped field-for-field like
+ *  `pricing.price_for()`'s `applied` list. */
+function discountedCard(over: Partial<RunCardPublic> = {}): RunCardPublic {
+  return card({
+    card_id: "sidney-moncrief-3yr-198283",
+    player_name: "Sidney Moncrief",
+    base_cost: 24,
+    cost: 19,
+    cost_modifiers: [{ system_id: "moneyball", discount_pct: 20, before: 24, after: 19 }],
+    ...over,
+  });
 }
 
 function offer(over: Partial<DraftOffer> = {}): DraftOffer {
@@ -297,6 +330,8 @@ function receiptFixture(over: Partial<RunReceipt> = {}): RunReceipt {
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
+  // Every test but the `?start=` block runs on a bare route.
+  window.history.replaceState({}, "", "/arena/run-the-table");
   mockGetReadiness.mockResolvedValue({
     enabled: true,
     daily_enabled: true,
@@ -369,6 +404,100 @@ describe("RunTheTableGame — the start gate", () => {
     const err = await screen.findByTestId("rtt-start-error");
     expect(within(err).getByRole("alert")).toHaveTextContent(/Could not reach the PEAK3 API/i);
     expect(screen.getByTestId("rtt-start-retry")).toBeInTheDocument();
+  });
+});
+
+describe("RunTheTableGame — the ?start= contract (plan §5.1)", () => {
+  function at(search: string) {
+    window.history.replaceState({}, "", `/arena/run-the-table${search}`);
+  }
+
+  it("parses only `standard` — the one run type a URL may create", () => {
+    expect(readStartParam("?start=standard")).toBe("standard");
+    // `daily` is deliberately NOT accepted. A standard run costs nothing to
+    // create, but the daily is one shared board and one attempt per UTC day, so
+    // letting the URL spend it would burn the attempt of everyone the link is
+    // forwarded to. `?mode=daily` lands on the gate instead.
+    expect(readStartParam("?start=daily")).toBeNull();
+    expect(readStartParam("?start=challenge")).toBeNull();
+    expect(readStartParam("?start=")).toBeNull();
+    expect(readStartParam("?mode=daily")).toBeNull();
+    expect(readStartParam("")).toBeNull();
+  });
+
+  it("strips only `start`, keeping the path and every other param", () => {
+    expect(urlWithoutStartParam("/arena/run-the-table", "?start=daily&mode=daily")).toBe(
+      "/arena/run-the-table?mode=daily",
+    );
+    expect(urlWithoutStartParam("/arena/run-the-table", "?start=standard")).toBe(
+      "/arena/run-the-table",
+    );
+  });
+
+  it("starts exactly ONE run and removes the param so a refresh cannot start a second", async () => {
+    at("?start=standard");
+    mockCreateRun.mockResolvedValue(runState());
+    render(<RunTheTableGame />);
+    expect(await screen.findByTestId("rtt-shell")).toBeInTheDocument();
+    expect(mockCreateRun).toHaveBeenCalledTimes(1);
+    expect(mockCreateRun).toHaveBeenCalledWith("standard", expect.anything());
+    expect(mockRouterReplace).toHaveBeenCalledWith(
+      "/arena/run-the-table",
+      expect.objectContaining({ scroll: false }),
+    );
+    at("");
+  });
+
+  it("never starts the daily from a URL — the attempt is spent by a click", async () => {
+    // The inverse of the test above, and the reason it changed. `?start=daily`
+    // made the address bar itself the trigger for a once-per-day resource.
+    at("?start=daily&mode=daily");
+    render(<RunTheTableGame preferredMode="daily" />);
+    await screen.findByTestId("rtt-start-gate");
+    expect(mockCreateRun).not.toHaveBeenCalled();
+    at("");
+  });
+
+  it("ignores ?start= when a challenge token is present", async () => {
+    // `?c=<token>&start=standard` must not quietly start a fresh random-seed run
+    // and drop the token: the recipient came for one specific shared board.
+    at("?c=tok&start=standard");
+    render(<RunTheTableGame challengeToken="tok" />);
+    await screen.findByTestId("rtt-start-gate");
+    expect(mockCreateRun).not.toHaveBeenCalled();
+    at("");
+  });
+
+  it("never starts a second run when a stored run resumed first", async () => {
+    at("?start=standard");
+    window.localStorage.setItem(
+      RUN_THE_TABLE_STORAGE_KEY,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: "run-1",
+        seed: 999,
+        run_type: "standard",
+        updated_at: "2026-07-31T00:00:00.000Z",
+      }),
+    );
+    mockGetRun.mockResolvedValue(runState({ status: "node_select", stage_options: [] }));
+    render(<RunTheTableGame />);
+    await screen.findByTestId("rtt-shell");
+    expect(mockCreateRun).not.toHaveBeenCalled();
+    // The param is still consumed and stripped — it just creates nothing.
+    expect(mockRouterReplace).toHaveBeenCalled();
+    at("");
+  });
+
+  it("a bare route still gates and creates nothing", async () => {
+    // The invariant `play-routing.spec.ts:112-134` and
+    // `run-the-table.spec.ts`'s "navigating to the route creates no run" both
+    // depend on: following a link must never burn a run.
+    at("");
+    render(<RunTheTableGame />);
+    expect(await screen.findByTestId("rtt-start-gate")).toBeInTheDocument();
+    expect(mockCreateRun).not.toHaveBeenCalled();
+    expect(mockRouterReplace).not.toHaveBeenCalled();
   });
 });
 
@@ -686,6 +815,62 @@ describe("LaneProfile", () => {
   });
 });
 
+describe("RunCard", () => {
+  /**
+   * P0 regression. `cost_modifiers` is `list[dict]` on the server
+   * (`nba_peak/run_the_table/pricing.py:74-86`), passed through untouched by
+   * `public.py`, and was declared `string[]` here — so `.join(" · ")` printed
+   * "[object Object]" on every card any of `moneyball`, `no_hardware` or
+   * `two_way_value` discounted, in the Draft Room and both Trade Desk columns.
+   */
+  it("renders a cost modifier as human copy, never [object Object]", () => {
+    const { container } = render(<RunCard card={discountedCard()} cost={19} strikeCost={24} />);
+    expect(container.textContent).not.toContain("[object Object]");
+    expect(screen.getByTestId("rtt-card-modifier-moneyball")).toHaveTextContent(
+      "Moneyball · −20% (24 → 19)",
+    );
+  });
+
+  it("names every System that touched the price, in the engine's own order", () => {
+    render(
+      <RunCard
+        card={discountedCard({
+          cost: 14,
+          cost_modifiers: [
+            { system_id: "moneyball", discount_pct: 20, before: 24, after: 19 },
+            { system_id: "two_way_value", discount_pct: 25, before: 19, after: 14 },
+          ],
+        })}
+        cost={14}
+      />,
+    );
+    const rows = within(screen.getByTestId("rtt-card-modifiers")).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Moneyball");
+    expect(rows[1]).toHaveTextContent("Two-Way Value · −25% (19 → 14)");
+  });
+
+  it("renders nothing at all when the engine applied no modifier", () => {
+    render(<RunCard card={card()} cost={26} />);
+    expect(screen.queryByTestId("rtt-card-modifiers")).not.toBeInTheDocument();
+  });
+
+  /**
+   * "75.1th pct" of WHAT was the defect. The denominator is verified against
+   * `cards.build_pool()`, which percentile-ranks `prime_score` over the
+   * SELECTED (eligible) profiles — so it is the RUN THE TABLE card pool, not
+   * "all PEAK3 3-year peak windows", which would be a larger, different set.
+   */
+  it("says what the percentile is a percentile of", () => {
+    render(<RunCard card={card({ overall_percentile: 75.1 })} cost={26} />);
+    const pct = screen.getByTestId("rtt-card-percentile");
+    expect(pct).toHaveTextContent("75.1th percentile of the card pool");
+    expect(pct).toHaveTextContent(/every eligible PEAK3 3-year peak window/i);
+    // The wrong denominator would be a fabricated claim about the model.
+    expect(pct.textContent).not.toMatch(/all PEAK3 3-year peak windows/i);
+  });
+});
+
 describe("DraftRoom", () => {
   const node: ActiveNode = {
     node_id: "n1",
@@ -902,26 +1087,64 @@ describe("TradeDesk", () => {
     expect(screen.getByTestId("rtt-trade-summary")).toHaveTextContent("net 12 credits");
   });
 
-  it("refuses a pairing the server did not call legal", async () => {
+  /**
+   * CHANGED in the UX pass, deliberately.
+   *
+   * Was: pick the illegal incoming card, then pick the outgoing slot, and
+   * expect the summary to explain the illegal pairing. That assertion pinned
+   * the defect — it required the desk to hold an illegal pair in a "selected"
+   * state, which is precisely how a card that had become illegal ended up
+   * painted accent-gold with a red "Not eligible" badge and `aria-pressed`
+   * still true. Choosing the outgoing slot now recomputes legality from the
+   * SERVER's `legal_slots` and drops an incompatible incoming pick, so there
+   * is no illegal pair left to describe.
+   *
+   * The product rule is unchanged and still asserted: a pairing the server did
+   * not call legal cannot be confirmed. It is now unreachable rather than
+   * reachable-and-then-refused.
+   */
+  it("makes a pairing the server did not call legal unreachable, not just refused", async () => {
     render(<TradeDesk node={node} credits={40} busy={false} onTrade={vi.fn()} onDecline={vi.fn()} />);
-    await userEvent.click(screen.getByTestId("rtt-trade-in-in-illegal"));
     await userEvent.click(screen.getByTestId("rtt-trade-out-anchor"));
+
+    const illegal = screen.getByTestId("rtt-trade-in-in-illegal");
+    expect(illegal).toHaveAttribute("aria-disabled", "true");
+    expect(illegal).toHaveAttribute("data-eligible", "false");
+    await userEvent.click(illegal);
+    // Click guard held: it is not selected, and nothing can be confirmed.
+    expect(illegal).toHaveAttribute("data-selected", "false");
+    expect(illegal).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByTestId("rtt-trade-confirm")).toBeDisabled();
-    expect(screen.getByTestId("rtt-trade-summary")).toHaveTextContent(/not eligible for Anchor/i);
   });
 
-  it("marks an ineligible offer without washing out its own text", async () => {
+  /**
+   * CHANGED in the UX pass, deliberately.
+   *
+   * Was: assert `borderColor === "var(--incorrect-dim)"` on an
+   * incompatible-but-unselected card. That red border is exactly what the
+   * reported screenshot reads as "Steve Francis is highlighted" — an error
+   * colour on a card the player has done nothing wrong with. Ineligible cards
+   * are now recessed the way `DraftRoom` already recesses a blocked offer
+   * (`--border-subtle` + `--bg-page`), so accent-gold means "selected" and
+   * nothing else in this surface is painted with an error colour.
+   *
+   * The a11y half of the original assertion is kept verbatim: still no opacity
+   * wash, and the reason text is still present and readable.
+   */
+  it("recesses an ineligible offer by fill and border, never by an opacity wash", async () => {
     render(<TradeDesk node={node} credits={40} busy={false} onTrade={vi.fn()} onDecline={vi.fn()} />);
     await userEvent.click(screen.getByTestId("rtt-trade-out-anchor"));
     const illegal = screen.getByTestId("rtt-trade-in-in-illegal");
-    // These buttons are NOT disabled — picking one is how you find out the
-    // trade is illegal — so the WCAG inactive-control exemption does not
-    // apply and `opacity: 0.55` put --text-secondary at 2.61:1.
+    // `aria-disabled` + a click guard, NOT `disabled`: `disabled` strips it
+    // from the tab order, and the reason is what a keyboard user needs.
     expect(illegal).toBeEnabled();
     expect(illegal.style.opacity).toBe("");
-    expect(illegal.style.borderColor).toBe("var(--incorrect-dim)");
+    expect(illegal.style.borderColor).toBe("var(--border-subtle)");
+    expect(illegal.style.background).toBe("var(--bg-page)");
+    // And never the error colour, which is what read as "highlighted".
+    expect(illegal.style.borderColor).not.toContain("incorrect");
     expect(screen.getByTestId("rtt-trade-in-in-legal").style.opacity).toBe("");
-    expect(within(illegal).getByText(/Not eligible for Anchor/i)).toBeInTheDocument();
+    expect(within(illegal).getByText(/Cannot play Anchor/i)).toBeInTheDocument();
   });
 
   it("uses container breakpoints for its two columns", () => {
@@ -950,16 +1173,27 @@ describe("TradeDesk", () => {
 });
 
 describe("BattleReveal", () => {
-  it("has the COMPLETE verdict in a polite status region at t=0", () => {
+  it("announces the COMPLETE verdict as a MUTATION of an already-mounted region", async () => {
+    // The region used to render its text inline, so it entered the DOM already
+    // populated. That is not a mutation of an existing live region, and screen
+    // readers generally do not announce it — meaning the entire battle result
+    // was announced to nobody. `LiveRegion.tsx` states the rule and `SpinStage`
+    // already followed it; this now does too.
+    //
+    // So the assertion is deliberately two-phase: EMPTY at first paint, then
+    // filled. Asserting the text "at t=0" was asserting the bug.
     render(
       <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
     );
     const live = screen.getByTestId("rtt-battle-verdict-live");
     expect(live).toHaveAttribute("role", "status");
     expect(live).toHaveAttribute("aria-live", "polite");
-    expect(live).toHaveTextContent("VICTORY");
+    expect(live).toHaveTextContent("");
+
+    // Filled on the next frame — long before any reveal animation resolves, so
+    // the verdict is still never "late".
+    await waitFor(() => expect(live).toHaveTextContent("VICTORY"));
     expect(live).toHaveTextContent("Decided on lanes won");
-    // Every lane's numbers, immediately — not after five animations.
     for (let i = 0; i < 5; i += 1) {
       expect(live).toHaveTextContent(`Lane ${i}:`);
     }

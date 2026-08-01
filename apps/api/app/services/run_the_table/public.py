@@ -43,6 +43,7 @@ from nba_peak.run_the_table.config import (
     STATUS_SYSTEM_SELECT,
     SYSTEMS,
     BOSS_RULES,
+    LANES_TO_WIN,
     TERMINAL_STATUSES,
     system_by_id,
 )
@@ -356,6 +357,14 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
         "stage": state.stage,
         "acts_total": ACTS,
         "stages_per_act": STAGES_PER_ACT,
+        # ADDED (never renamed anything): the battle screen has to say "first
+        # to N lanes" BEFORE the reveal, and `LANES_TO_WIN` was reachable only
+        # through `ruleset_meta()`, which the game screen does not fetch. The
+        # alternative was hardcoding `3` in TypeScript, i.e. a client-side copy
+        # of a rule the engine owns. `RunStateResponse` is `extra="allow"` and
+        # `apps/api/tests/test_run_the_table.py:63` asserts STATE_KEYS as a
+        # SUBSET precisely so an added field flows through.
+        "lanes_to_win": LANES_TO_WIN,
         "credits": state.credits,
         "lives": state.lives,
         "max_lives": MAX_LIVES,

@@ -359,6 +359,15 @@ export interface RankingBoardMeta {
   serving_gate_note: string | null;
   effective_tie_threshold: number | null;
   min_season_mpg: number | null;
+  /** SHA-256 of the ranking artifact the API process actually loaded. This is
+   *  the provenance value the page can show without trusting a file mtime --
+   *  mtime skew between `leaderboards/` and the generated boards is exactly
+   *  what produced a false "the rankings are stale" report. */
+  artifact_digest: string | null;
+  /** Pass-through from the artifact. `build_top_peaks.py` does not yet write
+   *  one, so this is routinely null; it is deliberately NOT back-filled from a
+   *  file mtime. See docs/implementation/RANKINGS_SYNC_REPORT.md. */
+  generated_at: string | null;
 }
 
 export interface RankingBoardPayload {
@@ -375,6 +384,8 @@ export interface RankingBoardPayload {
   serving_gate_note?: string | null;
   effective_tie_threshold?: number | null;
   min_season_mpg?: number | null;
+  artifact_digest?: string | null;
+  generated_at?: string | null;
 }
 
 export interface RankingBoardData {

@@ -1,6 +1,8 @@
 "use client";
+import { motion } from "motion/react";
 import { MapAct } from "@/types/run-the-table";
 import { LadderRow, ladderRows } from "@/lib/run-the-table-state";
+import { usePrefersReducedMotion } from "@/lib/a11y";
 
 /**
  * The run ladder: three acts, each `STAGES_PER_ACT` stage rows then a heavier
@@ -99,8 +101,20 @@ const STATE_TEXT: Record<string, string> = {
 
 export default function RunMap({ map }: Props) {
   const rows = ladderRows(map);
+  const reducedMotion = usePrefersReducedMotion();
   return (
-    <nav aria-label="Run map" data-testid="rtt-run-map" className="flex flex-col gap-1.5">
+    <nav
+      aria-label="Run map"
+      data-testid="rtt-run-map"
+      data-tour-id="rtt-run-map"
+      /* `.rtt-map-rail` is the "recedes when not active" treatment: the rail's
+         own chrome quiets down so the decision column reads as dominant. The
+         CURRENT row is exempt — it keeps full contrast, because that is the one
+         row that answers "where am I". No blanket opacity: that dragged every
+         label in every row below AA, which is exactly the bug `rowStyle`'s
+         locked branch already had to fix once. */
+      className="rtt-map-rail flex flex-col gap-1.5"
+    >
       <h2
         className="text-[10px] font-bold uppercase tracking-widest"
         style={{ color: "var(--text-muted)" }}
@@ -111,13 +125,29 @@ export default function RunMap({ map }: Props) {
         {rows.map((row) => {
           const s = rowStyle(row);
           const isBoss = row.kind === "boss";
+          const isCurrent = row.state === "current";
           return (
-            <li key={row.key}>
+            <li key={row.key} className="relative">
+              {/* Shared-element indicator: ONE element that travels down the
+                  ladder as the run advances, rather than a highlight blinking
+                  out here and in there. `layoutId` is what makes it the same
+                  element to Motion. Skipped entirely under reduced motion. */}
+              {isCurrent && !reducedMotion && (
+                <motion.span
+                  layoutId="rtt-current-node"
+                  aria-hidden="true"
+                  data-testid="rtt-map-current-indicator"
+                  className="rtt-map-current-indicator"
+                  transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                />
+              )}
               <div
                 data-testid={`rtt-map-row-${row.key}`}
                 data-row-state={row.state}
                 data-row-kind={row.kind}
-                className={`rtt-map-row ${isBoss ? "rtt-map-row-boss" : ""}`}
+                className={`rtt-map-row ${isBoss ? "rtt-map-row-boss" : ""}${
+                  isCurrent ? " rtt-map-row-current" : ""
+                }`}
                 style={{
                   background: s.background,
                   borderColor: s.borderColor,

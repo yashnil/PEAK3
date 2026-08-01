@@ -22,6 +22,36 @@
 
 export type ModeId = "run-the-table" | "peak-season" | "daily-grid" | "peak-duel";
 
+/**
+ * Which section of the Play menu a mode belongs to.
+ *
+ * Additive (UX / Organization / Polish pass, W1). The nav derives its grouping
+ * from this rather than from a second hand-maintained list, so a mode can never
+ * be described one way on a card and another way in the launcher.
+ */
+export type ModeGroup = "flagship" | "daily" | "competitive" | "explore";
+
+/**
+ * A stable, renderer-agnostic icon name.
+ *
+ * Deliberately a string key, not a component: this module is imported by pure
+ * modules and by tests that never mount React, so it must stay free of JSX and
+ * of `lucide-react`. `components/layout/PlayMenu.tsx` owns the key → component
+ * map, and an unknown key falls back rather than throwing.
+ */
+export type ModeIconKey =
+  | "swords"
+  | "trophy"
+  | "grid"
+  | "scale"
+  | "layout"
+  | "chart"
+  | "book"
+  | "medal"
+  | "history"
+  | "infinity"
+  | "calendar";
+
 export interface ModeCopy {
   id: ModeId;
   /** Where the mode starts. Card hrefs come from here, never a literal. */
@@ -34,6 +64,23 @@ export interface ModeCopy {
   /** Up to three compact facts. */
   meta: string[];
   cta: string;
+
+  /* --- Additive nav metadata (W1). Cards ignore these. --- */
+
+  /** Section of the Play menu this mode leads. */
+  group?: ModeGroup;
+  /**
+   * A menu-sized one-liner (<= 8 words).
+   *
+   * `description` is a full sentence built for a card with room to breathe; a
+   * dropdown row has one line. Truncating `description` with an ellipsis would
+   * cut mid-clause, so the short form is authored, not derived.
+   */
+  blurb?: string;
+  /** Short status/positioning word rendered as a chip. */
+  badge?: string;
+  /** See `ModeIconKey`. */
+  iconKey?: ModeIconKey;
 }
 
 export const MODE_COPY: Record<ModeId, ModeCopy> = {
@@ -46,6 +93,10 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
       "Draft exact NBA 3-year peak windows across a branching run, spend scarce credits, and beat three escalating statistical lineups — every battle decided by the five open PEAK3 components, with a full receipt.",
     meta: ["3 acts · 3 boss battles", "10–15 minutes", "No sign-in needed"],
     cta: "Start a run",
+    group: "flagship",
+    blurb: "Branching front-office run, three boss battles",
+    badge: "Flagship",
+    iconKey: "swords",
   },
   "peak-season": {
     id: "peak-season",
@@ -56,6 +107,9 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
       "Spin a real team and era, draft a position-aware 5+3 roster from exact NBA player-seasons, and chase a perfect season — with a receipt on every rating and a round-by-round comparison to what PEAK3 itself would have picked.",
     meta: ["8 roster slots", "Full-season simulation", "Play any time"],
     cta: "Build a roster",
+    group: "flagship",
+    blurb: "Draft a full-season roster, chase 82-0",
+    iconKey: "trophy",
   },
   "daily-grid": {
     id: "daily-grid",
@@ -66,6 +120,9 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
       "Fill a 3x3 board with exact NBA player-seasons — teams, awards, eras, playoff runs. Nine squares, nine different players, and everyone gets the same board.",
     meta: ["3x3 board", "Picks are final", "One player per board"],
     cta: "Play today's grid",
+    group: "daily",
+    blurb: "Nine squares, same board for everyone",
+    iconKey: "grid",
   },
   "peak-duel": {
     id: "peak-duel",
@@ -76,6 +133,9 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
       "Ten head-to-head questions: pick which player's peak PEAK3 rates higher. The same ten comparisons for everyone, with the real numbers revealed only after you choose.",
     meta: ["10 questions", "Same board for everyone"],
     cta: "Play today's duel",
+    group: "daily",
+    blurb: "Ten head-to-head peak comparisons",
+    iconKey: "scale",
   },
 };
 

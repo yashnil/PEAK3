@@ -26,7 +26,7 @@ export default function MobileTray({
 }: Props) {
   const pips = rosterPips(state);
   return (
-    <div className="rtt-mobile-tray" data-testid="rtt-mobile-tray">
+    <div className="rtt-mobile-tray" data-testid="rtt-mobile-tray" data-tour-id="rtt-mobile-tray">
       <div className="flex items-center gap-3">
         <div className="flex flex-col gap-1 min-w-0">
           <div className="flex items-center gap-2.5">

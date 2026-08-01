@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -88,12 +89,55 @@ FIXTURE_METHODOLOGY: dict = {
 }
 
 
+#: True when the session is running against FIXTURE_LEADERBOARDS -- 30 synthetic
+#: players named `First001 Last001` -- rather than the real generated dataset.
+#:
+#: This flag exists because the fallback below is genuinely useful (most of the
+#: 868 API tests have nothing to do with leaderboard content, and requiring a
+#: build step to run them would be hostile) but is also genuinely dangerous: the
+#: leaderboard endpoints will happily serve fabricated players and every
+#: assertion about them will pass. Before this pass that substitution was
+#: completely silent. Now it is announced on stderr and observable in-process,
+#: so a test that MUST see real data can refuse to run against fixtures instead
+#: of quietly proving nothing. See docs/implementation/RANKINGS_SYNC_REPORT.md.
+USING_FIXTURE_DATASET = False
+
+
 def _load_dataset() -> None:
-    """Try real data first; fall back to fixture data."""
+    """Load the real generated dataset, falling back to fixtures loudly."""
+    global USING_FIXTURE_DATASET
     if WEB_DATA_DIR.exists() and (WEB_DATA_DIR / "leaderboards.json").exists():
         dataset_store.load(WEB_DATA_DIR)
-    else:
-        dataset_store.load_fixture(FIXTURE_LEADERBOARDS, FIXTURE_METADATA, FIXTURE_METHODOLOGY)
+        return
+
+    USING_FIXTURE_DATASET = True
+    print(
+        "\n"
+        "==============================================================\n"
+        "  data/web/leaderboards.json is MISSING.\n"
+        "  Falling back to 30 SYNTHETIC players (First001 Last001 ...).\n"
+        "  Any test asserting on leaderboard CONTENT is now proving\n"
+        "  nothing about the real model. Run:  make build-dataset\n"
+        "==============================================================\n",
+        file=sys.stderr,
+        flush=True,
+    )
+    dataset_store.load_fixture(FIXTURE_LEADERBOARDS, FIXTURE_METADATA, FIXTURE_METHODOLOGY)
+
+
+def requires_real_dataset() -> None:
+    """Fail (never skip) when a content assertion would run against fixtures.
+
+    Mirrors the policy in ``test_regression.py``: a parity check that silently
+    disappears is worse than one that fails, because a green suite then reads as
+    evidence the data is correct.
+    """
+    if USING_FIXTURE_DATASET:
+        pytest.fail(
+            "This test asserts on real leaderboard content but the session is "
+            "running against synthetic fixture data. Run `make build-dataset` "
+            "to generate data/web/, then re-run."
+        )
 
 
 # Load once for the entire test session

@@ -32,10 +32,35 @@ from nba_peak.perfect_season.board import (
     find_spin,
     generate_board,
     generate_team_year_board,
+    get_rollable_season_index,
+    get_rollable_team_year_catalogue,
     get_rollable_team_year_entries,
     resolve_card,
 )
-from nba_peak.perfect_season.config import SLOT_TYPES, TOTAL_ROUNDS
+from nba_peak.perfect_season import config as _ps_config
+from nba_peak.perfect_season.config import (
+    MIN_RESPIN_POOL,
+    RESPIN_POLICY_VERSION,
+    SLOT_TYPES,
+    TOTAL_ROUNDS,
+)
+
+
+def _season_exclusion_radius() -> int:
+    """Read the constant through the config MODULE, not a bound copy.
+
+    `from ... import RESPIN_SEASON_EXCLUSION_RADIUS` binds a snapshot into this
+    module's namespace, so the documented rollback -- "set both constants to 0"
+    -- did nothing when applied to `nba_peak.perfect_season.config`, which is
+    where an operator or a test would obviously set it. Reading the attribute at
+    call time makes the rollback boundary real rather than aspirational.
+    """
+    return getattr(_ps_config, "RESPIN_SEASON_EXCLUSION_RADIUS", 0)
+
+
+def _team_history_depth() -> int:
+    """See `_season_exclusion_radius`."""
+    return getattr(_ps_config, "RESPIN_TEAM_HISTORY_DEPTH", 0)
 from nba_peak.perfect_season.daily import (
     DAILY_BOARD_TYPE,
     FREE_PLAY_BOARD_TYPE,
@@ -554,6 +579,281 @@ def _apply_respin_entry(spin, new_entry: dict) -> None:
     spin.team_id = new_entry.get("team_id")
 
 
+# ---------------------------------------------------------------------------
+# Distance-aware respin policy (W5, UX/organization/polish pass).
+#
+# WHAT WAS WRONG. Both respin kinds narrowed to a constrained pool
+# (same-season-other-team / same-team-other-season) and then, if that pool
+# could not produce an entry within 30 probe attempts, fell back to the FULL
+# rollable catalogue -- which still contained the entry the player was
+# rerolling away from. So a respin could legitimately land on the identical
+# team-season. And nothing anywhere looked at how FAR the new result was
+# from the old one: 1991-92 -> 1992-93 was a perfectly ordinary outcome that
+# reads to a player as "the reroll did nothing".
+#
+# WHAT THIS DOES INSTEAD. Build an explicit ladder of allowed pools, most
+# restrictive first, drop down a rung only when a rung's allowed pool falls
+# below MIN_RESPIN_POOL, then sample UNIFORMLY over whichever rung was
+# chosen. No era is weighted. No franchise is favoured. Nothing is
+# hand-picked. The only thing the policy does is refuse to hand back a
+# result that is too close to the one just seen, and it records exactly
+# which rung it used and how big that rung's pool was.
+#
+# WHAT IT DOES NOT TOUCH. Initial board generation. generate_team_year_board
+# is not called, not imported differently, and not parameterised by any of
+# these constants -- daily boards and every existing seed stay byte-identical
+# (pinned by test_initial_board_generation_is_unchanged_by_respin_policy).
+# ---------------------------------------------------------------------------
+
+
+def _feasible(entry: dict, used_slugs: set[str]) -> bool:
+    """An entry is feasible iff at least one of its real roster candidates is
+    not already on this roster. The MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON
+    floor is already guaranteed by the catalogue accessor, so this is the
+    only additional constraint a respin has to preserve."""
+    return any(slug not in used_slugs for slug in entry.get("player_slugs", ()))
+
+
+def _shuffle_bag_pick(pool: list[dict], rng: random.Random) -> Optional[dict]:
+    """Uniform draw over an ALREADY-FILTERED allowed pool, via a deterministic
+    shuffle bag rather than repeated independent probing.
+
+    Why not `pool[rng.randrange(len(pool))]`: mathematically identical for a
+    single draw, but the bag makes the "no repeated independent draws"
+    property structural -- there is exactly one draw per respin, over a pool
+    that has already had every disallowed entry removed, so an excluded entry
+    is unreachable by construction instead of merely improbable. The old code
+    probed the pool up to 30 times and silently widened to the full catalogue
+    when the probes failed, which is precisely how the current entry got back
+    in.
+    """
+    if not pool:
+        return None
+    bag = list(pool)
+    rng.shuffle(bag)
+    return bag[0]
+
+
+def _radius_ladder(radius: int) -> list[int]:
+    """[2, 1, 0] for radius 2; [1, 0] for radius 1; [0] for radius 0."""
+    return sorted({radius, min(radius, 1), 0}, reverse=True)
+
+
+def _recent_team_ids(state: CourtLineupState, spin, entries: list[dict]) -> list[str]:
+    """Team ids already seen in this run, MOST RECENT FIRST, excluding the
+    current one (which the policy always excludes separately).
+
+    Derived from two real sources, exactly as specified: `respin_history`
+    (which was previously written and never read -- this is the first thing
+    that reads it) and the run's already-resolved spins. respin_history
+    stores franchise DISPLAY NAMES, so they are mapped back to team ids
+    through the catalogue; a name that no longer maps is dropped rather than
+    guessed at.
+    """
+    name_to_id = {e["franchise_display_name"]: e["team_id"] for e in entries}
+    ordered: list[str] = []
+
+    def push(team_id: Optional[str]) -> None:
+        if team_id and team_id != spin.team_id and team_id not in ordered:
+            ordered.append(team_id)
+
+    # Most recent respin first; within one entry, the team it landed on is
+    # more recent than the team it came from.
+    for record in reversed(state.respin_history):
+        if record.get("round") != state.current_round:
+            continue
+        push(name_to_id.get(record.get("to_team")))
+        push(name_to_id.get(record.get("from_team")))
+    for record in reversed(state.respin_history):
+        push(name_to_id.get(record.get("to_team")))
+        push(name_to_id.get(record.get("from_team")))
+    # Then the run's already-resolved rounds, latest round first.
+    for prior in sorted(state.board.spins, key=lambda s: s.round_number, reverse=True):
+        if prior.round_number >= state.current_round:
+            continue
+        push(prior.team_id)
+    return ordered
+
+
+def plan_respin(
+    kind: str,
+    entries: list[dict],
+    current: dict,
+    used_slugs: set[str],
+    recent_team_ids: list[str],
+    season_index: dict[str, int],
+    rng: random.Random,
+) -> tuple[Optional[dict], dict]:
+    """The whole policy, as one pure function.
+
+    Pure so it can be exercised 100,000 times in
+    scripts/audit_spinner_reroll_policy.py without constructing a game, and
+    so the relaxation ladder can be tested against a deliberately tiny pool.
+
+    Returns (chosen_entry, metadata). `metadata` always describes what
+    actually happened, including on the no-option path.
+    """
+    current_team = current.get("team_id")
+    current_season = current.get("era_label")
+    current_spin_id = current.get("spin_id")
+    s = season_index.get(current_season)
+
+    tiers: list[tuple[str, int, int, list[dict]]] = []  # (tier, radius, depth, pool)
+
+    if kind == "season":
+        # Season respin. The product promise is "same team in a different
+        # season if the team has roster data that year", so same-team tiers
+        # are tried first at every radius before broadening to other teams.
+        def far_enough(entry: dict, radius: int) -> bool:
+            if s is None:
+                return entry.get("era_label") != current_season
+            other = season_index.get(entry.get("era_label"))
+            if other is None:
+                return True
+            return abs(other - s) > radius
+
+        for radius in _radius_ladder(_season_exclusion_radius()):
+            tiers.append((
+                f"same_team_radius_{radius}", radius, 0,
+                [e for e in entries if e["team_id"] == current_team and far_enough(e, radius)],
+            ))
+        for radius in _radius_ladder(_season_exclusion_radius()):
+            tiers.append((
+                f"any_team_radius_{radius}", radius, 0,
+                [e for e in entries if e["spin_id"] != current_spin_id and far_enough(e, radius)],
+            ))
+    else:
+        # Team respin. The current team is excluded at EVERY tier -- only the
+        # recent-history depth relaxes -- so "the respin gave me the same
+        # team back" is structurally impossible, not just unlikely.
+        def allowed_team(entry: dict, depth: int) -> bool:
+            team_id = entry["team_id"]
+            if team_id == current_team:
+                return False
+            return team_id not in recent_team_ids[:depth]
+
+        _depth = _team_history_depth()
+        depths = sorted({_depth, min(_depth, 1), 0}, reverse=True)
+        for depth in depths:
+            tiers.append((
+                f"same_season_depth_{depth}", 0, depth,
+                [e for e in entries if e["era_label"] == current_season and allowed_team(e, depth)],
+            ))
+        for depth in depths:
+            tiers.append((
+                f"any_season_depth_{depth}", 0, depth,
+                [e for e in entries if allowed_team(e, depth)],
+            ))
+
+    best_fallback: Optional[tuple[str, int, int, list[dict]]] = None
+    for tier_index, (tier, radius, depth, pool) in enumerate(tiers):
+        allowed = [e for e in pool if _feasible(e, used_slugs)]
+        if not allowed:
+            continue
+        # FIRST non-empty rung wins the fallback, not the widest.
+        #
+        # The tiers are ordered most-restrictive-first, and the rungs nest
+        # (`depth_0` contains `depth_1` contains `depth_2`), so "widest
+        # non-empty" was always the LEAST restrictive rung -- it threw away the
+        # distance and recent-history guarantees even when a stricter rung had
+        # candidates in it. When every rung is under MIN_RESPIN_POOL the honest
+        # choice is the strictest rung that can still produce a result.
+        if best_fallback is None:
+            best_fallback = (tier, radius, depth, allowed)
+        if len(allowed) >= MIN_RESPIN_POOL:
+            return _shuffle_bag_pick(allowed, rng), {
+                "policy_version": RESPIN_POLICY_VERSION,
+                "kind": kind,
+                "relaxation_tier": tier,
+                "tier_index": tier_index,
+                "exclusion_radius": radius,
+                "history_depth": depth,
+                "allowed_pool_size": len(allowed),
+                "min_respin_pool": MIN_RESPIN_POOL,
+                "relaxed": tier_index > 0,
+            }
+
+    if best_fallback is None:
+        return None, {
+            "policy_version": RESPIN_POLICY_VERSION,
+            "kind": kind,
+            "relaxation_tier": "none",
+            "tier_index": -1,
+            "exclusion_radius": 0,
+            "history_depth": 0,
+            "allowed_pool_size": 0,
+            "min_respin_pool": MIN_RESPIN_POOL,
+            "relaxed": True,
+        }
+
+    # Every rung was under the floor. Use the widest one that had anything in
+    # it at all rather than failing the respin -- an under-floor pool is a
+    # real data-coverage limit, and a smaller-than-ideal honest draw beats
+    # refusing the player's reroll.
+    tier, radius, depth, allowed = best_fallback
+    return _shuffle_bag_pick(allowed, rng), {
+        "policy_version": RESPIN_POLICY_VERSION,
+        "kind": kind,
+        "relaxation_tier": tier,
+        "tier_index": [t[0] for t in tiers].index(tier),
+        "exclusion_radius": radius,
+        "history_depth": depth,
+        "allowed_pool_size": len(allowed),
+        "min_respin_pool": MIN_RESPIN_POOL,
+        "relaxed": True,
+        "below_min_pool": True,
+    }
+
+
+def _policy_enabled() -> bool:
+    """False only when BOTH policy constants are 0 -- the documented rollback
+    boundary. In that state the actions below take the verbatim pre-policy
+    code path (same pools, same `_pick_valid_entry` probing, same rng call
+    sequence), so rolling back is provable rather than approximate."""
+    return _season_exclusion_radius() > 0 or _team_history_depth() > 0
+
+
+#: How many applied respin keys to remember per kind.
+#:
+#: A single remembered key was not enough. Keys are derived per respin
+#: (`{game}:r{round}:{kind}:{used}`), so respin #2 overwrote respin #1's key and
+#: a DELAYED duplicate of #1 -- a mobile TCP retransmit, a proxy replay, a second
+#: tab -- was no longer recognised. It would pass validation, burn a third
+#: respin out of a run-level budget of three, and reroll the board the player
+#: had already accepted.
+#:
+#: Six is the whole budget (MAX_TEAM_RESPINS + MAX_SEASON_RESPINS), so within a
+#: run no legitimate key can ever be evicted.
+_RESPIN_KEY_MEMORY = 6
+
+
+def _remembered_respin_keys(state: CourtLineupState, kind: str) -> list[str]:
+    """Applied keys for `kind`, oldest first.
+
+    Tolerates the pre-existing single-string shape so a game persisted before
+    this change still replays correctly rather than raising on load.
+    """
+    raw = state.last_respin_keys.get(kind)
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    return list(raw)
+
+
+def _replayed_respin(state: CourtLineupState, kind: str, idempotency_key: Optional[str]) -> bool:
+    """True when this exact respin has already been applied.
+
+    Checked BEFORE any validation, deliberately: a replay must return the
+    current state untouched even if the game has since moved on (the player
+    selected a player, the round advanced), because the caller is retrying an
+    action the server already honoured -- not requesting a new one.
+    """
+    if not idempotency_key:
+        return False
+    return idempotency_key in _remembered_respin_keys(state, kind)
+
+
 def _assert_respin_allowed(state: CourtLineupState):
     _assert_active(state)
     if state.status != "selection_pending":
@@ -570,65 +870,140 @@ def _assert_respin_allowed(state: CourtLineupState):
     return spin
 
 
-def action_respin_team(state: CourtLineupState) -> CourtLineupState:
-    """Reroll the current round's TEAM, preferring to keep the same season
-    if another team has a rollable roster for it; otherwise rerolls to a
-    fully independent valid team-season pair (Part C: 'same season if valid
-    for new team, or reroll to a valid team-season pair if that team did
-    not exist in that season')."""
+def _apply_respin(
+    state: CourtLineupState,
+    spin,
+    kind: str,
+    new_entry: dict,
+    policy_meta: dict,
+    idempotency_key: Optional[str],
+) -> CourtLineupState:
+    """Commit one respin: mutate the spin, charge the run-level budget, and
+    append BOTH receipts (the player-visible respin_history entry, whose key
+    set is frozen by test_respin_history_recorded_and_budget_carries_over_
+    next_round, and the separate policy debug entry)."""
+    from_team, from_season = spin.franchise_display_name, spin.era_label
+    _apply_respin_entry(spin, new_entry)
+    if kind == "team":
+        state.team_respins_used += 1
+    else:
+        state.season_respins_used += 1
+    state.respin_history.append({
+        "round": state.current_round, "kind": kind,
+        "from_team": from_team, "from_season": from_season,
+        "to_team": spin.franchise_display_name, "to_season": spin.era_label,
+    })
+    state.respin_policy_debug.append({
+        **policy_meta,
+        "round": state.current_round,
+        "from_season": from_season,
+        "to_season": spin.era_label,
+        "from_team": from_team,
+        "to_team": spin.franchise_display_name,
+    })
+    if idempotency_key:
+        # Append to a bounded ledger rather than overwrite -- see _RESPIN_KEY_MEMORY.
+        remembered = _remembered_respin_keys(state, kind)
+        remembered.append(idempotency_key)
+        state.last_respin_keys[kind] = remembered[-_RESPIN_KEY_MEMORY:]
+    state.last_action_at = datetime.now(timezone.utc).isoformat()
+    return state
+
+
+def action_respin_team(
+    state: CourtLineupState, idempotency_key: Optional[str] = None
+) -> CourtLineupState:
+    """Reroll the current round's TEAM.
+
+    Keeps the same season whenever another team has a rollable roster for it
+    (Part C: 'same season if valid for new team, or reroll to a valid
+    team-season pair if that team did not exist in that season'), and on top
+    of that never returns the current team, and prefers to avoid the most
+    recent RESPIN_TEAM_HISTORY_DEPTH teams already seen this run.
+
+    IDEMPOTENT BY KEY: resending the same `idempotency_key` returns the
+    current state unchanged instead of consuming a second respin, so a
+    double-click or a retried fetch cannot burn two of the three.
+    """
+    if _replayed_respin(state, "team", idempotency_key):
+        return state
     spin = _assert_respin_allowed(state)
     if state.team_respins_used >= MAX_TEAM_RESPINS:
         raise CourtError("respin_limit_reached", "No team respins left this round")
 
-    entries = get_rollable_team_year_entries()
-    same_season_other_team = [
-        e for e in entries if e["era_label"] == spin.era_label and e["team_id"] != spin.team_id
-    ]
     rng = _respin_rng(state, "team", state.team_respins_used)
-    new_entry = _pick_valid_entry(same_season_other_team, _used_player_slugs(state), rng, entries)
+    used_slugs = _used_player_slugs(state)
+
+    if not _policy_enabled():
+        # Documented rollback path -- verbatim pre-policy behaviour.
+        entries = get_rollable_team_year_entries()
+        same_season_other_team = [
+            e for e in entries if e["era_label"] == spin.era_label and e["team_id"] != spin.team_id
+        ]
+        new_entry = _pick_valid_entry(same_season_other_team, used_slugs, rng, entries)
+        policy_meta = {"policy_version": "legacy_pre_policy", "kind": "team"}
+    else:
+        entries = get_rollable_team_year_catalogue()
+        new_entry, policy_meta = plan_respin(
+            "team",
+            entries,
+            {"team_id": spin.team_id, "era_label": spin.era_label, "spin_id": spin.spin_id},
+            used_slugs,
+            _recent_team_ids(state, spin, entries),
+            get_rollable_season_index(),
+            rng,
+        )
+
     if new_entry is None:
         raise CourtError("respin_no_valid_option", "No valid team-season available for a respin right now")
-
-    from_team, from_season = spin.franchise_display_name, spin.era_label
-    _apply_respin_entry(spin, new_entry)
-    state.team_respins_used += 1
-    state.respin_history.append({
-        "round": state.current_round, "kind": "team",
-        "from_team": from_team, "from_season": from_season,
-        "to_team": spin.franchise_display_name, "to_season": spin.era_label,
-    })
-    state.last_action_at = datetime.now(timezone.utc).isoformat()
-    return state
+    return _apply_respin(state, spin, "team", new_entry, policy_meta, idempotency_key)
 
 
-def action_respin_season(state: CourtLineupState) -> CourtLineupState:
-    """Reroll the current round's SEASON, preferring to keep the same team
-    if it has a rollable roster in a different season; otherwise rerolls to
-    a fully independent valid team-season pair (Part C: 'same team if the
-    team has roster data that year')."""
+def action_respin_season(
+    state: CourtLineupState, idempotency_key: Optional[str] = None
+) -> CourtLineupState:
+    """Reroll the current round's SEASON.
+
+    Keeps the same team whenever it has a rollable roster in another season
+    (Part C: 'same team if the team has roster data that year'), and on top
+    of that excludes every season within RESPIN_SEASON_EXCLUSION_RADIUS
+    indices of the current one whenever enough seasons remain -- so
+    1991-92 -> 1992-93 stops being an ordinary outcome.
+
+    IDEMPOTENT BY KEY -- see action_respin_team.
+    """
+    if _replayed_respin(state, "season", idempotency_key):
+        return state
     spin = _assert_respin_allowed(state)
     if state.season_respins_used >= MAX_SEASON_RESPINS:
         raise CourtError("respin_limit_reached", "No season respins left this round")
 
-    entries = get_rollable_team_year_entries()
-    same_team_other_season = [
-        e for e in entries if e["team_id"] == spin.team_id and e["era_label"] != spin.era_label
-    ]
     rng = _respin_rng(state, "season", state.season_respins_used)
-    new_entry = _pick_valid_entry(same_team_other_season, _used_player_slugs(state), rng, entries)
+    used_slugs = _used_player_slugs(state)
+
+    if not _policy_enabled():
+        # Documented rollback path -- verbatim pre-policy behaviour.
+        entries = get_rollable_team_year_entries()
+        same_team_other_season = [
+            e for e in entries if e["team_id"] == spin.team_id and e["era_label"] != spin.era_label
+        ]
+        new_entry = _pick_valid_entry(same_team_other_season, used_slugs, rng, entries)
+        policy_meta = {"policy_version": "legacy_pre_policy", "kind": "season"}
+    else:
+        entries = get_rollable_team_year_catalogue()
+        new_entry, policy_meta = plan_respin(
+            "season",
+            entries,
+            {"team_id": spin.team_id, "era_label": spin.era_label, "spin_id": spin.spin_id},
+            used_slugs,
+            [],
+            get_rollable_season_index(),
+            rng,
+        )
+
     if new_entry is None:
         raise CourtError("respin_no_valid_option", "No valid team-season available for a respin right now")
-
-    from_team, from_season = spin.franchise_display_name, spin.era_label
-    _apply_respin_entry(spin, new_entry)
-    state.season_respins_used += 1
-    state.respin_history.append({
-        "round": state.current_round, "kind": "season",
-        "from_team": from_team, "from_season": from_season,
-        "to_team": spin.franchise_display_name, "to_season": spin.era_label,
-    })
-    state.last_action_at = datetime.now(timezone.utc).isoformat()
-    return state
+    return _apply_respin(state, spin, "season", new_entry, policy_meta, idempotency_key)
 
 
 def _compute_peak_picks_recap(state: CourtLineupState, team_year_board: bool) -> list[dict]:
@@ -1289,6 +1664,13 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
         # by the leaderboard submission path (Part E) to record respin
         # counts on a submitted run.
         "respin_history": state.respin_history,
+        # W5: the distance-aware respin policy's identifier and its per-respin
+        # debug trail (exclusion radius, recent-team depth, which relaxation
+        # rung fired, allowed pool size). Deliberately NOT rendered in the
+        # normal UI -- surfaced so tests, the audit script and a support
+        # request can prove which pool a given reroll actually sampled from.
+        "respin_policy_version": RESPIN_POLICY_VERSION,
+        "respin_policy_debug": state.respin_policy_debug,
         # Phase 7A Part C: explicit RUN-LEVEL counters for the data receipt
         # -- team_respins_used/season_respins_used on current_spin (below)
         # are already run-level values (never reset per round), but these

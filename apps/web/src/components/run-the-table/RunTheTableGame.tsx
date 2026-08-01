@@ -1,5 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { motion } from "motion/react";
+import { usePrefersReducedMotion } from "@/lib/a11y";
+import { TourLauncher } from "@/components/ui/GuidedTour";
+import { motionTransition } from "@/lib/motion";
 import {
   RunPublicState,
   RunReadiness,
@@ -70,6 +75,44 @@ interface Props {
   preferredMode?: "daily";
 }
 
+/**
+ * `?start=` values this component will act on. Anything else is ignored.
+ *
+ * `standard` ONLY. `daily` was removed after review: a standard run costs
+ * nothing to create (random seed, start as many as you like), but the daily is
+ * one shared board and one attempt per UTC day. With `?start=daily` the URL
+ * itself spends that attempt, so copying the address bar into a group chat
+ * would burn it for every recipient on navigation. The homepage launcher now
+ * links to `?mode=daily`, which lands on the start gate with the daily button
+ * emphasised — exactly what `/arena` has always linked to, and what this
+ * route's own docstring promises.
+ */
+const START_PARAM_VALUES: readonly RunType[] = ["standard"] as const;
+
+/**
+ * Read `?start=` from the live URL, once.
+ *
+ * `window.location.search` rather than `useSearchParams()` deliberately: this
+ * value is consumed exactly once and then removed, so there is nothing to
+ * subscribe to, and reading it this way keeps the component free of the
+ * Suspense boundary `useSearchParams` requires of any route Next tries to
+ * prerender. Returns null during SSR and for every unrecognised value.
+ */
+export function readStartParam(search?: string): RunType | null {
+  const raw = search ?? (typeof window === "undefined" ? "" : window.location.search);
+  if (!raw) return null;
+  const value = new URLSearchParams(raw).get("start");
+  return START_PARAM_VALUES.includes(value as RunType) ? (value as RunType) : null;
+}
+
+/** The same URL with `start` removed, path and every other param preserved. */
+export function urlWithoutStartParam(pathname: string, search: string): string {
+  const params = new URLSearchParams(search);
+  params.delete("start");
+  const rest = params.toString();
+  return rest ? `${pathname}?${rest}` : pathname;
+}
+
 export default function RunTheTableGame({
   initialSeed,
   initialDate,
@@ -95,6 +138,30 @@ export default function RunTheTableGame({
   } | null>(null);
   // Fires "offer viewed" once per node, not once per render.
   const seenNodeRef = useRef<string | null>(null);
+  const router = useRouter();
+  const reducedMotion = usePrefersReducedMotion();
+
+  /**
+   * `?start=` — read ONCE, at first render, before any effect can run.
+   *
+   * Two separate guards, because they defend against two different things:
+   *
+   *   * `startParamRef` freezes the value at mount. `router.replace` strips the
+   *     param from the URL, so a later read would see nothing — and a re-render
+   *     between the two must not see a different answer.
+   *   * `startConsumedRef` is set synchronously inside the effect BEFORE any
+   *     await, so React 18 strict mode's double-invoke, and every subsequent
+   *     re-render, both find it already true. This is what stops the launcher
+   *     link from creating two runs.
+   *
+   * A bare `/arena/run-the-table` with no `start` param still falls through to
+   * `RunStartGate` and creates nothing — `play-routing.spec.ts:112-134` and
+   * `run-the-table.spec.ts`'s "navigating to the route creates no run" both
+   * depend on that and are unaffected by this code path.
+   */
+  const startParamRef = useRef<RunType | null | undefined>(undefined);
+  if (startParamRef.current === undefined) startParamRef.current = readStartParam();
+  const startConsumedRef = useRef(false);
   // Focus management — see the effect below.
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const lastSurfaceKeyRef = useRef<string | null>(null);
@@ -320,10 +387,10 @@ export default function RunTheTableGame({
     trackRunTheTable({ type: "rtt_run_started", run_type: next.run_type, seed: next.seed });
   }
 
-  async function handleStart(runType: RunType) {
-    setResumeNotice(null);
-    announceStarted(
-      await run(
+  const handleStart = useCallback(
+    async (runType: RunType) => {
+      setResumeNotice(null);
+      const next = await run(
         () =>
           createRun(runType, {
             seed: runType === "standard" ? initialSeed : undefined,
@@ -331,9 +398,41 @@ export default function RunTheTableGame({
             challengeToken: runType === "challenge" ? challengeToken : undefined,
           }),
         "Run started.",
-      ),
-    );
-  }
+      );
+      if (next) {
+        trackRunTheTable({ type: "rtt_run_started", run_type: next.run_type, seed: next.seed });
+      }
+    },
+    [run, initialSeed, initialDate, challengeToken],
+  );
+
+  // --- `?start=` — the homepage launcher's deep link (plan §5.1) ------------
+  useEffect(() => {
+    // Wait for boot: a stored run must be given the chance to resume first, or
+    // a shared link would silently abandon a run in progress.
+    if (booting) return;
+    if (startConsumedRef.current) return;
+    const requested = startParamRef.current;
+    if (!requested) return;
+
+    // Consume and strip BEFORE anything async. A refresh must not be able to
+    // start a second run, and neither must a strict-mode double-invoke.
+    startConsumedRef.current = true;
+    router.replace(urlWithoutStartParam(window.location.pathname, window.location.search), {
+      scroll: false,
+    });
+
+    // A resumed run wins outright. The param is still consumed and stripped —
+    // it just does not create anything.
+    if (state) return;
+    // So does a challenge token. `?c=<token>&start=standard` must not quietly
+    // start a fresh random-seed run and drop the token: the recipient came for
+    // a specific shared board, and silently giving them a different one is the
+    // wrong-board failure the challenge button exists to prevent. Fall through
+    // to the gate, which offers the challenge explicitly.
+    if (challengeToken) return;
+    void handleStart(requested);
+  }, [booting, state, router, handleStart, challengeToken]);
 
   // A fresh run on a NEW seed (the server picks one) versus the same seed
   // again — two genuinely different replays, so two buttons.
@@ -497,7 +596,7 @@ export default function RunTheTableGame({
       trackRunTheTable({ type: "rtt_boss_started", act: state.act, boss_id: boss.boss_id });
       act(runActions.resolveBoss(), `resolve:${boss.boss_id}`, "Battle resolved.");
     };
-    mobilePrimaryLabel = "Play";
+    mobilePrimaryLabel = "Resolve";
     mobilePrimary = resolve;
     surface = (
       <BossPreview
@@ -508,6 +607,7 @@ export default function RunTheTableGame({
         lives={state.lives}
         busy={busy}
         onResolve={resolve}
+        lanesToWin={state.lanes_to_win}
       />
     );
   } else if (screen === "battle" && battle) {
@@ -529,6 +629,7 @@ export default function RunTheTableGame({
         busy={busy}
         onAdvance={advance}
         advanceLabel={battle.act >= state.acts_total ? "See the receipt" : "Next act"}
+        lanesToWin={state.lanes_to_win}
       />
     );
   } else if (screen === "result" && state.receipt) {
@@ -572,12 +673,23 @@ export default function RunTheTableGame({
     );
   }
 
+  /**
+   * Is a guided tour allowed to run right now?
+   *
+   * True while a server round-trip is in flight (`busy` — the surface is about
+   * to be replaced under the spotlight) and for the whole battle screen, which
+   * is a timed lane-by-lane reveal. W3's `GuidedTour` takes this as `blocked`.
+   */
+  const tourBlocked = busy || screen === "battle";
+
   return (
-    <div className="rtt-shell" data-testid="rtt-shell">
+    <div className="rtt-shell" data-testid="rtt-shell" data-tour-blocked={tourBlocked ? "true" : "false"}>
       {/* Zone 1 — the ladder. Desktop only; a phone gets the progress strip
           inside the decision column instead (DOM order: strip, surface,
-          roster). */}
-      <div className="rtt-zone-left">
+          roster). It RECEDES: `.rtt-map-rail` quiets the whole rail so the
+          decision column is unambiguously the dominant surface, and only the
+          current row keeps full contrast. */}
+      <div className="rtt-zone-left" data-tour-id="run-map">
         <RunMap map={state.map} />
       </div>
 
@@ -619,20 +731,57 @@ export default function RunTheTableGame({
 
         {/* The focus target's container. A plain wrapper, so it simply takes
             the surface's place as the flex item and the column's gaps are
-            unchanged. */}
-        <div ref={surfaceRef} className="min-w-0">
-          {surface}
+            unchanged.
+
+            `motion.div` keyed on the surface identity gives each decision a
+            short directional enter — the new surface arrives from below rather
+            than replacing the old one in a single frame, which is the only
+            cue that the board moved. `layout={false}` and transform/opacity
+            only; under reduced motion the transition is zero-length and the
+            initial state is skipped entirely, so the surface is finished on
+            first paint. */}
+        <div
+          ref={surfaceRef}
+          /* `.rtt-decision-zone` is the "dominant surface" treatment, applied
+             to a wrapper this file owns rather than to the shared
+             `.rtt-decision-surface` class — three of the six components using
+             that class belong to W3, and restyling it would reach into their
+             work. Skipped on the receipt, which already has its own
+             `.share-card-shell` frame and must not be double-boxed. */
+          className={`min-w-0${screen === "result" ? "" : " rtt-decision-zone"}`}
+          data-tour-id="rtt-decision"
+        >
+          <motion.div
+            key={surfaceKey ?? "surface"}
+            initial={reducedMotion ? false : { opacity: 0, transform: "translateY(8px)" }}
+            animate={{ opacity: 1, transform: "translateY(0px)" }}
+            transition={motionTransition("base", "out", reducedMotion)}
+          >
+            {surface}
+          </motion.div>
         </div>
 
-        {/* Mobile-only roster, below the decision — never above it. */}
-        <div className="rtt-mobile-only">
-          <RunTray state={state} />
+        {/* W3's guided tour: the visible Help / Tour control AND the
+            auto-starting instance, in one mount. `blocked` defers the
+            auto-start and disables the button while the board is mid-action —
+            see `tourBlocked` above — and re-evaluates when the block clears.
+            Placed AFTER the decision surface in DOM order deliberately: the
+            e2e driver clicks the first enabled button inside a surface testid,
+            and this button is outside every surface. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <TourLauncher blocked={tourBlocked} data-testid="rtt-tour-launcher" />
         </div>
       </div>
 
-      {/* Zone 3 — the persistent tray */}
-      <div className="rtt-zone-right">
-        <RunTray state={state} />
+      {/* Zone 3 — the persistent front-office rail.
+          Rendered ONCE. It used to be two `<RunTray>` instances (a desktop rail
+          plus an `.rtt-mobile-only` copy inside the decision column), which
+          duplicated every `data-testid` and made a `data-tour-id` ambiguous.
+          `.rtt-zone-right-fluid` (rtt-polish.css) drops the same element back
+          into normal flow below 1024px, so the phone gets exactly one roster,
+          after the decision and never above it. */}
+      <div className="rtt-zone-right rtt-zone-right-fluid">
+        <RunTray state={state} laneProfileRelevant={screen === "boss_preview" || screen === "battle"} />
       </div>
 
       <MobileTray
@@ -650,6 +799,31 @@ export default function RunTheTableGame({
 export function surfaceKeyFor(state: RunPublicState): string {
   return `${screenForStatus(state.status)}:${state.active_node?.node_id ?? state.act}`;
 }
+
+/* ---------------------------------------------------------------------------
+ * Guided tour contract (W3's `components/ui/tour-steps.ts::TOUR_TARGET_IDS`)
+ * ---------------------------------------------------------------------------
+ * Placed by this workstream, one attribute per element:
+ *
+ *   rtt-run-map        RunMap's <nav>
+ *   rtt-progress-strip RunProgressStrip's root (mobile)
+ *   rtt-decision       the surfaceRef wrapper above
+ *   rtt-credits        RunTray's Credits tile
+ *   rtt-lives          RunTray's Lives tile
+ *   rtt-roster         RunTray's roster <section>
+ *   rtt-systems        RunTray's rtt-active-systems <section>
+ *   rtt-lane-profile   RunTray's lane-profile <details>
+ *   rtt-mobile-tray    MobileTray's root
+ *
+ * `rtt-system-select` is W3's own, on SystemSelect, and is not duplicated here.
+ *
+ * `<TourLauncher blocked={tourBlocked} />` is mounted once, after the decision
+ * surface — it is the visible Help / Tour control AND the auto-starting
+ * instance. Coachmarks are mounted in DraftRoom, TradeDesk and BossPreview,
+ * always AFTER that surface's action controls: `e2e/run-the-table.spec.ts`
+ * drives the game by clicking the first enabled <button> inside a surface's
+ * testid, and a coachmark's "Got it" would otherwise capture that click.
+ * ------------------------------------------------------------------------- */
 
 /** Exported for tests: how many offers a node is showing, used to fire the
  *  "offer viewed" event exactly once per node rather than per render. */

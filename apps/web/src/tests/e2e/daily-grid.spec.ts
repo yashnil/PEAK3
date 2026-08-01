@@ -470,13 +470,23 @@ test.describe("Daily Grid — discoverability", () => {
     // The Daily Grid sits BESIDE the other modes, never replacing them.
     // Duplicated from play-routing.spec.ts on purpose: this file is what
     // changed the navbar, so it should fail here first if it broke that path.
+    //
+    // "Play" is a disclosure BUTTON since the UX pass, not a link: it opens the
+    // nested game launcher. The hub is still one interaction away, as the
+    // launcher's last row. The property under test is unchanged — Play leads to
+    // /arena, and /arena's flagship is RUN THE TABLE.
     await page.goto("/", { waitUntil: "load" });
     const play = page
       .getByRole("navigation", { name: "Main navigation" })
-      .getByRole("link", { name: "Play" });
-    await expect(play).toHaveAttribute("href", "/arena");
+      .getByRole("button", { name: "Play", exact: true });
+    await expect(play).toHaveAttribute("aria-expanded", "false");
 
     await play.click();
+    await expect(play).toHaveAttribute("aria-expanded", "true");
+    await page
+      .getByTestId("nav-play-panel")
+      .getByRole("link", { name: /View all games/i })
+      .click();
     await expect(page).toHaveURL(/\/arena$/);
     await expect(page.getByTestId("arena-flagship-card")).toHaveAttribute(
       "href",

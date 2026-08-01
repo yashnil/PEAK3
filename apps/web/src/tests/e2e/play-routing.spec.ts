@@ -28,8 +28,48 @@
  * start gate still printed "1Y Apex" as a board-variant chip, so the single
  * most-visited screen in the product went on advertising a retired mode name
  * to every user arriving from "Play". Hence `assertNoLegacyModeLabels`.
+ *
+ * WHAT THE UX / ORGANIZATION / POLISH PASS CHANGED HERE, AND WHY.
+ *
+ * 1. "Play" is a BUTTON, not a link. It was a link to /arena, which meant the
+ *    chrome represented eleven finished doors with one word and the only way to
+ *    discover the others was to land on the hub and read it. It now opens a
+ *    grouped launcher listing every mode. /arena did not lose its entry point —
+ *    it is the launcher's last row, "View all games", and ArrowUp on the
+ *    trigger opens the menu with focus already on it, so the hub stays exactly
+ *    one keyboard interaction away. The assertions below moved from
+ *    `getByRole("link", { name: "Play" })` to the button plus that row; what is
+ *    being protected — "Play leads to the hub, and the hub's flagship is RUN
+ *    THE TABLE" — is unchanged.
+ *
+ * 2. `home-primary-cta` is a BUTTON that opens an in-place launcher, rather
+ *    than a link named "Start a Run" that led to a second screen also named
+ *    "Start a run". The redundant confirmation is gone from the main path; the
+ *    invariant it existed to protect is NOT. A bare visit to
+ *    /arena/run-the-table still shows the gate and still creates no run, which
+ *    is asserted separately and explicitly below. Only a deliberate choice —
+ *    `?start=standard` from the launcher, or the gate's own button — starts one.
  */
-import { test, expect, Page } from "@playwright/test";
+import { test, expect, Page, Locator } from "@playwright/test";
+
+/** The navbar's Play trigger. A button since the UX pass — see the header. */
+function playTrigger(page: Page): Locator {
+  return page
+    .getByRole("navigation", { name: "Main navigation" })
+    .getByRole("button", { name: "Play" });
+}
+
+/** Opens the Play launcher and returns its panel. */
+async function openPlayMenu(page: Page): Promise<Locator> {
+  const trigger = playTrigger(page);
+  await expect(trigger).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const panel = page.getByTestId("nav-play-panel");
+  await expect(panel).toBeVisible();
+  return panel;
+}
 
 const LEGACY_MODE_LABELS = ["1Y Apex", "3Y Prime", "5Y Foundation"];
 
@@ -90,16 +130,33 @@ async function assertSoleFeaturedCard(page: Page, testId: string): Promise<void>
 }
 
 test.describe("Navbar Play", () => {
-  test("routes to the Arena hub, whose flagship is RUN THE TABLE", async ({ page }) => {
+  test("opens a launcher whose 'View all games' is the Arena hub", async ({ page }) => {
     await page.goto("/", { waitUntil: "load" });
-    const play = page
-      .getByRole("navigation", { name: "Main navigation" })
-      .getByRole("link", { name: "Play" });
-    await expect(play).toBeVisible();
-    // The hub, not a deep link into one mode's route.
-    await expect(play).toHaveAttribute("href", "/arena");
+    const panel = await openPlayMenu(page);
 
-    await play.click();
+    // The hub, not a deep link into one mode's route.
+    const viewAll = panel.getByRole("link", { name: /View all games/i });
+    await expect(viewAll).toHaveAttribute("href", "/arena");
+
+    // ...and the launcher does not hide what the hub used to be the only way
+    // to find. The flagship is featured; the rest are listed, not buried.
+    await expect(panel.locator('[data-nav-featured="true"]')).toHaveCount(1);
+    await expect(panel.locator('[data-nav-item="run-the-table"]')).toHaveAttribute(
+      "href",
+      "/arena/run-the-table",
+    );
+    for (const [id, href] of [
+      ["peak-season", "/arena/court/practice/apex_1y"],
+      ["daily-grid", "/daily/grid"],
+      ["peak-duel", "/play/daily"],
+      ["peak-season-leaderboard", "/arena/court/leaderboard"],
+      // /play/endless was linked from nothing at all before this pass.
+      ["peak-duel-endless", "/play/endless"],
+    ] as const) {
+      await expect(panel.locator(`[data-nav-item="${id}"]`)).toHaveAttribute("href", href);
+    }
+
+    await viewAll.click();
     await expect(page).toHaveURL(/\/arena$/);
     const flagshipCard = page.locator('[data-testid="arena-flagship-card"]');
     await expect(flagshipCard).toBeVisible({ timeout: 15_000 });
@@ -109,6 +166,30 @@ test.describe("Navbar Play", () => {
     await assertNoLegacyModeCards(page);
   });
 
+  test("the launcher is fully keyboard-operable, and ArrowUp lands on the hub", async ({
+    page,
+  }) => {
+    // The one thing the old link gave for free was "one interaction reaches
+    // /arena". A disclosure button that took three would have been a
+    // regression, so ArrowUp opens the menu with focus on the last row.
+    await page.goto("/", { waitUntil: "load" });
+    const trigger = playTrigger(page);
+    await trigger.focus();
+    await page.keyboard.press("ArrowUp");
+
+    const panel = page.getByTestId("nav-play-panel");
+    await expect(panel).toBeVisible();
+    const focusedHref = await page.evaluate(() =>
+      document.activeElement?.getAttribute("href"),
+    );
+    expect(focusedHref, "ArrowUp focuses 'View all games'").toBe("/arena");
+
+    // Escape closes and gives focus back to the control that opened it.
+    await page.keyboard.press("Escape");
+    await expect(panel).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
+
   test("reaching RUN THE TABLE from Play creates no run until it is started", async ({ page }) => {
     const created: string[] = [];
     page.on("request", (r) => {
@@ -116,11 +197,8 @@ test.describe("Navbar Play", () => {
     });
 
     await page.goto("/", { waitUntil: "load" });
-    await page
-      .getByRole("navigation", { name: "Main navigation" })
-      .getByRole("link", { name: "Play" })
-      .click();
-    await page.locator('[data-testid="arena-flagship-card"]').click();
+    const panel = await openPlayMenu(page);
+    await panel.locator('[data-nav-item="run-the-table"]').click();
     await expect(page).toHaveURL(/\/arena\/run-the-table/, { timeout: 15_000 });
     // The route lands on an explicit start screen, exactly like 82-0's Begin
     // gate — arriving is not starting.
@@ -167,22 +245,150 @@ test.describe("Navbar Play", () => {
   });
 
   test("Play stays highlighted across the arena section", async ({ page }) => {
-    // activePrefix must cover every arena route, not just the hub the link
-    // points at — the flagship run, the 82-0 daily route and run history all
-    // belong to the same section.
+    // activePrefix must cover every arena route, not just the hub the trigger
+    // leads to — the flagship run, the 82-0 daily route and run history all
+    // belong to the same section. The class string is asserted literally
+    // because it is the frozen active-state token (plan §3.1).
     for (const path of [
       "/arena",
       "/arena/run-the-table",
       "/arena/court/history",
       "/arena/court/daily/apex_1y",
+      "/arena/ranked",
     ]) {
       await page.goto(path, { waitUntil: "domcontentloaded" });
-      const play = page
-        .getByRole("navigation", { name: "Main navigation" })
-        .getByRole("link", { name: "Play" });
+      const play = playTrigger(page);
       const classes = (await play.getAttribute("class")) ?? "";
       expect(classes, `Play should read as active on ${path}`).toContain("bg-[var(--bg-surface)]");
+      await expect(play).toHaveAttribute("aria-current", "page");
     }
+  });
+
+  test("Daily stays a top-level link and still owns /play/daily", async ({ page }) => {
+    // Peak Duel Daily lives under /play for historical reasons while belonging
+    // to Daily in the product's IA. Turning Play into a menu must not have
+    // moved that highlight.
+    await page.goto("/play/daily", { waitUntil: "domcontentloaded" });
+    const daily = page
+      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("link", { name: "Daily" });
+    await expect(daily).toHaveAttribute("href", "/daily");
+    await expect(daily).toHaveAttribute("aria-current", "page");
+  });
+
+  test("Rankings is one control away from anywhere, on desktop and on mobile", async ({ page }) => {
+    // The complaint the mobile drawer was rebuilt to answer: reaching Rankings
+    // must not mean scrolling past every game.
+    await page.goto("/arena/run-the-table", { waitUntil: "domcontentloaded" });
+    await expect(
+      page.getByRole("navigation", { name: "Main navigation" }).getByRole("link", {
+        name: "Rankings",
+      }),
+    ).toHaveAttribute("href", "/rankings");
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/arena/run-the-table", { waitUntil: "load" });
+
+    // Opening the drawer is retried until it actually opens.
+    //
+    // The burger is server-rendered, so it is visible and clickable BEFORE React
+    // has attached its handler. A single click therefore races hydration: the
+    // click lands on the element, nothing toggles, and the drawer never mounts.
+    // It passed in isolation and failed at position 198/300 — the shape of a
+    // hydration race, not a product defect. `/arena/run-the-table` is one of the
+    // heaviest routes in the app, which is why this test sees it and others do
+    // not.
+    //
+    // The loop is toggle-SAFE: it re-reads `aria-expanded` each pass and clicks
+    // only while still collapsed, so a late-registering first click cannot be
+    // undone by a second one.
+    const burger = page.getByTestId("mobile-nav-trigger");
+    await expect(burger).toBeVisible();
+    await expect(async () => {
+      if ((await burger.getAttribute("aria-expanded")) === "false") await burger.click();
+      await expect(burger).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+
+    const drawer = page.getByTestId("mobile-nav-drawer");
+    await expect(drawer).toBeVisible();
+    const rankings = page.getByTestId("mobile-nav-rankings");
+    await expect(rankings).toHaveAttribute("href", "/rankings");
+    // Visible without scrolling the drawer.
+    await expect(rankings).toBeInViewport();
+  });
+
+  test("the open Play panel stays inside the viewport at every desktop width", async ({ page }) => {
+    // Found by inspecting the 200%-zoom capture, and then again at 1440x900:
+    // the panel was `left: 0`-anchored to a trigger that sits hard right, so a
+    // 40rem panel started around x=948 and ran ~150px off the edge. Clamping the
+    // panel's WIDTH never addressed it, because the overflow came from its
+    // POSITION. Asserted geometrically rather than by class name so any future
+    // anchoring change is judged on the only thing that matters.
+    //
+    // 720x450 is 1440x900 at 200% zoom, which the brief requires to stay usable.
+    for (const [width, height] of [
+      [1728, 1117],
+      [1440, 900],
+      [1024, 768],
+      [768, 1024],
+      [720, 450],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await page.goto("/", { waitUntil: "domcontentloaded" });
+      const trigger = page.getByTestId("nav-play-trigger");
+      await trigger.click();
+      const panel = page.getByTestId("nav-play-panel");
+      await expect(panel).toBeVisible();
+
+      const box = (await panel.boundingBox())!;
+      expect(box, `panel must have a box at ${width}x${height}`).not.toBeNull();
+      expect(box.x, `panel left edge off-screen at ${width}px`).toBeGreaterThanOrEqual(-1);
+      expect(
+        box.x + box.width,
+        `panel right edge past ${width}px viewport at ${width}x${height}`,
+      ).toBeLessThanOrEqual(width + 1);
+
+      // And the document itself must not have gained a horizontal scrollbar.
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow, `horizontal overflow at ${width}x${height}`).toBeLessThanOrEqual(1);
+
+      await page.keyboard.press("Escape");
+    }
+  });
+
+  test("exactly one navigation affordance is visible at each width", async ({ page }) => {
+    // Regression guard for a real defect found by inspecting a 1440x900
+    // screenshot, which no test could have caught: `.pk-nav-burger` in
+    // src/styles/nav.css declared `display: inline-flex` unlayered, and an
+    // unlayered declaration beats a layered one regardless of source order --
+    // so it silently defeated the `sm:hidden` utility on the same element and
+    // the hamburger rendered beside the full desktop nav at every width.
+    //
+    // jsdom cannot see this: vitest never applies the CSS file. Only a real
+    // browser can, which is why this assertion lives here and is written
+    // against computed visibility rather than class names.
+    const burger = page.getByTestId("mobile-nav-trigger");
+    const desktopNav = page.getByRole("navigation", { name: "Main navigation" });
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(desktopNav, "desktop nav is the affordance at 1440px").toBeVisible();
+    await expect(burger, "the hamburger must not sit beside the desktop nav").toBeHidden();
+
+    // 1024x768 and 768x1024 are two of the required review viewports; both are
+    // above the 640px `sm` breakpoint, so both are desktop-nav territory.
+    for (const width of [1024, 768]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect(desktopNav, `desktop nav visible at ${width}px`).toBeVisible();
+      await expect(burger, `hamburger hidden at ${width}px`).toBeHidden();
+    }
+
+    // Below the breakpoint the pair swaps, and exactly one is still showing.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(burger, "hamburger is the affordance at 390px").toBeVisible();
+    await expect(desktopNav, "desktop nav hidden at 390px").toBeHidden();
   });
 });
 
@@ -224,17 +430,52 @@ test.describe("82-0 start gate exposes no retired mode vocabulary", () => {
 });
 
 test.describe("Homepage", () => {
-  test("'Start a Run' routes to RUN THE TABLE", async ({ page }) => {
+  test("the primary CTA names the choice it is about to make", async ({ page }) => {
+    // WHAT CHANGED. The CTA was a link called "Start a Run" that led to a
+    // screen whose own button was called "Start a run" — the same words twice,
+    // one of them lying about what it did. It is now a disclosure button that
+    // opens the choice in place: standard run, today's shared run, and (only
+    // when one exists) resume.
     await page.goto("/", { waitUntil: "load" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible();
-    await expect(cta).toContainText(/Start a Run/i);
-    await expect(cta).toHaveAttribute("href", "/arena/run-the-table");
+    await expect(cta).toHaveJSProperty("tagName", "BUTTON");
+    await expect(cta).toContainText(/Play Run the Table/i);
+    await expect(cta).toHaveAttribute("aria-expanded", "false");
 
     await cta.click();
+    await expect(cta).toHaveAttribute("aria-expanded", "true");
+
+    // The launcher's standard option carries the explicit start intent. A run
+    // is created because the user asked for one, not because they navigated.
+    const standard = page.locator('a[href="/arena/run-the-table?start=standard"]');
+    await expect(standard).toBeVisible();
+    await standard.click();
     await expect(page).toHaveURL(/\/arena\/run-the-table/, { timeout: 15_000 });
-    await expect(page.locator('[data-testid="rtt-start-gate"]')).toBeVisible({ timeout: 15_000 });
     await assertNoLegacyModeCards(page);
+  });
+
+  test("a bare visit to RUN THE TABLE still creates no run", async ({ page }) => {
+    // The invariant the old second gate existed to protect, asserted directly
+    // instead of via the redundant screen. Deleting the confirmation step from
+    // the main path must not delete this guarantee.
+    const created: string[] = [];
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes("/run-the-table/runs")) created.push(r.url());
+    });
+
+    await page.goto("/arena/run-the-table", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-start-gate"]')).toBeVisible({ timeout: 15_000 });
+    await page.waitForLoadState("networkidle");
+    expect(created, "arriving at the route must never create a run").toEqual([]);
+  });
+
+  test("the CTA launcher offers no resume option with no stored run", async ({ page }) => {
+    await page.goto("/", { waitUntil: "load" });
+    await page.evaluate(() => window.localStorage.clear());
+    await page.reload({ waitUntil: "load" });
+    await page.locator('[data-testid="home-primary-cta"]').click();
+    await expect(page.getByRole("link", { name: /Resume/i })).toHaveCount(0);
   });
 
   test("the hero leads with RUN THE TABLE and nothing else is featured", async ({ page }) => {
@@ -369,11 +610,24 @@ test.describe("Legacy Labs", () => {
     }
   });
 
-  test("is never linked from the navbar", async ({ page }) => {
+  test("is never linked from the navbar, not even from the Play launcher", async ({ page }) => {
     await page.goto("/arena/labs", { waitUntil: "load" });
     const nav = page.getByRole("navigation", { name: "Main navigation" });
     await expect(nav.locator('a[href="/arena/labs"]')).toHaveCount(0);
-    await expect(nav.getByRole("link", { name: "Play" })).toHaveAttribute("href", "/arena");
+
+    // The launcher lists every mode, which is exactly why it is the surface
+    // most likely to re-admit the legacy modes by accident.
+    const panel = await openPlayMenu(page);
+    await expect(panel.locator('a[href^="/arena/labs"]')).toHaveCount(0);
+    await expect(panel.getByRole("link", { name: /View all games/i })).toHaveAttribute(
+      "href",
+      "/arena",
+    );
+    // Scoped to the panel, not the page: /arena/labs is where those labels are
+    // supposed to live, and the counter-invariant below depends on that.
+    for (const label of LEGACY_MODE_LABELS) {
+      await expect(panel.getByText(label, { exact: false })).toHaveCount(0);
+    }
   });
 });
 
@@ -391,6 +645,60 @@ test.describe("Rankings 1Y/3Y/5Y is a separate feature and survives", () => {
     await expect(page.locator('[data-testid="peak-window-tab-3y"]')).toHaveAttribute(
       "aria-selected",
       "true",
+    );
+  });
+});
+
+test.describe("mobile navigation drawer", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+  });
+
+  test("@mobile opens as a modal sheet, traps focus, and returns it on Escape", async ({
+    page,
+  }) => {
+    // The surface it replaced was an in-flow div that pushed the page down,
+    // trapped nothing, and left the page behind it scrollable.
+    await page.goto("/", { waitUntil: "load" });
+    const trigger = page.getByTestId("mobile-nav-trigger");
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await trigger.click();
+
+    const drawer = page.getByTestId("mobile-nav-drawer");
+    await expect(drawer).toBeVisible();
+    await expect(drawer).toHaveAttribute("aria-modal", "true");
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    // Focus is inside the sheet, and Tab keeps it there.
+    for (let i = 0; i < 12; i += 1) {
+      await page.keyboard.press("Tab");
+      const inside = await page.evaluate(() => {
+        const el = document.activeElement;
+        const sheet = document.querySelector('[data-testid="mobile-nav-drawer"]');
+        return Boolean(el && sheet && sheet.contains(el));
+      });
+      expect(inside, `focus stayed in the drawer after ${i + 1} tabs`).toBe(true);
+    }
+
+    await page.keyboard.press("Escape");
+    await expect(drawer).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
+
+  test("@mobile every game is reachable from the drawer's Play section", async ({ page }) => {
+    await page.goto("/rankings", { waitUntil: "load" });
+    await page.getByTestId("mobile-nav-trigger").click();
+    // Collapsed by default off the arena section — that is what keeps Rankings
+    // above the fold — so it is opened deliberately here.
+    await page.getByTestId("mobile-nav-toggle-play").click();
+    const drawer = page.getByTestId("mobile-nav-drawer");
+    await expect(drawer.locator('[data-nav-item="run-the-table"]')).toHaveAttribute(
+      "href",
+      "/arena/run-the-table",
+    );
+    await expect(drawer.locator('[data-nav-item="view-all-games"]')).toHaveAttribute(
+      "href",
+      "/arena",
     );
   });
 });

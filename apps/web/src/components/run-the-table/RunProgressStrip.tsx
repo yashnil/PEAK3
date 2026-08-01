@@ -15,7 +15,11 @@ export default function RunProgressStrip({ map }: Props) {
   const rows = ladderRows(map);
   const { done, total } = ladderProgress(map);
   return (
-    <div data-testid="rtt-progress-strip" className="flex flex-col gap-1.5">
+    <div
+      data-testid="rtt-progress-strip"
+      data-tour-id="rtt-progress-strip"
+      className="flex flex-col gap-1.5"
+    >
       <div className="flex items-baseline justify-between gap-2">
         <span
           className="text-[10px] font-bold uppercase tracking-widest"

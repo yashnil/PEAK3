@@ -1,0 +1,442 @@
+[
+  {
+    "file": "01-home-1024x768.png",
+    "viewport": "1024x768",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Homepage first viewport at 1024x768",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "ddbb421ac11521d871304e69252a6afc"
+  },
+  {
+    "file": "01-home-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Homepage first viewport at 1440x900",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "d2103eda3e130fb5177cf77aa5a0e3a3"
+  },
+  {
+    "file": "01-home-1728x1117.png",
+    "viewport": "1728x1117",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Homepage first viewport at 1728x1117",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "53789eeeed0aca39eabc6f8b6a6ec10b"
+  },
+  {
+    "file": "01-home-390x844.png",
+    "viewport": "390x844",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Homepage first viewport at 390x844",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "156fcff1db7f23b8f45ae470775d4b57"
+  },
+  {
+    "file": "01-home-430x932.png",
+    "viewport": "430x932",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Homepage first viewport at 430x932",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "291588070f65651ca7cb18dc1aa786ee"
+  },
+  {
+    "file": "01-home-768x1024.png",
+    "viewport": "768x1024",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Homepage first viewport at 768x1024",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "1061f1b3125debf8535a15981ac47123"
+  },
+  {
+    "file": "01f-home-fullpage-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Homepage, entire document",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "947dc798fd04aed68b788c34709a7deb"
+  },
+  {
+    "file": "02-play-menu-open-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Desktop Play menu, opened by click",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "7eac96879698704b2fb03e8038315db1"
+  },
+  {
+    "file": "02b-play-menu-keyboard-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Play menu opened with ArrowDown; focus is on the first item",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "a80f7ddde3bcf48509bd9074bec2aedf"
+  },
+  {
+    "file": "02c-play-menu-200pct-zoom.png",
+    "viewport": "720x450",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Play menu at a 720x450 viewport, standing in for 1440x900 at 200% zoom",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "4061e8127b188e0b7af9b4aca119c0d0"
+  },
+  {
+    "file": "03-mobile-nav-390x844.png",
+    "viewport": "390x844",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Mobile navigation drawer open at 390x844",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "32c43c922d06020fe07798d7bbbe06e8"
+  },
+  {
+    "file": "03-mobile-nav-430x932.png",
+    "viewport": "430x932",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Mobile navigation drawer open at 430x932",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "54d773ee01683a4280614dec1c36dec4"
+  },
+  {
+    "file": "04-arena-catalog-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena",
+    "title": "Arena | PEAK3 | PEAK3 Arena",
+    "note": "/arena — the full catalog",
+    "reducedMotion": false,
+    "h1": "Arena",
+    "md5": "ce748051c957b556151a7e09c6647824"
+  },
+  {
+    "file": "04b-arena-catalog-768x1024.png",
+    "viewport": "768x1024",
+    "url": "http://localhost:3001/arena",
+    "title": "Arena | PEAK3 | PEAK3 Arena",
+    "note": "/arena at tablet width",
+    "reducedMotion": false,
+    "h1": "Arena",
+    "md5": "a031a15464b40d42535b7ec65a4051c4"
+  },
+  {
+    "file": "05-rtt-start-gate-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Direct visit to /arena/run-the-table still shows the start gate (no run created)",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "96cc29b70e5a7ceee1e7564df013cd34"
+  },
+  {
+    "file": "05b-rtt-start-gate-390x844.png",
+    "viewport": "390x844",
+    "url": "http://localhost:3001/arena/run-the-table",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Start gate on mobile",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "f238657411cb0e4730c807dc82c5988c"
+  },
+  {
+    "file": "06-tour-01-run-map.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Guided tour step 1 — spotlighting \"run-map\"",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "15edcd63dbdb2cf3dd87dfa747c62a70"
+  },
+  {
+    "file": "06-tour-02-current-decision.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Guided tour step 2 — spotlighting \"current-decision\"",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "c80b9053d89604ea7a5e98399f04bc1b"
+  },
+  {
+    "file": "06-tour-03-credits.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Guided tour step 3 — spotlighting \"credits\"",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "9a7718ad613c343579c13fb102832515"
+  },
+  {
+    "file": "06-tour-04-lives.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Guided tour step 4 — spotlighting \"lives\"",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "0e04551bc44d89456cc0b451b8c4d22d"
+  },
+  {
+    "file": "06-tour-05-roster.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Guided tour step 5 — spotlighting \"roster\"",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "558dd48569fbc516c74103a74798665a"
+  },
+  {
+    "file": "06-tour-06-front-office-perks.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Guided tour step 6 — spotlighting \"front-office-perks\"",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "501475de8f403c2d512b49045b15e578"
+  },
+  {
+    "file": "06-tour-07-lane-profile.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Guided tour step 7 — spotlighting \"lane-profile\"",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "34ccbff0041ddfe02f0240ab1d27c2bd"
+  },
+  {
+    "file": "07-system-select-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Front Office Perk selection",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "c9bd067f3735867f96902f69450cfc1b"
+  },
+  {
+    "file": "08-node-choice-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Path choice between two node types",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "b37d30bff63d6214816c8d12452bae76"
+  },
+  {
+    "file": "09-draft-room-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Draft Room",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "89360b18e2cb8411bc03d801a668506b"
+  },
+  {
+    "file": "10-trade-desk-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Trade Desk",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "0919780ae074a27c2a30db52b0e899b6"
+  },
+  {
+    "file": "10b-trade-desk-outgoing-selected-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Trade Desk with one outgoing player selected — only that card is highlighted",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "04202420caf20c1301be7a7055422159"
+  },
+  {
+    "file": "11-choice-node-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Film Room / Rest-Bank",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "7eecf183b48dc181b6a9268e6fa14055"
+  },
+  {
+    "file": "12-boss-preview-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Boss pre-battle",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "80d8a4b04f5b0ce943956c7f7f851dce"
+  },
+  {
+    "file": "13-battle-reveal-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Boss reveal",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "13fff3d7338f3ef8f73c130d090ef4ca"
+  },
+  {
+    "file": "14-completion-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Completion receipt",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "a3c12fe1525e0099ffe719de8fbd52c2"
+  },
+  {
+    "file": "14b-rtt-final-390x844.png",
+    "viewport": "390x844",
+    "url": "http://localhost:3001/arena/run-the-table?seed=424242",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "RUN THE TABLE final surface on mobile",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "b944a152914751074518a59e256e78da"
+  },
+  {
+    "file": "15-82-0-team-spin-in-motion-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/court/practice/apex_1y?seed=777",
+    "title": "82-0 Peak Season (Prototype) | PEAK3 Arena | PEAK3 Arena",
+    "note": "82-0 spinner mid-flight (sampled ~600ms into the ceremony)",
+    "reducedMotion": false,
+    "h1": "82-0 Peak Season",
+    "md5": "5db53aa331cc3dab24369dc78fb37bd2"
+  },
+  {
+    "file": "15a-82-0-start-gate-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/court/practice/apex_1y?seed=777",
+    "title": "82-0 Peak Season (Prototype) | PEAK3 Arena | PEAK3 Arena",
+    "note": "82-0 start gate",
+    "reducedMotion": false,
+    "h1": "82-0 PEAK Season",
+    "md5": "1d75cf595c374a26c96f553d2152b77f"
+  },
+  {
+    "file": "16-82-0-season-reel-revealed-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/court/practice/apex_1y?seed=777",
+    "title": "82-0 Peak Season (Prototype) | PEAK3 Arena | PEAK3 Arena",
+    "note": "82-0 franchise x season lockup after the snap",
+    "reducedMotion": false,
+    "h1": "82-0 Peak Season",
+    "md5": "4864decaf1fa5e5133a34e87a0954da5"
+  },
+  {
+    "file": "16b-82-0-revealed-390x844.png",
+    "viewport": "390x844",
+    "url": "http://localhost:3001/arena/court/practice/apex_1y?seed=777",
+    "title": "82-0 Peak Season (Prototype) | PEAK3 Arena | PEAK3 Arena",
+    "note": "82-0 reveal on mobile",
+    "reducedMotion": false,
+    "h1": "82-0 Peak Season",
+    "md5": "80ccc780c25e0bf76c132e205a3f56c0"
+  },
+  {
+    "file": "17-rankings-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/rankings",
+    "title": "PEAK3 Arena",
+    "note": "Rankings with model version and provenance",
+    "reducedMotion": false,
+    "h1": "PEAK3 Rankings",
+    "md5": "39f56ea6408ba0e455f5ac07fadbecc8"
+  },
+  {
+    "file": "17b-rankings-provenance-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/rankings",
+    "title": "PEAK3 Arena",
+    "note": "Provenance strip in view",
+    "reducedMotion": false,
+    "h1": "PEAK3 Rankings",
+    "md5": "33366fe3e4e2cc9f3ce2da270c838a49"
+  },
+  {
+    "file": "17c-rankings-390x844.png",
+    "viewport": "390x844",
+    "url": "http://localhost:3001/rankings",
+    "title": "PEAK3 Arena",
+    "note": "Rankings on mobile",
+    "reducedMotion": false,
+    "h1": "PEAK3 Rankings",
+    "md5": "d7e1ede7cbaf0c0093a75db9e5efdeb2"
+  },
+  {
+    "file": "18-focus-home-nav-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Focus ring after three Tab presses from the top of the homepage",
+    "reducedMotion": false,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "38716930bfe904b1c28bbbd612e83cb6"
+  },
+  {
+    "file": "18b-focus-rtt-start-gate-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/run-the-table",
+    "title": "Run the Table | PEAK3 Arena | PEAK3 Arena",
+    "note": "Focus ring inside the RUN THE TABLE start gate",
+    "reducedMotion": false,
+    "h1": "Run the Table",
+    "md5": "cb354618dfeae64be10324f14e6e7907"
+  },
+  {
+    "file": "19-reduced-motion-home-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/",
+    "title": "PEAK3 Arena — Run the Table | PEAK3 Arena",
+    "note": "Homepage under prefers-reduced-motion: reduce. At rest this is expected to look identical to the ordinary homepage — reduced motion removes movement, not content — so compare the md5 in the manifest before treating a match as a capture bug. 19b is the frame where the difference is actually visible.",
+    "reducedMotion": true,
+    "h1": "Build a roster of peaks.Run the table.",
+    "md5": "c52c0bef8e6f8f148c39182f102fdc80"
+  },
+  {
+    "file": "19b-reduced-motion-82-0-1440x900.png",
+    "viewport": "1440x900",
+    "url": "http://localhost:3001/arena/court/practice/apex_1y?seed=777",
+    "title": "82-0 Peak Season (Prototype) | PEAK3 Arena | PEAK3 Arena",
+    "note": "82-0 reveal under reduced motion — revealed within 500ms with zero spin-ceremony-spinning elements, i.e. stepped straight to the result",
+    "reducedMotion": true,
+    "h1": "82-0 Peak Season",
+    "md5": "0613c7660cd1ee69d05fee2a8362463b"
+  }
+]

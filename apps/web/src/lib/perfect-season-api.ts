@@ -94,17 +94,48 @@ export async function cancelSelection(gameId: string): Promise<CourtLineupPublic
   });
 }
 
-export async function respinTeam(gameId: string): Promise<CourtLineupPublicState> {
+/**
+ * W5: a respin key is derived from state the caller can already see, NOT
+ * generated fresh per call.
+ *
+ * That is the whole point. `crypto.randomUUID()` per invocation would make
+ * every click a distinct request and a double-click would still burn two of
+ * the three respins. Because both clicks of a double-click observe the same
+ * React state (the first response has not landed yet, so
+ * `respinsUsed` has not incremented), they produce the SAME key and the
+ * server recognises the second as a replay. The same property makes a
+ * retried fetch, or a refresh fired mid-animation, safe.
+ */
+export function respinIdempotencyKey(
+  gameId: string,
+  round: number,
+  kind: "team" | "season",
+  respinsUsed: number,
+): string {
+  return `${gameId}:r${round}:${kind}:${respinsUsed}`;
+}
+
+export async function respinTeam(
+  gameId: string,
+  idempotencyKey?: string,
+): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/respin-team`, {
     method: "POST",
-    body: JSON.stringify({ game_id: gameId }),
+    body: JSON.stringify(
+      idempotencyKey ? { game_id: gameId, idempotency_key: idempotencyKey } : { game_id: gameId },
+    ),
   });
 }
 
-export async function respinSeason(gameId: string): Promise<CourtLineupPublicState> {
+export async function respinSeason(
+  gameId: string,
+  idempotencyKey?: string,
+): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/respin-season`, {
     method: "POST",
-    body: JSON.stringify({ game_id: gameId }),
+    body: JSON.stringify(
+      idempotencyKey ? { game_id: gameId, idempotency_key: idempotencyKey } : { game_id: gameId },
+    ),
   });
 }
 

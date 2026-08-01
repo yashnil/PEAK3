@@ -1,6 +1,23 @@
 @import "tailwindcss";
 
 /* ================================================================
+   WORKSTREAM PARTIALS (UX / Organization / Polish pass)
+   ================================================================
+   One owner per file — see docs/implementation/UX_ORGANIZATION_POLISH_PLAN.md §3.3.
+   W1 → nav.css · W2 → home.css · W3 → tour.css
+   W4 → rtt-polish.css · W5 → spinner.css · W6 → rankings.css
+   Every rule already in THIS file is frozen; new rules go in the
+   partial owned by the workstream that needs them.
+   ================================================================ */
+
+@import "./nav.css";
+@import "./home.css";
+@import "./tour.css";
+@import "./rtt-polish.css";
+@import "./spinner.css";
+@import "./rankings.css";
+
+/* ================================================================
    PEAK3 Arena Design Tokens
    ================================================================ */
 
@@ -62,6 +79,104 @@
   /* Court geometry accent */
   --court-line: rgba(245, 200, 66, 0.06);
 }
+
+/* ================================================================
+   === PEAK3 --pk-* PRIMITIVE TOKENS (ADDITIVE — W7) ===
+   ================================================================
+   Added by the UX / Organization / Polish pass. STRICTLY ADDITIVE:
+   not one property above this banner is renamed, removed or
+   revalued (plan §3.1 freezes them and tests assert their literal
+   strings). Everything here is namespaced `--pk-` so it can never
+   collide with the legacy token set.
+
+   These exist so the shared UI primitives in
+   `src/components/ui/*` and the six workstream partials all speak
+   one scale instead of six sets of magic numbers. Surface tiers are
+   ALIASES onto the existing background/border tokens — they add a
+   named hierarchy, not a new palette.
+   ================================================================ */
+
+:root {
+  /* ---- Spacing scale (4px base; 0.5 and 1 exist for icon gaps) ---- */
+  --pk-space-0: 0px;
+  --pk-space-05: 2px;
+  --pk-space-1: 4px;
+  --pk-space-2: 8px;
+  --pk-space-3: 12px;
+  --pk-space-4: 16px;
+  --pk-space-5: 20px;
+  --pk-space-6: 24px;
+  --pk-space-8: 32px;
+  --pk-space-10: 40px;
+  --pk-space-12: 48px;
+  --pk-space-16: 64px;
+
+  /* ---- Radius scale ---- */
+  --pk-r-sm: 6px;
+  --pk-r-md: 10px;
+  --pk-r-lg: 14px;
+  --pk-r-xl: 20px;
+  --pk-r-pill: 999px;
+
+  /* ---- Elevation / shadow tiers ----
+     0 = flat, 1 = resting card, 2 = raised/hovered, 3 = floating
+     surface (menu, popover), 4 = modal layer. Tuned for a dark
+     theme: shadows read as depth, never as a grey haze. */
+  --pk-elev-0: none;
+  --pk-elev-1: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --pk-elev-2: 0 2px 10px -4px rgba(0, 0, 0, 0.5);
+  --pk-elev-3: 0 8px 28px -8px rgba(0, 0, 0, 0.55);
+  --pk-elev-4: 0 24px 48px -24px rgba(0, 0, 0, 0.7);
+
+  /* ---- Motion: durations ----
+     Mirrored verbatim in `src/lib/motion.ts` (MOTION_DURATION_MS).
+     Every one of these is neutralised by the global
+     prefers-reduced-motion rule further down this file. */
+  --pk-dur-instant: 0ms;
+  --pk-dur-fast: 120ms;
+  --pk-dur-base: 200ms;
+  --pk-dur-slow: 320ms;
+  --pk-dur-slower: 480ms;
+
+  /* ---- Motion: easings (mirrored in src/lib/motion.ts) ---- */
+  --pk-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --pk-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --pk-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --pk-ease-emphasized: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ---- Surface tiers (hierarchy, not new colour) ----
+     quiet    — page-level background, no chrome of its own
+     inset    — recessed panel inside a card (lists, wells)
+     raised   — a normal interactive card
+     decision — the one surface the user must act on right now */
+  --pk-surface-quiet: var(--bg-page);
+  --pk-surface-quiet-border: var(--border-subtle);
+  --pk-surface-inset: var(--bg-elevated);
+  --pk-surface-inset-border: var(--border-subtle);
+  --pk-surface-raised: var(--bg-surface);
+  --pk-surface-raised-border: var(--border-default);
+  --pk-surface-decision: var(--bg-elevated);
+  --pk-surface-decision-border: var(--border-emphasis);
+  --pk-surface-overlay: rgba(6, 7, 9, 0.72);
+
+  /* ---- Focus ring geometry (colour stays --focus-ring) ---- */
+  --pk-focus-width: 2px;
+  --pk-focus-offset: 2px;
+
+  /* ---- Layer order for portalled surfaces ----
+     The site nav is z-40; these must sit above it. */
+  --pk-z-dropdown: 50;
+  --pk-z-overlay: 100;
+  --pk-z-dialog: 110;
+  --pk-z-tooltip: 120;
+
+  /* ---- Minimum pointer target (WCAG 2.2 target size) ---- */
+  --pk-tap-min: 44px;
+}
+
+/* ================================================================
+   === END --pk-* PRIMITIVE TOKENS ===
+   ================================================================ */
 
 /* ================================================================
    Base
@@ -1491,3 +1606,33 @@ html, body {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 0.9; }
 }
+
+/* ================================================================
+   === PEAK3 UI PRIMITIVES (ADDITIVE — W7) ===
+   ================================================================
+   The only class rules the primitives in `src/components/ui/*` need
+   that cannot be expressed as an inline style (a keyframe cannot).
+   NEW rules only — nothing above this banner is modified. Everything
+   is namespaced `.pk-`.
+   ================================================================ */
+
+@keyframes pk-skeleton-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.85; }
+}
+
+/* Reserves its box from first paint (width/height are set inline by
+   the component), so a skeleton can never cause layout shift when the
+   real content replaces it. The pulse is neutralised by the global
+   prefers-reduced-motion rule above. */
+.pk-skeleton {
+  display: block;
+  flex-shrink: 0;
+  background: var(--pk-surface-inset);
+  border: 1px solid var(--pk-surface-inset-border);
+  animation: pk-skeleton-pulse 1.4s var(--pk-ease-standard) infinite;
+}
+
+/* ================================================================
+   === END PEAK3 UI PRIMITIVES ===
+   ================================================================ */

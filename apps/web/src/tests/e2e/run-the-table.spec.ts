@@ -23,6 +23,53 @@ const ROUTE = "/arena/run-the-table";
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const STORAGE_KEY = "peak3.run-the-table.active";
 
+/**
+ * The first-run guided tour, and how the gameplay tests get past it.
+ *
+ * The tour is a real, required first-run experience: it auto-starts once per
+ * browser profile and its spotlight overlay is modal, so it intercepts pointer
+ * events until dismissed. That is correct product behaviour and it is exactly
+ * why these tests started failing — the driver's first click on a System landed
+ * on the tour scrim, not the button.
+ *
+ * The right answer is NOT to stop the tour auto-starting. It is to say which
+ * experience each test is about. Gameplay tests are about the game, so they
+ * seed "tour already seen" the way a returning player's browser would; the tour
+ * itself has its own coverage (`src/tests/unit/guided-tour.test.tsx`, plus the
+ * auto-start assertion below), so suppressing it here hides nothing.
+ *
+ * These constants mirror `lib/tour-state.ts` and `components/ui/tour-steps.ts`.
+ * They are duplicated rather than imported because this file runs in Playwright's
+ * Node context and the values are written into the PAGE's localStorage.
+ */
+const TOUR_STORAGE_KEY = "peak3.tour.state";
+const TOUR_STORAGE_SCHEMA_VERSION = 1;
+const RUN_THE_TABLE_TOUR_ID = "run-the-table";
+const RUN_THE_TABLE_TOUR_VERSION = 1;
+
+/** Mark the RUN THE TABLE tour as already seen, as a returning player's browser
+ *  would have it. Must be called after a same-origin navigation. */
+async function suppressTour(page: Page): Promise<void> {
+  await page.evaluate(
+    ({ key, schema, tourId, version }) => {
+      window.localStorage.setItem(
+        key,
+        JSON.stringify({
+          schema_version: schema,
+          tours: { [tourId]: { version, status: "completed", at: "2026-01-01T00:00:00.000Z" } },
+          coachmarks: {},
+        }),
+      );
+    },
+    {
+      key: TOUR_STORAGE_KEY,
+      schema: TOUR_STORAGE_SCHEMA_VERSION,
+      tourId: RUN_THE_TABLE_TOUR_ID,
+      version: RUN_THE_TABLE_TOUR_VERSION,
+    },
+  );
+}
+
 // A full run is: 1-2 System picks, 6 node choices, 6 node resolutions, 3 boss
 // resolutions and 3 advances — ~20 sequential POSTs, each a real server
 // round-trip. This is a fixed structural cost of the mode, not slow test code.
@@ -60,6 +107,8 @@ interface StoredRun {
 async function freshGate(page: Page, path: string = ROUTE): Promise<void> {
   await page.goto(path, { waitUntil: "load" });
   await page.evaluate((key) => window.localStorage.removeItem(key), STORAGE_KEY);
+  // Returning-player tour state — see the TOUR_STORAGE_KEY block above.
+  await suppressTour(page);
   await page.goto(path, { waitUntil: "load" });
   await expect(page.locator('[data-testid="rtt-start-gate"]')).toBeVisible({ timeout: 20_000 });
 }
@@ -149,6 +198,8 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
 async function playToResult(page: Page, maxSteps = 60): Promise<void> {
   for (let i = 0; i < maxSteps; i++) {
     const surface = await currentSurface(page);
+    // Every surface, every step — see `expectNoRawObjects`.
+    await expectNoRawObjects(page);
     if (surface === "rtt-result") return;
     await stepOnce(page, surface);
   }
@@ -160,6 +211,26 @@ async function storedRun(page: Page): Promise<StoredRun | null> {
     const raw = window.localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as StoredRun) : null;
   }, STORAGE_KEY);
+}
+
+/**
+ * No raw object serialisation anywhere on the page.
+ *
+ * `cost_modifiers` is `list[dict]` on the server and was declared `string[]` on
+ * the client, so `RunCard` did `.join(" · ")` on objects and printed
+ * "[object Object]" on every card any price System had discounted — in the
+ * Draft Room and on both Trade Desk columns. The unit fixtures all hardcoded
+ * `cost_modifiers: []`, which is exactly why it shipped, so the browser check
+ * is the one that runs against real engine payloads with real discounts.
+ *
+ * Checked on EVERY surface of a full run rather than once at the end: a
+ * discount only appears when the run happens to hold a price System and the
+ * board happens to offer a qualifying card.
+ */
+async function expectNoRawObjects(page: Page): Promise<void> {
+  const text = await page.evaluate(() => document.body.innerText);
+  expect(text).not.toContain("[object Object]");
+  expect(text).not.toContain("[object ");
 }
 
 /** No horizontal page overflow. 4px of slack for sub-pixel layout rounding —
@@ -328,6 +399,51 @@ test.describe("RUN THE TABLE challenge links", () => {
 // The gate is the only way in
 // ---------------------------------------------------------------------------
 
+test.describe("RUN THE TABLE guided tour", () => {
+  test("auto-starts for a genuine first-time player, and can be dismissed", async ({ page }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    // The counterweight to `suppressTour`. Every gameplay test above seeds
+    // "tour already seen" so the driver can reach the game; this test is the one
+    // that proves the tour really does appear when nothing is seeded, so that
+    // suppression removes no coverage.
+    await page.goto(ROUTE, { waitUntil: "load" });
+    await page.evaluate(
+      ({ run, tour }) => {
+        window.localStorage.removeItem(run);
+        window.localStorage.removeItem(tour);
+      },
+      { run: STORAGE_KEY, tour: TOUR_STORAGE_KEY },
+    );
+    await page.goto(ROUTE, { waitUntil: "load" });
+    await startRun(page, "rtt-start-standard");
+
+    const tour = page.getByTestId("guided-tour");
+    await expect(tour, "the tour auto-starts on a first run").toBeVisible({ timeout: 20_000 });
+    // Progress is stated, per the brief's "2 of 7".
+    await expect(tour).toContainText(/\bof\s+\d+\b/);
+
+    // Next advances; Back returns. The first step's Back is disabled, which is
+    // why the round trip starts with Next.
+    await page.getByTestId("guided-tour-next").click();
+    await expect(tour).not.toHaveAttribute("data-step", "run-map");
+    await page.getByTestId("guided-tour-back").click();
+    await expect(tour).toHaveAttribute("data-step", "run-map");
+
+    // Escape dismisses, and the game underneath is immediately playable — the
+    // exact interaction whose absence made the overlay swallow the driver's
+    // clicks and fail four specs.
+    await page.keyboard.press("Escape");
+    await expect(tour).toHaveCount(0);
+    const surface = await currentSurface(page);
+    await stepOnce(page, surface);
+
+    // And it does not come back on the next run in the same browser.
+    await page.reload({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("guided-tour")).toHaveCount(0);
+  });
+});
+
 test.describe("RUN THE TABLE start gate", () => {
   test("navigating to the route creates no run", async ({ page }) => {
     // The structural rule this mode shares with 82-0 and Peak Draft: a run
@@ -355,5 +471,44 @@ test.describe("RUN THE TABLE start gate", () => {
 
     expect(creations).toEqual([]);
     await expect(page.locator('[data-testid="rtt-shell"]')).toHaveCount(0);
+  });
+
+  test("?start=standard creates exactly one run and strips the param", async ({ page }) => {
+    // The homepage launcher's deep link (plan §5.1). The param is the ONE
+    // sanctioned way a navigation may create a run, so it must be consumed
+    // exactly once: counted at the network layer, because a second run created
+    // and then discarded client-side would still have been created server-side.
+    const creations: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname.endsWith("/run-the-table/runs")
+      ) {
+        creations.push(request.url());
+      }
+    });
+
+    await freshGate(page);
+    await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          r.url().endsWith("/run-the-table/runs") &&
+          r.request().method() === "POST" &&
+          r.status() === 200,
+      ),
+      page.goto(`${ROUTE}?start=standard`, { waitUntil: "load" }),
+    ]);
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+
+    // Stripped, so a refresh replays the run rather than starting a second.
+    expect(new URL(page.url()).searchParams.get("start")).toBeNull();
+    await page.waitForTimeout(1_000);
+    expect(creations).toHaveLength(1);
+
+    const first = await storedRun(page);
+    await page.reload({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+    expect(creations).toHaveLength(1);
+    expect((await storedRun(page))?.run_id).toBe(first?.run_id);
   });
 });

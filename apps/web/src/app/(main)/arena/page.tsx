@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Grid3x3, Swords, Trophy } from "lucide-react";
+import type { ReactNode } from "react";
+import { ArrowRight, Grid3x3, Swords, Trophy } from "lucide-react";
 import GameCard from "@/components/shared/GameCard";
 import {
   MODE_COPY,
@@ -10,13 +11,22 @@ import {
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 
 /**
- * The Arena hub: every playable PEAK3 mode, in one hierarchy.
+ * The Arena catalog: every playable PEAK3 mode, in one hierarchy.
  *
  * RUN THE TABLE is the flagship and holds the page's only `featured` card.
  * 82-0 PEAK Season keeps its full entry block directly underneath — the daily
  * CTA, run history and leaderboard all still live here — but styled as a
  * section rather than as the page's gold hero, because two gold heroes is the
  * same as none.
+ *
+ * WHAT THE UX PASS CHANGED (W2). Nothing was removed: this is still the
+ * complete catalog, and every mode, link and testid it carried is still here.
+ * What changed is that it is no longer the ONLY launcher — the homepage now
+ * starts a run directly — so this page is free to be denser and more explicit:
+ * groups carry a one-line description, the secondary links say what they do
+ * ("Start a standard run", "Play today's shared run") instead of repeating
+ * "Your runs →" twice on one screen, and the surfaces vary by tier rather than
+ * repeating one bordered rectangle.
  *
  * Phase 10C history, still true: the legacy 1Y Apex / 3Y Prime / 5Y Foundation
  * draft modes are NOT listed here. They live at /arena/labs, unlinked from the
@@ -34,6 +44,34 @@ export const metadata: Metadata = {
 };
 
 const SECTION_LABEL_CLASS = "text-[11px] font-bold uppercase tracking-[0.18em]";
+
+function GroupHeading({
+  id,
+  label,
+  description,
+  action,
+}: {
+  id: string;
+  label: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <div className="min-w-0">
+        <h2 id={id} className={SECTION_LABEL_CLASS} style={{ color: "var(--text-muted)" }}>
+          {label}
+        </h2>
+        {description && (
+          <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+            {description}
+          </p>
+        )}
+      </div>
+      {action}
+    </div>
+  );
+}
 
 export default async function ArenaPage() {
   let courtBuilderEnabled = false;
@@ -53,16 +91,18 @@ export default async function ArenaPage() {
       <h1 className="font-display text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
         Arena
       </h1>
-      <p className="mt-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+      <p className="mt-2 max-w-2xl text-sm" style={{ color: "var(--text-secondary)" }}>
         Every PEAK3 mode in one place. All of them are decided by the same open five-component
         formula, and all of them show their work.
       </p>
 
       {/* Flagship */}
-      <section className="mt-6" aria-labelledby="arena-flagship-heading">
-        <h2 id="arena-flagship-heading" className="sr-only">
-          Flagship mode
-        </h2>
+      <section className="mt-8" aria-labelledby="arena-flagship-heading">
+        <GroupHeading
+          id="arena-flagship-heading"
+          label="Flagship"
+          description="One branching run, three boss battles, roughly a quarter of an hour."
+        />
         <GameCard
           testId="arena-flagship-card"
           href={flagship.href}
@@ -74,48 +114,53 @@ export default async function ArenaPage() {
           featured
           cta={flagship.cta}
         />
-        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <div className="arena-link-row mt-1">
+          <Link
+            href="/arena/run-the-table?start=standard"
+            data-testid="arena-rtt-start-link"
+            className="arena-inline-link"
+            style={{ color: "var(--peak-accent)" }}
+          >
+            Start a standard run
+            <ArrowRight size={13} aria-hidden="true" />
+          </Link>
           <Link
             href={RUN_THE_TABLE_DAILY_HREF}
             data-testid="arena-rtt-daily-link"
-            className="inline-flex min-h-11 items-center text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            className="arena-inline-link"
             style={{ color: "var(--peak-accent)" }}
           >
-            Today&apos;s run →
+            Play today&apos;s shared run
+            <ArrowRight size={13} aria-hidden="true" />
           </Link>
           <Link
             href={RUN_THE_TABLE_RUNS_HREF}
             data-testid="arena-rtt-runs-link"
-            className="inline-flex min-h-11 items-center text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            className="arena-inline-link"
             style={{ color: "var(--text-secondary)" }}
           >
-            Your runs →
+            Resume a saved run
+            <ArrowRight size={13} aria-hidden="true" />
           </Link>
         </div>
       </section>
 
       {/* Full-season modes */}
-      <section className="mt-8" aria-labelledby="arena-full-season-heading">
-        <h2
+      <section className="mt-9" aria-labelledby="arena-full-season-heading">
+        <GroupHeading
           id="arena-full-season-heading"
-          className={`mb-2 ${SECTION_LABEL_CLASS}`}
-          style={{ color: "var(--text-muted)" }}
-        >
-          Full-season modes
-        </h2>
+          label="Full season"
+          description="Spin a real franchise and era, then draft a roster against an 82-game standard."
+        />
 
         {courtBuilderEnabled && (
-          <div
-            data-testid="courtbuilder-hero"
-            className="rounded-2xl border p-6 flex flex-col gap-3"
-            style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
-          >
+          <div data-testid="courtbuilder-hero" className="home-band flex flex-col gap-3 p-6">
             <div className="flex items-center gap-3">
               <span
                 aria-hidden="true"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
                 style={{
-                  background: "var(--bg-surface)",
+                  background: "var(--pk-surface-raised, var(--bg-surface))",
                   border: "1px solid var(--border-subtle)",
                   color: "var(--text-secondary)",
                 }}
@@ -126,7 +171,7 @@ export default async function ArenaPage() {
                 82-0 Peak Season
               </h3>
             </div>
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            <p className="max-w-2xl text-sm" style={{ color: "var(--text-secondary)" }}>
               {MODE_COPY["peak-season"].description}
             </p>
             {/* The daily challenge is the return loop, so it keeps equal weight
@@ -136,9 +181,11 @@ export default async function ArenaPage() {
             <div className="flex flex-wrap items-center gap-2.5">
               <Link
                 href={MODE_COPY["peak-season"].href}
-                className="px-5 py-2.5 rounded-lg text-sm font-semibold border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                className="inline-flex items-center border px-5 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                 style={{
-                  background: "var(--bg-surface)",
+                  minHeight: "var(--pk-tap-min, 44px)",
+                  borderRadius: "var(--pk-r-md, 10px)",
+                  background: "var(--pk-surface-raised, var(--bg-surface))",
                   color: "var(--text-primary)",
                   borderColor: "var(--border-default)",
                 }}
@@ -148,26 +195,36 @@ export default async function ArenaPage() {
               <Link
                 href="/arena/court/daily/apex_1y"
                 data-testid="daily-peak-season-cta"
-                className="px-5 py-2.5 rounded-lg text-sm font-semibold border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                style={{ background: "rgba(96,165,250,0.12)", color: "#60a5fa", borderColor: "#60a5fa" }}
+                className="inline-flex items-center border px-5 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                style={{
+                  minHeight: "var(--pk-tap-min, 44px)",
+                  borderRadius: "var(--pk-r-md, 10px)",
+                  background: "rgba(96,165,250,0.12)",
+                  color: "#60a5fa",
+                  borderColor: "#60a5fa",
+                }}
               >
                 Play today&apos;s Daily
               </Link>
+            </div>
+            <div className="arena-link-row">
               <Link
                 href="/arena/court/history"
                 data-testid="court-history-link"
-                className="text-xs font-semibold uppercase tracking-wide focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                className="arena-inline-link"
                 style={{ color: "var(--text-secondary)" }}
               >
-                Your runs →
+                Your saved seasons
+                <ArrowRight size={13} aria-hidden="true" />
               </Link>
               <Link
                 href="/arena/court/leaderboard"
                 data-testid="arena-leaderboard-link"
-                className="text-xs font-semibold uppercase tracking-wide focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                className="arena-inline-link"
                 style={{ color: "var(--text-secondary)" }}
               >
-                82-0 Leaderboard →
+                82-0 Leaderboard
+                <ArrowRight size={13} aria-hidden="true" />
               </Link>
             </div>
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -182,22 +239,23 @@ export default async function ArenaPage() {
         {!courtBuilderEnabled && (
           <div
             data-testid="courtbuilder-unavailable"
-            className="rounded-2xl border p-6 flex flex-col gap-3"
-            style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
+            className="home-band flex flex-col gap-3 p-6"
           >
             <h3 className="font-display text-xl font-bold" style={{ color: "var(--text-primary)" }}>
               82-0 PEAK Season
             </h3>
-            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+            <p className="max-w-2xl text-sm" style={{ color: "var(--text-secondary)" }}>
               82-0 PEAK Season is not enabled in this environment yet. Nothing is broken — the mode
               is behind a server flag. RUN THE TABLE above and the PEAK3 rankings are fully
               available.
             </p>
             <Link
               href="/rankings"
-              className="self-start px-5 py-2.5 rounded-lg text-sm font-semibold border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              className="inline-flex items-center self-start border px-5 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
               style={{
-                background: "var(--bg-surface)",
+                minHeight: "var(--pk-tap-min, 44px)",
+                borderRadius: "var(--pk-r-md, 10px)",
+                background: "var(--pk-surface-raised, var(--bg-surface))",
                 color: "var(--text-primary)",
                 borderColor: "var(--border-default)",
               }}
@@ -210,24 +268,23 @@ export default async function ArenaPage() {
 
       {/* Daily games. Rendered unconditionally: unlike 82-0 they sit behind no
           server flag, so this hub stays useful in the fail-closed state above. */}
-      <section className="mt-8" aria-labelledby="arena-daily-heading">
-        <div className="mb-2 flex items-baseline justify-between gap-3">
-          <h2
-            id="arena-daily-heading"
-            className={SECTION_LABEL_CLASS}
-            style={{ color: "var(--text-muted)" }}
-          >
-            Daily games
-          </h2>
-          <Link
-            href="/daily"
-            data-testid="arena-daily-hub-link"
-            className="inline-flex min-h-11 items-center text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-            style={{ color: "var(--peak-accent)" }}
-          >
-            Daily hub →
-          </Link>
-        </div>
+      <section className="mt-9" aria-labelledby="arena-daily-heading">
+        <GroupHeading
+          id="arena-daily-heading"
+          label="Daily · quick play"
+          description="One board a day, identical for everyone, a few minutes each."
+          action={
+            <Link
+              href="/daily"
+              data-testid="arena-daily-hub-link"
+              className="arena-inline-link"
+              style={{ color: "var(--peak-accent)" }}
+            >
+              Daily hub
+              <ArrowRight size={13} aria-hidden="true" />
+            </Link>
+          }
+        />
         <div className="grid gap-3 sm:grid-cols-2">
           <GameCard
             testId="arena-daily-grid-card"
@@ -237,6 +294,8 @@ export default async function ArenaPage() {
             description={dailyGrid.description}
             icon={<Grid3x3 size={17} />}
             cta={dailyGrid.cta}
+            tone="raised"
+            compact
           />
           <GameCard
             testId="arena-daily-duel-card"
@@ -246,6 +305,41 @@ export default async function ArenaPage() {
             description={peakDuel.description}
             icon={<Swords size={17} />}
             cta={peakDuel.cta}
+            tone="raised"
+            compact
+          />
+        </div>
+      </section>
+
+      {/* Competitive — the community board and the model's own board. Both were
+          already reachable from the 82-0 block and the navbar; naming the group
+          makes the catalog complete rather than adding a new destination. */}
+      <section className="mt-9" aria-labelledby="arena-competitive-heading">
+        <GroupHeading
+          id="arena-competitive-heading"
+          label="Competitive"
+          description="Measure a roster against other players, or against the model itself."
+        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <GameCard
+            testId="arena-rankings-card"
+            href="/rankings"
+            eyebrow="Rankings"
+            title="The PEAK Index"
+            description="All-time peak windows and single seasons, with a full component breakdown and row-by-row receipts on every score."
+            cta="See the rankings"
+            tone="quiet"
+            compact
+          />
+          <GameCard
+            testId="arena-methodology-card"
+            href="/methodology"
+            eyebrow="The model"
+            title="Formula Explorer"
+            description="The five components, their official weights and exactly how a peak window's score is assembled."
+            cta="Read the methodology"
+            tone="quiet"
+            compact
           />
         </div>
       </section>
@@ -253,7 +347,7 @@ export default async function ArenaPage() {
       {/* Legacy modes, deliberately demoted to a footnote: discoverable for
           internal use, never presented as part of the product. Not linked from
           the navbar or the homepage. */}
-      <p className="mt-6 text-xs" style={{ color: "var(--text-muted)" }}>
+      <p className="mt-8 text-xs" style={{ color: "var(--text-muted)" }}>
         Looking for the old Peak Draft modes?{" "}
         <Link
           href="/arena/labs"

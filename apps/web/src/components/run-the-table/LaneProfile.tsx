@@ -18,6 +18,15 @@ interface Props {
   compareLabel?: string;
   dense?: boolean;
   showWeights?: boolean;
+  /**
+   * Let each bar travel from its previous width to its new one.
+   *
+   * CSS only (`.rtt-lane-bar-animated` transitions `width`), so the value the
+   * bar ends on is still the server's `value` with no client normalisation —
+   * the transition is purely how it gets there. `prefers-reduced-motion` zeroes
+   * the duration in rtt-polish.css.
+   */
+  animate?: boolean;
 }
 
 export default function LaneProfile({
@@ -26,6 +35,7 @@ export default function LaneProfile({
   compareLabel = "Opponent",
   dense = false,
   showWeights = false,
+  animate = false,
 }: Props) {
   return (
     <div className="flex flex-col gap-1.5" data-testid="rtt-lane-profile">
@@ -50,7 +60,8 @@ export default function LaneProfile({
               style={{ background: "var(--border-subtle)" }}
             >
               <div
-                className="h-1.5 rounded-full"
+                className={`h-1.5 rounded-full${animate ? " rtt-lane-bar-animated" : ""}`}
+                data-testid={`rtt-lane-bar-${lane.lane}`}
                 style={{ width: `${Math.max(0, Math.min(100, lane.value))}%`, background: color }}
               />
               {other && (

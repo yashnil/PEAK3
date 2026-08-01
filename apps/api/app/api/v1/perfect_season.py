@@ -289,7 +289,12 @@ async def respin_team(
         raise HTTPException(status_code=404, detail="Game not found or expired")
 
     try:
-        new_state = state_machine.action_respin_team(game_state)
+        # W5: idempotent by key. A replayed key returns the current state
+        # untouched instead of consuming a second respin (the handler is
+        # still a read-modify-write -- `PostgresCourtLineupRepo.save_lineup`
+        # has no version column -- so the key, not a lock, is what makes a
+        # double-click safe).
+        new_state = state_machine.action_respin_team(game_state, body.idempotency_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc))
 
@@ -312,7 +317,8 @@ async def respin_season(
         raise HTTPException(status_code=404, detail="Game not found or expired")
 
     try:
-        new_state = state_machine.action_respin_season(game_state)
+        # W5: idempotent by key -- see respin_team above.
+        new_state = state_machine.action_respin_season(game_state, body.idempotency_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc))
 

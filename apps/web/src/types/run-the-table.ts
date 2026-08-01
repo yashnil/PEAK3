@@ -76,6 +76,28 @@ export const TERMINAL_STATUSES: readonly RunStatus[] = ["complete", "failed"] as
 // Cards
 // ---------------------------------------------------------------------------
 
+/**
+ * One entry of `price_for()`'s `applied` list
+ * (`nba_peak/run_the_table/pricing.py:74-86`).
+ *
+ * This type existed only as a lie until now: `cost_modifiers` was declared
+ * `string[]`, so `RunCard.tsx` did `cost_modifiers.join(" · ")` on an array of
+ * OBJECTS and printed `[object Object]` on every discounted card. `tsc` never
+ * flagged it because the declared type said the elements were strings, and the
+ * server side is a bare `Optional[dict]` (`apps/api/app/models/run_the_table.py:162`)
+ * so nothing coerced it either.
+ *
+ * `before`/`after` are whole credits, already rounded by the engine.
+ * `discount_pct` is an integer percentage (e.g. `35`, not `0.35`).
+ */
+export interface CostModifier {
+  /** `SYSTEMS[].id` — "moneyball" | "no_hardware" | "two_way_value". */
+  system_id: string;
+  discount_pct: number;
+  before: number;
+  after: number;
+}
+
 /** `card_public()`. `cost_modifiers` is the engine's own explanation of how
  *  `cost` was reached from `base_cost` — the UI renders it, never recomputes it. */
 export interface RunCardPublic {
@@ -95,7 +117,7 @@ export interface RunCardPublic {
   lane_percentiles: Record<LaneField, number>;
   base_cost: number;
   cost: number;
-  cost_modifiers: string[];
+  cost_modifiers: CostModifier[];
   refund_value: number;
 }
 
@@ -418,6 +440,15 @@ export interface RunPublicState {
   stage: number;
   acts_total: number;
   stages_per_act: number;
+  /**
+   * `LANES_TO_WIN` — how many of the five lanes decide a battle.
+   *
+   * Added to `public_state()` by this pass so the boss preview and the battle
+   * screen can state the win condition BEFORE the reveal without hardcoding a
+   * rule the engine owns. Optional here so a client built against an older API
+   * still type-checks and simply omits the sentence.
+   */
+  lanes_to_win?: number;
   credits: number;
   lives: number;
   max_lives: number;

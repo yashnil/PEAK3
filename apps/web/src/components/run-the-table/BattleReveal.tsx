@@ -2,8 +2,10 @@
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { BattlePublic, BossPublic } from "@/types/run-the-table";
+import { Coachmark } from "@/components/ui/GuidedTour";
 import {
   battleVerdict,
+  decisiveLane,
   laneColorVar,
   laneSentence,
   runningSeries,
@@ -41,12 +43,22 @@ interface Props {
   busy: boolean;
   onAdvance: () => void;
   advanceLabel: string;
+  /** `state.lanes_to_win` — the engine's `LANES_TO_WIN`, never a literal. */
+  lanesToWin?: number;
 }
 
-export default function BattleReveal({ battle, boss, busy, onAdvance, advanceLabel }: Props) {
+export default function BattleReveal({
+  battle,
+  boss,
+  busy,
+  onAdvance,
+  advanceLabel,
+  lanesToWin,
+}: Props) {
   const reduced = useReducedMotion();
   const [skipped, setSkipped] = useState(false);
   const instant = reduced || skipped;
+
   const [revealed, setRevealed] = useState(instant ? battle.lanes.length : 0);
 
   useEffect(() => {
@@ -67,6 +79,9 @@ export default function BattleReveal({ battle, boss, busy, onAdvance, advanceLab
   const series = runningSeries(battle.lanes, revealed);
   const verdict = battleVerdict(battle);
   const done = revealed >= battle.lanes.length;
+  const decisive = lanesToWin != null ? decisiveLane(battle, lanesToWin) : null;
+  // The restrained lock-in moment: the frame the deciding lane lands on.
+  const lockedIn = lanesToWin != null && (series.player >= lanesToWin || series.opponent >= lanesToWin);
   const stampColor =
     battle.outcome === "win"
       ? "var(--correct)"
@@ -74,15 +89,36 @@ export default function BattleReveal({ battle, boss, busy, onAdvance, advanceLab
         ? "var(--incorrect)"
         : "var(--text-secondary)";
 
+  // See the live region below: mounted empty, filled after paint.
+  const [verdictAnnouncement, setVerdictAnnouncement] = useState("");
+  useEffect(() => {
+    const text =
+      `${verdict.stamp}. ${verdict.detail} ` +
+      battle.lanes.map((lane) => laneSentence(lane)).join(" ") +
+      ` Credits awarded: ${battle.credits_awarded}. Lives remaining: ${battle.lives_after}.`;
+    // A frame, not zero, so the region has certainly been committed to the
+    // accessibility tree before its text changes.
+    const id = requestAnimationFrame(() => setVerdictAnnouncement(text));
+    return () => cancelAnimationFrame(id);
+  }, [battle, verdict]);
+
   return (
     <section data-testid="rtt-battle-reveal" className="rtt-decision-surface flex flex-col gap-3">
-      {/* (1) The complete verdict, present from first paint. Visually hidden
-          because the staged reveal below says the same thing in the product's
-          own language — but it is never absent, and never late. */}
+      {/* (1) The complete verdict.
+          Visually hidden because the staged reveal below says the same thing in
+          the product's own language — but it is never absent, and never late.
+
+          The region is MOUNTED EMPTY and filled one tick later, which is the
+          whole point. A live region that is inserted into the DOM already
+          populated is not a mutation of an existing region, and screen readers
+          generally do not announce it — so rendering the verdict inline here
+          (which is what this did) meant the entire battle result was announced
+          to nobody. `LiveRegion.tsx` states the rule; `SpinStage` already
+          follows it. Filling on an effect also separates this announcement from
+          the shell's own `rtt-live` write in the same tick, so two polite
+          regions no longer race and clobber each other. */}
       <div role="status" aria-live="polite" className="sr-only" data-testid="rtt-battle-verdict-live">
-        {`${verdict.stamp}. ${verdict.detail} `}
-        {battle.lanes.map((lane) => laneSentence(lane)).join(" ")}
-        {` Credits awarded: ${battle.credits_awarded}. Lives remaining: ${battle.lives_after}.`}
+        {verdictAnnouncement}
       </div>
 
       <header className="flex flex-wrap items-baseline justify-between gap-2">
@@ -96,6 +132,26 @@ export default function BattleReveal({ battle, boss, busy, onAdvance, advanceLab
           <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
             Your five vs {boss?.name ?? battle.boss_id}
           </h2>
+          {lanesToWin != null && (
+            <span
+              className="text-[11px]"
+              style={{ color: "var(--text-muted)" }}
+              data-testid="rtt-battle-win-condition"
+            >
+              First to <span className="score-number">{lanesToWin}</span> of five component lanes.
+              A comparison of PEAK3 component totals — no game is simulated.
+            </span>
+          )}
+          {boss?.rule && (
+            <span
+              className="text-[11px]"
+              style={{ color: "var(--peak-accent)" }}
+              data-testid="rtt-battle-rule"
+            >
+              Rule in force · {boss.rule.name} —{" "}
+              <span style={{ color: "var(--text-secondary)" }}>{boss.rule.summary}</span>
+            </span>
+          )}
         </div>
         <button
           type="button"
@@ -114,9 +170,15 @@ export default function BattleReveal({ battle, boss, busy, onAdvance, advanceLab
 
       {/* Running series count */}
       <div
-        className="flex items-center justify-center gap-4 rounded-xl border py-2"
-        style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
+        className={`flex items-center justify-center gap-4 rounded-xl border py-2${
+          lockedIn && !instant ? " rtt-lock-in" : ""
+        }`}
+        style={{
+          background: "var(--bg-elevated)",
+          borderColor: lockedIn ? "var(--peak-accent-dim)" : "var(--border-default)",
+        }}
         data-testid="rtt-battle-series"
+        data-locked-in={lockedIn ? "true" : "false"}
       >
         <span className="score-number text-2xl font-bold" style={{ color: "var(--correct)" }}>
           {series.player}
@@ -197,7 +259,6 @@ export default function BattleReveal({ battle, boss, busy, onAdvance, advanceLab
                       : lane.winner === "opponent"
                         ? "Them"
                         : "Tied"}
-                    {lane.tie_broken_by_rule ? " · rule" : ""}
                   </span>
                 </div>
 
@@ -236,6 +297,19 @@ export default function BattleReveal({ battle, boss, busy, onAdvance, advanceLab
                   {lane.opponent_top_card?.player_name ?? "—"}
                 </span>
               </div>
+
+              {/* Why the boss rule changed anything. `tie_broken_by_rule` is
+                  the only per-lane rule signal the engine emits, and it used to
+                  render as the word "rule" with no explanation of what it did. */}
+              {lane.tie_broken_by_rule && (
+                <p
+                  className="pt-0.5 text-center text-[9px]"
+                  style={{ color: "var(--peak-accent)" }}
+                  data-testid={`rtt-lane-rule-${lane.lane}`}
+                >
+                  This lane was level on totals; {boss?.rule?.name ?? "the boss rule"} decided it.
+                </p>
+              )}
             </motion.li>
           );
         })}
@@ -250,7 +324,12 @@ export default function BattleReveal({ battle, boss, busy, onAdvance, advanceLab
           done ? { opacity: 1, transform: "scale(1)" } : { opacity: 0, transform: "scale(0.96)" }
         }
         transition={{ duration: instant ? 0 : DURATION_S }}
-        className="rounded-xl border p-3 flex flex-col gap-1"
+        /* A win gets ONE brief accent sweep; a loss gets the same layout in a
+           neutral frame with no shaming treatment at all. Reduced motion (and
+           the skip button) drop the sweep entirely. */
+        className={`rounded-xl border p-3 flex flex-col gap-1${
+          done && !instant && battle.outcome === "win" ? " rtt-victory-accent" : ""
+        }`}
         style={{
           background: "var(--bg-elevated)",
           borderColor: stampColor,
@@ -265,6 +344,17 @@ export default function BattleReveal({ battle, boss, busy, onAdvance, advanceLab
         <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
           {verdict.detail}
         </span>
+        {/* The decisive lane, in one sentence. Counted from the winners the
+            server sent, in the order it sent them — never re-decided here. */}
+        {decisive && (
+          <span
+            className="text-xs"
+            style={{ color: "var(--text-primary)" }}
+            data-testid="rtt-battle-decisive"
+          >
+            {decisive.sentence}
+          </span>
+        )}
         <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
           Summed lane margin{" "}
           <span className="score-number">{battle.summed_margin.toFixed(2)}</span> · roster totals{" "}
@@ -290,6 +380,12 @@ export default function BattleReveal({ battle, boss, busy, onAdvance, advanceLab
           {busy ? "Working…" : advanceLabel}
         </button>
       </div>
+
+      {/* LAST in DOM order — the e2e driver clicks `rtt-battle-skip` then
+          `rtt-battle-advance` inside this surface, and a coachmark's "Got it"
+          placed earlier would sit between them. Self-dismissing, so it only
+          ever appears on the first battle a player reaches. */}
+      <Coachmark id="boss_battle" />
     </section>
   );
 }

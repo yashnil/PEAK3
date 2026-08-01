@@ -147,7 +147,13 @@ PRICE_MAX: Final[int] = 30
 # ---------------------------------------------------------------------------
 # Trades
 # ---------------------------------------------------------------------------
-# Outgoing cards refund this fraction of their *current* price, rounded down.
+# Outgoing cards refund this fraction of their *base* (undiscounted) price,
+# rounded down -- see `pricing.refund_for`, which is the behaviour of record.
+# This comment said "current" price for a long time and was simply wrong; the
+# guided tour copied it into user-facing copy, where it promised players a
+# refund that does not match the number the Trade Desk prints beside it.
+# Basing the refund on base cost is what stops a price-discount System from
+# being used to buy cheap and sell dear.
 TRADE_REFUND_PCT: Final[float] = 0.50
 
 # ---------------------------------------------------------------------------

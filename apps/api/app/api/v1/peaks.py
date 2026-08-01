@@ -23,6 +23,7 @@ per-row route, never with the table.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -52,7 +53,30 @@ _DATA_PATHS = {
 DATA_PATH = _DATA_PATHS[formula_version.PEAK3_V1]
 VALID_WINDOWS = {"1y", "3y", "5y"}
 
+# Process-lifetime, keyed by formula version, populated once and never
+# invalidated or mtime-checked. That is deliberate (the artifacts are committed
+# and immutable per release) but it IS a staleness vector: regenerating
+# top_1000_peaks.v1.json does not reach a running server until the process
+# restarts. `_DIGEST_CACHE` below makes that condition detectable instead of
+# invisible -- the digest published in the response is the digest of the bytes
+# THIS process loaded, so a client (or a parity test) can compare it against the
+# file on disk and see the divergence rather than having to infer it.
 _CACHE: dict[str, dict] = {}
+_DIGEST_CACHE: dict[str, str] = {}
+
+
+def _artifact_digest(version: str) -> Optional[str]:
+    """SHA-256 of the artifact bytes THIS process is actually serving.
+
+    Deliberately reads only `_DIGEST_CACHE`, which `_load` populates from the
+    exact string it parsed. Re-opening the file here would defeat the point:
+    `_CACHE` is never invalidated, so after a regeneration the process keeps
+    serving the OLD rows while a fresh read of the path returns the NEW digest.
+    The response would then publish a fingerprint that matches disk while the
+    body does not -- the one failure mode this value exists to make visible,
+    reported as "current". Returns None until the board has been loaded once.
+    """
+    return _DIGEST_CACHE.get(version)
 
 
 def _resolve_version(value: Optional[str]) -> str:
@@ -84,7 +108,12 @@ def _load(version: Optional[str] = None) -> dict:
                                 f"scripts/build_top_peaks.py --formula-version {resolved}"),
                 },
             )
-        cached = _CACHE[resolved] = json.loads(path.read_text())
+        raw = path.read_text()
+        # Digest the bytes we are about to serve, in the same breath as reading
+        # them, so the fingerprint can never describe a different revision of
+        # the file than `_CACHE` holds. See `_artifact_digest`.
+        _DIGEST_CACHE[resolved] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        cached = _CACHE[resolved] = json.loads(raw)
     return cached
 
 
@@ -154,6 +183,24 @@ class PeaksResponse(BaseModel):
     min_anchor_season_mpg: Optional[float] = None
     excluded_low_minute_windows: Optional[int] = None
     serving_gate_note: Optional[str] = None
+    # ------------------------------------------------------- provenance (W6) ---
+    # Additive. Nothing below is derived from a score; these describe WHICH bytes
+    # produced the rows above, so "is this board current?" is an answerable
+    # question rather than an inference from file mtimes (which are a checkout
+    # artifact and were the original cause of a false staleness report).
+    #
+    # `artifact_digest` is the SHA-256 of the artifact THIS process loaded. Since
+    # `_CACHE` is never invalidated, comparing it to the file on disk is the only
+    # reliable way to detect a server serving a superseded board.
+    artifact_digest: Optional[str] = None
+    # Pass-through. The generator does not yet write a `generated_at` into
+    # top_1000_peaks.v*.json, so this is None today rather than being
+    # back-filled from a file mtime -- an mtime would be a fabricated release
+    # date, and fabricating provenance is the exact defect this pass fixes. When
+    # scripts/build_top_peaks.py starts emitting it, it flows through unchanged.
+    generated_at: Optional[str] = None
+    # How to reproduce this artifact, verbatim from the artifact itself.
+    generation_command: Optional[str] = None
     rows: list[PeakRow]
 
 
@@ -218,6 +265,9 @@ async def get_peaks(
         min_anchor_season_mpg=bucket.get("min_anchor_season_mpg"),
         excluded_low_minute_windows=bucket.get("excluded_low_minute_windows"),
         serving_gate_note=data.get("serving_gate_note"),
+        artifact_digest=_artifact_digest(version),
+        generated_at=data.get("generated_at"),
+        generation_command=data.get("generation_command"),
         rows=[PeakRow(**r) for r in rows],
     )
 

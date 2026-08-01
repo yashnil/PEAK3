@@ -1,7 +1,14 @@
 "use client";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { LANE_FIELDS, RunCardPublic } from "@/types/run-the-table";
-import { ROLE_COLOR_VARS, ROLE_LABELS, laneColorVar } from "@/lib/run-the-table-state";
+import {
+  LANE_LABELS,
+  ROLE_COLOR_VARS,
+  ROLE_LABELS,
+  describeCostModifiers,
+  laneColorVar,
+  percentileSentence,
+} from "@/lib/run-the-table-state";
 
 const LANE_TOKENS = ["si", "tp", "rec", "po", "team"] as const;
 
@@ -10,17 +17,11 @@ const LANE_TOKENS = ["si", "tp", "rec", "po", "team"] as const;
  *
  * `RunCardPublic.lane_percentiles` is a bare `Record<LaneField, number>` — the
  * only lane payload on the API that carries no `label`, unlike
- * `LaneProfileEntry`. So the names have to live here, mirrored from
- * config.py's `LANE_LABELS` exactly as `LANE_TOKENS` above already mirrors
- * `LANE_TOKENS`. The NUMBERS are still entirely the server's.
+ * `LaneProfileEntry`. The mirror now lives once, in `run-the-table-state.ts`,
+ * because the Trade Desk's review panel needs the same names. The NUMBERS are
+ * still entirely the server's.
  */
-const LANE_SR_LABELS = [
-  "Statistical Impact",
-  "Traditional Production",
-  "Individual Recognition",
-  "Playoff Rate Impact",
-  "Team Result",
-] as const;
+const LANE_SR_LABELS = LANE_FIELDS.map((lane) => LANE_LABELS[lane]);
 
 /**
  * One exact 3-year peak card.
@@ -72,13 +73,34 @@ export default function RunCard({
               className="score-number text-[11px] shrink-0"
               style={{ color: "var(--peak-accent)" }}
               title="PEAK3 3-year prime score"
+              data-testid="rtt-card-prime-score"
             >
               {card.prime_score.toFixed(1)}
+              {/* `title` alone is reachable by no keyboard and no screen
+                  reader, so the headline number on the card was unlabelled in
+                  the accessible tree. */}
+              <span className="sr-only"> PEAK3 3-year prime score</span>
             </span>
           </div>
-          <span className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
-            {card.window_label} · <span className="score-number">{card.overall_percentile.toFixed(1)}</span>
-            th pct
+          {/* The exact 3-year window, always in full — this is the thing being
+              priced, so it is never abbreviated or truncated away. */}
+          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+            <span className="score-number">{card.window_label}</span>
+            <span className="sr-only"> — exact 3-year peak window.</span>
+          </span>
+          {/* "75.1th pct" of WHAT was the whole defect: a bare percentile a
+              player cannot act on. The denominator is the RUN THE TABLE
+              eligible card pool (cards.build_pool ranks `prime_score` over the
+              selected profiles), NOT every PEAK3 3-year window — see
+              OVERALL_PERCENTILE_BASIS. */}
+          <span
+            className="text-[10px]"
+            style={{ color: "var(--text-muted)" }}
+            data-testid="rtt-card-percentile"
+          >
+            <span className="score-number">{card.overall_percentile.toFixed(1)}</span>
+            th percentile of the card pool
+            <span className="sr-only"> — {percentileSentence(card.overall_percentile)}.</span>
           </span>
         </div>
         {cost !== null && (
@@ -106,7 +128,8 @@ export default function RunCard({
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1" data-testid="rtt-card-roles">
+        <span className="sr-only">Eligible roles: </span>
         <span
           className="text-[9px] font-semibold uppercase tracking-wider rounded px-1.5 py-0.5"
           style={{
@@ -161,10 +184,27 @@ export default function RunCard({
         </>
       )}
 
+      {/* THE `[object Object]` FIX.
+          `cost_modifiers` is `list[dict]` on the server and was typed
+          `string[]` here, so `.join(" · ")` stringified each dict as
+          "[object Object]" — on every discounted card, for 3 of the 6
+          selectable Systems (moneyball, no_hardware, two_way_value), in the
+          Draft Room and both Trade Desk columns. Each modifier is now rendered
+          as its own row of real copy built from the engine's own four fields;
+          nothing is recomputed. */}
       {card.cost_modifiers.length > 0 && (
-        <p className="text-[10px]" style={{ color: "var(--correct)" }}>
-          {card.cost_modifiers.join(" · ")}
-        </p>
+        <ul className="flex flex-col gap-0.5" data-testid="rtt-card-modifiers">
+          {card.cost_modifiers.map((mod, i) => (
+            <li
+              key={`${mod.system_id}-${i}`}
+              data-testid={`rtt-card-modifier-${mod.system_id}`}
+              className="text-[10px]"
+              style={{ color: "var(--correct)" }}
+            >
+              {describeCostModifiers([mod])[0]}
+            </li>
+          ))}
+        </ul>
       )}
 
       {children}

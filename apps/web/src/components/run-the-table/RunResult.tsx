@@ -4,6 +4,7 @@ import { Check, Copy, Link as LinkIcon, RotateCcw, Repeat } from "lucide-react";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { RunReceipt, RunVersions } from "@/types/run-the-table";
 import {
+  DECIDED_BY_LABELS,
   buildRunShareText,
   challengeUrl,
   formatSigned,
@@ -138,12 +139,54 @@ export default function RunResult({
         </ul>
       </section>
 
-      {/* Systems */}
+      {/* Boss record — one row per act, so "3-0" is auditable rather than
+          asserted. Every field is `receipt.battles[]`; nothing is recounted. */}
+      {receipt.battles.length > 0 && (
+        <section className="flex flex-col gap-1.5">
+          <h3 className="rtt-result-heading">Boss record</h3>
+          <ul className="flex flex-col gap-1" data-testid="rtt-result-battles">
+            {receipt.battles.map((b) => (
+              <li
+                key={`${b.act}-${b.boss_id}`}
+                data-testid={`rtt-result-battle-${b.act}`}
+                data-outcome={b.outcome}
+                className="flex flex-wrap items-baseline gap-2 rounded-lg px-2 py-1.5 text-xs"
+                style={{ background: "var(--bg-surface)" }}
+              >
+                <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Act <span className="score-number">{b.act}</span>
+                </span>
+                <span
+                  className="font-bold uppercase tracking-wide"
+                  style={{
+                    color:
+                      b.outcome === "win"
+                        ? "var(--correct)"
+                        : b.outcome === "loss"
+                          ? "color-mix(in srgb, var(--incorrect) 85%, var(--text-primary))"
+                          : "var(--text-secondary)",
+                  }}
+                >
+                  {b.outcome === "win" ? "Won" : b.outcome === "loss" ? "Lost" : "Drew"}
+                </span>
+                <span className="score-number" style={{ color: "var(--text-secondary)" }}>
+                  {b.player_lanes_won}–{b.opponent_lanes_won} on lanes
+                </span>
+                <span style={{ color: "var(--text-muted)" }}>
+                  {DECIDED_BY_LABELS[b.decided_by] ?? "Decided on lanes won"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* Front office perks (internally: Systems — plan §5.2) */}
       <section className="flex flex-col gap-1.5">
-        <h3 className="rtt-result-heading">Systems</h3>
+        <h3 className="rtt-result-heading">Front office perks</h3>
         {receipt.systems.length === 0 ? (
           <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-            No System was ever selected.
+            No perk was ever selected.
           </p>
         ) : (
           receipt.systems.map((sys) => (
@@ -262,7 +305,7 @@ export default function RunResult({
 
       {/* Reasons — the signed-delta receipt */}
       <section className="flex flex-col gap-1.5">
-        <h3 className="rtt-result-heading">Why the run went this way</h3>
+        <h3 className="rtt-result-heading">Why this run ended this way</h3>
         {receipt.reasons.length === 0 ? (
           <p className="text-xs" style={{ color: "var(--text-muted)" }}>
             Not enough happened to explain.

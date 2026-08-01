@@ -9,7 +9,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DECIDED_BY_LABELS,
+  LANE_LABELS,
   LANE_TOKEN_BY_FIELD,
+  OVERALL_PERCENTILE_BASIS,
   NODE_TYPE_LABELS,
   ROLE_LABELS,
   battleVerdict,
@@ -17,17 +19,22 @@ import {
   challengeUrl,
   clearActiveRun,
   currentBattle,
+  decisiveLane,
+  describeCostModifiers,
   draftOffers,
   filledCount,
   formatSigned,
   isTerminal,
   isTradeLegal,
+  formatCostModifier,
   ladderProgress,
   ladderRows,
   laneColorVar,
   laneSentence,
   loadActiveRun,
   makeIdempotencyKey,
+  outgoingAdvisory,
+  percentileSentence,
   receiptLaneProfile,
   rosterPips,
   runningSeries,
@@ -36,6 +43,7 @@ import {
   shouldClearStoredRun,
   signedColorVar,
   slotLabel,
+  systemLabel,
   trackRunTheTable,
   tradeIncoming,
   tradeNetCost,
@@ -583,5 +591,158 @@ describe("analytics", () => {
     expect(spy).toHaveBeenCalled();
     expect(spy.mock.calls[0][1]).toBe("rtt_run_started");
     spy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cost modifiers — the `[object Object]` fix
+// ---------------------------------------------------------------------------
+
+describe("cost modifiers", () => {
+  /**
+   * `cost_modifiers` is `list[dict]` on the server
+   * (`nba_peak/run_the_table/pricing.py:74-86`) and was typed `string[]` here,
+   * so `RunCard` did `.join(" · ")` on objects and printed "[object Object]".
+   * These helpers are the replacement, and they are pure: every number in the
+   * output came off the payload.
+   */
+  it("turns one engine modifier into a sentence with all four of its fields", () => {
+    expect(
+      formatCostModifier({ system_id: "moneyball", discount_pct: 35, before: 20, after: 13 }),
+    ).toBe("Moneyball · −35% (20 → 13)");
+    expect(
+      formatCostModifier({ system_id: "two_way_value", discount_pct: 25, before: 19, after: 14 }),
+    ).toBe("Two-Way Value · −25% (19 → 14)");
+  });
+
+  it("never emits [object Object], whatever the list holds", () => {
+    const out = describeCostModifiers([
+      { system_id: "moneyball", discount_pct: 35, before: 20, after: 13 },
+      { system_id: "no_hardware", discount_pct: 30, before: 13, after: 9 },
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out.join(" ")).not.toContain("[object Object]");
+    expect(String(out)).not.toContain("[object Object]");
+  });
+
+  it("keeps every shipped System id readable, and de-slugs an unknown one", () => {
+    expect(systemLabel("moneyball")).toBe("Moneyball");
+    expect(systemLabel("no_hardware")).toBe("No Hardware");
+    expect(systemLabel("two_way_value")).toBe("Two-Way Value");
+    expect(systemLabel("deep_rotation")).toBe("Deep Rotation");
+    expect(systemLabel("trade_machine")).toBe("Trade Machine");
+    expect(systemLabel("veteran_minimum")).toBe("Veteran Minimum");
+    // Never a raw enum in user-visible copy.
+    expect(systemLabel("brand_new_perk")).toBe("Brand New Perk");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Percentile basis
+// ---------------------------------------------------------------------------
+
+describe("overall percentile basis", () => {
+  /**
+   * VERIFIED against `nba_peak/run_the_table/cards.py:143-201`:
+   * `overall_pcts = _percentile_ranks(prime_scores)` is computed over
+   * `selected`, i.e. every 3-year card profile that is not `excluded` and has
+   * at least one eligible role. The denominator is therefore the RUN THE TABLE
+   * card pool — not "all PEAK3 3-year peak windows", which is a larger and
+   * different set.
+   */
+  it("names the pool, not the whole PEAK3 window universe", () => {
+    expect(percentileSentence(75.1)).toBe(
+      "75.1th percentile of the Run the Table card pool — every eligible PEAK3 3-year peak window",
+    );
+    expect(OVERALL_PERCENTILE_BASIS).not.toMatch(/all PEAK3/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lane labels
+// ---------------------------------------------------------------------------
+
+describe("lane labels", () => {
+  it("uses the pinned user-facing names for the two renamed components", () => {
+    // `component-labels.test.ts` pins these; the canonical FIELD names above
+    // them are never renamed.
+    expect(LANE_LABELS.postseason_individual_value).toBe("Playoff Rate Impact");
+    expect(LANE_LABELS.team_achievement).toBe("Team Result");
+    expect(LANE_LABELS.statistical_impact).toBe("Statistical Impact");
+    expect(LANE_LABELS.traditional_production).toBe("Traditional Production");
+    expect(LANE_LABELS.individual_recognition).toBe("Individual Recognition");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The decisive lane
+// ---------------------------------------------------------------------------
+
+describe("decisive lane", () => {
+  function lanesWon(pattern: ("player" | "opponent" | "tie")[]): BattleLanePublic[] {
+    const fields: LaneField[] = [
+      "statistical_impact",
+      "traditional_production",
+      "individual_recognition",
+      "postseason_individual_value",
+      "team_achievement",
+    ];
+    return pattern.map((winner, i) => lane({ lane: fields[i], winner }));
+  }
+
+  it("names the lane at which the winner reached the threshold", () => {
+    const b = battle({ lanes: lanesWon(["player", "opponent", "player", "player", "opponent"]) });
+    const d = decisiveLane(b, 3);
+    expect(d.lane?.lane).toBe("postseason_individual_value");
+    expect(d.sentence).toContain("3rd lane you won");
+  });
+
+  it("names the opponent's threshold lane on a loss", () => {
+    const b = battle({
+      outcome: "loss",
+      lanes: lanesWon(["opponent", "opponent", "player", "opponent", "player"]),
+    });
+    const d = decisiveLane(b, 3);
+    expect(d.lane?.lane).toBe("postseason_individual_value");
+    expect(d.sentence).toContain("their 3rd lane");
+  });
+
+  it("nominates no lane at all when neither side got there, and defers to the engine", () => {
+    const b = battle({
+      decided_by: "summed_margin",
+      lanes: lanesWon(["player", "opponent", "tie", "player", "opponent"]),
+    });
+    const d = decisiveLane(b, 3);
+    expect(d.lane).toBeNull();
+    expect(d.sentence).toContain(DECIDED_BY_LABELS.summed_margin);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trade Desk advisory
+// ---------------------------------------------------------------------------
+
+describe("outgoing advisory", () => {
+  const incoming = {
+    player_name: "Dirk Nowitzki",
+    legal_slots: ["anchor"],
+  } as never as Parameters<typeof outgoingAdvisory>[1] & { player_name: string };
+  const slot = (slot_id: string) =>
+    ({ slot_id, role: null, is_starter: true, refund: 7 }) as never as Parameters<
+      typeof outgoingAdvisory
+    >[0];
+
+  /**
+   * The outgoing column is Step 1 and is never gated — gating it made the
+   * mandated "changing the outgoing pick clears an incompatible incoming pick"
+   * rule unreachable, because the click meant to trigger the clear was itself
+   * blocked. So this is an advisory, in a neutral tone, not an error.
+   */
+  it("warns what a change would cost, and stays silent when nothing is lost", () => {
+    expect(outgoingAdvisory(slot("lead_creator"), incoming)).toBe(
+      `Picking this clears ${incoming.player_name}`,
+    );
+    expect(outgoingAdvisory(slot("anchor"), incoming)).toBeNull();
+    expect(outgoingAdvisory(slot("lead_creator"), null)).toBeNull();
   });
 });

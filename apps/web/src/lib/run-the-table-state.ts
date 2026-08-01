@@ -16,10 +16,12 @@ import {
   ActiveNode,
   BattleLanePublic,
   BattlePublic,
+  CostModifier,
   DraftOffer,
   LaneField,
   LaneProfileEntry,
   LaneToken,
+  LANE_FIELDS,
   MapAct,
   NodeType,
   ReceiptLaneProfileEntry,
@@ -217,6 +219,79 @@ export const ROLE_COLOR_VARS: Record<Role, string> = {
   anchor: "var(--role-anchor)",
 };
 
+/**
+ * `SYSTEMS[].name` from nba_peak/run_the_table/config.py, mirrored.
+ *
+ * Same reason `ROLE_LABELS` and `LANE_TOKEN_BY_FIELD` are mirrored: the payload
+ * that carries a cost modifier (`card_public().cost_modifiers`) sends only the
+ * `system_id`, never the display name, and a `RunCardPublic` has no access to
+ * `state.systems`. The NUMBERS in a modifier are entirely the server's — this
+ * map only supplies the words.
+ */
+export const SYSTEM_LABELS: Record<string, string> = {
+  moneyball: "Moneyball",
+  deep_rotation: "Deep Rotation",
+  no_hardware: "No Hardware",
+  two_way_value: "Two-Way Value",
+  trade_machine: "Trade Machine",
+  veteran_minimum: "Veteran Minimum",
+};
+
+/** A System's display name. Falls back to a readable de-slugged form so an id
+ *  this build has never heard of still reads as words, never as a raw enum. */
+export function systemLabel(systemId: string): string {
+  if (SYSTEM_LABELS[systemId]) return SYSTEM_LABELS[systemId];
+  return systemId
+    .split(/[_-]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+/**
+ * One cost modifier as human copy: `"Moneyball · −20% (24 → 19)"`.
+ *
+ * THIS IS THE `[object Object]` FIX. `cost_modifiers` is
+ * `list[dict]` on the server (`pricing.price_for`), was typed `string[]` on the
+ * client, and was rendered with `.join(" · ")` — which stringifies each object
+ * as `[object Object]`. It fired for `moneyball`, `no_hardware` and
+ * `two_way_value` (3 of the 6 selectable Systems) on every card in the Draft
+ * Room and on both Trade Desk columns.
+ *
+ * U+2212 MINUS SIGN, not a hyphen: this is a signed quantity, and a hyphen at
+ * `text-[10px]` next to a digit reads as a dash. U+2192 for the arrow.
+ */
+export function formatCostModifier(mod: CostModifier): string {
+  return `${systemLabel(mod.system_id)} · −${mod.discount_pct}% (${mod.before} → ${mod.after})`;
+}
+
+/** Every modifier on a card, as sentences. Empty array when nothing applied. */
+export function describeCostModifiers(mods: readonly CostModifier[]): string[] {
+  return mods.map(formatCostModifier);
+}
+
+/**
+ * What `overall_percentile` is a percentile OF — stated, because an unlabelled
+ * "75.1th pct" on a card is a number the player cannot act on.
+ *
+ * VERIFIED against the server, not assumed: `cards.build_pool()` computes
+ * `overall_pcts = _percentile_ranks(prime_scores)` over `selected`, which is
+ * every 3-year card profile that is not `excluded` and has at least one
+ * eligible role (`nba_peak/run_the_table/cards.py:143-201`). So the denominator
+ * is the RUN THE TABLE eligible card pool — NOT "all PEAK3 3-year peak
+ * windows", which would include every excluded and role-less window and is a
+ * different, larger set. Saying the wrong denominator would be a fabricated
+ * claim about the model.
+ */
+export const OVERALL_PERCENTILE_BASIS =
+  "of the Run the Table card pool — every eligible PEAK3 3-year peak window";
+
+/** "75th percentile of the Run the Table card pool …". `overall_percentile`
+ *  arrives already ×100 and rounded to 1dp; it is never recomputed here. */
+export function percentileSentence(overallPercentile: number): string {
+  return `${overallPercentile.toFixed(1)}th percentile ${OVERALL_PERCENTILE_BASIS}`;
+}
+
 /** Slot label for a roster slot: the role for a starter, "Bench 1/2" below. */
 export function slotLabel(slot: Pick<RosterSlotPublic, "slot_id" | "role" | "is_starter">): string {
   if (slot.role && slot.role in ROLE_LABELS) return ROLE_LABELS[slot.role];
@@ -230,6 +305,25 @@ export function slotLabel(slot: Pick<RosterSlotPublic, "slot_id" | "role" | "is_
 export function laneColorVar(token: LaneToken): string {
   return `var(--comp-${token})`;
 }
+
+/**
+ * `LANE_LABELS` from nba_peak/run_the_table/config.py, mirrored.
+ *
+ * Needed because `RunCardPublic.lane_index` / `.lane_percentiles` are bare
+ * `Record<LaneField, number>` — the only lane payloads on the API that carry no
+ * `label`, unlike `LaneProfileEntry`. The NUMBERS are always the server's.
+ *
+ * `postseason_individual_value` → "Playoff Rate Impact" and `team_achievement`
+ * → "Team Result" are the pinned user-facing labels (`component-labels.test.ts`);
+ * the canonical field names above them are never renamed.
+ */
+export const LANE_LABELS: Record<LaneField, string> = {
+  statistical_impact: "Statistical Impact",
+  traditional_production: "Traditional Production",
+  individual_recognition: "Individual Recognition",
+  postseason_individual_value: "Playoff Rate Impact",
+  team_achievement: "Team Result",
+};
 
 /** `LANE_TOKENS` from config.py, mirrored so the RECEIPT's lane profile — the
  *  one payload that omits `token` — can still be drawn in the right colours. */
@@ -349,6 +443,260 @@ export function tradeNetCost(incoming: TradeIncoming, outgoing: TradeOutgoingOpt
 }
 
 // ---------------------------------------------------------------------------
+// Trade Desk transaction model
+// ---------------------------------------------------------------------------
+
+/**
+ * The Trade Desk's whole ephemeral state: at most ONE outgoing slot and at most
+ * ONE incoming card.
+ *
+ * It used to be two independent `useState`s inside `TradeDesk.tsx` where
+ * neither handler cleared the other column, `<TradeDesk>` was rendered with no
+ * `key` so nothing reset on a node change, and the border ternary let
+ * `selected` outrank `compatible` — so a card that had become illegal was
+ * painted accent-gold, carried a red "Not eligible" badge and still reported
+ * `aria-pressed="true"` at the same time. Modelling the pair as one value, in a
+ * pure module, is what makes "only the actually selected cards are highlighted"
+ * testable rather than aspirational.
+ */
+export interface TradeSelection {
+  outgoingSlotId: string | null;
+  incomingCardId: string | null;
+}
+
+export const EMPTY_TRADE_SELECTION: TradeSelection = {
+  outgoingSlotId: null,
+  incomingCardId: null,
+};
+
+/**
+ * Pick (or unpick) the player being sent out.
+ *
+ * Changing the outgoing slot re-asks the SERVER's `legal_slots` for the
+ * currently-picked incoming card and drops that pick if the new slot is not on
+ * the list. This is the rule that stopped the desk from ever showing a
+ * highlighted, illegal, still-`aria-pressed` pairing.
+ */
+export function chooseOutgoing(
+  selection: TradeSelection,
+  slotId: string,
+  incoming: readonly TradeIncoming[],
+): TradeSelection {
+  // Toggling the same slot off clears the whole transaction: an incoming pick
+  // with no outgoing slot has no price, no legality and no meaning.
+  if (selection.outgoingSlotId === slotId) return EMPTY_TRADE_SELECTION;
+
+  const picked = incoming.find((c) => c.card_id === selection.incomingCardId) ?? null;
+  const keepIncoming = picked !== null && isTradeLegal(picked, slotId);
+  return {
+    outgoingSlotId: slotId,
+    incomingCardId: keepIncoming ? selection.incomingCardId : null,
+  };
+}
+
+/** Pick (or unpick) the incoming player. Never touches the outgoing pick, so
+ *  it can never highlight an unrelated offer. */
+export function chooseIncoming(selection: TradeSelection, cardId: string): TradeSelection {
+  return {
+    outgoingSlotId: selection.outgoingSlotId,
+    incomingCardId: selection.incomingCardId === cardId ? null : cardId,
+  };
+}
+
+export function clearTradeSelection(): TradeSelection {
+  return EMPTY_TRADE_SELECTION;
+}
+
+/** Whether a control may be pressed, and the ONE concise sentence explaining
+ *  it when it may not. `reason` is null exactly when `eligible` is true. */
+export interface TradeEligibility {
+  eligible: boolean;
+  reason: string | null;
+}
+
+const ELIGIBLE: TradeEligibility = { eligible: true, reason: null };
+
+/**
+ * Can this incoming card be brought in for the currently-picked slot?
+ *
+ * With no outgoing slot picked yet nothing is ineligible — legality only
+ * exists relative to a slot — so every card stays live and the player is never
+ * shown a disabled control they cannot explain.
+ */
+export function incomingEligibility(
+  card: TradeIncoming,
+  outgoing: TradeOutgoingOption | null,
+): TradeEligibility {
+  if (!outgoing) return ELIGIBLE;
+  if (isTradeLegal(card, outgoing.slot_id)) return ELIGIBLE;
+  return {
+    eligible: false,
+    reason: `Cannot play ${slotLabel(outgoing)}`,
+  };
+}
+
+/**
+ * What choosing this outgoing slot would do to the incoming pick already made.
+ *
+ * DELIBERATELY NOT an eligibility check. The outgoing column is Step 1 — going
+ * back to it must always be possible, and it RESETS Step 2 by design
+ * (`chooseOutgoing` drops an incompatible incoming pick). Disabling the
+ * outgoing column on the incoming pick made the mandated "changing the
+ * outgoing player clears an incompatible incoming selection" rule literally
+ * unreachable: the click that was supposed to trigger the clear was itself
+ * blocked. Caught by `trade-desk.test.tsx`.
+ *
+ * So this returns an ADVISORY sentence — shown in a neutral tone, never an
+ * error tone — or null when nothing would be lost.
+ */
+export function outgoingAdvisory(
+  slot: TradeOutgoingOption,
+  incoming: TradeIncoming | null,
+): string | null {
+  if (!incoming) return null;
+  if (isTradeLegal(incoming, slot.slot_id)) return null;
+  return `Picking this clears ${incoming.player_name}`;
+}
+
+/**
+ * How many of THIS node's incoming offers the server considers legal for a slot.
+ *
+ * Reads `legal_slots` — the server's own list — and never re-derives role
+ * eligibility.
+ */
+export function legalIncomingCountFor(
+  slot: TradeOutgoingOption,
+  incoming: TradeIncoming[],
+): number {
+  return incoming.filter((card) => isTradeLegal(card, slot.slot_id)).length;
+}
+
+/**
+ * The dead-end warning for an outgoing slot no offer on the board can fill.
+ *
+ * A real trade board can offer three players and still have a roster slot none
+ * of them may legally take. Before this existed the player found that out the
+ * only way available: pick the slot, watch all three incoming cards go
+ * disabled, and back out. That is precisely the "trial-and-error to discover
+ * role legality" the brief bans, and it is why this is computed for EVERY
+ * outgoing card up front rather than only for the selected one.
+ *
+ * Returns null when at least one legal replacement exists, so the common case
+ * stays uncluttered.
+ */
+export function outgoingDeadEnd(
+  slot: TradeOutgoingOption,
+  incoming: TradeIncoming[],
+): string | null {
+  if (incoming.length === 0) return null;
+  if (legalIncomingCountFor(slot, incoming) > 0) return null;
+  return `No one on this board can play ${slotLabel(slot)}`;
+}
+
+/** One lane's change from swapping these two cards into the same slot. */
+export interface TradeLaneDelta {
+  lane: LaneField;
+  label: string;
+  token: LaneToken;
+  outgoing: number;
+  incoming: number;
+  delta: number;
+}
+
+/**
+ * The Review step.
+ *
+ * Everything on it is arithmetic over numbers the server already sent:
+ * `incoming.cost`, `outgoing.refund`, `state.credits`, and the two cards'
+ * `lane_index` values. Nothing here re-derives a price, a refund percentage, a
+ * role eligibility or a PEAK3 score.
+ */
+export interface TradeReview {
+  outgoing: TradeOutgoingOption;
+  incoming: TradeIncoming;
+  slotLabel: string;
+  refund: number;
+  cost: number;
+  net: number;
+  creditsBefore: number;
+  creditsAfter: number;
+  /** The outgoing card's primary role, and the incoming card's. */
+  roleBefore: string;
+  roleAfter: string;
+  /** `incoming.legal_slots.includes(outgoing.slot_id)` — the server's list. */
+  legal: boolean;
+  affordable: boolean;
+  /** Null when the trade can be confirmed. */
+  blockedReason: string | null;
+  laneDeltas: TradeLaneDelta[];
+}
+
+/**
+ * Per-lane change from swapping `outgoing` out for `incoming` in one slot.
+ *
+ * Uses `lane_index` — the 0-100 rescale the engine's own `lane_score` consumes
+ * — so this is the same scale the battle compares on. It is deliberately
+ * described in the UI as the CARD's change, not the roster's: the roster total
+ * also depends on starter/bench weighting, and only the server recomputes that.
+ */
+export function tradeLaneDeltas(
+  outgoing: TradeOutgoingOption,
+  incoming: TradeIncoming,
+): TradeLaneDelta[] {
+  return LANE_FIELDS.map((lane) => {
+    const before = outgoing.card.lane_index[lane] ?? 0;
+    const after = incoming.lane_index[lane] ?? 0;
+    return {
+      lane,
+      label: LANE_LABELS[lane],
+      token: LANE_TOKEN_BY_FIELD[lane],
+      outgoing: before,
+      incoming: after,
+      delta: after - before,
+    };
+  });
+}
+
+/** The review for a complete selection, or null while one half is missing. */
+export function buildTradeReview(
+  node: ActiveNode | null,
+  selection: TradeSelection,
+  credits: number,
+): TradeReview | null {
+  const incoming =
+    tradeIncoming(node).find((c) => c.card_id === selection.incomingCardId) ?? null;
+  const outgoing =
+    tradeOutgoing(node).find((s) => s.slot_id === selection.outgoingSlotId) ?? null;
+  if (!incoming || !outgoing) return null;
+
+  const legal = isTradeLegal(incoming, outgoing.slot_id);
+  const net = tradeNetCost(incoming, outgoing);
+  const affordable = net <= credits;
+  const label = slotLabel(outgoing);
+
+  return {
+    outgoing,
+    incoming,
+    slotLabel: label,
+    refund: outgoing.refund,
+    cost: incoming.cost,
+    net,
+    creditsBefore: credits,
+    creditsAfter: credits - net,
+    roleBefore: ROLE_LABELS[outgoing.card.primary_role] ?? outgoing.card.primary_role,
+    roleAfter: ROLE_LABELS[incoming.primary_role] ?? incoming.primary_role,
+    legal,
+    affordable,
+    blockedReason: !legal
+      ? `${incoming.player_name} is not eligible for ${label}.`
+      : !affordable
+        ? `Not enough credits — this trade needs ${net} and you hold ${credits}.`
+        : null,
+    laneDeltas: tradeLaneDeltas(outgoing, incoming),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Roster
 // ---------------------------------------------------------------------------
 
@@ -416,6 +764,53 @@ export function battleVerdict(battle: BattlePublic): { stamp: string; detail: st
     DECIDED_BY_LABELS[battle.decided_by] ?? "Decided on lanes won"
   }.`;
   return { stamp, detail };
+}
+
+/**
+ * The lane that settled the battle, and one sentence saying why.
+ *
+ * Pure counting over `winner` values the SERVER already decided, in the order
+ * the server sent them: the first lane at which either side reaches
+ * `lanesToWin` is the decisive one. When neither side gets there, the engine's
+ * own `decided_by` is the answer and no lane is decisive — this function says
+ * so rather than nominating one.
+ *
+ * Nothing here decides a lane, breaks a tie, or re-derives an outcome.
+ */
+export function decisiveLane(
+  battle: BattlePublic,
+  lanesToWin: number,
+): { lane: BattleLanePublic | null; sentence: string } {
+  if (lanesToWin > 0) {
+    let player = 0;
+    let opponent = 0;
+    for (const lane of battle.lanes) {
+      if (lane.winner === "player") player += 1;
+      else if (lane.winner === "opponent") opponent += 1;
+      if (player >= lanesToWin) {
+        return {
+          lane,
+          sentence: `${lane.label} was the ${lanesToWin}${
+            lanesToWin === 3 ? "rd" : "th"
+          } lane you won — that is where the battle was settled.`,
+        };
+      }
+      if (opponent >= lanesToWin) {
+        return {
+          lane,
+          sentence: `${lane.label} was their ${lanesToWin}${
+            lanesToWin === 3 ? "rd" : "th"
+          } lane — that is where the battle was settled.`,
+        };
+      }
+    }
+  }
+  return {
+    lane: null,
+    sentence: `Neither side took ${lanesToWin} lanes. ${
+      DECIDED_BY_LABELS[battle.decided_by] ?? "Decided on lanes won"
+    }.`,
+  };
 }
 
 /** One sentence per lane, for the `aria-live` region and the skip-to-end view. */

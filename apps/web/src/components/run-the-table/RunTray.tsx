@@ -1,23 +1,49 @@
 "use client";
+import { useEffect, useState } from "react";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
+import { AnimatedNumber } from "@/components/ui";
 import { RunPublicState } from "@/types/run-the-table";
-import { slotLabel } from "@/lib/run-the-table-state";
+import { filledCount, slotLabel } from "@/lib/run-the-table-state";
+import { LANE_PROFILE_TERM, PERK_TERM, perkPlainEffect } from "@/lib/run-the-table-copy";
 import LaneProfile from "./LaneProfile";
 
 /**
- * The persistent right-hand tray: resources, then the 5+2 roster, then active
- * Systems, then the five-lane profile.
+ * The persistent front-office rail: a compact scoreboard, then the 5+2 roster,
+ * then the active Front Office Perks, then the five-lane profile.
  *
  * Every number here is straight off `public_state()` — credits, lives, the
  * lane profile and `roster_total` are all the engine's own values, so what the
- * tray shows is exactly what the next battle resolves against.
+ * rail shows is exactly what the next battle resolves against.
+ *
+ * Rendered ONCE by `RunTheTableGame` (it used to be two instances, a desktop
+ * rail and a mobile copy, which duplicated every `data-testid`). Each
+ * `data-tour-id` below is therefore unique in the document, which is what W3's
+ * spotlight requires.
  */
 interface Props {
   state: RunPublicState;
+  /**
+   * Is the lane profile the thing the player is currently deciding on?
+   *
+   * Open on the boss preview and the battle, where the five lanes ARE the
+   * decision; summarised to one line everywhere else, so the rail does not
+   * spend a third of its height on a chart nobody is reading. A player who
+   * disagrees just opens it — the `<details>` keeps whatever they chose.
+   */
+  laneProfileRelevant?: boolean;
 }
 
-export default function RunTray({ state }: Props) {
+export default function RunTray({ state, laneProfileRelevant = false }: Props) {
   const roster = [...state.starters, ...state.bench];
+  const filled = filledCount(roster);
+  const [laneOpen, setLaneOpen] = useState(laneProfileRelevant);
+
+  // Follows relevance when the screen changes, but a manual toggle survives
+  // re-renders of the same screen.
+  useEffect(() => {
+    setLaneOpen(laneProfileRelevant);
+  }, [laneProfileRelevant]);
+
   return (
     <aside data-testid="rtt-tray" className="flex flex-col gap-3">
       <h2
@@ -27,25 +53,36 @@ export default function RunTray({ state }: Props) {
         Front office
       </h2>
 
-      {/* Resources */}
-      <div className="grid grid-cols-3 gap-2">
+      {/* Scoreboard — three numbers, one line, no chrome competing with the
+          decision column. */}
+      <div className="rtt-scoreboard" data-testid="rtt-scoreboard">
         <Tile
           label="Credits"
-          value={String(state.credits)}
           accent="var(--peak-accent)"
           testid="rtt-credits"
+          tourId="rtt-credits"
+          /* Counts, but `AnimatedNumber` assigns the authoritative value on the
+             terminal frame and carries it in an sr-only sibling from the first
+             paint — the displayed credits are never a rounded tween. */
+          value={
+            <AnimatedNumber
+              value={state.credits}
+              className="text-lg font-bold leading-none"
+            />
+          }
         />
         <Tile
           label="Lives"
-          value={`${state.lives}/${state.max_lives}`}
           accent={state.lives <= 1 ? "var(--incorrect)" : "var(--correct)"}
           testid="rtt-lives"
+          tourId="rtt-lives"
+          value={`${state.lives}/${state.max_lives}`}
         />
         <Tile
           label="Act"
-          value={`${Math.min(state.act, state.acts_total)}/${state.acts_total}`}
           accent="var(--text-primary)"
           testid="rtt-act"
+          value={`${Math.min(state.act, state.acts_total)}/${state.acts_total}`}
         />
       </div>
 
@@ -53,19 +90,30 @@ export default function RunTray({ state }: Props) {
       <section
         className="rounded-xl border p-2.5 flex flex-col gap-2"
         style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
+        data-tour-id="rtt-roster"
       >
-        <h3
-          className="text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: "var(--text-muted)" }}
-        >
-          Roster · 5 + 2
-        </h3>
+        <div className="flex items-baseline justify-between gap-2">
+          <h3
+            className="text-[10px] font-bold uppercase tracking-widest"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Roster · 5 + 2
+          </h3>
+          <span className="score-number text-[10px]" style={{ color: "var(--text-secondary)" }}>
+            {filled}/{roster.length} filled
+          </span>
+        </div>
         <ul className="flex flex-col gap-1">
           {roster.map((slot) => (
             <li
               key={slot.slot_id}
               data-testid={`rtt-slot-${slot.slot_id}`}
-              className="flex items-center gap-2 rounded-lg px-2 py-1.5 min-w-0"
+              data-filled={slot.card ? "true" : "false"}
+              /* `rtt-roster-row` gives a filled slot a short settle-in when it
+                 first appears, so a card bought in the Draft Room visibly
+                 lands here rather than materialising between frames. Reduced
+                 motion drops it in globals-adjacent CSS. */
+              className="rtt-roster-row min-w-0"
               style={{
                 background: slot.is_starter ? "var(--bg-surface)" : "transparent",
                 border: `1px solid ${slot.is_starter ? "var(--border-subtle)" : "transparent"}`,
@@ -108,17 +156,22 @@ export default function RunTray({ state }: Props) {
         </ul>
       </section>
 
-      {/* Systems */}
+      {/* Front Office Perks (internally: Systems) */}
       <section
         className="rounded-xl border p-2.5 flex flex-col gap-1.5"
         style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
         data-testid="rtt-active-systems"
+        data-tour-id="rtt-systems"
       >
+        {/* Plan §5.2's terminology layer, via W3's `run-the-table-copy`: the
+            user-facing label is "Front Office Perk" and the official internal
+            name ("System") is always shown alongside rather than replacing it.
+            The API field is still `systems` — no canonical name is renamed. */}
         <h3
           className="text-[10px] font-bold uppercase tracking-widest"
           style={{ color: "var(--text-muted)" }}
         >
-          Systems
+          {PERK_TERM.plural ?? PERK_TERM.display}
         </h3>
         {state.systems.length === 0 ? (
           <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
@@ -130,12 +183,23 @@ export default function RunTray({ state }: Props) {
               <span className="text-[11px] font-semibold" style={{ color: "var(--peak-accent)" }}>
                 {sys.name}
               </span>
+              {/* The friendly line first, then the engine's own summary
+                  verbatim — the arrangement `run-the-table-copy` documents,
+                  so the plain sentence can never drift from the applied rule. */}
+              {perkPlainEffect(sys.id) && (
+                <span className="text-[10px]" style={{ color: "var(--text-primary)" }}>
+                  {perkPlainEffect(sys.id)}
+                </span>
+              )}
               <span className="text-[10px]" style={{ color: "var(--text-secondary)" }}>
                 {sys.summary}
               </span>
             </div>
           ))
         )}
+        <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+          {PERK_TERM.tooltip}
+        </p>
         {state.veteran_minimum_used_this_act && (
           <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
             Veteran Minimum already used this act.
@@ -143,17 +207,22 @@ export default function RunTray({ state }: Props) {
         )}
       </section>
 
-      {/* Lane profile */}
-      <section
-        className="rounded-xl border p-2.5 flex flex-col gap-2"
+      {/* Lane profile — collapsible, because it is the decision only at a boss */}
+      <details
+        className="rtt-lane-details rounded-xl border p-2.5"
         style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
+        data-tour-id="rtt-lane-profile"
+        data-testid="rtt-lane-profile-panel"
+        open={laneOpen}
+        onToggle={(e) => setLaneOpen((e.currentTarget as HTMLDetailsElement).open)}
       >
-        <div className="flex items-baseline justify-between gap-2">
+        <summary className="flex cursor-pointer select-none items-baseline justify-between gap-2">
           <h3
             className="text-[10px] font-bold uppercase tracking-widest"
             style={{ color: "var(--text-muted)" }}
+            title={LANE_PROFILE_TERM.tooltip}
           >
-            Lane profile
+            {LANE_PROFILE_TERM.display}
           </h3>
           <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
             Total{" "}
@@ -161,13 +230,16 @@ export default function RunTray({ state }: Props) {
               {state.roster_total.toFixed(1)}
             </span>
           </span>
+        </summary>
+        <div className="flex flex-col gap-2 pt-2">
+          <LaneProfile lanes={state.lane_profile} dense showWeights animate />
+          <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+            Bench counts at{" "}
+            <span className="score-number">{state.bench_weight.toFixed(2)}</span> of a starter.{" "}
+            {LANE_PROFILE_TERM.tooltip}
+          </p>
         </div>
-        <LaneProfile lanes={state.lane_profile} dense showWeights />
-        <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-          Bench counts at{" "}
-          <span className="score-number">{state.bench_weight.toFixed(2)}</span> of a starter.
-        </p>
-      </section>
+      </details>
     </aside>
   );
 }
@@ -177,22 +249,28 @@ function Tile({
   value,
   accent,
   testid,
+  tourId,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   accent: string;
   testid: string;
+  tourId?: string;
 }) {
   return (
     <div
       data-testid={testid}
-      className="rounded-xl border px-2 py-2 flex flex-col items-center gap-0.5"
+      data-tour-id={tourId}
+      className="rtt-scoreboard-tile"
       style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
     >
       <span className="text-[9px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
         {label}
       </span>
-      <span className="score-number text-lg font-bold leading-none" style={{ color: accent }}>
+      <span
+        className="score-number text-lg font-bold leading-none"
+        style={{ color: accent }}
+      >
         {value}
       </span>
     </div>

@@ -1,6 +1,7 @@
 "use client";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { BossPublic, LaneProfileEntry } from "@/types/run-the-table";
+import { Coachmark } from "@/components/ui/GuidedTour";
 import LaneProfile from "./LaneProfile";
 
 /**
@@ -19,6 +20,8 @@ interface Props {
   lives: number;
   busy: boolean;
   onResolve: () => void;
+  /** `state.lanes_to_win` — the engine's `LANES_TO_WIN`, never a literal. */
+  lanesToWin?: number;
 }
 
 export default function BossPreview({
@@ -29,6 +32,7 @@ export default function BossPreview({
   lives,
   busy,
   onResolve,
+  lanesToWin,
 }: Props) {
   return (
     <section data-testid="rtt-boss-preview" className="rtt-decision-surface flex flex-col gap-3">
@@ -46,6 +50,24 @@ export default function BossPreview({
           {boss.tagline}
         </p>
       </header>
+
+      {/* The win condition, stated BEFORE anything is resolved. This is a
+          comparison of five PEAK3 component totals, not a simulated game — say
+          so, so nobody reads the reveal as possession-by-possession basketball. */}
+      {lanesToWin != null && (
+        <p
+          className="text-xs font-semibold"
+          style={{ color: "var(--text-primary)" }}
+          data-testid="rtt-boss-win-condition"
+        >
+          First to <span className="score-number">{lanesToWin}</span> of the five component lanes
+          wins.{" "}
+          <span className="font-normal" style={{ color: "var(--text-muted)" }}>
+            Each lane compares your roster&apos;s PEAK3 component total against theirs. No game is
+            simulated.
+          </span>
+        </p>
+      )}
 
       {boss.rule && (
         <div
@@ -154,9 +176,12 @@ export default function BossPreview({
           className="rtt-tap rounded-lg px-6 text-sm font-bold uppercase tracking-wide disabled:opacity-60"
           style={{ background: "var(--peak-accent)", color: "#000" }}
         >
-          {busy ? "Playing…" : "Play the game"}
+          {busy ? "Resolving…" : "Resolve the matchup"}
         </button>
       </div>
+
+      {/* LAST in DOM order — see the note in DraftRoom.tsx. */}
+      <Coachmark id="boss_battle" />
     </section>
   );
 }

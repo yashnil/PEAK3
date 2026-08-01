@@ -1036,16 +1036,27 @@ test.describe("CourtBuilder candidate list (Phase 6E)", () => {
   test("exact team-season is preserved on every candidate row after the alphabetical sort", async ({ page }) => {
     await startCourtBuilder(page);
     await page.locator('[data-testid="candidate-card"]').first().waitFor({ state: "visible", timeout: 10_000 });
-    const rollSummary = await page.locator('[data-testid="roll-summary"]').innerText();
+    // Whitespace-normalised on both sides.
+    //
+    // The two strings come from deliberately different DOM structures: a
+    // candidate row is one flat text node, while the roll summary is a lockup
+    // whose separator is an `sr-only` span (absolutely positioned, so
+    // `innerText` renders it as its own line) sitting beside a decorative
+    // multiplication glyph drawn in CSS. Requiring byte-identical whitespace
+    // across those two is over-specification -- it fails on an extraction
+    // artifact rather than on the thing under test.
+    //
+    // What IS under test is unchanged and still exact: the summary and every
+    // candidate row must name the SAME team-season, so an alphabetical re-sort
+    // can never silently swap in another roster.
+    const squash = (t: string) => t.replace(/\s+/g, " ").trim();
+    const rollSummary = squash(await page.locator('[data-testid="roll-summary"]').innerText());
     const teamSeasonLines = page.locator('[data-testid="candidate-team-season"]');
     const count = await teamSeasonLines.count();
     expect(count).toBeGreaterThan(0);
     for (let i = 0; i < count; i++) {
-      const text = await teamSeasonLines.nth(i).innerText();
-      // "You rolled: Team · Season" and each candidate row's "Team · Season"
-      // must reference the same roll -- alphabetical reordering must never
-      // silently swap in a different team-season's roster.
-      expect(rollSummary).toContain(text.trim());
+      const text = squash(await teamSeasonLines.nth(i).innerText());
+      expect(rollSummary, `candidate row ${i} must name the rolled team-season`).toContain(text);
     }
   });
 
@@ -1754,5 +1765,226 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     await expect(page.locator('[data-testid="slot-swap-target"]').first()).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// W5 (UX / organization / polish pass): the enhanced reveal, the distance-aware
+// respin policy as the player experiences it, and respin idempotency.
+//
+// The reveal was ENHANCED, not replaced (UX_ORGANIZATION_POLISH_PLAN.md Sec
+// 5.4): the reel geometry, the `.spin-reel*` class contract, the SPIN_MS
+// budget and every Phase 8J/9B landing assertion above are untouched. These
+// tests cover what was ADDED -- the Franchise x Season lockup, the detent
+// ticks, the respin flourish, the single ARIA live announcement -- plus the
+// two behavioural guarantees that only a browser can prove: that the visible
+// animation lands on the authoritative API result AFTER a respin, and that a
+// real double-click cannot burn two respins.
+// ---------------------------------------------------------------------------
+
+test.describe("W5: spin reveal polish", () => {
+  test("the Franchise x Season lockup seals only once BOTH reels have landed", async ({ page }) => {
+    await startCourtBuilder(page);
+    const stage = page.locator('[data-testid="spin-stage"]');
+    const joint = page.locator('[data-testid="spin-lockup-joint"]');
+
+    // The joint exists for the whole ceremony but is only "sealed" at the end
+    // -- sealing early would announce the pair before the reels arrive.
+    await expect(joint).toHaveCount(1);
+    await expect(stage).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+    await expect(joint).toHaveAttribute("data-sealed", "true");
+    await expect(stage).toHaveAttribute("data-lockup", "true");
+
+    // The text half of the lockup states the same pair the two reels landed
+    // on -- the graphic never says something the text does not.
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const selectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    const summary = page.locator('[data-testid="roll-summary"]');
+    await expect(summary).toContainText(selectedTeam!);
+    await expect(summary).toContainText(selectedSeason!);
+  });
+
+  test("both reels produce a detent tick, and the ceremony stays inside its timing budget", async ({ page }) => {
+    const started = Date.now();
+    await startCourtBuilder(page);
+    const stage = page.locator('[data-testid="spin-stage"]');
+    await expect(stage).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+    // One detent per reel: the two land ~250ms apart by design (SPIN_TEAM_MS
+    // 1650 vs SPIN_SEASON_MS 1900), which is the "one or two suspense ticks
+    // near the end" the reveal is supposed to have.
+    const ticks = Number(await stage.getAttribute("data-snap-tick"));
+    expect(ticks).toBeGreaterThanOrEqual(2);
+    // The reveal must not have grown: SPIN_MS + LOCK_MS + COUNT_MS is ~2.77s,
+    // and page start-up is included in this measurement, so 12s is a generous
+    // ceiling that still fails loudly if someone doubles the ceremony.
+    expect(Date.now() - started).toBeLessThan(12_000);
+  });
+
+  test("the finished roll is announced once, as a complete pair, through one live region", async ({ page }) => {
+    await startCourtBuilder(page);
+    const stage = page.locator('[data-testid="spin-stage"]');
+    await expect(stage).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
+
+    // Exactly ONE live region inside the stage. The two wheels used to be
+    // wrapped in a `role="status"` container, which announced the team and the
+    // season as separate fragments as each reel settled.
+    const live = page.locator('[data-testid="spin-live-region"]');
+    await expect(live).toHaveCount(1);
+    await expect(live).toHaveAttribute("aria-live", "polite");
+    await expect(live).toHaveAttribute("aria-atomic", "true");
+    await expect(page.locator('[data-testid="spin-stage"] [role="status"]')).toHaveCount(1);
+
+    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+    const selectedSeason = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    await expect(live).toContainText(selectedTeam!);
+    await expect(live).toContainText(selectedSeason!);
+    await expect(live).toContainText(/eligible player/);
+  });
+
+  test("reduced motion: the lockup and the announcement are still there, with no reel", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await startCourtBuilder(page);
+    const stage = page.locator('[data-testid="spin-stage"]');
+    // Same 500ms ceiling the existing reduced-motion tests use -- the added
+    // reveal must not have introduced any new delay on this path.
+    await expect(stage).toHaveAttribute("data-phase", "revealed", { timeout: 500 });
+    await expect(page.locator('.spin-reel-strip')).toHaveCount(0);
+    await expect(page.locator('[data-testid="spin-lockup-joint"]')).toHaveAttribute("data-sealed", "true");
+    await expect(page.locator('[data-testid="spin-live-region"]')).toContainText(/eligible player/);
+    await expect(page.locator('[data-testid="roll-summary"]')).toBeVisible();
+  });
+});
+
+test.describe("W5: respin quality and idempotency", () => {
+  test("a season respin moves more than two seasons and lands where the API says", async ({ page }) => {
+    await startCourtBuilder(page);
+    const eraWheel = page.locator('[data-testid="era-wheel"]');
+    const before = await eraWheel.getAttribute("data-selected-season");
+
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-season") && r.status() === 200),
+      page.locator('[data-testid="respin-season-btn"]').click(),
+    ]);
+    const body = await response.json();
+    const apiSeason = body.current_spin.era_label;
+
+    await page.waitForTimeout(1400);
+    // The visible animation lands on the AUTHORITATIVE value, not merely on
+    // something plausible.
+    await expect(eraWheel).toHaveAttribute("data-selected-season", apiSeason);
+    const centerVal = await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value");
+    expect(centerVal).toBe(apiSeason);
+
+    // ...and the policy actually moved. The distance is checked against the
+    // radius the server's own receipt declares, so a short-lived franchise
+    // identity that legitimately relaxed the ladder is still held to its
+    // real contract rather than to a hardcoded 2.
+    expect(apiSeason).not.toBe(before);
+    const year = (s: string) => Number(s.slice(0, 4));
+    const receipt = body.respin_policy_debug[body.respin_policy_debug.length - 1];
+    expect(body.respin_policy_version).toBe("perfect_season_respin_policy_v1");
+    expect(Math.abs(year(apiSeason) - year(before!))).toBeGreaterThan(receipt.exclusion_radius);
+    expect(receipt.allowed_pool_size).toBeGreaterThanOrEqual(8);
+  });
+
+  test("the respin flourish reads as a different event from the round's first roll", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamWheel = page.locator('[data-testid="team-wheel"]');
+    const before = await teamWheel.getAttribute("data-selected-team");
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+      page.locator('[data-testid="respin-team-btn"]').click(),
+    ]);
+
+    // The banner names the axis, and the "away from" chip states the distance
+    // the SERVER travelled -- neither exists on a first roll, which has no
+    // "from" to state.
+    const banner = page.locator('[data-testid="respin-banner"]');
+    await expect(banner).toContainText(/franchise/i);
+    await expect(page.locator('[data-testid="respin-away-chip"]')).toContainText(before!);
+
+    await page.waitForTimeout(1600);
+    await expect(teamWheel).not.toHaveAttribute("data-selected-team", before!);
+  });
+
+  test("double-clicking a respin button consumes exactly one respin", async ({ page }) => {
+    await startCourtBuilder(page);
+    const btn = page.locator('[data-testid="respin-team-btn"]');
+    await expect(btn).toContainText("3 left");
+
+    const responses: number[] = [];
+    page.on("response", (r) => {
+      if (r.url().includes("/respin-team")) responses.push(r.status());
+    });
+
+    // A real double-click, not two sequential awaited clicks: `dblclick`
+    // dispatches both clicks before React can re-render the disabled state,
+    // which is exactly the situation the derived idempotency key exists for.
+    await btn.dblclick();
+    await page.waitForTimeout(2_500);
+
+    // Whatever hit the wire, the budget moved by exactly one.
+    await expect(btn).toContainText("2 left");
+    expect(responses.every((s) => s === 200)).toBe(true);
+
+    // The receipt is the server's own count, so this is not just the button
+    // label agreeing with itself.
+    await expect(page.locator('[data-testid="respin-receipt-count"]')).toContainText("1 respin");
+  });
+
+  test("respin controls are reachable and operable by keyboard alone", async ({ page }) => {
+    await startCourtBuilder(page);
+    const teamBtn = page.locator('[data-testid="respin-team-btn"]');
+    const seasonBtn = page.locator('[data-testid="respin-season-btn"]');
+    await expect(teamBtn).toBeVisible();
+
+    // Focusable, named, and activatable with the keyboard -- these are real
+    // <button>s, so Enter must fire them without any custom key handling.
+    await teamBtn.focus();
+    await expect(teamBtn).toBeFocused();
+    await expect(teamBtn).toHaveAccessibleName(/respin team/i);
+    await page.keyboard.press("Tab");
+    await expect(seasonBtn).toBeFocused();
+    await expect(seasonBtn).toHaveAccessibleName(/respin season/i);
+
+    const before = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-season") && r.status() === 200),
+      page.keyboard.press("Enter"),
+    ]);
+    await page.waitForTimeout(1600);
+    await expect(page.locator('[data-testid="era-wheel"]')).not.toHaveAttribute("data-selected-season", before!);
+    // The screen-reader announcement is refreshed with the new pair.
+    await expect(page.locator('[data-testid="spin-live-region"]')).toContainText(/eligible player/);
+  });
+
+  test("re-reading the game mid-animation does not reroll it", async ({ page, request }) => {
+    // "Refreshing during the animation does not reroll" -- a reload is a GET,
+    // and a GET must never be an action. Asserted against the REAL running
+    // API, sampled while the respin reel is still visibly travelling.
+    await startCourtBuilder(page);
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
+      page.locator('[data-testid="respin-team-btn"]').click(),
+    ]);
+    const body = await response.json();
+    const gameId = body.game_id;
+    const landed = [body.current_spin.franchise_display_name, body.current_spin.era_label];
+
+    // Mid-animation (the respin reel runs ~1.25s), then again after it lands.
+    for (const delay of [300, 1_600]) {
+      await page.waitForTimeout(delay === 300 ? 300 : 1_300);
+      const res = await request.get(`http://localhost:8000/api/v1/perfect-season/games/${gameId}`);
+      expect(res.status()).toBe(200);
+      const state = await res.json();
+      expect([state.current_spin.franchise_display_name, state.current_spin.era_label]).toEqual(landed);
+      expect(state.team_respins_used_total).toBe(1);
+    }
+
+    // And the on-screen reel agrees with the authoritative value it was
+    // reading all along.
+    await expect(page.locator('[data-testid="team-wheel"]')).toHaveAttribute("data-selected-team", landed[0]);
+    await expect(page.locator('[data-testid="respin-team-btn"]')).toContainText("2 left");
   });
 });

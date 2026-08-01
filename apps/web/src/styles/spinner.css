@@ -1,0 +1,220 @@
+/* ================================================================
+   spinner.css — 82-0 spin ceremony reveal polish
+   ================================================================
+   Owner: W5 (UX / Organization / Polish pass).
+   Imported by globals.css. Created as an empty stub by W7 so the
+   import graph is proven to build before any writer fills it in.
+   The frozen `.spin-reel*` geometry stays in globals.css; this file
+   is for NEW rules only. Nothing else may edit this file.
+
+   DESIGN CONSTRAINTS THIS FILE HONOURS
+   ------------------------------------
+   * Only `transform`, `opacity`, `box-shadow` and `color` are ever
+     animated. Nothing here can trigger layout during gameplay, which
+     is what kept the reel on the compositor thread in Phase 9B.
+   * No CSS custom property is renamed or redefined; every colour is
+     read from an existing token (globals.css is W7's file).
+   * Nothing here changes the reel geometry (ROW_H / WINDOW_ROWS /
+     MAX_STRIP_ROWS) or the ceremony timing budget. SPIN_MS is
+     untouched, so the e2e suite's 1700ms mid-spin sample and its
+     500ms reduced-motion ceiling both stay calibrated.
+   * Every rule is neutralised under prefers-reduced-motion at the
+     bottom of the file — the reveal steps straight to the result
+     with no rotation, translation or pulse.
+   ================================================================ */
+
+/* ----------------------------------------------------------------
+   1. Detent / suspense tick.
+   The payline flashes on the reel's OWN `settling` stage, i.e. the
+   exact frame the long glide hands over to the back-eased rebound.
+   Two ticks on the initial roll (the reels land 250ms apart by
+   design — SPIN_TEAM_MS 1650 vs SPIN_SEASON_MS 1900), one on a
+   respin. Driven by the reel state machine, never by a parallel
+   timer that could drift away from what the strip is doing.
+   ---------------------------------------------------------------- */
+@keyframes spin-detent-flash {
+  0%   { opacity: 0.55; transform: scaleX(1); }
+  35%  { opacity: 1;    transform: scaleX(1.06); }
+  100% { opacity: 0.55; transform: scaleX(1); }
+}
+
+.spin-reel-payline[data-detent="true"] {
+  animation: spin-detent-flash 200ms cubic-bezier(0.34, 1.42, 0.64, 1);
+  will-change: transform, opacity;
+}
+
+/* ----------------------------------------------------------------
+   2. The Franchise × Season lockup joint.
+   A single glyph sitting between the two reels. It is dim and small
+   while either reel is still travelling, then seals — one shared
+   scale beat — the instant BOTH have arrived. That shared beat is
+   what binds two independently-landing reels into one result.
+
+   Absolutely positioned and pointer-events:none so it can never
+   affect layout, tab order, or the mobile "no horizontal overflow"
+   guarantee the e2e suite asserts at 360px.
+   ---------------------------------------------------------------- */
+.spin-lockup-grid {
+  position: relative;
+}
+
+.spin-lockup-joint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate3d(-50%, -50%, 0) scale(0.72);
+  z-index: 2;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  opacity: 0.25;
+  color: var(--text-muted);
+  background: var(--bg-page);
+  border: 1px solid var(--border-default);
+  transition: opacity 220ms ease-out, transform 220ms cubic-bezier(0.34, 1.42, 0.64, 1),
+    color 220ms ease-out, border-color 220ms ease-out;
+}
+
+.spin-lockup-joint[data-sealed="true"] {
+  opacity: 1;
+  transform: translate3d(-50%, -50%, 0) scale(1);
+  color: var(--peak-accent);
+  border-color: color-mix(in srgb, var(--peak-accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--peak-accent) 12%, transparent);
+}
+
+/* ----------------------------------------------------------------
+   3. The text lockup.
+   `roll-summary` keeps its testid and its information; the "·" it
+   used to join the pair with becomes the same × glyph as the joint
+   above, so the sentence and the graphic read as one object.
+   ---------------------------------------------------------------- */
+/*
+ * The multiplication glyph is drawn by CSS, not written into the DOM.
+ *
+ * As real text it landed in `textContent` even behind `aria-hidden` (which
+ * hides from the a11y tree, not from text extraction), so the roll summary read
+ * "Washington Bullets\00d71992-93" -- one unpunctuated token for a screen
+ * reader, and a string that no longer matched the "Team \00b7 Season" form used
+ * on every candidate row. A courtbuilder spec cross-checks those two so an
+ * alphabetical re-sort can never silently swap in another team-season's roster,
+ * and it caught this.
+ *
+ * With the glyph in `content:` the element contributes nothing to the text
+ * layer, and the sibling `sr-only` separator supplies the real delimiter.
+ */
+.spin-lockup-text-sep {
+  display: inline-block;
+  margin: 0 0.4em;
+  font-weight: 900;
+  color: var(--peak-accent);
+}
+
+.spin-lockup-text-sep::before {
+  content: "\00d7";
+}
+
+@keyframes spin-lockup-seal {
+  0%   { opacity: 0; transform: translate3d(0, 3px, 0) scale(0.97); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+.spin-reel[data-lockup="true"] .spin-lockup-text {
+  animation: spin-lockup-seal 260ms cubic-bezier(0.34, 1.42, 0.64, 1);
+}
+
+/* ----------------------------------------------------------------
+   4. Respin flourish.
+   A respin must not read as a faster replay of the first roll. Three
+   things separate them, and none of them costs a millisecond of the
+   timing budget:
+     * the banner names the axis ("Respinning the franchise…");
+     * an "away from <previous value>" chip states the distance the
+       server actually travelled (from respin_history, never a client
+       guess) — the first roll of a round has no "from" to state;
+     * the stage runs an accent sweep the initial roll never runs.
+   ---------------------------------------------------------------- */
+.respin-away-chip {
+  display: inline-block;
+  margin-left: 0.5em;
+  padding: 0.1em 0.55em;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  background: var(--bg-page);
+  border: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+@keyframes spin-respin-sweep {
+  0%   { opacity: 0;    transform: translate3d(-30%, 0, 0); }
+  45%  { opacity: 0.32; }
+  100% { opacity: 0;    transform: translate3d(130%, 0, 0); }
+}
+
+.spin-reel[data-respinning="true"] {
+  position: relative;
+  overflow: hidden;
+}
+
+.spin-reel[data-respinning="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    color-mix(in srgb, var(--peak-accent) 40%, transparent) 50%,
+    transparent 100%
+  );
+  animation: spin-respin-sweep 900ms ease-out;
+}
+
+/* ----------------------------------------------------------------
+   5. Backgrounded tab.
+   The reel's own transform transitions are deliberately NOT paused —
+   a half-frozen strip would sit on a row that is not the
+   authoritative result, and SpinStage's TRANSITION_FALLBACK_MS
+   timers already carry a backgrounded reel to its real value. What
+   pauses is the ambient decoration, which otherwise burns
+   compositor work for an audience of nobody.
+   ---------------------------------------------------------------- */
+.spin-reel[data-paused="true"],
+.spin-reel[data-paused="true"] *,
+.spin-reel[data-paused="true"]::after {
+  animation-play-state: paused !important;
+}
+
+/* ----------------------------------------------------------------
+   6. Reduced motion.
+   Belt and braces on top of SpinStage's own JS gate: under reduced
+   motion no reel strip is mounted at all, so most of this file is
+   already unreachable. Everything that could still apply is stepped
+   to its end state with no movement.
+   ---------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .spin-reel-payline[data-detent="true"],
+  .spin-reel[data-lockup="true"] .spin-lockup-text,
+  .spin-reel[data-respinning="true"]::after {
+    animation: none !important;
+  }
+
+  .spin-reel[data-respinning="true"]::after {
+    content: none;
+  }
+
+  .spin-lockup-joint {
+    transition: none !important;
+    transform: translate3d(-50%, -50%, 0) scale(1);
+  }
+}

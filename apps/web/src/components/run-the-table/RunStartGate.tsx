@@ -1,6 +1,8 @@
 "use client";
 import { DailyDescriptor, RunReadiness, RunType } from "@/types/run-the-table";
 import type { ChallengeDescriptor } from "@/lib/run-the-table-api";
+import { TourLauncher } from "@/components/ui/GuidedTour";
+import { NODE_TYPE_COPY, PERK_TERM, RTT_COPY } from "@/lib/run-the-table-copy";
 
 /**
  * The explicit Start gate.
@@ -16,6 +18,14 @@ import type { ChallengeDescriptor } from "@/lib/run-the-table-api";
  * which passes the token, so a recipient who followed a shared link silently
  * got a fresh random seed and had no way to tell. A challenge link that does
  * not reproduce its board is worse than no link at all.
+ *
+ * WHAT CHANGED IN THIS PASS. W2's homepage launcher now names the choice it is
+ * about to make and links straight to `?start=…`, which W4 consumes, so this
+ * gate is no longer the second identical confirmation on the main funnel. It is
+ * the DIRECT-VISIT surface: someone who typed the URL, followed a challenge
+ * link, or arrived from search. It therefore has to answer "what is this?"
+ * before it asks "which mode?" — one sentence, four steps, four node types, and
+ * a tour they can take without starting anything.
  */
 interface Props {
   readiness: RunReadiness | null;
@@ -38,6 +48,8 @@ interface Props {
   /** Why the token could not be resolved (expired, forged, wrong ruleset). */
   challengeError?: string | null;
 }
+
+const NODE_ORDER = ["draft_room", "trade_desk", "film_room", "rest_bank"] as const;
 
 export default function RunStartGate({
   readiness,
@@ -82,41 +94,74 @@ export default function RunStartGate({
           Take over a front office.
         </h2>
 
+        {/* The one sentence. Pinned by
+            `run-the-table-components.test.tsx:327` — it is the promise of the
+            mode, and every other line on this card is subordinate to it. */}
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-          Build and evolve a roster of exact NBA 3-year peaks across a branching run, manage scarce
-          credits, and beat three escalating statistical lineups.
+          {RTT_COPY.promise}
         </p>
 
         <ol className="flex flex-col gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
           <li className="flex gap-2.5">
             <Step n={1} />
             <span>
-              Pick a <strong>System</strong> — it changes what cards cost you, or how your bench
-              counts. Never what a player is worth.
+              Pick a <strong>{PERK_TERM.display}</strong> — receipts call it a{" "}
+              {PERK_TERM.internal}. {RTT_COPY.perkBoundary}
             </span>
           </li>
           <li className="flex gap-2.5">
             <Step n={2} />
             <span>
-              Take one of two nodes per stage: <strong>Draft Room, Trade Desk, Film Room</strong> or{" "}
-              <strong>Rest / Bank</strong>. The other closes.
+              Take one of two nodes per stage. {RTT_COPY.branch}
             </span>
           </li>
           <li className="flex gap-2.5">
             <Step n={3} />
             <span>
               At the end of each act, your five starters and two bench play a boss lineup across the{" "}
-              <strong>five PEAK3 component lanes</strong>. Win three lanes, win the battle.
+              <strong>five PEAK3 component lanes</strong>. {RTT_COPY.lanesToWin}
             </span>
           </li>
           <li className="flex gap-2.5">
             <Step n={4} />
             <span>
-              Three acts, three lives. Finish and you get a full receipt — MVP, best buy, closest
-              battle — then run it back or challenge a friend on the same seed.
+              Three acts, three lives. {RTT_COPY.lifeLoss} Finish and you get a full receipt — MVP,
+              best buy, closest battle — then run it back or challenge a friend on the same seed.
             </span>
           </li>
         </ol>
+
+        {/* The four kinds of node, before the run rather than during it. Each
+            one is the same icon, accent and one-clause purpose the map and the
+            stage fork use, so nothing here has to be learned twice. */}
+        {/* Viewport breakpoint, not a container query: this card is a top-level
+            page element with no `@container` ancestor, unlike the in-run
+            decision surfaces. */}
+        <ul className="grid gap-2 sm:grid-cols-2" data-testid="rtt-node-legend">
+          {NODE_ORDER.map((type) => {
+            const copy = NODE_TYPE_COPY[type];
+            return (
+              <li
+                key={type}
+                className="rounded-lg px-3 py-2 flex flex-col gap-0.5"
+                style={{
+                  background: "var(--bg-surface)",
+                  borderLeft: `3px solid ${copy.accentVar}`,
+                }}
+              >
+                <span
+                  className="text-[10px] font-bold uppercase tracking-widest"
+                  style={{ color: copy.accentVar }}
+                >
+                  {copy.label}
+                </span>
+                <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                  {copy.purpose}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
 
         {resumeNotice && (
           <p
@@ -264,9 +309,19 @@ export default function RunStartGate({
           </p>
         )}
 
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Nothing starts until you press a button above.
-        </p>
+        {/* The tour, available BEFORE anything is committed.
+            `autoStart={false}` on purpose: a walkthrough that opens by itself
+            on a page whose only job is "press a button to begin" is a modal in
+            front of a call to action. The auto-start belongs to the run shell,
+            where the things it spotlights actually exist. With no run on
+            screen, every step simply renders centred with no spotlight — the
+            documented missing-target degradation. */}
+        <div className="flex flex-wrap items-center gap-3">
+          <TourLauncher label="Take the tour" autoStart={false} data-testid="rtt-start-tour" />
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Nothing starts until you press a button above.
+          </p>
+        </div>
       </div>
     </div>
   );

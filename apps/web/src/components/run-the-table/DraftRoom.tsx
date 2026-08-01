@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { ActiveNode, DraftOffer, RosterSlotPublic } from "@/types/run-the-table";
 import { draftOffers, slotLabel } from "@/lib/run-the-table-state";
+import { Coachmark } from "@/components/ui/GuidedTour";
 import RunCard from "./RunCard";
 
 /**
@@ -228,6 +229,12 @@ export default function DraftRoom({ node, slots, credits, busy, onBuy, onPass }:
           </button>
         </div>
       )}
+
+      {/* LAST in DOM order, deliberately. `e2e/run-the-table.spec.ts` drives a
+          Draft Room by clicking `rtt-draft-pass`, and `stepOnce`'s other
+          surfaces click the first enabled button inside the surface — a
+          coachmark's "Got it" placed earlier would capture that click. */}
+      <Coachmark id="draft_room" />
     </section>
   );
 }
