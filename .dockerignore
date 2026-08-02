@@ -1,0 +1,43 @@
+# The API image is built from the repository root (see Dockerfile), so the
+# default context is the entire monorepo. Everything below is either irrelevant
+# to serving requests or large enough that shipping it would be a mistake.
+
+# Frontend — not served by this image at all.
+apps/web/
+
+# Raw scraped HTML. Never read at request time.
+#
+# cache/processed/ is deliberately NOT excluded: four small parquets (~6.5MB
+# tracked) back exact player-season resolution for CourtBuilder. Dropping them
+# does not fail the build — career_positions.py degrades gracefully — which is
+# precisely why they are worth carrying: the failure would be a quiet loss of
+# position fidelity rather than an error anyone would notice.
+cache/html/
+
+# Generated at build time inside the image, never copied in, so a stale local
+# copy cannot silently become the deployed dataset.
+data/web/
+
+# Tests, docs and tooling.
+tests/
+apps/api/tests/
+docs/
+supabase/
+.github/
+.venv/
+venv/
+node_modules/
+
+# VCS and editor noise.
+.git/
+.gitignore
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.ruff_cache/
+**/.DS_Store
+
+# Never let a local secrets file enter the build context.
+**/.env
+**/.env.*
+!**/.env.example
