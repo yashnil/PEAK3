@@ -10,6 +10,7 @@
 import {
   DailyGridBoard,
   DailyGridSearchResponse,
+  DailyGridStartResponse,
   GridResultRequest,
   GridResultResponse,
   OfficialResultRequest,
@@ -75,6 +76,37 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 export async function getDailyGridBoard(date?: string): Promise<DailyGridBoard> {
   const qs = date ? `?date=${encodeURIComponent(date)}` : "";
   return apiFetch<DailyGridBoard>(`/daily-grid/board${qs}`, { cache: "no-store" } as RequestInit);
+}
+
+/**
+ * Start (or resume) today's TIMED attempt.
+ *
+ * The one write that decides when the clock started. Called ONLY from an
+ * explicit player action — never on page load, never when the walkthrough
+ * opens — because the whole point of the endpoint is that reading the rules
+ * and waiting for the network are not charged to the player.
+ *
+ * IDEMPOTENT SERVER-SIDE: the timestamp is written once, so a double-click, a
+ * refresh and a second tab all resolve to the same `started_at`. The client
+ * guards concurrency as well (see `DailyGridGame.beginAttempt`), but that
+ * guard is a courtesy — the server is the authority.
+ *
+ * A 409 `not_todays_key` means the caller asked to start a board that is not
+ * today's. The caller treats it, like any other failure here, as "keep the
+ * local clock": the score is not affected by the timer in any way, so a failed
+ * start must never block play.
+ */
+export async function startDailyGridAttempt(
+  dailyKey: string,
+  accessToken?: string | null,
+): Promise<DailyGridStartResponse> {
+  return apiFetch<DailyGridStartResponse>(
+    `/daily-grid/${encodeURIComponent(dailyKey)}/start`,
+    {
+      method: "POST",
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+    },
+  );
 }
 
 /**

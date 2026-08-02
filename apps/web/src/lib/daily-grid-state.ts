@@ -24,6 +24,15 @@ import {
   ResultCell,
   dailyGridProgressKey,
 } from "@/types/daily-grid";
+import {
+  DAILY_GRID_TOUR_ID,
+  DAILY_GRID_TOUR_VERSION,
+} from "@/components/ui/tour-steps";
+import {
+  markTourSeen,
+  shouldAutoStartTour,
+  type TourSeenStatus,
+} from "@/lib/tour-state";
 
 /** Rarest first. Index doubles as the "hardness" rank for the recap. */
 const RARITY_ORDER: RarityBucket[] = ["very_rare", "rare", "uncommon", "common", "very_common"];
@@ -156,24 +165,49 @@ export function clearProgress(boardId: string): void {
 // Rules acknowledgement
 // ---------------------------------------------------------------------------
 
-export function hasSeenRules(): boolean {
-  if (typeof window === "undefined") return false;
+/**
+ * The LEGACY unversioned flag, read only.
+ *
+ * Its whole job now is to stop the migration re-onboarding people who had
+ * already dismissed the gate before the versioned store existed. Never
+ * written — see `DAILY_GRID_RULES_SEEN_KEY`.
+ */
+function hasLegacyRulesFlag(): boolean {
   try {
     return window.localStorage.getItem(DAILY_GRID_RULES_SEEN_KEY) === "1";
   } catch {
-    // Storage blocked: show the rules. Explaining the game twice is a much
-    // smaller cost than dropping someone onto a board with no objective.
     return false;
   }
 }
 
-export function markRulesSeen(): void {
+/**
+ * Has this player already been through Daily Grid onboarding?
+ *
+ * Backed by the versioned multi-tour store (`lib/tour-state.ts`) under the
+ * `"daily-grid"` tour id, so bumping `DAILY_GRID_TOUR_VERSION` after a copy
+ * change replays the gate and the walkthrough for everyone — which the old
+ * bare `"1"` string could not express at all.
+ *
+ * Storage blocked, or a corrupt payload: `shouldAutoStartTour` degrades to
+ * "not seen", so this returns false and the rules are shown. Explaining the
+ * game twice is a much smaller cost than dropping someone onto a board with no
+ * objective.
+ */
+export function hasSeenRules(): boolean {
+  if (typeof window === "undefined") return false;
+  if (!shouldAutoStartTour(DAILY_GRID_TOUR_ID, DAILY_GRID_TOUR_VERSION)) return true;
+  return hasLegacyRulesFlag();
+}
+
+/**
+ * Record that onboarding was completed or deliberately skipped.
+ *
+ * `status` is carried through to the tour store so "took the walkthrough" and
+ * "pressed Skip Tour and Start" stay distinguishable; both suppress the gate.
+ */
+export function markRulesSeen(status: TourSeenStatus = "completed"): void {
   if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(DAILY_GRID_RULES_SEEN_KEY, "1");
-  } catch {
-    // ignore
-  }
+  markTourSeen(DAILY_GRID_TOUR_ID, DAILY_GRID_TOUR_VERSION, status);
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +282,37 @@ export function withTimerStarted(
 ): DailyGridProgress {
   if (progress.started_at || progress.completed_at) return progress;
   return { ...progress, started_at: now.toISOString() };
+}
+
+/**
+ * Re-anchors the clock to the SERVER's elapsed time.
+ *
+ * `POST /daily-grid/{daily_key}/start` answers with `started_at`, `server_now`
+ * and their difference as `elapsed_seconds`. Rather than storing the server's
+ * absolute `started_at` — which would be measured against a browser clock that
+ * may be minutes or days out — this rewrites `started_at` as
+ * `now - elapsed_seconds`, so the number the player watches is the server's
+ * duration counted on the local clock. Two devices whose clocks disagree by an
+ * hour therefore both show the same elapsed time for the same attempt.
+ *
+ * Unlike `withTimerStarted` this OVERWRITES an existing `started_at`: the whole
+ * point is that the server, not the tab, decides when the attempt began. A
+ * finished board is still left alone — its time is already frozen and re-timing
+ * it after the fact would rewrite a result the player has already been shown.
+ *
+ * A negative or non-finite `elapsed_seconds` is treated as 0; the value crosses
+ * a network boundary, and a clock that runs backwards must not print "-3:12".
+ */
+export function withServerTimer(
+  progress: DailyGridProgress,
+  elapsedSeconds: number,
+  now: Date = new Date(),
+): DailyGridProgress {
+  if (progress.completed_at) return progress;
+  const elapsed = Number.isFinite(elapsedSeconds) ? Math.max(0, elapsedSeconds) : 0;
+  const startedAt = new Date(now.getTime() - elapsed * 1000).toISOString();
+  if (progress.started_at === startedAt) return progress;
+  return { ...progress, started_at: startedAt };
 }
 
 /**

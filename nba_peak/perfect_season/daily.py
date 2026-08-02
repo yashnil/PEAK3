@@ -28,7 +28,14 @@ same board" true by construction rather than by a synchronization step.
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime
+
+from nba_peak.daily_key import (
+    InvalidDailyKey,
+    daily_key,
+    parse_daily_key,
+    validate_daily_key,
+)
 
 # Namespace prefix -- see module docstring (never share a raw date salt with
 # another game's daily seed).
@@ -49,31 +56,55 @@ FREE_PLAY_BOARD_TYPE = "practice"
 DATE_FORMAT = "%Y-%m-%d"
 
 
-class InvalidChallengeDate(ValueError):
-    """Raised for a date string that is not a real YYYY-MM-DD calendar date."""
+class InvalidChallengeDate(InvalidDailyKey):
+    """Raised for a date string that is not a real, in-range daily key.
 
-
-def today_utc_date() -> str:
-    """Today's date in UTC as YYYY-MM-DD.
-
-    UTC, not server-local time, so "today's challenge" rolls over at the
-    same instant for every player regardless of where they or the server
-    are -- the same choice apps/api/app/api/v1/game.py's daily route already
-    makes for Peak Duel.
+    Subclasses ``InvalidDailyKey`` (itself a ``ValueError``) so the shared
+    validator's failures surface under the name this package's callers already
+    catch, and so `except InvalidDailyKey` is equally correct.
     """
-    return datetime.now(timezone.utc).strftime(DATE_FORMAT)
 
 
-def validate_challenge_date(date_str: str) -> str:
-    """Return `date_str` unchanged if it is a real YYYY-MM-DD date, else
-    raise InvalidChallengeDate. Rejects both malformed strings and
-    impossible dates (e.g. "2026-02-30"), since strptime validates the
-    actual calendar, not just the shape."""
+def today_utc_date(now: datetime | None = None) -> str:
+    """Today's challenge date as YYYY-MM-DD, in the daily reset zone.
+
+    The name is kept for its callers; the BOUNDARY is no longer UTC. Every
+    shared daily mode rolls over at midnight America/Los_Angeles, and that
+    decision lives in exactly one module (``nba_peak.daily_key``) so the five
+    modes cannot disagree about what day it is.
+    """
+    return daily_key(now)
+
+
+def challenge_date_shape(date_str: str) -> str:
+    """Shape-only check, for the PURE seed/id functions below.
+
+    A challenge is a pure function of (date, mode), so every calendar date
+    names exactly one challenge and the derivation must stay clock-free --
+    otherwise `daily_seed` would depend on when it was called. What a CLIENT
+    may ask for is a different question; `validate_challenge_date` answers it.
+    """
     try:
-        datetime.strptime(date_str, DATE_FORMAT)
-    except (ValueError, TypeError) as exc:
-        raise InvalidChallengeDate(f"date must be a real YYYY-MM-DD date, got '{date_str}'") from exc
-    return date_str
+        return parse_daily_key(date_str).strftime(DATE_FORMAT)
+    except InvalidDailyKey as exc:
+        raise InvalidChallengeDate(
+            f"date must be a real YYYY-MM-DD date, got '{date_str}'"
+        ) from exc
+
+
+def validate_challenge_date(date_str: str, *, now: datetime | None = None) -> str:
+    """Return the normalised date if a client may ask for it, else raise.
+
+    Rejects malformed strings, impossible dates ("2026-02-30"), dates in the
+    FUTURE (that challenge has not opened yet, and enumerating it forward is
+    not a supported read) and anything past the archive window.
+    """
+    try:
+        return validate_daily_key(date_str, now=now)
+    except InvalidChallengeDate:
+        raise
+    except InvalidDailyKey as exc:
+        raise InvalidChallengeDate(str(exc)) from exc
 
 
 def daily_seed(date_str: str, mode: str) -> int:
@@ -83,7 +114,7 @@ def daily_seed(date_str: str, mode: str) -> int:
     explicitly (use today_utc_date() for "today") so the same function
     serves today, a replay of an earlier date, and tests without branching.
     """
-    validate_challenge_date(date_str)
+    date_str = challenge_date_shape(date_str)
     raw = f"{_DAILY_SEED_NAMESPACE}:{date_str}:{mode}"
     return int(hashlib.sha256(raw.encode()).hexdigest(), 16) % _SEED_MODULUS
 
@@ -93,7 +124,7 @@ def daily_challenge_id(date_str: str, mode: str) -> str:
     "peak-season-daily-2026-07-29-apex_1y". Used as the storage key for
     "has this user already played today's challenge in this mode", so it
     must stay stable for a given (date, mode) forever."""
-    validate_challenge_date(date_str)
+    date_str = challenge_date_shape(date_str)
     return f"{_DAILY_SEED_NAMESPACE}-{date_str}-{mode}"
 
 
@@ -104,7 +135,7 @@ def daily_challenge_descriptor(date_str: str, mode: str) -> dict:
     not secret -- it is the very thing that must be identical for everyone
     on this date, and the client already passes an explicit seed for a
     replayable free-play board."""
-    validate_challenge_date(date_str)
+    date_str = challenge_date_shape(date_str)
     return {
         "challenge_date": date_str,
         "mode": mode,

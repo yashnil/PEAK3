@@ -40,8 +40,24 @@ class RespinRequest(BaseModel):
     """Phase 6G Part C: body for both /respin-team and /respin-season --
     identical shape to CancelSelectionRequest (just a game_id confirmation),
     kept as its own type so the two respin kinds don't share a request
-    model by coincidence."""
+    model by coincidence.
+
+    W5 (UX polish pass): `idempotency_key` is optional and per USER GESTURE,
+    not per HTTP attempt. The respin handler used to be an unguarded
+    read-modify-write, so a double-click could consume two of the three
+    respins for one intended reroll. The client derives a stable key from
+    (game_id, round, kind, respins already used), which means both clicks of
+    a double-click produce the SAME key and the second is recognised as a
+    replay. Omitting the key preserves the old behaviour exactly, so no
+    existing caller breaks.
+    """
     game_id: str
+    # Bounded, matching run_the_table.py's `_MAX_ID_LENGTH`. Unbounded, this is
+    # attacker-controlled data that gets PERSISTED: the key is written into
+    # `last_respin_keys`, serialised into the game's JSONB payload, and then
+    # re-read and re-written on every subsequent request for the life of the
+    # game. A megabyte-long key would ride along forever.
+    idempotency_key: Optional[str] = Field(None, max_length=128)
 
 
 class PlaceCardRequest(BaseModel):
@@ -459,6 +475,13 @@ class PublicCourtStateResponse(BaseModel):
     team_respins_remaining_total: int = 3
     season_respins_used_total: int = 0
     season_respins_remaining_total: int = 3
+    # W5: distance-aware respin policy receipt. `respin_policy_version`
+    # identifies the exclusion ladder in force; `respin_policy_debug` carries
+    # one entry per applied respin (relaxation_tier, exclusion_radius,
+    # history_depth, allowed_pool_size). Debug/audit surface only -- the
+    # normal UI must not render pool sizes at the player.
+    respin_policy_version: Optional[str] = None
+    respin_policy_debug: list[dict] = []
     # Phase 9A: which retention loop this attempt belongs to, and (for a
     # daily attempt) the UTC date whose shared seed it uses.
     challenge_kind: str = "free_play"
@@ -468,6 +491,52 @@ class PublicCourtStateResponse(BaseModel):
     # app/services/perfect_season/state.py::compute_eligibility, the single
     # source of truth the /submit route enforces too.
     eligibility: Optional[RunEligibilityPublic] = None
+
+
+class SharedCourtResultResponse(BaseModel):
+    """The read-only scorecard behind a shared `/arena/court/results/{id}` link.
+
+    A DELIBERATELY NARROWER MODEL, not `PublicCourtStateResponse` with some
+    fields left null. The withheld fields (`current_spin`,
+    `pending_selection`, `live_build`, `eligibility`, `respin_policy_debug` --
+    see `state.py::SHARED_RESULT_WITHHELD_KEYS` for why each one) are absent
+    from this schema entirely, so they are *unrepresentable* on this route
+    rather than merely unset by the current projection. If a later change to
+    `get_shared_result_state` stopped stripping one, this model would still
+    refuse to emit it.
+
+    Every field here is a property of a FINISHED run: the eight resolved
+    cards, the simulation result, and the data receipt. Nothing on it is an
+    action, which is what makes serving it unauthenticated correct while
+    `GET /perfect-season/games/{game_id}` stays owner-only.
+    """
+
+    model_config = {"extra": "ignore"}
+
+    game_id: str
+    status: str
+    mode: str
+    current_round: int
+    total_rounds: int
+    slots: list[CourtSlotPublic]
+    board_seed: int
+    card_pool_version: str
+    board_generator_version: str
+    interim_team_data_version: Optional[str] = None
+    experimental_team_year_data_version: Optional[str] = None
+    formula_version: Optional[str] = None
+    coverage_mode: Optional[str] = None
+    open_pool_enabled: bool = False
+    simulation_result: Optional[SimulationResultPublic] = None
+    respin_history: list[dict] = []
+    team_respins_used_total: int = 0
+    team_respins_remaining_total: int = 3
+    season_respins_used_total: int = 0
+    season_respins_remaining_total: int = 3
+    respin_policy_version: Optional[str] = None
+    challenge_kind: str = "free_play"
+    challenge_date: Optional[str] = None
+    board_type: str = "practice"
 
 
 class CourtBuilderCoverageSummary(BaseModel):

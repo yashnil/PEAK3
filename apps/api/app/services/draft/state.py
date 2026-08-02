@@ -19,6 +19,7 @@ _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
+from nba_peak.daily_key import InvalidDailyKey, daily_key, validate_daily_key
 from nba_peak.lineup.board import BoardConfig, generate_board
 from nba_peak.lineup.schemas import (
     Board,
@@ -55,30 +56,44 @@ def create_draft_game(
     date: str | None,
     seed: int | None,
     signing_secret: str,
+    *,
+    reproduce_as: str | None = None,
 ) -> DraftGameState:
-    """Create a new draft game from the given parameters."""
+    """Create a new draft game from the given parameters.
+
+    `reproduce_as` separates WHAT BOARD IS BUILT from WHAT THE GAME IS. It names
+    the board_type the board is generated under; `board_type` stays the label
+    the game carries. They are equal for every ordinary call and differ for
+    exactly one: a challenge link, which must reproduce the sender's board bit
+    for bit — same seed derivation, same `board_id`, so the later comparison
+    against the challenger still matches — while the recipient's game is a
+    `challenge` and can never consume, or overwrite, their own daily attempt.
+    """
     if mode not in VALID_MODES:
         raise ValueError(f"Invalid mode '{mode}'. Valid: {list(VALID_MODES.keys())}")
     if board_type not in {"daily", "practice", "challenge"}:
         raise ValueError(f"Invalid board_type '{board_type}'")
-    if board_type == "daily" and not date:
-        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    generation_type = reproduce_as or board_type
+    if generation_type not in {"daily", "practice", "challenge"}:
+        raise ValueError(f"Invalid board_type '{generation_type}'")
 
-    # Reject future dates for daily boards — only released dates are playable.
-    if board_type == "daily" and date:
+    # A daily board's date is decided by the SERVER's daily key (midnight
+    # America/Los_Angeles, `nba_peak.daily_key`) whenever the caller did not
+    # explicitly ask for an archive date. A supplied date is validated for
+    # shape, bounded to the archive window, and rejected if it names a board
+    # that has not opened yet — enumerating tomorrow's board is not a read the
+    # product supports.
+    if generation_type == "daily":
         try:
-            import datetime as _dt
-            given_date = _dt.datetime.strptime(date, "%Y-%m-%d").date()
-        except ValueError:
-            raise ValueError(f"Invalid date format: {date!r}. Expected YYYY-MM-DD.")
-        today = datetime.now(timezone.utc).date()
-        if given_date > today:
-            raise ValueError(
-                f"Future dates are not allowed for daily boards: {date}"
-            )
+            date = validate_daily_key(date) if date else daily_key()
+        except InvalidDailyKey as exc:
+            raise ValueError(str(exc)) from exc
 
-    config = BoardConfig(mode=mode, board_type=board_type, date=date, seed=seed)
+    config = BoardConfig(mode=mode, board_type=generation_type, date=date, seed=seed)
     board = generate_board(config, signing_secret=signing_secret)
+    # Label only. `board_id`, `seed` and `date` keep the source board's
+    # identity; nothing about the board itself changes.
+    board.board_type = board_type
 
     now = datetime.now(timezone.utc).isoformat()
     return DraftGameState(

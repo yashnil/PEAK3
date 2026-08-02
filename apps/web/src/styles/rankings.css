@@ -1,0 +1,142 @@
+/* ================================================================
+   rankings.css — rankings header, board explainer, provenance strip
+   ================================================================
+   Owner: W6 (UX / Organization / Polish pass).
+   Imported by globals.css. Created as an empty stub by W7 so the
+   import graph is proven to build before any writer fills it in.
+   Nothing else may edit this file.
+
+   Scope note: every rule here is prefixed `.rankings-` and applies only
+   to /rankings. No token is redefined — this file consumes `--pk-*`
+   (W7) and the frozen colour tokens, and defines none of its own.
+
+   Contrast note: the two elements carrying meaning a reader must not
+   miss — the board explainer and the serving-gate note — use
+   `--text-secondary`, never `--text-muted`. They were 10-12 px
+   `--text-muted` before, which is how a filter that removes 722 windows
+   from the 1-Year board ended up being, in practice, invisible. Keeping
+   them at --text-secondary also keeps axe's colour-contrast rule green
+   on this surface.
+   ================================================================ */
+
+/* --- Board explainer ------------------------------------------------ */
+/* At the 1-Year setting this sentence is the ONLY thing distinguishing
+   Peak Windows from Single Seasons, so it is sized to be read. */
+.rankings-explainer {
+  max-width: 62ch;
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* --- Board heading -------------------------------------------------- */
+/* Names the board in the same words as the explainer. Deliberately not a
+   restatement of the tab label: the tab is the control, this is the
+   answer to "what am I looking at now?". */
+.rankings-board-heading {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* --- Provenance ----------------------------------------------------- */
+.rankings-provenance {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pk-space-3, 12px);
+  margin-top: var(--pk-space-2, 8px);
+  padding: var(--pk-space-4, 16px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-surface);
+}
+
+/* Facts as a definition list: label above value, wrapping into as many
+   columns as fit. A fixed grid would strand "Seasons covered
+   1979-80 to 2025-26" on narrow viewports, and an @mobile e2e asserts no
+   horizontal page overflow. */
+.rankings-provenance-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pk-space-2, 8px) var(--pk-space-6, 24px);
+  margin: 0;
+}
+
+.rankings-provenance-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rankings-provenance-label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.rankings-provenance-value {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* The gate note. Promoted out of 10 px muted text: it states that real,
+   committed players (Isaiah Hartenstein at canonical 1Y rank 185, Tony
+   Allen at 245, Andrew Bogut at 3Y 205) are filtered off this board. A
+   board that edits its own list has to say so legibly. */
+.rankings-provenance-gate {
+  max-width: 68ch;
+  margin: 0;
+  padding-top: var(--pk-space-3, 12px);
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.rankings-provenance-gate strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.rankings-provenance-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--pk-space-2, 8px) var(--pk-space-4, 16px);
+  margin: 0;
+}
+
+.rankings-provenance-link {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--peak-accent, #f5c842);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  border-radius: var(--pk-r-sm, 6px);
+}
+
+.rankings-provenance-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* The formula identity string, verbatim from the model. It is long and
+   machine-checkable, so it is set as code and allowed to wrap rather
+   than forcing the page to scroll sideways. */
+.rankings-provenance-formula {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}

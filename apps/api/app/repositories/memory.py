@@ -236,8 +236,17 @@ class MemoryOwnershipClaimRepository:
         self._lock = threading.Lock()
 
     async def record_claim(self, claim: OwnershipClaim) -> None:
+        """First claim of an anon subject wins, and a later one is ignored.
+
+        This dict key mirrors `ownership_claims.anon_subject_id UNIQUE`, and
+        the no-overwrite behaviour mirrors that table's
+        `ON CONFLICT (anon_subject_id) DO NOTHING`. It used to overwrite, which
+        meant the two-tab double-claim race that Postgres resolves to one
+        winner silently resolved to "last writer wins" in CI -- the one place
+        the guarantee most needed testing was the one place it did not hold.
+        """
         with self._lock:
-            self._claims[claim.anon_subject_id] = claim
+            self._claims.setdefault(claim.anon_subject_id, claim)
 
     async def get_claim_by_anon(self, anon_subject_id: str) -> OwnershipClaim | None:
         with self._lock:

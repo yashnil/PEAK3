@@ -12,6 +12,7 @@ Exit 0 on success, 1 on failure.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
@@ -21,6 +22,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+
+# The exporter lives in scripts/, so the repo root has to be importable before
+# `nba_peak` resolves. Version identity is imported, never retyped -- see the
+# MODEL_VERSION block below.
+_REPO_ROOT_FOR_IMPORT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT_FOR_IMPORT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT_FOR_IMPORT))
+
+from nba_peak import formula_version as _formula_version  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Try to import unidecode for accent normalisation.
@@ -47,7 +57,55 @@ CSV_FILES = {
 }
 
 SCHEMA_VERSION = "1.0.0"
-MODEL_VERSION = "peak3-v1"
+
+# ---------------------------------------------------------------------------
+# Model version: derived, not retyped.
+# ---------------------------------------------------------------------------
+# `nba_peak/formula_version.py` is the declared single source of truth for which
+# scoring rules produced a number, and its slugs are UNDERSCORED ("peak3_v1").
+# This exporter has always emitted a HYPHENATED "peak3-v1" into
+# data/web/metadata.json, and that string is a published API contract: it is
+# returned verbatim by GET /api/v1/meta, and apps/api/tests/test_model_version.py
+# asserts the duel dataset's model_version is NOT one of the peaks formula slugs
+# (`body["model_version"] not in FV.ALL_FORMULA_VERSIONS`) precisely so that a
+# duel score can never be mistaken for a peaks-board score.
+#
+# So the fix for "three spellings of the version" is NOT to change the wire
+# value -- that would break a real contract and silently re-namespace every
+# stored duel result. It is to stop the two spellings from being able to drift:
+# the wire value is now BUILT from the imported source of truth through one
+# explicit, visible mapping, and the exporter refuses to run if the mapping ever
+# stops covering the default version.
+#
+#   nba_peak.formula_version.PEAK3_V1  ("peak3_v1")  ->  "peak3-v1"  (wire)
+#
+# The third spelling found in the audit, "peak3-2026" in
+# apps/api/tests/conftest.py:73, belongs to the synthetic fallback fixture, not
+# to any generated artifact. It is reported to the lead rather than edited here
+# (that file is owned by another workstream).
+_WIRE_MODEL_VERSION: dict[str, str] = {
+    _formula_version.PEAK3_V1: "peak3-v1",
+    _formula_version.PEAK3_V2: "peak3-v2",
+}
+
+# The formula this exporter's inputs were scored under. The committed
+# leaderboards/*.csv are v1 artifacts; v2 is opt-in and writes to its own files.
+SOURCE_FORMULA_VERSION = _formula_version.PEAK3_V1
+
+if SOURCE_FORMULA_VERSION not in _WIRE_MODEL_VERSION:
+    raise RuntimeError(
+        f"No wire model_version mapped for {SOURCE_FORMULA_VERSION!r}. "
+        "Add it to _WIRE_MODEL_VERSION rather than hardcoding a string."
+    )
+
+MODEL_VERSION = _WIRE_MODEL_VERSION[SOURCE_FORMULA_VERSION]
+
+# Pinned so a refactor of formula_version cannot silently re-namespace every
+# duel artifact. If this ever fires, the wire contract is being changed and that
+# needs to be a deliberate, documented decision -- not a side effect.
+assert MODEL_VERSION == "peak3-v1", (
+    f"data/web model_version must stay 'peak3-v1' (published contract), got {MODEL_VERSION!r}"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +164,77 @@ def get_source_commit() -> str:
         return result.stdout.strip()
     except Exception:
         return "unknown"
+
+
+def _git_porcelain(*paths: str) -> str | None:
+    """`git status --porcelain` output, or None if git is unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--", *paths] if paths
+            else ["git", "status", "--porcelain"],
+            capture_output=True, text=True, check=True,
+            cwd=str(REPO_ROOT),
+        )
+        return result.stdout
+    except Exception:
+        return None
+
+
+def get_source_tree_dirty() -> bool | None:
+    """Was the working tree modified when this build ran?
+
+    WHY THIS EXISTS. `source_commit` alone is a provenance lie waiting to
+    happen. A build from a dirty tree records HEAD, but HEAD is not what was
+    read -- the files on disk were. That failure was observed, not theorised:
+    data/web/metadata.json recorded source_commit d5e8acf while
+    data/web/methodology.json was byte-equal to a LATER revision of the
+    METHODOLOGY dict, so the recorded commit provably did not produce the
+    artifact it labelled.
+
+    None means "git could not answer", which is different from "clean" and is
+    recorded as such rather than being flattened to False.
+    """
+    out = _git_porcelain()
+    if out is None:
+        return None
+    return bool(out.strip())
+
+
+def sha256_file(path: Path) -> str:
+    """SHA-256 of a file's bytes, streamed."""
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def get_input_digests() -> dict[str, str]:
+    """SHA-256 of every input CSV actually read, keyed by repo-relative path.
+
+    These are what make the build self-identifying. `source_commit` says which
+    revision was checked out; these say what was on disk. When the two disagree
+    -- an uncommitted edit, a partial checkout, a hand-patched CSV -- the digests
+    are the half that is still true, and a parity test can verify them without
+    needing git at all.
+    """
+    digests: dict[str, str] = {}
+    for _n, path in sorted(CSV_FILES.items()):
+        if path.exists():
+            digests[str(path.relative_to(REPO_ROOT))] = sha256_file(path)
+    return digests
+
+
+def get_leaderboards_dir_dirty() -> bool | None:
+    """Specifically: are the canonical CSVs uncommitted-modified right now?
+
+    Narrower and more actionable than the whole-tree flag -- a dirty README is
+    not a provenance problem, a dirty leaderboards/ directory is.
+    """
+    out = _git_porcelain("leaderboards")
+    if out is None:
+        return None
+    return bool(out.strip())
 
 
 def safe_float(value, field_name: str, row_ctx: str) -> float:
@@ -470,21 +599,46 @@ def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     source_commit = get_source_commit()
+    source_tree_dirty = get_source_tree_dirty()
+    leaderboards_dirty = get_leaderboards_dir_dirty()
+    input_digests = get_input_digests()
     generated_at = datetime.now(timezone.utc).isoformat()
     total_windows = sum(len(v) for v in all_records.values())
 
     # metadata.json
+    #
+    # Every field below `source_commit` is ADDITIVE provenance (this pass). The
+    # ranking payload shape is untouched; nothing here is derived from a score.
     metadata = {
         "schema_version": SCHEMA_VERSION,
         "model_version": MODEL_VERSION,
         "generated_at": generated_at,
         "source_commit": source_commit,
+        # True  -> the tree had uncommitted changes, so `source_commit` alone
+        #          does NOT identify what was read. Trust `source_inputs`.
+        # False -> commit and disk agree.
+        # None  -> git could not answer (not a checkout, git missing).
+        "source_tree_dirty": source_tree_dirty,
+        "leaderboards_dir_dirty": leaderboards_dirty,
+        # The formula slug these inputs were scored under, imported from
+        # nba_peak/formula_version.py, plus the full descriptive string built
+        # from OFFICIAL_WEIGHTS. `model_version` above is the hyphenated wire
+        # spelling of this same version; the mapping lives at the top of this
+        # file and is asserted there.
+        "formula_version_id": SOURCE_FORMULA_VERSION,
+        "formula_version": _formula_version.description(SOURCE_FORMULA_VERSION),
+        "model_label": _formula_version.label(SOURCE_FORMULA_VERSION),
         "supported_durations": sorted(all_records.keys()),
         "player_count": len({r["player_slug"] for recs in all_records.values() for r in recs}),
         "peak_window_count": total_windows,
         "source_artifacts": [
             f"leaderboards/top_250_{n}_year_prime.csv" for n in sorted(all_records.keys())
         ],
+        # SHA-256 of the exact bytes read, keyed by repo-relative path. This is
+        # the field that makes a build self-identifying: it stays true even when
+        # `source_commit` does not.
+        "source_inputs": input_digests,
+        "source_input_digest_algorithm": "sha256",
     }
     _write_json(OUTPUT_DIR / "metadata.json", metadata)
     print(f"  Wrote metadata.json")
@@ -513,7 +667,22 @@ def main() -> None:
         print(f"  {n}yr: {len(recs)} windows")
     print(f"  Total windows: {total_windows}")
     print(f"  Unique players: {metadata['player_count']}")
+    print(f"  Model version (wire): {MODEL_VERSION}  <- {SOURCE_FORMULA_VERSION}")
     print(f"  Source commit: {source_commit}")
+    dirty_label = {True: "YES", False: "no", None: "unknown (git unavailable)"}
+    print(f"  Working tree dirty: {dirty_label[source_tree_dirty]}")
+    print(f"  leaderboards/ dirty: {dirty_label[leaderboards_dirty]}")
+    print("  Input digests (sha256):")
+    for rel, digest in input_digests.items():
+        print(f"    {digest}  {rel}")
+    if source_tree_dirty:
+        # Loud, but not fatal: building from a dirty tree is legitimate during
+        # development. What is NOT acceptable is doing it silently, which is how
+        # metadata.json came to carry a commit that did not produce it.
+        print(
+            "\n  NOTE: built from a DIRTY working tree. `source_commit` above does not\n"
+            "        fully identify these artifacts -- `source_inputs` digests do."
+        )
     print(f"  Output dir: {OUTPUT_DIR}")
     print("\nDone. Exit 0.")
 

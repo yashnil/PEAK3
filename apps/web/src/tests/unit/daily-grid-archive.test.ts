@@ -31,6 +31,7 @@ import {
   recordCompletedBoard,
   reportableElapsedSeconds,
   saveArchive,
+  todayPacific,
   todayUtc,
 } from "@/lib/daily-grid-archive";
 import { emptyProgress } from "@/lib/daily-grid-state";
@@ -66,11 +67,20 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("daily-grid archive dates", () => {
-  it("uses UTC, matching the clock the server generates boards on", () => {
-    // 23:30 in UTC+13 is still the previous UTC day, and the API is still
-    // serving that day's board.
-    expect(todayUtc(new Date("2026-03-14T23:30:00Z"))).toBe("2026-03-14");
-    expect(todayUtc(new Date("2026-03-15T00:00:00Z"))).toBe("2026-03-15");
+  it("uses the Pacific boundary, matching the clock the server generates boards on", () => {
+    // The reset is midnight America/Los_Angeles (nba_peak/daily_key.py), not
+    // midnight UTC. 00:00 UTC is 17:00 the previous afternoon in California,
+    // which is when the board USED to swap out from under everyone.
+    expect(todayPacific(new Date("2026-03-15T00:00:00Z"))).toBe("2026-03-14");
+    // 23:59 PDT on the 14th — still the 14th's board.
+    expect(todayPacific(new Date("2026-03-15T06:59:00Z"))).toBe("2026-03-14");
+    // 00:00 PDT on the 15th — the new board.
+    expect(todayPacific(new Date("2026-03-15T07:00:00Z"))).toBe("2026-03-15");
+  });
+
+  it("keeps the deprecated todayUtc alias pointing at the same value", () => {
+    const now = new Date("2026-03-15T00:00:00Z");
+    expect(todayUtc(now)).toBe(todayPacific(now));
   });
 
   it("counts whole days across a DST boundary", () => {
@@ -87,13 +97,23 @@ describe("daily-grid archive dates", () => {
     expect(isCanonicalToday("garbage", now)).toBe(false);
   });
 
-  it("counts down to the next UTC midnight", () => {
+  it("counts down to the next Pacific midnight", () => {
+    // 2026-03-14 22:00 UTC == 15:00 PDT, so the next board is 9 hours away.
     const ms = msUntilNextBoard(new Date("2026-03-14T22:00:00Z"));
-    expect(ms).toBe(2 * 3600 * 1000);
-    expect(formatCountdown(ms)).toBe("2h 0m");
+    expect(ms).toBe(9 * 3600 * 1000);
+    expect(formatCountdown(ms)).toBe("9h 0m");
     expect(formatCountdown(90_000)).toBe("1m");
     expect(formatCountdown(45_000)).toBe("45s");
     expect(formatCountdown(-5)).toBe("0s");
+  });
+
+  it("makes the spring-forward day 23 hours and the fall-back day 25", () => {
+    // The reason the zone is an IANA name and never a fixed -08:00: at a fixed
+    // offset both of these would read 24h and the reset would drift an hour.
+    const springStart = new Date("2026-03-08T08:00:00Z"); // 00:00 PST
+    expect(msUntilNextBoard(springStart)).toBe(23 * 3600 * 1000);
+    const fallStart = new Date("2026-11-01T07:00:00Z"); // 00:00 PDT
+    expect(msUntilNextBoard(fallStart)).toBe(25 * 3600 * 1000);
   });
 });
 

@@ -30,6 +30,7 @@ implying the board is unfiltered.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -56,7 +57,26 @@ _DATA_PATHS = {
 }
 DATA_PATH = _DATA_PATHS[formula_version.PEAK3_V1]
 
+# Same process-lifetime cache, and the same caveat, as peaks.py: populated once,
+# never invalidated or mtime-checked, so a regenerated artifact needs a restart.
+# The digest published in the response is the digest of the bytes THIS process
+# loaded, which makes that condition detectable rather than invisible.
 _CACHE: dict[str, dict] = {}
+_DIGEST_CACHE: dict[str, str] = {}
+
+
+def _artifact_digest(version: str) -> Optional[str]:
+    """SHA-256 of the artifact bytes THIS process is actually serving.
+
+    Deliberately reads only `_DIGEST_CACHE`, which `_load` populates from the
+    exact string it parsed. Re-opening the file here would defeat the point:
+    `_CACHE` is never invalidated, so after a regeneration the process keeps
+    serving the OLD rows while a fresh read of the path returns the NEW digest.
+    The response would then publish a fingerprint that matches disk while the
+    body does not -- the one failure mode this value exists to make visible,
+    reported as "current". Returns None until the board has been loaded once.
+    """
+    return _DIGEST_CACHE.get(version)
 
 
 def _resolve_version(value: Optional[str]) -> str:
@@ -90,7 +110,12 @@ def _load(version: Optional[str] = None) -> dict:
                     ),
                 },
             )
-        cached = _CACHE[resolved] = json.loads(path.read_text())
+        raw = path.read_text()
+        # Digest the bytes we are about to serve, in the same breath as reading
+        # them, so the fingerprint can never describe a different revision of
+        # the file than `_CACHE` holds. See `_artifact_digest`.
+        _DIGEST_CACHE[resolved] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        cached = _CACHE[resolved] = json.loads(raw)
     return cached
 
 
@@ -150,6 +175,13 @@ class SeasonsResponse(BaseModel):
     total_available: int
     offset: int
     limit: int
+    # ------------------------------------------------------- provenance (W6) ---
+    # Additive, and identical in meaning to the fields on PeaksResponse. See
+    # peaks.py for why `generated_at` is a pass-through that is currently None
+    # rather than being back-filled from a file mtime.
+    artifact_digest: Optional[str] = None
+    generated_at: Optional[str] = None
+    generation_command: Optional[str] = None
     rows: list[SeasonRow]
 
 
@@ -207,6 +239,9 @@ async def get_seasons(
         total_available=total_available,
         offset=offset,
         limit=limit,
+        artifact_digest=_artifact_digest(version),
+        generated_at=data.get("generated_at"),
+        generation_command=data.get("generation_command"),
         rows=[SeasonRow(**r) for r in rows],
     )
 

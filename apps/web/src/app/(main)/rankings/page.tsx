@@ -4,6 +4,12 @@ import { getMethodology, getPeakWindowBoard, getSeasonBoard } from "@/lib/api";
 import type { Methodology, RankingBoardData, RankingBoardId, RankingRow } from "@/types";
 import RankingsTable, { ComponentLegend } from "@/components/rankings/RankingsTable";
 import ScoreExplainModal from "@/components/rankings/ScoreExplainModal";
+import RankingsProvenance from "@/components/rankings/RankingsProvenance";
+import {
+  boardHeadingFor,
+  boardShortLabelFor,
+  explainerFor,
+} from "@/components/rankings/board-copy";
 import {
   DEFAULT_SORT_DIRECTION,
   DEFAULT_SORT_KEY,
@@ -18,41 +24,49 @@ import {
 /**
  * PEAK3 Rankings.
  *
- * Phase 10B: reduced from THREE boards to TWO. "Canonical Players" answered the
- * same question as Peak Windows -- "who had the best peak?", one row per player,
- * just over a narrower universe -- so a reader had to diff two boards to tell
- * them apart. Two boards that ask genuinely different questions is clearer:
- *
- *   Peak Windows   -- one row per player. "Who had the best peak?"
- *   Single Seasons -- one row per season, repeats expected. "What are the best
- *                     individual seasons ever?"
- *
- * The canonical 250-pool leaderboards are NOT removed from the product: the
+ * Phase 10B reduced this page from THREE boards to TWO. "Canonical Players"
+ * answered the same question as Peak Windows -- one row per player, just over a
+ * narrower universe -- so a reader had to diff two boards to tell them apart.
+ * The canonical 250-pool leaderboards were NOT removed from the product: the
  * /api/v1/leaderboards route and its committed CSVs are untouched and the
- * methodology page still documents them. This page just stops presenting a
- * third, overlapping board.
+ * methodology page still documents them.
  *
- * NOTE FOR FUTURE EDITORS: an existing e2e (gameplay.spec.ts) looks up a tab by
- * /3.year|3-year/i with NO tablist scoping, so exactly ONE control on this page
- * may match that wording. The window selector owns it ("1-Year"/"3-Year"/
- * "5-Year"); no board tab or sort control may use that phrasing.
+ * THE CONTRADICTION THIS FILE USED TO CARRY (fixed here)
+ * ------------------------------------------------------
+ * The comment above this one used to claim the two remaining boards "ask
+ * genuinely different questions". At the 3-Year and 5-Year settings that is
+ * true. At the 1-Year setting it is false, and provably so: a peak window of
+ * length one IS a single season, so both boards return literally the same top
+ * rows -- rank 1 Michael Jordan 1990-91 at 97.53, rank 2 LeBron James 2008-09
+ * at 95.85, byte-identical row_ids in both generated artifacts. Meanwhile the
+ * page header rendered "1-Year Peak Windows" directly beside a tab named
+ * "Single Seasons": two names for one concept, presented as a choice between
+ * two things. The blurb ("their single best consecutive stretch") was strained
+ * at n=1 for the same reason -- a stretch of one.
+ *
+ * What is actually different at n=1 is de-duplication, and nothing else:
+ *
+ *   Peak Windows @ 1-Year -- best single season, ONE row per player
+ *   Single Seasons        -- every qualifying season, repeats expected
+ *
+ * So the copy now says that, in those words, instead of implying a difference
+ * of question where there is only a difference of grouping. At 3-Year and
+ * 5-Year the boards genuinely do diverge and the copy says that too.
+ * apps/api/tests/test_regression.py
+ * ::test_the_two_boards_differ_only_by_deduplication_at_one_year holds the
+ * claim true against the generated artifacts, so this copy cannot quietly
+ * become wrong again.
+ *
+ * NOTE FOR FUTURE EDITORS: an existing e2e (gameplay.spec.ts:152) looks up a
+ * *tab* by /3.year|3-year/i with NO tablist scoping, so exactly ONE control on
+ * this page may match that wording. The window selector owns it
+ * ("1-Year"/"3-Year"/"5-Year"); no board tab or sort control may use that
+ * phrasing. Captions and prose are not controls and are unaffected.
  */
 
-const BOARDS: { id: RankingBoardId; label: string; blurb: string; testId: string }[] = [
-  {
-    id: "peakWindows",
-    label: "Peak Windows",
-    blurb:
-      "One row per player, at their single best consecutive stretch. Answers “who had the best peak?”",
-    testId: "pool-tab-peak-windows",
-  },
-  {
-    id: "seasons",
-    label: "Single Seasons",
-    blurb:
-      "Every scored season ranked on its own, so a player can appear many times. Answers “what are the best individual seasons ever?”",
-    testId: "pool-tab-seasons",
-  },
+const BOARDS: { id: RankingBoardId; label: string; testId: string }[] = [
+  { id: "peakWindows", label: "Peak Windows", testId: "pool-tab-peak-windows" },
+  { id: "seasons", label: "Single Seasons", testId: "pool-tab-seasons" },
 ];
 
 const WINDOW_OPTIONS: { id: "1y" | "3y" | "5y"; label: string }[] = [
@@ -60,6 +74,7 @@ const WINDOW_OPTIONS: { id: "1y" | "3y" | "5y"; label: string }[] = [
   { id: "3y", label: "3-Year" },
   { id: "5y", label: "5-Year" },
 ];
+
 
 const PAGE_SIZE = 50;
 
@@ -152,11 +167,9 @@ export default function RankingsPage() {
   );
   const shownRows = useMemo(() => sortedRows.slice(0, visible), [sortedRows, visible]);
 
-  const activeBoard = BOARDS.find((b) => b.id === board) ?? BOARDS[0];
-  const boardLabel =
-    board === "peakWindows"
-      ? `${WINDOW_OPTIONS.find((w) => w.id === peakWindow)?.label ?? peakWindow} Peak Windows`
-      : "Single Seasons";
+  const boardHeading = boardHeadingFor(board, peakWindow);
+  const boardLabel = boardShortLabelFor(board, peakWindow);
+  const explainer = explainerFor(board, peakWindow);
   const sortColumn = RANKING_COLUMNS.find((c) => c.key === sortKey);
   const isSorted = !isDefaultSort(sortKey, sortDirection);
 
@@ -203,12 +216,11 @@ export default function RankingsPage() {
               );
             })}
           </div>
-          <p
-            className="text-xs max-w-2xl"
-            style={{ color: "var(--text-muted)" }}
-            data-testid="pool-explainer"
-          >
-            {activeBoard.blurb}
+          {/* Body-size, --text-secondary: this sentence is the only thing that
+              distinguishes the two boards at the 1-Year setting, so it cannot
+              be 12 px muted filler. */}
+          <p className="rankings-explainer" data-testid="pool-explainer">
+            {explainer}
           </p>
         </div>
 
@@ -315,6 +327,13 @@ export default function RankingsPage() {
 
         {data && (
           <>
+            {/* The board says what it is, in the same words as the explainer
+                above it. Previously this read "1-Year Peak Windows" while the
+                tab beside it read "Single Seasons" -- two names for one
+                concept, side by side. */}
+            <h2 className="rankings-board-heading" data-testid="rankings-board-heading">
+              {boardHeading}
+            </h2>
             <RankingsTable
               rows={shownRows}
               sortKey={sortKey}
@@ -322,7 +341,7 @@ export default function RankingsPage() {
               onSort={handleSort}
               showComponents={showComponents}
               onOpenRow={setOpenRow}
-              caption={`${boardLabel} — ranked by PEAK3 score. Select a row to see how the score was built.`}
+              caption={`${boardHeading} — ranked by PEAK3 score. Select a row to see how the score was built.`}
               emptyMessage={
                 debouncedSearch
                   ? `No rows match “${debouncedSearch}”.`
@@ -346,41 +365,10 @@ export default function RankingsPage() {
               </button>
             )}
 
-            {/* Provenance, deliberately understated and last. */}
-            <div
-              className="flex flex-wrap gap-x-3 gap-y-1 text-[10px]"
-              style={{ color: "var(--text-muted)" }}
-              data-testid="rankings-provenance"
-            >
-              {/* Which scoring model produced these numbers. Stated first
-               *  because two model versions are not comparable, so a reader
-               *  needs to know which one they are looking at before anything
-               *  else on the line means much. A non-default model is called out
-               *  in the accent colour rather than buried in grey. */}
-              {data.meta.model_label && (
-                <span
-                  data-testid="rankings-model-version"
-                  style={
-                    data.meta.is_default_model
-                      ? undefined
-                      : { color: "var(--peak-accent)", fontWeight: 600 }
-                  }
-                >
-                  {data.meta.model_label}
-                </span>
-              )}
-              {data.meta.dataset_version && <span>{data.meta.dataset_version}</span>}
-              {data.meta.formula_version && <span>{data.meta.formula_version}</span>}
-              {data.meta.supported_start_season && data.meta.supported_end_season && (
-                <span>
-                  {data.meta.supported_start_season} to {data.meta.supported_end_season}
-                </span>
-              )}
-              {data.meta.total_available != null && (
-                <span>{data.meta.total_available} rows served</span>
-              )}
-              {data.meta.serving_gate_note && <span>{data.meta.serving_gate_note}</span>}
-            </div>
+            {/* Provenance. Still last on the page, no longer 10 px grey --
+                see RankingsProvenance for why the serving-gate note in
+                particular had to stop being unreadable. */}
+            <RankingsProvenance meta={data.meta} fallbackRowCount={rows.length} />
           </>
         )}
       </div>

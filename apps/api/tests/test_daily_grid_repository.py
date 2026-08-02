@@ -149,3 +149,104 @@ async def test_created_at_defaults_to_now(repo):
     before = datetime.now(timezone.utc) - timedelta(seconds=1)
     saved, _ = await repo.save_result(make_result())
     assert saved.created_at >= before
+
+
+# ---------------------------------------------------------------------------
+# Attempts -- the server-side clock (Phase 12)
+#
+# The property under test is the one the migration encodes as
+# `UNIQUE (owner_sub, daily_key)`: one attempt per player per day, its
+# `started_at` written once and never moved. A clock a caller can restart
+# measures nothing, so "the second call cannot change the timestamp" is the
+# whole contract, not an optimisation.
+# ---------------------------------------------------------------------------
+
+from app.repositories.daily_grid_protocols import DailyGridAttempt  # noqa: E402
+
+
+def make_attempt(
+    owner: str = "user-a",
+    daily_key: str = "2026-03-14",
+    **overrides,
+) -> DailyGridAttempt:
+    base = {
+        "id": "",
+        "owner_sub": owner,
+        "daily_key": daily_key,
+        "board_id": f"daily-grid-v2-{daily_key}",
+        "board_version": "daily_grid.v2",
+    }
+    base.update(overrides)
+    return DailyGridAttempt(**base)
+
+
+@pytest.mark.asyncio
+async def test_a_first_start_creates_the_clock(repo):
+    attempt, created = await repo.start_attempt(make_attempt())
+    assert created is True
+    assert attempt.id
+    assert attempt.started_at is not None
+
+
+@pytest.mark.asyncio
+async def test_a_second_start_returns_the_same_timestamp(repo):
+    """Double-click, refresh, second tab: one attempt."""
+    first, _ = await repo.start_attempt(make_attempt())
+    later = make_attempt(started_at=first.started_at + timedelta(minutes=5))
+    second, created = await repo.start_attempt(later)
+    assert created is False
+    assert second.started_at == first.started_at
+    assert second.id == first.id
+
+
+@pytest.mark.asyncio
+async def test_two_players_have_independent_clocks(repo):
+    a, a_created = await repo.start_attempt(make_attempt(owner="user-a"))
+    b, b_created = await repo.start_attempt(make_attempt(owner="user-b"))
+    assert a_created and b_created
+    assert a.id != b.id
+
+
+@pytest.mark.asyncio
+async def test_one_player_cannot_read_anothers_clock(repo):
+    await repo.start_attempt(make_attempt(owner="user-a"))
+    assert await repo.get_attempt("user-b", "2026-03-14") is None
+
+
+@pytest.mark.asyncio
+async def test_each_day_gets_its_own_clock(repo):
+    """And, crucially, asking about one day never returns another's -- the
+    lookup is keyed on both owner and daily key."""
+    await repo.start_attempt(make_attempt(daily_key="2026-03-14"))
+    await repo.start_attempt(make_attempt(daily_key="2026-03-15"))
+    assert (await repo.get_attempt("user-a", "2026-03-14")).daily_key == "2026-03-14"
+    assert (await repo.get_attempt("user-a", "2026-03-15")).daily_key == "2026-03-15"
+    assert await repo.get_attempt("user-a", "2026-03-16") is None
+
+
+@pytest.mark.asyncio
+async def test_a_clock_follows_its_owner_through_a_guest_claim(repo):
+    """A guest who starts today's board and then signs in keeps the clock they
+    have been watching."""
+    started, _ = await repo.start_attempt(make_attempt(owner="anon:guest"))
+    await repo.transfer_owner("anon:guest", "account-1")
+    assert await repo.get_attempt("anon:guest", "2026-03-14") is None
+    moved = await repo.get_attempt("account-1", "2026-03-14")
+    assert moved is not None
+    assert moved.started_at == started.started_at
+
+
+@pytest.mark.asyncio
+async def test_a_claim_never_overwrites_the_accounts_own_clock(repo):
+    """Same first-attempt-wins collision rule the results use."""
+    account_start, _ = await repo.start_attempt(make_attempt(owner="account-1"))
+    await repo.start_attempt(
+        make_attempt(
+            owner="anon:guest",
+            started_at=account_start.started_at - timedelta(hours=1),
+        )
+    )
+    await repo.transfer_owner("anon:guest", "account-1")
+    kept = await repo.get_attempt("account-1", "2026-03-14")
+    assert kept.started_at == account_start.started_at
+    assert await repo.get_attempt("anon:guest", "2026-03-14") is None

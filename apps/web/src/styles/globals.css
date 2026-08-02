@@ -1,6 +1,23 @@
 @import "tailwindcss";
 
 /* ================================================================
+   WORKSTREAM PARTIALS (UX / Organization / Polish pass)
+   ================================================================
+   One owner per file — see docs/implementation/UX_ORGANIZATION_POLISH_PLAN.md §3.3.
+   W1 → nav.css · W2 → home.css · W3 → tour.css
+   W4 → rtt-polish.css · W5 → spinner.css · W6 → rankings.css
+   Every rule already in THIS file is frozen; new rules go in the
+   partial owned by the workstream that needs them.
+   ================================================================ */
+
+@import "./nav.css";
+@import "./home.css";
+@import "./tour.css";
+@import "./rtt-polish.css";
+@import "./spinner.css";
+@import "./rankings.css";
+
+/* ================================================================
    PEAK3 Arena Design Tokens
    ================================================================ */
 
@@ -62,6 +79,104 @@
   /* Court geometry accent */
   --court-line: rgba(245, 200, 66, 0.06);
 }
+
+/* ================================================================
+   === PEAK3 --pk-* PRIMITIVE TOKENS (ADDITIVE — W7) ===
+   ================================================================
+   Added by the UX / Organization / Polish pass. STRICTLY ADDITIVE:
+   not one property above this banner is renamed, removed or
+   revalued (plan §3.1 freezes them and tests assert their literal
+   strings). Everything here is namespaced `--pk-` so it can never
+   collide with the legacy token set.
+
+   These exist so the shared UI primitives in
+   `src/components/ui/*` and the six workstream partials all speak
+   one scale instead of six sets of magic numbers. Surface tiers are
+   ALIASES onto the existing background/border tokens — they add a
+   named hierarchy, not a new palette.
+   ================================================================ */
+
+:root {
+  /* ---- Spacing scale (4px base; 0.5 and 1 exist for icon gaps) ---- */
+  --pk-space-0: 0px;
+  --pk-space-05: 2px;
+  --pk-space-1: 4px;
+  --pk-space-2: 8px;
+  --pk-space-3: 12px;
+  --pk-space-4: 16px;
+  --pk-space-5: 20px;
+  --pk-space-6: 24px;
+  --pk-space-8: 32px;
+  --pk-space-10: 40px;
+  --pk-space-12: 48px;
+  --pk-space-16: 64px;
+
+  /* ---- Radius scale ---- */
+  --pk-r-sm: 6px;
+  --pk-r-md: 10px;
+  --pk-r-lg: 14px;
+  --pk-r-xl: 20px;
+  --pk-r-pill: 999px;
+
+  /* ---- Elevation / shadow tiers ----
+     0 = flat, 1 = resting card, 2 = raised/hovered, 3 = floating
+     surface (menu, popover), 4 = modal layer. Tuned for a dark
+     theme: shadows read as depth, never as a grey haze. */
+  --pk-elev-0: none;
+  --pk-elev-1: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --pk-elev-2: 0 2px 10px -4px rgba(0, 0, 0, 0.5);
+  --pk-elev-3: 0 8px 28px -8px rgba(0, 0, 0, 0.55);
+  --pk-elev-4: 0 24px 48px -24px rgba(0, 0, 0, 0.7);
+
+  /* ---- Motion: durations ----
+     Mirrored verbatim in `src/lib/motion.ts` (MOTION_DURATION_MS).
+     Every one of these is neutralised by the global
+     prefers-reduced-motion rule further down this file. */
+  --pk-dur-instant: 0ms;
+  --pk-dur-fast: 120ms;
+  --pk-dur-base: 200ms;
+  --pk-dur-slow: 320ms;
+  --pk-dur-slower: 480ms;
+
+  /* ---- Motion: easings (mirrored in src/lib/motion.ts) ---- */
+  --pk-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --pk-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --pk-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --pk-ease-emphasized: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ---- Surface tiers (hierarchy, not new colour) ----
+     quiet    — page-level background, no chrome of its own
+     inset    — recessed panel inside a card (lists, wells)
+     raised   — a normal interactive card
+     decision — the one surface the user must act on right now */
+  --pk-surface-quiet: var(--bg-page);
+  --pk-surface-quiet-border: var(--border-subtle);
+  --pk-surface-inset: var(--bg-elevated);
+  --pk-surface-inset-border: var(--border-subtle);
+  --pk-surface-raised: var(--bg-surface);
+  --pk-surface-raised-border: var(--border-default);
+  --pk-surface-decision: var(--bg-elevated);
+  --pk-surface-decision-border: var(--border-emphasis);
+  --pk-surface-overlay: rgba(6, 7, 9, 0.72);
+
+  /* ---- Focus ring geometry (colour stays --focus-ring) ---- */
+  --pk-focus-width: 2px;
+  --pk-focus-offset: 2px;
+
+  /* ---- Layer order for portalled surfaces ----
+     The site nav is z-40; these must sit above it. */
+  --pk-z-dropdown: 50;
+  --pk-z-overlay: 100;
+  --pk-z-dialog: 110;
+  --pk-z-tooltip: 120;
+
+  /* ---- Minimum pointer target (WCAG 2.2 target size) ---- */
+  --pk-tap-min: 44px;
+}
+
+/* ================================================================
+   === END --pk-* PRIMITIVE TOKENS ===
+   ================================================================ */
 
 /* ================================================================
    Base
@@ -1236,3 +1351,288 @@ html, body {
   filter: blur(var(--tier-glow-blur, 0px));
   pointer-events: none;
 }
+
+/* === RUN THE TABLE === */
+/* ================================================================
+   RUN THE TABLE — three-zone run shell
+   ================================================================
+   Append-only section. Nothing above this banner is modified.
+
+   Desktop (>=1024px) is three zones: the run ladder, the decision
+   surface, the persistent tray. Both outer zones are sticky so the
+   map and the roster never scroll out of reach while the centre
+   column moves. Below 1024px it collapses to a single column in DOM
+   order — progress strip, decision, roster — and the sticky bottom
+   tray takes over the resources + primary action.
+   Every colour here is an existing custom property; no new token is
+   introduced, and every gradient stays under 12% alpha. */
+
+.rtt-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (min-width: 1024px) {
+  .rtt-shell {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr) 360px;
+    align-items: start;
+    gap: 24px;
+  }
+
+  /* The site nav is `sticky top-0 z-40` at `h-14` (56px). A rail stuck at
+     24px therefore slid its own top 32px UNDER the nav the moment the page
+     scrolled, which is exactly where the "RUN MAP" and "FRONT OFFICE"
+     headings live. 56 + 16 clears it, and the max-height follows so the rail
+     still ends inside the viewport. No z-index: these must stay BELOW the
+     nav, not fight it. */
+  .rtt-zone-left,
+  .rtt-zone-right {
+    position: sticky;
+    top: 72px;
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+  }
+}
+
+/* The ladder rail and the desktop tray are desktop-only: on a phone the
+   same information arrives as the progress strip and the in-column
+   roster, in DOM order, one decision at a time. */
+.rtt-zone-left,
+.rtt-zone-right {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .rtt-zone-left,
+  .rtt-zone-right {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Decision surface container                                        */
+/* ---------------------------------------------------------------- */
+
+/* The centre column SHRINKS as the viewport grows: at >=1024px the shell is
+   `260px minmax(0,1fr) 360px` + 48px of gaps, so a 1024px viewport leaves the
+   decision column ~324px while a 1440px one leaves ~724px. Viewport media
+   queries (`sm:`, `md:`, `lg:`) therefore fire on the wrong number entirely —
+   `md:grid-cols-3` gave three ~235px cards at 1440px (truncating "Allen
+   Iver…") and three ~92px cards at 1024px.
+
+   Making each decision surface an inline-size container lets its own grids
+   ask about the width they actually get. Same technique, same reason as
+   `.court-panel-wrapper` above. */
+.rtt-decision-surface {
+  container-type: inline-size;
+}
+
+.rtt-mobile-only {
+  display: block;
+}
+
+@media (min-width: 1024px) {
+  .rtt-mobile-only {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Run map ladder                                                    */
+/* ---------------------------------------------------------------- */
+
+.rtt-map-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 9px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+}
+
+/* Boss rows read heavier than stage rows — thicker rule, more air,
+   a court-line top edge. Weight, not a new hue. */
+.rtt-map-row-boss {
+  border-width: 2px;
+  padding: 10px 9px;
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--peak-accent) 7%, transparent),
+    transparent 60%
+  );
+}
+
+.rtt-map-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.rtt-map-row-boss .rtt-map-dot {
+  width: 10px;
+  height: 10px;
+}
+
+/* ---------------------------------------------------------------- */
+/* Choice / offer buttons                                            */
+/* ---------------------------------------------------------------- */
+
+.rtt-choice-btn,
+.rtt-offer-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 44px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.rtt-choice-btn:hover:not(:disabled),
+.rtt-offer-btn:hover:not(:disabled) {
+  border-color: var(--peak-accent-dim);
+  background: var(--bg-surface-hover);
+}
+
+/* A blocked draft offer stays FOCUSABLE (`aria-disabled`, not `disabled`) so
+   a keyboard user can reach it and hear why it is blocked. It must still read
+   as inert to a pointer, and it must not light up on hover. */
+.rtt-choice-btn[aria-disabled="true"],
+.rtt-offer-btn[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+.rtt-choice-btn[aria-disabled="true"]:hover,
+.rtt-offer-btn[aria-disabled="true"]:hover {
+  border-color: var(--border-subtle);
+  background: var(--bg-page);
+}
+
+/* ---------------------------------------------------------------- */
+/* Checkbox row                                                      */
+/* ---------------------------------------------------------------- */
+
+/* The Veteran Minimum toggle decides whether a card costs 0 or full price,
+   and it shipped as a ~13px UA checkbox inside a `text-xs` label. The label
+   is the target, so the row carries the 44px height and the box itself is
+   scaled to 22px. */
+.rtt-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.rtt-checkbox-row input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--peak-accent);
+}
+
+.rtt-checkbox-row input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------- */
+/* Minimum tap target                                                */
+/* ---------------------------------------------------------------- */
+
+.rtt-tap {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------------------------------------------------------------- */
+/* Result headings                                                   */
+/* ---------------------------------------------------------------- */
+
+.rtt-result-heading {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------- */
+/* Sticky mobile tray                                                */
+/* ---------------------------------------------------------------- */
+
+.rtt-mobile-tray {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  margin-top: 8px;
+  padding: 10px 12px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border-default);
+  background: color-mix(in srgb, var(--bg-page) 88%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+@media (min-width: 1024px) {
+  .rtt-mobile-tray {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Loading skeleton                                                  */
+/* ---------------------------------------------------------------- */
+
+.rtt-skeleton-block {
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  animation: rtt-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rtt-skeleton-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 0.9; }
+}
+
+/* ================================================================
+   === PEAK3 UI PRIMITIVES (ADDITIVE — W7) ===
+   ================================================================
+   The only class rules the primitives in `src/components/ui/*` need
+   that cannot be expressed as an inline style (a keyframe cannot).
+   NEW rules only — nothing above this banner is modified. Everything
+   is namespaced `.pk-`.
+   ================================================================ */
+
+@keyframes pk-skeleton-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.85; }
+}
+
+/* Reserves its box from first paint (width/height are set inline by
+   the component), so a skeleton can never cause layout shift when the
+   real content replaces it. The pulse is neutralised by the global
+   prefers-reduced-motion rule above. */
+.pk-skeleton {
+  display: block;
+  flex-shrink: 0;
+  background: var(--pk-surface-inset);
+  border: 1px solid var(--pk-surface-inset-border);
+  animation: pk-skeleton-pulse 1.4s var(--pk-ease-standard) infinite;
+}
+
+/* ================================================================
+   === END PEAK3 UI PRIMITIVES ===
+   ================================================================ */

@@ -4,16 +4,26 @@
 .PHONY: help install install-api install-web \
         build-dataset build-card-profiles build-game-data \
         api web dev \
-        test test-model test-api test-lineup test-web test-card-profiles \
+        test test-model test-api test-api-integration test-lineup test-web test-card-profiles \
         test-e2e test-accessibility \
         test-board-generation validate-board-generation-full \
-        build lint typecheck \
+        build lint typecheck verify-frontend \
         verify-game-data verify-fresh \
         test-fast test-full
 
-PYTHON := /Users/yashnilmohanty/miniforge3/bin/python3
+# One developer's absolute miniforge path used to be hardcoded here, which
+# meant no one else — and no CI runner — could use this Makefile at all.
+# Override with `make PYTHON=/path/to/python ...` or by exporting PYTHON.
+PYTHON ?= python3
 NODE   := node
 NPM    := npm
+
+# The checked-in commands CI runs. Every target below that has a CI equivalent
+# calls the script rather than restating it, so the two cannot drift — which
+# they had: `make test-api` ran `pytest tests/` while CI ran the same suite
+# with `--ignore=tests/integration -m "not supabase_integration"`, so a green
+# `make test-api` was a claim about a different set of tests.
+CI_SCRIPTS := scripts/ci
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 GREEN  := \033[0;32m
@@ -40,10 +50,11 @@ help:
 	@echo "  make dev           Print instructions for running both"
 	@echo ""
 	@echo "  $(YELLOW)Testing — fast (no browser)$(RESET)"
-	@echo "  make test-model                 186 canonical model tests"
+	@echo "  make test-model                 Canonical PEAK3 model tests"
 	@echo "  make test-lineup                Experimental lineup model unit tests"
 	@echo "  make test-card-profiles         Card profile builder invariants"
-	@echo "  make test-api                   FastAPI integration tests"
+	@echo "  make test-api                   FastAPI unit tests (in-memory repositories)"
+	@echo "  make test-api-integration       FastAPI Postgres/Supabase tests (needs a test project)"
 	@echo "  make test-web                   Frontend unit tests (vitest)"
 	@echo "  make test-board-generation      Quick board smoke check (25 seeds × 3 modes)"
 	@echo "  make validate-board-generation-full  Full 3000-board corpus"
@@ -56,6 +67,7 @@ help:
 	@echo "  make lint          Run frontend linter"
 	@echo "  make typecheck     Run TypeScript type check"
 	@echo "  make build         Build frontend production bundle"
+	@echo "  make verify-frontend  Everything the CI frontend job runs"
 	@echo ""
 
 install: install-api install-web
@@ -83,7 +95,8 @@ build-card-profiles:
 	@$(PYTHON) scripts/build_card_profiles.py
 	@echo "$(GREEN)✓ Card profiles v3 built in data/game/profiles/$(RESET)"
 
-build-game-data: build-dataset build-card-profiles
+build-game-data:
+	@PYTHON=$(PYTHON) $(CI_SCRIPTS)/build-web-data.sh
 	@echo "$(GREEN)✓ All game data built$(RESET)"
 
 # ── Services ─────────────────────────────────────────────────────────────────
@@ -121,20 +134,20 @@ test-full: test-fast test-e2e
 	@echo "$(GREEN)✓ Full test suite complete (including Playwright)$(RESET)"
 
 test-model:
-	@echo "Running PEAK3 model tests (186 required)..."
-	@$(PYTHON) -m pytest tests/ -v --tb=short --ignore=tests/lineup
+	@PYTHON=$(PYTHON) $(CI_SCRIPTS)/model-tests.sh
 
 test-lineup:
-	@echo "Running lineup model unit tests..."
-	@$(PYTHON) -m pytest tests/lineup/ -v --tb=short
+	@PYTHON=$(PYTHON) $(CI_SCRIPTS)/lineup-tests.sh
 
 test-card-profiles:
 	@echo "Running card profile builder invariants..."
 	@$(PYTHON) scripts/build_card_profiles.py
 
 test-api:
-	@echo "Running API tests (92 required, 0 skipped)..."
-	@cd apps/api && $(PYTHON) -m pytest tests/ -v --tb=short
+	@PYTHON=$(PYTHON) $(CI_SCRIPTS)/api-unit-tests.sh
+
+test-api-integration:
+	@PYTHON=$(PYTHON) $(CI_SCRIPTS)/api-integration-tests.sh
 
 test-web:
 	@echo "Running frontend unit tests..."
@@ -153,7 +166,7 @@ validate-board-generation-full:
 
 test-e2e:
 	@echo "Running Playwright e2e tests (auto-starts FastAPI + Next.js)..."
-	@cd apps/web && $(NPM) run test:e2e
+	@PYTHON=$(PYTHON) $(CI_SCRIPTS)/e2e-tests.sh
 	@echo "$(GREEN)✓ Playwright e2e complete$(RESET)"
 
 test-accessibility:
@@ -164,13 +177,18 @@ test-accessibility:
 # ── Quality ───────────────────────────────────────────────────────────────────
 
 lint:
-	@cd apps/web && $(NPM) run lint
+	@cd apps/web && $(NPM) run lint -- --max-warnings 0
 
 typecheck:
 	@cd apps/web && $(NPM) run typecheck
 
 build:
 	@cd apps/web && $(NPM) run build
+
+# Exactly what the CI "Frontend" job runs: typecheck, lint at zero warnings,
+# vitest, and a production build from a clean .next.
+verify-frontend:
+	@$(CI_SCRIPTS)/frontend-verify.sh
 
 # ── Verification ──────────────────────────────────────────────────────────────
 

@@ -54,16 +54,32 @@ python scripts/build_web_dataset.py
 cd apps/api && uvicorn app.main:app --reload    # API: localhost:8000
 cd apps/web && npm run dev                       # Web: localhost:3000
 
-# Test
-python -m pytest tests/ -v               # model
-cd apps/api && python -m pytest tests/   # API
-cd apps/web && npm run test              # frontend unit
+# Test — CI runs these EXACT scripts; call them, do not restate them
+scripts/ci/model-tests.sh                # model
+scripts/ci/api-unit-tests.sh             # FastAPI, explicit in-memory repositories
+scripts/ci/api-integration-tests.sh      # FastAPI against a real Postgres/Supabase test project
+scripts/ci/frontend-verify.sh            # typecheck + lint (0 warnings) + vitest + production build
+scripts/ci/e2e-tests.sh                  # Playwright + axe (starts its own services)
+scripts/ci/build-web-data.sh             # generate data/web/ + card profiles v3
 
-# Or use Make:
-make test                                # all tests
+# Or use Make (thin wrappers over the same scripts):
+make test                                # all non-browser tests
 make build-dataset                       # generate data/web/
 make api && make web                     # run services
 ```
+
+`.github/workflows/ci.yml` and the Makefile both call `scripts/ci/*.sh`, so
+"green locally" and "green in CI" are claims about the same commands. Adding a
+check means editing the script, not the YAML. Two configuration choices are
+made inside those scripts rather than left to the environment, because both
+used to differ silently between a laptop and a clean checkout:
+
+- `PEAK3_TEST_REPOSITORY_MODE=memory` for the API unit suite — dotenv loading
+  is disabled and an inherited `PEAK3_DATABASE_URL` is dropped, then the
+  resolved backend is asserted once at startup.
+- `NEXT_PUBLIC_PEAK3_E2E_AUTH=1` (via `npm run dev:e2e`) for the browser suite
+  — renders the account surface with no hosted Supabase project, constructs no
+  client, and folds away entirely in a production build.
 
 ## Testing expectations
 

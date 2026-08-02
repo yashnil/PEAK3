@@ -114,3 +114,55 @@ describe("planReel", () => {
     }
   });
 });
+
+/**
+ * W5 (UX / organization / polish pass): the reveal was ENHANCED, not replaced.
+ *
+ * The decision (UX_ORGANIZATION_POLISH_PLAN.md Sec 5.4) was to keep the reel
+ * geometry, class names and timing budget and add a Franchise x Season lockup,
+ * detent ticks and a respin flourish on top. These tests pin the parts of that
+ * decision that are checkable without a browser: the landing invariant must
+ * still hold at the RESPIN travel distance, and the two travel distances must
+ * stay genuinely different so a respin cannot read as a replay of the first
+ * roll at the same speed.
+ */
+describe("W5: respin travel is a real, shorter roll -- and still lands exactly", () => {
+  const INITIAL_TRAVEL = TRAVELS[0];
+  const RESPIN_TRAVEL = TRAVELS[1];
+
+  it("a respin travels meaningfully less far than the round's first roll", () => {
+    // If these converged, the "materially different" requirement would be
+    // carried entirely by copy and colour -- the motion itself has to differ.
+    expect(RESPIN_TRAVEL).toBeLessThan(INITIAL_TRAVEL);
+    expect(INITIAL_TRAVEL - RESPIN_TRAVEL).toBeGreaterThanOrEqual(20);
+  });
+
+  it("both travel distances keep the landing invariant on every pool shape", () => {
+    for (const pool of Object.values(POOLS)) {
+      for (const [, target] of targetsFor(pool)) {
+        for (const travel of [INITIAL_TRAVEL, RESPIN_TRAVEL]) {
+          const { strip, targetIndex } = planReel(pool, target, travel);
+          expect(strip[targetIndex]).toBe(target);
+        }
+      }
+    }
+  });
+
+  it("a respin still does not sit on the answer before it starts moving", () => {
+    for (const pool of [POOLS.franchises, POOLS.seasons]) {
+      for (const [, target] of targetsFor(pool)) {
+        const { strip, startIndex } = planReel(pool, target, RESPIN_TRAVEL);
+        expect(strip[startIndex]).not.toBe(target);
+      }
+    }
+  });
+
+  it("planReel remains a pure function of (pool, target, travel)", () => {
+    // Server authority (Sec 3.5): the client contributes no randomness at all,
+    // so two calls with identical inputs must be byte-identical. If this ever
+    // fails, some client-side RNG has crept into the reveal.
+    const a = planReel(POOLS.seasons, POOLS.seasons[20], RESPIN_TRAVEL);
+    const b = planReel(POOLS.seasons, POOLS.seasons[20], RESPIN_TRAVEL);
+    expect(a).toEqual(b);
+  });
+});

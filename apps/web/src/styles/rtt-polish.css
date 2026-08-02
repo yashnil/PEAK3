@@ -1,0 +1,257 @@
+/* ================================================================
+   rtt-polish.css — RUN THE TABLE cards, Trade Desk, nodes, battle
+   ================================================================
+   Owner: W4 (UX / Organization / Polish pass).
+   Imported by globals.css. Created as an empty stub by W7 so the
+   import graph is proven to build before any writer fills it in.
+   The frozen RUN THE TABLE class rules stay in globals.css; this
+   file is for NEW rules only. Nothing else may edit this file.
+
+   Every colour below is an existing custom property or a
+   `color-mix` of one. No token is introduced, renamed or changed.
+   ================================================================ */
+
+/* ----------------------------------------------------------------
+   Layout — the front-office rail is rendered ONCE
+   ---------------------------------------------------------------- */
+
+/* `RunTray` used to be mounted twice (a desktop `.rtt-zone-right` rail
+   plus an `.rtt-mobile-only` copy inside the decision column), which
+   duplicated every `data-testid` and made a `data-tour-id` ambiguous.
+   It is now one element. `.rtt-zone-right` is `display: none` below
+   1024px in globals.css, so this rule puts that same element back into
+   normal flow on a phone — after the decision, never above it. */
+@media (max-width: 1023.98px) {
+  .rtt-zone-right-fluid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+
+/* No surface in this mode may push the page sideways. The decision
+   column and the rail both hold card lists whose longest item is a
+   player name the server chose. */
+.rtt-shell {
+  max-width: 100%;
+}
+
+/* ----------------------------------------------------------------
+   The decision zone — the dominant surface
+   ---------------------------------------------------------------- */
+
+/* Applied to a wrapper `RunTheTableGame` owns, NOT to the shared
+   `.rtt-decision-surface` class: three of the six components using that
+   class belong to W3, and restyling it would reach into their work.
+   One raised panel, so the decision on the clock reads as the primary
+   object on the page and the rails read as context. */
+.rtt-decision-zone {
+  padding: 16px;
+  border-radius: var(--pk-r-lg);
+  background: var(--pk-surface-decision);
+  border: 1px solid var(--pk-surface-decision-border);
+  box-shadow: var(--pk-elev-3);
+}
+
+@media (max-width: 640px) {
+  .rtt-decision-zone {
+    padding: 12px;
+  }
+}
+
+/* ----------------------------------------------------------------
+   Scoreboard — credits / lives / act
+   ---------------------------------------------------------------- */
+
+.rtt-scoreboard {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.rtt-scoreboard-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px;
+  border-radius: var(--pk-r-md);
+  border: 1px solid var(--border-default);
+  min-width: 0;
+}
+
+/* ----------------------------------------------------------------
+   Run map — recedes when it is not the thing being decided
+   ---------------------------------------------------------------- */
+
+/* Recessed by CHROME, never by opacity: a blanket `opacity` on the rail
+   drags every label inside it below AA, which is the exact bug the
+   locked-row branch of `rowStyle` already had to fix once. Only the
+   rail's elevation changes; the rows keep the contrast they were
+   measured at. */
+.rtt-map-rail .rtt-map-row:not(.rtt-map-row-current) {
+  box-shadow: none;
+}
+
+.rtt-map-rail .rtt-map-row-current {
+  box-shadow: var(--pk-elev-2);
+}
+
+/* The shared-element indicator that travels down the ladder as the run
+   advances. A thin accent rail on the leading edge, outside the row box,
+   so it never covers text. */
+.rtt-map-current-indicator {
+  position: absolute;
+  left: -4px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: var(--pk-r-pill);
+  background: var(--peak-accent);
+  pointer-events: none;
+}
+
+/* ----------------------------------------------------------------
+   Trade Desk — step chips
+   ---------------------------------------------------------------- */
+
+/* The numeral (or tick) is the non-colour half of "state is carried by
+   colour AND border AND icon AND text". */
+.rtt-step-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border-radius: var(--pk-r-pill);
+  border: 1px solid var(--border-default);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* ----------------------------------------------------------------
+   Roster rows
+   ---------------------------------------------------------------- */
+
+.rtt-roster-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--pk-r-md);
+  transition:
+    background-color var(--pk-dur-base) var(--pk-ease-standard),
+    border-color var(--pk-dur-base) var(--pk-ease-standard);
+}
+
+/* A card that has just landed in a slot settles in rather than
+   materialising between frames. `transform`/`opacity` only. */
+.rtt-roster-row[data-filled="true"] {
+  animation: rtt-slot-settle var(--pk-dur-slow) var(--pk-ease-out) both;
+}
+
+@keyframes rtt-slot-settle {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ----------------------------------------------------------------
+   Lane bars
+   ---------------------------------------------------------------- */
+
+/* The bar travels from its previous width to its new one. The value it
+   ENDS on is still the server's, with no client normalisation — this is
+   only how it gets there. */
+.rtt-lane-bar-animated {
+  transition: width var(--pk-dur-slow) var(--pk-ease-out);
+}
+
+/* ----------------------------------------------------------------
+   Lane profile disclosure
+   ---------------------------------------------------------------- */
+
+.rtt-lane-details > summary {
+  list-style: none;
+  min-height: 24px;
+}
+
+.rtt-lane-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rtt-lane-details > summary::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform var(--pk-dur-fast) var(--pk-ease-standard);
+}
+
+.rtt-lane-details[open] > summary::after {
+  transform: rotate(-135deg) translateY(-2px);
+}
+
+/* ----------------------------------------------------------------
+   Battle — lock-in and victory accents
+   ---------------------------------------------------------------- */
+
+/* The restrained lock-in moment: the frame the deciding lane lands on.
+   One pulse of the accent ring — no scale, no bounce, no confetti. */
+.rtt-lock-in {
+  animation: rtt-lock-in var(--pk-dur-slow) var(--pk-ease-out) 1;
+}
+
+@keyframes rtt-lock-in {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--peak-accent) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--peak-accent) 0%, transparent);
+  }
+}
+
+/* A win gets ONE brief accent sweep. A loss deliberately gets nothing
+   extra — the same layout, a neutral frame, no shaming treatment. */
+.rtt-victory-accent {
+  animation: rtt-victory var(--pk-dur-slower) var(--pk-ease-out) 1;
+}
+
+@keyframes rtt-victory {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--correct) 40%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--correct) 0%, transparent);
+  }
+}
+
+/* ----------------------------------------------------------------
+   Reduced motion
+   ---------------------------------------------------------------- */
+
+/* Every animation above represents an already-authoritative server
+   result, so removing it removes no information. */
+@media (prefers-reduced-motion: reduce) {
+  .rtt-roster-row[data-filled="true"],
+  .rtt-lock-in,
+  .rtt-victory-accent {
+    animation: none;
+  }
+
+  .rtt-lane-bar-animated,
+  .rtt-roster-row,
+  .rtt-lane-details > summary::after {
+    transition: none;
+  }
+}

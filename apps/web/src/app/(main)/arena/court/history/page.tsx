@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
@@ -18,6 +19,12 @@ import { COURT_MODE_LABELS, PersonalBests, SavedRun } from "@/types/perfect-seas
  */
 export default function CourtHistoryPage() {
   const { user, loading: authLoading } = useAuth();
+  // Carry the current page as ?returnTo= so signing in from a result screen
+  // comes back here instead of dropping the player on the homepage. The
+  // sign-in page re-validates it with safeNext(), so an attacker-supplied
+  // value cannot turn this into an open redirect.
+  const pathname = usePathname();
+  const signInHref = `/signin?returnTo=${encodeURIComponent(pathname || "/")}`;
   const [runs, setRuns] = useState<SavedRun[] | null>(null);
   const [bests, setBests] = useState<PersonalBests | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +88,7 @@ export default function CourtHistoryPage() {
             devices. You can play without an account — saving just needs one.
           </span>
           <Link
-            href="/signin"
+            href={signInHref}
             className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
             style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
           >

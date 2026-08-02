@@ -1,16 +1,16 @@
 "use client";
 import { useState } from "react";
 import { Copy, Check, Share2, Link as LinkIcon, Download } from "lucide-react";
-import { CourtLineupPublicState, SimulationResultPublic } from "@/types/perfect-season";
+import { SharedCourtResult, SimulationResultPublic } from "@/types/perfect-season";
 import { resultTier } from "./SeasonResultStub";
 import { downloadScorecardPng } from "@/lib/scorecard-export";
 
 interface Props {
-  state: CourtLineupPublicState;
+  state: SharedCourtResult;
   result: SimulationResultPublic;
 }
 
-function buildShareText(state: CourtLineupPublicState, result: SimulationResultPublic, url: string): string {
+function buildShareText(state: SharedCourtResult, result: SimulationResultPublic, url: string): string {
   const tier = resultTier(result.wins);
   const lines = [
     `PEAK3 Arena — 82-0 Peak Season`,

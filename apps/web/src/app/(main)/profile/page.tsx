@@ -4,7 +4,9 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { getAccessToken, signOut } from "@/lib/auth";
+import { getAccessToken } from "@/lib/auth";
+import { InitialsAvatar } from "@/components/auth/InitialsAvatar";
+import { signInHref } from "@/lib/supabase/safe-next";
 import RankedRatingCards from "@/components/ranked/RankedRatingCards";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -43,7 +45,7 @@ async function updateProfile(token: string, data: Partial<Profile>): Promise<Pro
 }
 
 export default function ProfilePage() {
-  const { user, loading, supabaseEnabled } = useAuth();
+  const { user, loading, supabaseEnabled, signOut } = useAuth();
   const router = useRouter();
 
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -59,7 +61,7 @@ export default function ProfilePage() {
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      router.push("/signin?returnTo=/profile");
+      router.push(signInHref("/profile"));
       return;
     }
     (async () => {
@@ -137,24 +139,34 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
           Profile
         </h1>
-        <div className="flex gap-3">
-          <Link
-            href="/history"
-            className="text-sm px-3 py-1.5 rounded-lg"
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-default)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            History
-          </Link>
+        <div className="flex gap-2">
+          {/* `/progress` had no link from anywhere in the chrome before this
+              pass. It does now (`nav-model.ts`'s account links), and the two
+              signed-in surfaces cross-link each other here as well. */}
+          {[
+            { href: "/progress", label: "Progress" },
+            { href: "/history", label: "History" },
+          ].map((entry) => (
+            <Link
+              key={entry.href}
+              href={entry.href}
+              className="text-sm px-3 py-1.5 rounded-lg"
+              style={{
+                background: "var(--bg-elevated)",
+                border: "1px solid var(--border-default)",
+                color: "var(--text-secondary)",
+              }}
+            >
+              {entry.label}
+            </Link>
+          ))}
           <button
             onClick={handleSignOut}
+            data-testid="profile-signout"
             className="text-sm px-3 py-1.5 rounded-lg"
             style={{
               background: "var(--bg-elevated)",
@@ -168,17 +180,21 @@ export default function ProfilePage() {
       </div>
 
       <div
-        className="rounded-xl p-4 text-sm"
+        className="rounded-xl p-4 text-sm flex items-center gap-3"
         style={{
           background: "var(--bg-surface)",
           border: "1px solid var(--border-subtle)",
           color: "var(--text-muted)",
         }}
       >
-        Signed in as <span style={{ color: "var(--text-secondary)" }}>{user.email ?? "anonymous"}</span>
-        {profile?.joined_at && (
-          <span> · Joined {new Date(profile.joined_at).toLocaleDateString()}</span>
-        )}
+        <InitialsAvatar email={user.email} name={user.name} size={36} />
+        <span>
+          Signed in as{" "}
+          <span style={{ color: "var(--text-secondary)" }}>{user.email ?? "anonymous"}</span>
+          {profile?.joined_at && (
+            <span> · Joined {new Date(profile.joined_at).toLocaleDateString()}</span>
+          )}
+        </span>
       </div>
 
       <RankedRatingCards />

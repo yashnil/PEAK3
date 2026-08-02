@@ -1,0 +1,404 @@
+/* ================================================================
+   tour.css — RUN THE TABLE guided tour overlay + spotlight
+   ================================================================
+   Owner: W3 (UX / Organization / Polish pass).
+   Imported by globals.css. Created as an empty stub by W7 so the
+   import graph is proven to build before any writer fills it in.
+   Nothing else may edit this file.
+
+   Everything here is prefixed `.pk-tour*`, `.pk-coachmark*` or
+   `.rtt-node*` / `.rtt-perk*`. No token is DEFINED here — plan §3.1
+   puts new custom properties in globals.css under W7 only, so this
+   file only ever CONSUMES `--pk-*` and the frozen `--peak-*` /
+   `--bg-*` / `--text-*` families.
+   ================================================================ */
+
+/* ---------------------------------------------------------------
+   Overlay
+   --------------------------------------------------------------- */
+
+.pk-tour {
+  position: fixed;
+  inset: 0;
+  z-index: var(--pk-z-dialog, 110);
+}
+
+/* The dim.
+
+   An SVG mask, not `background: rgba(...)` painted over the page: an
+   opacity wash would drag the spotlighted text's contrast down along
+   with everything else, which is the one thing the brief forbids. A
+   mask leaves the highlighted region at full, untouched contrast.
+
+   `pointer-events` stays on, so the tour is modal: a click while the
+   walkthrough is open cannot reach a game control behind it and spend
+   credits by accident. */
+.pk-tour-scrim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.pk-tour-scrim > rect {
+  fill: var(--pk-surface-overlay, rgba(6, 7, 9, 0.72));
+}
+
+/* The lit edge around the cutout. A separate element from the mask so
+   the border can move smoothly while the mask itself stays crisp. */
+.pk-tour-ring {
+  position: absolute;
+  border-radius: var(--pk-r-lg, 14px);
+  border: 2px solid var(--peak-accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 24px -4px var(--peak-accent);
+  pointer-events: none;
+  transition:
+    top var(--pk-dur-slow, 320ms) var(--pk-ease-standard, ease),
+    left var(--pk-dur-slow, 320ms) var(--pk-ease-standard, ease),
+    width var(--pk-dur-slow, 320ms) var(--pk-ease-standard, ease),
+    height var(--pk-dur-slow, 320ms) var(--pk-ease-standard, ease);
+}
+
+/* ---------------------------------------------------------------
+   Popover
+   --------------------------------------------------------------- */
+
+.pk-tour-popover {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pk-space-3, 12px);
+  padding: var(--pk-space-4, 16px);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--pk-surface-decision, var(--bg-elevated));
+  border: 1px solid var(--pk-surface-decision-border, var(--border-emphasis));
+  box-shadow: var(--pk-elev-4, 0 24px 48px -24px rgba(0, 0, 0, 0.7));
+  color: var(--text-primary);
+  transition:
+    top var(--pk-dur-slow, 320ms) var(--pk-ease-standard, ease),
+    left var(--pk-dur-slow, 320ms) var(--pk-ease-standard, ease);
+}
+
+/* The container is `tabIndex={-1}` purely so focus can be moved into
+   it on open; it is not itself an operable control, so it must not
+   paint a focus ring. Every real control inside keeps the global one. */
+.pk-tour-popover:focus,
+.pk-tour-popover:focus-visible {
+  outline: none;
+}
+
+.pk-tour-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--pk-space-2, 8px);
+}
+
+.pk-tour-eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pk-space-2, 8px);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--peak-accent);
+}
+
+.pk-tour-progress {
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+}
+
+.pk-tour-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--pk-r-sm, 6px);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pk-tour-close:hover {
+  color: var(--text-primary);
+  border-color: var(--border-emphasis);
+}
+
+.pk-tour-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.pk-tour-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pk-space-2, 8px);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.pk-tour-body p {
+  margin: 0;
+}
+
+.pk-tour-detail {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pk-tour-dots {
+  display: flex;
+  gap: 5px;
+}
+
+.pk-tour-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--pk-r-pill, 999px);
+  background: var(--border-emphasis);
+}
+
+.pk-tour-dot[data-active="true"] {
+  background: var(--peak-accent);
+}
+
+.pk-tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pk-space-2, 8px);
+}
+
+.pk-tour-actions-right {
+  display: flex;
+  align-items: center;
+  gap: var(--pk-space-2, 8px);
+}
+
+/* `--pk-tap-min` is the 44px tap-target floor the accessibility spec
+   asserts on every changed surface. */
+.pk-tour-btn {
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0 var(--pk-space-4, 16px);
+  border-radius: var(--pk-r-md, 10px);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.pk-tour-btn-quiet {
+  background: var(--bg-surface);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+.pk-tour-btn-quiet:hover:not(:disabled) {
+  border-color: var(--border-emphasis);
+}
+
+.pk-tour-btn-primary {
+  background: var(--peak-accent);
+  color: #000;
+}
+
+.pk-tour-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------
+   Reduced motion
+   --------------------------------------------------------------- */
+
+/* Two paths on purpose. The attribute comes from
+   `usePrefersReducedMotion()`, so it is correct on the FIRST client
+   render and is assertable in jsdom, where the media query below can
+   never match. */
+.pk-tour[data-motion="none"] .pk-tour-ring,
+.pk-tour[data-motion="none"] .pk-tour-popover {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pk-tour-ring,
+  .pk-tour-popover {
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------
+   Launcher
+   --------------------------------------------------------------- */
+
+.pk-tour-launcher {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pk-space-2, 8px);
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0 var(--pk-space-4, 16px);
+  border-radius: var(--pk-r-md, 10px);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.pk-tour-launcher:hover:not(:disabled) {
+  border-color: var(--peak-accent);
+  color: var(--peak-accent);
+}
+
+.pk-tour-launcher:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pk-tour-launcher-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--pk-r-pill, 999px);
+  border: 1px solid currentColor;
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* ---------------------------------------------------------------
+   Coachmark — the lighter, per-node, one-time hint
+   --------------------------------------------------------------- */
+
+.pk-coachmark {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--pk-space-2, 8px);
+  padding: var(--pk-space-3, 12px);
+  border-radius: var(--pk-r-md, 10px);
+  border: 1px solid var(--peak-accent);
+  background: var(--peak-accent-bg);
+}
+
+.pk-coachmark-title {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--peak-accent);
+}
+
+.pk-coachmark-body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.pk-coachmark-dismiss {
+  min-height: 32px;
+  padding: 0 var(--pk-space-3, 12px);
+  border-radius: var(--pk-r-sm, 6px);
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------
+   Node-type identity
+   --------------------------------------------------------------- */
+
+/* The four node types have to be distinguishable BEFORE the player
+   picks a path, so each carries its own accent. The accent arrives
+   inline as `--rtt-node-accent`, set from
+   `NODE_TYPE_COPY[type].accentVar` — always an existing frozen token,
+   never a new one (plan §3.1). */
+
+.rtt-node-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: var(--pk-r-md, 10px);
+  border: 1px solid var(--rtt-node-accent, var(--peak-accent));
+  color: var(--rtt-node-accent, var(--peak-accent));
+  opacity: 0.95;
+}
+
+.rtt-node-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.rtt-node-kind {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--rtt-node-accent, var(--peak-accent));
+}
+
+/* A hairline in the node's own colour, so two options on one stage read
+   as two different KINDS of move at a glance rather than two paragraphs. */
+.rtt-node-option {
+  border-left: 3px solid var(--rtt-node-accent, var(--border-default));
+}
+
+.rtt-node-head {
+  display: flex;
+  align-items: center;
+  gap: var(--pk-space-2, 8px);
+}
+
+.rtt-node-consequence {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------
+   Front Office Perk cards
+   --------------------------------------------------------------- */
+
+.rtt-perk-effect {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+
+.rtt-perk-rule {
+  display: flex;
+  align-items: center;
+  gap: var(--pk-space-1, 4px);
+  font-size: 11px;
+  color: var(--text-muted);
+}

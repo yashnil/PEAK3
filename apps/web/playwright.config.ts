@@ -54,9 +54,21 @@ export default defineConfig({
     },
     {
       // Next.js frontend.
+      //
+      // `dev:e2e`, not `dev`: it sets NEXT_PUBLIC_PEAK3_E2E_AUTH=1, which is
+      // the single switch that makes the account surface render without a
+      // hosted Supabase project (see lib/supabase/config.ts). Without it a
+      // clean checkout compiles the sign-in page, the header account control
+      // and the mobile account section out of the bundle entirely, and ten
+      // auth assertions fail as "element(s) not found" — which is exactly how
+      // this suite passed on a developer machine with `.env.local` and failed
+      // in CI. `playwright.setup.ts` re-checks the running server rather than
+      // trusting this line, so a manually started `npm run dev` that gets
+      // reused locally still fails loudly instead of mysteriously.
+      //
       // In CI: always start fresh.
       // Locally: reuse if the global setup validates the server as current.
-      command: "npm run dev",
+      command: "npm run dev:e2e",
       url: "http://localhost:3000",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

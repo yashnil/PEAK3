@@ -206,32 +206,49 @@ limiter = RateLimiter()
 def client_key(request, scope: str, *extra: str) -> str:
     """Build a limiter key: scope + client identity + any extra dimensions.
 
-    IDENTITY, IN ORDER OF PREFERENCE. A verified anonymous-subject cookie is
-    used ahead of the IP when present, because it survives a NAT that would
-    otherwise make a whole office share one bucket. It is only a *convenience*
-    dimension -- it is trivially discarded by a caller who wants a fresh
-    bucket, which is why the IP stays in the key as well rather than being
-    replaced by it. Neither is trusted for anything but bucketing.
+    IDENTITY. The anonymous-subject cookie adds a dimension ahead of the IP,
+    because it survives a NAT that would otherwise make a whole office share
+    one bucket.
 
-    Deliberately does NOT read the Authorization header: parsing/verifying a
-    JWT to decide a rate-limit bucket would make an unauthenticated flood
-    cheaper than an authenticated one, and would put crypto on the hot path of
-    the endpoint being flooded.
+    THE COOKIE'S SIGNATURE IS VERIFIED HERE, and an unverified cookie
+    contributes nothing. This is load-bearing, not hygiene. `subject` is a
+    *key dimension*, so a caller who rewrites the cookie between requests gets
+    a brand-new bucket every time: with 50 forged cookies from one IP you get
+    50 full budgets, not one. An earlier version of this function reasoned that
+    forging could "only give themselves a different bucket, not a bigger one,
+    because the IP is still in the key" -- which is exactly backwards, since a
+    different bucket *is* a bigger budget. Collapsing every unverifiable cookie
+    to the empty string puts all of them back into the single per-IP bucket,
+    and also stops an attacker flooding the limiter's bounded key table to
+    evict legitimate entries.
+
+    The HMAC is one SHA-256 over a short string. That is not meaningfully "on
+    the hot path" next to the request it is protecting, and the alternative is
+    no protection at all.
+
+    Deliberately does NOT read the Authorization header: verifying a JWT to
+    decide a rate-limit bucket would make an unauthenticated flood cheaper than
+    an authenticated one, and would put asymmetric crypto and a possible
+    network fetch (JWKS) on the path of the endpoint being flooded.
     """
+    from app.core.auth import verify_anon_subject
+    from app.core.config import settings
+
     client = getattr(request, "client", None)
     ip = getattr(client, "host", None) or "unknown"
 
-    # Present only if the browser has already been issued one by another route;
-    # never created here, and never verified here (an attacker forging it can
-    # only give themselves a *different* bucket, not a bigger one, because the
-    # IP is still in the key).
     cookie = ""
     try:
         cookie = request.cookies.get("peak3_anon", "") or ""
     except Exception:  # pragma: no cover - defensive; cookies always parse
         cookie = ""
-    # Only the first segment (the subject), never the HMAC signature -- the
-    # signature is credential material and does not belong in a cache key.
-    subject = cookie.split(".", 1)[0][:64]
+
+    subject = ""
+    if cookie:
+        # Only the verified subject, never the signature -- the signature is
+        # credential material and does not belong in a cache key.
+        verified = verify_anon_subject(cookie, settings.SIGNING_SECRET)
+        if verified:
+            subject = verified[:64]
 
     return "|".join((scope, ip, subject, *extra))

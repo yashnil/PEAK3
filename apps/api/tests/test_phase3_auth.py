@@ -217,6 +217,81 @@ class TestClaimAnonActivity:
         # After claim, cookie deleted — second call returns no_anon_session
         assert r2.json()["reason"] in ("no_anon_session", "already_claimed")
 
+    def test_claim_response_carries_a_per_domain_breakdown(self):
+        """Every claimable domain is reported, including the ones that moved 0.
+
+        The UI tells the player what came across with them. "RUN THE TABLE
+        moved nothing" and "nobody looked at RUN THE TABLE" are different
+        statements, and an omitted key can only make the second one — which is
+        exactly how four domains went unnoticed as missing for as long as they
+        did.
+        """
+        from app.api.v1.auth import CLAIMABLE_DOMAINS
+
+        _clear_overrides()
+        with TestClient(app) as client:
+            client.post("/api/v1/auth/anon")
+            subject = _auth(sub=str(uuid.uuid4()))
+            app.dependency_overrides[get_optional_auth] = lambda: subject
+            app.dependency_overrides[get_required_auth] = lambda: subject
+            resp = client.post("/api/v1/auth/claim")
+        _clear_overrides()
+
+        body = resp.json()
+        assert set(body["domain_counts"]) == set(CLAIMABLE_DOMAINS)
+        assert "run_the_table_runs" in body["domain_counts"]
+        assert body["total_claimed"] == sum(body["domain_counts"].values())
+        # The legacy fields other clients already read are unchanged.
+        for legacy in ("game_count", "completion_count", "challenge_count"):
+            assert legacy in body
+
+    def test_claim_by_a_second_user_is_forbidden(self):
+        """A guest session belongs to whoever claimed it first.
+
+        403, not 409: this is an authorization decision about a session that is
+        not yours, not a conflict to be retried. Nothing is transferred a
+        second time.
+        """
+        _clear_overrides()
+        with TestClient(app) as client:
+            client.post("/api/v1/auth/anon")
+            cookie = client.cookies.get("peak3_anon")
+
+            first = _auth(sub=str(uuid.uuid4()))
+            app.dependency_overrides[get_optional_auth] = lambda: first
+            app.dependency_overrides[get_required_auth] = lambda: first
+            assert client.post("/api/v1/auth/claim").status_code == 200
+
+            second = _auth(sub=str(uuid.uuid4()))
+            app.dependency_overrides[get_optional_auth] = lambda: second
+            app.dependency_overrides[get_required_auth] = lambda: second
+            client.cookies.set("peak3_anon", cookie)
+            resp = client.post("/api/v1/auth/claim")
+        _clear_overrides()
+
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "anon_session_already_claimed"
+
+    def test_claiming_your_own_subject_transfers_nothing(self):
+        """An anonymous Supabase session whose sub is already the owner.
+
+        There is nothing to move from a subject to itself, and running the
+        transfers anyway would be a no-op at best and a self-collision at
+        worst, so it short-circuits.
+        """
+        _clear_overrides()
+        with TestClient(app) as client:
+            anon_sub = client.post("/api/v1/auth/anon").json()["sub"]
+            subject = _auth(sub=anon_sub, is_anonymous=True)
+            app.dependency_overrides[get_optional_auth] = lambda: subject
+            app.dependency_overrides[get_required_auth] = lambda: subject
+            resp = client.post("/api/v1/auth/claim")
+        _clear_overrides()
+
+        body = resp.json()
+        assert body["reason"] == "already_same_user"
+        assert body["total_claimed"] == 0
+
 
 # ---------------------------------------------------------------------------
 # GET/PUT /profiles/me

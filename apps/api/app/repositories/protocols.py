@@ -73,7 +73,20 @@ class ResultSnapshot:
 
 @dataclass
 class OwnershipClaim:
-    """Audit record: anonymous subject claimed by a real user."""
+    """Audit record: anonymous subject claimed by a real user.
+
+    `anon_subject_id` is UNIQUE in the table (20260630124500_identity.sql), and
+    that constraint -- not any application check -- is what makes two browser
+    tabs racing the same claim resolve to one winner.
+
+    The three legacy `*_count` fields date from a claim that covered three
+    domains. `domain_counts` is the full per-domain breakdown of what a claim
+    moved, stored rather than recomputed: `POST /auth/claim` is idempotent, and
+    by the time a repeat call arrives the rows have already moved, so a
+    recomputed breakdown would report zeros for a claim that really did import
+    something. `game_count` keeps its original meaning (every row that left
+    `games`); `domain_counts` splits it into its draft and court-lineup halves.
+    """
     id: str
     real_user_sub: str
     anon_subject_id: str
@@ -81,6 +94,7 @@ class OwnershipClaim:
     game_count: int
     completion_count: int
     challenge_count: int
+    domain_counts: dict[str, int] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

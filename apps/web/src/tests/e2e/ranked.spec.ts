@@ -38,6 +38,39 @@ async function joinRankedQueue(page: Page, mode: string): Promise<void> {
   await page.getByText(/Join .* queue/i).click();
 }
 
+/**
+ * Leave no `waiting` entry behind, whatever happened in the test.
+ *
+ * THE QUEUE IS SHARED, DURABLE STATE. Every other fixture in this suite is
+ * per-test (a fresh BrowserContext, a `Date.now()`-unique subject), but the
+ * ranked queue is a table keyed by MODE, and there are only three modes. An
+ * entry a test walked away from is still `waiting` for the next run, which
+ * then pairs that run's first joiner instantly and never shows "Waiting for
+ * an opponent" — a failure with nothing wrong in the product and no trace of
+ * where it came from.
+ *
+ * The runtime sweep (`QUEUE_ENTRY_TTL`, app/services/ranked/matchmaking.py)
+ * is the durable half of the fix and covers a run that is killed outright.
+ * This is the half the tests owe: a test that finishes — including one that
+ * FAILS mid-way, which is why every call site is in a `finally` — hands the
+ * queue back the way it found it, so a re-run is not racing the sweep's clock.
+ *
+ * Cancelling is idempotent and safe: the API scopes it to the caller's own
+ * entry (`cancel_queue_entry` matches on `owner_sub`), so this can never
+ * disturb another player, and a subject with nothing waiting is a no-op.
+ */
+async function leaveRankedQueue(page: Page, token: string, mode: string): Promise<void> {
+  await page.request
+    .post(`http://localhost:8000/api/v1/ranked/queues/${mode}/cancel`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    .catch(() => {
+      // Best effort by design: the context may already be closing, and a
+      // failure to clean up must never mask the real assertion failure that
+      // sent us into the `finally` in the first place.
+    });
+}
+
 interface RoundPlanEntry {
   playerName: string;
   role: string;
@@ -147,6 +180,24 @@ test.describe("Ranked duels", () => {
   }: {
     browser: Browser;
   }) => {
+    // A FULL DUEL, TWICE OVER, IS A FIXED STRUCTURAL COST — the same reasoning
+    // (and the same convention) as courtbuilder.spec.ts's FULL_DRAFT_TIMEOUT_MS
+    // and run-the-table.spec.ts's FULL_RUN_TIMEOUT_MS: two browser contexts
+    // signed in, two queue joins, a pairing, TEN lock-in round trips (five
+    // rounds each, played sequentially because the point is that the two
+    // players are independent), settlement, and a reload to prove the result is
+    // durable. Every one of those is a real server call.
+    //
+    // It has never had a budget because it never got this far: the queue join
+    // died on a foreign key (see `ensure_queue_versions_seeded`), so the test
+    // failed in the first ten seconds and the 30000ms default was never
+    // reached. With the queue working, the run completes — the snapshot at the
+    // moment it timed out showed both players settled on "Draw", i.e. the whole
+    // flow had finished and only the clock ran out. Sized with headroom rather
+    // than to the observed figure, because a budget exists to catch a hang, not
+    // to police normal variance.
+    test.setTimeout(120_000);
+
     const subA = `e2e-a-${Date.now()}`;
     const subB = `e2e-b-${Date.now()}`;
 
@@ -156,66 +207,81 @@ test.describe("Ranked duels", () => {
     const pageB = await contextB.newPage();
 
     const tokenA = await signInAs(contextA, pageA, subA);
-    await signInAs(contextB, pageB, subB);
+    const tokenB = await signInAs(contextB, pageB, subB);
 
-    await joinRankedQueue(pageA, "apex_1y");
-    // First joiner has no opponent yet.
-    await expect(pageA.getByText(/Waiting for an opponent/i)).toBeVisible({ timeout: 10_000 });
+    try {
+      await joinRankedQueue(pageA, "apex_1y");
+      // First joiner has no opponent yet.
+      //
+      // This is an assertion about an EMPTY queue, and the queue is durable,
+      // shared, per-mode state — see `leaveRankedQueue`. It holds because of
+      // two things working together, not by luck: the `finally` below hands
+      // the queue back clean after every run of this test, and the server
+      // sweeps abandoned entries on join (`QUEUE_ENTRY_TTL`) so even a run
+      // killed outright cannot leave a permanent ghost for the next one to be
+      // paired with.
+      await expect(pageA.getByText(/Waiting for an opponent/i)).toBeVisible({ timeout: 10_000 });
 
-    await joinRankedQueue(pageB, "apex_1y");
-    // Second joiner should pair immediately with the first.
-    await expect(pageB.getByText(/Matched|Round 1 of 5/i)).toBeVisible({ timeout: 10_000 });
-    // A now transitions out of waiting once matched too.
-    await expect(pageA.getByText(/Matched|Round 1 of 5/i)).toBeVisible({ timeout: 10_000 });
+      await joinRankedQueue(pageB, "apex_1y");
+      // Second joiner should pair immediately with the first.
+      await expect(pageB.getByText(/Matched|Round 1 of 5/i)).toBeVisible({ timeout: 10_000 });
+      // A now transitions out of waiting once matched too.
+      await expect(pageA.getByText(/Matched|Round 1 of 5/i)).toBeVisible({ timeout: 10_000 });
 
-    // Both should see round 1 of 5 with real offers, and the SAME offers.
-    await expect(pageA.getByText(/Round 1 of 5/i)).toBeVisible({ timeout: 10_000 });
-    await expect(pageB.getByText(/Round 1 of 5/i)).toBeVisible({ timeout: 10_000 });
+      // Both should see round 1 of 5 with real offers, and the SAME offers.
+      await expect(pageA.getByText(/Round 1 of 5/i)).toBeVisible({ timeout: 10_000 });
+      await expect(pageB.getByText(/Round 1 of 5/i)).toBeVisible({ timeout: 10_000 });
 
-    const namesA = await pageA.locator('[data-testid="offer-card"]').allTextContents();
-    const namesB = await pageB.locator('[data-testid="offer-card"]').allTextContents();
-    expect(namesA).toEqual(namesB);
+      const namesA = await pageA.locator('[data-testid="offer-card"]').allTextContents();
+      const namesB = await pageB.locator('[data-testid="offer-card"]').allTextContents();
+      expect(namesA).toEqual(namesB);
 
-    // Neither page's DOM/network ever exposes the opponent's identity or
-    // picks before settlement — no such fields exist in the rendered page.
-    expect(await pageA.content()).not.toContain(subB);
-    expect(await pageB.content()).not.toContain(subA);
+      // Neither page's DOM/network ever exposes the opponent's identity or
+      // picks before settlement — no such fields exist in the rendered page.
+      expect(await pageA.content()).not.toContain(subB);
+      expect(await pageB.content()).not.toContain(subA);
 
-    const statusRes = await pageA.request.get("http://localhost:8000/api/v1/ranked/queues/apex_1y/status", {
-      headers: { Authorization: `Bearer ${tokenA}` },
-    });
-    const { match_id: matchId } = await statusRes.json();
-    expect(matchId).toBeTruthy();
-    const plan = await fetchRoundPlan(pageA, tokenA, matchId);
+      const statusRes = await pageA.request.get("http://localhost:8000/api/v1/ranked/queues/apex_1y/status", {
+        headers: { Authorization: `Bearer ${tokenA}` },
+      });
+      const { match_id: matchId } = await statusRes.json();
+      expect(matchId).toBeTruthy();
+      const plan = await fetchRoundPlan(pageA, tokenA, matchId);
 
-    // A finishes first and must see "awaiting opponent" — not a result yet.
-    await playFullRankedGame(pageA, plan);
-    await expect(pageA.getByText(/Waiting for your opponent to finish/i)).toBeVisible({ timeout: 15_000 });
+      // A finishes first and must see "awaiting opponent" — not a result yet.
+      await playFullRankedGame(pageA, plan);
+      await expect(pageA.getByText(/Waiting for your opponent to finish/i)).toBeVisible({ timeout: 15_000 });
 
-    // A's awaiting-opponent screen still reveals nothing about B.
-    expect(await pageA.content()).not.toContain(subB);
+      // A's awaiting-opponent screen still reveals nothing about B.
+      expect(await pageA.content()).not.toContain(subB);
 
-    await playFullRankedGame(pageB, plan);
+      await playFullRankedGame(pageB, plan);
 
-    // Both eventually reach a settled result — exactly one outcome, visible
-    // to both, and consistent (opposite/draw) between them.
-    await expect(pageA.getByText(/Victory|Defeat|Draw/i)).toBeVisible({ timeout: 20_000 });
-    await expect(pageB.getByText(/Victory|Defeat|Draw/i)).toBeVisible({ timeout: 20_000 });
+      // Both eventually reach a settled result — exactly one outcome, visible
+      // to both, and consistent (opposite/draw) between them.
+      await expect(pageA.getByText(/Victory|Defeat|Draw/i)).toBeVisible({ timeout: 20_000 });
+      await expect(pageB.getByText(/Victory|Defeat|Draw/i)).toBeVisible({ timeout: 20_000 });
 
-    const outcomeA = await pageA.getByText(/Victory|Defeat|Draw/i).first().textContent();
-    const outcomeB = await pageB.getByText(/Victory|Defeat|Draw/i).first().textContent();
-    if (outcomeA === "Draw") {
-      expect(outcomeB).toBe("Draw");
-    } else {
-      expect(outcomeA).not.toBe(outcomeB);
+      const outcomeA = await pageA.getByText(/Victory|Defeat|Draw/i).first().textContent();
+      const outcomeB = await pageB.getByText(/Victory|Defeat|Draw/i).first().textContent();
+      if (outcomeA === "Draw") {
+        expect(outcomeB).toBe("Draw");
+      } else {
+        expect(outcomeA).not.toBe(outcomeB);
+      }
+
+      // Refresh preserves the settled result (durable state, not client-only).
+      await pageA.reload();
+      await expect(pageA.getByText(/Victory|Defeat|Draw/i)).toBeVisible({ timeout: 10_000 });
+    } finally {
+      // Both subjects, on the success path (where they are already `matched`
+      // and this is a no-op) and on every failure path (where one of them may
+      // still be `waiting`).
+      await leaveRankedQueue(pageA, tokenA, "apex_1y");
+      await leaveRankedQueue(pageB, tokenB, "apex_1y");
+      await contextA.close();
+      await contextB.close();
     }
-
-    // Refresh preserves the settled result (durable state, not client-only).
-    await pageA.reload();
-    await expect(pageA.getByText(/Victory|Defeat|Draw/i)).toBeVisible({ timeout: 10_000 });
-
-    await contextA.close();
-    await contextB.close();
   });
 
   test("a non-participant cannot view someone else's active match", async ({ browser }: { browser: Browser }) => {
@@ -230,24 +296,28 @@ test.describe("Ranked duels", () => {
     const tokenA = await signInAs(contextA, pageA, subA);
     await signInAs(contextStranger, pageStranger, subStranger);
 
-    await joinRankedQueue(pageA, "prime_3y");
-    await expect(pageA.getByText(/Waiting for an opponent/i)).toBeVisible({ timeout: 10_000 });
+    try {
+      // prime_3y, not apex_1y: this test needs an empty queue too, and using a
+      // different mode from the pairing test above means neither can leave
+      // residue the other trips over.
+      await joinRankedQueue(pageA, "prime_3y");
+      await expect(pageA.getByText(/Waiting for an opponent/i)).toBeVisible({ timeout: 10_000 });
 
-    // The stranger polls the match API directly for a match id they were
-    // never part of — this should be denied, not leaked.
-    const strangerToken = mintTestAccessToken(subStranger, `${subStranger}@e2e.test`);
-    const res = await pageStranger.request.get("http://localhost:8000/api/v1/ranked/matches/00000000-0000-0000-0000-000000000000", {
-      headers: { Authorization: `Bearer ${strangerToken}` },
-    });
-    expect([403, 404]).toContain(res.status());
-
-    // Leave no waiting entry behind for other tests/runs sharing this queue.
-    await pageA.request.post("http://localhost:8000/api/v1/ranked/queues/prime_3y/cancel", {
-      headers: { Authorization: `Bearer ${tokenA}` },
-    });
-
-    await contextA.close();
-    await contextStranger.close();
+      // The stranger polls the match API directly for a match id they were
+      // never part of — this should be denied, not leaked.
+      const strangerToken = mintTestAccessToken(subStranger, `${subStranger}@e2e.test`);
+      const res = await pageStranger.request.get("http://localhost:8000/api/v1/ranked/matches/00000000-0000-0000-0000-000000000000", {
+        headers: { Authorization: `Bearer ${strangerToken}` },
+      });
+      expect([403, 404]).toContain(res.status());
+    } finally {
+      // Leave no waiting entry behind for other tests/runs sharing this queue.
+      // Was already here and correct — now in a `finally`, so a failed
+      // assertion above no longer skips it and poisons the next run.
+      await leaveRankedQueue(pageA, tokenA, "prime_3y");
+      await contextA.close();
+      await contextStranger.close();
+    }
   });
 
   test("queue ratings remain independent across 1Y/3Y/5Y for the same user", async ({ page }) => {

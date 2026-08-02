@@ -158,3 +158,17 @@ class PostgresPerfectSeasonLeaderboardRepository:
                 "SELECT * FROM perfect_season_runs WHERE owner_sub = $1 ORDER BY created_at DESC", owner_sub
             )
             return [_row_to_run(r) for r in rows]
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign this owner's submitted runs to `to_sub` -- the guest-claim
+        path. Ownership only: `display_name` and every scored column are left
+        exactly as submitted (see the protocol's docstring). `UNIQUE (game_id)`
+        is global rather than owner-scoped, so there is no collision to
+        resolve and no sweep is needed.
+        """
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE perfect_season_runs SET owner_sub = $2 WHERE owner_sub = $1",
+                from_sub, to_sub,
+            )
+        return int(result.split()[-1])

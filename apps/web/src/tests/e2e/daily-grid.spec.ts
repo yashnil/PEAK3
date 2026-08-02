@@ -5,7 +5,8 @@
  * playwright.config.ts. Unlike CourtBuilder, the Daily Grid sits behind no
  * server flag, so these need no special environment.
  *
- * WHY THESE PIN A DATE. The board is a pure function of the UTC date, so
+ * WHY THESE PIN A DATE. The board is a pure function of the daily key --
+ * the date in `America/Los_Angeles`, not UTC -- so
  * "today" is a different puzzle every run — and a test that fills a square has
  * to know a real answer for the square it clicks. Every test here loads
  * `/daily/grid?date=FIXED_DATE` and discovers a genuine answer at run time by
@@ -19,14 +20,38 @@
  * project (same convention as gameplay.spec.ts / courtbuilder.spec.ts).
  */
 import { test, expect, Page, APIRequestContext } from "@playwright/test";
+// The app's own daily-key arithmetic — the mirror of the server's
+// `nba_peak.daily_key` (midnight America/Los_Angeles). Every date this file
+// derives comes from here, so the runner's TZ cannot change what "today" or
+// "yesterday" means. See the comment in the streak test for what mixing two
+// calendars actually cost.
+import { shiftDailyKey, todayPacific } from "@/lib/daily-time";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-// A fixed, real date so every run gets the same board. Any valid date works —
-// the generator has no special cases — so this is just "a date, chosen once".
+// A fixed, real date so every run gets the same board. It must be a PAST date:
+// a client-supplied date is an archive request, and a board that has not opened
+// yet is a 422 rather than a preview.
 const FIXED_DATE = "2026-03-14";
 
 const DAILY_URL = `/daily/grid?date=${FIXED_DATE}`;
+
+/**
+ * A *past* board, deliberately.
+ *
+ * These two tests used to navigate to `?date=2026-09-09`, a date in the
+ * future. That only worked because the Daily Grid accepted any well-formed
+ * date, so "tomorrow's board" was servable today — the same permissiveness
+ * that let a client's clock decide which day it was playing. Client-supplied
+ * dates are now validated as ARCHIVE requests and a future board is a 422,
+ * because it does not exist yet.
+ *
+ * A past date proves exactly what these tests are for (a different date is a
+ * different board, and progress does not bleed across board_ids) without
+ * asserting that the server will serve a board that has not opened.
+ */
+const ARCHIVE_DATE = "2026-07-15";
+
 
 /** Full names, so each query names ONE identity and therefore always earns an
  * eligibility verdict (a bare surname can match enough qualifying players to
@@ -210,12 +235,24 @@ async function solveBoardViaApi(
   return filled;
 }
 
-/** Mark the how-to-play rules as already seen, so a test that is not about
+/** Mark Daily Grid onboarding as already seen, so a test that is not about
  *  onboarding lands straight on the board. Must run before the first
- *  navigation, hence addInitScript. */
+ *  navigation, hence addInitScript.
+ *
+ *  Writes the VERSIONED tour store (`lib/tour-state.ts`) under the
+ *  `"daily-grid"` tour id. It used to write the unversioned
+ *  `"peak3.daily-grid.rules-seen"` flag, which the app now only ever READS, as
+ *  a one-way migration for players who dismissed the old gate. */
 async function skipRules(page: Page): Promise<void> {
   await page.addInitScript(() => {
-    window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+    window.localStorage.setItem(
+      "peak3.tour.state",
+      JSON.stringify({
+        schema_version: 1,
+        tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+        coachmarks: {},
+      }),
+    );
   });
 }
 
@@ -284,7 +321,7 @@ test.describe("Daily Grid — page", () => {
       ...(await page.getByTestId("grid-col-header").allInnerTexts()),
     ];
 
-    await page.goto("/daily/grid?date=2026-09-09", { waitUntil: "load" });
+    await page.goto(`/daily/grid?date=${ARCHIVE_DATE}`, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     const second = [
       ...(await page.getByTestId("grid-row-header").allInnerTexts()),
@@ -397,7 +434,7 @@ test.describe("Daily Grid — gameplay", () => {
     await fillCell(page, target);
 
     // Progress is keyed by board_id, so a different date must not inherit it.
-    await page.goto("/daily/grid?date=2026-09-09", { waitUntil: "load" });
+    await page.goto(`/daily/grid?date=${ARCHIVE_DATE}`, { waitUntil: "load" });
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
     await expect(
       page.locator('[data-testid="grid-cell"][data-state="filled"]'),
@@ -466,21 +503,36 @@ test.describe("Daily Grid — discoverability", () => {
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
   });
 
-  test("navbar Play still reaches the 82-0 start gate", async ({ page }) => {
-    // The Daily Grid sits BESIDE the flagship, never replacing it. Duplicated
-    // from play-routing.spec.ts on purpose: this file is what changed the
-    // navbar, so it should fail here first if it broke that path.
+  test("navbar Play still reaches the flagship, and 82-0 is still there too", async ({ page }) => {
+    // The Daily Grid sits BESIDE the other modes, never replacing them.
+    // Duplicated from play-routing.spec.ts on purpose: this file is what
+    // changed the navbar, so it should fail here first if it broke that path.
+    //
+    // "Play" is a disclosure BUTTON since the UX pass, not a link: it opens the
+    // nested game launcher. The hub is still one interaction away, as the
+    // launcher's last row. The property under test is unchanged — Play leads to
+    // /arena, and /arena's flagship is RUN THE TABLE.
     await page.goto("/", { waitUntil: "load" });
     const play = page
       .getByRole("navigation", { name: "Main navigation" })
-      .getByRole("link", { name: "Play" });
-    await expect(play).toHaveAttribute("href", "/arena/court/practice/apex_1y");
+      .getByRole("button", { name: "Play", exact: true });
+    await expect(play).toHaveAttribute("aria-expanded", "false");
 
     await play.click();
-    await expect(page).toHaveURL(/\/arena\/court\/practice\/apex_1y/);
-    await expect(page.locator('[data-testid="peak-season-start-gate"]')).toBeVisible({
-      timeout: 15_000,
-    });
+    await expect(play).toHaveAttribute("aria-expanded", "true");
+    await page
+      .getByTestId("nav-play-panel")
+      .getByRole("link", { name: /View all games/i })
+      .click();
+    await expect(page).toHaveURL(/\/arena$/);
+    await expect(page.getByTestId("arena-flagship-card")).toHaveAttribute(
+      "href",
+      "/arena/run-the-table",
+      { timeout: 15_000 },
+    );
+    // ...and the previous flagship kept its full entry block on the hub.
+    await expect(page.getByTestId("courtbuilder-hero")).toBeVisible();
+    await expect(page.getByRole("link", { name: /Build a Perfect Season/i })).toBeVisible();
   });
 });
 
@@ -574,16 +626,47 @@ test.describe("Daily Grid — answer-key confidentiality", () => {
  * board is measured against today's maximum.
  */
 test.describe("Daily Grid — objective and onboarding", () => {
-  test("explains the objective before the board is playable", async ({ page }) => {
+  test("states the objective and the timer rule before the board is playable", async ({ page }) => {
     // Deliberately NO skipRules: this is the first-visit path.
     await page.goto(DAILY_URL, { waitUntil: "load" });
 
-    const gate = page.getByTestId("how-to-play-gate");
+    const gate = page.getByTestId("daily-grid-start-gate");
     await expect(gate).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("how-to-play-objective")).toContainText(
-      /maximize your PEAK3 total with nine different players/i,
-    );
-    // The board is not reachable until the player starts.
+    await expect(gate).toContainText("9 squares · 9 different exact player-seasons");
+    await expect(gate).toContainText("Build the highest-scoring valid grid you can.");
+    await expect(gate).toContainText("The timer starts only when you press Start.");
+
+    // The three briefed actions.
+    await expect(page.getByTestId("start-daily-grid")).toHaveText(/Start Timed Grid/);
+    await expect(page.getByTestId("daily-grid-gate-how-to-play")).toHaveText(/How to Play/);
+    await expect(page.getByTestId("daily-grid-gate-skip-tour")).toHaveText(/Skip Tour and Start/);
+
+    // The board is not reachable until the player starts, so there is no square
+    // to select and therefore no search surface to inspect candidates with.
+    await expect(page.getByTestId("daily-grid-board")).toHaveCount(0);
+    await expect(page.getByTestId("grid-cell")).toHaveCount(0);
+    await expect(page.getByTestId("cell-search-input")).toHaveCount(0);
+  });
+
+  test("the walkthrough runs untimed from the gate, seven steps, and closes", async ({ page }) => {
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-start-gate")).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId("daily-grid-gate-how-to-play").click();
+    await expect(page.getByTestId("guided-tour-popover")).toBeVisible();
+    await expect(page.getByTestId("guided-tour-progress")).toHaveText("1 of 7");
+
+    for (let i = 2; i <= 7; i += 1) {
+      await page.getByTestId("guided-tour-next").click();
+      await expect(page.getByTestId("guided-tour-progress")).toHaveText(`${i} of 7`);
+    }
+    await page.getByTestId("guided-tour-back").click();
+    await expect(page.getByTestId("guided-tour-progress")).toHaveText("6 of 7");
+
+    // Escape closes it, and the gate is still the screen: nothing was started.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("guided-tour-popover")).toHaveCount(0);
+    await expect(page.getByTestId("daily-grid-start-gate")).toBeVisible();
     await expect(page.getByTestId("daily-grid-board")).toHaveCount(0);
   });
 
@@ -600,6 +683,14 @@ test.describe("Daily Grid — objective and onboarding", () => {
     );
   });
 
+  test("Skip Tour and Start goes straight to the board", async ({ page }) => {
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-start-gate")).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("daily-grid-gate-skip-tour").click();
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("guided-tour-popover")).toHaveCount(0);
+  });
+
   test("the rules can be reopened from the board", async ({ page }) => {
     await skipRules(page);
     await page.goto(DAILY_URL, { waitUntil: "load" });
@@ -609,6 +700,24 @@ test.describe("Daily Grid — objective and onboarding", () => {
     await expect(page.getByTestId("how-to-play-panel")).toBeVisible();
     await page.getByTestId("how-to-play-close").click();
     await expect(page.getByTestId("how-to-play-panel")).toHaveCount(0);
+  });
+
+  test("the walkthrough is replayable from the permanent ? control", async ({ page }) => {
+    await skipRules(page);
+    await page.goto(DAILY_URL, { waitUntil: "load" });
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
+
+    const launcher = page.getByTestId("daily-grid-tour-launcher");
+    await expect(launcher).toContainText("?");
+    await launcher.click();
+    await expect(page.getByTestId("guided-tour-popover")).toBeVisible();
+    await expect(page.getByTestId("guided-tour-progress")).toHaveText("1 of 7");
+
+    // Closing it leaves the board exactly as it was — no reset, nothing lost.
+    await page.getByTestId("guided-tour-skip").click();
+    await expect(page.getByTestId("guided-tour-popover")).toHaveCount(0);
+    await expect(page.getByTestId("daily-grid-board")).toBeVisible();
+    await expect(page.getByTestId("daily-grid-progress")).toHaveText("0/9");
   });
 });
 
@@ -858,7 +967,17 @@ test.describe("Daily Grid — completed result screen", () => {
 
     await page.addInitScript(
       ([boardId, date, cells]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         window.localStorage.setItem(
           `peak3.daily-grid.${boardId}`,
           JSON.stringify({
@@ -914,7 +1033,17 @@ test.describe("Daily Grid — completed result screen", () => {
 
     await page.addInitScript(
       ([boardId, date, cells]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         window.localStorage.setItem(
           `peak3.daily-grid.${boardId}`,
           JSON.stringify({
@@ -953,12 +1082,22 @@ test.describe("Daily Grid — completed result screen", () => {
  */
 test.describe("Daily Grid — streak, history and the daily loop", () => {
   /** Seed a completed archive for `days` consecutive days ending at `endDate`,
-   *  plus the rules-seen flag. Written through the same shape the app stores,
+   *  plus the onboarding-seen record. Written through the same shape the app stores,
    *  so the page reads it exactly as it would its own writes. */
   async function seedArchive(page: Page, endDate: string, days: number): Promise<void> {
     await page.addInitScript(
       ([end, count]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         const entries = [];
         for (let i = 0; i < (count as number); i += 1) {
           const d = new Date(`${end}T00:00:00Z`);
@@ -1000,24 +1139,39 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
     );
   }
 
-  /** Today's UTC date, the way the app computes it. */
-  function todayUtc(): string {
-    return new Date().toISOString().slice(0, 10);
-  }
-
   test("a completed board shows the streak, the record and a come-back prompt", async ({
     page,
     request,
   }) => {
     test.slow();
-    const today = todayUtc();
+    // `todayPacific`/`shiftDailyKey` from the app's own daily-key module — the
+    // same arithmetic the server's `nba_peak.daily_key` performs, and never a
+    // second, hand-rolled version of it.
+    //
+    // WHAT WAS WRONG. `today` was computed in America/Los_Angeles (correct) and
+    // `yesterday` as `Date.now() - 86_400_000` in UTC (not). Those two agree for
+    // sixteen or seventeen hours a day and disagree for the rest: on a UTC
+    // runner at 02:05 UTC, Pacific "today" is the 1st while UTC "yesterday" is
+    // also the 1st, so the archive seeded for "the two days before today"
+    // actually contained today — the completion added no new day and the streak
+    // came out 2 instead of 3. Nothing about the product was wrong; the fixture
+    // was measuring two different calendars. Deriving every key from one
+    // function makes the runner's timezone irrelevant by construction, which is
+    // why this test now also runs green under TZ=UTC and TZ=America/Los_Angeles.
+    const today = todayPacific();
     const filled = await solveBoardViaApi(request, today);
     const board = await (
       await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: today } })
     ).json();
 
+    // The server is the authority on what day it is; if it disagrees with the
+    // key we derived, say so here rather than three assertions later as an
+    // off-by-one streak.
+    expect(board.date, "server board date must be the Pacific daily key").toBe(today);
+
     // Two prior days, so finishing today makes it three in a row.
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const yesterday = shiftDailyKey(today, -1);
+    const dayBefore = shiftDailyKey(today, -2);
     await seedArchive(page, yesterday, 2);
     await page.addInitScript(
       ([boardId, date, cells]) => {
@@ -1038,7 +1192,26 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
     );
 
     await page.goto("/daily/grid", { waitUntil: "load" });
+
     await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+
+    // Assert the DAILY KEYS before the totals they produce. "3" is a
+    // consequence of three contiguous days being in the archive — the two
+    // seeded ones plus today's completion, which the page writes on load — and
+    // a bare `toHaveText("3")` cannot distinguish "the streak maths is broken"
+    // from "the fixture seeded the wrong dates". The previous failure was
+    // entirely the second kind.
+    const recordedDates = await page.evaluate(() => {
+      const raw = window.localStorage.getItem("peak3.daily-grid.archive");
+      return raw
+        ? (JSON.parse(raw) as { entries: { date: string }[] }).entries.map((e) => e.date).sort()
+        : [];
+    });
+    expect(recordedDates, "three contiguous daily keys ending today").toEqual([
+      dayBefore,
+      yesterday,
+      today,
+    ]);
 
     const retention = page.getByTestId("complete-retention");
     await expect(retention).toBeVisible();
@@ -1058,7 +1231,7 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
 
   test("a refresh preserves the completed result and the streak", async ({ page, request }) => {
     test.slow();
-    const today = todayUtc();
+    const today = todayPacific();
     const filled = await solveBoardViaApi(request, today);
     const board = await (
       await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: today } })
@@ -1066,7 +1239,17 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
 
     await page.addInitScript(
       ([boardId, date, cells]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         window.localStorage.setItem(
           `peak3.daily-grid.${boardId}`,
           JSON.stringify({
@@ -1106,7 +1289,7 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
     ).json();
 
     // A live 4-day streak ending yesterday.
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const yesterday = shiftDailyKey(todayPacific(), -1);
     await seedArchive(page, yesterday, 4);
     await page.addInitScript(
       ([boardId, date, cells]) => {
@@ -1165,10 +1348,20 @@ test.describe("Daily Grid — history page", () => {
   });
 
   test("lists completed grids and says plainly that they are local", async ({ page }) => {
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const yesterday = shiftDailyKey(todayPacific(), -1);
     await page.addInitScript(
       ([end]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         const entries = [];
         for (let i = 0; i < 3; i += 1) {
           const d = new Date(`${end}T00:00:00Z`);
@@ -1274,13 +1467,19 @@ test.describe("Daily hub", () => {
     await expect(page).toHaveURL(/\/play\/daily/, { timeout: 15_000 });
   });
 
-  test("links to Daily Grid history and keeps 82-0 reachable", async ({ page }) => {
+  test("links to Daily Grid history and keeps both play-any-time modes reachable", async ({ page }) => {
     await page.goto("/daily", { waitUntil: "load" });
     await expect(page.getByTestId("daily-hub-history-link")).toHaveAttribute(
       "href",
       "/daily/history",
     );
+    // The flagship card follows the product's flagship — RUN THE TABLE — and
+    // 82-0 PEAK Season keeps its own card beside it rather than being dropped.
     await expect(page.getByTestId("daily-hub-flagship-card")).toHaveAttribute(
+      "href",
+      "/arena/run-the-table",
+    );
+    await expect(page.getByTestId("daily-hub-peak-season-card")).toHaveAttribute(
       "href",
       "/arena/court/practice/apex_1y",
     );
@@ -1324,7 +1523,17 @@ test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
 
     await page.addInitScript(
       ([boardId, date, cells]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         window.localStorage.setItem(
           `peak3.daily-grid.${boardId}`,
           JSON.stringify({
@@ -1388,7 +1597,17 @@ test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
     ).json();
     await page.addInitScript(
       ([boardId, date, cells]) => {
-        window.localStorage.setItem("peak3.daily-grid.rules-seen", "1");
+        // The versioned tour store, which superseded the unversioned
+        // "peak3.daily-grid.rules-seen" flag. Writing the record for the
+        // "daily-grid" tour id is what suppresses the start gate.
+        window.localStorage.setItem(
+          "peak3.tour.state",
+          JSON.stringify({
+            schema_version: 1,
+            tours: { "daily-grid": { version: 1, status: "completed", at: "" } },
+            coachmarks: {},
+          }),
+        );
         window.localStorage.setItem(
           `peak3.daily-grid.${boardId}`,
           JSON.stringify({

@@ -1,0 +1,524 @@
+/* ================================================================
+   home.css — homepage hero, launcher, game cards, /arena catalog
+   ================================================================
+   Owner: W2 (UX / Organization / Polish pass).
+   Imported by globals.css. Created as an empty stub by W7 so the
+   import graph is proven to build before any writer fills it in.
+   Nothing else may edit this file.
+
+   RULES THIS FILE OBEYS (plan §3.1):
+   - It declares no new GLOBAL custom property. The `--home-*`
+     variables below are scoped to `.home-hero` and are locals, not
+     design tokens.
+   - It never redefines an existing token, only reads them.
+   - Every transition/animation here is CSS-only, so the global
+     `prefers-reduced-motion` rule in globals.css neutralises it
+     without any JS cooperation.
+   ================================================================ */
+
+/* ================================================================
+   Hero
+   ================================================================ */
+
+/* Warm "paper" ink for editorial display type. --text-primary
+   (#f0f0f0) stays the body colour everywhere; the hero headline and
+   the vignette's player names shift a few percent towards the court
+   gold so the front door reads as printed stock rather than as a
+   dashboard's pure white. Derived from the frozen tokens with
+   color-mix, so it can never drift away from them. */
+.home-hero {
+  --home-ink: color-mix(in srgb, var(--text-primary) 92%, var(--peak-accent) 8%);
+  position: relative;
+  overflow: hidden;
+}
+
+/* The hero is one grid: editorial column, then the live vignette.
+   Single column below 900px so the launcher is never pushed under
+   the fold on a phone. */
+.home-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--pk-space-8, 32px);
+  align-items: center;
+}
+
+@media (min-width: 900px) {
+  .home-hero-grid[data-vignette="true"] {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: var(--pk-space-12, 48px);
+  }
+}
+
+/* No vignette (API unreachable) — one readable measure, not a half-empty
+   two-column grid. */
+.home-hero-grid[data-vignette="false"] > * {
+  max-width: 42rem;
+}
+
+.home-hero-h1 {
+  color: var(--home-ink);
+  text-wrap: balance;
+}
+
+/* A thin gold rule under the eyebrow: court-line geometry, not a box. */
+.home-eyebrow-rule {
+  display: block;
+  width: 44px;
+  height: 2px;
+  margin-top: var(--pk-space-3, 12px);
+  background: linear-gradient(90deg, var(--peak-accent), transparent);
+  border-radius: var(--pk-r-pill, 999px);
+}
+
+/* ================================================================
+   Hero launcher (the `home-primary-cta` menu button)
+   ================================================================ */
+
+.home-launcher {
+  position: relative;
+  display: inline-block;
+}
+
+.home-launcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pk-space-2, 8px);
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0 var(--pk-space-6, 24px);
+  border-radius: var(--pk-r-md, 10px);
+  border: 1px solid var(--peak-accent);
+  background: var(--peak-accent);
+  color: var(--text-inverse);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow: var(--pk-elev-2);
+  transition:
+    background-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
+    box-shadow var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
+    transform var(--pk-dur-fast, 120ms) var(--pk-ease-standard);
+}
+
+.home-launcher-trigger:hover {
+  background: var(--peak-accent-dim);
+  border-color: var(--peak-accent-dim);
+  box-shadow: var(--pk-elev-3);
+}
+
+.home-launcher-trigger:active {
+  transform: translateY(1px);
+}
+
+.home-launcher-trigger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* The chevron is the non-colour signal that this opens something
+   rather than navigating. It flips when the menu is open. */
+.home-launcher-chevron {
+  transition: transform var(--pk-dur-fast, 120ms) var(--pk-ease-standard);
+}
+
+.home-launcher-trigger[aria-expanded="true"] .home-launcher-chevron {
+  transform: rotate(180deg);
+}
+
+/* In-place panel, deliberately NOT a full-screen modal: it is anchored
+   to the button, the page behind stays visible and scrollable, and it
+   never locks the body. */
+.home-launcher-menu {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + var(--pk-space-2, 8px));
+  left: 0;
+  width: min(21rem, calc(100vw - 2rem));
+  padding: var(--pk-space-2, 8px);
+  border-radius: var(--pk-r-lg, 14px);
+  border: 1px solid var(--pk-surface-decision-border, var(--border-emphasis));
+  background: var(--pk-surface-raised, var(--bg-surface));
+  box-shadow: var(--pk-elev-4);
+  animation: home-launcher-in var(--pk-dur-fast, 120ms) var(--pk-ease-out) both;
+}
+
+@keyframes home-launcher-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.home-launcher-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pk-space-3, 12px);
+  width: 100%;
+  min-height: var(--pk-tap-min, 44px);
+  padding: var(--pk-space-3, 12px);
+  border-radius: var(--pk-r-md, 10px);
+  border: 1px solid transparent;
+  text-align: left;
+  transition:
+    background-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
+    border-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard);
+}
+
+.home-launcher-item:hover,
+.home-launcher-item:focus-visible {
+  background: var(--pk-surface-inset, var(--bg-elevated));
+  border-color: var(--border-default);
+}
+
+.home-launcher-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.home-launcher-item-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-top: 1px;
+  border-radius: var(--pk-r-sm, 6px);
+  border: 1px solid var(--border-subtle);
+  background: var(--pk-surface-inset, var(--bg-elevated));
+  color: var(--peak-accent);
+}
+
+.home-launcher-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* ================================================================
+   Hero vignette — real peak windows, rotating, non-interactive
+   ================================================================ */
+
+/* Height is reserved up-front (CLS): the stack never grows or shrinks
+   as cards rotate through it. */
+.home-vignette {
+  position: relative;
+  padding: var(--pk-space-2, 8px);
+}
+
+.home-vignette-stage {
+  position: relative;
+  height: 252px;
+}
+
+@media (min-width: 640px) {
+  .home-vignette-stage {
+    height: 276px;
+  }
+}
+
+.home-vignette-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pk-space-3, 12px);
+  padding: var(--pk-space-5, 20px);
+  border-radius: var(--pk-r-xl, 20px);
+  border: 1px solid var(--pk-surface-raised-border, var(--border-default));
+  background:
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--bg-surface) 92%, var(--peak-accent) 8%),
+      var(--bg-elevated) 70%
+    );
+  box-shadow: var(--pk-elev-3);
+  transition:
+    transform var(--pk-dur-slower, 480ms) var(--pk-ease-standard),
+    opacity var(--pk-dur-slower, 480ms) var(--pk-ease-standard);
+}
+
+/* Three depth slots. The stack is a physical deck, so a card behind
+   is smaller, lower-contrast and offset — never merely faded. */
+.home-vignette-card[data-slot="0"] {
+  transform: none;
+  opacity: 1;
+  z-index: 3;
+}
+
+.home-vignette-card[data-slot="1"] {
+  transform: translate3d(0, 14px, 0) scale(0.955);
+  opacity: 0.55;
+  z-index: 2;
+}
+
+.home-vignette-card[data-slot="2"] {
+  transform: translate3d(0, 26px, 0) scale(0.915);
+  opacity: 0.26;
+  z-index: 1;
+}
+
+.home-vignette-card[data-slot="hidden"] {
+  transform: translate3d(0, 26px, 0) scale(0.915);
+  opacity: 0;
+  z-index: 0;
+}
+
+.home-vignette-name {
+  color: color-mix(in srgb, var(--text-primary) 92%, var(--peak-accent) 8%);
+}
+
+/* Component bars — the five official colours, no new palette. */
+.home-vignette-bar-track {
+  position: relative;
+  height: 6px;
+  border-radius: var(--pk-r-pill, 999px);
+  background: color-mix(in srgb, var(--border-default) 70%, transparent);
+  overflow: hidden;
+}
+
+.home-vignette-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width var(--pk-dur-slower, 480ms) var(--pk-ease-out);
+}
+
+/* First-render entrance only: the stage fades up once, then never
+   again (the class is applied on mount and never removed). */
+.home-vignette-enter {
+  animation: home-vignette-enter var(--pk-dur-slower, 480ms) var(--pk-ease-out) both;
+}
+
+@keyframes home-vignette-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ================================================================
+   Game cards
+   ================================================================ */
+
+/* Surface tiers, so a page of cards is not one repeated dark
+   rectangle with an identical border. `data-tone` is set by
+   GameCard.tsx; `featured` wins over all of them. */
+.pk-game-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--pk-r-lg, 14px);
+  border: 1px solid var(--pk-surface-inset-border, var(--border-subtle));
+  background: var(--pk-surface-inset, var(--bg-elevated));
+  box-shadow: var(--pk-elev-0);
+  transition:
+    border-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
+    background-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
+    box-shadow var(--pk-dur-base, 200ms) var(--pk-ease-standard),
+    transform var(--pk-dur-base, 200ms) var(--pk-ease-standard);
+}
+
+.pk-game-card[data-tone="raised"] {
+  border-color: var(--pk-surface-raised-border, var(--border-default));
+  background: var(--pk-surface-raised, var(--bg-surface));
+}
+
+.pk-game-card[data-tone="quiet"] {
+  border-color: var(--pk-surface-quiet-border, var(--border-subtle));
+  background-color: transparent;
+  background-image: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-elevated) 70%, transparent),
+    transparent 80%
+  );
+}
+
+.pk-game-card[data-featured="true"] {
+  border-color: color-mix(in srgb, var(--peak-accent) 38%, var(--border-subtle));
+  background-image: linear-gradient(
+    160deg,
+    rgba(245, 200, 66, 0.07),
+    rgba(245, 200, 66, 0.015) 55%,
+    transparent
+  );
+  box-shadow: var(--pk-elev-2);
+}
+
+/* The top rail is the non-colour hover/focus signal: a physical
+   measure of "this whole card is one link" that grows across it. */
+.pk-game-card-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 0;
+  background: linear-gradient(90deg, var(--peak-accent), transparent);
+  transition: width var(--pk-dur-base, 200ms) var(--pk-ease-out);
+}
+
+.pk-game-card[data-featured="true"] .pk-game-card-rail {
+  width: 34%;
+}
+
+.pk-game-card:hover,
+.pk-game-card:focus-visible {
+  border-color: var(--border-emphasis);
+  box-shadow: var(--pk-elev-3);
+  transform: translateY(-2px);
+}
+
+.pk-game-card[data-featured="true"]:hover,
+.pk-game-card[data-featured="true"]:focus-visible {
+  border-color: color-mix(in srgb, var(--peak-accent) 66%, var(--border-default));
+}
+
+.pk-game-card:hover .pk-game-card-rail,
+.pk-game-card:focus-visible .pk-game-card-rail {
+  width: 100%;
+}
+
+.pk-game-card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* The action row names the destination. On hover/focus it underlines
+   and its arrow travels — two signals, neither of them colour-only. */
+.pk-game-card-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--pk-space-1, 4px);
+  margin-top: auto;
+  padding-top: var(--pk-space-4, 16px);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  transition: color var(--pk-dur-fast, 120ms) var(--pk-ease-standard);
+}
+
+.pk-game-card[data-featured="true"] .pk-game-card-action {
+  color: var(--peak-accent);
+}
+
+.pk-game-card-action-text {
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard);
+}
+
+.pk-game-card:hover .pk-game-card-action,
+.pk-game-card:focus-visible .pk-game-card-action {
+  color: var(--peak-accent);
+}
+
+.pk-game-card:hover .pk-game-card-action-text,
+.pk-game-card:focus-visible .pk-game-card-action-text {
+  border-bottom-color: currentColor;
+}
+
+.pk-game-card-arrow {
+  transition: transform var(--pk-dur-base, 200ms) var(--pk-ease-out);
+}
+
+.pk-game-card:hover .pk-game-card-arrow,
+.pk-game-card:focus-visible .pk-game-card-arrow {
+  transform: translateX(3px);
+}
+
+/* ================================================================
+   Model proof strip
+   ================================================================ */
+
+.home-proof {
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-elevated) 80%, transparent),
+    transparent
+  );
+}
+
+.home-proof-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: var(--pk-space-4, 16px) var(--pk-space-6, 24px);
+}
+
+.home-proof-value {
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text-primary) 92%, var(--peak-accent) 8%);
+}
+
+@media (min-width: 640px) {
+  .home-proof-item + .home-proof-item {
+    border-left: 1px solid var(--border-subtle);
+    padding-left: var(--pk-space-6, 24px);
+  }
+}
+
+/* ================================================================
+   Section band — a quiet alternative to yet another bordered box
+   ================================================================ */
+
+.home-band {
+  position: relative;
+  border-radius: var(--pk-r-xl, 20px);
+  border: 1px solid var(--pk-surface-quiet-border, var(--border-subtle));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-elevated) 85%, transparent),
+    transparent 70%
+  );
+}
+
+/* A numbered step reads as an editorial figure, not a widget. */
+.home-step-index {
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--peak-accent) 55%, var(--text-muted));
+}
+
+/* ================================================================
+   /arena catalog
+   ================================================================ */
+
+/* Inline link row under a group — 44px tap targets without the links
+   drifting apart visually. */
+.arena-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pk-space-1, 4px) var(--pk-space-4, 16px);
+}
+
+.arena-inline-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--pk-tap-min, 44px);
+  gap: var(--pk-space-1, 4px);
+  font-size: 12px;
+  font-weight: 600;
+  text-underline-offset: 2px;
+}
+
+.arena-inline-link:hover {
+  text-decoration: underline;
+}
+
+.arena-inline-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--pk-r-sm, 6px);
+}

@@ -5,8 +5,20 @@ Routes:
   GET  /api/v1/daily-grid/search?q=...            - player-season lookup for filling a cell
   POST /api/v1/daily-grid/answer                  - server-side answer validation + scoring
   POST /api/v1/daily-grid/result                  - post-completion comparison vs today's max
+  POST /api/v1/daily-grid/{daily_key}/start       - start (once) the server-side clock
   POST /api/v1/daily-grid/official                - save one official result (signed-in only)
+  GET  /api/v1/daily-grid/results                 - the caller's own official history
   GET  /api/v1/daily-grid/constraints             - the shipped constraint taxonomy
+
+THE CLOCK IS THE SERVER'S (Phase 12, spec §2). `POST /{daily_key}/start`
+writes `started_at` exactly once and every elapsed time is derived from it.
+Before this the timer lived entirely in the browser, which meant it ran while
+the tab was closed, reset with local storage, was editable from the console --
+and was still written to the durable result. `/start` is idempotent at the
+database level (`UNIQUE (owner_sub, daily_key)`), so a double-click, a refresh
+and a second tab are one attempt rather than three, and it refuses any key that
+is not today: an archive or challenge view must never start or disturb today's
+timed attempt.
 
 This router is a thin transport shell. Every rule -- what a board is, what
 counts as an answer, what a cell is worth -- lives in nba_peak/daily_grid/,
@@ -42,31 +54,37 @@ FastAPI runs them in its threadpool instead of blocking the event loop.
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Cookie, HTTPException, Path as PathParam, Query, Request, Response
 
 _repo_root = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from app.core.auth import RequiredAuth
+from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, RequiredAuth, resolve_owner_sub
 from app.core.dependencies import DailyGridResultRepoDep
+from app.core.ownership import existing_owner_sub
 from app.models.daily_grid import (
     GRID_SIZE,
     MAX_BOARD_CELLS,
+    AttemptStatus,
     DailyGridBoardResponse,
     DailyGridSearchResponse,
+    DailyGridStartResponse,
     GridConstraint,
     GridResultRequest,
     GridResultResponse,
+    OfficialResultHistoryResponse,
     OfficialResultRequest,
     OfficialResultResponse,
+    OfficialResultSummary,
     SubmitAnswerRequest,
     SubmitAnswerResponse,
 )
-from app.repositories.daily_grid_protocols import DailyGridResult
+from app.repositories.daily_grid_protocols import DailyGridAttempt, DailyGridResult
 from app.core.config import settings
 from app.core.rate_limit import RateLimitRule, client_key, limiter
 from nba_peak.daily_grid.constraints import all_constraints
@@ -76,8 +94,9 @@ from nba_peak.daily_grid.generator import (
     InvalidGridDate,
     get_board,
     today_utc_date,
-    validate_grid_date,
+    validate_grid_request_date,
 )
+from nba_peak.daily_key import InvalidDailyKey, daily_window, validate_daily_key
 from nba_peak.daily_grid.optimal import build_result
 from nba_peak.daily_grid.search import (
     DEFAULT_LIMIT,
@@ -88,6 +107,39 @@ from nba_peak.daily_grid.search import (
 from nba_peak.daily_grid.validation import InvalidCell, validate_answer
 
 router = APIRouter()
+
+
+class DailyGridBoardWithWindow(DailyGridBoardResponse):
+    """The board, the daily window FLATTENED, and the caller's standing on it.
+
+    THREE THINGS LIVE HERE RATHER THAN ON THE SHARED MODEL.
+
+    1. `daily` -- every daily response in the app carries the identical object
+       under this key, produced by `DailyWindow.to_payload()`. It is what lets
+       the client know, without doing timezone arithmetic of its own, exactly
+       when this board stops being today's, and therefore when to fetch the
+       next one.
+
+    2. The same window's five fields, repeated at the TOP LEVEL (spec §1).
+       Duplicated deliberately: the nested block is the older contract and
+       several clients already read it, so it stays, but the top level is where
+       the spec puts them and where a reader looks first. Both are produced
+       from one `DailyWindow`, so they cannot disagree.
+
+    3. `attempt_status` -- what the SERVER knows about this caller and this
+       board. Resolved from the caller's own attempt row and official result,
+       both looked up by exact daily key, so today's board can never report
+       yesterday's standing.
+    """
+
+    daily_key: str
+    timezone: str
+    starts_at: str
+    ends_at: str
+    seconds_remaining: int
+    attempt_status: AttemptStatus
+    daily: dict
+
 
 # Longest query string worth evaluating. Anything past this is not a player
 # name; the search scans every season in the pool, so the input is bounded
@@ -161,19 +213,36 @@ def _raise_if_denied(verdict) -> None:
     )
 
 
-def _resolve_board(date: Optional[str]) -> GridBoard:
-    """The board for `date`, or today's (UTC) when omitted.
+def _resolve_board_date(date: Optional[str]) -> str:
+    """Validate a client-supplied board date, or return today's.
 
-    `get_board` is process-cached and a pure function of (date, version), so
-    repeat requests for the same day cost nothing and can never disagree.
+    Split out from `_resolve_board` so a route can charge its rate-limit budget
+    against a *validated* date without paying for board generation first (see
+    the board route and defect D7). Validation is pure string/clock work; it
+    costs nothing.
     """
     try:
-        board_date = validate_grid_date(date) if date is not None else today_utc_date()
+        return validate_grid_request_date(date) if date is not None else today_utc_date()
     except InvalidGridDate as exc:
         raise HTTPException(
             status_code=400, detail=_error_detail(str(exc), "invalid_grid_date")
         )
-    return get_board(board_date)
+
+
+def _resolve_board(date: Optional[str]) -> GridBoard:
+    """The board for `date`, or TODAY'S when omitted.
+
+    "Today" is the server's daily key -- midnight America/Los_Angeles, defined
+    once in `nba_peak.daily_key` -- never a browser-supplied date. A `date`
+    parameter is an explicit ARCHIVE request: it is validated for shape, bounded
+    to the archive window, and refused if it names a board that has not opened
+    yet. Every past board stays permanently addressable, which the client-side
+    streak rule depends on.
+
+    `get_board` is process-cached and a pure function of (date, version), so
+    repeat requests for the same day cost nothing and can never disagree.
+    """
+    return get_board(_resolve_board_date(date))
 
 
 def _require_in_bounds(row: int, col: int) -> None:
@@ -191,18 +260,64 @@ def _require_in_bounds(row: int, col: int) -> None:
 # Board
 # ---------------------------------------------------------------------------
 
-@router.get("/daily-grid/board", response_model=DailyGridBoardResponse)
-def get_daily_grid_board(
+async def _attempt_status(
+    repo,
+    owner_sub: Optional[str],
+    board: GridBoard,
+) -> AttemptStatus:
+    """Where this caller stands on THIS board, from the server's own records.
+
+    Fixes defect D3: `list_results_for_owner` had zero callers and no route
+    ever asked the database whether the signed-in caller had already played.
+    A player on a second device, or one who had cleared local storage, was
+    handed a blank board even though a durable, server-validated official row
+    existed for them -- and the second `POST /official` came back
+    `created: false` with nothing to surface it.
+
+    BOTH LOOKUPS ARE PINNED TO THIS BOARD'S OWN KEY -- `board.date` and, for
+    the result, `board.version` too. There is no "most recent attempt" query
+    anywhere in this path, so the current-day route structurally cannot return
+    a prior day's attempt or result; asking about today and being told about
+    yesterday is not a case that exists.
+
+    An unidentified caller is always `not_started`: with no verified JWT and no
+    signed anon cookie there is nothing to look up, and this is a GET, so it
+    must not mint an identity (see `existing_owner_sub`).
+    """
+    if owner_sub is None:
+        return "not_started"
+    result = await repo.get_result(owner_sub, board.date, board.version)
+    if result is not None:
+        # Terminal: `daily_grid_results` is immutable and one-per-board, so a
+        # completed board never reverts to in_progress.
+        return "completed"
+    attempt = await repo.get_attempt(owner_sub, board.date)
+    return "in_progress" if attempt is not None else "not_started"
+
+
+@router.get("/daily-grid/board", response_model=DailyGridBoardWithWindow)
+async def get_daily_grid_board(
     request: Request,
+    repo: DailyGridResultRepoDep,
+    auth: OptionalAuth = None,
     date: Optional[str] = Query(
-        None, max_length=32, description="YYYY-MM-DD (UTC); defaults to today"
+        None,
+        max_length=32,
+        description="YYYY-MM-DD archive date; omit for today's board (server-decided)",
     ),
-) -> DailyGridBoardResponse:
+    peak3_anon: Optional[str] = Cookie(None, alias=ANON_COOKIE_NAME),
+) -> DailyGridBoardWithWindow:
     """Today's board, or a specific date's.
 
     Same date, same board, for every player worldwide -- the board is derived
     from a date-seeded generator, not stored, so any date (past or future)
     resolves to the one board that date will ever have.
+
+    RATE LIMITED BEFORE ANY WORK IS DONE (defect D7). Generating a cold date's
+    board is a seeded search of up to 8,000 candidate compositions; running it
+    before the limiter meant the expensive half of the request was already paid
+    for by the time the budget was checked, so a 429 cost the server nearly as
+    much as a 200. `/answer` already had the right order; this now matches it.
 
     Two limits apply. The first is the ordinary per-minute board budget. The
     second caps DISTINCT DATES per client: replaying an archive board is a
@@ -210,11 +325,138 @@ def get_daily_grid_board(
     an offline corpus of a year's boards should cost more than one loop. It is
     keyed on the date itself, so re-fetching the SAME date (reload, retry,
     coming back to today) never consumes date-enumeration budget.
+
+    IDENTITY IS READ, NEVER ISSUED. `existing_owner_sub` resolves a verified
+    JWT or a signed `peak3_anon` cookie and mints nothing: a GET that set a
+    30-day cookie on every cold visitor would be issuing credentials to
+    crawlers, and a caller with no credential simply has no attempt to report.
     """
-    board = _resolve_board(date)
     _enforce(request, "daily_grid:board", settings.DAILY_GRID_BOARD_RATE_LIMIT)
-    _enforce_distinct_dates(request, board.date)
-    return DailyGridBoardResponse(**board.as_public_dict())
+    # The date is validated (cheaply) before the enumeration budget is charged,
+    # so a typo'd date is a 400 rather than a silently-spent slot.
+    board_date = _resolve_board_date(date)
+    _enforce_distinct_dates(request, board_date)
+    board = get_board(board_date)
+
+    owner_sub = existing_owner_sub(auth, peak3_anon, settings.SIGNING_SECRET)
+    status = await _attempt_status(repo, owner_sub, board)
+
+    # An archive board reports `seconds_remaining: 0` -- its window closed long
+    # ago -- so a client counting down from it never schedules a refetch for a
+    # board that is not today's.
+    window = daily_window(board.date)
+    return DailyGridBoardWithWindow(
+        **board.as_public_dict(),
+        **window.to_payload(),
+        attempt_status=status,
+        daily=window.to_payload(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Server-authoritative attempt clock (Phase 12, spec §2)
+# ---------------------------------------------------------------------------
+
+def _iso(moment: datetime) -> str:
+    """UTC ISO-8601 with a `Z`, the same shape `DailyWindow.to_payload` emits."""
+    return moment.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+@router.post("/daily-grid/{daily_key}/start", response_model=DailyGridStartResponse)
+async def start_daily_grid_attempt(
+    request: Request,
+    response: Response,
+    repo: DailyGridResultRepoDep,
+    auth: OptionalAuth = None,
+    daily_key: str = PathParam(
+        ..., max_length=32, description="YYYY-MM-DD; must be TODAY's key"
+    ),
+    peak3_anon: Optional[str] = Cookie(None, alias=ANON_COOKIE_NAME),
+) -> DailyGridStartResponse:
+    """Start the clock on today's board. Once, and only once.
+
+    THE CLIENT IS NO LONGER THE AUTHORITY ON TIME (defect D8). `started_at` is
+    assigned here, by the server, and `elapsed_seconds` is derived from it.
+    Nothing in the request body can influence either -- there is no request
+    body.
+
+    IDEMPOTENT, AND THAT IS THE WHOLE POINT. A second call returns the SAME
+    `started_at`, because the repository inserts with
+    `ON CONFLICT (owner_sub, daily_key) DO NOTHING`. Double-click, refresh, a
+    second tab, a retried request after a flaky network -- all one attempt.
+    `ON CONFLICT DO UPDATE` would have been the obvious spelling and is exactly
+    wrong: a clock a caller can restart measures nothing.
+
+    ONLY TODAY'S KEY. A key that is not today is refused with 409
+    `not_todays_key`, never silently redirected to today. Archive replay and
+    challenge views address other dates by design, and neither may start,
+    resume or disturb the one timed attempt that counts. A malformed or future
+    key is a 400 from `validate_daily_key` first, since "not a key at all" and
+    "a real key, but not today's" are different mistakes.
+
+    IDENTITY IS MINTED HERE, unlike on `/board`. Starting an attempt is a
+    creation-like act and a first-time guest legitimately needs a subject to
+    own it, so this route uses `resolve_owner_sub` (which issues and sets the
+    signed `peak3_anon` cookie when the caller has none) rather than
+    `existing_owner_sub`. Daily Grid needs no account to play; a guest's clock
+    is as real as a signed-in player's, and `transfer_owner` carries it across
+    when they later sign in.
+    """
+    # Metered against the BOARD budget, not the result budget: a client calls
+    # this once per board load, so it is as frequent as `/board` itself, and
+    # the tighter result budget (20/min) would start refusing to hand a real
+    # player their clock during the refetch storm described in defect D2. The
+    # write it guards is idempotent, so a repeat costs one indexed lookup.
+    _enforce(request, "daily_grid:start", settings.DAILY_GRID_BOARD_RATE_LIMIT)
+
+    try:
+        requested = validate_daily_key(daily_key)
+    except InvalidDailyKey as exc:
+        raise HTTPException(
+            status_code=400, detail=_error_detail(str(exc), "invalid_grid_date")
+        )
+
+    today = today_utc_date()
+    if requested != today:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "not_todays_key",
+                "message": (
+                    f"{requested} is not today's board ({today}). Only today's "
+                    "attempt is timed; archive boards are replayed untimed."
+                ),
+                "daily_key": requested,
+                "today": today,
+            },
+        )
+
+    owner_sub = resolve_owner_sub(auth, peak3_anon, response, settings.SIGNING_SECRET)
+    board = get_board(today)
+
+    attempt, _created = await repo.start_attempt(
+        DailyGridAttempt(
+            id="",
+            owner_sub=owner_sub,
+            daily_key=today,
+            board_id=board.board_id,
+            board_version=board.version,
+        )
+    )
+
+    now = datetime.now(timezone.utc)
+    started_at = attempt.started_at
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    elapsed = max(0, int((now - started_at).total_seconds()))
+
+    return DailyGridStartResponse(
+        daily_key=today,
+        started_at=_iso(started_at),
+        server_now=_iso(now),
+        elapsed_seconds=elapsed,
+        attempt_status=await _attempt_status(repo, owner_sub, board),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +468,9 @@ def search_daily_grid(
     request: Request,
     q: str = Query(..., max_length=_MAX_QUERY_LENGTH, description="player name, optionally with a season"),
     date: Optional[str] = Query(
-        None, max_length=32, description="YYYY-MM-DD (UTC); defaults to today"
+        None,
+        max_length=32,
+        description="YYYY-MM-DD archive date; omit for today's (server-decided)",
     ),
     row: Optional[int] = Query(None, description="0-2; scope results to a cell"),
     col: Optional[int] = Query(None, description="0-2; required whenever row is given"),
@@ -438,6 +682,32 @@ def get_daily_grid_result(request: Request, body: GridResultRequest) -> GridResu
 # Official account-backed result (Phase 11D)
 # ---------------------------------------------------------------------------
 
+async def _elapsed_seconds(
+    repo,
+    owner_sub: str,
+    board: GridBoard,
+    client_reported: Optional[int],
+) -> Optional[int]:
+    """How long this board took, preferring the SERVER's clock.
+
+    When an attempt row exists for (owner, this board's date), the elapsed time
+    is `now - started_at` -- a number the client never touched. The
+    client-reported value is used only when there is no server clock to use,
+    which is the archive-replay case and the pre-`/start` legacy client, and it
+    stays what it always was: presentational, bounded, never scored.
+
+    Scoped to `board.date`, so finishing an archive board cannot pick up
+    today's running clock and cannot be credited with it either.
+    """
+    attempt = await repo.get_attempt(owner_sub, board.date)
+    if attempt is None:
+        return client_reported
+    started_at = attempt.started_at
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    return max(0, int((datetime.now(timezone.utc) - started_at).total_seconds()))
+
+
 @router.post("/daily-grid/official", response_model=OfficialResultResponse)
 async def save_official_daily_grid_result(
     request: Request,
@@ -458,11 +728,13 @@ async def save_official_daily_grid_result(
     `build_result`. Nothing scored comes from the request body. The client
     cannot report a score at all, so it cannot report a false one.
 
-    The two exceptions are honest and marked as such: `elapsed_seconds` is
-    client wall-clock (the server does not time attempts) and `theme` is
-    display copy, re-derived from the board rather than trusted. Neither is
-    scored. That asymmetry is precisely why the timer must not become a scoring
-    term before the server times attempts itself.
+    `theme` is display copy and is re-derived from the board rather than
+    trusted. `elapsed_seconds` is now taken from the SERVER's clock whenever
+    one exists for this owner and this board (`POST /{daily_key}/start`), and
+    falls back to the client's number only for an archive replay or a client
+    that never called `/start` -- see `_elapsed_seconds`. Neither is scored;
+    the timer earns the right to be scored only for boards whose clock the
+    server actually owns.
 
     IDEMPOTENT. A second POST for the same board returns the existing record
     with `created: false` and HTTP 200. A daily attempt happens once; a retry
@@ -499,7 +771,7 @@ async def save_official_daily_grid_result(
         percent_of_best=grid_result.percent_of_best,
         squares_matching_optimal=grid_result.squares_matching_optimal,
         incorrect_attempts=body.incorrect_attempts,
-        elapsed_seconds=body.elapsed_seconds,
+        elapsed_seconds=await _elapsed_seconds(repo, auth.sub, board, body.elapsed_seconds),
         played_on_board_date=board.date == today_utc_date(),
         answers=[cell.answer_id for cell in body.filled],
     )
@@ -517,6 +789,58 @@ async def save_official_daily_grid_result(
         squares_matching_optimal=saved.squares_matching_optimal,
         played_on_board_date=saved.played_on_board_date,
         saved_at=saved.created_at.isoformat(),
+    )
+
+
+@router.get("/daily-grid/results", response_model=OfficialResultHistoryResponse)
+async def list_official_daily_grid_results(
+    request: Request,
+    auth: RequiredAuth,
+    repo: DailyGridResultRepoDep,
+    limit: int = Query(30, ge=1, le=90, description="most recent board dates first"),
+) -> OfficialResultHistoryResponse:
+    """The caller's OWN official Daily Grid results, newest board first.
+
+    The other half of defect D3. `DailyGridResultRepository.list_results_for_owner`
+    has existed since Phase 11D with zero callers: the server has been keeping a
+    durable, validated record of every signed-in player's finished boards and
+    has never had a route that would hand it back. A player on a second device,
+    or one who cleared site data, saw an empty history that the database could
+    have filled in.
+
+    OWNER-SCOPED BY CONSTRUCTION. The subject comes from the verified JWT and
+    is the only argument the query takes -- there is no id, name or filter a
+    caller could supply to read someone else's rows.
+
+    A SUMMARY, NOT A REPLAY. No answer ids, no optimal assignment, no cell
+    breakdown: everything the result-comparison route guards stays guarded, and
+    this route cannot become a side door onto an old board's answer key. Not a
+    leaderboard either -- nothing here is public and nothing ranks these rows.
+
+    Requires a real account. An anonymous player's history lives in
+    localStorage, which is the honest arrangement: there is no durable record
+    to serve them.
+    """
+    _enforce(request, "daily_grid:results", settings.DAILY_GRID_RESULT_RATE_LIMIT)
+    rows = await repo.list_results_for_owner(auth.sub, limit=limit)
+    return OfficialResultHistoryResponse(
+        results=[
+            OfficialResultSummary(
+                board_id=row.board_id,
+                board_date=row.board_date,
+                board_version=row.board_version,
+                board_theme=row.board_theme,
+                score=row.score,
+                optimal_total=row.optimal_total,
+                percent_of_best=row.percent_of_best,
+                squares_matching_optimal=row.squares_matching_optimal,
+                incorrect_attempts=row.incorrect_attempts,
+                elapsed_seconds=row.elapsed_seconds,
+                played_on_board_date=row.played_on_board_date,
+                saved_at=_iso(row.created_at),
+            )
+            for row in rows
+        ]
     )
 
 

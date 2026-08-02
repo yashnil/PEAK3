@@ -119,7 +119,9 @@ def test_walking_the_calendar_is_capped(client: TestClient):
     for i in range(allowed):
         date = f"2026-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}"
         assert client.get(BOARD_URL, params={"date": date}).status_code == 200, date
-    _assert_clean_429(client.get(BOARD_URL, params={"date": "2027-06-06"}))
+    # A past date -- a FUTURE board is refused outright now (400), which
+    # would mask the 429 this test is about.
+    _assert_clean_429(client.get(BOARD_URL, params={"date": "2025-06-06"}))
 
 
 def test_refetching_one_date_never_costs_enumeration_budget(client: TestClient):

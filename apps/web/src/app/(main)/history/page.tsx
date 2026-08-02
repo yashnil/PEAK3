@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
+import { signInHref } from "@/lib/supabase/safe-next";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -53,7 +54,7 @@ export default function HistoryPage() {
   useEffect(() => {
     if (loading) return;
     if (!user) {
-      router.push("/signin?returnTo=/history");
+      router.push(signInHref("/history"));
       return;
     }
     loadHistory(null);

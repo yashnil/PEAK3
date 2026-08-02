@@ -21,6 +21,10 @@
  * docs/model/POSTSEASON_TEAM_AUDIT.md for what they actually measure.
  */
 import type { RankingComponentKey, RankingExplain, RankingExplainBlock } from "@/types";
+// Shared with the RUN THE TABLE surfaces. This module used to carry a private
+// copy, which is how "75.1th percentile" shipped on every player card while a
+// correct implementation sat one file away.
+import { ordinal } from "@/lib/ordinal";
 
 export interface ComponentReceipt {
   key: RankingComponentKey;
@@ -134,18 +138,6 @@ const AWARD_TOKEN_LABELS: Record<string, string> = {
   DEF1: "All-Defensive First Team",
   DEF2: "All-Defensive Second Team",
 };
-
-function ordinal(n: number): string {
-  const suffix =
-    n % 10 === 1 && n % 100 !== 11
-      ? "st"
-      : n % 10 === 2 && n % 100 !== 12
-        ? "nd"
-        : n % 10 === 3 && n % 100 !== 13
-          ? "rd"
-          : "th";
-  return `${n}${suffix}`;
-}
 
 /**
  * "MVP-1" -> "MVP"; "DPOY-7" -> "Defensive Player of the Year (7th in voting)";

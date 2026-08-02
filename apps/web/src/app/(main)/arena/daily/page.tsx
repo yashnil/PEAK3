@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { draftProgress } from "@/lib/draft-progress";
-import { todayUTC } from "@/lib/utils";
+import { localDailyWindow } from "@/lib/daily-time";
+import { useDailyReset } from "@/lib/use-daily-reset";
 import { DraftMode, DraftCompletionSummary, MODE_LABELS } from "@/types/draft";
 
 const MODES: DraftMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
@@ -15,7 +16,12 @@ const MODE_SUBTITLES: Record<DraftMode, string> = {
 };
 
 export default function DailyHubPage() {
-  const today = todayUTC();
+  // A purely local hub: nothing here is fetched, so `today` is the local
+  // fallback key from `lib/daily-time.ts`. It is used ONLY to pick the right
+  // localStorage bucket and is never sent to the server as `?date=` — the
+  // board routes it links to resolve the day themselves.
+  const [window_, setWindow] = useState(() => localDailyWindow());
+  const today = window_.daily_key;
   const [completions, setCompletions] = useState<
     Partial<Record<DraftMode, DraftCompletionSummary>>
   >({});
@@ -24,6 +30,17 @@ export default function DailyHubPage() {
     document.title = "Daily Peak | PEAK3 Arena";
     setCompletions(draftProgress.getAllDailyCompletions(today));
   }, [today]);
+
+  // Re-derives the day at the rollover and on returning to a backgrounded tab,
+  // so a hub left open overnight stops claiming yesterday's boards are done.
+  // The zone is passed to Intl explicitly, so the server render and the first
+  // client render produce the same key and hydration stays clean.
+  useDailyReset({
+    dailyKey: window_.daily_key,
+    secondsRemaining: window_.seconds_remaining,
+    window: window_,
+    onReset: useCallback(() => setWindow(localDailyWindow()), []),
+  });
 
   const dateLabel = new Date(today + "T00:00:00").toLocaleDateString("en-US", {
     weekday: "long",

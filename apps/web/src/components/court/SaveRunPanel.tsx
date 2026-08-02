@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
@@ -54,6 +55,12 @@ const TONE_COLORS: Record<"gold" | "green" | "muted", string> = {
  */
 export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }: Props) {
   const { user } = useAuth();
+  // Carry the current page as ?returnTo= so signing in from a result screen
+  // comes back here instead of dropping the player on the homepage. The
+  // sign-in page re-validates it with safeNext(), so an attacker-supplied
+  // value cannot turn this into an open redirect.
+  const pathname = usePathname();
+  const signInHref = `/signin?returnTo=${encodeURIComponent(pathname || "/")}`;
   const [phase, setPhase] = useState<Phase>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [result, setResult] = useState<SaveRunResponse | null>(null);
@@ -125,7 +132,7 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
             Sign in to save this run, track personal bests, and see your history.
           </span>
           <Link
-            href="/signin"
+            href={signInHref}
             className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
             style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
           >

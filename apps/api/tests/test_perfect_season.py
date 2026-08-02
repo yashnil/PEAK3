@@ -25,6 +25,7 @@ from app.core.config import settings
 from app.core.dependencies import _memory_court_lineup_repo
 from app.main import app
 
+from nba_peak.perfect_season import config as ps_config
 from nba_peak.perfect_season.board import (
     _can_assign_distinct,
     _clear_interim_teams_cache,
@@ -4446,3 +4447,674 @@ def test_disaster_and_normal_bad_rosters_are_untouched_by_the_elite_fixtures():
     disaster_result = simulate_exact_season(disaster, board_seed=1, slot_types=SLOT_TYPES)
     assert _is_catastrophe_roster(disaster, compute_exact_fit_components(disaster, SLOT_TYPES)) is True
     assert disaster_result.wins < 15
+
+
+# ===========================================================================
+# W5 (UX / organization / polish pass): distance-aware respin policy,
+# respin idempotency, and the guarantee that INITIAL BOARD GENERATION did
+# not move.
+#
+# See docs/implementation/UX_ORGANIZATION_POLISH_PLAN.md Sec 1.5 / Sec 5.5,
+# nba_peak/perfect_season/config.py's RESPIN_* constants, and
+# scripts/audit_spinner_reroll_policy.py (the 100,000-sample artifact these
+# tests are the fast, always-run subset of).
+# ===========================================================================
+
+import collections
+import hashlib
+import random
+
+from nba_peak.perfect_season import config as ps_config
+from nba_peak.perfect_season.board import (
+    MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON,
+    generate_team_year_board,
+    get_rollable_season_index,
+    get_rollable_season_labels,
+    get_rollable_team_year_catalogue,
+    get_rollable_team_year_entries,
+)
+from nba_peak.perfect_season.daily import daily_seed
+from app.services.perfect_season import state as ps_state
+
+
+# ---------------------------------------------------------------------------
+# 1. Initial board generation is untouched.
+# ---------------------------------------------------------------------------
+
+def _board_generation_fingerprint() -> str:
+    """SHA-256 over every field of every spin of 150 generated boards
+    (3 modes x 25 seeds x practice/daily)."""
+    h = hashlib.sha256()
+    for mode in SUPPORTED_MODES:
+        for seed in range(1, 26):
+            for board_type in ("practice", "daily"):
+                board = generate_team_year_board(mode=mode, seed=seed, board_type=board_type)
+                payload = [
+                    [s.round_number, s.spin_type, s.spin_id, s.franchise_display_name,
+                     s.era_label, s.team_id, list(s.candidate_player_slugs)]
+                    for s in board.spins
+                ]
+                h.update(json.dumps(
+                    [board.board_id, board.mode, board.duration_years, board.board_type,
+                     board.seed, payload],
+                    sort_keys=True,
+                ).encode())
+    return h.hexdigest()
+
+
+def test_initial_board_generation_is_unchanged_by_respin_policy():
+    """THE rollback-safety assertion for W5.
+
+    The golden digest below was computed by running this exact fingerprint
+    function against the PRE-CHANGE tree (`git archive HEAD nba_peak` into a
+    scratch dir, same committed dataset), so it is evidence of "nothing
+    moved", not a value recorded from the post-change code and then declared
+    correct.
+
+    Board generation is the one thing the respin policy must never touch:
+    every daily board, every shared challenge seed and every saved replay
+    depends on `generate_team_year_board` producing the same spins forever.
+    """
+    assert _board_generation_fingerprint() == (
+        "3f35fecf9a2f8dc470a38234879ace5d3f768b0f8ec0b28985aa0a123b07c797"
+    )
+
+
+def test_board_generation_ignores_the_respin_policy_constants(monkeypatch):
+    """Belt and braces on the golden digest: generation must not merely
+    happen to match today's constants -- it must be INDEPENDENT of them."""
+    baseline = _board_generation_fingerprint()
+    for radius, depth in ((0, 0), (5, 4), (1, 1)):
+        monkeypatch.setattr(ps_config, "RESPIN_SEASON_EXCLUSION_RADIUS", radius)
+        monkeypatch.setattr(ps_config, "RESPIN_TEAM_HISTORY_DEPTH", depth)
+        assert _board_generation_fingerprint() == baseline
+
+
+def test_daily_seeds_and_daily_boards_are_unchanged():
+    """Daily boards are derived from (date, mode) and must stay reproducible
+    -- pinned independently of the fingerprint above because a daily board
+    reaches generate_team_year_board through daily_seed()."""
+    # Golden values read from the PRE-CHANGE tree, same as the board
+    # fingerprint above -- never from the post-change code.
+    expected = {
+        ("2026-07-31", "apex_1y"): 1938315852,
+        ("2026-01-01", "prime_3y"): 1633850459,
+        ("2025-12-25", "foundation_5y"): 1778039184,
+    }
+    for (date_str, mode), seed in expected.items():
+        assert daily_seed(date_str, mode) == seed
+        board = generate_team_year_board(mode=mode, seed=seed, board_type="daily")
+        assert len(board.spins) == TOTAL_ROUNDS
+        assert all(s.spin_type == "team_year" for s in board.spins)
+
+
+# ---------------------------------------------------------------------------
+# 2. The policy itself, exercised directly (pure function, no game needed).
+# ---------------------------------------------------------------------------
+
+def _catalogue():
+    return get_rollable_team_year_catalogue()
+
+
+def _current(entry):
+    return {"team_id": entry["team_id"], "era_label": entry["era_label"], "spin_id": entry["spin_id"]}
+
+
+def test_respin_policy_constants_are_the_documented_values():
+    assert ps_config.RESPIN_POLICY_VERSION == "perfect_season_respin_policy_v1"
+    assert ps_config.MIN_RESPIN_POOL == 8
+    assert ps_config.RESPIN_SEASON_EXCLUSION_RADIUS == 2
+    assert ps_config.RESPIN_TEAM_HISTORY_DEPTH == 2
+
+
+def test_season_respin_never_lands_within_the_exclusion_radius():
+    """The 1991-92 -> 1992-93 case.
+
+    Two claims, both measured rather than assumed:
+
+    1. A season respin NEVER lands inside the radius the tier it used claims
+       to have excluded. This is the hard invariant.
+    2. The PREFERRED (radius-2, same-franchise) tier is what fires in the
+       overwhelming majority of cases -- and every single time it does not,
+       the preferred pool really was under MIN_RESPIN_POOL. That second half
+       is the important one: it proves relaxation only ever happens because
+       the data forced it, never because the ladder is loose.
+
+    The relaxations are real and traceable: 38 of the 1,314 rollable
+    team-seasons belong to a short-lived franchise identity (San Diego
+    Clippers, Kansas City Kings, Vancouver Grizzlies, Charlotte Bobcats, the
+    two New Orleans Hornets identities) with fewer than 8 covered seasons
+    more than 2 indices away. That is a coverage fact about NBA franchise
+    history, not a policy defect.
+    """
+    entries = _catalogue()
+    season_index = get_rollable_season_index()
+    by_team = collections.defaultdict(list)
+    for e in entries:
+        by_team[e["team_id"]].append(season_index[e["era_label"]])
+
+    picker = random.Random(7)
+    preferred = 0
+    total = 2000
+    for i in range(total):
+        current = entries[picker.randrange(len(entries))]
+        chosen, meta = ps_state.plan_respin(
+            "season", entries, _current(current), set(), [], season_index, random.Random(i),
+        )
+        assert chosen is not None
+        delta = abs(season_index[chosen["era_label"]] - season_index[current["era_label"]])
+        assert delta > meta["exclusion_radius"], (
+            f"{current['era_label']} -> {chosen['era_label']} is {delta} season(s) away "
+            f"but tier {meta['relaxation_tier']} excluded +/-{meta['exclusion_radius']}"
+        )
+        assert chosen["era_label"] != current["era_label"]
+
+        if meta["relaxation_tier"] == "same_team_radius_2":
+            preferred += 1
+            assert meta["exclusion_radius"] == 2
+            assert meta["allowed_pool_size"] >= ps_config.MIN_RESPIN_POOL
+        else:
+            # Relaxed -- prove it had to.
+            s = season_index[current["era_label"]]
+            viable = sum(1 for idx in by_team[current["team_id"]] if abs(idx - s) > 2)
+            assert viable < ps_config.MIN_RESPIN_POOL, (
+                f"tier relaxed to {meta['relaxation_tier']} while the preferred pool "
+                f"held {viable} entries"
+            )
+
+    # Measured at 96.6% over 100,000 samples by
+    # scripts/audit_spinner_reroll_policy.py; 0.9 is a floor with real slack,
+    # not a restatement of the observed number.
+    assert preferred / total > 0.9, f"preferred tier fired only {preferred}/{total} times"
+
+
+def test_respin_never_returns_the_exact_same_team_season():
+    """The bug the policy replaces: the old fallback widened to the full
+    catalogue, which still contained the current entry."""
+    entries = _catalogue()
+    season_index = get_rollable_season_index()
+    picker = random.Random(11)
+    for i in range(2000):
+        current = entries[picker.randrange(len(entries))]
+        for kind in ("team", "season"):
+            chosen, _ = ps_state.plan_respin(
+                kind, entries, _current(current), set(), [], season_index, random.Random(i),
+            )
+            assert chosen is not None
+            assert chosen["spin_id"] != current["spin_id"]
+
+
+def test_team_respin_never_returns_the_current_team_and_prefers_recent_avoidance():
+    entries = _catalogue()
+    season_index = get_rollable_season_index()
+    picker = random.Random(13)
+    avoided_recent = 0
+    for i in range(2000):
+        current = entries[picker.randrange(len(entries))]
+        recent = [entries[picker.randrange(len(entries))]["team_id"] for _ in range(2)]
+        recent = [t for t in dict.fromkeys(recent) if t != current["team_id"]]
+        chosen, meta = ps_state.plan_respin(
+            "team", entries, _current(current), set(), recent, season_index, random.Random(i),
+        )
+        assert chosen is not None
+        assert chosen["team_id"] != current["team_id"]
+        if meta["history_depth"] >= len(recent) and recent:
+            assert chosen["team_id"] not in recent[:meta["history_depth"]]
+            avoided_recent += 1
+    assert avoided_recent > 0, "the recent-history exclusion never actually engaged"
+
+
+def test_respin_only_ever_returns_valid_rollable_team_seasons():
+    entries = _catalogue()
+    valid_ids = {e["spin_id"] for e in entries}
+    season_index = get_rollable_season_index()
+    picker = random.Random(17)
+    for i in range(1500):
+        current = entries[picker.randrange(len(entries))]
+        for kind in ("team", "season"):
+            chosen, _ = ps_state.plan_respin(
+                kind, entries, _current(current), set(), [], season_index, random.Random(i),
+            )
+            assert chosen["spin_id"] in valid_ids
+            # Real team + real exact season, never a decade label, never a
+            # thin roster below the rollability floor.
+            assert chosen["era_label"] == chosen["season_label"]
+            assert re.match(r"^\d{4}-\d{2}$", chosen["era_label"])
+            assert len(chosen["player_slugs"]) >= MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON
+
+
+def test_respin_preserves_candidate_feasibility_when_the_roster_is_nearly_full():
+    """A respin must never hand back a team-season whose entire roster is
+    already on the court."""
+    entries = _catalogue()
+    season_index = get_rollable_season_index()
+    picker = random.Random(19)
+    for i in range(500):
+        current = entries[picker.randrange(len(entries))]
+        # Block a whole other entry's roster, plus part of another.
+        blocked = entries[picker.randrange(len(entries))]
+        used = set(blocked["player_slugs"])
+        for kind in ("team", "season"):
+            chosen, _ = ps_state.plan_respin(
+                kind, entries, _current(current), used, [], season_index, random.Random(i),
+            )
+            assert chosen is not None
+            assert any(slug not in used for slug in chosen["player_slugs"])
+
+
+def test_respin_is_uniform_over_the_allowed_pool():
+    """Fast in-suite counterpart to the 100,000-sample audit script. Fixes ONE
+    current entry so the allowed pool is fixed too, then checks the empirical
+    distribution over that pool.
+
+    Chi-square rather than "every entry appeared": narrowing a pool is only
+    defensible if nothing inside the narrowed pool is favoured.
+    """
+    entries = _catalogue()
+    season_index = get_rollable_season_index()
+    current = next(e for e in entries if e["era_label"] == "1991-92")
+
+    counts = collections.Counter()
+    n = 30_000
+    for i in range(n):
+        chosen, meta = ps_state.plan_respin(
+            "season", entries, _current(current), set(), [], season_index,
+            random.Random(f"uniform:{i}"),
+        )
+        counts[chosen["spin_id"]] += 1
+        pool_size = meta["allowed_pool_size"]
+
+    assert len(counts) == pool_size, "some allowed entries were never reachable"
+    expected = n / pool_size
+    chi2 = sum((c - expected) ** 2 / expected for c in counts.values())
+    # 3-sigma band for a chi-square with (pool_size - 1) dof.
+    dof = pool_size - 1
+    assert chi2 < dof + 3 * (2 * dof) ** 0.5, f"chi2={chi2:.1f} dof={dof} -- not uniform"
+
+
+def test_relaxation_ladder_relaxes_rather_than_failing_on_a_tiny_pool():
+    """Force the ladder. The real 1,314-entry catalogue never needs to relax,
+    so without a synthetic small pool these rungs are unexercised code."""
+    labels = ["2010-11", "2011-12", "2012-13", "2013-14"]
+    tiny = [
+        {
+            "spin_id": f"tiny-{i}", "team_id": "tiny", "franchise_display_name": "Tiny",
+            "era_label": label, "season_label": label,
+            "player_slugs": [f"p{i}-{k}" for k in range(8)],
+        }
+        for i, label in enumerate(labels)
+    ]
+    season_index = {label: i for i, label in enumerate(labels)}
+
+    seen_tiers = set()
+    for i in range(200):
+        chosen, meta = ps_state.plan_respin(
+            "season", tiny, {"team_id": "tiny", "era_label": "2011-12", "spin_id": "tiny-1"},
+            set(), [], season_index, random.Random(i),
+        )
+        assert chosen is not None
+        # Relaxed all the way down, but the FLOOR of the ladder still holds:
+        # the exact current season is excluded no matter how small the pool.
+        assert chosen["era_label"] != "2011-12"
+        seen_tiers.add(meta["relaxation_tier"])
+    # radius_1, NOT radius_0.
+    #
+    # Every rung here is under MIN_RESPIN_POOL (4 seasons, one team), so the
+    # ladder falls through to its fallback. The fallback used to take the WIDEST
+    # non-empty rung, and because the rungs nest -- radius_0 contains radius_1
+    # contains radius_2 -- widest always meant *least restrictive*, throwing away
+    # the distance guarantee even though a stricter rung had candidates in it.
+    # It now takes the FIRST non-empty rung, i.e. the most restrictive one that
+    # can still produce a result. With the current season at index 1 of 4,
+    # radius 2 excludes everything and radius 1 leaves exactly {2013-14}.
+    assert seen_tiers == {"same_team_radius_1"}, seen_tiers
+    # And the distance the stricter fallback actually bought: radius_0 would
+    # have allowed the immediately adjacent 2010-11 and 2012-13.
+    for i in range(50):
+        chosen, _ = ps_state.plan_respin(
+            "season", tiny, {"team_id": "tiny", "era_label": "2011-12", "spin_id": "tiny-1"},
+            set(), [], season_index, random.Random(i),
+        )
+        assert chosen["era_label"] == "2013-14"
+
+    # Team ladder: excluding the current team plus both recent teams empties
+    # the pool, so it must relax -- but never far enough to return the
+    # current team.
+    trio = [
+        {
+            "spin_id": f"trio-{t}", "team_id": t, "franchise_display_name": t.title(),
+            "era_label": "1999-00", "season_label": "1999-00",
+            "player_slugs": [f"{t}-p{k}" for k in range(8)],
+        }
+        for t in ("alpha", "beta", "gamma")
+    ]
+    tiers = set()
+    for i in range(200):
+        chosen, meta = ps_state.plan_respin(
+            "team", trio, {"team_id": "alpha", "era_label": "1999-00", "spin_id": "trio-alpha"},
+            set(), ["beta", "gamma"], {"1999-00": 0}, random.Random(i),
+        )
+        assert chosen is not None and chosen["team_id"] != "alpha"
+        tiers.add(meta["relaxation_tier"])
+    # depth_1, NOT depth_0 -- the same most-restrictive-viable-rung fix as the
+    # season ladder above. `recent_team_ids` is most-recent-FIRST and the rung
+    # excludes `recent_team_ids[:depth]`, so with history ["beta", "gamma"]:
+    # depth 2 excludes both and empties the pool, depth 1 excludes just the most
+    # recent ("beta") and leaves {gamma}, depth 0 excludes neither and leaves
+    # {beta, gamma}. The old "widest non-empty rung" fallback took depth_0 and
+    # could re-offer beta -- the team the player had just rejected -- even though
+    # gamma was available under a stricter rung.
+    assert tiers == {"same_season_depth_1"}, tiers
+    for i in range(50):
+        chosen, _ = ps_state.plan_respin(
+            "team", trio, {"team_id": "alpha", "era_label": "1999-00", "spin_id": "trio-alpha"},
+            set(), ["beta", "gamma"], {"1999-00": 0}, random.Random(i),
+        )
+        assert chosen["team_id"] == "gamma"
+
+
+def test_no_valid_option_returns_none_with_honest_metadata():
+    """A one-entry catalogue has nothing to reroll to. The policy must say so
+    rather than returning the current entry back."""
+    only = [{
+        "spin_id": "solo", "team_id": "solo", "franchise_display_name": "Solo",
+        "era_label": "2000-01", "season_label": "2000-01",
+        "player_slugs": [f"p{k}" for k in range(8)],
+    }]
+    for kind in ("team", "season"):
+        chosen, meta = ps_state.plan_respin(
+            kind, only, {"team_id": "solo", "era_label": "2000-01", "spin_id": "solo"},
+            set(), [], {"2000-01": 0}, random.Random(1),
+        )
+        assert chosen is None
+        assert meta["relaxation_tier"] == "none"
+        assert meta["allowed_pool_size"] == 0
+
+
+def test_setting_both_policy_constants_to_zero_restores_the_legacy_draw(monkeypatch):
+    """The documented rollback boundary (UX_ORGANIZATION_POLISH_PLAN.md Sec 7).
+
+    Not "produces a similar result" -- the state machine takes the verbatim
+    pre-policy code path, so the outcome must equal what the old pools + old
+    `_pick_valid_entry` probing produce from the same rng.
+    """
+    # Patched on the CONFIG MODULE, which is where the plan tells an operator to
+    # set them and the only place that could reasonably be meant by "set the
+    # constants to 0". `state.py` used to `from ... import` them, binding copies
+    # into its own namespace, so patching config had no effect at all and the
+    # documented rollback was unreachable outside a source edit. It now reads
+    # the attributes at call time.
+    monkeypatch.setattr(ps_config, "RESPIN_SEASON_EXCLUSION_RADIUS", 0)
+    monkeypatch.setattr(ps_config, "RESPIN_TEAM_HISTORY_DEPTH", 0)
+    assert ps_state._policy_enabled() is False
+    assert ps_state._policy_enabled() is False
+
+    state = ps_state.create_perfect_season_game(
+        mode="apex_1y", seed=4242, team_spin_enabled=True, team_year_enabled=True,
+    )
+    spin = ps_state.find_spin(state.board, state.current_round)
+    before_team, before_season = spin.team_id, spin.era_label
+
+    # Independently reproduce the legacy draw.
+    entries = get_rollable_team_year_entries()
+    legacy_pool = [e for e in entries if e["era_label"] == before_season and e["team_id"] != before_team]
+    legacy_rng = ps_state._respin_rng(state, "team", 0)
+    legacy_entry = ps_state._pick_valid_entry(
+        legacy_pool, ps_state._used_player_slugs(state), legacy_rng, entries,
+    )
+
+    ps_state.action_respin_team(state)
+    spin = ps_state.find_spin(state.board, state.current_round)
+    assert spin.spin_id == legacy_entry["spin_id"]
+    assert state.respin_policy_debug[-1]["policy_version"] == "legacy_pre_policy"
+
+
+# ---------------------------------------------------------------------------
+# 3. The policy through the real state machine + HTTP API.
+# ---------------------------------------------------------------------------
+
+def test_respin_is_deterministic_for_the_same_state_action_and_seed():
+    """Golden-seed determinism: same board seed + same action sequence must
+    produce the same team-season, every time, in any process."""
+    def run(seed: int):
+        state = ps_state.create_perfect_season_game(
+            mode="apex_1y", seed=seed, team_spin_enabled=True, team_year_enabled=True,
+        )
+        trail = []
+        ps_state.action_respin_team(state)
+        spin = ps_state.find_spin(state.board, state.current_round)
+        trail.append((spin.team_id, spin.era_label))
+        ps_state.action_respin_season(state)
+        spin = ps_state.find_spin(state.board, state.current_round)
+        trail.append((spin.team_id, spin.era_label))
+        ps_state.action_respin_team(state)
+        spin = ps_state.find_spin(state.board, state.current_round)
+        trail.append((spin.team_id, spin.era_label))
+        return trail
+
+    for seed in (1, 42, 999, 123456):
+        assert run(seed) == run(seed)
+
+
+def test_respin_records_policy_debug_metadata_but_not_in_the_player_copy(team_year_client: TestClient):
+    """Sec 5.5 step 6: exclusion radius and allowed pool size are recorded for
+    tests/debug, and stay out of the player-facing receipt."""
+    state = _create(team_year_client, mode="apex_1y", seed=31)
+    game_id = state["game_id"]
+
+    state = _respin_season(team_year_client, game_id).json()
+    assert state["respin_policy_version"] == "perfect_season_respin_policy_v1"
+    debug = state["respin_policy_debug"]
+    assert len(debug) == 1
+    assert debug[0]["kind"] == "season"
+    assert debug[0]["exclusion_radius"] == 2
+    assert debug[0]["allowed_pool_size"] >= 8
+    assert debug[0]["relaxation_tier"] == "same_team_radius_2"
+    assert debug[0]["min_respin_pool"] == 8
+    assert debug[0]["relaxed"] is False
+
+    # The player-facing history is unchanged in shape -- the debug trail is a
+    # separate field, never mixed into it.
+    assert set(state["respin_history"][0].keys()) == {
+        "round", "kind", "from_team", "from_season", "to_team", "to_season",
+    }
+
+    state = _respin_team(team_year_client, game_id).json()
+    assert len(state["respin_policy_debug"]) == 2
+    assert state["respin_policy_debug"][1]["kind"] == "team"
+    assert state["respin_policy_debug"][1]["history_depth"] in (0, 1, 2)
+
+
+def test_season_respin_moves_more_than_two_seasons_through_the_api(team_year_client: TestClient):
+    """End-to-end through HTTP, not just the pure policy function: the reroll
+    the player actually receives must clear the radius its own receipt
+    declares."""
+    seasons = get_rollable_season_labels()
+    index = {label: i for i, label in enumerate(seasons)}
+    far_moves = 0
+    for seed in (5, 6, 7, 8, 9, 10):
+        state = _create(team_year_client, mode="apex_1y", seed=seed)
+        game_id = state["game_id"]
+        before = state["current_spin"]["era_label"]
+        state = _respin_season(team_year_client, game_id).json()
+        after = state["current_spin"]["era_label"]
+        radius = state["respin_policy_debug"][-1]["exclusion_radius"]
+        assert abs(index[after] - index[before]) > radius, f"{before} -> {after}"
+        if abs(index[after] - index[before]) > 2:
+            far_moves += 1
+    # The relaxed rungs exist only for short-lived franchise identities; on a
+    # handful of ordinary seeds the preferred radius-2 tier should dominate.
+    assert far_moves >= 5
+
+
+def test_team_respin_changes_the_franchise_through_the_api(team_year_client: TestClient):
+    for seed in (11, 12, 13, 14, 15):
+        state = _create(team_year_client, mode="apex_1y", seed=seed)
+        game_id = state["game_id"]
+        before = state["current_spin"]["franchise_display_name"]
+        state = _respin_team(team_year_client, game_id).json()
+        assert state["current_spin"]["franchise_display_name"] != before
+
+
+# ---------------------------------------------------------------------------
+# 4. Idempotency -- a double-click must not burn two respins.
+# ---------------------------------------------------------------------------
+
+def _respin_team_key(client: TestClient, game_id: str, key: str):
+    return client.post(
+        f"/api/v1/perfect-season/games/{game_id}/respin-team",
+        json={"game_id": game_id, "idempotency_key": key},
+    )
+
+
+def _respin_season_key(client: TestClient, game_id: str, key: str):
+    return client.post(
+        f"/api/v1/perfect-season/games/{game_id}/respin-season",
+        json={"game_id": game_id, "idempotency_key": key},
+    )
+
+
+def test_double_submitting_the_same_respin_key_consumes_exactly_one_respin(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=77)
+    game_id = state["game_id"]
+    key = f"{game_id}:r1:team:0"
+
+    first = _respin_team_key(team_year_client, game_id, key)
+    assert first.status_code == 200, first.text
+    first_state = first.json()
+    assert first_state["team_respins_used_total"] == 1
+    landed = (
+        first_state["current_spin"]["franchise_display_name"],
+        first_state["current_spin"]["era_label"],
+    )
+
+    # The double-click: identical key, because the client derives it from
+    # state that has not changed yet.
+    second = _respin_team_key(team_year_client, game_id, key)
+    assert second.status_code == 200, second.text
+    second_state = second.json()
+    assert second_state["team_respins_used_total"] == 1, "a replay consumed a second respin"
+    assert second_state["team_respins_remaining_total"] == 2
+    assert len(second_state["respin_history"]) == 1
+    assert (
+        second_state["current_spin"]["franchise_display_name"],
+        second_state["current_spin"]["era_label"],
+    ) == landed
+
+
+def test_a_new_respin_key_after_a_replay_still_consumes_a_respin(team_year_client: TestClient):
+    """Idempotency must not become a lock -- the player can still spend their
+    remaining respins."""
+    state = _create(team_year_client, mode="apex_1y", seed=78)
+    game_id = state["game_id"]
+
+    _respin_team_key(team_year_client, game_id, f"{game_id}:r1:team:0")
+    _respin_team_key(team_year_client, game_id, f"{game_id}:r1:team:0")  # replay
+    state = _respin_team_key(team_year_client, game_id, f"{game_id}:r1:team:1").json()
+    assert state["team_respins_used_total"] == 2
+    assert len(state["respin_history"]) == 2
+
+
+def test_team_and_season_respin_keys_are_tracked_independently(team_year_client: TestClient):
+    state = _create(team_year_client, mode="apex_1y", seed=79)
+    game_id = state["game_id"]
+    key = "same-key-both-axes"
+
+    state = _respin_team_key(team_year_client, game_id, key).json()
+    assert state["team_respins_used_total"] == 1
+    # The SAME literal key on the other axis is a different action, not a
+    # replay -- the keys are namespaced per kind.
+    state = _respin_season_key(team_year_client, game_id, key).json()
+    assert state["season_respins_used_total"] == 1
+    # ...and replaying each one is still a no-op.
+    state = _respin_team_key(team_year_client, game_id, key).json()
+    state = _respin_season_key(team_year_client, game_id, key).json()
+    assert state["team_respins_used_total"] == 1
+    assert state["season_respins_used_total"] == 1
+
+
+def test_respin_without_an_idempotency_key_behaves_exactly_as_before(team_year_client: TestClient):
+    """Back-compat: the key is optional, and omitting it must not silently
+    turn two intentional respins into one."""
+    state = _create(team_year_client, mode="apex_1y", seed=80)
+    game_id = state["game_id"]
+    _respin_team(team_year_client, game_id)
+    state = _respin_team(team_year_client, game_id).json()
+    assert state["team_respins_used_total"] == 2
+
+
+def test_replaying_a_respin_after_the_player_has_selected_returns_state_unchanged(team_year_client: TestClient):
+    """A refresh or a retried request that lands AFTER the player has moved on
+    must return the current state, not a 400 and not a fresh reroll."""
+    state = _create(team_year_client, mode="apex_1y", seed=81)
+    game_id = state["game_id"]
+    key = f"{game_id}:r1:season:0"
+
+    state = _respin_season_key(team_year_client, game_id, key).json()
+    slug = state["current_spin"]["candidates"][0]["player_slug"]
+    state = _select(team_year_client, game_id, slug)
+    assert state["status"] == "placement_pending"
+
+    replay = _respin_season_key(team_year_client, game_id, key)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["status"] == "placement_pending"
+    assert replay.json()["season_respins_used_total"] == 1
+
+
+def test_refreshing_after_a_respin_does_not_reroll(team_year_client: TestClient):
+    """"Refreshing during the animation does not reroll" -- the client's
+    reload is a plain GET, and a GET is not an action."""
+    state = _create(team_year_client, mode="apex_1y", seed=82)
+    game_id = state["game_id"]
+    state = _respin_team(team_year_client, game_id).json()
+    landed = (state["current_spin"]["franchise_display_name"], state["current_spin"]["era_label"])
+
+    for _ in range(3):
+        reloaded = team_year_client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+        assert (
+            reloaded["current_spin"]["franchise_display_name"],
+            reloaded["current_spin"]["era_label"],
+        ) == landed
+        assert reloaded["team_respins_used_total"] == 1
+
+
+def test_respin_idempotency_survives_a_state_serialization_round_trip():
+    """The Postgres path stores state as JSON. If `last_respin_keys` (or the
+    respin counters) did not survive that round trip, every retry would
+    consume a fresh respin on a durable deployment.
+
+    This also pins the serialization bug W5 fixed: `court_state_from_dict`
+    used to drop team_respins_used / season_respins_used / respin_history /
+    challenge_kind entirely.
+    """
+    from app.services.perfect_season.serialization import (
+        court_state_from_dict,
+        court_state_to_dict,
+    )
+
+    state = ps_state.create_perfect_season_game(
+        mode="apex_1y", seed=555, team_spin_enabled=True, team_year_enabled=True,
+    )
+    ps_state.action_respin_team(state, idempotency_key="k-team-1")
+    ps_state.action_respin_season(state, idempotency_key="k-season-1")
+
+    revived = court_state_from_dict(court_state_to_dict(state))
+    assert revived.team_respins_used == 1
+    assert revived.season_respins_used == 1
+    assert len(revived.respin_history) == 2
+    assert len(revived.respin_policy_debug) == 2
+    # Lists, not bare strings: the ledger remembers every applied key for the
+    # run, not just the most recent one per kind. A single slot meant respin #2
+    # evicted respin #1's key, so a DELAYED duplicate of #1 stopped being
+    # recognised as a replay -- it would pass validation, burn a third respin out
+    # of a budget of three, and reroll a board the player had already accepted.
+    assert revived.last_respin_keys == {"team": ["k-team-1"], "season": ["k-season-1"]}
+    assert revived.challenge_kind == state.challenge_kind
+
+    # And the replay is still recognised after the round trip.
+    spin_before = ps_state.find_spin(revived.board, revived.current_round)
+    landed = (spin_before.team_id, spin_before.era_label)
+    ps_state.action_respin_team(revived, idempotency_key="k-team-1")
+    spin_after = ps_state.find_spin(revived.board, revived.current_round)
+    assert revived.team_respins_used == 1
+    assert (spin_after.team_id, spin_after.era_label) == landed

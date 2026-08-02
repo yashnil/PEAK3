@@ -371,4 +371,46 @@ describe("daily-grid rules acknowledgement", () => {
     markRulesSeen();
     expect(hasSeenRules()).toBe(true);
   });
+
+  /**
+   * The one-way migration from the unversioned `"peak3.daily-grid.rules-seen"`
+   * flag to the versioned tour store. The old flag is still READ so that
+   * shipping this does not re-onboard everyone who had already dismissed the
+   * gate; it is never written again, and the acknowledgement it stands in for
+   * is replayable once a version bump makes it worth replaying.
+   */
+  it("accepts the legacy unversioned flag, and never writes it back", async () => {
+    const { hasSeenRules, markRulesSeen } = await import("@/lib/daily-grid-state");
+    const { DAILY_GRID_RULES_SEEN_KEY } = await import("@/types/daily-grid");
+    const { TOUR_STORAGE_KEY, readTourSeen } = await import("@/lib/tour-state");
+
+    window.localStorage.clear();
+    window.localStorage.setItem(DAILY_GRID_RULES_SEEN_KEY, "1");
+    // Recognised, with nothing at all in the versioned store yet.
+    expect(window.localStorage.getItem(TOUR_STORAGE_KEY)).toBeNull();
+    expect(hasSeenRules()).toBe(true);
+
+    // The next acknowledgement goes to the versioned store only.
+    markRulesSeen("skipped");
+    expect(readTourSeen("daily-grid")?.status).toBe("skipped");
+
+    window.localStorage.clear();
+    markRulesSeen();
+    expect(window.localStorage.getItem(DAILY_GRID_RULES_SEEN_KEY)).toBeNull();
+  });
+
+  it("replays onboarding after a tour version bump", async () => {
+    const { hasSeenRules } = await import("@/lib/daily-grid-state");
+    const { markTourSeen } = await import("@/lib/tour-state");
+    const { DAILY_GRID_TOUR_VERSION } = await import("@/components/ui/tour-steps");
+
+    window.localStorage.clear();
+    // Seen at a DIFFERENT version -- which is how a copy change reaches an
+    // existing player. The old bare "1" string could not express this at all.
+    markTourSeen("daily-grid", DAILY_GRID_TOUR_VERSION - 1, "completed");
+    expect(hasSeenRules()).toBe(false);
+
+    markTourSeen("daily-grid", DAILY_GRID_TOUR_VERSION, "completed");
+    expect(hasSeenRules()).toBe(true);
+  });
 });

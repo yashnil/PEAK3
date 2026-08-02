@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import DraftScreen from "@/components/draft/DraftScreen";
+import PracticeDraftLoader from "@/components/draft/PracticeDraftLoader";
 import { DraftMode, MODE_LABELS } from "@/types/draft";
-import { createDraftGame } from "@/lib/draft-api";
 
 const VALID_MODES: DraftMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
 
@@ -26,18 +25,10 @@ export default async function PracticeDraftPage({ params, searchParams }: Props)
 
   const seed = sp.seed ? parseInt(sp.seed, 10) : undefined;
 
-  let gameState;
-  try {
-    gameState = await createDraftGame(mode as DraftMode, "practice", { seed });
-  } catch {
-    return (
-      <div className="mx-auto max-w-lg px-4 py-16 text-center">
-        <p style={{ color: "#ef4444" }}>
-          Could not create practice board. Is the API running?
-        </p>
-      </div>
-    );
-  }
-
-  return <DraftScreen initialGameState={gameState} />;
+  // The board is created in the BROWSER, not here. See PracticeDraftLoader's
+  // header: a server-side create sends the API's ownership cookie to the Next
+  // server instead of the player, so the player cannot then act on their own
+  // board. This component stays server-side purely for generateMetadata and
+  // the invalid-mode notFound() above.
+  return <PracticeDraftLoader mode={mode as DraftMode} seed={seed} />;
 }

@@ -52,10 +52,12 @@ export default function RankedHubPage() {
           color: enabled ? "#34d399" : "#f59e0b",
         }}
       >
+        {/* The readiness enum (`green`/`amber`/…) is an operational signal, not
+            a sentence — printing it raw told a player nothing. */}
         {readiness == null
           ? "Checking ranked status…"
           : enabled
-          ? `Closed alpha — readiness: ${readiness.readiness_level}`
+          ? "Closed alpha — open to a limited group while matchmaking is tuned."
           : "Ranked is not currently enabled."}
       </div>
 
@@ -68,43 +70,46 @@ export default function RankedHubPage() {
         </p>
       )}
 
-      <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {RANKED_MODES.map((mode) => {
-          const rating = ratings[mode];
-          return (
-            <div
-              key={mode}
-              className="rounded-2xl border p-5 flex flex-col gap-3"
-              style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
-            >
-              <div className="font-bold text-base" style={{ color: "var(--text-primary)" }}>
-                {RANKED_MODE_LABELS[mode]}
-              </div>
-
-              {rating && (
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  {rating.established
-                    ? `Rating ${rating.rating?.toFixed(0)} · ${rating.division ?? rating.uncertainty_label}`
-                    : `Placement ${rating.valid_rated_matches} of 7`}
-                </div>
-              )}
-
-              <Link
-                href={enabled ? `/arena/ranked/${mode}` : "#"}
-                aria-disabled={!enabled}
-                className="text-center py-2 rounded-lg text-sm font-semibold transition-all"
-                style={{
-                  background: enabled ? "var(--peak-accent)" : "var(--border-default)",
-                  color: enabled ? "var(--text-inverse)" : "var(--text-muted)",
-                  pointerEvents: enabled ? "auto" : "none",
-                }}
+      {/* When ranked is off the queues are not rendered at all. They used to be
+          drawn as three greyed cards whose button said "Unavailable" and had
+          pointer-events disabled -- three things that look like controls,
+          answer nothing, and cannot be clicked. The banner above already says
+          ranked is not enabled; repeating it three times as dead affordances is
+          worse than an honest absence. */}
+      {enabled && (
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {RANKED_MODES.map((mode) => {
+            const rating = ratings[mode];
+            return (
+              <div
+                key={mode}
+                className="rounded-2xl border p-5 flex flex-col gap-3"
+                style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
               >
-                {enabled ? "Join queue" : "Unavailable"}
-              </Link>
-            </div>
-          );
-        })}
-      </div>
+                <div className="font-bold text-base" style={{ color: "var(--text-primary)" }}>
+                  {RANKED_MODE_LABELS[mode]}
+                </div>
+
+                {rating && (
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {rating.established
+                      ? `Rating ${rating.rating?.toFixed(0)} · ${rating.division ?? rating.uncertainty_label}`
+                      : `Placement ${rating.valid_rated_matches} of 7`}
+                  </div>
+                )}
+
+                <Link
+                  href={`/arena/ranked/${mode}`}
+                  className="text-center py-2 rounded-lg text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+                >
+                  Join queue
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="mt-10 text-xs" style={{ color: "var(--text-muted)" }}>
         <p>

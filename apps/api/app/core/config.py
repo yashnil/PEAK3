@@ -1,3 +1,4 @@
+import os
 import warnings
 from pathlib import Path
 from typing import Literal, Optional
@@ -5,9 +6,27 @@ from typing import Literal, Optional
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: Which dotenv file ``Settings`` reads, overridable through the environment.
+#:
+#: Defaults to ``.env`` — unchanged for every deployment and for ordinary local
+#: development. Setting ``PEAK3_ENV_FILE`` to an empty string disables dotenv
+#: loading entirely, which is what ``tests/conftest.py`` does before the app is
+#: imported.
+#:
+#: WHY THIS IS OVERRIDABLE AT ALL. ``.env`` was read unconditionally, so the
+#: unit suite's storage backend was decided by whether the developer running it
+#: happened to have an untracked ``apps/api/.env`` containing a
+#: ``PEAK3_DATABASE_URL``: the same command on the same commit gave in-memory
+#: repositories in CI and a hosted Postgres on a laptop. A suite whose
+#: configuration depends on a file that is not in the repository cannot be used
+#: to reproduce a CI failure, which is most of what a suite is for.
+_ENV_FILE = os.getenv("PEAK3_ENV_FILE", ".env")
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="PEAK3_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="PEAK3_", env_file=_ENV_FILE or None, extra="ignore"
+    )
 
     SIGNING_SECRET: str = "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION"
     DEBUG: bool = True
@@ -27,15 +46,52 @@ class Settings(BaseSettings):
     # back to in-memory repositories with a startup warning.
     DATABASE_URL: Optional[str] = None
 
-    # Supabase project JWT secret — used to verify access tokens issued by
-    # Supabase Auth.  Required for /api/v1/auth/me and protected endpoints.
+    # Supabase project JWT secret — verifies HS256 access tokens.
+    #
+    # LEGACY / LOCAL ONLY. Supabase projects created after the asymmetric
+    # signing-key rollout do not have one, and none is needed: those projects
+    # publish public keys via JWKS (see SUPABASE_JWKS_URL below) and the API
+    # verifies ES256/RS256/EdDSA tokens with no shared secret at all. Keep this
+    # set only for the local `supabase start` stack, a pre-migration hosted
+    # project, or test suites that mint tokens directly.
     SUPABASE_JWT_SECRET: Optional[str] = None
 
-    # Supabase anon key — sent to the frontend for the Supabase JS client.
+    # Supabase anon (or publishable) key — sent to the frontend for the
+    # Supabase JS client. Public by design; never a service-role key.
     SUPABASE_ANON_KEY: Optional[str] = None
 
-    # Supabase project URL — sent to the frontend for the Supabase JS client.
+    # Supabase project URL — sent to the frontend for the Supabase JS client,
+    # and the source the JWKS URL and expected token issuer are derived from.
     SUPABASE_URL: Optional[str] = None
+
+    # Explicit overrides for the asymmetric verification path. Both are derived
+    # from SUPABASE_URL when unset, which is the normal case:
+    #   JWKS   -> {SUPABASE_URL}/auth/v1/.well-known/jwks.json
+    #   issuer -> {SUPABASE_URL}/auth/v1
+    SUPABASE_JWKS_URL: Optional[str] = None
+    SUPABASE_JWT_ISSUER: Optional[str] = None
+
+    # Expected `aud` claim on asymmetric tokens. Supabase stamps
+    # "authenticated" on every user access token. Set to "" to disable the
+    # audience check (not recommended).
+    SUPABASE_JWT_AUDIENCE: str = "authenticated"
+
+    @property
+    def auth_verification_mode(self) -> str:
+        """How this process can verify Supabase access tokens.
+
+        Surfaced on the readiness endpoint so a misconfigured deploy is visible
+        rather than silently 401-ing every authenticated request.
+        """
+        asymmetric = bool(self.SUPABASE_JWKS_URL or self.SUPABASE_URL)
+        symmetric = bool(self.SUPABASE_JWT_SECRET)
+        if asymmetric and symmetric:
+            return "jwks+hs256"
+        if asymmetric:
+            return "jwks"
+        if symmetric:
+            return "hs256"
+        return "unconfigured"
 
     # ---------------------------------------------------------------------------
     # Phase 4.0 — Ranked duels feature flags
@@ -223,18 +279,110 @@ class Settings(BaseSettings):
 
     DAILY_GRID_RATE_LIMIT_WINDOW_SECONDS: float = 60.0
 
+    # ---------------------------------------------------------------------------
+    # RUN THE TABLE feature flags
+    #
+    # Mirrors the COURTBUILDER_* pattern above exactly: independent capability
+    # switches plus a human-facing readiness level validated for internal
+    # consistency. See docs/implementation/RUN_THE_TABLE_IMPLEMENTATION_PLAN.md.
+    #
+    # DEFAULT ON, unlike RANKED_* and COURTBUILDER_*. Those two default off
+    # because they were shipped as gated alpha slices; RUN THE TABLE is the
+    # flagship mode, its engine is deterministic and fully covered by the
+    # tests under tests/run_the_table/, and the e2e suite plays a complete run
+    # against a default local API. A flagship mode that is off by default is a
+    # mode nobody's local environment exercises.
+    # ---------------------------------------------------------------------------
+
+    # Master switch: RUN THE TABLE routes answer at all. /readiness is the one
+    # exception -- it always answers, so the web app can fail closed cleanly
+    # rather than guess why it got a 403.
+    RUN_THE_TABLE_ENABLED: bool = True
+
+    # The shared daily run. Separately switchable from the mode itself so the
+    # daily can be paused (e.g. mid-ruleset-change, when everyone's seed would
+    # move underneath them) without taking standard runs down with it.
+    RUN_THE_TABLE_DAILY_ENABLED: bool = True
+
+    # Human-facing readiness classification. Does not itself gate behavior --
+    # the booleans above do -- but is surfaced on
+    # /api/v1/run-the-table/readiness and must be kept consistent with them
+    # (validated below).
+    RUN_THE_TABLE_READINESS_LEVEL: Literal[
+        "disabled", "internal_dev", "internal_alpha", "public_beta"
+    ] = "public_beta"
+
+    @model_validator(mode="after")
+    def validate_run_the_table_readiness(self) -> "Settings":
+        level = self.RUN_THE_TABLE_READINESS_LEVEL
+        if level == "disabled" and self.RUN_THE_TABLE_ENABLED:
+            raise ValueError(
+                "PEAK3_RUN_THE_TABLE_READINESS_LEVEL is 'disabled' but "
+                "RUN_THE_TABLE_ENABLED is set. Set an appropriate readiness "
+                "level or disable the flag."
+            )
+        if self.RUN_THE_TABLE_DAILY_ENABLED and not self.RUN_THE_TABLE_ENABLED:
+            raise ValueError(
+                "PEAK3_RUN_THE_TABLE_DAILY_ENABLED is set but "
+                "RUN_THE_TABLE_ENABLED is not. The daily is a run of the same "
+                "mode; it cannot be served while the mode is off."
+            )
+        return self
+
+    # ---------------------------------------------------------------------------
+    # First-party product telemetry (see docs/implementation/TELEMETRY.md)
+    #
+    # Off by default: an unauthenticated write endpoint should be an explicit
+    # opt-in, not something a deploy acquires by upgrading. Rate limiting reuses
+    # the shared limiter in app/core/rate_limit.py and follows the
+    # PEAK3_DAILY_GRID_*_RATE_LIMIT naming already established there.
+    # ---------------------------------------------------------------------------
+
+    # Peak Duel Daily result submission. An unauthenticated write endpoint
+    # (guests record attempts under their anon cookie) needs a bound, and the
+    # legitimate ceiling is tiny: one attempt per day per identity, plus
+    # retries. Shares the shared limiter in app/core/rate_limit.py.
+    PEAK_DUEL_RESULT_RATE_LIMIT: int = 20
+    PEAK_DUEL_RESULT_RATE_LIMIT_WINDOW_SECONDS: float = 60.0
+
+    TELEMETRY_ENABLED: bool = False
+    TELEMETRY_RATE_LIMIT: int = 60
+    TELEMETRY_RATE_LIMIT_WINDOW_SECONDS: float = 60.0
+    TELEMETRY_MAX_BATCH_SIZE: int = 20
+    TELEMETRY_RETENTION_DAYS: int = 90
+
     @model_validator(mode="after")
     def warn_insecure_secret(self) -> "Settings":
-        if self.DEBUG and self.SIGNING_SECRET == "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION":
-            warnings.warn(
-                "PEAK3_SIGNING_SECRET is set to the insecure default. "
-                "Set PEAK3_SIGNING_SECRET in your environment or .env file.",
-                stacklevel=2,
-            )
+        if self.SIGNING_SECRET == "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION":
+            if self.DEBUG:
+                warnings.warn(
+                    "PEAK3_SIGNING_SECRET is set to the insecure default. "
+                    "Set PEAK3_SIGNING_SECRET in your environment or .env file.",
+                    stacklevel=2,
+                )
+            else:
+                # Previously this check ran only under DEBUG, so a production
+                # deploy that forgot the variable started silently on the
+                # public default value and could forge anon-subject cookies.
+                raise ValueError(
+                    "PEAK3_SIGNING_SECRET is the public default value and "
+                    "DEBUG is False. Set a real secret before deploying."
+                )
         if not self.DEBUG and self.DATABASE_URL is None:
             raise ValueError(
                 "PEAK3_DATABASE_URL must be set in production (DEBUG=False). "
                 "See docs/implementation/LOCAL_DEV.md for setup instructions."
+            )
+        if not self.DEBUG and self.auth_verification_mode == "unconfigured":
+            # Without either PEAK3_SUPABASE_URL (JWKS) or
+            # PEAK3_SUPABASE_JWT_SECRET (legacy HS256) the API cannot verify a
+            # single access token: every authenticated route 401s for everyone,
+            # which used to be a one-line WARNING and a total auth outage.
+            raise ValueError(
+                "No Supabase token verification is configured. Set "
+                "PEAK3_SUPABASE_URL (asymmetric/JWKS — the current default for "
+                "new projects) or PEAK3_SUPABASE_JWT_SECRET (legacy HS256). "
+                "See docs/implementation/AUTH_CONFIGURATION.md."
             )
         return self
 

@@ -33,6 +33,7 @@ from nba_peak.daily_grid.generator import (
     MIN_PLAYERS_PER_CELL,
     MIN_STRONG_OPTIONS,
     MIN_TEAM_CONSTRAINTS,
+    THEME_LABELS,
     _BOARD_CACHE,
     _BOARD_CACHE_MAX,
     _native_allowance,
@@ -44,6 +45,8 @@ from nba_peak.daily_grid.generator import (
     get_board,
     grid_seed,
     rarity_bucket,
+    resolve_theme_id,
+    theme_candidates,
     today_utc_date,
     validate_grid_date,
 )
@@ -1441,12 +1444,91 @@ class TestBoardQuality:
             categories = _axis_categories(board)
             assert categories.count("context") <= MAX_CONTEXT_CONSTRAINTS, (date, categories)
 
-    def test_every_board_has_a_theme_derived_from_its_axes(self, boards):
+    def test_every_board_has_a_theme_that_is_true_of_its_axes(self, boards, pool, taxonomy):
+        """Phase 12 (D5) changed the CONTRACT this test asserts, and tightened
+        it rather than loosening it.
+
+        Before: the theme was the first match in a fixed ladder, so it was a
+        pure function of the axis set -- and it repeated on adjacent daily keys
+        25.5 % of the time, ran to six days, and gave `Award Season` 38.6 % of
+        the year while `Open Court` was unreachable.
+
+        Now: a board has a ranked list of descriptions that are ALL true of its
+        axes (`theme_candidates`), and the one it publishes is the first that
+        was not also true of the previous daily key. So the published theme is
+        no longer a function of the axes alone -- but it is still constrained
+        by them, and that is what is asserted here:
+
+          1. the published theme is one of this board's own true descriptions
+             (it can never be a label the axes do not support);
+          2. `theme_id` and `theme` agree;
+          3. resolving the date again reproduces it exactly -- determinism is
+             preserved, the label just reads one day further back.
+        """
         for date, board in boards.items():
             assert board.theme, date
-            # Pure function of the axes: recomputing it from the board's own
-            # rows/cols must reproduce it exactly.
-            assert board_theme(board.rows, board.cols) == board.theme, date
+            candidates = theme_candidates(board.rows, board.cols)
+            assert board.theme_id in candidates, (date, board.theme_id, candidates)
+            assert THEME_LABELS[board.theme_id] == board.theme, date
+            assert (
+                resolve_theme_id(date, pool=pool, constraints=taxonomy) == board.theme_id
+            ), date
+            # `board_theme` remains the axes-only primary description and must
+            # still be one of the same true statements.
+            assert board_theme(board.rows, board.cols) in THEME_LABELS.values(), date
+
+    def test_adjacent_daily_keys_never_publish_the_same_theme(self, pool, taxonomy):
+        """The headline defect (D5), at the model layer.
+
+        Sixty consecutive keys, each labelled independently, and no two
+        neighbours may agree. `resolve_theme_id` reads only the previous key's
+        axes, so this is a property of the algorithm rather than of the sample.
+        """
+        import datetime as _datetime
+
+        start = _datetime.date(2026, 6, 1)
+        keys = [(start + _datetime.timedelta(days=i)).isoformat() for i in range(60)]
+        themes = [resolve_theme_id(k, pool=pool, constraints=taxonomy) for k in keys]
+        collisions = [
+            (keys[i], themes[i]) for i in range(1, len(keys)) if themes[i] == themes[i - 1]
+        ]
+        assert collisions == []
+
+    def test_every_board_has_at_least_two_true_descriptions(self, boards):
+        """The headroom the anti-repeat rule needs. A board with only one true
+        description could not avoid repeating it, so the composition rules
+        (>= 1 team axis, >= 2 award/outcome/era anchors) have to keep
+        guaranteeing this."""
+        for date, board in boards.items():
+            assert len(theme_candidates(board.rows, board.cols)) >= 2, date
+
+    def test_the_theme_never_changes_which_board_a_date_gets(self, pool, taxonomy):
+        """The constraint the whole design is built around: the theme is a
+        DESCRIPTION, never a generation input. The axes, cells and difficulty
+        are produced before any theme work and cannot see one."""
+        from nba_peak.daily_grid.generator import _board_core
+
+        for date in SAMPLE_DATES:
+            core = _board_core(date, pool, taxonomy, "daily_grid.v2")
+            board = generate_board(date, pool=pool, constraints=taxonomy)
+            assert tuple(c.id for c in board.rows) == tuple(c.id for c in core.rows), date
+            assert tuple(c.id for c in board.cols) == tuple(c.id for c in core.cols), date
+            assert board.seed == core.seed, date
+            assert board.attempts == core.attempts, date
+
+    def test_board_hash_identifies_the_criteria_signature(self, boards):
+        from nba_peak.daily_grid.generator import board_hash as _board_hash
+
+        hashes = {date: board.board_hash for date, board in boards.items()}
+        assert len(set(hashes.values())) == len(hashes)
+        for date, board in boards.items():
+            assert board.board_hash == _board_hash(board.rows, board.cols, board.version)
+            assert len(board.board_hash) == 16
+            int(board.board_hash, 16)
+        # Order-sensitive: the same six constraints with rows and columns
+        # swapped is a different board to play.
+        sample = next(iter(boards.values()))
+        assert _board_hash(sample.cols, sample.rows, sample.version) != sample.board_hash
 
     def test_every_board_has_two_award_outcome_or_era_anchors(self, boards):
         for date, board in boards.items():

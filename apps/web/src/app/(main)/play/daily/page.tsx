@@ -1,37 +1,78 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getDailyChallenge } from "@/lib/api";
 import { getProgressRepository } from "@/lib/progress";
 import { GameEngine } from "@/components/game/game-engine";
+import {
+  type DailyWindowPayload,
+  extractDailyWindow,
+  formatCountdown,
+} from "@/lib/daily-time";
+import { useDailyReset } from "@/lib/use-daily-reset";
 import type { DailyChallenge } from "@/types";
 
-function todayUTC() {
-  return new Date().toISOString().split("T")[0];
-}
-
+/**
+ * Peak Duel Daily.
+ *
+ * THE SERVER DECIDES WHAT DAY IT IS. This page used to compute `today` from the
+ * browser clock in render scope and send it as `?date=`, and the API only fell
+ * back to its own clock when the parameter was absent — so a device an hour
+ * ahead of the reset zone played tomorrow's challenge, a device behind played
+ * yesterday's, and a tab left open across midnight played a board that no
+ * longer existed. The request now carries no date at all; the date comes back
+ * IN the response, along with the window it belongs to, and every local lookup
+ * is keyed off that.
+ */
 export default function DailyPage() {
   const [challenge, setChallenge] = useState<DailyChallenge | null>(null);
+  const [window_, setWindow] = useState<DailyWindowPayload | null>(null);
   const [alreadyCompleted, setAlreadyCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [years] = useState(3);
-
-  const today = todayUTC();
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    const repo = getProgressRepository();
-    const completion = repo.getDailyCompletion(today, years);
-    if (completion) {
-      setAlreadyCompleted(true);
-      setLoading(false);
-      return;
-    }
-    getDailyChallenge(years, today)
-      .then(setChallenge)
-      .catch((err) => setError(err.message || "Could not load today's challenge."))
-      .finally(() => setLoading(false));
-  }, [today, years]);
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    // No `date` argument: "today" is the server's to decide.
+    getDailyChallenge(years)
+      .then((c) => {
+        if (cancelled) return;
+        setChallenge(c);
+        setWindow(extractDailyWindow(c));
+        // Completion is looked up against the date the SERVER just named, not
+        // against a locally derived one — otherwise a player one timezone over
+        // sees "already completed" for a challenge they have not been given.
+        setAlreadyCompleted(
+          getProgressRepository().getDailyCompletion(c.date, years) !== null,
+        );
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err.message || "Could not load today's challenge.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [years, reloadToken]);
+
+  // Refetch when the board rolls over, and when the tab comes back from the
+  // background past the boundary.
+  const { secondsLeft } = useDailyReset({
+    dailyKey: window_?.daily_key ?? null,
+    secondsRemaining: window_?.seconds_remaining ?? null,
+    window: window_,
+    onReset: useCallback(() => setReloadToken((t) => t + 1), []),
+  });
+
+  const today = challenge?.date ?? window_?.daily_key ?? "";
 
   if (loading) {
     return (
@@ -54,7 +95,7 @@ export default function DailyPage() {
           </p>
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={() => setReloadToken((t) => t + 1)}
             className="rounded-lg border border-[var(--border-default)] px-4 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
           >
             Try again
@@ -90,8 +131,10 @@ export default function DailyPage() {
               </div>
             </div>
           )}
-          <p className="text-sm text-[var(--text-muted)]">
-            Come back tomorrow for a new challenge.
+          <p className="text-sm text-[var(--text-muted)]" data-testid="daily-duel-countdown">
+            {secondsLeft === null
+              ? "New daily board at midnight PT."
+              : `New daily board at midnight PT — next one in ${formatCountdown(secondsLeft)}.`}
           </p>
           <a
             href="/play/endless"

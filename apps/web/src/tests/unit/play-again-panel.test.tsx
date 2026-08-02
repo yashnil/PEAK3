@@ -75,7 +75,13 @@ describe("PlayAgainPanel", () => {
 
     const prompt = await screen.findByTestId("play-again-signin-prompt");
     expect(prompt).toHaveTextContent(/sign in to save your best run/i);
-    expect(screen.getByRole("link", { name: /sign in/i })).toHaveAttribute("href", "/signin");
+    // The CTA carries the current page as ?returnTo= so signing in from a
+    // result screen comes back to the result, not to the homepage. The
+    // sign-in page re-validates the value with safeNext().
+    const link = screen.getByRole("link", { name: /sign in/i });
+    const href = link.getAttribute("href") ?? "";
+    expect(href.startsWith("/signin?returnTo=")).toBe(true);
+    expect(decodeURIComponent(href.split("returnTo=")[1])).toMatch(/^\//);
   });
 
   it("hides the sign-in prompt when the leaderboard feature is off, even signed out", async () => {

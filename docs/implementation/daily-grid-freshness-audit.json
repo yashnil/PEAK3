@@ -1,0 +1,1781 @@
+{
+  "generated_by": "scripts/audit_daily_grid_freshness.py",
+  "board_version": "daily_grid.v2",
+  "timezone": "America/Los_Angeles",
+  "window": {
+    "start": "2026-07-01",
+    "days": 60,
+    "end": "2026-08-29"
+  },
+  "summary": {
+    "days": 60,
+    "distinct_seeds": 60,
+    "distinct_board_hashes": 60,
+    "distinct_board_ids": 60,
+    "distinct_criteria_signatures": 60,
+    "adjacent_pairs": 59,
+    "adjacent_identical_theme": 0,
+    "adjacent_identical_theme_and_difficulty": 0,
+    "longest_identical_theme_run": 1,
+    "min_theme_candidates": 2,
+    "themes_reachable": 8,
+    "themes_defined": 8,
+    "theme_distribution": {
+      "ring-chasers": 4,
+      "throwback-night": 13,
+      "two-way-night": 14,
+      "modern-era": 9,
+      "award-season": 7,
+      "franchise-icons": 4,
+      "playoff-pressure": 5,
+      "open-court": 4
+    },
+    "difficulty_distribution": {
+      "easy": 24,
+      "hard": 21,
+      "medium": 15
+    },
+    "assertions": {
+      "every_day_has_a_distinct_seed": true,
+      "every_day_has_a_distinct_board_hash": true,
+      "every_day_has_a_distinct_criteria_signature": true,
+      "no_adjacent_day_repeats_its_theme": true,
+      "every_board_has_at_least_two_true_descriptions": true
+    }
+  },
+  "unintended_duplicates": [],
+  "days": [
+    {
+      "daily_key": "2026-07-01",
+      "board_id": "daily-grid-v2-2026-07-01",
+      "seed": 528946000,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "two-way-night",
+        "award-season",
+        "franchise-icons"
+      ],
+      "difficulty": "hard",
+      "board_hash": "74e6868b3505c90d",
+      "criteria": {
+        "rows": [
+          "team_mia",
+          "era_1990s",
+          "team_lac"
+        ],
+        "cols": [
+          "award_all_star",
+          "comp_recognition",
+          "award_all_defense"
+        ]
+      },
+      "starts_at": "2026-07-01T07:00:00Z",
+      "ends_at": "2026-07-02T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-02",
+      "board_id": "daily-grid-v2-2026-07-02",
+      "seed": 2012586492,
+      "theme_id": "open-court",
+      "theme": "Open Court",
+      "theme_candidates": [
+        "throwback-night",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "6a5f19a6b983ed40",
+      "criteria": {
+        "rows": [
+          "team_sas",
+          "era_1980s",
+          "team_det"
+        ],
+        "cols": [
+          "context_games_70",
+          "pos_guard",
+          "award_all_star"
+        ]
+      },
+      "starts_at": "2026-07-02T07:00:00Z",
+      "ends_at": "2026-07-03T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-03",
+      "board_id": "daily-grid-v2-2026-07-03",
+      "seed": 1845782146,
+      "theme_id": "award-season",
+      "theme": "Award Season",
+      "theme_candidates": [
+        "award-season",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "5e498261fa7cbecb",
+      "criteria": {
+        "rows": [
+          "outcome_made_playoffs",
+          "award_all_star",
+          "pos_forward"
+        ],
+        "cols": [
+          "team_nyk",
+          "team_was",
+          "award_mvp"
+        ]
+      },
+      "starts_at": "2026-07-03T07:00:00Z",
+      "ends_at": "2026-07-04T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-04",
+      "board_id": "daily-grid-v2-2026-07-04",
+      "seed": 1497270223,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "modern-era",
+        "award-season",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "91e26b7089852f37",
+      "criteria": {
+        "rows": [
+          "era_2020s",
+          "award_dpoy_votes",
+          "pos_forward"
+        ],
+        "cols": [
+          "team_atl",
+          "team_chi",
+          "award_finals_mvp"
+        ]
+      },
+      "starts_at": "2026-07-04T07:00:00Z",
+      "ends_at": "2026-07-05T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-05",
+      "board_id": "daily-grid-v2-2026-07-05",
+      "seed": 751577485,
+      "theme_id": "playoff-pressure",
+      "theme": "Playoff Pressure",
+      "theme_candidates": [
+        "modern-era",
+        "franchise-icons",
+        "playoff-pressure"
+      ],
+      "difficulty": "hard",
+      "board_hash": "7918238d43ae6a6e",
+      "criteria": {
+        "rows": [
+          "era_2010s",
+          "comp_traditional_production",
+          "outcome_made_playoffs"
+        ],
+        "cols": [
+          "team_sas",
+          "award_mvp",
+          "team_pho"
+        ]
+      },
+      "starts_at": "2026-07-05T07:00:00Z",
+      "ends_at": "2026-07-06T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-06",
+      "board_id": "daily-grid-v2-2026-07-06",
+      "seed": 1365321438,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "award-season",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "29232199ce0d78c0",
+      "criteria": {
+        "rows": [
+          "award_all_defense",
+          "team_brk",
+          "team_phi"
+        ],
+        "cols": [
+          "award_all_nba",
+          "context_mpg_36",
+          "pos_guard"
+        ]
+      },
+      "starts_at": "2026-07-06T07:00:00Z",
+      "ends_at": "2026-07-07T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-07",
+      "board_id": "daily-grid-v2-2026-07-07",
+      "seed": 1410680393,
+      "theme_id": "ring-chasers",
+      "theme": "Ring Chasers",
+      "theme_candidates": [
+        "ring-chasers",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "3ebfb57f40652e93",
+      "criteria": {
+        "rows": [
+          "outcome_finals",
+          "outcome_conf_finals",
+          "pos_guard"
+        ],
+        "cols": [
+          "team_phi",
+          "context_mpg_30",
+          "team_bos"
+        ]
+      },
+      "starts_at": "2026-07-07T07:00:00Z",
+      "ends_at": "2026-07-08T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-08",
+      "board_id": "daily-grid-v2-2026-07-08",
+      "seed": 934650461,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "e195febd2a4bdc4a",
+      "criteria": {
+        "rows": [
+          "team_was",
+          "team_min",
+          "outcome_conf_finals"
+        ],
+        "cols": [
+          "context_games_70",
+          "era_1990s",
+          "award_all_star"
+        ]
+      },
+      "starts_at": "2026-07-08T07:00:00Z",
+      "ends_at": "2026-07-09T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-09",
+      "board_id": "daily-grid-v2-2026-07-09",
+      "seed": 902735757,
+      "theme_id": "modern-era",
+      "theme": "Modern Era",
+      "theme_candidates": [
+        "throwback-night",
+        "modern-era",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "e987372cfa39e184",
+      "criteria": {
+        "rows": [
+          "era_1990s",
+          "pos_guard",
+          "era_2020s"
+        ],
+        "cols": [
+          "team_por",
+          "team_pho",
+          "outcome_conf_finals"
+        ]
+      },
+      "starts_at": "2026-07-09T07:00:00Z",
+      "ends_at": "2026-07-10T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-10",
+      "board_id": "daily-grid-v2-2026-07-10",
+      "seed": 300345036,
+      "theme_id": "award-season",
+      "theme": "Award Season",
+      "theme_candidates": [
+        "modern-era",
+        "award-season",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "08e269047091e284",
+      "criteria": {
+        "rows": [
+          "context_mpg_36",
+          "era_2020s",
+          "team_lal"
+        ],
+        "cols": [
+          "outcome_finals",
+          "award_all_nba_first",
+          "award_all_nba"
+        ]
+      },
+      "starts_at": "2026-07-10T07:00:00Z",
+      "ends_at": "2026-07-11T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-11",
+      "board_id": "daily-grid-v2-2026-07-11",
+      "seed": 391304174,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "award-season",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "b736be992201429a",
+      "criteria": {
+        "rows": [
+          "team_bos",
+          "team_sas",
+          "award_all_star"
+        ],
+        "cols": [
+          "pos_guard",
+          "outcome_conf_finals",
+          "award_all_defense"
+        ]
+      },
+      "starts_at": "2026-07-11T07:00:00Z",
+      "ends_at": "2026-07-12T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-12",
+      "board_id": "daily-grid-v2-2026-07-12",
+      "seed": 675462783,
+      "theme_id": "modern-era",
+      "theme": "Modern Era",
+      "theme_candidates": [
+        "modern-era",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "614fe8f987b318ca",
+      "criteria": {
+        "rows": [
+          "era_2010s",
+          "context_games_70",
+          "pos_guard"
+        ],
+        "cols": [
+          "team_por",
+          "team_det",
+          "outcome_finals"
+        ]
+      },
+      "starts_at": "2026-07-12T07:00:00Z",
+      "ends_at": "2026-07-13T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-13",
+      "board_id": "daily-grid-v2-2026-07-13",
+      "seed": 333207999,
+      "theme_id": "open-court",
+      "theme": "Open Court",
+      "theme_candidates": [
+        "modern-era",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "e509ffe67579a2fc",
+      "criteria": {
+        "rows": [
+          "era_2020s",
+          "context_mpg_30",
+          "era_2010s"
+        ],
+        "cols": [
+          "team_por",
+          "award_all_star",
+          "pos_center"
+        ]
+      },
+      "starts_at": "2026-07-13T07:00:00Z",
+      "ends_at": "2026-07-14T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-14",
+      "board_id": "daily-grid-v2-2026-07-14",
+      "seed": 1461709499,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "modern-era",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "c1d670ebca5976d2",
+      "criteria": {
+        "rows": [
+          "team_pho",
+          "context_mpg_30",
+          "team_mem"
+        ],
+        "cols": [
+          "era_2010s",
+          "outcome_made_playoffs",
+          "era_1990s"
+        ]
+      },
+      "starts_at": "2026-07-14T07:00:00Z",
+      "ends_at": "2026-07-15T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-15",
+      "board_id": "daily-grid-v2-2026-07-15",
+      "seed": 1940173904,
+      "theme_id": "award-season",
+      "theme": "Award Season",
+      "theme_candidates": [
+        "award-season",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "8861cb212c033c79",
+      "criteria": {
+        "rows": [
+          "outcome_missed_playoffs",
+          "context_mpg_36",
+          "award_all_star"
+        ],
+        "cols": [
+          "team_uta",
+          "team_mem",
+          "award_scoring_title"
+        ]
+      },
+      "starts_at": "2026-07-15T07:00:00Z",
+      "ends_at": "2026-07-16T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-16",
+      "board_id": "daily-grid-v2-2026-07-16",
+      "seed": 1757911326,
+      "theme_id": "playoff-pressure",
+      "theme": "Playoff Pressure",
+      "theme_candidates": [
+        "award-season",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "9031bac166a05881",
+      "criteria": {
+        "rows": [
+          "outcome_conf_finals",
+          "award_all_nba",
+          "award_all_star"
+        ],
+        "cols": [
+          "team_sac",
+          "pos_center",
+          "pos_forward"
+        ]
+      },
+      "starts_at": "2026-07-16T07:00:00Z",
+      "ends_at": "2026-07-17T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-17",
+      "board_id": "daily-grid-v2-2026-07-17",
+      "seed": 794620498,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "award-season",
+        "playoff-pressure"
+      ],
+      "difficulty": "easy",
+      "board_hash": "fb1c814c860f6376",
+      "criteria": {
+        "rows": [
+          "era_1990s",
+          "era_1980s",
+          "award_all_star"
+        ],
+        "cols": [
+          "award_all_nba",
+          "outcome_missed_playoffs",
+          "team_mil"
+        ]
+      },
+      "starts_at": "2026-07-17T07:00:00Z",
+      "ends_at": "2026-07-18T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-18",
+      "board_id": "daily-grid-v2-2026-07-18",
+      "seed": 9999884,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "modern-era",
+        "award-season",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "d19b8975012ac77b",
+      "criteria": {
+        "rows": [
+          "award_dpoy",
+          "team_cha",
+          "team_ind"
+        ],
+        "cols": [
+          "award_all_star",
+          "context_mpg_30",
+          "era_2020s"
+        ]
+      },
+      "starts_at": "2026-07-18T07:00:00Z",
+      "ends_at": "2026-07-19T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-19",
+      "board_id": "daily-grid-v2-2026-07-19",
+      "seed": 639083209,
+      "theme_id": "modern-era",
+      "theme": "Modern Era",
+      "theme_candidates": [
+        "two-way-night",
+        "modern-era",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "30721e3661a5a9d8",
+      "criteria": {
+        "rows": [
+          "team_was",
+          "award_all_defense",
+          "team_por"
+        ],
+        "cols": [
+          "era_2020s",
+          "era_2010s",
+          "context_games_70"
+        ]
+      },
+      "starts_at": "2026-07-19T07:00:00Z",
+      "ends_at": "2026-07-20T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-20",
+      "board_id": "daily-grid-v2-2026-07-20",
+      "seed": 114255901,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "two-way-night",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "f26e41c99a22f9bf",
+      "criteria": {
+        "rows": [
+          "team_nyk",
+          "outcome_missed_playoffs",
+          "team_was"
+        ],
+        "cols": [
+          "award_dpoy_votes",
+          "era_1990s",
+          "pos_center"
+        ]
+      },
+      "starts_at": "2026-07-20T07:00:00Z",
+      "ends_at": "2026-07-21T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-21",
+      "board_id": "daily-grid-v2-2026-07-21",
+      "seed": 898622879,
+      "theme_id": "ring-chasers",
+      "theme": "Ring Chasers",
+      "theme_candidates": [
+        "ring-chasers",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "54deae6c7c893160",
+      "criteria": {
+        "rows": [
+          "context_mpg_30",
+          "team_cha",
+          "team_lac"
+        ],
+        "cols": [
+          "award_all_nba",
+          "outcome_missed_playoffs",
+          "outcome_made_playoffs"
+        ]
+      },
+      "starts_at": "2026-07-21T07:00:00Z",
+      "ends_at": "2026-07-22T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-22",
+      "board_id": "daily-grid-v2-2026-07-22",
+      "seed": 144297045,
+      "theme_id": "modern-era",
+      "theme": "Modern Era",
+      "theme_candidates": [
+        "modern-era",
+        "award-season",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "431b0c11930978d3",
+      "criteria": {
+        "rows": [
+          "pos_guard",
+          "award_mvp_top5",
+          "award_finals_mvp"
+        ],
+        "cols": [
+          "peak_70_plus",
+          "era_2010s",
+          "team_lal"
+        ]
+      },
+      "starts_at": "2026-07-22T07:00:00Z",
+      "ends_at": "2026-07-23T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-23",
+      "board_id": "daily-grid-v2-2026-07-23",
+      "seed": 1726212103,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "modern-era",
+        "award-season",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "8343cde8ead54f5a",
+      "criteria": {
+        "rows": [
+          "team_mem",
+          "award_all_defense_first",
+          "team_sac"
+        ],
+        "cols": [
+          "era_2020s",
+          "pos_guard",
+          "award_all_star"
+        ]
+      },
+      "starts_at": "2026-07-23T07:00:00Z",
+      "ends_at": "2026-07-24T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-24",
+      "board_id": "daily-grid-v2-2026-07-24",
+      "seed": 1327671896,
+      "theme_id": "playoff-pressure",
+      "theme": "Playoff Pressure",
+      "theme_candidates": [
+        "modern-era",
+        "award-season",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "c1e27654291fb10d",
+      "criteria": {
+        "rows": [
+          "team_gsw",
+          "award_mvp",
+          "era_2010s"
+        ],
+        "cols": [
+          "context_mpg_30",
+          "award_all_star",
+          "outcome_champion"
+        ]
+      },
+      "starts_at": "2026-07-24T07:00:00Z",
+      "ends_at": "2026-07-25T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-25",
+      "board_id": "daily-grid-v2-2026-07-25",
+      "seed": 1197264378,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "award-season",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "1ab3e78cac648b0b",
+      "criteria": {
+        "rows": [
+          "outcome_made_playoffs",
+          "context_mpg_30",
+          "award_dpoy_votes"
+        ],
+        "cols": [
+          "pos_forward",
+          "award_all_defense",
+          "team_uta"
+        ]
+      },
+      "starts_at": "2026-07-25T07:00:00Z",
+      "ends_at": "2026-07-26T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-26",
+      "board_id": "daily-grid-v2-2026-07-26",
+      "seed": 895804386,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "modern-era",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "32995c6147d5356b",
+      "criteria": {
+        "rows": [
+          "outcome_missed_playoffs",
+          "pos_guard",
+          "award_all_nba"
+        ],
+        "cols": [
+          "team_tor",
+          "era_1980s",
+          "era_2010s"
+        ]
+      },
+      "starts_at": "2026-07-26T07:00:00Z",
+      "ends_at": "2026-07-27T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-27",
+      "board_id": "daily-grid-v2-2026-07-27",
+      "seed": 1567914662,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "throwback-night",
+        "two-way-night",
+        "modern-era",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "d4a6bd50ef8ff47d",
+      "criteria": {
+        "rows": [
+          "era_2020s",
+          "era_1990s",
+          "award_dpoy_votes"
+        ],
+        "cols": [
+          "context_mpg_30",
+          "team_atl",
+          "team_pho"
+        ]
+      },
+      "starts_at": "2026-07-27T07:00:00Z",
+      "ends_at": "2026-07-28T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-28",
+      "board_id": "daily-grid-v2-2026-07-28",
+      "seed": 589423746,
+      "theme_id": "award-season",
+      "theme": "Award Season",
+      "theme_candidates": [
+        "throwback-night",
+        "award-season",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "9065feec71c2153c",
+      "criteria": {
+        "rows": [
+          "era_1980s",
+          "pos_center",
+          "pos_forward"
+        ],
+        "cols": [
+          "award_stat_leader",
+          "team_uta",
+          "award_all_star"
+        ]
+      },
+      "starts_at": "2026-07-28T07:00:00Z",
+      "ends_at": "2026-07-29T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-29",
+      "board_id": "daily-grid-v2-2026-07-29",
+      "seed": 680099307,
+      "theme_id": "franchise-icons",
+      "theme": "Franchise Icons",
+      "theme_candidates": [
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "d2a011e50e5eaf39",
+      "criteria": {
+        "rows": [
+          "award_all_star",
+          "outcome_made_playoffs",
+          "pos_forward"
+        ],
+        "cols": [
+          "team_mem",
+          "context_games_70",
+          "team_sac"
+        ]
+      },
+      "starts_at": "2026-07-29T07:00:00Z",
+      "ends_at": "2026-07-30T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-30",
+      "board_id": "daily-grid-v2-2026-07-30",
+      "seed": 1623214439,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "modern-era",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "300037f9c0cad638",
+      "criteria": {
+        "rows": [
+          "team_bos",
+          "award_stat_leader",
+          "team_orl"
+        ],
+        "cols": [
+          "era_2020s",
+          "context_mpg_36",
+          "era_1990s"
+        ]
+      },
+      "starts_at": "2026-07-30T07:00:00Z",
+      "ends_at": "2026-07-31T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-07-31",
+      "board_id": "daily-grid-v2-2026-07-31",
+      "seed": 1210089035,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "d38e584de5610bdf",
+      "criteria": {
+        "rows": [
+          "award_all_defense",
+          "team_det",
+          "era_2000s"
+        ],
+        "cols": [
+          "comp_traditional_production",
+          "context_games_70",
+          "outcome_champion"
+        ]
+      },
+      "starts_at": "2026-07-31T07:00:00Z",
+      "ends_at": "2026-08-01T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-01",
+      "board_id": "daily-grid-v2-2026-08-01",
+      "seed": 1218729072,
+      "theme_id": "modern-era",
+      "theme": "Modern Era",
+      "theme_candidates": [
+        "two-way-night",
+        "modern-era",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "f0c54ccf2ed75bf6",
+      "criteria": {
+        "rows": [
+          "era_2010s",
+          "pos_guard",
+          "context_mpg_36"
+        ],
+        "cols": [
+          "outcome_missed_playoffs",
+          "team_sac",
+          "award_all_defense"
+        ]
+      },
+      "starts_at": "2026-08-01T07:00:00Z",
+      "ends_at": "2026-08-02T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-02",
+      "board_id": "daily-grid-v2-2026-08-02",
+      "seed": 1210097203,
+      "theme_id": "franchise-icons",
+      "theme": "Franchise Icons",
+      "theme_candidates": [
+        "two-way-night",
+        "modern-era",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "e1788d919fb82922",
+      "criteria": {
+        "rows": [
+          "team_por",
+          "team_okc",
+          "award_all_defense_first"
+        ],
+        "cols": [
+          "outcome_conf_finals",
+          "era_2010s",
+          "context_games_70"
+        ]
+      },
+      "starts_at": "2026-08-02T07:00:00Z",
+      "ends_at": "2026-08-03T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-03",
+      "board_id": "daily-grid-v2-2026-08-03",
+      "seed": 477436592,
+      "theme_id": "award-season",
+      "theme": "Award Season",
+      "theme_candidates": [
+        "modern-era",
+        "award-season",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "f494863dffc963b2",
+      "criteria": {
+        "rows": [
+          "team_uta",
+          "team_sac",
+          "award_all_star"
+        ],
+        "cols": [
+          "pos_center",
+          "era_2020s",
+          "award_all_nba"
+        ]
+      },
+      "starts_at": "2026-08-03T07:00:00Z",
+      "ends_at": "2026-08-04T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-04",
+      "board_id": "daily-grid-v2-2026-08-04",
+      "seed": 918153951,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "award-season",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "f33695ecdb31b3b3",
+      "criteria": {
+        "rows": [
+          "pos_forward",
+          "team_atl",
+          "team_ind"
+        ],
+        "cols": [
+          "context_mpg_30",
+          "award_all_defense",
+          "award_all_star"
+        ]
+      },
+      "starts_at": "2026-08-04T07:00:00Z",
+      "ends_at": "2026-08-05T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-05",
+      "board_id": "daily-grid-v2-2026-08-05",
+      "seed": 1534602816,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "modern-era",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "0f6dd49022130cf0",
+      "criteria": {
+        "rows": [
+          "team_brk",
+          "team_bos",
+          "award_all_nba_first"
+        ],
+        "cols": [
+          "era_1990s",
+          "era_2010s",
+          "context_mpg_36"
+        ]
+      },
+      "starts_at": "2026-08-05T07:00:00Z",
+      "ends_at": "2026-08-06T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-06",
+      "board_id": "daily-grid-v2-2026-08-06",
+      "seed": 620151503,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "award-season",
+        "franchise-icons",
+        "playoff-pressure"
+      ],
+      "difficulty": "easy",
+      "board_hash": "73e96d36becffd3f",
+      "criteria": {
+        "rows": [
+          "team_brk",
+          "award_all_star",
+          "team_pho"
+        ],
+        "cols": [
+          "era_2000s",
+          "award_dpoy_votes",
+          "outcome_made_playoffs"
+        ]
+      },
+      "starts_at": "2026-08-06T07:00:00Z",
+      "ends_at": "2026-08-07T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-07",
+      "board_id": "daily-grid-v2-2026-08-07",
+      "seed": 923871939,
+      "theme_id": "modern-era",
+      "theme": "Modern Era",
+      "theme_candidates": [
+        "modern-era",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "c6eb0514ab6e578a",
+      "criteria": {
+        "rows": [
+          "team_orl",
+          "outcome_champion",
+          "team_min"
+        ],
+        "cols": [
+          "context_mpg_30",
+          "era_2020s",
+          "award_all_star"
+        ]
+      },
+      "starts_at": "2026-08-07T07:00:00Z",
+      "ends_at": "2026-08-08T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-08",
+      "board_id": "daily-grid-v2-2026-08-08",
+      "seed": 223400680,
+      "theme_id": "franchise-icons",
+      "theme": "Franchise Icons",
+      "theme_candidates": [
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "6f6e0d1b4dd68a4f",
+      "criteria": {
+        "rows": [
+          "team_phi",
+          "team_bos",
+          "comp_statistical_impact"
+        ],
+        "cols": [
+          "pos_forward",
+          "outcome_missed_playoffs",
+          "award_mvp_top5"
+        ]
+      },
+      "starts_at": "2026-08-08T07:00:00Z",
+      "ends_at": "2026-08-09T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-09",
+      "board_id": "daily-grid-v2-2026-08-09",
+      "seed": 1432065998,
+      "theme_id": "modern-era",
+      "theme": "Modern Era",
+      "theme_candidates": [
+        "modern-era",
+        "award-season",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "450cc166807f4ef4",
+      "criteria": {
+        "rows": [
+          "era_2010s",
+          "team_okc",
+          "award_finals_mvp"
+        ],
+        "cols": [
+          "pos_guard",
+          "context_mpg_36",
+          "award_all_nba"
+        ]
+      },
+      "starts_at": "2026-08-09T07:00:00Z",
+      "ends_at": "2026-08-10T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-10",
+      "board_id": "daily-grid-v2-2026-08-10",
+      "seed": 462728170,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "6da6d790cebafd49",
+      "criteria": {
+        "rows": [
+          "era_1980s",
+          "context_games_70",
+          "peak_60_plus"
+        ],
+        "cols": [
+          "team_det",
+          "team_mia",
+          "award_all_nba"
+        ]
+      },
+      "starts_at": "2026-08-10T07:00:00Z",
+      "ends_at": "2026-08-11T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-11",
+      "board_id": "daily-grid-v2-2026-08-11",
+      "seed": 452139917,
+      "theme_id": "playoff-pressure",
+      "theme": "Playoff Pressure",
+      "theme_candidates": [
+        "throwback-night",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "5a0a851ae4e2c142",
+      "criteria": {
+        "rows": [
+          "outcome_made_playoffs",
+          "award_all_star",
+          "context_games_70"
+        ],
+        "cols": [
+          "team_lal",
+          "era_1990s",
+          "team_mil"
+        ]
+      },
+      "starts_at": "2026-08-11T07:00:00Z",
+      "ends_at": "2026-08-12T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-12",
+      "board_id": "daily-grid-v2-2026-08-12",
+      "seed": 84019085,
+      "theme_id": "open-court",
+      "theme": "Open Court",
+      "theme_candidates": [
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "8d109a95881ec18f",
+      "criteria": {
+        "rows": [
+          "context_mpg_36",
+          "peak_60_plus",
+          "team_mil"
+        ],
+        "cols": [
+          "pos_center",
+          "outcome_made_playoffs",
+          "era_2000s"
+        ]
+      },
+      "starts_at": "2026-08-12T07:00:00Z",
+      "ends_at": "2026-08-13T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-13",
+      "board_id": "daily-grid-v2-2026-08-13",
+      "seed": 229740247,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "modern-era",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "a15e8a9e3be81cf9",
+      "criteria": {
+        "rows": [
+          "team_cha",
+          "award_mvp_top5",
+          "team_ind"
+        ],
+        "cols": [
+          "era_1980s",
+          "era_2010s",
+          "pos_guard"
+        ]
+      },
+      "starts_at": "2026-08-13T07:00:00Z",
+      "ends_at": "2026-08-14T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-14",
+      "board_id": "daily-grid-v2-2026-08-14",
+      "seed": 799206518,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "throwback-night",
+        "two-way-night",
+        "modern-era",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "1fcb17d92a6644d8",
+      "criteria": {
+        "rows": [
+          "team_por",
+          "outcome_champion",
+          "award_dpoy"
+        ],
+        "cols": [
+          "pos_guard",
+          "era_1990s",
+          "era_2010s"
+        ]
+      },
+      "starts_at": "2026-08-14T07:00:00Z",
+      "ends_at": "2026-08-15T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-15",
+      "board_id": "daily-grid-v2-2026-08-15",
+      "seed": 1880475177,
+      "theme_id": "franchise-icons",
+      "theme": "Franchise Icons",
+      "theme_candidates": [
+        "modern-era",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "37dd14df7bff98a8",
+      "criteria": {
+        "rows": [
+          "team_sas",
+          "era_2020s",
+          "team_cha"
+        ],
+        "cols": [
+          "pos_center",
+          "award_all_nba",
+          "context_mpg_30"
+        ]
+      },
+      "starts_at": "2026-08-15T07:00:00Z",
+      "ends_at": "2026-08-16T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-16",
+      "board_id": "daily-grid-v2-2026-08-16",
+      "seed": 677885095,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "award-season",
+        "franchise-icons"
+      ],
+      "difficulty": "hard",
+      "board_hash": "6058073e093367d8",
+      "criteria": {
+        "rows": [
+          "award_all_nba",
+          "era_2000s",
+          "award_all_defense"
+        ],
+        "cols": [
+          "peak_85_plus",
+          "team_uta",
+          "team_nyk"
+        ]
+      },
+      "starts_at": "2026-08-16T07:00:00Z",
+      "ends_at": "2026-08-17T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-17",
+      "board_id": "daily-grid-v2-2026-08-17",
+      "seed": 1535712930,
+      "theme_id": "playoff-pressure",
+      "theme": "Playoff Pressure",
+      "theme_candidates": [
+        "two-way-night",
+        "award-season",
+        "playoff-pressure"
+      ],
+      "difficulty": "easy",
+      "board_hash": "04ea707772790e01",
+      "criteria": {
+        "rows": [
+          "award_dpoy_votes",
+          "comp_postseason",
+          "outcome_made_playoffs"
+        ],
+        "cols": [
+          "team_okc",
+          "award_stat_leader",
+          "era_2000s"
+        ]
+      },
+      "starts_at": "2026-08-17T07:00:00Z",
+      "ends_at": "2026-08-18T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-18",
+      "board_id": "daily-grid-v2-2026-08-18",
+      "seed": 1582423296,
+      "theme_id": "ring-chasers",
+      "theme": "Ring Chasers",
+      "theme_candidates": [
+        "ring-chasers",
+        "two-way-night",
+        "modern-era",
+        "award-season",
+        "playoff-pressure"
+      ],
+      "difficulty": "easy",
+      "board_hash": "7038c8db37710bcb",
+      "criteria": {
+        "rows": [
+          "award_all_defense_first",
+          "team_lal",
+          "era_2010s"
+        ],
+        "cols": [
+          "outcome_made_playoffs",
+          "award_dpoy_votes",
+          "outcome_conf_finals"
+        ]
+      },
+      "starts_at": "2026-08-18T07:00:00Z",
+      "ends_at": "2026-08-19T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-19",
+      "board_id": "daily-grid-v2-2026-08-19",
+      "seed": 350930566,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "ring-chasers",
+        "throwback-night",
+        "franchise-icons",
+        "playoff-pressure"
+      ],
+      "difficulty": "easy",
+      "board_hash": "0edd35c2f22f5fdc",
+      "criteria": {
+        "rows": [
+          "team_sac",
+          "team_lal",
+          "era_1990s"
+        ],
+        "cols": [
+          "outcome_made_playoffs",
+          "award_all_nba",
+          "outcome_conf_finals"
+        ]
+      },
+      "starts_at": "2026-08-19T07:00:00Z",
+      "ends_at": "2026-08-20T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-20",
+      "board_id": "daily-grid-v2-2026-08-20",
+      "seed": 1118158733,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "two-way-night",
+        "modern-era",
+        "award-season",
+        "franchise-icons",
+        "playoff-pressure"
+      ],
+      "difficulty": "hard",
+      "board_hash": "df9868abe7fb3c62",
+      "criteria": {
+        "rows": [
+          "era_2010s",
+          "award_all_defense",
+          "outcome_conf_finals"
+        ],
+        "cols": [
+          "award_dpoy",
+          "team_chi",
+          "team_sas"
+        ]
+      },
+      "starts_at": "2026-08-20T07:00:00Z",
+      "ends_at": "2026-08-21T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-21",
+      "board_id": "daily-grid-v2-2026-08-21",
+      "seed": 2048659979,
+      "theme_id": "modern-era",
+      "theme": "Modern Era",
+      "theme_candidates": [
+        "two-way-night",
+        "modern-era",
+        "award-season",
+        "franchise-icons",
+        "playoff-pressure"
+      ],
+      "difficulty": "hard",
+      "board_hash": "3b4473973ecac395",
+      "criteria": {
+        "rows": [
+          "team_okc",
+          "outcome_champion",
+          "team_sas"
+        ],
+        "cols": [
+          "award_mvp_top5",
+          "era_2010s",
+          "award_all_defense"
+        ]
+      },
+      "starts_at": "2026-08-21T07:00:00Z",
+      "ends_at": "2026-08-22T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-22",
+      "board_id": "daily-grid-v2-2026-08-22",
+      "seed": 480032790,
+      "theme_id": "open-court",
+      "theme": "Open Court",
+      "theme_candidates": [
+        "two-way-night",
+        "modern-era",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "ba778484f691f798",
+      "criteria": {
+        "rows": [
+          "context_games_70",
+          "comp_statistical_impact",
+          "era_2020s"
+        ],
+        "cols": [
+          "award_all_defense",
+          "team_hou",
+          "team_lal"
+        ]
+      },
+      "starts_at": "2026-08-22T07:00:00Z",
+      "ends_at": "2026-08-23T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-23",
+      "board_id": "daily-grid-v2-2026-08-23",
+      "seed": 369843941,
+      "theme_id": "award-season",
+      "theme": "Award Season",
+      "theme_candidates": [
+        "award-season",
+        "franchise-icons",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "028597b14e6455c1",
+      "criteria": {
+        "rows": [
+          "pos_center",
+          "award_all_star",
+          "context_mpg_30"
+        ],
+        "cols": [
+          "team_dal",
+          "award_stat_leader",
+          "team_atl"
+        ]
+      },
+      "starts_at": "2026-08-23T07:00:00Z",
+      "ends_at": "2026-08-24T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-24",
+      "board_id": "daily-grid-v2-2026-08-24",
+      "seed": 805422439,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "1e40f05e9aefb376",
+      "criteria": {
+        "rows": [
+          "era_2000s",
+          "context_mpg_36",
+          "era_1990s"
+        ],
+        "cols": [
+          "team_ind",
+          "team_brk",
+          "outcome_finals"
+        ]
+      },
+      "starts_at": "2026-08-24T07:00:00Z",
+      "ends_at": "2026-08-25T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-25",
+      "board_id": "daily-grid-v2-2026-08-25",
+      "seed": 990439094,
+      "theme_id": "modern-era",
+      "theme": "Modern Era",
+      "theme_candidates": [
+        "modern-era",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "120007e26fd0c557",
+      "criteria": {
+        "rows": [
+          "context_mpg_36",
+          "outcome_conf_finals",
+          "era_2010s"
+        ],
+        "cols": [
+          "team_atl",
+          "award_stat_leader",
+          "pos_center"
+        ]
+      },
+      "starts_at": "2026-08-25T07:00:00Z",
+      "ends_at": "2026-08-26T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-26",
+      "board_id": "daily-grid-v2-2026-08-26",
+      "seed": 713284059,
+      "theme_id": "throwback-night",
+      "theme": "Throwback Night",
+      "theme_candidates": [
+        "throwback-night",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "4f3cff01cc524133",
+      "criteria": {
+        "rows": [
+          "award_all_star",
+          "pos_guard",
+          "era_1990s"
+        ],
+        "cols": [
+          "context_games_70",
+          "team_brk",
+          "outcome_missed_playoffs"
+        ]
+      },
+      "starts_at": "2026-08-26T07:00:00Z",
+      "ends_at": "2026-08-27T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-27",
+      "board_id": "daily-grid-v2-2026-08-27",
+      "seed": 729681723,
+      "theme_id": "two-way-night",
+      "theme": "Two-Way Night",
+      "theme_candidates": [
+        "throwback-night",
+        "two-way-night",
+        "modern-era",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "medium",
+      "board_hash": "6570e23be0a656b0",
+      "criteria": {
+        "rows": [
+          "context_mpg_36",
+          "award_dpoy_votes",
+          "outcome_made_playoffs"
+        ],
+        "cols": [
+          "era_2020s",
+          "era_1990s",
+          "team_atl"
+        ]
+      },
+      "starts_at": "2026-08-27T07:00:00Z",
+      "ends_at": "2026-08-28T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-28",
+      "board_id": "daily-grid-v2-2026-08-28",
+      "seed": 964534569,
+      "theme_id": "ring-chasers",
+      "theme": "Ring Chasers",
+      "theme_candidates": [
+        "ring-chasers",
+        "franchise-icons",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "easy",
+      "board_hash": "67b8b56f958493d1",
+      "criteria": {
+        "rows": [
+          "outcome_missed_playoffs",
+          "context_games_70",
+          "outcome_conf_finals"
+        ],
+        "cols": [
+          "team_ind",
+          "team_chi",
+          "pos_forward"
+        ]
+      },
+      "starts_at": "2026-08-28T07:00:00Z",
+      "ends_at": "2026-08-29T07:00:00Z"
+    },
+    {
+      "daily_key": "2026-08-29",
+      "board_id": "daily-grid-v2-2026-08-29",
+      "seed": 989577729,
+      "theme_id": "award-season",
+      "theme": "Award Season",
+      "theme_candidates": [
+        "award-season",
+        "playoff-pressure",
+        "open-court"
+      ],
+      "difficulty": "hard",
+      "board_hash": "0e09fac282ffe3ef",
+      "criteria": {
+        "rows": [
+          "team_phi",
+          "pos_forward",
+          "outcome_missed_playoffs"
+        ],
+        "cols": [
+          "award_mvp_top5",
+          "context_mpg_36",
+          "award_stat_leader"
+        ]
+      },
+      "starts_at": "2026-08-29T07:00:00Z",
+      "ends_at": "2026-08-30T07:00:00Z"
+    }
+  ]
+}

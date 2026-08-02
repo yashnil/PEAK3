@@ -157,6 +157,44 @@ export interface RespinHistoryEntry {
   to_season: string | null;
 }
 
+/** W5: one entry in the distance-aware respin policy's audit trail, parallel
+ * to `RespinHistoryEntry`. Debug/support surface -- deliberately not rendered
+ * in the normal UI (see UX_ORGANIZATION_POLISH_PLAN.md Sec 5.5 step 6). */
+export interface RespinPolicyDebugEntry {
+  policy_version: string;
+  kind: "team" | "season";
+  round?: number;
+  /**
+   * The four policy fields below are OPTIONAL, and that is not defensive
+   * padding. On the documented rollback path -- RESPIN_SEASON_EXCLUSION_RADIUS
+   * and RESPIN_TEAM_HISTORY_DEPTH both 0 -- the server emits exactly
+   * `{policy_version: "legacy_pre_policy", kind}` and nothing else, and the
+   * wire field is typed `list[dict]` so nothing coerces the gap.
+   *
+   * Declaring them required would be the same defect this pass exists to fix:
+   * `cost_modifiers: string[]` was a lie about a `list[dict]`, tsc believed it,
+   * and `.join()` printed "[object Object]" in production. A type must be able
+   * to hold everything the server can send.
+   */
+  /** Which rung of the exclusion ladder actually fired, e.g.
+   * "same_team_radius_2" or "any_season_depth_1". */
+  relaxation_tier?: string;
+  tier_index?: number;
+  /** Seasons within this many INDICES of the current one were excluded. */
+  exclusion_radius?: number;
+  /** How many recently-seen teams were excluded on top of the current one. */
+  history_depth?: number;
+  /** Size of the allowed pool the result was drawn uniformly from. */
+  allowed_pool_size?: number;
+  min_respin_pool?: number;
+  relaxed?: boolean;
+  below_min_pool?: boolean;
+  from_team?: string | null;
+  to_team?: string | null;
+  from_season?: string | null;
+  to_season?: string | null;
+}
+
 // Matches an exact-season era_label ("2015-16"), never a decade string.
 export const EXACT_SEASON_RE = /^\d{4}-\d{2}$/;
 
@@ -334,6 +372,13 @@ export interface CourtLineupPublicState {
   team_respins_remaining_total: number;
   season_respins_used_total: number;
   season_respins_remaining_total: number;
+  // W5: which distance-aware respin policy produced this run's rerolls, plus
+  // the per-respin debug trail (exclusion radius, recent-team depth, which
+  // relaxation rung fired, allowed pool size). DEBUG SURFACE ONLY -- never
+  // rendered in the normal UI; the player should feel the reroll travel, not
+  // read a pool-size number.
+  respin_policy_version?: string | null;
+  respin_policy_debug?: RespinPolicyDebugEntry[];
   // Phase 9A: which retention loop this attempt belongs to, and (for a daily
   // attempt) the UTC date whose shared seed it uses -- used to label the
   // scorecard rather than re-deriving the date from the seed.
@@ -344,6 +389,25 @@ export interface CourtLineupPublicState {
   // /submit route enforces, so the UI can never disagree with it.
   eligibility?: RunEligibility | null;
 }
+
+/**
+ * What a SHARED results link is allowed to know about a finished run.
+ *
+ * Mirrors `SharedCourtResultResponse` in apps/api/app/models/perfect_season.py
+ * and, through it, `SHARED_RESULT_WITHHELD_KEYS` in the state machine. The
+ * four omitted keys are the live-board ones (`current_spin`,
+ * `pending_selection`, `live_build`) plus the debug trail; `eligibility` stays
+ * in the type because it is already optional and the read-only scorecard has
+ * to compile against a state that simply does not carry it.
+ *
+ * A full `CourtLineupPublicState` is structurally assignable to this, so the
+ * components below take the NARROW type and serve both the owner's live
+ * result screen and a shared link with one code path.
+ */
+export type SharedCourtResult = Omit<
+  CourtLineupPublicState,
+  "current_spin" | "pending_selection" | "live_build" | "respin_policy_debug"
+>;
 
 // Duration-aware coverage audit of the interim dataset -- see
 // nba_peak/perfect_season/board.py::coverage_summary. Mainly a diagnostic
