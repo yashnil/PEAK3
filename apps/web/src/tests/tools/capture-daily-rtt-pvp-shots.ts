@@ -1216,7 +1216,7 @@ test("22 side-by-side PvP result", async ({ browser }) => {
   // --- player A: play a run as a guest, claim it, create the challenge ------
   const aContext = await browser.newContext({ viewport: DESKTOP });
   const a = await aContext.newPage();
-  const aToken = await guestRunThenClaim(a, PLAYER_A);
+  await guestRunThenClaim(a, PLAYER_A);
   await a.getByRole("button", { name: /create a head-to-head/i }).click();
   await a.getByTestId("h2h-created").waitFor({ state: "visible", timeout: 30_000 });
   const invitePath = (await a.locator("code").first().innerText())

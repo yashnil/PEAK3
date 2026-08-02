@@ -28,6 +28,38 @@ jobs:
       - name: Install model dependencies
         run: pip install -r requirements.txt
 
+      - name: Build the web dataset
+        # `data/web/` is deliberately not committed (.gitignore:63, and
+        # CLAUDE.md "Data export rules"), so a fresh checkout has no
+        # peak_windows.json — and nba_peak/run_the_table/cards.py needs it to
+        # build the card pool. Without this step every RUN THE TABLE test
+        # raises CardPoolUnavailable: 210 errors, all one cause.
+        #
+        # The `web-dataset` job already builds this, but GitHub Actions jobs do
+        # not share a filesystem. Rebuilding here rather than adding
+        # `needs: web-dataset` + download-artifact is the cheaper option in
+        # both senses: the build reads committed leaderboard CSVs and finishes
+        # in under a second, whereas a `needs:` would serialize this job — one
+        # of the fastest in the matrix — behind a slower one to fetch a file it
+        # can regenerate faster than it could download. `lineup-tests` already
+        # takes this same inline-build approach, and requirements.txt already
+        # provides pandas and unidecode.
+        #
+        # Only data/web/ is missing on checkout: the card profiles the pool
+        # also reads (data/game/profiles/card_profiles.v3.json) are committed.
+        run: python scripts/build_web_dataset.py
+
+      - name: Verify the dataset exists and is non-empty
+        # Fail in seconds with one clear message instead of surfacing the same
+        # single cause as hundreds of test errors twenty minutes later.
+        run: |
+          test -s data/web/peak_windows.json || {
+            echo "MISSING or EMPTY: data/web/peak_windows.json"
+            echo "The dataset build step above did not produce it."
+            echo "Reproduce locally with: make build-game-data"
+            exit 1
+          }
+
       - name: Keep the scored-data cache fresh
         # actions/checkout materializes every file at roughly the same time,
         # in whatever order git happens to write blobs — not the original

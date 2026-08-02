@@ -39,8 +39,12 @@ async function reloadAnalytics(enabled: boolean) {
 }
 
 function stubFetch(status: number) {
-  const fetchMock = vi.fn(
-    async (_url: string, _init?: RequestInit) => new Response("{}", { status }),
+  // The signature is declared on `vi.fn` rather than on the implementation:
+  // the stub ignores both arguments (it always answers the same way), but the
+  // assertions below read `mock.calls[0][0]` and `[0][1]`, and those are only
+  // typed if the mock knows its own call shape.
+  const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
+    async () => new Response("{}", { status }),
   );
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
