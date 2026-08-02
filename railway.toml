@@ -1,0 +1,38 @@
+# Railway service definition for the PEAK3 Arena API.
+#
+# ROOT DIRECTORY MUST STAY "/" (the repository root). The API imports
+# `nba_peak`, reads committed data under `data/game/` and `data/generated/`,
+# and exports `data/web/` from `leaderboards/*.csv` during the build. A service
+# whose root is set to `apps/api` cannot see any of that and will build cleanly,
+# start, and then fail on the first import.
+#
+# The Dockerfile is at the repository root for the same reason. Nixpacks is not
+# used: its Python autodetection would find the root requirements.txt — the
+# offline scraper/model set — and install requests/lxml/html5lib into a serving
+# image while still missing the generated-data step.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# $PORT is injected by Railway and must be bound on 0.0.0.0. The Dockerfile's
+# CMD already does exactly this; it is restated here because a startCommand set
+# in the Railway dashboard silently overrides CMD, and this file is the version
+# that is reviewable.
+startCommand = "sh -c 'cd /app/apps/api && uvicorn app.main:app --host 0.0.0.0 --port ${PORT}'"
+
+# /health is the LIVENESS probe: it returns 200 as soon as the process is up
+# and touches no data. /health/readiness is deliberately NOT used here — it
+# returns 503 until the dataset is loaded, and pointing Railway at it would
+# make a deploy that is merely slow to load look like a deploy that failed.
+# Readiness is still the right probe for a human verifying a deploy, and the
+# staging checklist says so.
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+
+# The dataset export runs at build time, so a restart is cheap. Retry a few
+# times before giving up: the most likely boot failure is Postgres not yet
+# accepting connections, which resolves on its own.
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

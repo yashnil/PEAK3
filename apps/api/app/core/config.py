@@ -373,6 +373,8 @@ class Settings(BaseSettings):
                 "PEAK3_DATABASE_URL must be set in production (DEBUG=False). "
                 "See docs/implementation/LOCAL_DEV.md for setup instructions."
             )
+        if not self.DEBUG:
+            self._assert_deployable()
         if not self.DEBUG and self.auth_verification_mode == "unconfigured":
             # Without either PEAK3_SUPABASE_URL (JWKS) or
             # PEAK3_SUPABASE_JWT_SECRET (legacy HS256) the API cannot verify a
@@ -385,6 +387,103 @@ class Settings(BaseSettings):
                 "See docs/implementation/AUTH_CONFIGURATION.md."
             )
         return self
+
+
+    # -----------------------------------------------------------------------
+    # Deployment safety — the checks that only matter once DEBUG is False
+    # -----------------------------------------------------------------------
+    #
+    # These reject configurations that are correct for a laptop and wrong for a
+    # deployed environment. Each one has been an actual outage somewhere, and
+    # each fails at STARTUP: a deploy that refuses to boot is a rollback, while
+    # a deploy that boots misconfigured is an incident.
+    #
+    # `DEBUG=False` is the trigger rather than a separate PEAK3_ENV variable, so
+    # there is one switch to get wrong instead of two that can disagree.
+
+    #: Hosts that mean "this machine". A deployed service naming one of these is
+    #: pointing at itself, not at the thing it was meant to reach.
+    _LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal")
+
+    def _is_local_url(self, value: Optional[str]) -> bool:
+        if not value:
+            return False
+        lowered = value.lower()
+        return any(h in lowered for h in self._LOCAL_HOSTS)
+
+    def _assert_deployable(self) -> None:
+        problems: list[str] = []
+
+        # 1. Localhost URLs. A staging API whose SUPABASE_URL is localhost
+        #    cannot fetch JWKS, so every access token fails verification and
+        #    every authenticated request 401s while the service looks healthy.
+        for name, value in (
+            ("PEAK3_SUPABASE_URL", self.SUPABASE_URL),
+            ("PEAK3_SUPABASE_JWKS_URL", self.SUPABASE_JWKS_URL),
+            ("PEAK3_DATABASE_URL", self.DATABASE_URL),
+        ):
+            if self._is_local_url(value):
+                problems.append(
+                    f"{name} points at localhost. A deployed service cannot reach "
+                    f"the deployer's machine."
+                )
+        for origin in self.CORS_ORIGINS:
+            if self._is_local_url(origin):
+                problems.append(
+                    f"PEAK3_CORS_ORIGINS contains {origin!r}. Allowing a localhost "
+                    f"origin from a deployed API is a development leftover."
+                )
+
+        # 2. Wildcard CORS with credentials. The app sends
+        #    `allow_credentials=True` (main.py), and Starlette answers a
+        #    wildcard by echoing whatever Origin the caller sent -- so "*" here
+        #    is not "any origin, no cookies", it is "every origin, with
+        #    credentials", which is the whole same-origin policy switched off.
+        if "*" in self.CORS_ORIGINS:
+            problems.append(
+                "PEAK3_CORS_ORIGINS contains '*' while the API sends credentialed "
+                "responses. List the exact web origins instead."
+            )
+        if not self.CORS_ORIGINS:
+            problems.append("PEAK3_CORS_ORIGINS is empty; the web app will be blocked by CORS.")
+
+        # 3. Plaintext transport. A Supabase URL over http:// on a deployed
+        #    service means bearer tokens crossing the network in the clear.
+        for name, value in (
+            ("PEAK3_SUPABASE_URL", self.SUPABASE_URL),
+            ("PEAK3_SUPABASE_JWKS_URL", self.SUPABASE_JWKS_URL),
+        ):
+            if value and value.lower().startswith("http://"):
+                problems.append(f"{name} is http://; use https:// outside local development.")
+
+        # 4. Missing dataset. Without it the service starts, logs one warning,
+        #    and serves 503 from readiness forever while /health says 200. The
+        #    Dockerfile generates it at build time, so reaching here means the
+        #    image was built wrong -- worth failing loudly at boot rather than
+        #    discovering it from a graph of 503s.
+        for artifact in ("leaderboards.json", "peak_windows.json"):
+            path = self.DATA_DIR / artifact
+            if not path.exists() or path.stat().st_size == 0:
+                problems.append(
+                    f"Generated dataset missing or empty: {path}. Run "
+                    f"scripts/build_web_dataset.py during the build."
+                )
+
+        # 5. Ranked must be an explicit decision. The defaults are already off;
+        #    this refuses the specific combination of "enabled" plus a readiness
+        #    level that has not been raised past internal, which is what an
+        #    accidental copy of a developer's env looks like.
+        if self.RANKED_ENABLED and self.RANKED_READINESS_LEVEL in ("disabled", "simulation_only"):
+            problems.append(
+                "PEAK3_RANKED_ENABLED is true but PEAK3_RANKED_READINESS_LEVEL is "
+                f"{self.RANKED_READINESS_LEVEL!r}. Ranked must be turned on deliberately."
+            )
+
+        if problems:
+            raise ValueError(
+                "Refusing to start: this configuration is not deployable.\n  - "
+                + "\n  - ".join(problems)
+            )
 
 
 settings = Settings()
