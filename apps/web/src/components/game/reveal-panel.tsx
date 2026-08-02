@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { CheckCircle, XCircle, ArrowRight } from "lucide-react";
 import type { AnswerResponse } from "@/types";
@@ -21,6 +22,27 @@ export function RevealPanel({
   onNext,
   isLast,
 }: RevealPanelProps) {
+  const nextRef = useRef<HTMLButtonElement | null>(null);
+
+  /**
+   * Move focus to the next action WITHOUT scrolling.
+   *
+   * This was `autoFocus`, which is `focus()` with no options, and the browser
+   * scrolls a freshly focused element into view. Measured on the endless mode:
+   * choosing a player scrolled the window 603px. That is the "page jumps down
+   * when I pick" report, and it is not a layout bug at all -- the layout
+   * reserves its space (see the stage slot in game-engine.tsx); the browser
+   * was chasing the focus ring.
+   *
+   * `preventScroll: true` keeps the keyboard contract exactly as it was --
+   * focus lands on "Next duel", Enter still advances, screen readers still
+   * announce the result via the panel's `aria-live` region -- and simply stops
+   * the viewport following it.
+   */
+  useEffect(() => {
+    nextRef.current?.focus({ preventScroll: true });
+  }, []);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -95,8 +117,8 @@ export function RevealPanel({
       <button
         type="button"
         onClick={onNext}
+        ref={nextRef}
         className="w-full rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] border border-[var(--border-default)] py-3 text-sm font-semibold text-[var(--text-primary)] transition-colors flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-        autoFocus
       >
         {isLast ? "See results" : "Next duel"}
         <ArrowRight size={14} aria-hidden="true" />

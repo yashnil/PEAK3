@@ -30,6 +30,7 @@ export function DuelCardComponent({
   return (
     <motion.button
       type="button"
+      data-testid={`duel-card-${side}`}
       onClick={isInteractive ? onClick : undefined}
       disabled={!isInteractive}
       aria-pressed={selected}
@@ -73,13 +74,24 @@ export function DuelCardComponent({
         </p>
       </div>
 
-      {/* Score reveal */}
+      {/*
+        Score reveal, in space the card ALREADY OCCUPIES.
+
+        This block used to mount only once `revealed`, so both cards grew by
+        the height of a 3xl number plus its caption the instant a player chose
+        -- 72px of document growth, measured. The stage slot below reserves its
+        own height, so that growth was the last thing still moving the page.
+
+        The reservation lives on the card rather than on a wrapper because the
+        cards are a 2-column grid: reserving on only one of them would make the
+        pair different heights before the reveal.
+      */}
+      <div className="mt-5 h-[3.75rem]" aria-hidden={!revealed || primeScore === undefined}>
       {revealed && primeScore !== undefined && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.15 }}
-          className="mt-5"
         >
           <p
             className={cn(
@@ -92,6 +104,7 @@ export function DuelCardComponent({
           <p className="text-xs text-[var(--text-muted)]">Prime Score</p>
         </motion.div>
       )}
+      </div>
 
       {/* Winner badge */}
       {revealed && isWinner && (

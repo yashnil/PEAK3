@@ -215,6 +215,32 @@ async def verify_access_token(token: str) -> dict:
     raise ValueError("token_unsupported_algorithm")
 
 
+def _unverified_issuer(token: str) -> str | None:
+    """The `iss` claim without verifying the signature — for logging only.
+
+    Safe: nothing is trusted from it. It exists so a rejected token can say
+    *which project minted it*, which is the one fact that distinguishes a
+    misconfiguration from an expired session.
+    """
+    _jwt = _import_pyjwt()
+    try:
+        return _jwt.decode(token, options={"verify_signature": False}).get("iss")
+    except Exception:
+        return None
+
+
+def _configured_issuer() -> str | None:
+    """The issuer this API will accept, as resolved from settings."""
+    from app.core.config import settings
+    from app.core.jwks import derive_issuer
+
+    if settings.SUPABASE_JWT_ISSUER:
+        return settings.SUPABASE_JWT_ISSUER
+    if settings.SUPABASE_URL:
+        return derive_issuer(settings.SUPABASE_URL)
+    return None
+
+
 async def get_optional_auth(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
@@ -235,6 +261,28 @@ async def get_optional_auth(
         reason = str(exc)
         if reason in {"jwks_not_configured", "hs256_secret_not_configured", "jwks_unavailable"}:
             logger.warning("Cannot verify access tokens: %s", reason)
+        elif reason in {"token_unknown_key", "token_invalid_issuer", "token_invalid_audience"}:
+            # A CONFIGURATION mismatch wearing a client error's clothes: the
+            # browser holds a perfectly valid session from a different Supabase
+            # project than this API verifies against, so the player is visibly
+            # signed in and every write 401s. Previously this went to
+            # logger.debug and the server said nothing at all, which made the
+            # single most likely production misconfiguration invisible in logs
+            # and indistinguishable from "user is signed out".
+            #
+            # The token's issuer is echoed because it is the whole diagnosis and
+            # it is not a secret (it is a public project URL, present in the
+            # browser bundle). No token, key, signature or claim beyond `iss`
+            # is logged.
+            logger.warning(
+                "Rejected an access token (%s). Token issuer=%r; this API verifies "
+                "issuer=%r. If those differ, the web app and the API are pointed at "
+                "different Supabase projects -- align NEXT_PUBLIC_SUPABASE_URL with "
+                "PEAK3_SUPABASE_URL.",
+                reason,
+                _unverified_issuer(credentials.credentials),
+                _configured_issuer(),
+            )
         else:
             logger.debug("JWT verification failed: %s", reason)
         return None
@@ -256,11 +304,30 @@ async def get_optional_auth(
 async def get_required_auth(
     auth: AuthSubject | None = Depends(get_optional_auth),
 ) -> AuthSubject:
-    """Return AuthSubject or raise 401 if not authenticated."""
+    """Return AuthSubject or raise 401 if not authenticated.
+
+    The detail is the structured `{error_code, message}` shape every other
+    error in this API uses, NOT the bare string `"authentication_required"`.
+
+    WHY. The frontend error parsers (`parseErrorDetail` in
+    perfect-season-api.ts and its siblings) treat a *string* detail as the
+    human-readable message and show it verbatim, so a signed-in player who
+    pressed "Save run" was told, in the UI, `authentication_required`. That is
+    a wire protocol constant leaking into a product surface: it names no
+    problem the reader has and offers no action. The code is preserved as
+    `error_code` so diagnostics, tests and client branching are unaffected --
+    this widens the payload, it does not replace it.
+    """
     if auth is None:
         raise HTTPException(
             status_code=401,
-            detail="authentication_required",
+            detail={
+                "error_code": "authentication_required",
+                "message": (
+                    "You are not signed in, or your session has expired. "
+                    "Sign in again to continue."
+                ),
+            },
             headers={"WWW-Authenticate": "Bearer"},
         )
     return auth

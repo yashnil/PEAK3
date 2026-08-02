@@ -121,7 +121,7 @@ export interface PeakRow {
 }
 
 export interface PeaksResponse {
-  window: "1y" | "3y" | "5y";
+  window: "1y" | "2y" | "3y" | "5y";
   duration_years: number;
   dataset_version: string;
   formula_version: string;

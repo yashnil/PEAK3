@@ -597,12 +597,28 @@ export default function ScoreExplainModal({
       ).filter(([, value]) => value !== null)
     : [];
 
+  /**
+   * "Best seasons in 1990-91", not "Same-season peers".
+   *
+   * The rail lists the strongest OTHER performances from the same NBA season
+   * (see build_top_seasons.py::_comparison_rails), so the heading should say
+   * which season and that it is a ranking. "Same-season peers" described
+   * neither, and read as though it were about players comparable to this one.
+   *
+   * On the peak-windows board a row spans several seasons, so there is no
+   * single season to name and the generic heading is still the honest one.
+   */
+  const seasonPeersHeading =
+    board === "seasons" && subject?.label
+      ? `Best seasons in ${subject.label}`
+      : "Same-season peers";
+
   const comparisonSections = explain
     ? (
         [
           ["Other seasons from this player", explain.comparisons.same_player, "same-player"],
           ["Similar PEAK3 scores", explain.comparisons.similar_scores, "similar-scores"],
-          ["Same-season peers", explain.comparisons.same_season_peers, "same-season-peers"],
+          [seasonPeersHeading, explain.comparisons.same_season_peers, "same-season-peers"],
         ] as const
       ).filter(([, entries]) => entries.length > 0)
     : [];

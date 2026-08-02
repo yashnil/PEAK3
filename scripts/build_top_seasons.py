@@ -173,7 +173,7 @@ _FALLBACK_STATUS_COLUMNS: dict[str, str] = {
 # Deterministic caps for the comparison rails in the explain payload.
 _MAX_SAME_PLAYER = 5
 _MAX_SIMILAR_SCORES = 6
-_MAX_SEASON_PEERS = 5
+_MAX_SEASON_PEERS = 6
 
 # The scored parquet stores rate stats per-75/per-100, not per-game. ppg/rpg/apg
 # are therefore published as null rather than back-solved from a rate: CLAUDE.md
@@ -327,8 +327,30 @@ def _comparison_rails(rows: list[dict]) -> dict[str, dict]:
     similar_scores    -- nearest rows by |prime_index delta| excluding the same
                          player, capped at 6, tie-broken by rank asc so the
                          output is byte-stable across runs.
-    same_season_peers -- rows sharing the same NBA season, nearest by score,
-                         capped at 5, excluding self.
+    same_season_peers -- the STRONGEST other rows from the same NBA season,
+                         sorted by that season's PEAK3 score descending,
+                         capped at 6, excluding self.
+
+                         WHAT THIS USED TO BE, AND WHY IT CHANGED. It selected
+                         the rows *nearest in score* to the row being explained
+                         (`abs(peer_score - score)`), which answers "who scored
+                         about the same as this?" — a question nobody was
+                         asking of a section titled "same-season peers". For
+                         Jordan 1990-91 it returned a band of rows clustered
+                         around his own score rather than the best seasons of
+                         1990-91, so the actual leaders of that year could be
+                         missing purely because they were too far ahead or
+                         behind. Sorting by score descending makes the rail
+                         mean "the best performances of this season", which is
+                         both what the heading claims and the thing a reader
+                         can check against their own memory of the year.
+
+                         These are canonical 1-year rows, so a player appears
+                         on the strength of THAT season alone — not on whether
+                         that season happened to be their career peak. The
+                         board's own eligibility and minimum-sample rules
+                         already applied when `rows` was built, so nothing is
+                         curated here.
 
     Every entry carries a row_id so the modal can pivot straight to it.
     """
@@ -354,8 +376,11 @@ def _comparison_rails(rows: list[dict]) -> dict[str, dict]:
         similar.sort(key=lambda o: (abs((o["prime_index"] or 0.0) - index), o["rank"]))
         similar = similar[:_MAX_SIMILAR_SCORES]
 
+        # Best-first, not nearest-first. `rank` is the tie-break so two rows
+        # with an identical calibrated score come out in a stable, documented
+        # order rather than in dict-insertion order.
         peers = [o for o in by_season[row["season"]] if o["row_id"] != row_id]
-        peers.sort(key=lambda o: (abs((o["prime_score"] or 0.0) - score), o["rank"]))
+        peers.sort(key=lambda o: (-(o["prime_score"] or 0.0), o["rank"]))
         peers = peers[:_MAX_SEASON_PEERS]
 
         out[row_id] = {

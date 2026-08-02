@@ -399,8 +399,10 @@ def test_same_player_rail_reaches_kobes_other_peak_windows(client, boards):
     assert len(same_player) > 1, "a Kobe row must reach his other served peak windows"
     assert all(e["row_id"].startswith("kobe-bryant-") for e in same_player)
     windows = {e["window"] for e in same_player}
-    assert windows == {"3y", "5y"}, (
-        f"expected Kobe's 3Y and 5Y windows to be reachable from his 1Y row, got {windows}"
+    # 2y joined the served boards; the rail must reach it too, because that rail
+    # is the only route from a player's 1Y row to their 2Y window.
+    assert windows == {"2y", "3y", "5y"}, (
+        f"expected Kobe's 2Y, 3Y and 5Y windows to be reachable from his 1Y row, got {windows}"
     )
     # Sorted by prime_score desc, per the documented rule.
     scores = [e["prime_score"] for e in same_player]

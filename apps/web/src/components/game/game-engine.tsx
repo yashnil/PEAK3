@@ -187,7 +187,10 @@ export function GameEngine({
         </p>
       </div>
 
-      {/* Cards */}
+      {/* Cards + result share ONE container: the result overlays the cards
+          rather than stacking below them, so the stage occupies the same
+          screen space whether or not a result is showing. */}
+      <div className="relative">
       <AnimatePresence mode="wait">
         <motion.div
           key={duel.id}
@@ -230,43 +233,80 @@ export function GameEngine({
         </motion.div>
       </AnimatePresence>
 
-      {/* Keyboard hint */}
-      {!revealed && (
-        <p className="text-center text-[10px] text-[var(--text-muted)]">
-          Use{" "}
-          <kbd className="rounded border border-[var(--border-subtle)] px-1 font-mono">←</kbd>{" "}
-          <kbd className="rounded border border-[var(--border-subtle)] px-1 font-mono">A</kbd>{" "}
-          or{" "}
-          <kbd className="rounded border border-[var(--border-subtle)] px-1 font-mono">→</kbd>{" "}
-          <kbd className="rounded border border-[var(--border-subtle)] px-1 font-mono">D</kbd>{" "}
-          to choose
-        </p>
-      )}
-
-      {/* Submitting indicator */}
-      {state.is_submitting && (
-        <p className="text-center text-xs text-[var(--text-muted)] animate-pulse" role="status">
-          Checking…
-        </p>
-      )}
-
-      {/* Error */}
-      {state.error && !state.is_submitting && (
-        <div role="alert" className="rounded-lg bg-[var(--incorrect-bg)] border border-[var(--incorrect)] p-3 text-sm text-[var(--incorrect)]">
-          {state.error} — tap a player to try again.
+      {/* Reveal panel — overlays the cards, in their space. */}
+      {revealed && state.current_answer && (
+        <div className="absolute inset-0 z-10 overflow-y-auto rounded-xl bg-[var(--bg-base)]">
+          <RevealPanel
+            answer={state.current_answer}
+            arenaPoints={state.total_arena_points}
+            streak={state.current_streak}
+            onNext={() => dispatch({ type: "ADVANCE" })}
+            isLast={state.current_index === duels.length - 1}
+          />
         </div>
       )}
+      </div>
 
-      {/* Reveal panel */}
-      {revealed && state.current_answer && (
-        <RevealPanel
-          answer={state.current_answer}
-          arenaPoints={state.total_arena_points}
-          streak={state.current_streak}
-          onNext={() => dispatch({ type: "ADVANCE" })}
-          isLast={state.current_index === duels.length - 1}
-        />
-      )}
+      {/*
+        THE DUEL STAGE SLOT — a fixed strip for the transient one-liners.
+
+        WHAT MOVED THE PAGE, measured rather than assumed. Two independent
+        causes, and fixing either alone left visible movement:
+
+          1. `autoFocus` on the reveal panel's "Next duel" button. focus()
+             without options lets the browser scroll the element into view:
+             603px on a click, 626px on a keypress. Fixed in reveal-panel.tsx
+             with `focus({ preventScroll: true })`, which keeps the keyboard
+             contract and the aria-live announcement intact.
+          2. Layout growth. The hint unmounted, the ~547px panel mounted below
+             the cards, and each card grew by the height of its revealed score
+             -- 72px of that was the cards alone.
+
+        The panel now OVERLAYS the cards (above) instead of stacking under
+        them, so the stage is the same size with a result showing as without,
+        and "Next duel" stays where the cards were rather than below the fold.
+        A first attempt reserved 576px beneath the cards instead; it held the
+        page still but pushed the primary action to y=954 on a 900px viewport,
+        which traded a jump for a scroll.
+
+        This strip keeps the remaining one-line states (hint / "Checking…" /
+        error) in fixed space so they cannot resize the page either.
+      */}
+      <div
+        data-testid="duel-stage-slot"
+        className="relative h-12 overflow-hidden"
+      >
+        {/* Keyboard hint */}
+        {!revealed && !state.is_submitting && (
+          <p className="absolute inset-x-0 top-0 text-center text-[10px] text-[var(--text-muted)]">
+            Use{" "}
+            <kbd className="rounded border border-[var(--border-subtle)] px-1 font-mono">←</kbd>{" "}
+            <kbd className="rounded border border-[var(--border-subtle)] px-1 font-mono">A</kbd>{" "}
+            or{" "}
+            <kbd className="rounded border border-[var(--border-subtle)] px-1 font-mono">→</kbd>{" "}
+            <kbd className="rounded border border-[var(--border-subtle)] px-1 font-mono">D</kbd>{" "}
+            to choose
+          </p>
+        )}
+
+        {/* Submitting indicator */}
+        {state.is_submitting && (
+          <p className="absolute inset-x-0 top-0 text-center text-[10px] text-[var(--text-muted)] animate-pulse" role="status">
+            Checking…
+          </p>
+        )}
+
+        {/* Error */}
+        {state.error && !state.is_submitting && (
+          <div
+            role="alert"
+            className="absolute inset-x-0 top-5 rounded-lg bg-[var(--incorrect-bg)] border border-[var(--incorrect)] p-3 text-sm text-[var(--incorrect)]"
+          >
+            {state.error} — tap a player to try again.
+          </div>
+        )}
+
+      </div>
     </div>
   );
 }
