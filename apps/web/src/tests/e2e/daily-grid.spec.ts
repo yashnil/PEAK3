@@ -1193,21 +1193,25 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
 
     await page.goto("/daily/grid", { waitUntil: "load" });
 
-    // Assert the fixture BEFORE the totals it produces. A wrong archive is the
-    // difference between "the streak maths is broken" and "the seed dates were
-    // wrong", and the streak number alone cannot tell you which.
-    const seededDates = await page.evaluate(() => {
+    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
+
+    // Assert the DAILY KEYS before the totals they produce. "3" is a
+    // consequence of three contiguous days being in the archive — the two
+    // seeded ones plus today's completion, which the page writes on load — and
+    // a bare `toHaveText("3")` cannot distinguish "the streak maths is broken"
+    // from "the fixture seeded the wrong dates". The previous failure was
+    // entirely the second kind.
+    const recordedDates = await page.evaluate(() => {
       const raw = window.localStorage.getItem("peak3.daily-grid.archive");
       return raw
         ? (JSON.parse(raw) as { entries: { date: string }[] }).entries.map((e) => e.date).sort()
         : [];
     });
-    expect(seededDates, "archive must hold the two days before today, and not today").toEqual([
+    expect(recordedDates, "three contiguous daily keys ending today").toEqual([
       dayBefore,
       yesterday,
+      today,
     ]);
-
-    await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
 
     const retention = page.getByTestId("complete-retention");
     await expect(retention).toBeVisible();
