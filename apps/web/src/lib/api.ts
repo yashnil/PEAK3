@@ -72,7 +72,7 @@ export async function getLeaderboard(
 // top-1000 peaks, one duration at a time -- separate from getLeaderboard,
 // which stays untouched (canonical 250-pool, DO NOT merge these).
 export async function getPeaks(
-  window: "1y" | "3y" | "5y",
+  window: "1y" | "2y" | "3y" | "5y",
   opts?: { limit?: number; search?: string }
 ): Promise<PeaksResponse> {
   const params = new URLSearchParams({ window });
@@ -214,7 +214,7 @@ function normalizeBoard(payload: RankingBoardPayload): RankingBoardData {
 
 /** Peak Windows board: one row per player, at their best window of `window`. */
 export async function getPeakWindowBoard(
-  window: "1y" | "3y" | "5y",
+  window: "1y" | "2y" | "3y" | "5y",
   opts?: { limit?: number; search?: string }
 ): Promise<RankingBoardData> {
   const params = new URLSearchParams({ window });

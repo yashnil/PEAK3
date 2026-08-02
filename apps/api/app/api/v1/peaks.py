@@ -12,7 +12,7 @@ route) -- this is an experimental, broader-population surface, and must stay
 labeled as such rather than presented as replacing the canonical rankings.
 
 Two routes, on purpose (identical split to /api/v1/seasons):
-  GET /peaks?window=1y|3y|5y     -> lean rows for the ranked table
+  GET /peaks?window=1y|2y|3y|5y  -> lean rows for the ranked table
   GET /peaks/{row_id}/explain    -> the heavy per-window breakdown
 Before Phase 9C this board published NO component data at all, so the
 explainability modal rendered "Not available for this view" for the entire
@@ -51,7 +51,13 @@ _DATA_PATHS = {
     formula_version.PEAK3_V2: _DATA_DIR / "top_1000_peaks.v2.json",
 }
 DATA_PATH = _DATA_PATHS[formula_version.PEAK3_V1]
-VALID_WINDOWS = {"1y", "3y", "5y"}
+# 2y is a first-class canonical window, not an interpolation between 1y and 3y:
+# it comes from leaderboards/top_250_2_year_prime.csv, which peak3.n_year_windows
+# generates with n=2 through exactly the same weighted-window machinery as 3 and
+# 5. The exporter has always emitted it (build_web_dataset.CSV_FILES) and
+# metadata.supported_durations has always listed it -- this validator was the
+# only thing rejecting it, so the data was served-ready and unreachable.
+VALID_WINDOWS = {"1y", "2y", "3y", "5y"}
 
 # Process-lifetime, keyed by formula version, populated once and never
 # invalidated or mtime-checked. That is deliberate (the artifacts are committed
@@ -219,7 +225,7 @@ class PeakExplainResponse(BaseModel):
 
 @router.get("/peaks", response_model=PeaksResponse)
 async def get_peaks(
-    window: str = Query(..., description="1y | 3y | 5y"),
+    window: str = Query(..., description="1y | 2y | 3y | 5y"),
     limit: int = Query(default=1000, ge=1, le=1000),
     search: str = Query(default=""),
     model_version: Optional[str] = Query(
