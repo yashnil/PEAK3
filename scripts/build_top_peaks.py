@@ -509,7 +509,14 @@ def main(argv: list[str] | None = None) -> int:
     material_by_row_id: dict[str, dict] = {}
     all_rows: list[dict] = []
 
-    for n in (1, 3, 5):
+    # 2 is canonical, not interpolated: peak3.n_year_windows(n=2) is the same
+    # weighted-window routine that produces 3 and 5, and
+    # leaderboards/top_250_2_year_prime.csv has always been generated from it.
+    # Adding it here does not touch how 1/3/5 are computed -- each duration is
+    # built independently from the same source frame, so the other three boards
+    # are byte-identical before and after (proved by
+    # tests/test_two_year_window.py).
+    for n in (1, 2, 3, 5):
         contrib_columns = _contrib_columns(n)
         teammate_column = _teammate_adj_column(n)
 

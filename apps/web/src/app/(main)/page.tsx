@@ -416,6 +416,80 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      {/*
+        Why an account — the last thing missing from this page.
+
+        Every mode above is playable signed out and says so, which is the right
+        default and stays true. But nothing on the page then explained what an
+        account is FOR, so the only account affordance was a "Sign in" button in
+        the header with no stated benefit — an ask with no offer.
+
+        Each line below is a capability that genuinely requires a durable
+        identity (a server-side owner_sub), not a marketing claim: saved 82-0
+        runs and personal bests, streaks that survive a new device, and ranked.
+        No counts, no testimonials, no invented social proof — there is no real
+        usage data to quote and inventing some would be worse than saying
+        nothing.
+      */}
+      <section className="border-t" style={{ borderColor: "var(--border-subtle)" }}>
+        <div className="mx-auto max-w-5xl px-4 py-12 sm:py-16">
+          <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="max-w-xl">
+              <p
+                className="text-[10px] font-bold uppercase tracking-[0.2em]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Optional, always
+              </p>
+              <h2 className="mt-2 font-display text-2xl font-bold sm:text-3xl">
+                Play as a guest. Keep it with an account.
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                Every mode above is fully playable without signing in — nothing is gated. An
+                account is what makes a result outlive the browser tab it was played in.
+              </p>
+              <ul className="mt-4 grid gap-2 text-sm sm:grid-cols-2" style={{ color: "var(--text-secondary)" }}>
+                {[
+                  "Save 82-0 rosters and track personal bests",
+                  "A run history that follows you across devices",
+                  "Daily streaks that survive a cleared cache",
+                  "Ranked duels against another player",
+                ].map((line) => (
+                  <li key={line} className="flex items-start gap-2">
+                    <span aria-hidden="true" style={{ color: "var(--peak-accent)" }}>
+                      →
+                    </span>
+                    <span>{line}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
+                Anything you played as a guest is carried over when you sign in.
+              </p>
+            </div>
+
+            <div className="flex shrink-0 flex-col gap-2 sm:w-48">
+              <Link
+                href="/signup"
+                className="rounded-lg px-4 py-2.5 text-center text-sm font-semibold"
+                style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+                data-testid="home-create-account"
+              >
+                Create an account
+              </Link>
+              <Link
+                href="/signin"
+                className="rounded-lg border px-4 py-2.5 text-center text-sm font-semibold"
+                style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+                data-testid="home-signin"
+              >
+                Sign in
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

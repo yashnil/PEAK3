@@ -535,7 +535,14 @@ def test_same_season_peers_are_non_empty_and_share_the_season(client, served):
     block = client.get(f"/api/v1/seasons/{row['row_id']}/explain").json()["explain"]
     peers = block["comparisons"]["same_season_peers"]
     assert peers, "1990-91 has many served seasons; the peer rail must not be empty"
-    assert len(peers) <= 5
+    assert len(peers) <= 6, "the rail is capped at _MAX_SEASON_PEERS"
+    # The rail means "the best seasons of this year", so it must be ordered by
+    # score descending -- not by nearness to the row being explained, which is
+    # what it used to do and what made the year's leaders droppable.
+    scores = [e["prime_score"] for e in peers]
+    assert scores == sorted(scores, reverse=True), (
+        f"same_season_peers must be best-first, got {scores}"
+    )
     suffix = row["season"].replace("-", "")
     assert all(e["row_id"].endswith(suffix) for e in peers), (
         "same_season_peers must all be from the same NBA season"

@@ -64,6 +64,9 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
   const [phase, setPhase] = useState<Phase>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [result, setResult] = useState<SaveRunResponse | null>(null);
+  /** True when the last failure was an auth failure, so the panel can offer
+   *  the one action that actually resolves it. */
+  const [needsSignIn, setNeedsSignIn] = useState(false);
   const [existingBests, setExistingBests] = useState<PersonalBests | null>(null);
 
   // Whether this panel renders at all -- computed before the effect so a
@@ -97,6 +100,7 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
   async function handleSave() {
     setPhase("saving");
     setErrorMessage(null);
+    setNeedsSignIn(false);
     try {
       const token = await getAccessToken();
       if (!token) {
@@ -109,6 +113,14 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
       setPhase("saved");
     } catch (e) {
       setPhase("error");
+      // A 401 here does NOT mean "you are logged out" from the player's point
+      // of view -- they can see their own avatar in the header. It means the
+      // session this tab holds is not one the API will accept (expired, or
+      // minted by a different Supabase project). Either way the action that
+      // fixes it is the same and it is not "press save again", so the panel
+      // offers a sign-in link rather than only an apology.
+      const authFailed = e instanceof PerfectSeasonAPIError && (e.status === 401 || e.status === 403);
+      setNeedsSignIn(authFailed);
       setErrorMessage(
         e instanceof PerfectSeasonAPIError ? e.message : "Could not save this run — please try again.",
       );
@@ -182,8 +194,33 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
             </button>
           </div>
           {phase === "error" && errorMessage && (
-            <span role="alert" className="text-xs" style={{ color: "#ef4444" }} data-testid="save-run-error">
+            <span
+              role="alert"
+              className="text-xs flex items-center gap-2 flex-wrap"
+              style={{ color: "#ef4444" }}
+              data-testid="save-run-error"
+            >
               {errorMessage}
+              {needsSignIn ? (
+                <Link
+                  href={signInHref}
+                  className="font-semibold underline shrink-0"
+                  style={{ color: "var(--peak-accent, #f5c842)" }}
+                  data-testid="save-run-error-signin"
+                >
+                  Sign in again
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  className="font-semibold underline shrink-0"
+                  style={{ color: "var(--peak-accent, #f5c842)" }}
+                  data-testid="save-run-error-retry"
+                >
+                  Try again
+                </button>
+              )}
             </span>
           )}
         </div>

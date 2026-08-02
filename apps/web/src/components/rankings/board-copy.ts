@@ -26,7 +26,21 @@
 
 import type { RankingBoardId } from "@/types";
 
-export type PeakWindowId = "1y" | "3y" | "5y";
+export type PeakWindowId = "1y" | "2y" | "3y" | "5y";
+
+/** Window id -> the number of consecutive seasons it spans, written out. */
+const WINDOW_YEARS_WORD: Record<Exclude<PeakWindowId, "1y">, string> = {
+  "2y": "two",
+  "3y": "three",
+  "5y": "five",
+};
+
+/** Window id -> the digit used in short headings. */
+const WINDOW_YEARS_DIGIT: Record<Exclude<PeakWindowId, "1y">, string> = {
+  "2y": "2",
+  "3y": "3",
+  "5y": "5",
+};
 
 /**
  * What this board is showing, said the same way the board is built.
@@ -49,7 +63,7 @@ export function explainerFor(board: RankingBoardId, window: PeakWindowId): strin
       "de-duplication is the only difference between the two at this setting."
     );
   }
-  const years = window === "3y" ? "three" : "five";
+  const years = WINDOW_YEARS_WORD[window];
   return (
     `Best ${years} consecutive seasons, one row per player. Sustained level rather than a ` +
     "single year, so a career peak here can sit at a different season than on the 1-Year board."
@@ -60,7 +74,7 @@ export function explainerFor(board: RankingBoardId, window: PeakWindowId): strin
 export function boardHeadingFor(board: RankingBoardId, window: PeakWindowId): string {
   if (board === "seasons") return "Every qualifying season";
   if (window === "1y") return "Best single season (one row per player)";
-  return `Best ${window === "3y" ? "3" : "5"}-season stretch (one row per player)`;
+  return `Best ${WINDOW_YEARS_DIGIT[window]}-season stretch (one row per player)`;
 }
 
 /**
@@ -74,5 +88,5 @@ export function boardHeadingFor(board: RankingBoardId, window: PeakWindowId): st
 export function boardShortLabelFor(board: RankingBoardId, window: PeakWindowId): string {
   if (board === "seasons") return "Every Qualifying Season";
   if (window === "1y") return "Best Single Season";
-  return `Best ${window === "3y" ? "3" : "5"}-Season Stretch`;
+  return `Best ${WINDOW_YEARS_DIGIT[window]}-Season Stretch`;
 }
