@@ -117,6 +117,45 @@ describe("the Pacific boundary", () => {
     expect(Number.isNaN(daysBetweenKeys("nope", "2027-01-01"))).toBe(true);
   });
 
+  /**
+   * The exact shape a test fixture needs, at the exact instants that used to
+   * break one.
+   *
+   * A Daily Grid E2E fixture seeded "the two days before today" by taking the
+   * Pacific key for today and `Date.now() - 86_400_000` for yesterday. On a UTC
+   * CI runner at 02:05 UTC those are the SAME calendar day: the archive
+   * therefore contained today, completing today added no new day, and the
+   * streak read 3 → 2. `shiftDailyKey(todayPacific(now), -1)` cannot express
+   * that bug, because both ends come from one calendar.
+   */
+  it("derives a contiguous run of prior keys from one calendar, at any hour", () => {
+    const instants = [
+      // The evening window where UTC has already rolled over and PT has not —
+      // the one that actually failed in CI.
+      new Date("2026-08-02T02:05:00Z"),
+      // One minute either side of midnight PT.
+      new Date("2026-08-01T06:59:00Z"),
+      new Date("2026-08-01T07:00:00Z"),
+      // Spring forward (23-hour day) and fall back (25-hour day).
+      new Date("2026-03-08T18:00:00Z"),
+      new Date("2026-03-09T02:00:00Z"),
+      new Date("2026-11-01T18:00:00Z"),
+      new Date("2026-11-02T02:00:00Z"),
+    ];
+
+    for (const now of instants) {
+      const today = todayPacific(now);
+      const yesterday = shiftDailyKey(today, -1);
+      const dayBefore = shiftDailyKey(today, -2);
+
+      // Strictly earlier, exactly one day apart, and — the part that failed —
+      // neither of them is today.
+      expect(daysBetweenKeys(yesterday, today), `at ${now.toISOString()}`).toBe(1);
+      expect(daysBetweenKeys(dayBefore, yesterday), `at ${now.toISOString()}`).toBe(1);
+      expect([yesterday, dayBefore]).not.toContain(today);
+    }
+  });
+
   it("synthesises a local window that matches its own helpers", () => {
     const now = new Date("2026-08-01T18:00:00Z");
     const w = localDailyWindow(now);

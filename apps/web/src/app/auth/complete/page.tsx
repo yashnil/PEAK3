@@ -30,7 +30,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthShell } from "@/components/auth/AuthShell";
-import { getAccessToken, supabaseConfigured } from "@/lib/auth";
+import { getAccessToken, authSurfaceEnabled } from "@/lib/auth";
 import { claimGuestActivity, describeClaim, type ClaimSummary } from "@/lib/supabase/claim";
 import { safeNext } from "@/lib/supabase/safe-next";
 
@@ -59,7 +59,7 @@ function AuthCompleteContent() {
     started.current = true;
 
     (async () => {
-      if (!supabaseConfigured) {
+      if (!authSurfaceEnabled) {
         goNext();
         return;
       }

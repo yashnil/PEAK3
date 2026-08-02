@@ -30,7 +30,7 @@ vi.mock("@/lib/auth", async () => {
   const actual = await vi.importActual<typeof import("@/lib/auth")>("@/lib/auth");
   return {
     ...actual,
-    supabaseConfigured: true,
+    authSurfaceEnabled: true,
     signInWithGoogle: (...args: unknown[]) => signInWithGoogle(...args),
     sendMagicLink: (...args: unknown[]) => sendMagicLink(...args),
     signInWithEmail: (...args: unknown[]) => signInWithEmail(...args),

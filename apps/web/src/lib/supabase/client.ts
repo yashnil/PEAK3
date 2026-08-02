@@ -27,7 +27,7 @@
  */
 
 import { createBrowserClient } from "@supabase/ssr";
-import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseConfigured } from "./config";
+import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseCredentialsPresent } from "./config";
 
 export type BrowserSupabaseClient = ReturnType<typeof createBrowserClient>;
 
@@ -48,7 +48,7 @@ let cached: BrowserSupabaseClient | null = null;
  * caller already branches on the null.
  */
 export function getBrowserSupabaseClient(): BrowserSupabaseClient | null {
-  if (!supabaseConfigured) return null;
+  if (!supabaseCredentialsPresent) return null;
   if (!cached) {
     cached = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   }

@@ -1,3 +1,4 @@
+import os
 import warnings
 from pathlib import Path
 from typing import Literal, Optional
@@ -5,9 +6,27 @@ from typing import Literal, Optional
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: Which dotenv file ``Settings`` reads, overridable through the environment.
+#:
+#: Defaults to ``.env`` — unchanged for every deployment and for ordinary local
+#: development. Setting ``PEAK3_ENV_FILE`` to an empty string disables dotenv
+#: loading entirely, which is what ``tests/conftest.py`` does before the app is
+#: imported.
+#:
+#: WHY THIS IS OVERRIDABLE AT ALL. ``.env`` was read unconditionally, so the
+#: unit suite's storage backend was decided by whether the developer running it
+#: happened to have an untracked ``apps/api/.env`` containing a
+#: ``PEAK3_DATABASE_URL``: the same command on the same commit gave in-memory
+#: repositories in CI and a hosted Postgres on a laptop. A suite whose
+#: configuration depends on a file that is not in the repository cannot be used
+#: to reproduce a CI failure, which is most of what a suite is for.
+_ENV_FILE = os.getenv("PEAK3_ENV_FILE", ".env")
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="PEAK3_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="PEAK3_", env_file=_ENV_FILE or None, extra="ignore"
+    )
 
     SIGNING_SECRET: str = "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION"
     DEBUG: bool = True

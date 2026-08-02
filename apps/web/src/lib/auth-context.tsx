@@ -31,7 +31,7 @@ import {
   onAuthStateChange,
   setE2ETestSession,
   signOut as signOutRequest,
-  supabaseConfigured,
+  authSurfaceEnabled,
 } from "./auth";
 
 declare global {
@@ -59,7 +59,7 @@ const AuthContext = createContext<AuthContextValue>({
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(supabaseConfigured);
+  const [loading, setLoading] = useState(authSurfaceEnabled);
   const router = useRouter();
 
   // Test-only session injection bridge — see auth.ts's setE2ETestSession
@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // injected session (persisted to sessionStorage by setE2ETestSession)
   // must also be restored here on mount — a Playwright page.goto() is a
   // full reload, and getSession() below already checks the persisted test
-  // session first, so this runs even when supabaseConfigured is false.
+  // session first, so this runs even when authSurfaceEnabled is false.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     window.__peak3TestAuth = {
@@ -86,7 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!supabaseConfigured) {
+    if (!authSurfaceEnabled) {
       setLoading(false);
       return;
     }
@@ -118,7 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, supabaseEnabled: supabaseConfigured, signOut }}
+      value={{ user, loading, supabaseEnabled: authSurfaceEnabled, signOut }}
     >
       {children}
     </AuthContext.Provider>

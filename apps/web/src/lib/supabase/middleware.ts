@@ -27,14 +27,14 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseConfigured } from "./config";
+import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseCredentialsPresent } from "./config";
 
 export async function updateSession(request: NextRequest): Promise<NextResponse> {
   let supabaseResponse = NextResponse.next({ request });
 
   // Anonymous-only deployments have no project to talk to. Passing through
   // untouched keeps guest play working with zero auth infrastructure.
-  if (!supabaseConfigured) return supabaseResponse;
+  if (!supabaseCredentialsPresent) return supabaseResponse;
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {

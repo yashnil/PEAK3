@@ -2,14 +2,71 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.dataset import dataset_store
-from app.main import app
+# ---------------------------------------------------------------------------
+# Repository mode — decided HERE, before the app is imported
+# ---------------------------------------------------------------------------
+#
+# `PEAK3_TEST_REPOSITORY_MODE` is the single switch, and `memory` is the
+# default, because the ordinary suite is a unit suite: it reaches into
+# `_memory_game_repo`, `_memory_daily_completion_repo` and their siblings
+# directly, and none of those assertions mean anything against another backend.
+#
+# WHAT THIS FIXES. `Settings` read `apps/api/.env` unconditionally, so a
+# developer with a `PEAK3_DATABASE_URL` in that untracked file ran the whole
+# suite against a hosted Postgres while CI ran it in memory — the same command
+# on the same commit, two different applications, and a CI failure that could
+# not be reproduced locally no matter how exactly the command was copied. Two
+# things make that impossible now: dotenv loading is turned off outright (see
+# `_ENV_FILE` in app/core/config.py) and an inherited `PEAK3_DATABASE_URL` is
+# removed rather than quietly honoured.
+#
+# The real-Postgres tests are unaffected: they are marked
+# `supabase_integration`, take their connection string from
+# `PEAK3_TEST_DATABASE_URL` through their own fixtures, and never read
+# `PEAK3_DATABASE_URL`. Mixing the two modes in one process is refused below
+# rather than resolved by precedence.
+REPOSITORY_MODE = os.environ.get("PEAK3_TEST_REPOSITORY_MODE", "memory").strip().lower()
+
+if REPOSITORY_MODE not in {"memory", "postgres"}:
+    raise RuntimeError(
+        f"PEAK3_TEST_REPOSITORY_MODE={REPOSITORY_MODE!r} is not a mode. Use "
+        "'memory' (the default, and what scripts/ci/api-unit-tests.sh sets) or "
+        "'postgres' (scripts/ci/api-integration-tests.sh)."
+    )
+
+if REPOSITORY_MODE == "memory":
+    # No dotenv, and no inherited connection string. Both halves matter: the
+    # file is how it leaks on a laptop, the variable is how it leaks in a shell
+    # that has been `source`d.
+    os.environ["PEAK3_ENV_FILE"] = ""
+    _leaked_database_url = os.environ.pop("PEAK3_DATABASE_URL", None)
+    if _leaked_database_url:
+        print(
+            "\n[conftest] PEAK3_DATABASE_URL was set in the environment and has "
+            "been ignored: this suite runs in explicit memory mode. Use "
+            "scripts/ci/api-integration-tests.sh for the Postgres-backed tests.\n",
+            file=sys.stderr,
+            flush=True,
+        )
+else:
+    _pg_url = os.environ.get("PEAK3_DATABASE_URL") or os.environ.get("PEAK3_TEST_DATABASE_URL")
+    if not _pg_url:
+        raise RuntimeError(
+            "PEAK3_TEST_REPOSITORY_MODE=postgres but neither PEAK3_DATABASE_URL "
+            "nor PEAK3_TEST_DATABASE_URL is set. Point one at an isolated test "
+            "database — never a shared or production one."
+        )
+    os.environ["PEAK3_DATABASE_URL"] = _pg_url
+
+from app.core.dataset import dataset_store  # noqa: E402
+from app.main import app  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixture dataset — used when data/web/ has not been generated yet
@@ -147,6 +204,30 @@ _load_dataset()
 @pytest.fixture(scope="session")
 def client() -> TestClient:
     with TestClient(app) as c:
+        # The mode is ASSERTED, once, against what the application actually
+        # resolved at startup — not merely requested through an environment
+        # variable. `app.state.db_pool` is the single flag every `get_*_repo`
+        # in core/dependencies.py branches on (see core/repository_registry.py),
+        # so this one line is the whole backend for every domain.
+        #
+        # Without it, a leaked connection string turns into a scatter of
+        # "expected 1, got 0" failures in whichever tests happen to inspect a
+        # memory repo — a symptom that reads as broken product code and sends
+        # you looking in the wrong place entirely.
+        pool = getattr(app.state, "db_pool", None)
+        if REPOSITORY_MODE == "memory":
+            assert pool is None, (
+                "PEAK3_TEST_REPOSITORY_MODE=memory but the app started with a "
+                "PostgreSQL pool. Something re-introduced a connection string "
+                "after conftest cleared it (a plugin, a sitecustomize, an "
+                "explicit monkeypatch)."
+            )
+        else:
+            assert pool is not None, (
+                "PEAK3_TEST_REPOSITORY_MODE=postgres but the app fell back to "
+                "in-memory repositories — the pool failed to initialise. The "
+                "startup log above carries the connection error."
+            )
         yield c
 
 

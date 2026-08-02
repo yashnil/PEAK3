@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:e2e": "NEXT_PUBLIC_PEAK3_E2E_AUTH=1 next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

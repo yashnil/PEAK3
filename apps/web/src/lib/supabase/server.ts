@@ -20,7 +20,7 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseConfigured } from "./config";
+import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseCredentialsPresent } from "./config";
 
 export type ServerSupabaseClient = ReturnType<typeof createServerClient>;
 
@@ -32,7 +32,7 @@ export type ServerSupabaseClient = ReturnType<typeof createServerClient>;
  * crashing with an unhelpful `Invalid supabaseUrl`.
  */
 export async function createSupabaseServerClient(): Promise<ServerSupabaseClient | null> {
-  if (!supabaseConfigured) return null;
+  if (!supabaseCredentialsPresent) return null;
   const cookieStore = await cookies();
 
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {

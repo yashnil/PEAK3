@@ -20,6 +20,12 @@
  * project (same convention as gameplay.spec.ts / courtbuilder.spec.ts).
  */
 import { test, expect, Page, APIRequestContext } from "@playwright/test";
+// The app's own daily-key arithmetic — the mirror of the server's
+// `nba_peak.daily_key` (midnight America/Los_Angeles). Every date this file
+// derives comes from here, so the runner's TZ cannot change what "today" or
+// "yesterday" means. See the comment in the streak test for what mixing two
+// calendars actually cost.
+import { shiftDailyKey, todayPacific } from "@/lib/daily-time";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -1133,37 +1139,39 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
     );
   }
 
-  /**
-   * Today's daily key, the way the server computes it.
-   *
-   * Shared daily boards roll over at midnight America/Los_Angeles, not at
-   * midnight UTC. A `toISOString().slice(0,10)` here was wrong for the seven or
-   * eight hours between 17:00 PT and midnight PT — i.e. exactly the evening
-   * window, where it would have navigated to tomorrow's board and asserted
-   * against today's.
-   */
-  function todayUtc(): string {
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Los_Angeles",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date());
-  }
-
   test("a completed board shows the streak, the record and a come-back prompt", async ({
     page,
     request,
   }) => {
     test.slow();
-    const today = todayUtc();
+    // `todayPacific`/`shiftDailyKey` from the app's own daily-key module — the
+    // same arithmetic the server's `nba_peak.daily_key` performs, and never a
+    // second, hand-rolled version of it.
+    //
+    // WHAT WAS WRONG. `today` was computed in America/Los_Angeles (correct) and
+    // `yesterday` as `Date.now() - 86_400_000` in UTC (not). Those two agree for
+    // sixteen or seventeen hours a day and disagree for the rest: on a UTC
+    // runner at 02:05 UTC, Pacific "today" is the 1st while UTC "yesterday" is
+    // also the 1st, so the archive seeded for "the two days before today"
+    // actually contained today — the completion added no new day and the streak
+    // came out 2 instead of 3. Nothing about the product was wrong; the fixture
+    // was measuring two different calendars. Deriving every key from one
+    // function makes the runner's timezone irrelevant by construction, which is
+    // why this test now also runs green under TZ=UTC and TZ=America/Los_Angeles.
+    const today = todayPacific();
     const filled = await solveBoardViaApi(request, today);
     const board = await (
       await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: today } })
     ).json();
 
+    // The server is the authority on what day it is; if it disagrees with the
+    // key we derived, say so here rather than three assertions later as an
+    // off-by-one streak.
+    expect(board.date, "server board date must be the Pacific daily key").toBe(today);
+
     // Two prior days, so finishing today makes it three in a row.
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const yesterday = shiftDailyKey(today, -1);
+    const dayBefore = shiftDailyKey(today, -2);
     await seedArchive(page, yesterday, 2);
     await page.addInitScript(
       ([boardId, date, cells]) => {
@@ -1184,6 +1192,21 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
     );
 
     await page.goto("/daily/grid", { waitUntil: "load" });
+
+    // Assert the fixture BEFORE the totals it produces. A wrong archive is the
+    // difference between "the streak maths is broken" and "the seed dates were
+    // wrong", and the streak number alone cannot tell you which.
+    const seededDates = await page.evaluate(() => {
+      const raw = window.localStorage.getItem("peak3.daily-grid.archive");
+      return raw
+        ? (JSON.parse(raw) as { entries: { date: string }[] }).entries.map((e) => e.date).sort()
+        : [];
+    });
+    expect(seededDates, "archive must hold the two days before today, and not today").toEqual([
+      dayBefore,
+      yesterday,
+    ]);
+
     await expect(page.getByTestId("daily-grid-complete")).toBeVisible({ timeout: 15_000 });
 
     const retention = page.getByTestId("complete-retention");
@@ -1204,7 +1227,7 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
 
   test("a refresh preserves the completed result and the streak", async ({ page, request }) => {
     test.slow();
-    const today = todayUtc();
+    const today = todayPacific();
     const filled = await solveBoardViaApi(request, today);
     const board = await (
       await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: today } })
@@ -1262,7 +1285,7 @@ test.describe("Daily Grid — streak, history and the daily loop", () => {
     ).json();
 
     // A live 4-day streak ending yesterday.
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const yesterday = shiftDailyKey(todayPacific(), -1);
     await seedArchive(page, yesterday, 4);
     await page.addInitScript(
       ([boardId, date, cells]) => {
@@ -1321,7 +1344,7 @@ test.describe("Daily Grid — history page", () => {
   });
 
   test("lists completed grids and says plainly that they are local", async ({ page }) => {
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const yesterday = shiftDailyKey(todayPacific(), -1);
     await page.addInitScript(
       ([end]) => {
         // The versioned tour store, which superseded the unversioned

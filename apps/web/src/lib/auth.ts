@@ -28,10 +28,10 @@
 
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { getBrowserSupabaseClient } from "./supabase/client";
-import { supabaseConfigured } from "./supabase/config";
+import { authSurfaceEnabled } from "./supabase/config";
 import { safeNext } from "./supabase/safe-next";
 
-export { supabaseConfigured };
+export { authSurfaceEnabled };
 
 /**
  * The browser Supabase client, or `null` when auth is not configured.

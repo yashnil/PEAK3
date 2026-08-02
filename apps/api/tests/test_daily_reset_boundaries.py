@@ -190,6 +190,46 @@ def test_the_daily_key_is_pacific_not_utc():
     assert rtt_today(midnight_pt) == "2026-08-01"
 
 
+def test_a_utc_derived_today_is_a_future_date_for_part_of_every_day(client: TestClient):
+    """The rule any test FIXTURE has to respect, stated as a test.
+
+    `datetime.now(timezone.utc).date()` is the server's day for sixteen or
+    seventeen hours out of twenty-four and is TOMORROW for the rest — every
+    instant between midnight UTC and midnight Pacific. A test that derived
+    "today" that way (tests/test_draft.py's daily-completion test did) passed
+    whenever it happened to be run during working hours in California and
+    failed a 02:05 UTC CI run with `daily key ... is in the future`, which
+    reads as a product bug and is not one.
+
+    Asserted through HTTP because that is where the two meet: the route
+    validates the requested date against `daily_key()`, so the only safe source
+    for a requested date is `daily_key()` itself.
+    """
+    # 02:05 UTC — the exact shape of the CI failure. Pacific is still on the
+    # previous day, so the UTC calendar date is one the server must refuse.
+    ci_instant = datetime(2026, 8, 2, 2, 5)
+    assert daily_key(ci_instant) == "2026-08-01"
+    assert ci_instant.date().isoformat() == "2026-08-02"
+
+    # And the live coupling, at whatever instant this actually runs: today's
+    # key is accepted, the day after it is not.
+    today = daily_key()
+    tomorrow = (datetime.fromisoformat(today) + timedelta(days=1)).date().isoformat()
+
+    accepted = client.post(
+        "/api/v1/draft/games",
+        json={"mode": "apex_1y", "board_type": "daily", "date": today},
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    refused = client.post(
+        "/api/v1/draft/games",
+        json={"mode": "apex_1y", "board_type": "daily", "date": tomorrow},
+    )
+    assert refused.status_code == 400, refused.text
+    assert "future" in refused.text
+
+
 # ---------------------------------------------------------------------------
 # A challenge is provenance, never a daily attempt
 # ---------------------------------------------------------------------------

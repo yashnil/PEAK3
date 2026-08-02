@@ -763,13 +763,108 @@ test.describe("RUN THE TABLE start gate", () => {
     await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
 
     // Stripped, so a refresh replays the run rather than starting a second.
-    expect(new URL(page.url()).searchParams.get("start")).toBeNull();
-    await page.waitForTimeout(1_000);
+    //
+    // `waitForURL` rather than a bare read, and rather than a sleep: the
+    // contract is "the address bar no longer carries the param", and waiting on
+    // that observable is what the next line (a refresh) actually depends on.
+    // The strip is synchronous in the product now — this used to be a deferred
+    // `router.replace` whose RSC round trip was still in flight while the game
+    // surface painted — so this resolves on the first poll rather than papering
+    // over a race.
+    await page.waitForURL((url) => !url.searchParams.has("start"), { timeout: 10_000 });
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible();
     expect(creations).toHaveLength(1);
 
     const first = await storedRun(page);
     await page.reload({ waitUntil: "load" });
     await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+    expect(creations).toHaveLength(1);
+    expect((await storedRun(page))?.run_id).toBe(first?.run_id);
+  });
+
+  test("a slow create still strips the param, and a refresh mid-flight starts nothing", async ({
+    page,
+  }) => {
+    // The failure this guards is the one CI actually hit: the param was
+    // stripped by a deferred navigation that had not landed by the time the
+    // board painted. Delaying the create response widens that window as far as
+    // it can go — if the strip were still deferred behind anything the run
+    // creation waits on, this would fail every time rather than only on a cold
+    // machine.
+    const creations: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname.endsWith("/run-the-table/runs")
+      ) {
+        creations.push(request.url());
+      }
+    });
+
+    await page.route(`${API_BASE}/api/v1/run-the-table/runs`, async (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      await route.continue();
+    });
+
+    await freshGate(page);
+    await page.goto(`${ROUTE}?start=standard`, { waitUntil: "commit" });
+
+    // The URL is clean BEFORE the run exists — the strip does not wait on the
+    // network. A player who refreshes here loses nothing and starts nothing.
+    await page.waitForURL((url) => !url.searchParams.has("start"), { timeout: 10_000 });
+
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 30_000 });
+    expect(creations).toHaveLength(1);
+
+    // And an immediate refresh resumes rather than creating a second run.
+    const first = await storedRun(page);
+    expect(first?.run_id).toBeTruthy();
+    await page.reload({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 30_000 });
+    expect(creations).toHaveLength(1);
+    expect((await storedRun(page))?.run_id).toBe(first?.run_id);
+  });
+
+  test("going back to the launcher link and forward again creates no second run", async ({
+    page,
+  }) => {
+    // `history.replaceState` rewrites the CURRENT entry, so the entry the
+    // player can navigate back to is the one before the deep link, never the
+    // deep link itself. Anything else would let the back/forward buttons spend
+    // a fresh run per press.
+    const creations: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname.endsWith("/run-the-table/runs")
+      ) {
+        creations.push(request.url());
+      }
+    });
+
+    await freshGate(page);
+    await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          r.url().endsWith("/run-the-table/runs") &&
+          r.request().method() === "POST" &&
+          r.status() === 200,
+      ),
+      page.goto(`${ROUTE}?start=standard`, { waitUntil: "load" }),
+    ]);
+    await page.waitForURL((url) => !url.searchParams.has("start"), { timeout: 10_000 });
+    const first = await storedRun(page);
+
+    await page.goto("/arena", { waitUntil: "load" });
+    await page.goBack({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+    expect(new URL(page.url()).searchParams.get("start")).toBeNull();
+
+    await page.goForward({ waitUntil: "load" });
+    await page.goBack({ waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-shell"]')).toBeVisible({ timeout: 20_000 });
+
     expect(creations).toHaveLength(1);
     expect((await storedRun(page))?.run_id).toBe(first?.run_id);
   });

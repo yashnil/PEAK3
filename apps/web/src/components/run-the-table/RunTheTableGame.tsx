@@ -1,6 +1,5 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { motion } from "motion/react";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 import { useDailyReset } from "@/lib/use-daily-reset";
@@ -125,6 +124,44 @@ export function urlWithoutStartParam(pathname: string, search: string): string {
   return rest ? `${pathname}?${rest}` : pathname;
 }
 
+/**
+ * Remove `?start=` from the address bar, synchronously, in the current history
+ * entry.
+ *
+ * WHY NOT `router.replace`. It was `router.replace`, and that is a *deferred*
+ * operation: the App Router treats it as a navigation, fetches the RSC payload
+ * for the new URL, and only calls `history.replaceState` once that response
+ * lands. The CI trace for this exact failure shows the sequence plainly — the
+ * run is created (`POST /run-the-table/runs` → 200), the game surface paints,
+ * and the `?_rsc=` request for the stripped URL is still in flight. Anything
+ * that reads `location.search` in that window — a refresh, a copied link, an
+ * assertion — still sees `start=standard`. On a warm local dev server the gap
+ * is a few milliseconds and invisible; on a cold CI dev server it is long
+ * enough to lose. Nothing about the product wanted a navigation here: the route
+ * is unchanged, the component must not remount (it is holding the run that was
+ * just created), and no Server Component depends on the param.
+ *
+ * `history.replaceState` is the supported way to express that in Next 15 — it
+ * rewrites the current entry in place, synchronously, with no refetch and no
+ * re-render. The param is read once at mount from `window.location.search`
+ * (see `readStartParam`) rather than through `useSearchParams`, so there is no
+ * subscription for this to fall out of sync with.
+ *
+ * Idempotent by construction: with `start` already absent the rewritten URL
+ * equals the current one, so a second call is a no-op, and back/forward
+ * navigation cannot resurrect the param in this entry.
+ */
+export function stripStartParamFromUrl(): void {
+  if (typeof window === "undefined") return;
+  const { pathname, search, hash } = window.location;
+  if (!new URLSearchParams(search).has("start")) return;
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${urlWithoutStartParam(pathname, search)}${hash}`,
+  );
+}
+
 export default function RunTheTableGame({
   initialSeed,
   initialDate,
@@ -157,7 +194,6 @@ export default function RunTheTableGame({
   } | null>(null);
   // Fires "offer viewed" once per node, not once per render.
   const seenNodeRef = useRef<string | null>(null);
-  const router = useRouter();
   const reducedMotion = usePrefersReducedMotion();
 
   /**
@@ -165,9 +201,9 @@ export default function RunTheTableGame({
    *
    * Two separate guards, because they defend against two different things:
    *
-   *   * `startParamRef` freezes the value at mount. `router.replace` strips the
-   *     param from the URL, so a later read would see nothing — and a re-render
-   *     between the two must not see a different answer.
+   *   * `startParamRef` freezes the value at mount. The param is stripped from
+   *     the URL once consumed, so a later read would see nothing — and a
+   *     re-render between the two must not see a different answer.
    *   * `startConsumedRef` is set synchronously inside the effect BEFORE any
    *     await, so React 18 strict mode's double-invoke, and every subsequent
    *     re-render, both find it already true. This is what stops the launcher
@@ -502,9 +538,7 @@ export default function RunTheTableGame({
     // Consume and strip BEFORE anything async. A refresh must not be able to
     // start a second run, and neither must a strict-mode double-invoke.
     startConsumedRef.current = true;
-    router.replace(urlWithoutStartParam(window.location.pathname, window.location.search), {
-      scroll: false,
-    });
+    stripStartParamFromUrl();
 
     // A resumed run wins outright. The param is still consumed and stripped —
     // it just does not create anything.
@@ -516,7 +550,7 @@ export default function RunTheTableGame({
     // to the gate, which offers the challenge explicitly.
     if (challengeToken) return;
     void handleStart(requested);
-  }, [booting, state, router, handleStart, challengeToken]);
+  }, [booting, state, handleStart, challengeToken]);
 
   // A fresh run on a NEW seed (the server picks one) versus the same seed
   // again — two genuinely different replays, so two buttons.

@@ -10,7 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import React from "react";
+import React, { StrictMode } from "react";
 
 const mockGetReadiness = vi.fn();
 const mockGetDaily = vi.fn();
@@ -52,6 +52,7 @@ vi.mock("next/navigation", () => ({
 import { RunTheTableAPIError } from "@/lib/run-the-table-api";
 import RunTheTableGame, {
   readStartParam,
+  stripStartParamFromUrl,
   urlWithoutStartParam,
 } from "@/components/run-the-table/RunTheTableGame";
 import BattleReveal from "@/components/run-the-table/BattleReveal";
@@ -444,10 +445,13 @@ describe("RunTheTableGame — the ?start= contract (plan §5.1)", () => {
     expect(await screen.findByTestId("rtt-shell")).toBeInTheDocument();
     expect(mockCreateRun).toHaveBeenCalledTimes(1);
     expect(mockCreateRun).toHaveBeenCalledWith("standard", expect.anything());
-    expect(mockRouterReplace).toHaveBeenCalledWith(
-      "/arena/run-the-table",
-      expect.objectContaining({ scroll: false }),
-    );
+    // Asserted on the address bar, not on a router spy. The param has to be
+    // GONE by the time the board is on screen — a `router.replace` that has
+    // been *called* but whose RSC round trip is still in flight satisfies a spy
+    // and loses the actual contract, which is precisely the CI failure this
+    // replaced (see stripStartParamFromUrl's docstring).
+    expect(window.location.search).toBe("");
+    expect(window.location.pathname).toBe("/arena/run-the-table");
     at("");
   });
 
@@ -488,7 +492,7 @@ describe("RunTheTableGame — the ?start= contract (plan §5.1)", () => {
     await screen.findByTestId("rtt-shell");
     expect(mockCreateRun).not.toHaveBeenCalled();
     // The param is still consumed and stripped — it just creates nothing.
-    expect(mockRouterReplace).toHaveBeenCalled();
+    expect(window.location.search).toBe("");
     at("");
   });
 
@@ -500,7 +504,46 @@ describe("RunTheTableGame — the ?start= contract (plan §5.1)", () => {
     render(<RunTheTableGame />);
     expect(await screen.findByTestId("rtt-start-gate")).toBeInTheDocument();
     expect(mockCreateRun).not.toHaveBeenCalled();
-    expect(mockRouterReplace).not.toHaveBeenCalled();
+    expect(window.location.search).toBe("");
+  });
+
+  it("keeps every other param while dropping `start`, in place", () => {
+    at("?start=standard&mode=daily&c=tok");
+    const before = window.history.length;
+    stripStartParamFromUrl();
+    expect(window.location.pathname).toBe("/arena/run-the-table");
+    expect(new URLSearchParams(window.location.search).get("start")).toBeNull();
+    expect(new URLSearchParams(window.location.search).get("mode")).toBe("daily");
+    expect(new URLSearchParams(window.location.search).get("c")).toBe("tok");
+    // Replaced, not pushed: the entry the player can go back to is the one
+    // before the deep link, so back/forward can never re-spend it.
+    expect(window.history.length).toBe(before);
+    at("");
+  });
+
+  it("is a no-op when there is no `start` to remove", () => {
+    at("?mode=daily");
+    stripStartParamFromUrl();
+    stripStartParamFromUrl();
+    expect(window.location.search).toBe("?mode=daily");
+    at("");
+  });
+
+  it("creates one run when the effect is invoked twice (strict mode)", async () => {
+    // React's development double-invoke runs the effect twice against the same
+    // refs. `startConsumedRef` is set synchronously before the first await, so
+    // the second pass finds it already true.
+    at("?start=standard");
+    mockCreateRun.mockResolvedValue(runState());
+    render(
+      <StrictMode>
+        <RunTheTableGame />
+      </StrictMode>,
+    );
+    expect(await screen.findByTestId("rtt-shell")).toBeInTheDocument();
+    expect(mockCreateRun).toHaveBeenCalledTimes(1);
+    expect(window.location.search).toBe("");
+    at("");
   });
 });
 

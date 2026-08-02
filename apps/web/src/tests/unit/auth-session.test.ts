@@ -145,3 +145,90 @@ describe("middleware matcher", () => {
     }
   });
 });
+
+/**
+ * E2E auth mode — the switch that lets the account surface render without a
+ * hosted project.
+ *
+ * Two properties are load-bearing and neither is obvious from reading the
+ * call sites, so both are pinned here:
+ *
+ *   1. It enables the SURFACE only. It must never make a Supabase client
+ *      constructible, because `createServerClient("", "")` throws
+ *      `Invalid supabaseUrl` and would take middleware down on every
+ *      navigation.
+ *   2. It cannot activate in production, whatever the environment says.
+ */
+describe("the E2E auth-mode switch", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  async function config(env: Record<string, string>) {
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+    vi.resetModules();
+    return import("@/lib/supabase/config");
+  }
+
+  it("renders the surface with no credentials, without making a client constructible", async () => {
+    const c = await config({
+      NODE_ENV: "test",
+      NEXT_PUBLIC_SUPABASE_URL: "",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "",
+      NEXT_PUBLIC_PEAK3_E2E_AUTH: "1",
+    });
+    expect(c.e2eAuthMode).toBe(true);
+    expect(c.authSurfaceEnabled).toBe(true);
+    // The half that must stay false — see property 1 above.
+    expect(c.supabaseCredentialsPresent).toBe(false);
+  });
+
+  it("is inert in a production build even when the variable is set", async () => {
+    const c = await config({
+      NODE_ENV: "production",
+      NEXT_PUBLIC_SUPABASE_URL: "",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "",
+      NEXT_PUBLIC_PEAK3_E2E_AUTH: "1",
+    });
+    expect(c.e2eAuthMode).toBe(false);
+    expect(c.authSurfaceEnabled).toBe(false);
+  });
+
+  it("leaves a real deployment exactly as it was", async () => {
+    const c = await config({
+      NODE_ENV: "production",
+      NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key",
+    });
+    expect(c.supabaseCredentialsPresent).toBe(true);
+    expect(c.authSurfaceEnabled).toBe(true);
+    expect(c.e2eAuthMode).toBe(false);
+  });
+
+  it("is off by default — an unset variable enables nothing", async () => {
+    const c = await config({
+      NODE_ENV: "test",
+      NEXT_PUBLIC_SUPABASE_URL: "",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "",
+      NEXT_PUBLIC_PEAK3_E2E_AUTH: "",
+    });
+    expect(c.e2eAuthMode).toBe(false);
+    expect(c.authSurfaceEnabled).toBe(false);
+  });
+
+  it("does not give the middleware a project to talk to", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "");
+    vi.stubEnv("NEXT_PUBLIC_PEAK3_E2E_AUTH", "1");
+    vi.resetModules();
+    createServerClient.mockReset();
+    const { response } = await runMiddleware("http://localhost:3000/arena");
+    expect(createServerClient).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+  });
+});

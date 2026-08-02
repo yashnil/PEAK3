@@ -17,14 +17,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { SignInPanel } from "@/components/auth/SignInPanel";
-import { supabaseConfigured } from "@/lib/auth";
+import { authSurfaceEnabled } from "@/lib/auth";
 import { safeNext } from "@/lib/supabase/safe-next";
 
 function SignInContent() {
   const params = useSearchParams();
   const returnTo = safeNext(params.get("returnTo"));
 
-  if (!supabaseConfigured) {
+  if (!authSurfaceEnabled) {
     return (
       <AuthShell
         title="Sign in"
