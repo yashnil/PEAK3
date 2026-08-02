@@ -9,7 +9,7 @@ on:
 jobs:
   # ── Model tests ─────────────────────────────────────────────────────────────
   model-tests:
-    name: Python model tests (864)
+    name: Python model tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,7 +51,7 @@ jobs:
 
   # ── Lineup model tests ───────────────────────────────────────────────────────
   lineup-tests:
-    name: Experimental lineup model tests (41)
+    name: Experimental lineup model tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

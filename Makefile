@@ -50,7 +50,7 @@ help:
 	@echo "  make dev           Print instructions for running both"
 	@echo ""
 	@echo "  $(YELLOW)Testing — fast (no browser)$(RESET)"
-	@echo "  make test-model                 864 canonical model tests"
+	@echo "  make test-model                 Canonical PEAK3 model tests"
 	@echo "  make test-lineup                Experimental lineup model unit tests"
 	@echo "  make test-card-profiles         Card profile builder invariants"
 	@echo "  make test-api                   FastAPI unit tests (in-memory repositories)"
