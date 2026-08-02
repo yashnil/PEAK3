@@ -71,6 +71,21 @@ class MemoryPerfectSeasonSavedRunRepository:
             recent_runs=recent,
         )
 
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Mirror of the Postgres transfer, including the collision rule --
+        `_by_owner_game` plays the part the UNIQUE constraint plays there."""
+        async with self._lock:
+            moved = 0
+            for run in [r for r in self._runs.values() if r.owner_sub == from_sub]:
+                self._by_owner_game.pop((from_sub, run.game_id), None)
+                if (to_sub, run.game_id) in self._by_owner_game:
+                    self._runs.pop(run.id, None)
+                    continue
+                run.owner_sub = to_sub
+                self._by_owner_game[(to_sub, run.game_id)] = run.id
+                moved += 1
+            return moved
+
     async def count_daily_attempts(self, owner_sub: str, challenge_date: str, mode: str) -> int:
         return sum(
             1 for r in self._runs.values()

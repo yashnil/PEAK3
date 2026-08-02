@@ -53,26 +53,156 @@ async function startPracticeDraft(page: Page, mode: string, seed = 42): Promise<
 test.describe("Arena landing", () => {
   test("loads with correct heading and CTAs", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    // Phase 8E: the homepage now leads with 82-0 Peak Season (the flagship
-    // mode), not Peak Duel -- and its primary CTA routes straight to
-    // CourtBuilder, not the legacy /arena/daily hub (see
-    // "homepage primary CTA" test below for the full click-through proof).
-    await expect(page.locator("h1")).toContainText("Chase 82-0");
+    // The homepage leads with RUN THE TABLE, the flagship mode. The lead has
+    // moved twice before (Peak Duel -> 82-0 PEAK Season -> RUN THE TABLE), and
+    // each time the previous flagship stayed on the page as a secondary card --
+    // asserted in play-routing.spec.ts's "every finished mode is still linked".
+    //
+    // The bare `h1` locator is strict-mode-sensitive on purpose: a second h1
+    // anywhere on this page is itself a bug, so this fails if one appears.
+    await expect(page.locator("h1")).toContainText("Build a roster of peaks.");
+    await expect(page.locator("h1")).toContainText("Run the table.");
     await expect(page.locator('[data-testid="home-primary-cta"]')).toBeVisible();
     await expect(page.locator('a[href="/rankings"]').first()).toBeVisible();
   });
 
-  test("Phase 8E: homepage primary CTA routes to the flagship 82-0 Peak Season experience", async ({ page }) => {
+  // -------------------------------------------------------------------------
+  // The primary CTA became a launcher (UX pass, plan §5.1).
+  //
+  // It used to be a link labelled "Start a Run" pointing at
+  // /arena/run-the-table -- whose first screen is RunStartGate, with a second,
+  // identical "Start a run" button. Two identical commitments in a row.
+  //
+  // Deleting that gate was never an option: following a bare link must not
+  // create a run (it fixes the seed and, for the daily, burns the day's
+  // attempt) -- play-routing.spec.ts pins that. So the fix landed on the
+  // homepage instead: the control is now a menu button that NAMES the choice,
+  // and each option carries `?start=` so the mode starts exactly once. The bare
+  // route still gates, unchanged.
+  //
+  // Changed here versus the pre-pass file: `toContainText(/Start a Run/i)` and
+  // `toHaveAttribute("href", "/arena/run-the-table")` on the CTA itself. Both
+  // described a link that no longer exists. Everything else in this block --
+  // the h1 strings, the CTA being visible, nav link count, skip link, mobile
+  // overflow -- is unchanged.
+  // -------------------------------------------------------------------------
+
+  test("homepage primary CTA opens a launcher instead of a second start button", async ({
+    page,
+  }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible();
-    await expect(cta).toHaveAttribute("href", "/arena/court/practice/apex_1y");
-    await Promise.all([page.waitForURL("**/arena/court/practice/apex_1y**"), cta.click()]);
-    // Phase 9B: the CTA lands on the explicit Start gate, NOT a running
-    // board -- following a link must never consume a run (it fixes the board
-    // and, for the daily, burns the day's attempt). The board appears after
-    // "Begin"; that transition is covered in courtbuilder.spec.ts's
+    await expect(cta).toContainText(/Play Run the Table/i);
+    await expect(cta).toHaveAttribute("aria-haspopup", "menu");
+    await expect(cta).toHaveAttribute("aria-expanded", "false");
+    // The old funnel: a bare anchor into the mode.
+    await expect(cta).not.toHaveAttribute("href", /.*/);
+
+    await expect(page.locator('[data-testid="home-launcher-menu"]')).toHaveCount(0);
+    await cta.click();
+    await expect(page.locator('[data-testid="home-launcher-menu"]')).toBeVisible();
+    await expect(cta).toHaveAttribute("aria-expanded", "true");
+  });
+
+  test("every launcher option points at the route it promises", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.locator('[data-testid="home-primary-cta"]').click();
+
+    await expect(page.locator('[data-testid="home-launcher-standard"]')).toHaveAttribute(
+      "href",
+      "/arena/run-the-table?start=standard",
+    );
+    // Deliberately NOT `?start=daily`: the daily is one shared board and one
+    // attempt per UTC day, so a URL that spends it on navigation would burn the
+    // attempt of everyone the link reaches. It lands on the gate instead.
+    await expect(page.locator('[data-testid="home-launcher-daily"]')).toHaveAttribute(
+      "href",
+      "/arena/run-the-table?mode=daily",
+    );
+  });
+
+  test("a shared ?mode=daily link never spends the daily attempt on navigation", async ({
+    page,
+  }) => {
+    // The homepage launcher's daily option is a plain link, so its URL will end
+    // up in address bars, bookmarks and group chats. Counted at the network
+    // layer: a run created and then discarded client-side was still created.
+    const creations: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "POST" &&
+        new URL(request.url()).pathname.endsWith("/run-the-table/runs")
+      ) {
+        creations.push(request.url());
+      }
+    });
+
+    await page.goto("/arena/run-the-table?mode=daily", { waitUntil: "load" });
+    await expect(page.locator('[data-testid="rtt-start-gate"]')).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(1_000);
+    expect(creations).toEqual([]);
+  });
+
+  test("the resume option is absent for a browser with no saved run", async ({ page }) => {
+    // Fresh context => empty localStorage. Offering "resume" with nothing to
+    // resume is a dead end, so it must not be rendered at all.
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.locator('[data-testid="home-primary-cta"]').click();
+    await expect(page.locator('[data-testid="home-launcher-menu"]')).toBeVisible();
+    await expect(page.locator('[data-testid="home-launcher-resume"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="home-resume-notice"]')).toHaveCount(0);
+  });
+
+  test("the launcher opens by keyboard and Escape restores focus to the CTA", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const cta = page.locator('[data-testid="home-primary-cta"]');
+    await cta.focus();
+    await page.keyboard.press("ArrowDown");
+
+    const menu = page.locator('[data-testid="home-launcher-menu"]');
+    await expect(menu).toBeVisible();
+    await expect(page.locator('[data-testid="home-launcher-standard"]')).toBeFocused();
+
+    await page.keyboard.press("ArrowDown");
+    await expect(page.locator('[data-testid="home-launcher-daily"]')).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(cta).toBeFocused();
+  });
+
+  test("choosing a standard run lands on RUN THE TABLE, never the 82-0 board", async ({ page }) => {
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await page.locator('[data-testid="home-primary-cta"]').click();
+    await Promise.all([
+      page.waitForURL("**/arena/run-the-table**"),
+      page.locator('[data-testid="home-launcher-standard"]').click(),
+    ]);
+    // The CTA must not drop the player into the previous flagship's board:
+    // neither the 82-0 court nor its start gate belongs on this route.
+    await expect(page.locator('[data-testid="court-builder"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="peak-season-start-gate"]')).toHaveCount(0);
+  });
+
+  test("a bare RUN THE TABLE route still gates rather than starting a run", async ({ page }) => {
+    // The invariant the launcher exists to preserve: `?start=` is what starts a
+    // run, arriving at the route is not.
+    await page.goto("/arena/run-the-table", { waitUntil: "domcontentloaded" });
+    await expect(page.locator('[data-testid="rtt-start-gate"]')).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("the 82-0 card still reaches its start gate without starting a run", async ({ page }) => {
+    // The old primary-CTA test, kept in full against 82-0's new home on the
+    // page. Phase 9B: following a link must never consume a run (it fixes the
+    // board and, for the daily, burns the day's attempt). The board appears
+    // after "Begin"; that transition is covered in courtbuilder.spec.ts's
     // "Start gate" suite.
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const card = page.locator('[data-testid="home-peak-season-card"]');
+    await expect(card).toBeVisible({ timeout: 15_000 });
+    await expect(card).toHaveAttribute("href", "/arena/court/practice/apex_1y");
+    await Promise.all([page.waitForURL("**/arena/court/practice/apex_1y**"), card.click()]);
     await expect(page.locator('[data-testid="peak-season-start-gate"]')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('[data-testid="begin-run-btn"]')).toBeVisible();
     await expect(page.locator('[data-testid="court-builder"]')).toHaveCount(0);

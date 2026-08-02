@@ -9,7 +9,7 @@ on:
 jobs:
   # ── Model tests ─────────────────────────────────────────────────────────────
   model-tests:
-    name: Python model tests (186)
+    name: Python model tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,23 +28,30 @@ jobs:
       - name: Install model dependencies
         run: pip install -r requirements.txt
 
-      - name: Keep the scored-data cache fresh
-        # actions/checkout materializes every file at roughly the same time,
-        # in whatever order git happens to write blobs — not the original
-        # authoring order. peak3.py's own cache-invalidation logic (comparing
-        # mtimes) treats cache/processed/scored_1980_2026.parquet as stale if
-        # data/generated/player_season_context.parquet looks newer, which can
-        # happen purely from checkout ordering and would trigger an
-        # unintended (and here, network-less) rebuild attempt mid-test-run.
-        # Touching it last guarantees it is never considered stale.
-        run: touch cache/processed/scored_1980_2026.parquet
+      - name: Build the web dataset
+        # `data/web/` is deliberately not committed (.gitignore, and CLAUDE.md
+        # "Data export rules"), so a fresh checkout has no peak_windows.json —
+        # and nba_peak/run_the_table/cards.py needs it to build the card pool.
+        # Without this step every RUN THE TABLE test raises
+        # CardPoolUnavailable: 210 errors, all one cause.
+        #
+        # The `web-dataset` job already builds this, but GitHub Actions jobs do
+        # not share a filesystem. Rebuilding here rather than adding
+        # `needs: web-dataset` + download-artifact is the cheaper option in
+        # both senses: the build reads committed leaderboard CSVs and finishes
+        # in under a second, whereas a `needs:` would serialize this job — one
+        # of the fastest in the matrix — behind a slower one to fetch a file it
+        # can regenerate faster than it could download.
+        run: scripts/ci/build-web-data.sh
 
       - name: Run model tests
-        run: python -m pytest tests/ -v --tb=short --ignore=tests/lineup
+        # Same script `make test-model` runs. It re-checks the generated data
+        # and refreshes the scored-cache mtime before pytest — see the script.
+        run: scripts/ci/model-tests.sh
 
   # ── Lineup model tests ───────────────────────────────────────────────────────
   lineup-tests:
-    name: Experimental lineup model tests (41)
+    name: Experimental lineup model tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,9 +73,8 @@ jobs:
       - name: Run lineup model tests (need v3 profiles)
         run: |
           pip install pandas unidecode
-          python scripts/build_web_dataset.py
-          python scripts/build_card_profiles.py
-          python -m pytest tests/lineup/ -v --tb=short
+          scripts/ci/build-web-data.sh
+          scripts/ci/lineup-tests.sh
 
   # ── Data build + card profiles ───────────────────────────────────────────────
   web-dataset:
@@ -85,15 +91,11 @@ jobs:
       - name: Install dependencies
         run: pip install pandas unidecode
 
-      - name: Build web dataset
-        run: python scripts/build_web_dataset.py
+      - name: Build web dataset + card profiles v3
+        run: scripts/ci/build-web-data.sh
 
-      - name: Build card profiles v3 (Peak Draft game data)
-        run: python scripts/build_card_profiles.py
-
-      - name: Verify v3 artifacts exist
+      - name: Verify v3 metadata artifact exists
         run: |
-          test -f data/game/profiles/card_profiles.v3.json   || (echo "MISSING card_profiles.v3.json"   && exit 1)
           test -f data/game/profiles/profile_metadata.v3.json || (echo "MISSING profile_metadata.v3.json" && exit 1)
 
       - name: Upload dataset artifact
@@ -141,7 +143,7 @@ jobs:
 
   # ── FastAPI tests ────────────────────────────────────────────────────────────
   api-tests:
-    name: FastAPI tests (264, 0 skipped)
+    name: FastAPI unit tests (in-memory repositories)
     runs-on: ubuntu-latest
     needs: web-dataset
     steps:
@@ -175,15 +177,19 @@ jobs:
           pip install -r requirements.txt
           pip install -r apps/api/requirements.txt
 
-      - name: Run API tests (must have 0 skipped)
-        # tests/integration/ is excluded here, and any test marked
-        # supabase_integration (including test_repository_conformance.py's
-        # real-Postgres half) is deselected rather than run-and-skipped —
-        # both always skip without real Supabase test-project secrets (see
-        # the dedicated supabase-integration job below), which would
-        # otherwise violate this job's own "0 skipped" guarantee.
-        run: python -m pytest tests/ -v --tb=short --ignore=tests/integration -m "not supabase_integration"
-        working-directory: apps/api
+      - name: Run API unit tests
+        # The SAME script `make test-api` runs, so "green locally" and "green
+        # in CI" are claims about the same set of tests. It was not: the
+        # Makefile ran `pytest tests/` while this ran it with two extra
+        # selection flags.
+        #
+        # The script pins PEAK3_TEST_REPOSITORY_MODE=memory, which turns off
+        # dotenv loading and drops any inherited PEAK3_DATABASE_URL, and the
+        # resolved backend is asserted once at app startup. It also deselects
+        # every `supabase_integration` test rather than running-and-skipping
+        # it, so the skip count stays meaningful; those run for real in the
+        # supabase-integration job below.
+        run: scripts/ci/api-unit-tests.sh
 
   # ── Frontend unit tests + build ───────────────────────────────────────────────
   frontend:
@@ -203,30 +209,16 @@ jobs:
         run: npm install --legacy-peer-deps
         working-directory: apps/web
 
-      - name: Type check
-        run: npm run typecheck
-        working-directory: apps/web
-
-      - name: Lint (zero warnings)
-        run: npm run lint -- --max-warnings 0
-        working-directory: apps/web
-
-      - name: Unit tests (vitest, 87)
-        run: npm run test
-        working-directory: apps/web
-
-      - name: Production build
-        # Always build from clean state — never reuse .next cache in CI
-        run: |
-          rm -rf .next
-          npm run build
-        working-directory: apps/web
+      - name: Typecheck, lint (zero warnings), unit tests, production build
+        # One script, also run by `make verify-frontend`, so a developer cannot
+        # satisfy a subset of what CI checks.
+        run: scripts/ci/frontend-verify.sh
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
 
   # ── Playwright e2e + accessibility ───────────────────────────────────────────
   playwright:
-    name: Playwright browser tests + axe accessibility (62, 0 retries)
+    name: Playwright browser tests + axe accessibility (0 retries)
     runs-on: ubuntu-latest
     needs: [web-dataset, frontend]
     steps:
@@ -277,55 +269,24 @@ jobs:
         run: npx playwright install --with-deps chromium
         working-directory: apps/web
 
-      - name: Confirm no stale processes on ports 3000/8000
-        run: |
-          lsof -ti :3000 && echo "PORT 3000 OCCUPIED — aborting" && exit 1 || true
-          lsof -ti :8000 && echo "PORT 8000 OCCUPIED — aborting" && exit 1 || true
-
       # CI=true forces reuseExistingServer=false so Playwright always starts
-      # its own services from the current working tree. PLAYWRIGHT_RETRIES=0
-      # ensures zero retries for the release-gate proof run.
+      # its own services from the current working tree.
       - name: Run Playwright tests (fresh services, 0 retries)
-        # ranked.spec.ts's own header comment documents these three ranked
-        # feature flags plus a shared JWT secret as required — without them
-        # the FastAPI backend rejects every ranked queue-join with 403
-        # ranked_not_enabled, so the UI never reaches "Waiting for an
-        # opponent" (this is what made the job fail the first time it ever
-        # ran to completion; it was previously always skipped because the
-        # frontend job it depends on used to fail first).
-        # PEAK3_SUPABASE_JWT_SECRET (verified server-side) and
-        # PEAK3_TEST_JWT_SECRET (signed test-side, in helpers/test-jwt.ts)
-        # must be the same value — this is a dev/test-only shared HMAC
-        # secret, never a real Supabase project secret.
-        # PEAK3_COURTBUILDER_* mirrors the same requirement for
-        # courtbuilder.spec.ts (Phase 5C) — without these, every
-        # /perfect-season/* route 403s with courtbuilder_not_enabled.
-        # PEAK3_COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED was added later
-        # (Phase 6A) and this block was never updated to match — without it,
-        # /perfect-season/games falls back to the legacy team_decade/
-        # exact_team_season board, whose candidates never carry a
-        # per-candidate team_name/season (see
-        # app/services/perfect_season/state.py::_candidate_public vs.
-        # _candidate_public_exact), which silently broke
-        # "exact team-season is preserved on every candidate row after the
-        # alphabetical sort" (candidate-team-season never renders -> count 0)
-        # without touching any frontend code.
-        run: npm run test:e2e:ci
-        working-directory: apps/web
+        # The SAME script `make test-e2e` runs. Every feature flag the API
+        # refuses to serve without now lives in that one file rather than
+        # here, because the previous arrangement — flags in YAML, a second
+        # partial set in apps/web/package.json's `start:api`, and none in the
+        # Makefile — is how the job came to depend on values a developer had
+        # no way to discover. The script's own header documents each one.
+        #
+        # It also preflights: ports 3000/8000 free, generated data present.
+        # playwright.setup.ts then probes the running services, including that
+        # the account surface actually renders — the check whose absence let a
+        # clean checkout fail ten auth assertions 28 minutes in.
+        run: scripts/ci/e2e-tests.sh
         env:
           CI: true
           PLAYWRIGHT_RETRIES: "0"
-          NEXT_PUBLIC_API_URL: http://localhost:8000
-          PEAK3_RANKED_ENABLED: "true"
-          PEAK3_RANKED_MATCHMAKING_ENABLED: "true"
-          PEAK3_RANKED_RATING_WRITES_ENABLED: "true"
-          PEAK3_RANKED_READINESS_LEVEL: "internal_alpha"
-          PEAK3_SUPABASE_JWT_SECRET: "e2e-ranked-test-secret-do-not-use-in-prod"
-          PEAK3_TEST_JWT_SECRET: "e2e-ranked-test-secret-do-not-use-in-prod"
-          PEAK3_COURTBUILDER_ENABLED: "true"
-          PEAK3_COURTBUILDER_TEAM_SPIN_ENABLED: "true"
-          PEAK3_COURTBUILDER_READINESS_LEVEL: "internal_dev"
-          PEAK3_COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED: "true"
 
       - name: Upload Playwright report on failure
         uses: actions/upload-artifact@v4
@@ -394,8 +355,7 @@ jobs:
         # supabase_integration marker as tests/integration/ (see that file's
         # module docstring) so they run for real here too, instead of being
         # permanently deselected everywhere.
-        run: python -m pytest tests/integration/ tests/test_repository_conformance.py -m supabase_integration -v --tb=short
-        working-directory: apps/api
+        run: scripts/ci/api-integration-tests.sh
         env:
           PEAK3_TEST_SUPABASE_URL: ${{ secrets.PEAK3_TEST_SUPABASE_URL }}
           PEAK3_TEST_SUPABASE_ANON_KEY: ${{ secrets.PEAK3_TEST_SUPABASE_ANON_KEY }}

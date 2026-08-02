@@ -440,9 +440,17 @@ def _load_experimental_team_year_dataset(path: Path | None = None) -> dict:
 
 
 def _clear_experimental_team_year_cache() -> None:
-    """Clear the cached experimental team+year dataset (used in tests)."""
+    """Clear the cached experimental team+year dataset (used in tests).
+
+    Also drops the derived respin-pool caches below, which are views over the
+    same dataset -- leaving them populated would make a test that swaps in a
+    fixture dataset silently keep reading the real one.
+    """
     global _EXPERIMENTAL_TEAM_YEAR_CACHE
+    global _ROLLABLE_TEAM_YEAR_CATALOGUE, _ROLLABLE_SEASON_LABELS
     _EXPERIMENTAL_TEAM_YEAR_CACHE = None
+    _ROLLABLE_TEAM_YEAR_CATALOGUE = None
+    _ROLLABLE_SEASON_LABELS = None
 
 
 def _load_experimental_cards(path: Path | None = None) -> list[CardProfile]:
@@ -621,6 +629,92 @@ def get_rollable_team_year_entries(experimental_team_year_path: Path | None = No
         for e in data.get("exact_team_year_spins", [])
     ]
     return _rollable_team_year_entries(all_entries)
+
+
+# ---------------------------------------------------------------------------
+# Respin pool accessors (W5, UX/organization/polish pass).
+#
+# READ-ONLY VIEWS OVER THE SAME CATALOGUE get_rollable_team_year_entries()
+# already returns. They exist for two reasons and change no generation
+# semantics whatsoever:
+#
+#   1. The distance-aware respin policy needs an ORDERED eligible-season
+#      list (to compute "seasons within +/-2 of the current one") and a
+#      stable entry order (so a seeded draw is reproducible regardless of
+#      dataset row order).
+#   2. The 100k-sample distribution audit calls the catalogue accessor
+#      hundreds of thousands of times; rebuilding 1,314 dicts per call made
+#      that unusably slow. The catalogue below is built once and cached.
+#
+# The cached list is treated as READ-ONLY by every caller (the respin path
+# only reads entry fields and copies player_slugs). generate_team_year_board
+# deliberately still builds its own private list -- initial board generation
+# is untouched by anything in this section.
+# ---------------------------------------------------------------------------
+
+_ROLLABLE_TEAM_YEAR_CATALOGUE: list[dict] | None = None
+_ROLLABLE_SEASON_LABELS: list[str] | None = None
+
+
+def get_rollable_team_year_catalogue(
+    experimental_team_year_path: Path | None = None,
+) -> list[dict]:
+    """The rollable team-year catalogue in a STABLE, deterministic order
+    (sorted by spin_id), cached across calls.
+
+    Identical CONTENT to get_rollable_team_year_entries(); the only
+    differences are the guaranteed ordering and the cache. Ordering matters
+    because the respin policy samples by index into a filtered slice of this
+    list -- a dataset re-serialization that reordered rows would otherwise
+    silently change every seeded respin outcome.
+    """
+    global _ROLLABLE_TEAM_YEAR_CATALOGUE
+    if experimental_team_year_path is not None:
+        return sorted(
+            get_rollable_team_year_entries(experimental_team_year_path),
+            key=lambda e: e["spin_id"],
+        )
+    if _ROLLABLE_TEAM_YEAR_CATALOGUE is None:
+        _ROLLABLE_TEAM_YEAR_CATALOGUE = sorted(
+            get_rollable_team_year_entries(), key=lambda e: e["spin_id"]
+        )
+    return _ROLLABLE_TEAM_YEAR_CATALOGUE
+
+
+def get_rollable_season_labels(
+    experimental_team_year_path: Path | None = None,
+) -> list[str]:
+    """Every season label that at least one ROLLABLE team-season covers, in
+    chronological order.
+
+    Chronological == lexicographic here, and provably so: every label is
+    "YYYY-YY" with a 4-digit leading year in 1979..2025, so string order and
+    calendar order agree. This is the ordered list whose INDICES the season
+    respin's +/-N exclusion radius is measured in -- deliberately index
+    distance over the covered seasons, not raw year arithmetic, so a gap in
+    coverage can never make "adjacent" mean something different from
+    "the next season a player could actually roll".
+    """
+    global _ROLLABLE_SEASON_LABELS
+    if experimental_team_year_path is not None:
+        return sorted(
+            {e["season_label"] for e in get_rollable_team_year_entries(experimental_team_year_path)}
+        )
+    if _ROLLABLE_SEASON_LABELS is None:
+        _ROLLABLE_SEASON_LABELS = sorted(
+            {e["season_label"] for e in get_rollable_team_year_catalogue()}
+        )
+    return _ROLLABLE_SEASON_LABELS
+
+
+def get_rollable_season_index(
+    experimental_team_year_path: Path | None = None,
+) -> dict[str, int]:
+    """season_label -> its index in get_rollable_season_labels()."""
+    return {
+        label: i
+        for i, label in enumerate(get_rollable_season_labels(experimental_team_year_path))
+    }
 
 
 def generate_team_year_board(

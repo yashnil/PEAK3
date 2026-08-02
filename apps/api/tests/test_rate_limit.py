@@ -169,3 +169,68 @@ class TestCheckDistinct:
         assert limiter.check("shared", rule).allowed is False
         # Same key string, different counter -- the two primitives are separate.
         assert limiter.check_distinct("shared", "v", rule).allowed
+
+
+class TestForgedCookiesCannotBuyBudget:
+    """A rate-limit bucket key must not be attacker-choosable.
+
+    `client_key` folds the anon-subject cookie in as a key DIMENSION, so if the
+    cookie were trusted unverified, rewriting it between requests would hand
+    the caller a brand-new budget every time — 50 forged cookies from one IP
+    would mean 50 full budgets rather than one. Verifying the signature
+    collapses every unforgeable-but-forged cookie into the single per-IP
+    bucket.
+    """
+
+    def _request(self, cookie_value: str, ip: str = "203.0.113.7"):
+        class _Client:
+            host = ip
+
+        class _Request:
+            client = _Client()
+            cookies = {"peak3_anon": cookie_value} if cookie_value else {}
+
+        return _Request()
+
+    def test_forged_cookies_all_collapse_into_one_bucket(self):
+        from app.core.rate_limit import client_key
+
+        keys = {
+            client_key(self._request(f"anon:attacker-{i}.deadbeefsignature"), "scope")
+            for i in range(50)
+        }
+
+        assert len(keys) == 1, (
+            "50 forged cookies produced %d distinct buckets — each one is a "
+            "fresh budget" % len(keys)
+        )
+        # And they land in the same bucket as sending no cookie at all.
+        assert keys == {client_key(self._request(""), "scope")}
+
+    def test_a_genuinely_signed_cookie_gets_its_own_bucket(self):
+        from app.core.auth import create_anon_subject_cookie
+        from app.core.config import settings
+        from app.core.rate_limit import client_key
+
+        alice = create_anon_subject_cookie("anon:alice", settings.SIGNING_SECRET)
+        bob = create_anon_subject_cookie("anon:bob", settings.SIGNING_SECRET)
+
+        # Two real browsers behind one NAT must not share a budget — that is
+        # why the dimension exists in the first place.
+        assert client_key(self._request(alice), "scope") != client_key(
+            self._request(bob), "scope"
+        )
+        # And neither collapses into the anonymous bucket.
+        assert client_key(self._request(alice), "scope") != client_key(
+            self._request(""), "scope"
+        )
+
+    def test_the_signature_never_enters_the_key(self):
+        from app.core.auth import create_anon_subject_cookie
+        from app.core.config import settings
+        from app.core.rate_limit import client_key
+
+        cookie = create_anon_subject_cookie("anon:alice", settings.SIGNING_SECRET)
+        signature = cookie.split(".", 1)[1]
+
+        assert signature not in client_key(self._request(cookie), "scope")

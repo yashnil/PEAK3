@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
-import { CourtLineupPublicState, CourtSlotPublic, SimulationResultPublic, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
+import { CourtSlotPublic, SharedCourtResult, SimulationResultPublic, STARTER_SLOT_TYPES, BENCH_SLOT_TYPES } from "@/types/perfect-season";
 import LineupInsightPanel from "./LineupInsightPanel";
 import LeaderboardSubmitPanel from "./LeaderboardSubmitPanel";
 import PlayAgainPanel from "./PlayAgainPanel";
@@ -12,7 +12,15 @@ import ShareRunPanel from "./ShareRunPanel";
 import SaveRunPanel from "./SaveRunPanel";
 
 interface Props {
-  state: CourtLineupPublicState;
+  /** The NARROW shared-result shape, not the full live game state.
+   *
+   *  Both callers satisfy it: the owner's result screen passes a whole
+   *  `CourtLineupPublicState` (structurally assignable), and the shared link
+   *  passes what `/shared-result` returns. Typing the prop down to the subset
+   *  this component actually reads is what makes it impossible for the result
+   *  screen to grow a dependency on live-board state that a shared viewer
+   *  will never have. */
+  state: SharedCourtResult;
   result: SimulationResultPublic;
   /** Phase 8D: starts a brand-new game in the same mode without a page
    * reload -- undefined only for any caller that doesn't wire up the loop

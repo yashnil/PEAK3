@@ -1,0 +1,1015 @@
+{
+  "meta": {
+    "seeds": 100000,
+    "policies": [
+      "random_legal",
+      "greedy_overall",
+      "lane_aware",
+      "economy_aware",
+      "look_ahead",
+      "passive"
+    ],
+    "required_policies": [
+      "random_legal",
+      "greedy_overall",
+      "lane_aware",
+      "economy_aware",
+      "look_ahead"
+    ],
+    "control_policy": "passive",
+    "runs_played": 600000,
+    "replays_checked": 500,
+    "elapsed_seconds": 183.2,
+    "card_pool_size": 174,
+    "versions": {
+      "engine_version": "run_the_table_v1",
+      "ruleset_version": "rtt_ruleset_v2",
+      "card_pool_version": "v3",
+      "peak3_model_version": "peak3_official_weights_v1"
+    },
+    "run_shape": {
+      "acts": 4,
+      "stages_per_act": 2,
+      "decision_nodes": 8,
+      "battles": 4,
+      "starting_lives": 3,
+      "starting_credits": 50,
+      "lanes_to_win": 3,
+      "boss_win_credits": 10,
+      "comeback_credits": 8
+    }
+  },
+  "hard_invariants": {
+    "illegal_starting_rosters": 0,
+    "duplicate_identities": 0,
+    "rosters_outside_percentile_band": 0,
+    "draft_boards_above_guaranteed_affordable_cost": 0,
+    "nodes_with_no_legal_action": 0,
+    "dead_end_runs": 0,
+    "replay_receipt_mismatches": 0,
+    "negative_credit_states": 0,
+    "runs_continuing_past_zero_lives": 0,
+    "receipt_outcome_not_published": 0,
+    "table_cleared_disagrees_with_final_boss": 0
+  },
+  "hard_invariant_examples": {
+    "illegal_starting_rosters": [],
+    "duplicate_identities": [],
+    "rosters_outside_percentile_band": [],
+    "draft_boards_above_guaranteed_affordable_cost": [],
+    "nodes_with_no_legal_action": [],
+    "dead_end_runs": [],
+    "replay_receipt_mismatches": [],
+    "negative_credit_states": [],
+    "runs_continuing_past_zero_lives": [],
+    "receipt_outcome_not_published": [],
+    "table_cleared_disagrees_with_final_boss": []
+  },
+  "content_distribution": {
+    "distinct_cards_offered": 174,
+    "distinct_cards_in_draft_rooms": 174,
+    "distinct_cards_in_trade_desks": 174,
+    "distinct_cards_in_starting_rosters": 70,
+    "unreachable_cards": [],
+    "unreachable_bosses": [],
+    "node_types": {
+      "draft_room": 519468,
+      "trade_desk": 453133,
+      "rest_bank": 313832,
+      "film_room": 313567
+    },
+    "era_by_anchor_decade": {
+      "1970s": 35076,
+      "1980s": 612439,
+      "1990s": 746856,
+      "2000s": 843597,
+      "2010s": 879897,
+      "2020s": 499938
+    },
+    "role_eligibility_of_offered_cards": {
+      "guard_wing": 3216894,
+      "wing_forward": 2716702,
+      "forward_big": 2401221,
+      "lead_creator": 1080575,
+      "anchor": 668090
+    },
+    "starting_roster_role_fills": {
+      "lead_creator": 100000,
+      "guard_wing": 100000,
+      "wing_forward": 100000,
+      "forward_big": 100000,
+      "anchor": 100000
+    },
+    "system_offer_counts": {
+      "moneyball": 100227,
+      "no_hardware": 100115,
+      "trade_machine": 100053,
+      "veteran_minimum": 100018,
+      "deep_rotation": 99818,
+      "two_way_value": 99769
+    },
+    "most_offered_cards": [
+      {
+        "card_id": "horace-grant-3yr-199192",
+        "player": "Horace Grant",
+        "times": 34719
+      },
+      {
+        "card_id": "tim-hardaway-3yr-199697",
+        "player": "Tim Hardaway",
+        "times": 33883
+      },
+      {
+        "card_id": "marc-gasol-3yr-201213",
+        "player": "Marc Gasol",
+        "times": 33737
+      },
+      {
+        "card_id": "eddie-jones-3yr-199798",
+        "player": "Eddie Jones",
+        "times": 32796
+      },
+      {
+        "card_id": "gus-williams-3yr-198182",
+        "player": "Gus Williams",
+        "times": 32593
+      }
+    ],
+    "least_offered_cards": [
+      {
+        "card_id": "hakeem-olajuwon-3yr-199394",
+        "player": "Hakeem Olajuwon",
+        "times": 14252
+      },
+      {
+        "card_id": "jimmy-butler-3yr-202223",
+        "player": "Jimmy Butler",
+        "times": 14241
+      },
+      {
+        "card_id": "victor-wembanyama-3yr-202526",
+        "player": "Victor Wembanyama",
+        "times": 14215
+      },
+      {
+        "card_id": "steve-nash-3yr-200506",
+        "player": "Steve Nash",
+        "times": 14211
+      },
+      {
+        "card_id": "shaquille-oneal-3yr-199900",
+        "player": "Shaquille O'Neal",
+        "times": 14077
+      }
+    ]
+  },
+  "bosses": [
+    {
+      "boss_id": "the_wall",
+      "act": 1,
+      "rule_id": "the_wall",
+      "is_final": false,
+      "source": "curated",
+      "starter_mean": 60.7,
+      "target": 61.0,
+      "lane_margin": 1.5,
+      "times_faced": 600000,
+      "lanes_drawn_by_rule": 473011,
+      "rule_decisive_rate": 0.1033,
+      "rule_decisive_battles": 62010
+    },
+    {
+      "boss_id": "strength_in_numbers",
+      "act": 2,
+      "rule_id": "strength_in_numbers",
+      "is_final": false,
+      "source": "curated",
+      "starter_mean": 64.694,
+      "target": 65.0,
+      "lane_margin": 0.0,
+      "times_faced": 600000,
+      "lanes_drawn_by_rule": 0,
+      "rule_decisive_rate": 0.0365,
+      "rule_decisive_battles": 21899
+    },
+    {
+      "boss_id": "the_ceiling",
+      "act": 3,
+      "rule_id": "top_heavy",
+      "is_final": false,
+      "source": "curated",
+      "starter_mean": 70.138,
+      "target": 70.0,
+      "lane_margin": 0.0,
+      "times_faced": 600000,
+      "lanes_drawn_by_rule": 0,
+      "rule_decisive_rate": 0.0435,
+      "rule_decisive_battles": 26078
+    },
+    {
+      "boss_id": "the_standard",
+      "act": 4,
+      "rule_id": "the_standard",
+      "is_final": true,
+      "source": "curated",
+      "starter_mean": 74.406,
+      "target": 74.5,
+      "lane_margin": 4.0,
+      "times_faced": 565286,
+      "lanes_drawn_by_rule": 717369,
+      "rule_decisive_rate": 0.0635,
+      "rule_decisive_battles": 35902
+    }
+  ],
+  "battle_decided_by": {
+    "lanes": 2027468,
+    "summed_margin": 337818
+  },
+  "lane_outcomes_by_rule": {
+    "the_wall:player": 1919258,
+    "top_heavy:opponent": 1764844,
+    "the_standard:opponent": 1631494,
+    "strength_in_numbers:opponent": 1618138,
+    "strength_in_numbers:player": 1381855,
+    "top_heavy:player": 1235150,
+    "the_standard:tie": 717381,
+    "the_wall:opponent": 607713,
+    "the_standard:player": 477555,
+    "the_wall:tie": 473029,
+    "strength_in_numbers:tie": 7,
+    "top_heavy:tie": 6
+  },
+  "perks": {
+    "moneyball": {
+      "offered": 100227,
+      "picked": 189309,
+      "runs_held": 189309,
+      "runs_cleared": 41285,
+      "clear_rate_when_held": 0.2181,
+      "clear_rate_when_held_by_policy": {
+        "random_legal": 0.0039,
+        "greedy_overall": 0.2517,
+        "lane_aware": 0.1634,
+        "economy_aware": 0.4796,
+        "look_ahead": 0.3883,
+        "passive": 0.0
+      },
+      "runs_held_by_policy": {
+        "random_legal": 33315,
+        "greedy_overall": 33150,
+        "lane_aware": 24836,
+        "economy_aware": 39840,
+        "look_ahead": 24836,
+        "passive": 33332
+      },
+      "unconfounded_clear_rate": 0.2517
+    },
+    "deep_rotation": {
+      "offered": 99818,
+      "picked": 249762,
+      "runs_held": 249762,
+      "runs_cleared": 47626,
+      "clear_rate_when_held": 0.1907,
+      "clear_rate_when_held_by_policy": {
+        "random_legal": 0.0038,
+        "greedy_overall": 0.2441,
+        "lane_aware": 0.1492,
+        "economy_aware": null,
+        "look_ahead": 0.3754,
+        "passive": 0.0
+      },
+      "runs_held_by_policy": {
+        "random_legal": 33098,
+        "greedy_overall": 33538,
+        "lane_aware": 74941,
+        "economy_aware": 0,
+        "look_ahead": 74941,
+        "passive": 33244
+      },
+      "unconfounded_clear_rate": 0.2441
+    },
+    "no_hardware": {
+      "offered": 100115,
+      "picked": 190504,
+      "runs_held": 190504,
+      "runs_cleared": 41240,
+      "clear_rate_when_held": 0.2165,
+      "clear_rate_when_held_by_policy": {
+        "random_legal": 0.004,
+        "greedy_overall": 0.256,
+        "lane_aware": 0.1533,
+        "economy_aware": 0.4787,
+        "look_ahead": 0.3794,
+        "passive": 0.0
+      },
+      "runs_held_by_policy": {
+        "random_legal": 33383,
+        "greedy_overall": 33210,
+        "lane_aware": 25142,
+        "economy_aware": 40132,
+        "look_ahead": 25142,
+        "passive": 33495
+      },
+      "unconfounded_clear_rate": 0.256
+    },
+    "two_way_value": {
+      "offered": 99769,
+      "picked": 191150,
+      "runs_held": 191150,
+      "runs_cleared": 40258,
+      "clear_rate_when_held": 0.2106,
+      "clear_rate_when_held_by_policy": {
+        "random_legal": 0.0034,
+        "greedy_overall": 0.2473,
+        "lane_aware": 0.1419,
+        "economy_aware": 0.4751,
+        "look_ahead": 0.3645,
+        "passive": 0.0
+      },
+      "runs_held_by_policy": {
+        "random_legal": 33546,
+        "greedy_overall": 33166,
+        "lane_aware": 25410,
+        "economy_aware": 40149,
+        "look_ahead": 25410,
+        "passive": 33469
+      },
+      "unconfounded_clear_rate": 0.2473
+    },
+    "trade_machine": {
+      "offered": 100053,
+      "picked": 189234,
+      "runs_held": 189234,
+      "runs_cleared": 45127,
+      "clear_rate_when_held": 0.2385,
+      "clear_rate_when_held_by_policy": {
+        "random_legal": 0.0037,
+        "greedy_overall": 0.2691,
+        "lane_aware": 0.2084,
+        "economy_aware": 0.4857,
+        "look_ahead": 0.4632,
+        "passive": 0.0
+      },
+      "runs_held_by_policy": {
+        "random_legal": 33245,
+        "greedy_overall": 33549,
+        "lane_aware": 24769,
+        "economy_aware": 39821,
+        "look_ahead": 24769,
+        "passive": 33081
+      },
+      "unconfounded_clear_rate": 0.2691
+    },
+    "veteran_minimum": {
+      "offered": 100018,
+      "picked": 190041,
+      "runs_held": 190041,
+      "runs_cleared": 40006,
+      "clear_rate_when_held": 0.2105,
+      "clear_rate_when_held_by_policy": {
+        "random_legal": 0.0036,
+        "greedy_overall": 0.2426,
+        "lane_aware": 0.1447,
+        "economy_aware": 0.4784,
+        "look_ahead": 0.3622,
+        "passive": 0.0
+      },
+      "runs_held_by_policy": {
+        "random_legal": 33413,
+        "greedy_overall": 33387,
+        "lane_aware": 24902,
+        "economy_aware": 40058,
+        "look_ahead": 24902,
+        "passive": 33379
+      },
+      "unconfounded_clear_rate": 0.2426
+    }
+  },
+  "policies": {
+    "random_legal": {
+      "runs": 100000,
+      "is_control": false,
+      "clear_rate": 0.0037,
+      "completion_rate": 0.3532,
+      "reached_final_boss_rate": 0.8396,
+      "outcome_distribution": {
+        "table_cleared": 0.0037,
+        "ended_at_final_boss": 0.8359,
+        "ended_in_act": 0.1604
+      },
+      "average_ending_act": 3.84,
+      "ending_act_distribution": {
+        "act_1": 0.0,
+        "act_2": 0.0,
+        "act_3": 0.1604,
+        "act_4": 0.8396
+      },
+      "boss_win_rates": {
+        "act_1": {
+          "fought": 100000,
+          "wins": 74514,
+          "losses": 25486,
+          "draws": 0,
+          "win_rate": 0.7451,
+          "reach_rate": 1.0
+        },
+        "act_2": {
+          "fought": 100000,
+          "wins": 9674,
+          "losses": 90326,
+          "draws": 0,
+          "win_rate": 0.0967,
+          "reach_rate": 1.0
+        },
+        "act_3": {
+          "fought": 100000,
+          "wins": 3117,
+          "losses": 96883,
+          "draws": 0,
+          "win_rate": 0.0312,
+          "reach_rate": 1.0
+        },
+        "act_4": {
+          "fought": 83962,
+          "wins": 372,
+          "losses": 83590,
+          "draws": 0,
+          "win_rate": 0.0044,
+          "reach_rate": 0.8396
+        }
+      },
+      "purchases": 187471,
+      "trades": 108683,
+      "credit_spend": {
+        "mean": 28.333,
+        "p10": 5.0,
+        "p50": 26.0,
+        "p90": 55.0,
+        "max": 100
+      },
+      "credits_left_over": {
+        "mean": 66.043,
+        "p50": 67.0,
+        "p90": 97.0
+      },
+      "lives_remaining": {
+        "mean": 0.423,
+        "p50": 0.0
+      },
+      "systems_selected": {
+        "two_way_value": 33546,
+        "veteran_minimum": 33413,
+        "no_hardware": 33383,
+        "moneyball": 33315,
+        "trade_machine": 33245,
+        "deep_rotation": 33098
+      },
+      "nodes_visited": {
+        "draft_room": 250360,
+        "trade_desk": 217306,
+        "film_room": 150585,
+        "rest_bank": 149673
+      },
+      "no_affordable_offer_nodes": {
+        "draft_room": 135,
+        "trade_desk": 12
+      },
+      "affordable_but_unplaceable_nodes": {
+        "draft_room": 2
+      },
+      "no_upgrade_available_nodes": {
+        "draft_room": 32974,
+        "trade_desk": 14245
+      },
+      "noop_choice_nodes": {
+        "rest_recover_at_full_lives": 72907,
+        "film_room_scout_at_end": 16910
+      },
+      "node_choices": {
+        "film_room:take_credits": 75212,
+        "film_room:scout_offers": 75373,
+        "rest_bank:recover_life": 75284,
+        "rest_bank:take_credits": 74389
+      }
+    },
+    "greedy_overall": {
+      "runs": 100000,
+      "is_control": false,
+      "clear_rate": 0.2518,
+      "completion_rate": 0.8205,
+      "reached_final_boss_rate": 0.9867,
+      "outcome_distribution": {
+        "table_cleared": 0.2518,
+        "ended_at_final_boss": 0.7349,
+        "ended_in_act": 0.0133
+      },
+      "average_ending_act": 3.987,
+      "ending_act_distribution": {
+        "act_1": 0.0,
+        "act_2": 0.0,
+        "act_3": 0.0133,
+        "act_4": 0.9867
+      },
+      "boss_win_rates": {
+        "act_1": {
+          "fought": 100000,
+          "wins": 96433,
+          "losses": 3567,
+          "draws": 0,
+          "win_rate": 0.9643,
+          "reach_rate": 1.0
+        },
+        "act_2": {
+          "fought": 100000,
+          "wins": 60848,
+          "losses": 39152,
+          "draws": 0,
+          "win_rate": 0.6085,
+          "reach_rate": 1.0
+        },
+        "act_3": {
+          "fought": 100000,
+          "wins": 53262,
+          "losses": 46738,
+          "draws": 0,
+          "win_rate": 0.5326,
+          "reach_rate": 1.0
+        },
+        "act_4": {
+          "fought": 98672,
+          "wins": 25181,
+          "losses": 73491,
+          "draws": 0,
+          "win_rate": 0.2552,
+          "reach_rate": 0.9867
+        }
+      },
+      "purchases": 297963,
+      "trades": 103138,
+      "credit_spend": {
+        "mean": 71.425,
+        "p10": 54.0,
+        "p50": 72.0,
+        "p90": 88.0,
+        "max": 116
+      },
+      "credits_left_over": {
+        "mean": 26.812,
+        "p50": 23.0,
+        "p90": 50.0
+      },
+      "lives_remaining": {
+        "mean": 1.56,
+        "p50": 2.0
+      },
+      "systems_selected": {
+        "trade_machine": 33549,
+        "deep_rotation": 33538,
+        "veteran_minimum": 33387,
+        "no_hardware": 33210,
+        "two_way_value": 33166,
+        "moneyball": 33150
+      },
+      "nodes_visited": {
+        "draft_room": 517870,
+        "trade_desk": 140062,
+        "film_room": 69455,
+        "rest_bank": 69957
+      },
+      "no_affordable_offer_nodes": {
+        "draft_room": 10928,
+        "trade_desk": 302
+      },
+      "affordable_but_unplaceable_nodes": {
+        "draft_room": 0
+      },
+      "no_upgrade_available_nodes": {
+        "draft_room": 219907,
+        "trade_desk": 36924
+      },
+      "noop_choice_nodes": {
+        "rest_recover_at_full_lives": 50989,
+        "film_room_scout_at_end": 9753
+      },
+      "node_choices": {
+        "film_room:take_credits": 69455,
+        "rest_bank:take_credits": 50989,
+        "rest_bank:recover_life": 18968
+      }
+    },
+    "lane_aware": {
+      "runs": 100000,
+      "is_control": false,
+      "clear_rate": 0.1573,
+      "completion_rate": 0.9579,
+      "reached_final_boss_rate": 0.9974,
+      "outcome_distribution": {
+        "table_cleared": 0.1573,
+        "ended_at_final_boss": 0.8401,
+        "ended_in_act": 0.0026
+      },
+      "average_ending_act": 3.997,
+      "ending_act_distribution": {
+        "act_1": 0.0,
+        "act_2": 0.0,
+        "act_3": 0.0026,
+        "act_4": 0.9974
+      },
+      "boss_win_rates": {
+        "act_1": {
+          "fought": 100000,
+          "wins": 98305,
+          "losses": 1695,
+          "draws": 0,
+          "win_rate": 0.983,
+          "reach_rate": 1.0
+        },
+        "act_2": {
+          "fought": 100000,
+          "wins": 78717,
+          "losses": 21283,
+          "draws": 0,
+          "win_rate": 0.7872,
+          "reach_rate": 1.0
+        },
+        "act_3": {
+          "fought": 100000,
+          "wins": 58528,
+          "losses": 41472,
+          "draws": 0,
+          "win_rate": 0.5853,
+          "reach_rate": 1.0
+        },
+        "act_4": {
+          "fought": 99741,
+          "wins": 15731,
+          "losses": 84010,
+          "draws": 0,
+          "win_rate": 0.1577,
+          "reach_rate": 0.9974
+        }
+      },
+      "purchases": 304915,
+      "trades": 211336,
+      "credit_spend": {
+        "mean": 71.115,
+        "p10": 61.0,
+        "p50": 72.0,
+        "p90": 79.0,
+        "max": 91
+      },
+      "credits_left_over": {
+        "mean": 15.664,
+        "p50": 14.0,
+        "p90": 25.0
+      },
+      "lives_remaining": {
+        "mean": 1.866,
+        "p50": 2.0
+      },
+      "systems_selected": {
+        "deep_rotation": 74941,
+        "two_way_value": 25410,
+        "no_hardware": 25142,
+        "veteran_minimum": 24902,
+        "moneyball": 24836,
+        "trade_machine": 24769
+      },
+      "nodes_visited": {
+        "draft_room": 507467,
+        "trade_desk": 256996,
+        "rest_bank": 35019
+      },
+      "no_affordable_offer_nodes": {
+        "draft_room": 27143,
+        "trade_desk": 1286
+      },
+      "affordable_but_unplaceable_nodes": {
+        "draft_room": 35
+      },
+      "no_upgrade_available_nodes": {
+        "draft_room": 246841,
+        "trade_desk": 82203
+      },
+      "noop_choice_nodes": {},
+      "node_choices": {
+        "rest_bank:recover_life": 35019
+      }
+    },
+    "economy_aware": {
+      "runs": 100000,
+      "is_control": false,
+      "clear_rate": 0.4795,
+      "completion_rate": 0.7531,
+      "reached_final_boss_rate": 0.9338,
+      "outcome_distribution": {
+        "table_cleared": 0.4795,
+        "ended_at_final_boss": 0.4543,
+        "ended_in_act": 0.0662
+      },
+      "average_ending_act": 3.934,
+      "ending_act_distribution": {
+        "act_1": 0.0,
+        "act_2": 0.0,
+        "act_3": 0.0662,
+        "act_4": 0.9338
+      },
+      "boss_win_rates": {
+        "act_1": {
+          "fought": 100000,
+          "wins": 81930,
+          "losses": 18070,
+          "draws": 0,
+          "win_rate": 0.8193,
+          "reach_rate": 1.0
+        },
+        "act_2": {
+          "fought": 100000,
+          "wins": 53744,
+          "losses": 46256,
+          "draws": 0,
+          "win_rate": 0.5374,
+          "reach_rate": 1.0
+        },
+        "act_3": {
+          "fought": 100000,
+          "wins": 63163,
+          "losses": 36837,
+          "draws": 0,
+          "win_rate": 0.6316,
+          "reach_rate": 1.0
+        },
+        "act_4": {
+          "fought": 93385,
+          "wins": 47952,
+          "losses": 45433,
+          "draws": 0,
+          "win_rate": 0.5135,
+          "reach_rate": 0.9338
+        }
+      },
+      "purchases": 198672,
+      "trades": 171147,
+      "credit_spend": {
+        "mean": 70.302,
+        "p10": 44.0,
+        "p50": 73.0,
+        "p90": 92.0,
+        "max": 116
+      },
+      "credits_left_over": {
+        "mean": 35.907,
+        "p50": 35.0,
+        "p90": 54.0
+      },
+      "lives_remaining": {
+        "mean": 1.638,
+        "p50": 2.0
+      },
+      "systems_selected": {
+        "two_way_value": 40149,
+        "no_hardware": 40132,
+        "veteran_minimum": 40058,
+        "moneyball": 39840,
+        "trade_machine": 39821
+      },
+      "nodes_visited": {
+        "film_room": 104846,
+        "draft_room": 373495,
+        "trade_desk": 203968,
+        "rest_bank": 104461
+      },
+      "no_affordable_offer_nodes": {
+        "draft_room": 366,
+        "trade_desk": 0
+      },
+      "affordable_but_unplaceable_nodes": {
+        "draft_room": 0
+      },
+      "no_upgrade_available_nodes": {
+        "draft_room": 103962,
+        "trade_desk": 32821
+      },
+      "noop_choice_nodes": {
+        "film_room_scout_at_end": 11733,
+        "rest_recover_at_full_lives": 94095
+      },
+      "node_choices": {
+        "film_room:take_credits": 104846,
+        "rest_bank:take_credits": 94095,
+        "rest_bank:recover_life": 10366
+      }
+    },
+    "look_ahead": {
+      "runs": 100000,
+      "is_control": false,
+      "clear_rate": 0.3854,
+      "completion_rate": 0.9844,
+      "reached_final_boss_rate": 0.999,
+      "outcome_distribution": {
+        "table_cleared": 0.3854,
+        "ended_at_final_boss": 0.6137,
+        "ended_in_act": 0.001
+      },
+      "average_ending_act": 3.999,
+      "ending_act_distribution": {
+        "act_1": 0.0,
+        "act_2": 0.0,
+        "act_3": 0.001,
+        "act_4": 0.999
+      },
+      "boss_win_rates": {
+        "act_1": {
+          "fought": 100000,
+          "wins": 99021,
+          "losses": 979,
+          "draws": 0,
+          "win_rate": 0.9902,
+          "reach_rate": 1.0
+        },
+        "act_2": {
+          "fought": 100000,
+          "wins": 87345,
+          "losses": 12655,
+          "draws": 0,
+          "win_rate": 0.8734,
+          "reach_rate": 1.0
+        },
+        "act_3": {
+          "fought": 100000,
+          "wins": 76703,
+          "losses": 23297,
+          "draws": 0,
+          "win_rate": 0.767,
+          "reach_rate": 1.0
+        },
+        "act_4": {
+          "fought": 99904,
+          "wins": 38535,
+          "losses": 61369,
+          "draws": 0,
+          "win_rate": 0.3857,
+          "reach_rate": 0.999
+        }
+      },
+      "purchases": 237553,
+      "trades": 319980,
+      "credit_spend": {
+        "mean": 78.789,
+        "p10": 68.0,
+        "p50": 79.0,
+        "p90": 90.0,
+        "max": 114
+      },
+      "credits_left_over": {
+        "mean": 18.423,
+        "p50": 17.0,
+        "p90": 31.0
+      },
+      "lives_remaining": {
+        "mean": 2.239,
+        "p50": 2.0
+      },
+      "systems_selected": {
+        "deep_rotation": 74941,
+        "two_way_value": 25410,
+        "no_hardware": 25142,
+        "veteran_minimum": 24902,
+        "moneyball": 24836,
+        "trade_machine": 24769
+      },
+      "nodes_visited": {
+        "draft_room": 337978,
+        "trade_desk": 355957,
+        "film_room": 44006,
+        "rest_bank": 61867
+      },
+      "no_affordable_offer_nodes": {
+        "draft_room": 14769,
+        "trade_desk": 998
+      },
+      "affordable_but_unplaceable_nodes": {
+        "draft_room": 23
+      },
+      "no_upgrade_available_nodes": {
+        "draft_room": 132006,
+        "trade_desk": 89001
+      },
+      "noop_choice_nodes": {
+        "film_room_scout_at_end": 10420,
+        "rest_recover_at_full_lives": 39663
+      },
+      "node_choices": {
+        "film_room:take_credits": 44006,
+        "rest_bank:recover_life": 22204,
+        "rest_bank:take_credits": 39663
+      }
+    },
+    "passive": {
+      "runs": 100000,
+      "is_control": true,
+      "clear_rate": 0.0,
+      "completion_rate": 0.5236,
+      "reached_final_boss_rate": 0.8962,
+      "outcome_distribution": {
+        "table_cleared": 0.0,
+        "ended_at_final_boss": 0.8962,
+        "ended_in_act": 0.1038
+      },
+      "average_ending_act": 3.896,
+      "ending_act_distribution": {
+        "act_1": 0.0,
+        "act_2": 0.0,
+        "act_3": 0.1038,
+        "act_4": 0.8962
+      },
+      "boss_win_rates": {
+        "act_1": {
+          "fought": 100000,
+          "wins": 74671,
+          "losses": 25329,
+          "draws": 0,
+          "win_rate": 0.7467,
+          "reach_rate": 1.0
+        },
+        "act_2": {
+          "fought": 100000,
+          "wins": 562,
+          "losses": 99438,
+          "draws": 0,
+          "win_rate": 0.0056,
+          "reach_rate": 1.0
+        },
+        "act_3": {
+          "fought": 100000,
+          "wins": 0,
+          "losses": 100000,
+          "draws": 0,
+          "win_rate": 0.0,
+          "reach_rate": 1.0
+        },
+        "act_4": {
+          "fought": 89622,
+          "wins": 0,
+          "losses": 89622,
+          "draws": 0,
+          "win_rate": 0.0,
+          "reach_rate": 0.8962
+        }
+      },
+      "purchases": 0,
+      "trades": 0,
+      "credit_spend": {
+        "mean": 0.0,
+        "p10": 0.0,
+        "p50": 0.0,
+        "p90": 0.0,
+        "max": 0
+      },
+      "credits_left_over": {
+        "mean": 87.561,
+        "p50": 86.0,
+        "p90": 106.0
+      },
+      "lives_remaining": {
+        "mean": 0.661,
+        "p50": 1.0
+      },
+      "systems_selected": {
+        "no_hardware": 33495,
+        "two_way_value": 33469,
+        "veteran_minimum": 33379,
+        "moneyball": 33332,
+        "deep_rotation": 33244,
+        "trade_machine": 33081
+      },
+      "nodes_visited": {
+        "draft_room": 253661,
+        "rest_bank": 152986,
+        "trade_desk": 220401,
+        "film_room": 152196
+      },
+      "no_affordable_offer_nodes": {
+        "draft_room": 0,
+        "trade_desk": 0
+      },
+      "affordable_but_unplaceable_nodes": {
+        "draft_room": 0
+      },
+      "no_upgrade_available_nodes": {
+        "draft_room": 32603,
+        "trade_desk": 14318
+      },
+      "noop_choice_nodes": {
+        "film_room_scout_at_end": 17755,
+        "rest_recover_at_full_lives": 72484
+      },
+      "node_choices": {
+        "rest_bank:recover_life": 80502,
+        "film_room:scout_offers": 152196,
+        "rest_bank:take_credits": 72484
+      }
+    }
+  },
+  "warnings": []
+}

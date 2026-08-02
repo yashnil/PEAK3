@@ -20,6 +20,9 @@ from app.api.v1 import progression as progression_router
 from app.api.v1 import ranked as ranked_router
 from app.api.v1 import perfect_season as perfect_season_router
 from app.api.v1 import daily_grid as daily_grid_router
+from app.api.v1 import run_the_table as run_the_table_router
+from app.api.v1 import head_to_head as head_to_head_router
+from app.api.v1 import telemetry as telemetry_router
 from app.core.config import settings
 from app.core.dataset import dataset_store
 from app.core.repository_registry import (
@@ -70,6 +73,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "State will be lost on restart."
         )
 
+    # Ranked pins its board/ruleset/rating versions onto every queue entry and
+    # match through a foreign key into `ranked_queue_versions`. That table is
+    # created by migration 011 and populated by nobody, so without this the
+    # first join against a real Postgres dies on the FK and the player reads
+    # the constraint text off the ranked screen. Derived from
+    # services/ranked/versions.py so the table can never disagree with the code
+    # doing the pinning -- see `ensure_queue_versions_seeded`'s docstring.
+    if app.state.db_pool is not None:
+        try:
+            from app.repositories.ranked_postgres import ensure_queue_versions_seeded
+            seeded = await ensure_queue_versions_seeded(app.state.db_pool)
+            if seeded:
+                logger.info("Seeded %d ranked queue version row(s)", seeded)
+        except Exception as exc:
+            # Not fatal on its own: every non-ranked domain is unaffected, and
+            # ranked is flag-gated. Logged at error level because a ranked
+            # queue that cannot be joined is a broken feature, not a quiet one.
+            logger.error("Could not ensure ranked queue versions: %s", exc)
+
     registry = build_repository_registry(app.state.db_pool is not None)
     log_repository_registry(registry)
     assert_production_ready(registry, settings.DEBUG)
@@ -93,7 +115,9 @@ app = FastAPI(
 # CORS
 allowed_origins = list(settings.CORS_ORIGINS)
 if settings.DEBUG:
-    for origin in ("http://localhost:3000", "http://localhost:3001"):
+    # 3000 = dev/e2e, 3001 = UX-polish capture config,
+    # 3002 = auth/daily capture config (playwright.auth-daily-shots.config.ts).
+    for origin in ("http://localhost:3000", "http://localhost:3001", "http://localhost:3002"):
         if origin not in allowed_origins:
             allowed_origins.append(origin)
 
@@ -122,3 +146,14 @@ app.include_router(progression_router.router, prefix="/api/v1", tags=["progressi
 app.include_router(ranked_router.router, prefix="/api/v1", tags=["ranked"])
 app.include_router(perfect_season_router.router, prefix="/api/v1", tags=["perfect-season"])
 app.include_router(daily_grid_router.router, prefix="/api/v1", tags=["daily-grid"])
+app.include_router(run_the_table_router.router, prefix="/api/v1", tags=["run-the-table"])
+# Asynchronous two-player RUN THE TABLE. A separate, purely additive router:
+# it composes with the routes above rather than editing them, and every route
+# it adds lives under /run-the-table/h2h.
+app.include_router(head_to_head_router.router, prefix="/api/v1", tags=["head-to-head"])
+# Product telemetry. Always mounted, but the route itself is gated on
+# PEAK3_TELEMETRY_ENABLED (default OFF) and answers 403 telemetry_disabled
+# otherwise — mounting conditionally would make "the feature is off" and "this
+# build does not have it" indistinguishable to the client, and would mean the
+# disabled path was never exercised by the test suite.
+app.include_router(telemetry_router.router, prefix="/api/v1", tags=["telemetry"])

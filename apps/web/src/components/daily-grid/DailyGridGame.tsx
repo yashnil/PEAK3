@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { HelpCircle, History } from "lucide-react";
+import { CalendarClock, HelpCircle, History } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import {
@@ -16,8 +16,17 @@ import {
   getDailyGridBoard,
   getDailyGridResult,
   saveOfficialDailyGridResult,
+  startDailyGridAttempt,
   submitDailyGridAnswer,
 } from "@/lib/daily-grid-api";
+import { GuidedTour, useGuidedTour } from "@/components/ui/GuidedTour";
+import {
+  DAILY_GRID_TOUR,
+  DAILY_GRID_TOUR_ID,
+  DAILY_GRID_TOUR_VERSION,
+  type TourTargetId,
+} from "@/components/ui/tour-steps";
+import { usePrefersReducedMotion } from "@/lib/a11y";
 import {
   buildArchiveEntry,
   isCanonicalToday,
@@ -26,6 +35,12 @@ import {
   reportableElapsedSeconds,
   saveArchive,
 } from "@/lib/daily-grid-archive";
+import {
+  type DailyWindowPayload,
+  extractDailyWindow,
+  formatCountdown,
+} from "@/lib/daily-time";
+import { useDailyReset } from "@/lib/use-daily-reset";
 import {
   TOTAL_CELLS,
   elapsedMs,
@@ -42,15 +57,18 @@ import {
   usedPlayerSlugs,
   withFilledCell,
   withIncorrectAttempt,
+  withServerTimer,
   withTimerStarted,
 } from "@/lib/daily-grid-state";
 import DailyGridBoardView from "./DailyGridBoardView";
 import CellPanel from "./CellPanel";
 import CompletionPanel from "./CompletionPanel";
 import HowToPlay from "./HowToPlay";
+import StartGate from "./StartGate";
 
 interface Props {
-  /** Optional YYYY-MM-DD override; omitted means today (UTC), decided server-side. */
+  /** Optional YYYY-MM-DD ARCHIVE date. Omitted means today's board, which the
+   *  server decides (midnight America/Los_Angeles) — never this component. */
   date?: string;
   /** Test seam: pre-loaded board, so unit tests never need the API. */
   initialBoard?: DailyGridBoard;
@@ -69,15 +87,21 @@ function StatTile({
   value,
   accent,
   testId,
+  tourId,
 }: {
   label: string;
   value: string;
   accent?: string;
   testId?: string;
+  /** Spotlight target for the guided walkthrough. Typed against the shared
+   *  closed union so a renamed id fails `tsc` rather than silently un-aiming a
+   *  step. */
+  tourId?: TourTargetId;
 }) {
   return (
     <div
       className="card-surface flex-1 px-3 py-2 text-center"
+      data-tour-id={tourId}
       style={{ borderTop: `2px solid ${accent ?? "var(--border-default)"}` }}
     >
       <p
@@ -113,6 +137,19 @@ function StatTile({
  */
 export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Props) {
   const [board, setBoard] = useState<DailyGridBoard | null>(initialBoard ?? null);
+  // The server's window for the board on screen: which day it is and how long
+  // it has left. Never derived here -- see lib/daily-time.ts.
+  const [window_, setWindow] = useState<DailyWindowPayload | null>(
+    extractDailyWindow(initialBoard),
+  );
+  // Bumped to force the board effect to run again at a rollover. The effect's
+  // real dependencies (`date`, `initialBoard`) are BOTH permanently undefined
+  // on the canonical /daily/grid route, so without this the board was fetched
+  // exactly once per mount and never again -- a tab left open through midnight
+  // kept playing yesterday's board while posting answers against yesterday's
+  // date, and the server correctly filed the whole session as an archive
+  // replay, silently breaking a streak the player had actually earned.
+  const [reloadToken, setReloadToken] = useState(0);
   const [loading, setLoading] = useState(!initialBoard);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [progress, setProgress] = useState<DailyGridProgress | null>(
@@ -125,6 +162,14 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   // render would diverge between the server and client passes and hydrate wrong.
   const [showGate, setShowGate] = useState<boolean | null>(skipRulesGate ? false : null);
   const [rulesPanelOpen, setRulesPanelOpen] = useState(false);
+  // True while POST /daily-grid/{key}/start is in flight, so the gate's two
+  // start actions can disable themselves. The server is idempotent, so this is
+  // presentation, not correctness -- `startingRef` below is the real guard.
+  const [starting, setStarting] = useState(false);
+  const startingRef = useRef(false);
+  // The daily key whose window closed while this board was on screen, or null.
+  // NOT a refetch: see the rollover block below (defect D1).
+  const [rolloverFrom, setRolloverFrom] = useState<string | null>(null);
   const [result, setResult] = useState<GridResultResponse | null>(null);
   const [resultError, setResultError] = useState<string | null>(null);
   // Re-render tick for the running clock. The elapsed time itself is always
@@ -141,6 +186,16 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   // (or the archive effect firing again) cannot re-POST it.
   const officialSavedRef = useRef<string | null>(null);
   const { user } = useAuth();
+  const reducedMotion = usePrefersReducedMotion();
+
+  // Read-through mirrors, so the rollover callback and the attempt starter can
+  // both stay referentially stable without going stale. `useDailyReset` keys
+  // its whole timer effect off `onReset`'s identity, so a callback that changed
+  // every render would restart the countdown on every render.
+  const progressRef = useRef<DailyGridProgress | null>(progress);
+  progressRef.current = progress;
+  const boardRef = useRef<DailyGridBoard | null>(board);
+  boardRef.current = board;
 
   // --- rules gate ---------------------------------------------------------
   useEffect(() => {
@@ -165,10 +220,23 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
       .then((b) => {
         if (cancelled) return;
         setBoard(b);
+        setWindow(extractDailyWindow(b));
         // A new date means a new board_id means a new storage key, so
         // yesterday's grid can never bleed into today's.
         setProgress(loadProgress(b.board_id) ?? emptyProgress(b));
         setLoadError(null);
+        setResult(null);
+        setResultError(null);
+        setSelected(null);
+        setCellMessage(null);
+        // D6: the "official" badge belongs to ONE board. It used to survive a
+        // rollover along with the ref that gates the POST, so after midnight a
+        // fresh, unsaved board could render "Saved to your account" purely
+        // because yesterday's save had succeeded -- and if yesterday's had
+        // FAILED, the stale ref could also suppress today's save entirely.
+        setOfficialSaved(false);
+        officialSavedRef.current = null;
+        setRolloverFrom(null);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -182,7 +250,135 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
     return () => {
       cancelled = true;
     };
-  }, [date, initialBoard]);
+  }, [date, initialBoard, reloadToken]);
+
+  // --- the rollover -------------------------------------------------------
+  // Fires when this board's window closes -- either because the countdown ran
+  // out in a foreground tab, or because the tab came back from the background
+  // (or the machine from sleep) past the boundary. An ARCHIVE board reports
+  // `seconds_remaining: 0` and never arms, so opening `?date=` deliberately is
+  // not yanked out from under the player. `date` is likewise left alone: a
+  // rollover refetches the SAME request the mount made, which for the canonical
+  // route means today's board and for an archive route means the same archive
+  // board (which cannot roll over at all).
+  //
+  // D1 -- IT PROMPTS, IT DOES NOT DISCARD. This used to bump `reloadToken`
+  // unconditionally, and the board effect above then replaced the board AND the
+  // progress with the new day's empty grid. A player six squares into a board
+  // at 00:00 PT silently lost all six, with no message and nothing to undo; the
+  // board they were playing was not even addressable afterwards. Now: an
+  // untouched board is still swapped silently (there is nothing to lose and the
+  // swap is the correct behaviour for a tab left open overnight), and a board
+  // with any state on it raises a prompt that keeps the old board exactly where
+  // it is until the player chooses.
+  const { secondsLeft } = useDailyReset({
+    dailyKey: window_?.daily_key ?? null,
+    secondsRemaining: window_?.seconds_remaining ?? null,
+    window: window_,
+    onReset: useCallback(() => {
+      if (date) return; // an explicit archive board has nothing to roll over to
+      const current = progressRef.current;
+      const untouched = !current || (current.filled.length === 0 && !current.started_at);
+      if (untouched) {
+        setReloadToken((t) => t + 1);
+        return;
+      }
+      setRolloverFrom(boardRef.current?.date ?? "");
+    }, [date]),
+  });
+
+  // A board reached through ?date= that is not today's. Fully playable, but
+  // labelled, and it never touches the live streak (see daily-grid-archive.ts)
+  // or today's timed attempt.
+  //
+  // Decided from the SERVER's window when there is one -- an archive board's
+  // window has already closed, which is a fact about the board rather than an
+  // opinion about the browser's clock. `isCanonicalToday` is the fallback for
+  // an API old enough not to send the block, and for the unit-test seam that
+  // injects a board directly.
+  const isArchiveBoard = useMemo(() => {
+    if (!board) return false;
+    if (window_) return window_.seconds_remaining <= 0;
+    return !isCanonicalToday(board.date);
+  }, [board, window_]);
+
+  // --- the timed attempt ---------------------------------------------------
+  // The daily key this board's timed attempt lives under, or null when there
+  // is no attempt to start: an explicit `?date=` route, a board whose window
+  // has closed, or a board that has not loaded. Prefers the top-level
+  // `daily_key` the hardening pass added, falls back to the nested `daily`
+  // block, and finally to `board.date` -- all three are the same string when
+  // they are all present, and every one of them is optional on the wire.
+  const attemptKey = useCallback((): string | null => {
+    if (date) return null;
+    if (isArchiveBoard) return null;
+    const b = boardRef.current;
+    if (!b) return null;
+    return b.daily_key ?? window_?.daily_key ?? b.date ?? null;
+  }, [date, isArchiveBoard, window_]);
+
+  /**
+   * Start (or resume) the timed attempt. The ONLY thing that starts the clock.
+   *
+   * Never called on page load and never called when the walkthrough opens --
+   * that is the whole contract of the start gate. It is called from exactly two
+   * places: the gate's two start actions, and a returning player's first move
+   * on a board whose gate was dismissed on an earlier day (there is no gate to
+   * press then, and charging them for the page load instead would be worse).
+   *
+   * FALLBACK BEHAVIOUR. The local clock is started FIRST and unconditionally,
+   * so a player whose network is slow or whose API is down still sees an honest
+   * running timer; the server's `elapsed_seconds` then re-anchors it if and
+   * when the response lands (`withServerTimer`). Every failure -- offline, 429,
+   * 409 `not_todays_key`, an API that predates the route -- is swallowed, and
+   * the local clock simply stands. Nothing about play, scoring or the result
+   * comparison depends on this call succeeding.
+   */
+  const beginAttempt = useCallback(async () => {
+    if (startingRef.current) return;
+    const current = progressRef.current;
+    // Already running, or already finished: the timestamp is written once.
+    if (!current || current.started_at || current.completed_at) return;
+
+    startingRef.current = true;
+    setStarting(true);
+    setProgress((cur) => (cur ? withTimerStarted(cur) : cur));
+
+    const key = attemptKey();
+    if (!key) {
+      startingRef.current = false;
+      setStarting(false);
+      return;
+    }
+    try {
+      const token = await getAccessToken();
+      const res = await startDailyGridAttempt(key, token);
+      setProgress((cur) => (cur ? withServerTimer(cur, res.elapsed_seconds) : cur));
+    } catch {
+      // Deliberately silent -- see the docstring. The local clock stands.
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
+    }
+  }, [attemptKey]);
+
+  // --- the walkthrough -----------------------------------------------------
+  // Mirrors RunTheTableGame's `tourBlocked`: no spotlight while the surface is
+  // still loading, while the start gate owns the screen, or while a submit is
+  // in flight and the board is about to change under the highlight. `blocked`
+  // suppresses the AUTO-start only -- an explicit press always opens the tour,
+  // which is what makes the gate's "How to Play" action work.
+  const tourBlocked = loading || showGate !== false || submitting;
+  // `autoStart: false`, following the RUN THE TABLE start gate: a walkthrough
+  // that opens by itself on top of a "press a button to begin" screen is a
+  // modal in front of a call to action. Onboarding here is entered explicitly,
+  // from the gate or from the permanent `?` control.
+  const tour = useGuidedTour({
+    tourId: DAILY_GRID_TOUR_ID,
+    version: DAILY_GRID_TOUR_VERSION,
+    blocked: tourBlocked,
+    autoStart: false,
+  });
 
   // --- persist ------------------------------------------------------------
   useEffect(() => {
@@ -286,14 +482,19 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
     });
   }, [board, progress, result]);
 
-  const handleSelect = useCallback((row: number, col: number) => {
-    setSelected((cur) => (cur && cur.row === row && cur.col === col ? null : { row, col }));
-    setCellMessage(null);
-    // The clock starts on the player's first MOVE, not on page load. A
-    // returning player who has already dismissed the rules lands straight on
-    // the board, and starting the timer then would charge them for reading it.
-    setProgress((cur) => (cur ? withTimerStarted(cur) : cur));
-  }, []);
+  const handleSelect = useCallback(
+    (row: number, col: number) => {
+      setSelected((cur) => (cur && cur.row === row && cur.col === col ? null : { row, col }));
+      setCellMessage(null);
+      // A returning player has no start gate to press -- the gate is shown
+      // once, not once a day -- so their first MOVE is the explicit action that
+      // starts the attempt. Still never the page load, and still never the
+      // walkthrough. `beginAttempt` is a no-op once the clock is running, so
+      // every later square costs nothing.
+      void beginAttempt();
+    },
+    [beginAttempt],
+  );
 
   async function handleSubmit(hit: PlayerSeasonSearchHit) {
     if (!board || !progress || !selected) return;
@@ -340,10 +541,18 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
     }
   }
 
-  function startGrid() {
-    markRulesSeen();
+  /**
+   * "Start Timed Grid" / "Skip Tour and Start".
+   *
+   * The two differ only in what they record about the walkthrough: skipping is
+   * a deliberate choice and is stored as one, so a later version bump can tell
+   * "declined the tour at v1" from "never saw a tour at all". Both dismiss the
+   * gate and both start the clock.
+   */
+  function startGrid(status: "completed" | "skipped" = "completed") {
+    markRulesSeen(status);
     setShowGate(false);
-    setProgress((cur) => (cur ? withTimerStarted(cur) : cur));
+    void beginAttempt();
   }
 
   if (loading || showGate === null) {
@@ -383,12 +592,32 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   if (showGate) {
     return (
       <div className="mx-auto w-full max-w-5xl px-3 pb-16 pt-8 sm:px-4">
-        <HowToPlay
-          variant="gate"
+        <StartGate
           date={board.date}
           difficulty={board.difficulty}
           theme={board.theme}
-          onStart={startGrid}
+          starting={starting}
+          reducedMotion={reducedMotion}
+          onHowToPlay={tour.start}
+          onStart={() => startGrid("completed")}
+          onSkipTourAndStart={() => startGrid("skipped")}
+        />
+        {/* The walkthrough is reachable FROM the gate, and reading it starts
+            nothing: the clock is written by `beginAttempt`, which only the two
+            start actions above can reach. With no board mounted yet every step
+            renders centred with no spotlight -- GuidedTour's documented
+            missing-target degradation. */}
+        <GuidedTour
+          steps={DAILY_GRID_TOUR}
+          tourId={DAILY_GRID_TOUR_ID}
+          version={DAILY_GRID_TOUR_VERSION}
+          eyebrow="How the Daily Grid works"
+          open={tour.open}
+          onOpenChange={(next) => {
+            if (!next) tour.stop();
+          }}
+          autoStart={false}
+          data-testid="daily-grid-tour"
         />
       </div>
     );
@@ -396,12 +625,59 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
 
   const complete = isComplete(progress);
   const selectedFilled = selected ? findFilled(progress, selected.row, selected.col) : null;
-  // A board reached through ?date= that is not today's. Fully playable, but
-  // labelled, and it never touches the live streak (see daily-grid-archive.ts).
-  const isArchiveBoard = !isCanonicalToday(board.date);
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-3 pb-16 pt-6 sm:px-4">
+    <div
+      className="mx-auto w-full max-w-6xl px-3 pb-16 pt-6 sm:px-4"
+      data-motion={reducedMotion ? "none" : "auto"}
+    >
+      {/* D1: the midnight prompt. Deliberately NOT a modal — a player six
+          squares into a grid at 00:00 does not need their board taken away and
+          a decision demanded before they may look at it again. Both choices are
+          non-destructive: the old board stays exactly where it is until the
+          player picks, and picking "today's grid" refetches rather than
+          discarding (the old board remains reachable at ?date=). */}
+      {rolloverFrom !== null && (
+        <div
+          data-testid="daily-grid-rollover-prompt"
+          role="alert"
+          className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg px-3 py-2.5 text-xs"
+          style={{
+            background: "var(--peak-accent-bg)",
+            border: "1px solid var(--peak-accent)",
+            color: "var(--text-secondary)",
+            transition: reducedMotion ? "none" : "opacity 200ms ease",
+          }}
+        >
+          <CalendarClock size={14} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+          <strong style={{ color: "var(--text-primary)" }}>A new grid is up.</strong>
+          <span>
+            You are still on the {rolloverFrom || "previous"} board. Your picks on it are safe — but
+            it is now an earlier day, so finishing it will not extend your streak.
+          </span>
+          <button
+            type="button"
+            data-testid="daily-grid-rollover-switch"
+            onClick={() => {
+              setRolloverFrom(null);
+              setReloadToken((t) => t + 1);
+            }}
+            className="rounded px-3 py-1 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+          >
+            Play today&rsquo;s grid
+          </button>
+          <button
+            type="button"
+            data-testid="daily-grid-rollover-stay"
+            onClick={() => setRolloverFrom(null)}
+            className="rounded border px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+          >
+            Finish this board
+          </button>
+        </div>
+      )}
       {isArchiveBoard && (
         <div
           data-testid="daily-grid-archive-banner"
@@ -467,6 +743,29 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
                 </span>
               )}
             </Link>
+            {/* The permanent replay control. Reopening the walkthrough does
+                NOT touch the board and does NOT pause the clock: the tour is a
+                portal above the page, elapsed time is derived from
+                `progress.started_at`, and nothing here writes to `progress`. */}
+            <button
+              type="button"
+              data-testid="daily-grid-tour-launcher"
+              onClick={tour.start}
+              disabled={tourBlocked}
+              aria-haspopup="dialog"
+              className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:opacity-50"
+              style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+            >
+              {/* The `?` glyph, styled by the shared launcher rule so the two
+                  tours' help controls read as the same affordance. The button
+                  chrome deliberately matches its neighbours here rather than
+                  using `.pk-tour-launcher`, whose 44px tray sizing would tower
+                  over the History and Rules chips beside it. */}
+              <span aria-hidden="true" className="pk-tour-launcher-glyph">
+                ?
+              </span>
+              <span>How to play</span>
+            </button>
             <button
               type="button"
               data-testid="daily-grid-how-to-play"
@@ -475,12 +774,12 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
               style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
             >
               <HelpCircle size={13} aria-hidden="true" />
-              How to play
+              Rules
             </button>
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-stretch gap-2">
+        <div className="mt-4 flex flex-wrap items-stretch gap-2" data-tour-id="dg-score">
           <StatTile
             label="Score"
             value={String(totalArenaPoints(progress))}
@@ -506,6 +805,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
             label={progress.completed_at ? "Final time" : "Time"}
             value={formatElapsed(elapsedMs(progress))}
             testId="daily-grid-timer"
+            tourId="dg-timer"
           />
           {result ? (
             <StatTile
@@ -526,6 +826,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
 
         <p
           data-testid="daily-grid-unique-rule"
+          data-tour-id="dg-rule"
           className="mt-3 rounded-lg px-3 py-2 text-xs leading-relaxed"
           style={{ background: "var(--peak-accent-bg)", color: "var(--text-secondary)" }}
         >
@@ -535,6 +836,18 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
           &ldquo;1999-00 Shaquille O&rsquo;Neal&rdquo;, not just &ldquo;Shaquille O&rsquo;Neal&rdquo;.{" "}
           <span data-testid="daily-grid-theme">{board.theme}</span> ·{" "}
           <span data-testid="daily-grid-date">{board.date}</span>
+          {/* Counted down from the server's own window, not from a boundary
+              derived in the browser — the two used to disagree by up to a day. */}
+          {!isArchiveBoard && secondsLeft !== null && (
+            <>
+              {" · "}
+              <span data-testid="daily-grid-countdown">
+                {secondsLeft > 0
+                  ? `New board in ${formatCountdown(secondsLeft)}`
+                  : "A new board is available"}
+              </span>
+            </>
+          )}
         </p>
       </header>
 
@@ -545,6 +858,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
       <div className="mt-5 grid items-start gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
         <div
           className="court-grid-bg rounded-xl p-2 sm:p-3"
+          data-tour-id="dg-board"
           style={{ border: "1px solid var(--border-subtle)" }}
         >
           <DailyGridBoardView
@@ -556,7 +870,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
           />
         </div>
 
-        <div className="lg:sticky lg:top-20">
+        <div className="lg:sticky lg:top-20" data-tour-id="dg-workbench">
           {selected ? (
             <CellPanel
               key={`${selected.row}-${selected.col}`}
@@ -609,21 +923,36 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
           the board -- a "start over" button would make both the day's score and
           the comparison against today's maximum meaningless. */}
 
-      {rulesPanelOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-16"
-          style={{ background: "rgba(0,0,0,0.6)" }}
-        >
-          <HowToPlay
-            variant="panel"
-            date={board.date}
-            difficulty={board.difficulty}
-            theme={board.theme}
-            onStart={startGrid}
-            onClose={() => setRulesPanelOpen(false)}
-          />
-        </div>
-      )}
+      {/* The rules reference. `Dialog` owns the backdrop, the portal, the focus
+          trap, the layer stack, the scroll lock and the focus restoration —
+          none of which the hand-rolled version above it used to have. */}
+      <HowToPlay
+        open={rulesPanelOpen}
+        date={board.date}
+        difficulty={board.difficulty}
+        theme={board.theme}
+        onClose={() => setRulesPanelOpen(false)}
+        onTakeTour={() => {
+          setRulesPanelOpen(false);
+          tour.start();
+        }}
+      />
+
+      {/* The replayable walkthrough. Opening it changes no game state at all:
+          the clock keeps running off `progress.started_at`, the board keeps its
+          picks, and closing it returns focus to whichever control opened it. */}
+      <GuidedTour
+        steps={DAILY_GRID_TOUR}
+        tourId={DAILY_GRID_TOUR_ID}
+        version={DAILY_GRID_TOUR_VERSION}
+        eyebrow="How the Daily Grid works"
+        open={tour.open}
+        onOpenChange={(next) => {
+          if (!next) tour.stop();
+        }}
+        autoStart={false}
+        data-testid="daily-grid-tour"
+      />
     </div>
   );
 }

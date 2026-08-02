@@ -62,6 +62,12 @@ from app.repositories.saved_run_memory import MemoryPerfectSeasonSavedRunReposit
 from app.repositories.saved_run_protocols import PerfectSeasonSavedRunRepository
 from app.repositories.daily_grid_memory import MemoryDailyGridResultRepository
 from app.repositories.daily_grid_protocols import DailyGridResultRepository
+from app.repositories.run_the_table_memory import MemoryRunTheTableRunRepository
+from app.repositories.run_the_table_protocols import RunTheTableRunRepository
+from app.repositories.head_to_head_memory import MemoryHeadToHeadRepository
+from app.repositories.head_to_head_protocols import HeadToHeadRepository
+from app.repositories.peak_duel_daily_memory import MemoryPeakDuelDailyResultRepository
+from app.repositories.peak_duel_daily_protocols import PeakDuelDailyResultRepository
 
 # ---------------------------------------------------------------------------
 # Singleton in-memory stores (only used when DATABASE_URL is unset in dev)
@@ -89,6 +95,9 @@ _memory_ranked_integrity_repo = MemoryRankedIntegrityRepository()
 _memory_perfect_season_leaderboard_repo = MemoryPerfectSeasonLeaderboardRepository()
 _memory_perfect_season_saved_run_repo = MemoryPerfectSeasonSavedRunRepository()
 _memory_daily_grid_result_repo = MemoryDailyGridResultRepository()
+_memory_run_the_table_run_repo = MemoryRunTheTableRunRepository()
+_memory_head_to_head_repo = MemoryHeadToHeadRepository()
+_memory_peak_duel_daily_result_repo = MemoryPeakDuelDailyResultRepository()
 
 
 # ---------------------------------------------------------------------------
@@ -109,11 +118,14 @@ def get_game_repo(request: Request) -> GameRepository:
 def get_court_lineup_repo(request: Request) -> CourtLineupRepository:
     """Return the active CourtLineupRepository (Postgres or in-memory).
 
-    Not registered in app.core.repository_registry.REPOSITORY_DOMAINS yet --
-    CourtBuilder is feature-flagged off by default (COURTBUILDER_ENABLED)
-    and this is a Phase 5C vertical slice, not yet promoted to the same
-    production-readiness gate as the domains ranked/history depend on. See
-    docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md.
+    Registered in app.core.repository_registry.REPOSITORY_DOMAINS. It was
+    previously left out on the grounds that CourtBuilder is a feature-flagged
+    Phase 5C vertical slice (see
+    docs/implementation/PHASE_5_COURTBUILDER_VERTICAL_SLICE.md), but that made
+    the registry's own docstring false and, worse, exempted a wired domain from
+    assert_production_ready's durability check -- a flag that is off today can
+    be turned on without anyone re-reading this comment, and the check exists
+    precisely so nothing reaches production on the in-memory fallback.
     """
     pool = getattr(request.app.state, "db_pool", None)
     if pool is not None:
@@ -281,6 +293,65 @@ def get_daily_grid_result_repo(request: Request) -> DailyGridResultRepository:
     return _memory_daily_grid_result_repo
 
 
+def get_run_the_table_run_repo(request: Request) -> RunTheTableRunRepository:
+    """Return the active RunTheTableRunRepository (Postgres or in-memory).
+
+    Same in-memory-fallback discipline as every other repository here. Not
+    behind a feature flag, for the same reason the saved-run and daily-grid
+    repos are not: a run in progress is the player's own state, and losing it
+    on a restart is a durability question, not a product-gating one.
+
+    Unlike most repositories here, the overwhelmingly common owner is
+    ANONYMOUS (a signed `peak3_anon` cookie subject). RUN THE TABLE requires no
+    account to play, so this repo must be wired and durable even for players
+    who never sign in -- which is exactly why it is registered in
+    app.core.repository_registry.REPOSITORY_DOMAINS rather than left out the
+    way the Phase 5C CourtBuilder slice was."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.run_the_table_postgres import PostgresRunTheTableRunRepository
+        return PostgresRunTheTableRunRepository(pool)
+    _warn_memory_repo("RunTheTableRunRepository")
+    return _memory_run_the_table_run_repo
+
+
+def get_head_to_head_repo(request: Request) -> HeadToHeadRepository:
+    """Return the active HeadToHeadRepository (Postgres or in-memory).
+
+    Same in-memory-fallback discipline as every other repository here, and
+    registered in app.core.repository_registry.REPOSITORY_DOMAINS for the same
+    reason: a head-to-head is a record between two accounts, and one that only
+    ever lived in a dict would be a match the server forgot on restart --
+    including its settled result."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.head_to_head_postgres import PostgresHeadToHeadRepository
+        return PostgresHeadToHeadRepository(pool)
+    _warn_memory_repo("HeadToHeadRepository")
+    return _memory_head_to_head_repo
+
+
+def get_peak_duel_daily_result_repo(request: Request) -> PeakDuelDailyResultRepository:
+    """Return the active PeakDuelDailyResultRepository (Postgres or in-memory).
+
+    Same in-memory-fallback discipline as every other repository here. Like
+    RUN THE TABLE and unlike most repositories in this module, the owner here
+    is very often ANONYMOUS -- Peak Duel Daily needs no account to play, and
+    recording a guest's attempt under their signed anon-cookie subject is
+    precisely what makes it claimable when they sign in later. That is why it
+    is registered in app.core.repository_registry.REPOSITORY_DOMAINS: an
+    attempt that only ever lived in memory would be a daily result the server
+    forgot on restart."""
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.peak_duel_daily_postgres import (
+            PostgresPeakDuelDailyResultRepository,
+        )
+        return PostgresPeakDuelDailyResultRepository(pool)
+    _warn_memory_repo("PeakDuelDailyResultRepository")
+    return _memory_peak_duel_daily_result_repo
+
+
 def _warn_memory_repo(name: str) -> None:
     if not settings.DEBUG:
         raise RuntimeError(
@@ -321,3 +392,10 @@ PerfectSeasonSavedRunRepoDep = Annotated[
 DailyGridResultRepoDep = Annotated[
     DailyGridResultRepository, Depends(get_daily_grid_result_repo)
 ]
+RunTheTableRunRepoDep = Annotated[
+    RunTheTableRunRepository, Depends(get_run_the_table_run_repo)
+]
+PeakDuelDailyResultRepoDep = Annotated[
+    PeakDuelDailyResultRepository, Depends(get_peak_duel_daily_result_repo)
+]
+HeadToHeadRepoDep = Annotated[HeadToHeadRepository, Depends(get_head_to_head_repo)]

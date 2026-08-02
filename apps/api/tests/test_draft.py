@@ -611,7 +611,9 @@ async def test_owner_sub_survives_actions_and_completion_is_recorded(client: Tes
 
 @pytest.mark.asyncio
 async def test_daily_completion_is_recorded_on_finish(client: TestClient) -> None:
-    from datetime import datetime, timedelta, timezone
+    from datetime import timedelta
+
+    from nba_peak.daily_key import daily_key, parse_daily_key
 
     from app.core.dependencies import _memory_daily_completion_repo, _memory_game_repo
 
@@ -620,7 +622,18 @@ async def test_daily_completion_is_recorded_on_finish(client: TestClient) -> Non
     # seed=42 practice board but not formally guaranteed for every
     # date-derived daily board, so retry across a few candidates rather than
     # assume a specific date is solvable by this particular heuristic.
-    today = datetime.now(timezone.utc).date()
+    #
+    # `daily_key()`, not `datetime.now(timezone.utc).date()`. "Today" for every
+    # shared daily board is midnight America/Los_Angeles (nba_peak/daily_key.py)
+    # and the route validates the requested key against exactly that. Between
+    # 00:00 and 07:00-or-08:00 UTC the two calendars disagree, so a UTC-derived
+    # "today" is TOMORROW to the server, and the very first request 400s with
+    # "daily key ... is in the future" — which is how this test passed for the
+    # sixteen hours a day a developer usually runs it and failed a 02:05 UTC CI
+    # run. The clock is not stubbed here on purpose: reading the same function
+    # the server reads makes the assertion true at every instant, which is a
+    # stronger property than freezing time at one of them.
+    today = parse_daily_key(daily_key())
     final_state = None
     game_id = None
     owner_sub = None

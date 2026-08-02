@@ -45,6 +45,28 @@ test.describe("accessibility: Arena landing", () => {
   });
 });
 
+test.describe("accessibility: Arena hub", () => {
+  test("no critical/serious violations on the arena hub", async ({ page }) => {
+    await page.goto("/arena", { waitUntil: "networkidle" });
+    await expectNoViolations(
+      new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).exclude("[aria-hidden=true]")
+    );
+  });
+});
+
+test.describe("accessibility: RUN THE TABLE", () => {
+  // The flagship's first screen — the state every new player arriving from the
+  // homepage CTA or the navbar sees before a run exists. Same thresholds as
+  // every other surface; no exemption for being the newest mode.
+  test("no critical/serious violations on the start state", async ({ page }) => {
+    await page.goto("/arena/run-the-table", { waitUntil: "networkidle" });
+    await page.locator('[data-testid="rtt-start-gate"]').waitFor({ timeout: 15_000 });
+    await expectNoViolations(
+      new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).exclude("[aria-hidden=true]")
+    );
+  });
+});
+
 test.describe("accessibility: Rankings page", () => {
   test("no critical/serious violations on rankings", async ({ page }) => {
     await page.goto("/rankings", { waitUntil: "networkidle" });

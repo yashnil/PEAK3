@@ -247,6 +247,24 @@ class RankedMatchmakingRepository(Protocol):
     async def cancel_queue_entry(self, owner_sub: str, mode: str) -> bool: ...
     async def get_active_queue_entry(self, owner_sub: str, mode: str) -> QueueEntry | None: ...
     async def list_waiting_entries(self, mode: str, exclude_owner_sub: str) -> list[QueueEntry]: ...
+
+    async def expire_stale_queue_entries(self, mode: str, joined_before: datetime) -> int:
+        """Mark every still-`waiting` entry in `mode` older than
+        `joined_before` as `expired`, and return how many were swept.
+
+        A durable queue entry outlives the tab that created it. Nothing in the
+        protocol makes a player who closed their browser stop being a
+        candidate, so without a sweep the queue accumulates ghosts and the
+        next real joiner is paired with one -- producing a match whose other
+        half will never be played and which then has to be unwound by the
+        abandonment policy. The sweep is the cheap end of that problem.
+
+        `expired` is an existing value of the table's own status CHECK
+        (20260630125600_ranked_matchmaking.sql:110-112), so this is the
+        transition that schema already anticipated, not a new state.
+        """
+        ...
+
     async def recent_opponents(self, owner_sub: str, mode: str, since: datetime) -> set[str]: ...
 
     async def create_match_atomically(

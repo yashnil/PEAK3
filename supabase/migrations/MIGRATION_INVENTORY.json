@@ -1396,5 +1396,305 @@
       "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
       "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
     ]
+  },
+  {
+    "filename": "20260730190000_daily_grid_results.sql",
+    "identifier": "20260730190000_daily_grid_results",
+    "tables_created": {
+      "daily_grid_results": [
+        "id",
+        "owner_sub",
+        "board_id",
+        "board_date",
+        "board_version",
+        "board_theme",
+        "score",
+        "optimal_total",
+        "percent_of_best",
+        "squares_matching_optimal",
+        "incorrect_attempts",
+        "elapsed_seconds",
+        "played_on_board_date",
+        "answers",
+        "created_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "daily_grid_results_owner_recent_idx",
+        "table": "daily_grid_results"
+      }
+    ],
+    "constraints": [
+      "daily_grid_results_unique_owner_board"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "daily_grid_results"
+    ],
+    "policies": [
+      {
+        "name": "daily_grid_results_owner_read",
+        "table": "daily_grid_results"
+      },
+      {
+        "name": "daily_grid_results_owner_insert",
+        "table": "daily_grid_results"
+      },
+      {
+        "name": "daily_grid_results_owner_delete",
+        "table": "daily_grid_results"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260731090000_run_the_table.sql",
+    "identifier": "20260731090000_run_the_table",
+    "tables_created": {
+      "run_the_table_runs": [
+        "run_id",
+        "owner_sub",
+        "seed",
+        "run_type",
+        "status",
+        "snapshot",
+        "engine_version",
+        "ruleset_version",
+        "card_pool_version",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "run_the_table_runs_owner_recent_idx",
+        "table": "run_the_table_runs"
+      },
+      {
+        "name": "run_the_table_runs_unique_daily_idx",
+        "table": "run_the_table_runs"
+      }
+    ],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "run_the_table_runs"
+    ],
+    "policies": [
+      {
+        "name": "run_the_table_runs_owner_read",
+        "table": "run_the_table_runs"
+      },
+      {
+        "name": "run_the_table_runs_owner_insert",
+        "table": "run_the_table_runs"
+      },
+      {
+        "name": "run_the_table_runs_owner_update",
+        "table": "run_the_table_runs"
+      },
+      {
+        "name": "run_the_table_runs_owner_delete",
+        "table": "run_the_table_runs"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260801100000_rls_gaps.sql",
+    "identifier": "20260801100000_rls_gaps",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "card_pool_versions",
+      "lineup_model_versions",
+      "ruleset_versions"
+    ],
+    "policies": [
+      {
+        "name": "lineup_model_versions_public_read",
+        "table": "lineup_model_versions"
+      },
+      {
+        "name": "ruleset_versions_public_read",
+        "table": "ruleset_versions"
+      },
+      {
+        "name": "card_pool_versions_public_read",
+        "table": "card_pool_versions"
+      }
+    ],
+    "grants": [
+      "board_snapshots",
+      "challenges"
+    ],
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260801110000_guest_claim_and_daily.sql",
+    "identifier": "20260801110000_guest_claim_and_daily",
+    "tables_created": {
+      "peak_duel_daily_results": [
+        "id",
+        "owner_sub",
+        "mode",
+        "daily_key",
+        "duration_years",
+        "duels_total",
+        "correct_count",
+        "arena_points",
+        "best_streak",
+        "elapsed_seconds",
+        "played_on_daily_key",
+        "answers",
+        "created_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "peak_duel_daily_results_owner_recent_idx",
+        "table": "peak_duel_daily_results"
+      }
+    ],
+    "constraints": [
+      "peak_duel_daily_results_correct_within_total",
+      "peak_duel_daily_results_unique_owner_daily"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "peak_duel_daily_results"
+    ],
+    "policies": [
+      {
+        "name": "peak_duel_daily_results_owner_read",
+        "table": "peak_duel_daily_results"
+      },
+      {
+        "name": "peak_duel_daily_results_owner_insert",
+        "table": "peak_duel_daily_results"
+      },
+      {
+        "name": "peak_duel_daily_results_owner_delete",
+        "table": "peak_duel_daily_results"
+      },
+      {
+        "name": "profiles_owner_write",
+        "table": "profiles"
+      },
+      {
+        "name": "user_settings_owner_write",
+        "table": "user_settings"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260801120000_telemetry_events.sql",
+    "identifier": "20260801120000_telemetry_events",
+    "tables_created": {
+      "telemetry_events": [
+        "id",
+        "subject_hash",
+        "subject_kind",
+        "event_name",
+        "props",
+        "created_at",
+        "expires_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "telemetry_events_name_recent_idx",
+        "table": "telemetry_events"
+      },
+      {
+        "name": "telemetry_events_subject_idx",
+        "table": "telemetry_events"
+      },
+      {
+        "name": "telemetry_events_expiry_idx",
+        "table": "telemetry_events"
+      }
+    ],
+    "constraints": [
+      "telemetry_events_expiry_after_creation",
+      "telemetry_events_props_is_object"
+    ],
+    "functions": [
+      "telemetry_events_purge_expired"
+    ],
+    "triggers": [],
+    "rls_enabled_on": [
+      "telemetry_events"
+    ],
+    "policies": [
+      {
+        "name": "telemetry_events_no_client_access",
+        "table": "telemetry_events"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260801130000_peak_duel_results_revoke.sql",
+    "identifier": "20260801130000_peak_duel_results_revoke",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
   }
 ]

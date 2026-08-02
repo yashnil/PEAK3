@@ -1,17 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarClock, Grid3x3, Swords } from "lucide-react";
+import { CalendarClock, Grid3x3, Swords, Trophy } from "lucide-react";
 import GameCard from "@/components/shared/GameCard";
+import { MODE_COPY } from "@/lib/modes";
 import type { DailyGridArchive } from "@/types/daily-grid";
+import { hasCompleted, loadArchive } from "@/lib/daily-grid-archive";
+import { getDailyGridBoard } from "@/lib/daily-grid-api";
 import {
+  type DailyWindowPayload,
+  extractDailyWindow,
   formatCountdown,
-  hasCompleted,
-  loadArchive,
-  msUntilNextBoard,
-  todayUtc,
-} from "@/lib/daily-grid-archive";
+  localDailyWindow,
+} from "@/lib/daily-time";
+import { useDailyReset } from "@/lib/use-daily-reset";
 
 /**
  * The Daily hub: every PEAK3 game that resets once a day, in one place.
@@ -20,6 +23,11 @@ import {
  * `/play/daily`, with nothing linking them — a player who found one had no way
  * to discover the other. The Grid moved to `/daily/grid` and this became the
  * hub.
+ *
+ * Every card's title/description/meta comes from `lib/modes.ts`, so this hub
+ * cannot drift from the homepage and the Arena hub the way it did before. The
+ * only thing this file decides is the Grid's CTA, which depends on whether you
+ * already played today — state, not copy.
  *
  * The Grid's status (streak, played-today) is read from localStorage in an
  * effect, not during render: this is a client component under a server-rendered
@@ -30,20 +38,55 @@ import {
  */
 export default function DailyHub() {
   const [archive, setArchive] = useState<DailyGridArchive | null>(null);
-  const [today, setToday] = useState("");
-  const [countdown, setCountdown] = useState<number | null>(null);
+  // The server's window. `today` is read off it rather than computed here, so
+  // this page and the board the player is about to open can never disagree
+  // about which day it is.
+  const [window_, setWindow] = useState<DailyWindowPayload | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    setArchive(loadArchive());
-    setToday(todayUtc());
-    const update = () => setCountdown(msUntilNextBoard());
-    update();
-    const id = window.setInterval(update, 60_000);
-    return () => window.clearInterval(id);
-  }, []);
+    let cancelled = false;
+    (async () => {
+      try {
+        const board = await getDailyGridBoard();
+        if (cancelled) return;
+        setWindow(extractDailyWindow(board) ?? localDailyWindow());
+      } catch {
+        // The hub is navigation, not gameplay: if the API is unreachable it
+        // still has to render every card. The countdown falls back to the same
+        // zone and the same arithmetic the server uses, which is right unless
+        // this device's own clock is wrong.
+        if (!cancelled) setWindow(localDailyWindow());
+      }
+      // The archive is read after the window so `today` and the streak are
+      // evaluated against the same day.
+      if (!cancelled) setArchive(loadArchive());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
 
+  // Re-derives everything at the boundary, and on returning to a tab that was
+  // away past it. This effect used to have `[]` deps and never ran again: the
+  // countdown ticked to 0s and stayed there, and "played today" kept pointing
+  // at yesterday until the page was reloaded by hand.
+  const { secondsLeft } = useDailyReset({
+    dailyKey: window_?.daily_key ?? null,
+    secondsRemaining: window_?.seconds_remaining ?? null,
+    window: window_,
+    onReset: useCallback(() => setReloadToken((t) => t + 1), []),
+  });
+
+  const today = window_?.daily_key ?? "";
+  const countdown = secondsLeft ?? window_?.seconds_remaining ?? null;
   const gridPlayed = today !== "" && archive !== null && hasCompleted(archive, today);
   const streak = archive?.current_streak ?? 0;
+
+  const dailyGrid = MODE_COPY["daily-grid"];
+  const peakDuel = MODE_COPY["peak-duel"];
+  const flagship = MODE_COPY["run-the-table"];
+  const peakSeason = MODE_COPY["peak-season"];
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 pb-16 pt-8 sm:px-4">
@@ -58,7 +101,7 @@ export default function DailyHub() {
           A new board every day.
         </h1>
         <p className="mt-2 max-w-xl text-sm leading-relaxed sm:text-base" style={{ color: "var(--text-secondary)" }}>
-          Two PEAK3 games reset at midnight UTC, and everyone worldwide gets the same one. Come
+          New daily board at midnight PT, and everyone worldwide gets the same one. Come
           back tomorrow for a different puzzle.
         </p>
         {countdown !== null && (
@@ -69,6 +112,7 @@ export default function DailyHub() {
           >
             <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
             Next boards in {formatCountdown(countdown)}
+            <span className="sr-only"> (new daily board at midnight PT)</span>
           </p>
         )}
       </header>
@@ -77,13 +121,13 @@ export default function DailyHub() {
         <div className="grid gap-3 sm:grid-cols-2">
           <GameCard
             testId="daily-hub-grid-card"
-            href="/daily/grid"
-            eyebrow="Puzzle"
-            title="Daily Grid Challenge"
-            description="Fill a 3x3 grid with exact NBA player-seasons — nine squares, nine different players. Scores stay hidden until each pick locks, then you are measured against the day's maximum."
+            href={dailyGrid.href}
+            eyebrow={dailyGrid.eyebrow}
+            title={dailyGrid.title}
+            description={dailyGrid.description}
             icon={<Grid3x3 size={17} />}
-            meta={["3x3 board", "Picks are final", "One player per board"]}
-            cta={gridPlayed ? "See your result" : "Play today's grid"}
+            meta={dailyGrid.meta}
+            cta={gridPlayed ? "See your result" : dailyGrid.cta}
             status={
               archive === null ? null : (
                 <span className="flex flex-col items-end gap-1">
@@ -112,13 +156,13 @@ export default function DailyHub() {
 
           <GameCard
             testId="daily-hub-duel-card"
-            href="/play/daily"
-            eyebrow="Head to head"
-            title="Peak Duel Daily"
-            description="Ten questions, one board for everyone: pick which player's peak PEAK3 rates higher. Fast, and the same ten comparisons worldwide."
+            href={peakDuel.href}
+            eyebrow={peakDuel.eyebrow}
+            title={peakDuel.title}
+            description={peakDuel.description}
             icon={<Swords size={17} />}
-            meta={["10 questions", "Same board for everyone"]}
-            cta="Play today's duel"
+            meta={peakDuel.meta}
+            cta={peakDuel.cta}
           />
         </div>
       </section>
@@ -141,22 +185,38 @@ export default function DailyHub() {
         </Link>
       </section>
 
-      <section className="mt-6" aria-label="Other modes">
+      {/* The modes you can play any time, not just once a day. The flagship
+          leads; 82-0 PEAK Season sits beside it rather than being dropped —
+          plenty of players arrive here for it specifically. */}
+      <section className="mt-6" aria-label="Play any time">
         <p
           className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em]"
           style={{ color: "var(--text-muted)" }}
         >
-          Looking for the main mode?
+          Play any time
         </p>
-        <GameCard
-          testId="daily-hub-flagship-card"
-          href="/arena/court/practice/apex_1y"
-          eyebrow="Flagship"
-          title="82-0 PEAK Season"
-          description="Build an eight-slot roster from spun player-seasons and simulate a full season. The deepest PEAK3 mode — play it any time, not just once a day."
-          meta={["8 roster slots", "Full-season simulation"]}
-          cta="Build a roster"
-        />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <GameCard
+            testId="daily-hub-flagship-card"
+            href={flagship.href}
+            eyebrow={flagship.eyebrow}
+            title={flagship.title}
+            description={flagship.description}
+            icon={<Swords size={17} />}
+            meta={flagship.meta}
+            cta={flagship.cta}
+          />
+          <GameCard
+            testId="daily-hub-peak-season-card"
+            href={peakSeason.href}
+            eyebrow={peakSeason.eyebrow}
+            title={peakSeason.title}
+            description={peakSeason.description}
+            icon={<Trophy size={17} />}
+            meta={peakSeason.meta}
+            cta={peakSeason.cta}
+          />
+        </div>
       </section>
     </div>
   );

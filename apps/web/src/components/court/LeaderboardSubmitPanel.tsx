@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import { getLeaderboard, submitRun, PerfectSeasonAPIError } from "@/lib/perfect-season-api";
@@ -30,6 +31,12 @@ type SubmitPhase = "idle" | "submitting" | "submitted" | "error";
  */
 export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus }: Props) {
   const { user } = useAuth();
+  // Carry the current page as ?returnTo= so signing in from a result screen
+  // comes back here instead of dropping the player on the homepage. The
+  // sign-in page re-validates it with safeNext(), so an attacker-supplied
+  // value cannot turn this into an open redirect.
+  const pathname = usePathname();
+  const signInHref = `/signin?returnTo=${encodeURIComponent(pathname || "/")}`;
   const isIncomplete = lineupScoreStatus === "incomplete";
   const [leaderboardEnabled, setLeaderboardEnabled] = useState<boolean | null>(null);
   const [phase, setPhase] = useState<SubmitPhase>("idle");
@@ -96,7 +103,7 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
         <div className="flex items-center justify-between gap-3">
           <span style={{ color: "var(--text-secondary)" }}>Sign in to submit your run to the global leaderboard.</span>
           <a
-            href="/signin"
+            href={signInHref}
             className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
             style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
           >

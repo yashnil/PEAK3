@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { todayPacific } from "@/lib/daily-time";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -25,8 +26,21 @@ export function formatIndex(index: number): string {
   return index.toFixed(2);
 }
 
+/**
+ * Today's daily key, in the product-wide reset zone.
+ *
+ * @deprecated Misnamed since the daily reset moved to midnight
+ * America/Los_Angeles. It now delegates to `todayPacific` in `lib/daily-time.ts`
+ * and is kept only so no caller breaks mid-rename.
+ *
+ * More importantly: this value is a LOCAL FALLBACK for purely client-side
+ * lookups (which localStorage bucket is today's). It must never be sent to the
+ * server as `?date=`. The server owns what day it is; a browser-computed
+ * "today" put a device one timezone ahead on tomorrow's board and left a stale
+ * tab playing yesterday's forever.
+ */
 export function todayUTC(): string {
-  return new Date().toISOString().split("T")[0];
+  return todayPacific();
 }
 
 /** Derive a short stable key from a challenge token for localStorage storage. */

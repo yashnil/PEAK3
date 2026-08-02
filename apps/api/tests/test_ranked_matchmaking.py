@@ -207,3 +207,65 @@ async def test_no_bot_opponents_ranked_pool_only_has_real_waiting_entries(repos)
     entry_a = await mm.join_queue("alice", "apex_1y", mmr, rr)
     assert await mm.try_match("apex_1y", entry_a, mmr) is None
     assert await mmr.count_pending_matches() == 0
+
+
+# ---------------------------------------------------------------------------
+# Abandoned-entry sweep (QUEUE_ENTRY_TTL)
+#
+# A queue entry is a durable row and outlives the tab that made it. On a
+# persistent database this is not theoretical: the browser e2e suite's first
+# joiner was being paired instantly with an entry a previous run had walked
+# away from, so it never saw "Waiting for an opponent". These pin the sweep
+# that stops that, from both sides -- it must remove the ghost, and it must
+# not touch anyone real.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_an_abandoned_entry_stops_being_a_candidate(repos):
+    """The ghost is not merely filtered out of one query -- it is expired.
+
+    Asserted through `try_match` rather than by reading the row back, because
+    "does the next joiner get paired with it" is the behaviour that matters.
+    """
+    mmr, rr = repos
+    ghost = await mm.join_queue("ghost", "apex_1y", mmr, rr)
+    ghost.joined_at -= mm.QUEUE_ENTRY_TTL * 2
+    mmr._queue_entries[ghost.id].joined_at = ghost.joined_at
+
+    live = await mm.join_queue("alice", "apex_1y", mmr, rr)
+    assert await mm.try_match("apex_1y", live, mmr) is None, (
+        "a joiner was paired with an abandoned entry"
+    )
+    assert mmr._queue_entries[ghost.id].status == "expired"
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_leaves_a_genuinely_waiting_player_alone(repos):
+    """The other half of the rule. A sweep that expired live entries would
+    silently break the queue for everyone waiting longer than the interval
+    between joins, which is most of them in a small population."""
+    mmr, rr = repos
+    waiting = await mm.join_queue("alice", "apex_1y", mmr, rr)
+    later = await mm.join_queue("bob", "apex_1y", mmr, rr)
+
+    assert mmr._queue_entries[waiting.id].status == "waiting"
+    match = await mm.try_match("apex_1y", later, mmr)
+    assert match is not None
+    assert {p.owner_sub for p in await mmr.get_participants(match.id)} == {"alice", "bob"}
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_is_scoped_to_one_queue(repos):
+    """Modes are independent queues, so an apex_1y join must not expire a
+    stale prime_3y entry as a side effect -- ratings and boards are per-mode
+    and sweeping across them would be one queue's traffic silently clearing
+    another's."""
+    mmr, rr = repos
+    stale_other = await mm.join_queue("ghost", "prime_3y", mmr, rr)
+    mmr._queue_entries[stale_other.id].joined_at -= mm.QUEUE_ENTRY_TTL * 2
+
+    await mm.join_queue("alice", "apex_1y", mmr, rr)
+    assert mmr._queue_entries[stale_other.id].status == "waiting"
+
+    await mm.join_queue("bob", "prime_3y", mmr, rr)
+    assert mmr._queue_entries[stale_other.id].status == "expired"

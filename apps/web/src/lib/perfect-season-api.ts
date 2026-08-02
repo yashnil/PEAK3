@@ -14,6 +14,7 @@ import {
   PerfectSeasonRunPublic,
   SavedRunsResponse,
   SaveRunResponse,
+  SharedCourtResult,
   SlotType,
 } from "@/types/perfect-season";
 
@@ -80,6 +81,26 @@ export async function getCourtGame(gameId: string): Promise<CourtLineupPublicSta
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}`, { cache: "no-store" } as RequestInit);
 }
 
+/**
+ * The read-only scorecard behind a shared results link.
+ *
+ * A DIFFERENT ENDPOINT from `getCourtGame`, on purpose. `GET
+ * /perfect-season/games/{id}` is the owner's live game: it carries the
+ * candidate pool and is the handle every mutator keys off, so it is
+ * owner-only and a shared link cannot use it (that is exactly why the shared
+ * page 404'd once ownership was enforced). `/shared-result` serves only
+ * finished runs, strips the owner-scoped and mutable fields server-side, and
+ * 404s identically for "no such run" and "not finished yet".
+ *
+ * No `credentials: "include"` is needed or wanted -- the response does not
+ * depend on who is asking, which is the whole point.
+ */
+export async function getSharedCourtResult(gameId: string): Promise<SharedCourtResult> {
+  return apiFetch<SharedCourtResult>(`/perfect-season/games/${gameId}/shared-result`, {
+    cache: "no-store",
+  } as RequestInit);
+}
+
 export async function selectPlayer(gameId: string, playerSlug: string): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/select`, {
     method: "POST",
@@ -94,17 +115,48 @@ export async function cancelSelection(gameId: string): Promise<CourtLineupPublic
   });
 }
 
-export async function respinTeam(gameId: string): Promise<CourtLineupPublicState> {
+/**
+ * W5: a respin key is derived from state the caller can already see, NOT
+ * generated fresh per call.
+ *
+ * That is the whole point. `crypto.randomUUID()` per invocation would make
+ * every click a distinct request and a double-click would still burn two of
+ * the three respins. Because both clicks of a double-click observe the same
+ * React state (the first response has not landed yet, so
+ * `respinsUsed` has not incremented), they produce the SAME key and the
+ * server recognises the second as a replay. The same property makes a
+ * retried fetch, or a refresh fired mid-animation, safe.
+ */
+export function respinIdempotencyKey(
+  gameId: string,
+  round: number,
+  kind: "team" | "season",
+  respinsUsed: number,
+): string {
+  return `${gameId}:r${round}:${kind}:${respinsUsed}`;
+}
+
+export async function respinTeam(
+  gameId: string,
+  idempotencyKey?: string,
+): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/respin-team`, {
     method: "POST",
-    body: JSON.stringify({ game_id: gameId }),
+    body: JSON.stringify(
+      idempotencyKey ? { game_id: gameId, idempotency_key: idempotencyKey } : { game_id: gameId },
+    ),
   });
 }
 
-export async function respinSeason(gameId: string): Promise<CourtLineupPublicState> {
+export async function respinSeason(
+  gameId: string,
+  idempotencyKey?: string,
+): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/respin-season`, {
     method: "POST",
-    body: JSON.stringify({ game_id: gameId }),
+    body: JSON.stringify(
+      idempotencyKey ? { game_id: gameId, idempotency_key: idempotencyKey } : { game_id: gameId },
+    ),
   });
 }
 

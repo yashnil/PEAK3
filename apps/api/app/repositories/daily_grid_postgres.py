@@ -17,7 +17,7 @@ import json
 import uuid
 from typing import Any, Optional
 
-from app.repositories.daily_grid_protocols import DailyGridResult
+from app.repositories.daily_grid_protocols import DailyGridAttempt, DailyGridResult
 
 try:
     import asyncpg  # type: ignore[import]
@@ -69,10 +69,84 @@ def _row_to_result(row: Any) -> DailyGridResult:
     )
 
 
+def _row_to_attempt(row: Any) -> DailyGridAttempt:
+    return DailyGridAttempt(
+        id=str(row["id"]),
+        owner_sub=row["owner_sub"],
+        daily_key=row["daily_key"],
+        board_id=row["board_id"],
+        board_version=row["board_version"],
+        started_at=row["started_at"],
+    )
+
+
 class PostgresDailyGridResultRepository:
     def __init__(self, pool: Any) -> None:
         _require_asyncpg()
         self._pool = pool
+
+    # -- Attempts (the server-side clock) --------------------------------
+
+    async def start_attempt(
+        self, attempt: DailyGridAttempt
+    ) -> tuple[DailyGridAttempt, bool]:
+        """Write ``started_at`` exactly once for (owner, daily_key).
+
+        A single statement, not a read-then-write: two tabs that both post
+        `start` inside the same millisecond must agree on the timestamp, and
+        the only thing that can guarantee that is the database. `ON CONFLICT DO
+        NOTHING` plus `RETURNING` gives "created" for free -- an empty
+        RETURNING means the row was already there, so we read it back and
+        report `created=False` with the ORIGINAL timestamp.
+
+        Deliberately NOT `ON CONFLICT DO UPDATE`: updating would let a second
+        call move the clock, which is the exact abuse the server-side timer
+        exists to prevent.
+        """
+        attempt_id = attempt.id or str(uuid.uuid4())
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO daily_grid_attempts (
+                    id, owner_sub, daily_key, board_id, board_version, started_at
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (owner_sub, daily_key) DO NOTHING
+                RETURNING *
+                """,
+                attempt_id, attempt.owner_sub, attempt.daily_key,
+                attempt.board_id, attempt.board_version, attempt.started_at,
+            )
+            if row is not None:
+                return _row_to_attempt(row), True
+            existing = await conn.fetchrow(
+                """
+                SELECT * FROM daily_grid_attempts
+                WHERE owner_sub = $1 AND daily_key = $2
+                """,
+                attempt.owner_sub, attempt.daily_key,
+            )
+        if existing is None:
+            # The conflicting row was deleted between the INSERT and the
+            # SELECT. Vanishingly unlikely, and reporting the caller's own
+            # timestamp is the honest answer -- never a silent None.
+            attempt.id = attempt_id
+            return attempt, True
+        return _row_to_attempt(existing), False
+
+    async def get_attempt(
+        self, owner_sub: str, daily_key: str
+    ) -> Optional[DailyGridAttempt]:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT * FROM daily_grid_attempts
+                WHERE owner_sub = $1 AND daily_key = $2
+                """,
+                owner_sub, daily_key,
+            )
+            return _row_to_attempt(row) if row is not None else None
+
+    # -- Official results -------------------------------------------------
 
     async def save_result(self, result: DailyGridResult) -> tuple[DailyGridResult, bool]:
         existing = await self.get_result(
@@ -144,3 +218,62 @@ class PostgresDailyGridResultRepository:
                 owner_sub, limit,
             )
             return [_row_to_result(row) for row in rows]
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign this owner's results to `to_sub` -- the guest-claim path.
+
+        This is the one place in this file that writes `owner_sub`, and it is
+        not an exception to the table's immutability: it changes WHO a result
+        belongs to, never WHAT the result was. Every scored column is left
+        untouched.
+
+        Runs in one transaction, moves what
+        `UNIQUE (owner_sub, board_date, board_version)` allows, and sweeps the
+        rest -- the same shape as
+        PostgresDailyCompletionRepository.transfer_owner.
+        """
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                result = await conn.execute(
+                    """
+                    UPDATE daily_grid_results AS d
+                       SET owner_sub = $2
+                     WHERE d.owner_sub = $1
+                       AND NOT EXISTS (
+                            SELECT 1 FROM daily_grid_results AS existing
+                             WHERE existing.owner_sub = $2
+                               AND existing.board_date = d.board_date
+                               AND existing.board_version = d.board_version
+                       )
+                    """,
+                    from_sub, to_sub,
+                )
+                moved = int(result.split()[-1])
+                await conn.execute(
+                    "DELETE FROM daily_grid_results WHERE owner_sub = $1", from_sub
+                )
+
+                # In-progress clocks follow their owner, same collision rule,
+                # not counted in `moved`. Guarded by to_regclass so a
+                # deployment that has not yet applied
+                # 20260801150000_daily_grid_attempts.sql still claims results.
+                if await conn.fetchval(
+                    "SELECT to_regclass('public.daily_grid_attempts')"
+                ):
+                    await conn.execute(
+                        """
+                        UPDATE daily_grid_attempts AS a
+                           SET owner_sub = $2
+                         WHERE a.owner_sub = $1
+                           AND NOT EXISTS (
+                                SELECT 1 FROM daily_grid_attempts AS existing
+                                 WHERE existing.owner_sub = $2
+                                   AND existing.daily_key = a.daily_key
+                           )
+                        """,
+                        from_sub, to_sub,
+                    )
+                    await conn.execute(
+                        "DELETE FROM daily_grid_attempts WHERE owner_sub = $1", from_sub
+                    )
+        return moved

@@ -14,16 +14,34 @@ const mockSearch = vi.fn();
 const mockSubmit = vi.fn();
 const mockGetBoard = vi.fn();
 const mockGetResult = vi.fn();
+/** The timed-attempt start. Defaults to the ordinary "brand new attempt"
+ *  answer — `elapsed_seconds: 0` — so the component's server re-anchor lands on
+ *  the same instant its local fallback already chose. Given as the `vi.fn`
+ *  implementation rather than set in a `beforeEach` so no amount of
+ *  `clearAllMocks` / `restoreAllMocks` can leave it returning `undefined`. */
+const mockStart = vi.fn(async (dailyKey?: unknown) => ({
+  daily_key: typeof dailyKey === "string" ? dailyKey : "2026-07-30",
+  started_at: new Date().toISOString(),
+  server_now: new Date().toISOString(),
+  elapsed_seconds: 0,
+  attempt_status: "in_progress" as const,
+}));
 
 vi.mock("@/lib/daily-grid-api", () => ({
   getDailyGridBoard: (...a: unknown[]) => mockGetBoard(...a),
   searchPlayerSeasons: (...a: unknown[]) => mockSearch(...a),
   submitDailyGridAnswer: (...a: unknown[]) => mockSubmit(...a),
   getDailyGridResult: (...a: unknown[]) => mockGetResult(...a),
+  startDailyGridAttempt: (...a: unknown[]) => mockStart(...a),
   DailyGridAPIError: class DailyGridAPIError extends Error {},
 }));
 
 import DailyGridGame from "@/components/daily-grid/DailyGridGame";
+import {
+  DAILY_GRID_TOUR_ID,
+  DAILY_GRID_TOUR_VERSION,
+} from "@/components/ui/tour-steps";
+import { readTourSeen } from "@/lib/tour-state";
 import { DailyGridArchiveEntry, dailyGridProgressKey } from "@/types/daily-grid";
 import {
   emptyArchive,
@@ -590,19 +608,44 @@ describe("DailyGridGame — Phase 11B competitive framing", () => {
   });
 
   describe("onboarding", () => {
-    it("gates a first visit behind the rules, and states the objective", async () => {
+    it("gates a first visit behind the three-action start gate, verbatim", async () => {
       render(<DailyGridGame initialBoard={BOARD} />);
 
-      const gate = await screen.findByTestId("how-to-play-gate");
-      expect(within(gate).getByTestId("how-to-play-objective")).toHaveTextContent(
-        /maximize your PEAK3 total with nine different players/i,
+      const gate = await screen.findByTestId("daily-grid-start-gate");
+      // The four briefed lines, exactly. Curly apostrophes are what the page
+      // renders, so the heading is matched with the same one it ships.
+      expect(within(gate).getByRole("heading", { level: 1 })).toHaveTextContent(
+        "Today’s Daily Grid",
       );
-      expect(within(gate).getAllByTestId("how-to-play-step")).toHaveLength(4);
-      // The board is not reachable until the player starts.
+      expect(within(gate).getByTestId("daily-grid-gate-shape")).toHaveTextContent(
+        "9 squares · 9 different exact player-seasons",
+      );
+      expect(within(gate).getByTestId("daily-grid-gate-objective")).toHaveTextContent(
+        "Build the highest-scoring valid grid you can.",
+      );
+      expect(within(gate).getByTestId("daily-grid-gate-timer-note")).toHaveTextContent(
+        "The timer starts only when you press Start.",
+      );
+
+      // The three briefed actions, and nothing else that commits the player.
+      expect(within(gate).getByTestId("daily-grid-gate-how-to-play")).toHaveTextContent(
+        "How to Play",
+      );
+      expect(within(gate).getByTestId("start-daily-grid")).toHaveTextContent("Start Timed Grid");
+      expect(within(gate).getByTestId("daily-grid-gate-skip-tour")).toHaveTextContent(
+        "Skip Tour and Start",
+      );
+
+      // The board is not reachable until the player starts, so there is no
+      // square to select and therefore no search surface at all: `CellPanel` is
+      // the only place a candidate can be inspected and it mounts solely for a
+      // selected square.
       expect(screen.queryByTestId("daily-grid-board")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("grid-cell")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("cell-search-input")).not.toBeInTheDocument();
     });
 
-    it("starts the grid and remembers that the rules were seen", async () => {
+    it("starts the grid and remembers that onboarding was seen", async () => {
       const user = userEvent.setup();
       const { unmount } = render(<DailyGridGame initialBoard={BOARD} />);
 
@@ -613,7 +656,40 @@ describe("DailyGridGame — Phase 11B competitive framing", () => {
       unmount();
       render(<DailyGridGame initialBoard={BOARD} />);
       expect(await screen.findByTestId("daily-grid-board")).toBeInTheDocument();
-      expect(screen.queryByTestId("how-to-play-gate")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("daily-grid-start-gate")).not.toBeInTheDocument();
+    });
+
+    it("records the walkthrough as skipped when the player says so", async () => {
+      const user = userEvent.setup();
+      render(<DailyGridGame initialBoard={BOARD} />);
+
+      await user.click(await screen.findByTestId("daily-grid-gate-skip-tour"));
+      expect(await screen.findByTestId("daily-grid-board")).toBeInTheDocument();
+      expect(readTourSeen(DAILY_GRID_TOUR_ID)).toEqual(
+        expect.objectContaining({ version: DAILY_GRID_TOUR_VERSION, status: "skipped" }),
+      );
+    });
+
+    it("opens the walkthrough from the gate without starting anything", async () => {
+      const user = userEvent.setup();
+      render(<DailyGridGame initialBoard={BOARD} />);
+
+      await user.click(await screen.findByTestId("daily-grid-gate-how-to-play"));
+      expect(await screen.findByTestId("daily-grid-tour")).toBeInTheDocument();
+
+      // The gate is still the screen, no attempt was started, and the clock is
+      // untouched: reading the rules is free.
+      expect(screen.getByTestId("daily-grid-start-gate")).toBeInTheDocument();
+      expect(mockStart).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("daily-grid-board")).not.toBeInTheDocument();
+    });
+
+    it("never auto-opens the walkthrough on top of the start gate", async () => {
+      render(<DailyGridGame initialBoard={BOARD} />);
+      await screen.findByTestId("daily-grid-start-gate");
+      // A first-time player has no stored tour record at all, which is exactly
+      // the state that WOULD auto-start it if the gate did not opt out.
+      expect(screen.queryByTestId("daily-grid-tour")).not.toBeInTheDocument();
     });
 
     it("can reopen the rules from the board", async () => {

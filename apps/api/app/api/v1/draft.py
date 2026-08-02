@@ -33,6 +33,7 @@ if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
 from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, resolve_owner_sub
+from app.core.ownership import assert_owns, existing_owner_sub
 from app.core.config import settings
 from app.core.dependencies import (
     AchievementRepoDep,
@@ -67,6 +68,12 @@ def _error_detail(exc: Exception, default_code: str = "invalid_request") -> dict
     code = exc.code if isinstance(exc, DraftError) else default_code
     return {"error_code": code, "message": str(exc)}
 
+from nba_peak.daily_key import (
+    InvalidDailyKey,
+    daily_key,
+    daily_window,
+    validate_daily_key,
+)
 from nba_peak.lineup.config import (
     CARD_PROFILE_VERSION,
     LINEUP_MODEL_VERSION,
@@ -76,6 +83,18 @@ from nba_peak.lineup.config import (
 )
 
 router = APIRouter()
+
+
+class DailyGameStateResponse(PublicGameStateResponse):
+    """`PublicGameStateResponse` plus the frozen daily-window block (plan §2.1).
+
+    Declared here rather than on the shared model: every daily response in the
+    app carries the identical object under the top-level key `daily`, produced
+    by `DailyWindow.to_payload()`. The client counts down from
+    `seconds_remaining` and never recomputes a timezone boundary itself.
+    """
+
+    daily: dict
 
 ROLES = ["lead_creator", "guard_wing", "wing_forward", "forward_big", "anchor"]
 DNA_DIMENSIONS = [
@@ -117,7 +136,7 @@ async def create_game(
 # Daily shortcut
 # ---------------------------------------------------------------------------
 
-@router.get("/draft/daily", response_model=PublicGameStateResponse)
+@router.get("/draft/daily", response_model=DailyGameStateResponse)
 async def get_daily(
     auth: OptionalAuth,
     response: Response,
@@ -125,14 +144,28 @@ async def get_daily(
     mode: str = Query(default="prime_3y"),
     date: str = Query(default=""),
     peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
-) -> PublicGameStateResponse:
-    if not date:
-        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+) -> DailyGameStateResponse:
+    """Today's daily board, or an explicitly requested archive date's.
+
+    THE SERVER DECIDES WHAT DAY IT IS. The browser used to compute `today` from
+    its own clock and send it; the route only fell back to its own clock when
+    the parameter was absent, so a device an hour ahead played tomorrow's board
+    and a stale tab played yesterday's forever. `date` now means "give me the
+    archive board for this date" and nothing else.
+    """
+    try:
+        board_date = validate_daily_key(date) if date else daily_key()
+    except InvalidDailyKey as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": "invalid_daily_key", "message": str(exc)},
+        )
+
     try:
         game_state = state_machine.create_draft_game(
             mode=mode,
             board_type="daily",
-            date=date,
+            date=board_date,
             seed=None,
             signing_secret=settings.SIGNING_SECRET,
         )
@@ -142,18 +175,52 @@ async def get_daily(
     game_state.owner_sub = resolve_owner_sub(auth, peak3_anon, response, settings.SIGNING_SECRET)
     game_id = await game_repo.create_game(game_state)
     game_state.game_id = game_id
-    return PublicGameStateResponse(**state_machine.get_public_state(game_state))
+    return DailyGameStateResponse(
+        **state_machine.get_public_state(game_state),
+        daily=daily_window(board_date).to_payload(),
+    )
 
 
 # ---------------------------------------------------------------------------
 # Get game state
 # ---------------------------------------------------------------------------
 
-@router.get("/draft/games/{game_id}", response_model=PublicGameStateResponse)
-async def get_game(game_id: str, game_repo: GameRepoDep) -> PublicGameStateResponse:
+async def _load_owned_game(
+    game_id: str,
+    game_repo,
+    auth,
+    anon_cookie: Optional[str],
+):
+    """Load a draft game and prove the caller owns it, or raise 404/403.
+
+    `POST /draft/games/{game_id}/actions` previously took no identity at all --
+    this file's own docstring says private board state must never leak, yet
+    anyone holding a leaked `game_id` could drive a stranger's game to
+    completion. That is worse than a read leak: on completion
+    `_record_completion` writes a `DailyCompletion` under
+    `ON CONFLICT DO NOTHING`, so a garbage lineup permanently consumes the
+    victim's daily attempt, and their XP, records, achievements and streak are
+    all written under their `owner_sub`.
+    """
     game_state = await game_repo.get_game(game_id)
     if game_state is None:
         raise HTTPException(status_code=404, detail="Game not found or expired")
+    assert_owns(
+        getattr(game_state, "owner_sub", None),
+        existing_owner_sub(auth, anon_cookie, settings.SIGNING_SECRET),
+        message="This game belongs to a different player.",
+    )
+    return game_state
+
+
+@router.get("/draft/games/{game_id}", response_model=PublicGameStateResponse)
+async def get_game(
+    game_id: str,
+    game_repo: GameRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
+) -> PublicGameStateResponse:
+    game_state = await _load_owned_game(game_id, game_repo, auth, peak3_anon)
     return PublicGameStateResponse(**state_machine.get_public_state(game_state))
 
 
@@ -172,13 +239,13 @@ async def submit_action(
     record_repo: RecordRepoDep,
     achievement_repo: AchievementRepoDep,
     streak_repo: StreakRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
 ) -> PublicGameStateResponse:
     if body.game_id != game_id:
         raise HTTPException(status_code=400, detail="game_id in body must match URL")
 
-    game_state = await game_repo.get_game(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    game_state = await _load_owned_game(game_id, game_repo, auth, peak3_anon)
 
     was_already_complete = game_state.status == "draft_complete"
 
@@ -409,11 +476,16 @@ async def create_challenge(
     game_id: str,
     game_repo: GameRepoDep,
     challenge_repo: ChallengeRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
     include_spoilers: bool = False,
 ) -> dict:
-    game_state = await game_repo.get_game(game_id)
-    if game_state is None:
-        raise HTTPException(status_code=404, detail="Game not found or expired")
+    # Ownership matters here even though minting a token mutates nothing in the
+    # game itself: the stored record carries the challenger's full lineup
+    # snapshot and their `owner_sub`. Without this check anyone holding a
+    # completed game's id could mint a challenge from a stranger's game, then
+    # read that stranger's lineup back out through `/comparison`.
+    game_state = await _load_owned_game(game_id, game_repo, auth, peak3_anon)
 
     if game_state.status != "draft_complete":
         raise HTTPException(
@@ -548,9 +620,20 @@ async def get_challenge_comparison(
     token: str,
     challenge_repo: ChallengeRepoDep,
     game_repo: GameRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
     recipient_game_id: str = Query(...),
 ) -> ChallengeComparisonResponse:
-    """Compare a completed recipient game against the stored challenger snapshot."""
+    """Compare a completed recipient game against the stored challenger snapshot.
+
+    This route WRITES: the first successful call persists a settlement
+    (`save_settlement` below) which is then cached and returned forever. With
+    `recipient_game_id` taken on trust, anyone holding the challenge link could
+    therefore pre-settle the challenge against a game of their choosing, and
+    the genuine recipient would never get a real comparison. The caller must
+    own the game they are submitting -- reading the challenge is open by
+    design, settling it on someone else's behalf is not.
+    """
     _verify_challenge_token(token)
 
     token_hash = hashlib.sha256(token.encode()).hexdigest()[:32]
@@ -562,10 +645,9 @@ async def get_challenge_comparison(
     if record.settlement is not None:
         return ChallengeComparisonResponse.model_validate(record.settlement)
 
-    # Validate recipient game
-    recipient_game = await game_repo.get_game(recipient_game_id)
-    if recipient_game is None:
-        raise HTTPException(status_code=404, detail="Recipient game not found or expired")
+    # Validate recipient game -- ownership first, so a stranger's completed
+    # game can never be conscripted as the settling result.
+    recipient_game = await _load_owned_game(recipient_game_id, game_repo, auth, peak3_anon)
 
     if recipient_game.status != "draft_complete":
         raise HTTPException(status_code=400, detail="Recipient game must be complete")
@@ -650,13 +732,32 @@ async def load_challenge(
 ) -> PublicGameStateResponse:
     payload = _verify_challenge_token(token)
 
+    # A CHALLENGE IS PROVENANCE, NEVER A DAILY ATTEMPT.
+    #
+    # The token carries the board params of the game it was minted from, and a
+    # link minted from a DAILY carried `board_type: "daily"` plus the sender's
+    # date. Passing those straight through meant opening a friend's link
+    # created a board the recipient's own daily completion was then written
+    # against — and if they had already played that day, the daily-completion
+    # write hit `ON CONFLICT DO NOTHING` and their real result was silently
+    # discarded. Someone else's link must never be able to consume, or
+    # overwrite, your one attempt.
+    #
+    # This is the same rule RUN THE TABLE already enforces; see the comment at
+    # apps/api/app/api/v1/run_the_table.py in `create_run`. The board is still
+    # reproduced exactly — `reproduce_as` builds it under the token's own
+    # board_type, so the seed derivation and `board_id` are identical and the
+    # comparison against the challenger still matches — only the recipient's
+    # GAME is labelled `challenge`, which is what `_record_completion` keys the
+    # daily write on.
     try:
         game_state = state_machine.create_draft_game(
             mode=payload["mode"],
-            board_type=payload.get("board_type", "challenge"),
+            board_type="challenge",
             date=payload.get("date"),
             seed=payload.get("seed"),
             signing_secret=settings.SIGNING_SECRET,
+            reproduce_as=payload.get("board_type", "challenge"),
         )
     except (ValueError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=_error_detail(exc, "board_error"))

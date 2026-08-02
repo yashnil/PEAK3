@@ -5,6 +5,7 @@ import {
   completeCourtGame,
   createCourtGame,
   placeCard,
+  respinIdempotencyKey,
   respinSeason,
   respinTeam,
   selectPlayer,
@@ -124,6 +125,20 @@ export default function CourtBuilder({
   if (state.current_spin) lastSpinRef.current = state.current_spin;
   const roundSpin = state.current_spin ?? lastSpinRef.current;
 
+  // W5: the most recent respin, from the SERVER's own respin_history receipt
+  // -- SpinStage renders "away from X" from this, so the flourish can never
+  // claim a distance the server did not actually travel. Scoped to the
+  // current round so a prior round's respin never leaks into this one's
+  // ceremony.
+  const lastRespinEntry =
+    state.respin_history.length > 0
+      ? state.respin_history[state.respin_history.length - 1]
+      : null;
+  const lastRespin =
+    lastRespinEntry && lastRespinEntry.round === state.current_round
+      ? { team: lastRespinEntry.from_team, season: lastRespinEntry.from_season }
+      : null;
+
   async function withBusy<T>(fn: () => Promise<T>): Promise<T | undefined> {
     setBusy(true);
     setError(null);
@@ -153,8 +168,19 @@ export default function CourtBuilder({
     if (next) setState(next);
   }
 
+  // W5: the key is DERIVED from state, never randomly generated per call --
+  // that is what makes a double-click safe. Both clicks read the same
+  // `state.*_respins_used_total` (the first response has not landed yet, so
+  // the counter has not moved), so both send the same key and the server
+  // treats the second as a replay instead of consuming a second respin. The
+  // `busy` guard stays as the first line of defence; this is the second,
+  // and the only one that also covers a retried fetch or a refresh fired
+  // mid-animation.
   async function handleRespinTeam() {
-    const next = await withBusy(() => respinTeam(state.game_id));
+    const key = respinIdempotencyKey(
+      state.game_id, state.current_round, "team", state.team_respins_used_total,
+    );
+    const next = await withBusy(() => respinTeam(state.game_id, key));
     if (next) {
       setState(next);
       setRespinKind("team");
@@ -163,7 +189,10 @@ export default function CourtBuilder({
   }
 
   async function handleRespinSeason() {
-    const next = await withBusy(() => respinSeason(state.game_id));
+    const key = respinIdempotencyKey(
+      state.game_id, state.current_round, "season", state.season_respins_used_total,
+    );
+    const next = await withBusy(() => respinSeason(state.game_id, key));
     if (next) {
       setState(next);
       setRespinKind("season");
@@ -323,6 +352,7 @@ export default function CourtBuilder({
                 onRevealComplete={() => setRevealedRound(state.current_round)}
                 respinFlashKey={respinFlashKey}
                 respinKind={respinKind}
+                respinFrom={lastRespin}
                 collapsed={phase === "placing"}
               />
             )}

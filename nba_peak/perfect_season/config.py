@@ -138,6 +138,49 @@ MODE_TO_YEARS: dict[str, int] = {
     "foundation_5y": 5,
 }
 
+# ---------------------------------------------------------------------------
+# Distance-aware respin (reroll) policy -- UX/organization/polish pass, W5.
+# ---------------------------------------------------------------------------
+# The problem this fixes: a respin used to narrow to "same season, other
+# team" / "same team, other season" and then fall back to the FULL rollable
+# catalogue -- which still contained the current entry. So a respin could
+# land on the identical team-season, and a season respin routinely landed
+# one year away (1991-92 -> 1992-93), which reads as "the reroll did
+# nothing" even though the draw was honestly uniform.
+#
+# The policy below never re-weights an era and never hand-picks an outcome.
+# It only removes entries that are too CLOSE to what the player just saw,
+# and then samples uniformly over whatever remains. Every relaxation step is
+# recorded (exclusion radius + allowed pool size) in the state's respin
+# policy debug trail, so the sampling is auditable rather than asserted.
+#
+# Bumped whenever the exclusion ladder or its sampling changes.
+RESPIN_POLICY_VERSION = "perfect_season_respin_policy_v1"
+
+# The allowed post-exclusion pool must hold at least this many entries
+# before the policy is willing to keep an exclusion tier. Below it, the
+# ladder relaxes one step (radius 2 -> 1 -> 0, history depth 2 -> 1 -> 0)
+# rather than sampling from a pool so small the "random" roll would be
+# effectively predetermined.
+MIN_RESPIN_POOL = 8
+
+# Season respin: how many season INDICES on either side of the current
+# season are excluded on the first (preferred) tier. 2 means a respin from
+# 1991-92 skips 1989-90..1993-94 entirely whenever enough seasons remain.
+#
+# ROLLBACK BOUNDARY (docs/implementation/UX_ORGANIZATION_POLISH_PLAN.md Sec 7):
+# setting RESPIN_SEASON_EXCLUSION_RADIUS = 0 AND RESPIN_TEAM_HISTORY_DEPTH = 0
+# restores the pre-policy behaviour EXACTLY -- state.py branches to the
+# verbatim legacy draw (same pools, same rng call sequence) rather than
+# emulating it, so the rollback is provable, not approximate.
+RESPIN_SEASON_EXCLUSION_RADIUS = 2
+
+# Team respin: how many of the most recent DISTINCT teams already seen in
+# this run (from respin_history plus the run's already-resolved spins) are
+# excluded on the first (preferred) tier, on top of the current team, which
+# is always excluded.
+RESPIN_TEAM_HISTORY_DEPTH = 2
+
 # Number of eligible-player candidates surfaced per spin round (kept small so
 # the interim team dataset's narrow rosters are never padded with irrelevant
 # players -- when team spins are on, the candidate list is exactly the

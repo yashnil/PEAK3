@@ -1,23 +1,30 @@
 "use client";
 
 /**
- * Daily Grid onboarding (Phase 11B).
+ * Daily Grid rules panel.
  *
- * The Phase 11A page dropped a 3x3 board on screen with no statement of what
- * winning meant. Playtesters could not tell whether they were meant to find
- * any valid answer, the rarest one, or the best one -- and the mode is an
- * OPTIMISATION puzzle, which is unguessable from a grid of empty squares.
+ * ONE VARIANT NOW. This used to be two: a `gate` that blocked the board on a
+ * first visit and a `panel` reopened later. The gate moved to `StartGate.tsx`,
+ * where it belongs — the gate is a decision surface (start / tour / skip), and
+ * this is reference material a player comes back to mid-board.
  *
- * Two modes, one component:
- *   - `variant="gate"` blocks the board until the player starts (first visit).
- *   - `variant="panel"` is the same content reopened later from "How to play",
- *     rendered as a dismissible dialog.
+ * REBUILT ON `components/ui/Dialog`. The previous implementation hand-rolled
+ * its own Escape listener with no focus trap, no layer stack, no body scroll
+ * lock and no focus restoration, and its backdrop was an unportalled `fixed`
+ * div inside the game tree — so Tab walked straight out of it into the board
+ * behind, the page scrolled underneath it, and closing it stranded focus on
+ * `<body>`. `Dialog` wires all five `lib/a11y` primitives (and shares ONE
+ * layer registration between the trap and the Escape handler, which is the
+ * contract at a11y.ts:114-121), so none of that is this component's problem
+ * any more.
  *
  * Kept to four short cards plus a rules list rather than a wall of prose: the
  * objective has to survive being skimmed.
  */
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { Lock, Search, Target, Trophy } from "lucide-react";
+
+import { Dialog } from "@/components/ui/Dialog";
 
 const STEPS: { icon: typeof Target; title: string; body: string }[] = [
   {
@@ -52,44 +59,37 @@ const RULES: string[] = [
 ];
 
 interface Props {
-  variant: "gate" | "panel";
+  open: boolean;
   date: string;
   difficulty: string;
   /** The board's theme, e.g. "Ring Chasers". Optional so the panel still
    *  renders against an older board payload. */
   theme?: string;
-  onStart: () => void;
-  onClose?: () => void;
+  onClose: () => void;
+  /** Opens the seven-step walkthrough. Omitted where there is no tour to open
+   *  (nothing today, but the panel does not need to know). */
+  onTakeTour?: () => void;
 }
 
-export default function HowToPlay({ variant, date, difficulty, theme, onStart, onClose }: Props) {
+export default function HowToPlay({
+  open,
+  date,
+  difficulty,
+  theme,
+  onClose,
+  onTakeTour,
+}: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
-  const startRef = useRef<HTMLButtonElement>(null);
-
-  // Move focus into the dialog so a keyboard user is not left behind on the
-  // trigger, and let Escape dismiss it. Gate variant is not dismissible --
-  // there is nothing behind it yet.
-  useEffect(() => {
-    if (variant === "panel") {
-      closeRef.current?.focus();
-      const handle = (e: KeyboardEvent) => {
-        if (e.key === "Escape") onClose?.();
-      };
-      document.addEventListener("keydown", handle);
-      return () => document.removeEventListener("keydown", handle);
-    }
-    startRef.current?.focus();
-  }, [variant, onClose]);
-
-  const isPanel = variant === "panel";
 
   return (
-    <section
-      data-testid={isPanel ? "how-to-play-panel" : "how-to-play-gate"}
-      role={isPanel ? "dialog" : undefined}
-      aria-modal={isPanel ? true : undefined}
-      aria-labelledby="how-to-play-heading"
-      className="card-elevated mx-auto w-full max-w-3xl p-5 sm:p-7"
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="lg"
+      labelledBy="how-to-play-heading"
+      initialFocusRef={closeRef}
+      data-testid="how-to-play-panel"
+      className="p-5 sm:p-7"
     >
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -117,18 +117,16 @@ export default function HowToPlay({ variant, date, difficulty, theme, onStart, o
             decides what each pick was worth.
           </p>
         </div>
-        {isPanel && (
-          <button
-            ref={closeRef}
-            type="button"
-            data-testid="how-to-play-close"
-            onClick={onClose}
-            className="shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors"
-            style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
-          >
-            Close
-          </button>
-        )}
+        <button
+          ref={closeRef}
+          type="button"
+          data-testid="how-to-play-close"
+          onClick={onClose}
+          className="shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+          style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+        >
+          Close
+        </button>
       </div>
 
       <ol className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -182,20 +180,32 @@ export default function HowToPlay({ variant, date, difficulty, theme, onStart, o
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p data-testid="how-to-play-board-line" className="text-xs" style={{ color: "var(--text-muted)" }}>
-          Today&apos;s board · {date}
-          {theme ? ` · ${theme}` : ""} · {difficulty} difficulty
+          Today&apos;s board &middot; {date}
+          {theme ? ` · ${theme}` : ""} &middot; {difficulty} difficulty
         </p>
-        <button
-          ref={startRef}
-          type="button"
-          data-testid={isPanel ? "how-to-play-dismiss" : "start-daily-grid"}
-          onClick={isPanel ? onClose : onStart}
-          className="rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-        >
-          {isPanel ? "Back to the grid" : "Start today's grid"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {onTakeTour && (
+            <button
+              type="button"
+              data-testid="how-to-play-take-tour"
+              onClick={onTakeTour}
+              className="rounded-lg border px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+              style={{ borderColor: "var(--border-emphasis)", color: "var(--text-primary)" }}
+            >
+              Take the walkthrough
+            </button>
+          )}
+          <button
+            type="button"
+            data-testid="how-to-play-dismiss"
+            onClick={onClose}
+            className="rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+          >
+            Back to the grid
+          </button>
+        </div>
       </div>
-    </section>
+    </Dialog>
   );
 }

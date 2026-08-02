@@ -6,6 +6,7 @@ import {
   isRosterComplete,
   hasResult,
 } from "@/lib/court-state";
+import { respinIdempotencyKey } from "@/lib/perfect-season-api";
 import type { CourtLineupPublicState, CourtSlotPublic } from "@/types/perfect-season";
 import { BENCH_SLOT_TYPES, ERA_LABELS, SLOT_LABELS, SLOT_TYPES, STARTER_SLOT_TYPES } from "@/types/perfect-season";
 
@@ -147,5 +148,94 @@ describe("court slot labels (Phase 5X.4 rule 4)", () => {
 
   it("era wheel covers all 5 supported decades", () => {
     expect(ERA_LABELS).toEqual(["1980s", "1990s", "2000s", "2010s", "2020s"]);
+  });
+});
+
+/**
+ * W5 (UX / organization / polish pass): respin idempotency keys.
+ *
+ * The server-side half is tested in apps/api/tests/test_perfect_season.py.
+ * What has to be true on THIS side is subtler and is the whole reason the
+ * double-click bug survives a naive fix: the key must be DERIVED from state
+ * the component can already see, never generated fresh per invocation. A
+ * `crypto.randomUUID()` per click would make every click a distinct request
+ * and the second one would still burn a respin.
+ */
+describe("respinIdempotencyKey (W5)", () => {
+  it("is stable for the same game, round, kind and respin count", () => {
+    expect(respinIdempotencyKey("g1", 3, "team", 1)).toBe(
+      respinIdempotencyKey("g1", 3, "team", 1),
+    );
+  });
+
+  it("a double-click produces ONE key, because neither click has seen the response yet", () => {
+    // Both handlers read the same React state: team_respins_used_total is
+    // still 0 when the second click fires, so both derive the same key and
+    // the server recognises the second as a replay.
+    const stateAtClickTime = { gameId: "g1", round: 1, used: 0 };
+    const first = respinIdempotencyKey(stateAtClickTime.gameId, stateAtClickTime.round, "team", stateAtClickTime.used);
+    const second = respinIdempotencyKey(stateAtClickTime.gameId, stateAtClickTime.round, "team", stateAtClickTime.used);
+    expect(second).toBe(first);
+  });
+
+  it("changes once the respin has actually been consumed, so the next one is not swallowed", () => {
+    // Idempotency must not become a lock -- after the counter increments the
+    // player can still spend their remaining respins.
+    expect(respinIdempotencyKey("g1", 1, "team", 1)).not.toBe(
+      respinIdempotencyKey("g1", 1, "team", 0),
+    );
+  });
+
+  it("namespaces team and season so one axis cannot mask the other", () => {
+    expect(respinIdempotencyKey("g1", 1, "team", 0)).not.toBe(
+      respinIdempotencyKey("g1", 1, "season", 0),
+    );
+  });
+
+  it("changes per round and per game", () => {
+    expect(respinIdempotencyKey("g1", 2, "team", 0)).not.toBe(
+      respinIdempotencyKey("g1", 1, "team", 0),
+    );
+    expect(respinIdempotencyKey("g2", 1, "team", 0)).not.toBe(
+      respinIdempotencyKey("g1", 1, "team", 0),
+    );
+  });
+
+  it("contains no randomness -- the same inputs always yield the same key", () => {
+    const keys = new Set(
+      Array.from({ length: 50 }, () => respinIdempotencyKey("g1", 4, "season", 2)),
+    );
+    expect(keys.size).toBe(1);
+  });
+});
+
+/**
+ * W5: the respin policy receipt is an OPTIONAL, debug-only part of the public
+ * state. It must never be required for the UI to render, because a run created
+ * before the policy shipped has none.
+ */
+describe("respin policy debug metadata (W5)", () => {
+  it("is optional on the public state -- an older run without it still loads", () => {
+    const legacy = mockState();
+    expect(legacy.respin_policy_debug).toBeUndefined();
+    expect(isRosterComplete(legacy)).toBe(false);
+  });
+
+  it("carries the exclusion radius and allowed pool size when present", () => {
+    const state = mockState({
+      respin_policy_version: "perfect_season_respin_policy_v1",
+      respin_policy_debug: [
+        {
+          policy_version: "perfect_season_respin_policy_v1",
+          kind: "season",
+          relaxation_tier: "same_team_radius_2",
+          exclusion_radius: 2,
+          history_depth: 0,
+          allowed_pool_size: 28,
+        },
+      ],
+    });
+    expect(state.respin_policy_debug?.[0].exclusion_radius).toBe(2);
+    expect(state.respin_policy_debug?.[0].allowed_pool_size).toBeGreaterThanOrEqual(8);
   });
 });

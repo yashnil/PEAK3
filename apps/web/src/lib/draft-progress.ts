@@ -4,6 +4,25 @@ import type { DraftMode, DraftCompletionSummary, ActiveDraftGame } from "@/types
 
 const STORAGE_KEY = "peak3_draft_progress_v1";
 
+/**
+ * The board date embedded in a Peak Draft `board_id`, or null.
+ *
+ * A daily board_id is `daily-{mode}-{YYYY-MM-DD}` (nba_peak/lineup/board.py
+ * ::_make_board_id), so the date a stored pointer refers to is already written
+ * down — it simply was not being read. The resume path checked `board_type` and
+ * `mode` and nothing else, which is why yesterday's unfinished daily was
+ * resumed forever: every field it compared still matched.
+ *
+ * Returns null for a practice/challenge board_id (which carries a seed, not a
+ * date) and for anything malformed, so a caller that treats null as "not
+ * today's" fails safe by refetching.
+ */
+export function boardIdDate(boardId: string | null | undefined): string | null {
+  if (!boardId) return null;
+  const match = /(\d{4}-\d{2}-\d{2})$/.exec(boardId);
+  return match ? match[1] : null;
+}
+
 interface StoredProgress {
   schema_version: 1;
   active_game: ActiveDraftGame | null;

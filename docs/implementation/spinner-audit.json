@@ -1,0 +1,512 @@
+{
+  "generated_at_utc": "2026-07-31T21:45:48Z",
+  "policy": {
+    "policy_version": "perfect_season_respin_policy_v1",
+    "summary": "A respin builds an ordered ladder of allowed pools, most restrictive first, drops one rung only when a rung's allowed pool falls below MIN_RESPIN_POOL, and then samples UNIFORMLY over the chosen rung via a deterministic shuffle bag seeded from the board seed, round, respin kind and respin count. No era, decade or franchise is weighted.",
+    "season_ladder": [
+      "same_team_radius_2  -- same franchise, every season within +/-2 INDICES excluded",
+      "same_team_radius_1  -- same franchise, adjacent season excluded",
+      "same_team_radius_0  -- same franchise, only the exact current season excluded",
+      "any_team_radius_2   -- any franchise, seasons within +/-2 indices excluded",
+      "any_team_radius_1   -- any franchise, adjacent season excluded",
+      "any_team_radius_0   -- any franchise, only the exact current season excluded"
+    ],
+    "team_ladder": [
+      "same_season_depth_2 -- same season, current team + 2 most recent teams excluded",
+      "same_season_depth_1 -- same season, current team + most recent team excluded",
+      "same_season_depth_0 -- same season, current team excluded",
+      "any_season_depth_2  -- any season, current team + 2 most recent teams excluded",
+      "any_season_depth_1  -- any season, current team + most recent team excluded",
+      "any_season_depth_0  -- any season, current team excluded"
+    ],
+    "constants": {
+      "RESPIN_SEASON_EXCLUSION_RADIUS": 2,
+      "RESPIN_TEAM_HISTORY_DEPTH": 2,
+      "MIN_RESPIN_POOL": 8,
+      "MIN_CANDIDATES_PER_ROLLABLE_TEAM_SEASON": 8
+    },
+    "rollback_boundary": "Setting RESPIN_SEASON_EXCLUSION_RADIUS = 0 AND RESPIN_TEAM_HISTORY_DEPTH = 0 makes state.py take the verbatim pre-policy code path (same pools, same _pick_valid_entry probing, same rng call sequence).",
+    "initial_board_generation": "UNCHANGED. generate_team_year_board reads none of these constants and is not called by the respin path; daily boards and existing seeds are byte-identical (pinned by test_initial_board_generation_is_unchanged_by_respin_policy)."
+  },
+  "catalogue": {
+    "rollable_team_seasons": 1314,
+    "franchises": 40,
+    "seasons": 47,
+    "season_range": [
+      "1979-80",
+      "2025-26"
+    ]
+  },
+  "sample_sizes": {
+    "per_kind": 100000,
+    "total": 200000
+  },
+  "kinds": {
+    "season": {
+      "kind": "season",
+      "samples": 100000,
+      "resolved": 100000,
+      "violations": {
+        "exact_repeat_entry": 0,
+        "same_team_on_team_respin": 0,
+        "same_season_on_season_respin": 0,
+        "adjacent_season_while_preferred_pool_viable": 0,
+        "invalid_team_season": 0,
+        "out_of_allowed_pool": 0,
+        "no_option_returned": 0,
+        "below_candidate_floor": 0
+      },
+      "relaxation_ladder_hits": {
+        "same_team_radius_2": 96564,
+        "any_team_radius_2": 1415,
+        "same_team_radius_0": 1262,
+        "same_team_radius_1": 759
+      },
+      "exclusion_radius_hits": {
+        "0": 1262,
+        "1": 759,
+        "2": 97979
+      },
+      "history_depth_hits": {
+        "0": 100000
+      },
+      "allowed_pool_size": {
+        "min": 8,
+        "max": 1246,
+        "mean": 52.71,
+        "below_min_respin_pool": 0
+      },
+      "season_index_jump_histogram": {
+        "1": 267,
+        "2": 342,
+        "3": 5770,
+        "4": 5527,
+        "5": 5382,
+        "6": 5148,
+        "7": 4846,
+        "8": 4587,
+        "9": 4313,
+        "10": 4121,
+        "11": 3849,
+        "12": 3731,
+        "13": 3454,
+        "14": 3421,
+        "15": 3140,
+        "16": 3035,
+        "17": 2866,
+        "18": 2770,
+        "19": 2726,
+        "20": 30705
+      },
+      "uniformity_over_allowed_pool": {
+        "team_season_entries": {
+          "chi_square": 1243.406,
+          "degrees_of_freedom": 1294,
+          "reduced_chi_square": 0.9609,
+          "normal_approx_z": -0.995,
+          "cells_pooled_out_expected_lt_5": 19,
+          "is_structurally_fixed_dimension": false,
+          "caveat": null,
+          "interpretation": "reduced chi-square near 1.0 with |z| < 3 is consistent with a uniform draw over the allowed pool; a value well ABOVE 1 would indicate bias. No caveat applies to this dimension."
+        },
+        "franchise": {
+          "chi_square": 1.449,
+          "degrees_of_freedom": 35,
+          "reduced_chi_square": 0.04141,
+          "normal_approx_z": -8.128,
+          "cells_pooled_out_expected_lt_5": 3,
+          "is_structurally_fixed_dimension": true,
+          "caveat": "A season respin keeps the current franchise on 96%+ of draws, so the franchise marginal is fixed by construction and this statistic carries no information about fairness. The meaningful figures for this kind are `team_season_entries` and `season`.",
+          "interpretation": "reduced chi-square near 1.0 with |z| < 3 is consistent with a uniform draw over the allowed pool; a value well ABOVE 1 would indicate bias. This dimension is held fixed by the policy, so the statistic collapses toward 0 and the z is large and negative by construction -- see `caveat`."
+        },
+        "season": {
+          "chi_square": 41.276,
+          "degrees_of_freedom": 46,
+          "reduced_chi_square": 0.89731,
+          "normal_approx_z": -0.441,
+          "cells_pooled_out_expected_lt_5": 0,
+          "is_structurally_fixed_dimension": false,
+          "caveat": null,
+          "interpretation": "reduced chi-square near 1.0 with |z| < 3 is consistent with a uniform draw over the allowed pool; a value well ABOVE 1 would indicate bias. No caveat applies to this dimension."
+        }
+      },
+      "franchises_expected_but_never_returned": [],
+      "distribution_summary": {
+        "franchise": {
+          "dimension": "franchise",
+          "keys_measured": 36,
+          "most_underrepresented": [
+            {
+              "key": "Vancouver Grizzlies",
+              "observed": 3,
+              "expected": 5.49,
+              "relative_deviation": -0.4539
+            },
+            {
+              "key": "New Orleans Hornets",
+              "observed": 699,
+              "expected": 702.22,
+              "relative_deviation": -0.0046
+            },
+            {
+              "key": "Charlotte Bobcats",
+              "observed": 733,
+              "expected": 736.27,
+              "relative_deviation": -0.0044
+            },
+            {
+              "key": "Atlanta Hawks",
+              "observed": 3677,
+              "expected": 3689.2,
+              "relative_deviation": -0.0033
+            },
+            {
+              "key": "Minnesota Timberwolves",
+              "observed": 2866,
+              "expected": 2873.2,
+              "relative_deviation": -0.0025
+            }
+          ],
+          "most_overrepresented": [
+            {
+              "key": "New Jersey Nets",
+              "observed": 2531,
+              "expected": 2520.59,
+              "relative_deviation": 0.0041
+            },
+            {
+              "key": "Brooklyn Nets",
+              "observed": 1094,
+              "expected": 1089.6,
+              "relative_deviation": 0.004
+            },
+            {
+              "key": "New Orleans Pelicans",
+              "observed": 943,
+              "expected": 939.42,
+              "relative_deviation": 0.0038
+            },
+            {
+              "key": "Indiana Pacers",
+              "observed": 3593,
+              "expected": 3583.2,
+              "relative_deviation": 0.0027
+            },
+            {
+              "key": "Miami Heat",
+              "observed": 2901,
+              "expected": 2894.39,
+              "relative_deviation": 0.0023
+            }
+          ],
+          "max_abs_relative_deviation": 0.4539
+        },
+        "season": {
+          "dimension": "season",
+          "keys_measured": 47,
+          "most_underrepresented": [
+            {
+              "key": "2000-01",
+              "observed": 2052,
+              "expected": 2156.16,
+              "relative_deviation": -0.0483
+            },
+            {
+              "key": "1995-96",
+              "observed": 2058,
+              "expected": 2159.58,
+              "relative_deviation": -0.047
+            },
+            {
+              "key": "1986-87",
+              "observed": 1713,
+              "expected": 1777.96,
+              "relative_deviation": -0.0365
+            },
+            {
+              "key": "1984-85",
+              "observed": 1644,
+              "expected": 1699.85,
+              "relative_deviation": -0.0329
+            },
+            {
+              "key": "2004-05",
+              "observed": 2242,
+              "expected": 2300.25,
+              "relative_deviation": -0.0253
+            }
+          ],
+          "most_overrepresented": [
+            {
+              "key": "1987-88",
+              "observed": 1844,
+              "expected": 1774.01,
+              "relative_deviation": 0.0395
+            },
+            {
+              "key": "1998-99",
+              "observed": 2215,
+              "expected": 2143.01,
+              "relative_deviation": 0.0336
+            },
+            {
+              "key": "1989-90",
+              "observed": 2171,
+              "expected": 2100.81,
+              "relative_deviation": 0.0334
+            },
+            {
+              "key": "1981-82",
+              "observed": 1666,
+              "expected": 1618.27,
+              "relative_deviation": 0.0295
+            },
+            {
+              "key": "2016-17",
+              "observed": 2356,
+              "expected": 2289.63,
+              "relative_deviation": 0.029
+            }
+          ],
+          "max_abs_relative_deviation": 0.0483
+        }
+      },
+      "coverage": {
+        "distinct_team_seasons_returned": 1303,
+        "distinct_franchises_returned": 38,
+        "distinct_seasons_returned": 47,
+        "catalogue_team_seasons": 1314,
+        "catalogue_seasons": 47
+      }
+    },
+    "team": {
+      "kind": "team",
+      "samples": 100000,
+      "resolved": 100000,
+      "violations": {
+        "exact_repeat_entry": 0,
+        "same_team_on_team_respin": 0,
+        "same_season_on_season_respin": 0,
+        "adjacent_season_while_preferred_pool_viable": 0,
+        "invalid_team_season": 0,
+        "out_of_allowed_pool": 0,
+        "no_option_returned": 0,
+        "below_candidate_floor": 0
+      },
+      "relaxation_ladder_hits": {
+        "same_season_depth_2": 100000
+      },
+      "exclusion_radius_hits": {
+        "0": 100000
+      },
+      "history_depth_hits": {
+        "2": 100000
+      },
+      "allowed_pool_size": {
+        "min": 19,
+        "max": 29,
+        "mean": 25.51,
+        "below_min_respin_pool": 0
+      },
+      "season_index_jump_histogram": null,
+      "uniformity_over_allowed_pool": {
+        "team_season_entries": {
+          "chi_square": 1231.206,
+          "degrees_of_freedom": 1313,
+          "reduced_chi_square": 0.9377,
+          "normal_approx_z": -1.617,
+          "cells_pooled_out_expected_lt_5": 0,
+          "is_structurally_fixed_dimension": false,
+          "caveat": null,
+          "interpretation": "reduced chi-square near 1.0 with |z| < 3 is consistent with a uniform draw over the allowed pool; a value well ABOVE 1 would indicate bias. No caveat applies to this dimension."
+        },
+        "franchise": {
+          "chi_square": 39.247,
+          "degrees_of_freedom": 38,
+          "reduced_chi_square": 1.0328,
+          "normal_approx_z": 0.218,
+          "cells_pooled_out_expected_lt_5": 0,
+          "is_structurally_fixed_dimension": false,
+          "caveat": null,
+          "interpretation": "reduced chi-square near 1.0 with |z| < 3 is consistent with a uniform draw over the allowed pool; a value well ABOVE 1 would indicate bias. No caveat applies to this dimension."
+        },
+        "season": {
+          "chi_square": 0.0,
+          "degrees_of_freedom": 46,
+          "reduced_chi_square": 0.0,
+          "normal_approx_z": -14.318,
+          "cells_pooled_out_expected_lt_5": 0,
+          "is_structurally_fixed_dimension": true,
+          "caveat": "A team respin keeps the current season on every draw, so the season marginal is exactly deterministic (chi-square 0 by construction). The meaningful figures for this kind are `team_season_entries` and `franchise`.",
+          "interpretation": "reduced chi-square near 1.0 with |z| < 3 is consistent with a uniform draw over the allowed pool; a value well ABOVE 1 would indicate bias. This dimension is held fixed by the policy, so the statistic collapses toward 0 and the z is large and negative by construction -- see `caveat`."
+        }
+      },
+      "franchises_expected_but_never_returned": [],
+      "distribution_summary": {
+        "franchise": {
+          "dimension": "franchise",
+          "keys_measured": 39,
+          "most_underrepresented": [
+            {
+              "key": "Vancouver Grizzlies",
+              "observed": 430,
+              "expected": 486.51,
+              "relative_deviation": -0.1162
+            },
+            {
+              "key": "New Orleans/Oklahoma City Hornets",
+              "observed": 149,
+              "expected": 162.22,
+              "relative_deviation": -0.0815
+            },
+            {
+              "key": "Washington Bullets",
+              "observed": 1362,
+              "expected": 1418.79,
+              "relative_deviation": -0.04
+            },
+            {
+              "key": "Phoenix Suns",
+              "observed": 3457,
+              "expected": 3540.06,
+              "relative_deviation": -0.0235
+            },
+            {
+              "key": "Detroit Pistons",
+              "observed": 3458,
+              "expected": 3536.35,
+              "relative_deviation": -0.0222
+            }
+          ],
+          "most_overrepresented": [
+            {
+              "key": "Charlotte Bobcats",
+              "observed": 844,
+              "expected": 799.77,
+              "relative_deviation": 0.0553
+            },
+            {
+              "key": "Brooklyn Nets",
+              "observed": 1148,
+              "expected": 1105.35,
+              "relative_deviation": 0.0386
+            },
+            {
+              "key": "Cleveland Cavaliers",
+              "observed": 3662,
+              "expected": 3539.08,
+              "relative_deviation": 0.0347
+            },
+            {
+              "key": "Philadelphia 76ers",
+              "observed": 3642,
+              "expected": 3539.15,
+              "relative_deviation": 0.0291
+            },
+            {
+              "key": "Sacramento Kings",
+              "observed": 3208,
+              "expected": 3127.06,
+              "relative_deviation": 0.0259
+            }
+          ],
+          "max_abs_relative_deviation": 0.1162
+        },
+        "season": {
+          "dimension": "season",
+          "keys_measured": 47,
+          "most_underrepresented": [
+            {
+              "key": "1982-83",
+              "observed": 1713,
+              "expected": 1713.0,
+              "relative_deviation": 0.0
+            },
+            {
+              "key": "2010-11",
+              "observed": 2301,
+              "expected": 2301.0,
+              "relative_deviation": 0.0
+            },
+            {
+              "key": "1990-91",
+              "observed": 1976,
+              "expected": 1976.0,
+              "relative_deviation": -0.0
+            },
+            {
+              "key": "2003-04",
+              "observed": 2264,
+              "expected": 2264.0,
+              "relative_deviation": 0.0
+            },
+            {
+              "key": "2018-19",
+              "observed": 2261,
+              "expected": 2261.0,
+              "relative_deviation": 0.0
+            }
+          ],
+          "most_overrepresented": [
+            {
+              "key": "1999-00",
+              "observed": 2283,
+              "expected": 2283.0,
+              "relative_deviation": 0.0
+            },
+            {
+              "key": "1986-87",
+              "observed": 1698,
+              "expected": 1698.0,
+              "relative_deviation": 0.0
+            },
+            {
+              "key": "2025-26",
+              "observed": 2312,
+              "expected": 2312.0,
+              "relative_deviation": 0.0
+            },
+            {
+              "key": "1998-99",
+              "observed": 2259,
+              "expected": 2259.0,
+              "relative_deviation": 0.0
+            },
+            {
+              "key": "2024-25",
+              "observed": 2315,
+              "expected": 2315.0,
+              "relative_deviation": 0.0
+            }
+          ],
+          "max_abs_relative_deviation": 0.0
+        }
+      },
+      "coverage": {
+        "distinct_team_seasons_returned": 1314,
+        "distinct_franchises_returned": 39,
+        "distinct_seasons_returned": 47,
+        "catalogue_team_seasons": 1314,
+        "catalogue_seasons": 47
+      }
+    }
+  },
+  "relaxation_ladder_forced_small_pool": {
+    "season_tiny_single_franchise_catalogue": {
+      "catalogue_size": 4,
+      "hits": {
+        "same_team_radius_1": 2000
+      },
+      "note": "4 seasons total, so the radius-2 and radius-1 rungs are empty or under MIN_RESPIN_POOL and the ladder correctly lands on same_team_radius_0 -- the exact current season is still excluded."
+    },
+    "team_three_franchise_catalogue": {
+      "catalogue_size": 3,
+      "hits": {
+        "same_season_depth_1": 2000
+      },
+      "note": "Excluding the current team plus both recent teams leaves nothing, so the ladder relaxes; the current team is still never returned."
+    }
+  },
+  "total_violations": 0,
+  "elapsed_seconds": 131.0
+}

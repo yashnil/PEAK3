@@ -70,8 +70,73 @@ class DailyGridResult:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+@dataclass
+class DailyGridAttempt:
+    """One player's ATTEMPT at one daily board -- the server-side clock.
+
+    Separate from ``DailyGridResult`` because it records something genuinely
+    different, and at a different time. A result is written once, at the end,
+    and is immutable. An attempt is written once, at the START, and exists
+    precisely so the end can be measured against something the player did not
+    choose.
+
+    WHY THE SERVER OWNS THE CLOCK. Until Phase 12 the elapsed time on a board
+    was measured entirely in the browser: it advanced while the tab was closed,
+    reset with local storage, and was editable by anyone who opened the
+    console -- and it was still written to the durable result. Anything derived
+    from it (a personal best, a future leaderboard, a "fastest board" badge)
+    would have been derived from a number the client asserted. ``started_at``
+    is now assigned by the server, once.
+
+    ONE ATTEMPT PER OWNER PER DAILY KEY. That is the whole idempotency
+    contract, and it is enforced by ``UNIQUE (owner_sub, daily_key)`` in
+    ``supabase/migrations/20260801150000_daily_grid_attempts.sql`` rather than
+    by convention -- a double-click, a refresh and a second tab must all be the
+    same attempt, including under concurrency.
+
+    NOT KEYED ON BOARD VERSION, unlike ``DailyGridResult``. A player has one
+    timed attempt per DAY; if the taxonomy were revised mid-day, re-clocking
+    them from zero would be a worse answer than keeping the clock they have
+    been watching. ``board_version`` and ``board_id`` are recorded so a row
+    stays self-describing.
+    """
+
+    id: str
+    owner_sub: str
+    # YYYY-MM-DD in the product reset zone (America/Los_Angeles) -- the board's
+    # day, never a wall-clock date from a browser.
+    daily_key: str
+    board_id: str
+    board_version: str
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 @runtime_checkable
 class DailyGridResultRepository(Protocol):
+    async def start_attempt(
+        self, attempt: DailyGridAttempt
+    ) -> tuple[DailyGridAttempt, bool]:
+        """Start (or re-read) this owner's attempt at ``attempt.daily_key``.
+
+        Returns ``(record, created)``. ``created`` is False when an attempt for
+        this (owner, daily_key) already existed, in which case the EXISTING row
+        is returned with its original ``started_at`` -- never re-stamped. That
+        is the entire point: the second call must not be able to move the
+        clock, or a player could restart the timer at will and the elapsed time
+        would mean nothing.
+        """
+        ...
+
+    async def get_attempt(
+        self, owner_sub: str, daily_key: str
+    ) -> Optional[DailyGridAttempt]:
+        """This owner's attempt at one daily key, or None.
+
+        Scoped by BOTH arguments, so a caller asking about today can never be
+        handed yesterday's attempt.
+        """
+        ...
+
     async def save_result(self, result: DailyGridResult) -> tuple[DailyGridResult, bool]:
         """Save one official result.
 
@@ -92,4 +157,29 @@ class DailyGridResultRepository(Protocol):
         self, owner_sub: str, limit: int = 30
     ) -> list[DailyGridResult]:
         """Most recent board date first."""
+        ...
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign every result owned by `from_sub` to `to_sub`. Returns the
+        number of RESULTS actually moved.
+
+        In-progress ATTEMPTS move with them, under the same first-attempt-wins
+        collision rule, and are not counted in the return value. A guest who
+        starts today's board and then signs in mid-board must keep the clock
+        they have been watching; leaving the attempt behind would silently
+        restart their timer at the moment they created an account.
+
+        The guest-claim half of this protocol: a player who completes boards as
+        a guest and then signs in keeps them, instead of the server record
+        being stranded under a subject whose cookie has just been consumed.
+
+        ONE OFFICIAL RESULT PER BOARD SURVIVES THE TRANSFER. Where the
+        destination account already has its own result for a
+        (board_date, board_version) the guest also played, the guest's row
+        cannot move without breaking
+        `UNIQUE (owner_sub, board_date, board_version)` -- it is dropped rather
+        than moved, matching how `DailyCompletionRepository.transfer_owner`
+        resolves the identical collision. The account's own attempt is the one
+        that counts, and the returned count reports only what really moved.
+        """
         ...

@@ -144,3 +144,24 @@ class PerfectSeasonSavedRunRepository(Protocol):
         recorded honestly and the product decision about limiting is left to
         the next phase (see the daily route's own comment)."""
         ...
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign every saved run owned by `from_sub` to `to_sub`. Returns
+        the number of runs actually moved.
+
+        Present so this domain cannot be the one the guest claim silently
+        forgets. It is implemented even though today's
+        `POST /perfect-season/runs/save` route requires a signed-in account, so
+        an anon-owned row should not exist here in practice: a claim that
+        enumerates ten domains and quietly omits an eleventh is exactly the
+        failure mode this method exists to rule out, and a transfer that finds
+        nothing honestly reports 0 rather than being absent.
+
+        `UNIQUE (owner_sub, game_id)` is respected: a run for a game the
+        destination account has already saved is dropped rather than moved,
+        matching `DailyCompletionRepository.transfer_owner`.
+
+        A saved run is otherwise an immutable snapshot -- this changes only WHO
+        it belongs to, never any recorded result.
+        """
+        ...

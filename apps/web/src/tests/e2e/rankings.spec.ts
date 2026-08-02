@@ -546,3 +546,164 @@ test.describe("Rankings — model version", () => {
     await expect(panel).toContainText(/highest-scoring single season/i);
   });
 });
+
+/**
+ * UX/organization/polish pass (W6): terminology and provenance.
+ *
+ * Two defects, both about the page telling the truth about itself.
+ *
+ * TERMINOLOGY. The page claimed its two boards "ask genuinely different
+ * questions". At the 1-Year setting that was false: a peak window of length one
+ * IS a single season, so both boards returned the same top rows from the same
+ * underlying seasons, differing only in that the peaks board keeps one row per
+ * player. Meanwhile the header rendered "1-Year Peak Windows" beside a tab named
+ * "Single Seasons" — two names for one concept, presented as a choice.
+ *
+ * PROVENANCE. Everything a reader needs to judge the board was present but
+ * rendered as one undifferentiated 10 px muted line under the "show more"
+ * button. The worst casualty was the serving-gate note: the served boards apply
+ * a 25.0 MPG floor that the committed 250-pool CSVs do not, excluding 722 / 375
+ * / 173 windows at 1Y / 3Y / 5Y. Real committed players fall through it
+ * (Isaiah Hartenstein is canonical 1Y rank 185; Tony Allen 245; Andrew Bogut 3Y
+ * rank 205) and none appear on this board. A board that edits its own list has
+ * to say so legibly.
+ */
+test.describe("Rankings — board terminology", () => {
+  test("the 1-Year board is named as the best single season, not as a rival question", async ({
+    page,
+  }) => {
+    await gotoRankings(page);
+
+    const heading = page.getByTestId("rankings-board-heading");
+    await expect(heading).toHaveText(/best single season/i);
+    await expect(heading).toContainText(/one row per player/i);
+
+    // The exact contradiction: the old header said "1-Year Peak Windows" right
+    // next to a tab reading "Single Seasons".
+    await expect(heading).not.toContainText(/peak windows/i);
+  });
+
+  test("the explainer says outright that at 1-Year the boards differ only by de-duplication", async ({
+    page,
+  }) => {
+    await gotoRankings(page);
+    await expect(page.getByTestId("pool-explainer")).toContainText(
+      /de-duplication is the only difference/i,
+    );
+  });
+
+  test("the Single Seasons board is named as every qualifying season", async ({ page }) => {
+    await gotoRankings(page);
+    await page.locator('[data-testid="pool-tab-seasons"]').click();
+    await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
+
+    await expect(page.getByTestId("rankings-board-heading")).toHaveText(
+      /every qualifying season/i,
+    );
+    await expect(page.getByTestId("pool-explainer")).toContainText(/appear many times/i);
+  });
+
+  test("3-Year and 5-Year are still described as different questions", async ({ page }) => {
+    await gotoRankings(page);
+    for (const [id, digit] of [
+      ["3y", "3"],
+      ["5y", "5"],
+    ] as const) {
+      await page.locator(`[data-testid="peak-window-tab-${id}"]`).click();
+      await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
+      await expect(page.getByTestId("rankings-board-heading")).toContainText(
+        new RegExp(`best ${digit}-season stretch`, "i"),
+      );
+      await expect(page.getByTestId("pool-explainer")).toContainText(/consecutive seasons/i);
+      // The n=1 caveat must NOT be repeated where it does not apply.
+      await expect(page.getByTestId("pool-explainer")).not.toContainText(
+        /de-duplication is the only difference/i,
+      );
+    }
+  });
+
+  test("the top rows of the 1-Year and Single Seasons boards are the same two rows", async ({
+    page,
+  }) => {
+    // The claim the copy now makes, verified against what actually renders. If
+    // these ever diverge, either the copy is wrong or one artifact is stale.
+    await gotoRankings(page);
+    const firstTwo = async () =>
+      (await page.getByTestId("rankings-row").allInnerTexts()).slice(0, 2);
+
+    const peaks = await firstTwo();
+    await page.locator('[data-testid="pool-tab-seasons"]').click();
+    await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
+    const seasons = await firstTwo();
+
+    for (const [i, text] of peaks.entries()) {
+      const name = text.split("\n").find((line) => /[A-Za-z]{3}/.test(line)) ?? text;
+      expect(seasons[i]).toContain(name.trim());
+    }
+  });
+});
+
+test.describe("Rankings — provenance", () => {
+  test("states the model, the coverage and the data release in readable text", async ({
+    page,
+  }) => {
+    await gotoRankings(page);
+    const provenance = page.getByTestId("rankings-provenance");
+    await expect(provenance).toBeVisible();
+
+    // The one fact that determines whether two scores are comparable at all.
+    await expect(page.getByTestId("rankings-model-version")).toHaveText(/PEAK3 v1/);
+    // Data-through season, seasons covered, and the release identifier.
+    await expect(provenance).toContainText(/data through/i);
+    await expect(provenance).toContainText(/2025-26/);
+    await expect(provenance).toContainText(/1979-80/);
+    await expect(provenance).toContainText(/top_1000_peaks/);
+    // The full weights identity, verbatim from the model.
+    await expect(provenance).toContainText("peak3_official_weights_v1");
+  });
+
+  test("the serving gate is stated legibly, not as 10px grey filler", async ({ page }) => {
+    await gotoRankings(page);
+    const gate = page.getByTestId("rankings-serving-gate");
+    await expect(gate).toBeVisible();
+    await expect(gate).toContainText(/25\.0 minutes per game/i);
+    await expect(gate).toContainText(/leaves out/i);
+
+    // The regression this guards: it used to render at 10px in --text-muted,
+    // which is why a filter excluding 722 windows went unnoticed. Anything
+    // below 12px is not a note, it is a disclaimer nobody reads.
+    const fontSize = await gate.evaluate((el) =>
+      parseFloat(getComputedStyle(el).fontSize),
+    );
+    expect(fontSize).toBeGreaterThanOrEqual(12);
+  });
+
+  test("links to the methodology rather than restating it", async ({ page }) => {
+    await gotoRankings(page);
+    const link = page
+      .getByTestId("rankings-provenance")
+      .getByRole("link", { name: /how the score is built/i });
+    await expect(link).toHaveAttribute("href", "/methodology");
+  });
+
+  test("provenance survives a board switch and keeps naming the same model", async ({ page }) => {
+    // A stale-cache symptom would show here first: the seasons board is a
+    // different artifact served by a different route, and both must report v1.
+    await gotoRankings(page);
+    await expect(page.getByTestId("rankings-model-version")).toHaveText(/PEAK3 v1/);
+
+    await page.locator('[data-testid="pool-tab-seasons"]').click();
+    await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
+    await expect(page.getByTestId("rankings-model-version")).toHaveText(/PEAK3 v1/);
+    await expect(page.getByTestId("rankings-provenance")).toContainText(/top_1000_seasons/);
+  });
+
+  test("@mobile the provenance panel does not overflow the page", async ({ page }) => {
+    await gotoRankings(page);
+    await expect(page.getByTestId("rankings-provenance")).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(1);
+  });
+});

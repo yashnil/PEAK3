@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import { getLeaderboard, getMyRuns } from "@/lib/perfect-season-api";
@@ -39,6 +40,12 @@ function bestOf(runs: PerfectSeasonRunPublic[]): PerfectSeasonRunPublic | null {
  */
 export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, onPlayAgain, busy }: Props) {
   const { user } = useAuth();
+  // Carry the current page as ?returnTo= so signing in from a result screen
+  // comes back here instead of dropping the player on the homepage. The
+  // sign-in page re-validates it with safeNext(), so an attacker-supplied
+  // value cannot turn this into an open redirect.
+  const pathname = usePathname();
+  const signInHref = `/signin?returnTo=${encodeURIComponent(pathname || "/")}`;
   const [leaderboardEnabled, setLeaderboardEnabled] = useState<boolean | null>(null);
   const [personalBest, setPersonalBest] = useState<PerfectSeasonRunPublic | null | "loading">("loading");
 
@@ -108,7 +115,7 @@ export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, on
         <div data-testid="play-again-signin-prompt" className="flex items-center justify-between gap-3">
           <span style={{ color: "var(--text-secondary)" }}>Sign in to save your best run and track it here.</span>
           <a
-            href="/signin"
+            href={signInHref}
             className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
             style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
           >

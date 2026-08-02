@@ -190,3 +190,33 @@ class PostgresPerfectSeasonSavedRunRepository:
                 owner_sub, challenge_date, mode,
             )
             return int(row["n"]) if row else 0
+
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Reassign this owner's saved runs to `to_sub` -- the guest-claim path.
+
+        The only write to `owner_sub` in this file, and not a break in the
+        table's immutability: it changes WHO a run belongs to, never WHAT the
+        run was. Moves what `UNIQUE (owner_sub, game_id)` allows and sweeps the
+        rest, in one transaction -- the same shape as
+        PostgresDailyCompletionRepository.transfer_owner.
+        """
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                result = await conn.execute(
+                    """
+                    UPDATE perfect_season_saved_runs AS s
+                       SET owner_sub = $2
+                     WHERE s.owner_sub = $1
+                       AND NOT EXISTS (
+                            SELECT 1 FROM perfect_season_saved_runs AS existing
+                             WHERE existing.owner_sub = $2
+                               AND existing.game_id = s.game_id
+                       )
+                    """,
+                    from_sub, to_sub,
+                )
+                moved = int(result.split()[-1])
+                await conn.execute(
+                    "DELETE FROM perfect_season_saved_runs WHERE owner_sub = $1", from_sub
+                )
+        return moved

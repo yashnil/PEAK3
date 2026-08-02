@@ -69,5 +69,16 @@ class MemoryPerfectSeasonLeaderboardRepository:
         rows.sort(key=lambda r: r.created_at, reverse=True)
         return rows
 
+    async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
+        """Mirror of the Postgres transfer -- ownership only, never
+        display_name (see the protocol's docstring)."""
+        async with self._lock:
+            moved = 0
+            for run in self._runs.values():
+                if run.owner_sub == from_sub:
+                    run.owner_sub = to_sub
+                    moved += 1
+            return moved
+
 
 encode_leaderboard_cursor = _encode_cursor
