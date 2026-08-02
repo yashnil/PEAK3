@@ -38,7 +38,7 @@ import {
 import RankingsProvenance from "@/components/rankings/RankingsProvenance";
 import type { RankingBoardId, RankingBoardMeta } from "@/types";
 
-const WINDOWS: PeakWindowId[] = ["1y", "3y", "5y"];
+const WINDOWS: PeakWindowId[] = ["1y", "2y", "3y", "5y"];
 const BOARDS: RankingBoardId[] = ["peakWindows", "seasons"];
 
 /** Every string a reader can see from these helpers, in every combination. */

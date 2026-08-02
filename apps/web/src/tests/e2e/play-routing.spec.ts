@@ -636,7 +636,7 @@ test.describe("Rankings 1Y/3Y/5Y is a separate feature and survives", () => {
     // Explicit guard against over-applying this cleanup. Removing the 1Y/3Y/5Y
     // GAME modes must not touch the 1Y/3Y/5Y analytics windows.
     await page.goto("/rankings", { waitUntil: "load" });
-    for (const id of ["1y", "3y", "5y"]) {
+    for (const id of ["1y", "2y", "3y", "5y"]) {
       await expect(page.locator(`[data-testid="peak-window-tab-${id}"]`)).toBeVisible({
         timeout: 15_000,
       });

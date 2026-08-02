@@ -100,7 +100,7 @@ test.describe("Rankings — two boards", () => {
 
   test("Peak Windows keeps a 1Y/3Y/5Y duration selector", async ({ page }) => {
     await gotoRankings(page);
-    for (const id of ["1y", "3y", "5y"]) {
+    for (const id of ["1y", "2y", "3y", "5y"]) {
       await expect(page.locator(`[data-testid="peak-window-tab-${id}"]`)).toBeVisible();
     }
     await page.locator('[data-testid="peak-window-tab-3y"]').click();
