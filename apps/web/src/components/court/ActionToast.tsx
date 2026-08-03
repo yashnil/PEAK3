@@ -34,6 +34,9 @@ export default function ActionToast({ message, actionLabel, onAction, onDismiss 
       }}
     >
       <span>{message}</span>
+      {/* Launch-polish LP2-1: the floating toast has no card-height
+          constraint the way a roster slot does, so the 44x44 floor is met
+          by growing the real buttons directly. */}
       <button
         type="button"
         data-testid="court-action-toast-action"
@@ -41,7 +44,7 @@ export default function ActionToast({ message, actionLabel, onAction, onDismiss 
           onAction();
           onDismiss();
         }}
-        className="rounded-full px-3 py-1.5 font-bold uppercase tracking-wide focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full px-3 font-bold uppercase tracking-wide focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
         style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
       >
         {actionLabel}
@@ -51,7 +54,7 @@ export default function ActionToast({ message, actionLabel, onAction, onDismiss 
         data-testid="court-action-toast-dismiss"
         onClick={onDismiss}
         aria-label="Dismiss"
-        className="px-1 text-sm leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+        className="flex min-h-[44px] min-w-[44px] items-center justify-center text-sm leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
         style={{ color: "var(--text-muted)" }}
       >
         ×

@@ -240,23 +240,36 @@ export default function PeakCardCourt({
                 allowed, and only when this card ISN'T the one being moved
                 (see onSwapTarget's branch below). */}
             {onMove && (
-              // Launch-polish §5, gap 4: was `px-1.5 py-0.5` at a 9px font --
-              // well under the ~44px touch-target guidance despite being the
-              // ONLY way into rearrange mode. Grown to a ~32px tap target;
-              // not the full 44px -- this card is only `min-h-[72px]` and
-              // already carries a name, a team/season line and a fit badge,
-              // so a literal 44px button would overwhelm it -- but a real,
-              // deliberate improvement over the original pill rather than a
-              // token nudge.
+              // Launch-polish LP2-1: a 32px VISIBLE button was rejected --
+              // the project's 44px minimum applies to the INTERACTIVE HIT
+              // AREA, not the paint, and 32px is 32px regardless of how the
+              // deviation was justified last round. This card is only
+              // `min-h-[72px]` and already carries a name, a team/season
+              // line and a fit badge, so growing the PILL itself to 44px
+              // tall would visually dominate it the way the original
+              // rejection was worried about -- so the outer `<button>` (the
+              // real hit target: it's what `getBoundingClientRect()`,
+              // keyboard focus and screen readers all act on) is sized to
+              // the full 44x44 floor via `minWidth`/`minHeight`, and the
+              // small pill that actually paints is a separate, `aria-hidden`
+              // inner `<span>` centered inside it. The card is free to grow
+              // by the few extra invisible pixels this needs; nothing new
+              // is drawn.
               <button
                 type="button"
                 data-testid="slot-move-btn"
                 onClick={onMove}
-                className="mt-1.5 min-h-[32px] rounded px-3 py-2 text-[10px] font-semibold uppercase tracking-wide"
-                style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+                className="mt-1.5 -mb-1 flex items-center justify-center"
+                style={{ minWidth: 44, minHeight: 44 }}
                 aria-label={`Move ${slot.player_name ?? "player"} out of ${SLOT_LABELS[slot.slot_type]}`}
               >
-                Move
+                <span
+                  aria-hidden="true"
+                  className="rounded px-3 py-2 text-[10px] font-semibold uppercase tracking-wide"
+                  style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+                >
+                  Move
+                </span>
               </button>
             )}
           </div>
