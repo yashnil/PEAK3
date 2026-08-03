@@ -25,9 +25,9 @@ Status legend: `PASS` · `FAIL` · `NOT RUN` (+ reason) · `BLOCKED` (+ blocker)
 
 | Check | Command | Baseline | After | Status |
 | --- | --- | --- | --- | --- |
-| Model tests | `scripts/ci/model-tests.sh` | | | |
-| FastAPI unit | `scripts/ci/api-unit-tests.sh` | | | |
-| PostgreSQL-backed integration | `scripts/ci/api-integration-tests.sh` | | | |
+| Model tests | `scripts/ci/model-tests.sh` | 939 pass / 9 skip / 1 xfail / 0 fail | | |
+| FastAPI unit | `scripts/ci/api-unit-tests.sh` | 1198 pass / 2 skip / 5 desel / 0 fail | | |
+| PostgreSQL-backed integration | `scripts/ci/api-integration-tests.sh` | NOT RUN (needs real Postgres/Supabase test project) | | |
 | Supabase RLS / ownership | integration suite | | | |
 | Leaderboard submission | new tests | | | |
 | Leaderboard read + pagination | new tests | | | |
@@ -42,10 +42,10 @@ Status legend: `PASS` · `FAIL` · `NOT RUN` (+ reason) · `BLOCKED` (+ blocker)
 
 | Check | Command | Baseline | After | Status |
 | --- | --- | --- | --- | --- |
-| Typecheck | `scripts/ci/frontend-verify.sh` | | | |
-| Lint, zero warnings | `scripts/ci/frontend-verify.sh` | | | |
-| Unit tests (vitest) | `scripts/ci/frontend-verify.sh` | 342 RTT-owned passing | | |
-| Production build | `scripts/ci/frontend-verify.sh` | | | |
+| Typecheck | `scripts/ci/frontend-verify.sh` | clean | | |
+| Lint, zero warnings | `scripts/ci/frontend-verify.sh` | 0 warnings | | |
+| Unit tests (vitest) | `scripts/ci/frontend-verify.sh` | 1258 / 1258 across 47 files (342 RTT-owned) | | |
+| Production build | `scripts/ci/frontend-verify.sh` | fails as-scripted on deploy-safety env guard; passes with real HTTPS API URL | | |
 | Playwright full suite, **zero retries** | `scripts/ci/e2e-tests.sh` | | | |
 | axe accessibility | e2e suite | | | |
 | Keyboard path through every cinematic | e2e suite | | | |
