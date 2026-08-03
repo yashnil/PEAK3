@@ -40,7 +40,7 @@ export function XpProgress({ level, compact = false }: Props) {
         }}
       >
         <div
-          className="h-full rounded-full transition-all duration-500"
+          className="h-full rounded-full transition-[width] duration-500"
           style={{
             width: `${pct}%`,
             background: "var(--peak-accent)",

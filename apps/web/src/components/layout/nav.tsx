@@ -56,6 +56,7 @@ import { useAuth } from "@/lib/auth-context";
 import { isActive, topLevelLinks } from "@/lib/nav-model";
 import { AccountMenu } from "@/components/auth/AccountMenu";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { useAccountThemeSync } from "@/lib/theme";
 import { PlayMenu } from "./PlayMenu";
 import { MobileNavDrawer } from "./MobileNavDrawer";
 
@@ -74,6 +75,14 @@ export function Nav() {
   const search = useLocationSearch(pathname);
   const { user, supabaseEnabled } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Pulls the account's saved theme preference onto this device once per
+  // sign-in (launch-polish IMPLEMENTATION_CONTRACT.md §2). Lives here
+  // rather than inside `AccountMenu` because that component's wrapping
+  // `<nav>` is `hidden sm:flex` -- it never mounts on a narrow viewport,
+  // where `MobileNavDrawer` takes over instead. `Nav()` itself renders on
+  // every viewport, so this is the one guaranteed mount point. A no-op
+  // while signed out.
+  useAccountThemeSync(Boolean(user));
 
   // Arriving somewhere closes the menu that took you there.
   useEffect(() => {

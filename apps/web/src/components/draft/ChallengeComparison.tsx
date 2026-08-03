@@ -321,7 +321,7 @@ export default function ChallengeComparison({
       <div className="flex flex-col gap-2">
         <Link
           href="/arena/daily"
-          className="block w-full text-center py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+          className="block w-full text-center py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
           style={{
             background: "var(--peak-accent)",
             color: "var(--text-inverse)",
@@ -333,7 +333,7 @@ export default function ChallengeComparison({
         {onPlayAgain && (
           <button
             onClick={onPlayAgain}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-80"
+            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
             style={{
               background: "var(--bg-elevated)",
               border: "1px solid var(--border-default)",
@@ -347,7 +347,7 @@ export default function ChallengeComparison({
         {challengeUrl && (
           <button
             onClick={handleShareResult}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-80"
+            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
             style={{
               background: "var(--bg-elevated)",
               border: "1px solid var(--border-default)",

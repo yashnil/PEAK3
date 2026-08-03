@@ -49,7 +49,7 @@ export default function DNABar({ dna, label }: Props) {
               style={{ background: "var(--border-subtle)" }}
             >
               <div
-                className="h-1.5 rounded-full transition-all duration-500"
+                className="h-1.5 rounded-full transition-[width] duration-500"
                 style={{ width: `${Math.min(100, val)}%`, background: color }}
               />
             </div>

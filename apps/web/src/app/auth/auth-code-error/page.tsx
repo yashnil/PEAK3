@@ -96,7 +96,7 @@ function AuthErrorContent() {
       <Link
         href={signInHref(next)}
         data-testid="auth-error-retry"
-        className="block w-full py-2.5 rounded-lg text-sm font-semibold text-center transition-all hover:opacity-90"
+        className="block w-full py-2.5 rounded-lg text-sm font-semibold text-center transition-opacity hover:opacity-90"
         style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
       >
         Try signing in again

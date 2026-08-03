@@ -117,7 +117,7 @@ export function MagicLinkForm({ next, label = "Email me a sign-in link" }: Magic
         type="submit"
         disabled={pending}
         data-testid="magic-link-submit"
-        className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-60"
+        className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60"
         style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
       >
         {pending ? "Sending…" : label}

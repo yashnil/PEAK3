@@ -34,7 +34,8 @@
  * blocking script.
  */
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { getAccessToken } from "./auth";
 import {
   isThemePreference,
   LIGHT_QUERY,
@@ -49,15 +50,23 @@ import {
 export type { ResolvedTheme, ThemePreference };
 export { THEME_STORAGE_KEY, themeInitScript };
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 function readStoredPreference(): ThemePreference {
-  if (typeof window === "undefined") return "system";
+  // Launch-polish IMPLEMENTATION_CONTRACT.md §2: new and signed-out users
+  // default to Dark, not System. `isThemePreference` still accepts an
+  // EXPLICITLY stored "system" (a user who chose it keeps following the
+  // OS) -- only the no-preference-at-all fallback changed, here and in
+  // `theme-script.ts`'s inline script, which must agree or the blocking
+  // pre-paint script and this resolver would disagree and flash.
+  if (typeof window === "undefined") return "dark";
   try {
     const raw = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return isThemePreference(raw) ? raw : "system";
+    return isThemePreference(raw) ? raw : "dark";
   } catch {
     // Storage blocked (private mode, disabled cookies) — behave as if no
     // preference was ever stored, exactly like `run-the-table-state.ts`.
-    return "system";
+    return "dark";
   }
 }
 
@@ -130,11 +139,11 @@ function subscribe(listener: Listener): () => void {
 
 function getPreferenceSnapshot(): ThemePreference {
   ensureInitialized();
-  return currentPreference ?? "system";
+  return currentPreference ?? "dark";
 }
 
 function getPreferenceServerSnapshot(): ThemePreference {
-  return "system";
+  return "dark";
 }
 
 function getResolvedSnapshot(): ResolvedTheme {
@@ -144,6 +153,71 @@ function getResolvedSnapshot(): ResolvedTheme {
 /** Never used for anything color-critical — see the module docstring. */
 function getResolvedServerSnapshot(): ResolvedTheme {
   return "dark";
+}
+
+/* ------------------------------------------------------------------ */
+/* Account sync (launch-polish IMPLEMENTATION_CONTRACT.md §2)          */
+/* ------------------------------------------------------------------ */
+//
+// "Apply to documentElement synchronously, persist locally immediately,
+// save to the account asynchronously in the background, and a failed
+// account save must never revert the visible theme." The first three
+// already happen, synchronously, in `setThemePreference` below, before
+// this is ever called — this function ONLY talks to the network, never
+// touches the DOM or localStorage, so there is nothing for a failure here
+// to revert.
+//
+// `theme_preference` is not a field `PUT /api/v1/profiles/me/settings`
+// accepts yet — that endpoint is `apps/api/**`, identity-community's
+// file, not this pass's to add. Until it exists server-side this call is
+// a harmless no-op (FastAPI/pydantic silently drops unknown request
+// fields by default; a 4xx/5xx or a network failure is swallowed the same
+// way) — ready to start actually persisting the moment the field ships,
+// with no client-side change required.
+
+/** Fire-and-forget. Never throws, never touches the visible theme. */
+function saveThemePreferenceToAccount(preference: ThemePreference): void {
+  if (typeof window === "undefined") return;
+  void (async () => {
+    try {
+      const token = await getAccessToken();
+      if (!token) return; // signed out / no Supabase project configured
+      await fetch(`${API_BASE}/api/v1/profiles/me/settings`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ theme_preference: preference }),
+      });
+    } catch {
+      // Network error, expired session mid-flight, endpoint not deployed
+      // yet -- all silently ignored, by design (see banner above).
+    }
+  })();
+}
+
+/**
+ * Reads the signed-in user's saved preference back, for reconciling a new
+ * device/browser against the account rather than the account against a
+ * fresh device's empty localStorage. Returns `null` on ANY failure
+ * (including "the field does not exist in the response yet"), which
+ * callers treat identically to "the account has no saved preference".
+ */
+async function fetchAccountThemePreference(): Promise<ThemePreference | null> {
+  try {
+    const token = await getAccessToken();
+    if (!token) return null;
+    const res = await fetch(`${API_BASE}/api/v1/profiles/me/settings`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const body: unknown = await res.json();
+    const value = (body as { theme_preference?: unknown } | null)?.theme_preference;
+    return isThemePreference(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -163,6 +237,38 @@ export function setThemePreference(preference: ThemePreference): void {
   }
   applyResolvedTheme(resolveTheme(preference));
   notify();
+  // Everything visible/persisted-locally is already done by this point --
+  // the account save is genuinely a fire-and-forget afterthought, per the
+  // contract's "never revert the visible theme" rule.
+  saveThemePreferenceToAccount(preference);
+}
+
+/**
+ * Mount once for a signed-in session (the account menu does this) to pull
+ * the account's saved preference onto a fresh device/browser. A no-op
+ * while signed out, and a no-op if the account has never saved one (the
+ * common case until identity-community ships the field — see the banner
+ * above `saveThemePreferenceToAccount`). Runs once per sign-in, not on
+ * every render.
+ */
+export function useAccountThemeSync(signedIn: boolean): void {
+  const syncedForThisSession = useRef(false);
+  useEffect(() => {
+    if (!signedIn) {
+      syncedForThisSession.current = false;
+      return;
+    }
+    if (syncedForThisSession.current) return;
+    syncedForThisSession.current = true;
+    let cancelled = false;
+    fetchAccountThemePreference().then((accountPreference) => {
+      if (cancelled || accountPreference === null) return;
+      setThemePreference(accountPreference);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [signedIn]);
 }
 
 /** `"system"` | `"dark"` | `"light"` — the stored/explicit preference. */
