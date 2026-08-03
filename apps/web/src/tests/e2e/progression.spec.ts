@@ -159,16 +159,20 @@ test.describe("Navigation", () => {
   test("arena landing renders correctly", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.locator("h1")).toBeVisible({ timeout: 8_000 });
-    // The primary CTA opens the in-place run launcher rather than linking
-    // straight at the flagship: it used to be a link labelled "Start a Run"
-    // that landed on a start gate whose own button also said "Start a run".
-    // It is now a disclosure button that names the choice it is about to make.
-    // See gameplay.spec.ts's "Arena landing" describe block and
-    // play-routing.spec.ts for the full click-through routing tests.
+    // Launch-polish §I: the primary CTA is a plain LINK straight into a
+    // standard run. It was briefly a disclosure button, back when the launcher
+    // offered several starting choices; with one meaningful public mode, a
+    // click whose only result is a menu to click again bought nothing.
+    //
+    // Asserted as "routes into the game" rather than "has no popup", so this
+    // tests the PROPERTY the landing page owes a player instead of pinning
+    // whichever mechanism currently implements it. Pinning the mechanism is
+    // what made the previous assertion stale.
+    // See gameplay.spec.ts's "Arena landing" block and play-routing.spec.ts
+    // for the full click-through routing tests.
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible({ timeout: 5_000 });
-    await expect(cta).toHaveAttribute("aria-haspopup", "menu");
-    await expect(cta).toHaveAttribute("aria-expanded", "false");
+    await expect(cta).toHaveAttribute("href", /\/arena\/run-the-table/);
   });
 });
 
