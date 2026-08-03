@@ -388,6 +388,22 @@ export interface CourtLineupPublicState {
   // Phase 9A: server-computed leaderboard eligibility -- the same helper the
   // /submit route enforces, so the UI can never disagree with it.
   eligibility?: RunEligibility | null;
+  // Launch-polish LP2-2: optimistic-concurrency counter, bumped by exactly 1
+  // on every state-mutating action (state.py::_touch). Echoed back as
+  // `expected_state_version` on an undo request -- never computed or
+  // incremented client-side.
+  state_version: number;
+  // Whether POST .../undo would currently succeed, computed the same way the
+  // action itself validates -- this can never claim Undo is available when
+  // the server would actually reject it. No slot identity is exposed; the
+  // client sends only the intent to undo, never a reconstructed reversal.
+  undo: UndoAvailability;
+}
+
+export interface UndoAvailability {
+  available: boolean;
+  kind: "place" | "swap" | null;
+  expires_at: string | null;
 }
 
 /**
@@ -395,10 +411,15 @@ export interface CourtLineupPublicState {
  *
  * Mirrors `SharedCourtResultResponse` in apps/api/app/models/perfect_season.py
  * and, through it, `SHARED_RESULT_WITHHELD_KEYS` in the state machine. The
- * four omitted keys are the live-board ones (`current_spin`,
- * `pending_selection`, `live_build`) plus the debug trail; `eligibility` stays
- * in the type because it is already optional and the read-only scorecard has
- * to compile against a state that simply does not carry it.
+ * live-board keys (`current_spin`, `pending_selection`, `live_build`) plus
+ * the debug trail are omitted from the Python model's own field list, so
+ * `model_config = {"extra": "ignore"}` drops them from the response even
+ * though `get_shared_result_state` never explicitly strips them; the same is
+ * true of `state_version`/`undo` (LP2-2) -- a finished, shared result has no
+ * action left to take on it, so there is nothing to stay in sync with or
+ * undo. `eligibility` stays in the type because it is already optional and
+ * the read-only scorecard has to compile against a state that simply does
+ * not carry it.
  *
  * A full `CourtLineupPublicState` is structurally assignable to this, so the
  * components below take the NARROW type and serve both the owner's live
@@ -406,7 +427,7 @@ export interface CourtLineupPublicState {
  */
 export type SharedCourtResult = Omit<
   CourtLineupPublicState,
-  "current_spin" | "pending_selection" | "live_build" | "respin_policy_debug"
+  "current_spin" | "pending_selection" | "live_build" | "respin_policy_debug" | "state_version" | "undo"
 >;
 
 // Duration-aware coverage audit of the interim dataset -- see

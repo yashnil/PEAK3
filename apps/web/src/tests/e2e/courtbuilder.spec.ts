@@ -1298,6 +1298,31 @@ test.describe("CourtBuilder mobile", () => {
     const viewportWidth = await page.evaluate(() => window.innerWidth);
     expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 4);
   });
+
+  // Launch-polish LP2-2. Runs only against the `mobile-chrome` project
+  // (Pixel 5, real touch input -- see playwright.config.ts's `@mobile`
+  // grep), so `.tap()` here is a genuine touch activation, not a mouse
+  // click on a resized desktop viewport.
+  test("@mobile Undo is reachable and activatable by a real tap", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await startCourtBuilder(page);
+    await playOneRound(page);
+
+    const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
+    expect(filledBefore).toBe(1);
+
+    const toast = page.locator('[data-testid="court-action-toast"]');
+    await expect(toast).toBeVisible();
+    const undoBtn = page.locator('[data-testid="court-action-toast-action"]');
+    await expect(undoBtn).toHaveText(/Undo/i);
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/undo") && r.status() === 200),
+      undoBtn.tap(),
+    ]);
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(0);
+    await expect(toast).toHaveCount(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1757,13 +1782,18 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
     await expect(confirmBanner).toHaveCount(0);
 
-    // The Undo toast follows the swap it just confirmed, and reversing it
-    // is the swap's own exact inverse (state.py::action_swap_slots).
+    // The Undo toast follows the swap it just confirmed. Launch-polish
+    // LP2-2: reversing it now goes through the authoritative
+    // POST .../undo (state.py::action_undo_last_placement), not a second
+    // call to /swap-slots with the arguments reversed -- the server, not
+    // this client, decides what "the last thing" was and whether it is
+    // still valid to reverse.
     const toast = page.locator('[data-testid="court-action-toast"]');
     await expect(toast).toBeVisible();
     await expect(toast).toContainText(/Swapped/i);
+    await expect(page.locator('[data-testid="court-action-toast-action"]')).toHaveText(/Undo/i);
     await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/swap-slots") && r.status() === 200),
+      page.waitForResponse((r) => r.url().includes("/undo") && r.status() === 200),
       page.locator('[data-testid="court-action-toast-action"]').click(),
     ]);
     await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(filledBefore);
@@ -1794,6 +1824,40 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     const toast = page.locator('[data-testid="court-action-toast"]');
     await expect(toast).toBeVisible();
     await expect(toast).toContainText(/Moved/i);
+    await expect(page.locator('[data-testid="court-action-toast-action"]')).toHaveText(/Undo/i);
+  });
+
+  // Launch-polish LP2-2: the Undo toast is a real `<button>` (ActionToast.tsx),
+  // so keyboard support needs no bespoke handling to verify -- this proves
+  // that promise rather than assuming it. Reverses a plain PLACEMENT (not a
+  // swap): `action_undo_last_placement`'s two branches (_reverse_place /
+  // _reverse_swap) are exercised by different tests here and in the swap
+  // test above, and this is the one that covers the place branch by
+  // keyboard.
+  test("Undo is reachable and activatable by keyboard, not pointer-only", async ({ page }) => {
+    await startCourtBuilder(page);
+    await playOneRound(page);
+
+    const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
+    expect(filledBefore).toBe(1);
+
+    const toast = page.locator('[data-testid="court-action-toast"]');
+    await expect(toast).toBeVisible();
+    const undoBtn = page.locator('[data-testid="court-action-toast-action"]');
+    await expect(undoBtn).toHaveText(/Undo/i);
+
+    await undoBtn.focus();
+    await expect(undoBtn).toBeFocused();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/undo") && r.status() === 200),
+      page.keyboard.press("Enter"),
+    ]);
+
+    // The placement is genuinely reversed -- not a jump into rearrange mode
+    // (that shortcut is gone; see the comment on `handlePlace` in
+    // CourtBuilder.tsx) -- so the slot empties and the toast itself clears.
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(0);
+    await expect(toast).toHaveCount(0);
   });
 
   test("rearranging can be cancelled with the cancel button and with Escape", async ({ page }) => {
@@ -1889,13 +1953,13 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
       timeout: 10_000,
     });
 
-    // Placing surfaces its own toast -- honestly labeled "Move" (not
-    // "Undo"): there is no backend action that un-places a card, so this is
-    // a fast-path shortcut into rearrange mode, not a claimed reversal.
+    // Placing surfaces its own toast with a REAL Undo (LP2-2:
+    // state.py::action_undo_last_placement reverses a placement exactly,
+    // not a fast-path shortcut into rearrange mode).
     const toast = page.locator('[data-testid="court-action-toast"]');
     await expect(toast).toBeVisible();
     await expect(toast).toContainText(/Placed/i);
-    await expect(page.locator('[data-testid="court-action-toast-action"]')).toHaveText(/Move/i);
+    await expect(page.locator('[data-testid="court-action-toast-action"]')).toHaveText(/Undo/i);
   });
 });
 

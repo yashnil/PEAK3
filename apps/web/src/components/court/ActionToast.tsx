@@ -8,11 +8,14 @@ interface Props {
 }
 
 /**
- * Launch-polish §5, gap 2: neither `handlePlace` nor `handleSwap` left any
- * trace behind once they succeeded -- no confirmation the move happened, and
- * no way back short of repeating the whole two-click flow by hand. This is
- * that trace: a compact, auto-dismissing strip naming what just happened,
- * with one action that reverses or redirects it.
+ * Launch-polish §5 gap 2 / LP2-2: neither `handlePlace` nor `performSwap`
+ * left any trace behind once they succeeded -- no confirmation the move
+ * happened, and no way back short of repeating the whole two-click flow by
+ * hand. This is that trace: a compact, auto-dismissing strip naming what
+ * just happened, with one action that REVERSES it for real
+ * (state.py::action_undo_last_placement) -- LP2-2 replaced the original
+ * "Move" label, which honestly described a shortcut into rearrange mode
+ * rather than an actual reversal, once the backend gained a real inverse.
  *
  * `role="status"` (not `alert`) -- this reports something that already
  * succeeded, not an error demanding attention. `position: fixed` at the
