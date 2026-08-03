@@ -391,7 +391,7 @@ export default async function HomePage() {
                 >
                   <p
                     className="score-number text-lg font-bold"
-                    style={{ color: c.color, fontVariantNumeric: "tabular-nums" }}
+                    style={{ color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}
                   >
                     {c.pct}
                   </p>
@@ -401,6 +401,16 @@ export default async function HomePage() {
                 </li>
               ))}
             </ul>
+            {/* `c.color` (the frozen `--comp-*` identity hue) marks each
+                component via the card's top-border accent above, not as
+                text: the raw comp-* hexes measured 1.8-2.6:1 against
+                Arena Day's light card surface — below even the 3:1 large-
+                text floor for four of the five. `--text-primary` for the
+                number keeps every card readable in both themes; the color
+                identity is still fully legible in the border swatch,
+                exactly what PRODUCT_EXPERIENCE_CONTRACT.md §9 asks for
+                ("same hex, different deployment," never a re-invented
+                value). */}
 
             <p className="mt-3 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
               Every card is rated by this five-component, open-weight formula applied to
@@ -473,7 +483,7 @@ export default async function HomePage() {
               <Link
                 href="/signup"
                 className="rounded-lg px-4 py-2.5 text-center text-sm font-semibold"
-                style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+                style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
                 data-testid="home-create-account"
               >
                 Create an account

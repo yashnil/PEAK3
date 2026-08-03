@@ -213,7 +213,7 @@ export default function RankingsPage() {
                   className="text-xs font-semibold uppercase tracking-wide rounded-lg px-3.5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                   style={
                     active
-                      ? { background: "var(--peak-accent, #f5c842)", color: "#000" }
+                      ? { background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }
                       : { background: "transparent", color: "var(--text-secondary)" }
                   }
                 >
@@ -316,7 +316,7 @@ export default function RankingsPage() {
             role="alert"
             data-testid="rankings-error"
             className="rounded-lg p-4 text-sm text-center"
-            style={{ background: "var(--bg-surface)", color: "#ef4444" }}
+            style={{ background: "var(--bg-surface)", color: "var(--incorrect)" }}
           >
             {error}
           </div>

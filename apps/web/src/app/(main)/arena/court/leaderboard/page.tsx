@@ -58,7 +58,7 @@ export default function CourtLeaderboardPage() {
             className="text-xs font-semibold uppercase tracking-wide rounded-full px-3 py-1.5"
             style={
               m === mode
-                ? { background: "var(--peak-accent, #f5c842)", color: "#000" }
+                ? { background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }
                 : { background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }
             }
           >

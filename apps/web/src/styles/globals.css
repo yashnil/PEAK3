@@ -81,6 +81,98 @@
 }
 
 /* ================================================================
+   === THEME: Arena Day / Press Box (ADDITIVE — P3-G) ===
+   ================================================================
+   The block above this banner is unscoped `:root` and is now ALSO
+   "Arena Night," the dark theme — not one property in it changed
+   value, renamed, or was removed (SYNTHESIS_CONTRACT.md §3 / the
+   token contract in UX_ORGANIZATION_POLISH_PLAN.md §3.1 permits
+   exactly this: additive light values only).
+
+   `[data-theme="light"]` on `<html>` is set by a blocking inline
+   script before first paint (see `app/layout.tsx`) — no FOUC, no
+   hydration mismatch, because the attribute exists before React ever
+   runs. `useResolvedTheme()` / `<ThemeToggle>` in
+   `src/lib/theme.ts` / `src/components/ui/ThemeToggle.tsx` are the
+   only things that ever change it after that.
+
+   NOT an inverted palette — a different structural read. Same three-
+   tier elevation stack (page < elevated < surface, ascending
+   lightness exactly like Arena Night's page < elevated < surface),
+   same identity accent. Warm-white/light-grey surfaces, deliberately
+   short of pure white (a pure-white surface reads as a clinical
+   admin tool, which is the one failure mode this pass exists to
+   avoid — see PRODUCT_EXPERIENCE_CONTRACT.md §9).
+
+   FROZEN ACROSS BOTH THEMES (CLAUDE.md "Component color tokens" +
+   the token contract): `--peak-accent` and every `--comp-*` keep
+   IDENTICAL hex values here — they are not repeated below because
+   they are not overridden. What changes between themes is how they
+   are DEPLOYED (glow-against-near-black in components vs. solid-
+   fill/underline on paper), which is a component-level styling
+   concern, not a token value.
+
+   `--text-inverse` is also not overridden: every existing usage pairs
+   it with a `background: var(--peak-accent)` fill, and dark text
+   reads correctly on that same gold in both themes, so there is
+   nothing for "inverse" to invert here.
+   ================================================================ */
+
+:root[data-theme="light"] {
+  /* Page backgrounds — ascending lightness, same as Arena Night's
+     structure, warm-grey to warm-paper rather than grey-to-white. */
+  --bg-page: #ece7dc;
+  --bg-elevated: #f4f0e6;
+  --bg-surface: #fbf8f2;
+  --bg-surface-hover: #f1ecdf;
+
+  /* Text — dark warm ink, never a flat #000 (avoids the "printer
+     toner" look pure black-on-white produces at body-text sizes).
+     `--text-muted` is measurably darker than a naive "just dim it"
+     guess would land at — #726c58 cleared only 4.26:1 against
+     `--bg-page` (below the 4.5:1 body-text floor); #655f4c clears
+     5.17:1+ against every surface tier. Measured, not assumed
+     (PRODUCT_EXPERIENCE_CONTRACT.md §10). */
+  --text-primary: #1a1712;
+  --text-secondary: #55503f;
+  --text-muted: #655f4c;
+  /* --text-inverse: intentionally not overridden — see banner above. */
+
+  /* Borders */
+  --border-subtle: #ddd6c4;
+  --border-default: #c9c0a8;
+  --border-emphasis: #a89c7c;
+
+  /* Focus ring — darkened for AA against the light surfaces below;
+     same hue family as Arena Night's, not a different color identity. */
+  --focus-ring: #3548d4;
+
+  /* Game states — `--correct`/`--incorrect` are OVERRIDDEN here (not
+     frozen: only `--peak-accent` and `--comp-*` are, per CLAUDE.md's
+     "Component color tokens" and the token contract). Arena Night's
+     values (#22c55e / #ef4444), measured against these new light
+     surfaces, land at 2.15:1 / 3.55:1 — both fail the 4.5:1 body-text
+     floor these tokens are used at (error/success messages), the
+     first badly enough to fail even the 3:1 large-text/UI floor.
+     These darker shades clear 4.5:1+ against every light surface
+     tier while staying recognizably "the same red/green." */
+  --correct: #0f6b32;
+  --correct-dim: #0a4d24;
+  --correct-bg: rgba(15, 107, 50, 0.10);
+  --incorrect: #c62828;
+  --incorrect-dim: #8e1c1c;
+  --incorrect-bg: rgba(198, 40, 40, 0.09);
+
+  /* Gold accent's soft wash, re-tuned the same way (the solid
+     `--peak-accent` hex itself is frozen — see banner above). */
+  --peak-accent-bg: rgba(245, 200, 66, 0.14);
+
+  /* Court geometry accent — a hair stronger than Arena Night's so the
+     court-line grid motif stays visible against a light surface. */
+  --court-line: rgba(180, 138, 20, 0.08);
+}
+
+/* ================================================================
    === PEAK3 --pk-* PRIMITIVE TOKENS (ADDITIVE — W7) ===
    ================================================================
    Added by the UX / Organization / Polish pass. STRICTLY ADDITIVE:
@@ -137,6 +229,11 @@
   --pk-dur-base: 200ms;
   --pk-dur-slow: 320ms;
   --pk-dur-slower: 480ms;
+  /* Added for the cinematic sequences (PRODUCT_EXPERIENCE_CONTRACT.md §8).
+     Extends the existing named scale rather than hardcoding new magic
+     numbers, per that section's own instruction. */
+  --pk-dur-reveal: 400ms;   /* opening-reveal "identity resolves" beat */
+  --pk-dur-count: 600ms;    /* opening-reveal "score counts up" beat */
 
   /* ---- Motion: easings (mirrored in src/lib/motion.ts) ---- */
   --pk-ease-standard: cubic-bezier(0.2, 0, 0, 1);
