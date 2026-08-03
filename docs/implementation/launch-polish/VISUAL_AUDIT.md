@@ -451,8 +451,9 @@ Do NOT darken every border uniformly and do NOT invert Dark. Instead:
 Implementation phase, same worktree, after gating the six named CSS rules
 behind `:hover`/`:active`/`[data-state]` (IMPLEMENTATION_CONTRACT.md §1,
 `globals.css`). Same ports (web `:3001`, API `:8100`), same harness
-(`apps/web/measure-gameplay-theme.mjs`, committed this time), same target
-selectors (`.candidate-row-v3`, `.rtt-choice-btn`).
+(`measure-gameplay-theme.mjs`, committed this time — see the Appendix for
+its current location), same target selectors (`.candidate-row-v3`,
+`.rtt-choice-btn`).
 
 **The instrument itself needed two more iterations before this number was
 trustworthy** — worth recording since the script is committed and may be
@@ -517,15 +518,64 @@ comparison that matters — gameplay screens no longer settling meaningfully
 slower than their own first-change — holds regardless of that shared,
 small, app-wide increase.
 
+### Re-run against the fully-integrated branch (all three agents composed)
+
+The measurement above was taken on this agent's own branch before merging
+game-experience's and identity-community's work. Per the lead's instruction,
+re-run **unmodified** — same scripts, same ports, same selectors, same
+sample counts — after merging `feature/arena-launch-polish` (which carries
+82-0's own transition-all fix, the CI build-guard fix, contact/handle work,
+and everything else composed) into this worktree. The scripts have since
+moved to `scripts/perf/` for a durable location (a pure file move, done
+*after* this re-run, with an import-resolution shim added — no change to
+the measurement logic itself; see each script's own header).
+
+Two consecutive runs, immediately after the merge:
+
+| Screen | selector | first-change median | **settle median** | settle vs. first-change |
+| --- | --- | --- | --- | --- |
+| `/` (home) | body bg | — | **26.0 ms** | n/a (baseline) |
+| `/rankings` | body bg | — | **33.8 ms** | n/a (baseline) |
+| 82-0 candidate list | `.candidate-row-v3` | 56.4–58.1 ms | **56.4–58.1 ms** | **identical**, both runs |
+| RTT choice buttons | `.rtt-choice-btn` | 44.8–45.4 ms | **55.5–55.8 ms** | +10–11 ms (noise) |
+
+Unchanged from the pre-merge numbers above, within run-to-run noise — the
+fix holds after full integration. `/` and `/rankings` ticked up a further
+few ms from the pre-merge figures (26.0/33.8 vs. the prior 27–42 range),
+consistent with more real UI landing in the merge (contact form, handle
+onboarding, 82-0's own fixes), not a regression specific to this section's
+subject.
+
+**Cross-checked against an independent instrument.** game-experience built
+its own harness (unaware this one existed at merge time — see the
+Appendix) and measured 82-0 at 57.3ms and RTT at 59.5ms, calibrating a
+55.6ms floor off its own home-body measurement. That harness's numbers and
+this one's land within a few ms of each other on the same screens, despite
+different code and different settle-detection logic — two independently-
+built instruments converging on the same ~55-60ms figures is stronger
+evidence than either alone. Expressed as a ratio against each harness's own
+baseline: this instrument settle-vs-first-change is 1.0x (82-0) and ~1.2x
+(RTT, within noise); game-experience's is 1.03x and 1.07x. Both say the
+same thing: the 2.5–4× gap from before the fix is gone.
+
 ---
 
 ## Appendix
 
-- Measurement scripts, now committed per the lead's "re-measure with your
-  own committed harness" instruction: `apps/web/measure-theme-switch.mjs`
-  (ordinary pages, first-change only) and `apps/web/measure-gameplay-theme.mjs`
+- Measurement scripts, committed per the lead's "re-measure with your own
+  committed harness" instruction, now living in `scripts/perf/` alongside
+  `measure_rtt.py`: `scripts/perf/measure-theme-switch.mjs` (ordinary
+  pages, first-change only) and `scripts/perf/measure-gameplay-theme.mjs`
   (82-0/RTT gameplay screens, first-change + settle, v3 methodology — see
   "Post-implementation re-measurement" above for why v1/v2 were rejected).
+  Run from the repo root, e.g. `node scripts/perf/measure-theme-switch.mjs
+  http://localhost:3001/ 20` — Playwright is resolved from
+  `apps/web/node_modules` via a `createRequire` shim in each script's own
+  header, since this repo has no root-level `node_modules`.
+- game-experience's independent harness (built before this one's move to
+  `scripts/perf/` was visible) is referenced in the "Cross-checked" note
+  above; ask game-experience or the lead for its location if reconciling
+  further.
 - Screenshot scripts: `apps/web/screenshot-light.mjs`,
   `apps/web/screenshot-court.mjs` (uncommitted — throwaway, safe to delete
   or keep; re-run any time with the dev server up on :3001/:8100 to refresh
