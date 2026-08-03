@@ -23,14 +23,17 @@ no manual URL substitution.
 
 ## Backend
 
-Running at time of writing — see the final report for totals.
+| Check | Result | Status |
+| --- | --- | --- |
+| `scripts/ci/api-unit-tests.sh` | **1278 passed**, 1 skipped, 5 deselected, **0 failed** | **PASS** |
+| `scripts/ci/model-tests.sh` | **955 passed**, 1 xfailed, **0 failed** | **PASS** |
 
 ## Regression guarantees
 
 | Check | Result | Status |
 | --- | --- | --- |
-| Canonical ranking hashes (5 CSVs) | pending final run | |
-| `peak3.py` diff | pending final run | |
+| Canonical ranking hashes (5 CSVs) | all 5 **identical** to `95a41cb` | **PASS** |
+| `peak3.py` + `leaderboards/` + `battle.py` diff | **empty** | **PASS** |
 | RTT battle outcomes untouched | no `nba_peak/run_the_table/battle.py` change in the pass diff | **PASS** |
 | Ranked configuration untouched | no ranked flag changed | **PASS** |
 | `transition-all` in production code | **0** (2 matches are comments explaining removal) | **PASS** |
@@ -72,7 +75,9 @@ two harnesses, one conclusion.
 | Handle uniqueness at the DB layer | game-experience | **PASS** — real Postgres, raw SQL, actual constraint violations |
 | No email or provider name on any leaderboard path | game-experience | **PASS** — traced end to end; zero `email` columns in any migration |
 | 82-0 placement and swapping | lead | **PASS**, one deviation recorded (see below) |
-| `auth_sub` column exposure | game-experience | pending re-verification |
+| `auth_sub` column exposure | game-experience | **PASS** — `SET ROLE anon`: `SELECT auth_sub` and `SELECT *` both denied; safe columns still readable; private row still invisible; **and denied even to the row's own owner** |
+| Leetspeak fold | game-experience | **PASS** — 4 bypasses blocked, 4 ordinary handles unaffected |
+| `theme_preference` persists | game-experience | **PASS** — fresh GET after PUT, not the PUT's echo |
 
 ## Defects found by verification, not by testing
 
