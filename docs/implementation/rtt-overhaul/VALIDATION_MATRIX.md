@@ -132,12 +132,46 @@ Each cell must be a real screenshot with no cropped overflow.
 Baseline and after must come from the **same committed script**. See
 `PERFORMANCE.md` for the full tables.
 
+> **Staging is NOT running the integrated branch.** Proved directly, not
+> inferred: `POST /run-the-table/runs` on staging still ships full card
+> identity for unrevealed starter slots, while the same call against a local
+> boot of `3988355` ships `"card": null` and carries the new
+> `roster_profile_partial` field staging's response lacks.
+>
+> Consequently the staging before/after **must not be published as a code
+> comparison.** The staging "after" run showed every bucket 30–45 % faster than
+> baseline — including `health.liveness`, `draft.meta` and `leaderboards.top`,
+> which this pass never touched. A uniform drop across untouched endpoints is
+> ambient network/platform variance between measurement times, not a code
+> effect. The ~365–375 ms staging write-path floor is therefore **unmoved by
+> this pass — not because it was measured unchanged, but because staging has
+> not run this code.** Re-measure after redeploy.
+
 | Metric | Target | Baseline | After | Status |
 | --- | --- | --- | --- | --- |
-| Visible response to interaction | < 100 ms | | | |
-| Action latency p75 (warm hosted) | < 800 ms where infra permits | | | |
-| Duplicate mutations | zero | | | |
-| CLS during stage transitions | zero | | | |
+| Visible response to interaction | < 100 ms | — | reveal click **37 ms**, node-choice **22 ms** (24–35 ms across runs) | **PASS** |
+| Action latency p75 (warm hosted) | < 800 ms where infra permits | ~365–375 ms | not comparable — staging not redeployed | **BLOCKED** on redeploy |
+| Action latency (local, memory-backed) | — | sub-3 ms | sub-3 ms; deltas ±0.1–0.6 ms = noise | no change (expected) |
+| Duplicate mutations | zero | — | **zero, tested live**: identical body + idempotency key twice → credits 50→27 on both, `action_count` identical. True no-op replay | **PASS** |
+| CLS, opening reveal / perk select / node→surface | zero | — | **zero**, real headless-Chromium session driving actual transitions | **PASS** |
+| CLS, boss intro / battle cinematic | zero | — | **NOT MEASURED** — auto-driver stalled before reaching a boss | **open** |
+| Opening-reveal round trips | 1 (from 7) | 7 | **1** — single call site `RunTheTableGame.tsx:743-759`, idempotency key includes `action_count` | **PASS** |
+| RTT write-path payload size (local, code-attributable) | smaller | — | `create_run` −43 %, `advance` −41 %, `film_room` −37 %, `resolve_boss` −34 %, `draft_buy` −32 %, `choose_node` −29 %, `rest_bank` −23 %, `select_system` −18 %, `trade` −17 % | **PASS** |
+| Lighthouse `/` (no live data) | — | — | Perf 99, A11y 96, BP 96, SEO 100, LCP 0.9 s, CLS 0 | optimistic — see note |
+| Lighthouse `/arena/run-the-table` (no live data) | — | — | Perf 98, A11y 96, BP 96, SEO 90, LCP 1.0 s, CLS 0.052 | optimistic — see note |
+| `color-contrast` audit | pass | — | **0 on both routes** — `text-[var(--peak-accent)]`, `nav.tsx:91` at 1.28:1 | **FAIL** → task #21 |
+
+> Lighthouse numbers are marked optimistic because staging's CORS correctly
+> refused the local test origin (verified both ways: `Origin:
+> http://localhost:3010` → 400 disallowed; real staging origin → 200), so both
+> pages rendered empty/error states rather than fully hydrated ones. That is
+> the security boundary working, not a defect. These figures must not be
+> quietly upgraded later.
+>
+> The payload reductions are the one unambiguous, code-attributable performance
+> win of the pass, and they trace exactly to the two backend changes:
+> unrevealed-slot concealment and the retirement of two full `card_public()`
+> dicts per lane.
 | RTT readiness p50/p75/p95 | — | | | |
 | RTT create p50/p75/p95 | — | | | |
 | RTT reveal p50/p75/p95 | — | | | |
