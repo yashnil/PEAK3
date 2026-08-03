@@ -1899,5 +1899,54 @@
     "idempotency_notes": [
       "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
     ]
+  },
+  {
+    "filename": "20260803110000_contact_submissions.sql",
+    "identifier": "20260803110000_contact_submissions",
+    "tables_created": {
+      "contact_submissions": [
+        "id",
+        "subject_hash",
+        "subject_kind",
+        "category",
+        "relevant_area",
+        "subject",
+        "message",
+        "reply_email",
+        "status",
+        "created_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "contact_submissions_created_idx",
+        "table": "contact_submissions"
+      },
+      {
+        "name": "contact_submissions_status_idx",
+        "table": "contact_submissions"
+      }
+    ],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "contact_submissions"
+    ],
+    "policies": [
+      {
+        "name": "contact_submissions_no_client_access",
+        "table": "contact_submissions"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
   }
 ]

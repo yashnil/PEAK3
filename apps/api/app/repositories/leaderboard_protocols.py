@@ -72,13 +72,22 @@ class PerfectSeasonLeaderboardRepository(Protocol):
     async def get_leaderboard(
         self,
         mode: Optional[str],
-        no_respin_only: bool,
         limit: int,
         cursor: Optional[str],
         since: Optional[datetime] = None,
     ) -> list[PerfectSeasonRun]:
         """Public rows only, sorted wins desc, lineup_score desc, fewer
         respins used asc, created_at asc (Part E's exact sort spec).
+
+        No respin FILTER exists (launch-polish IMPLEMENTATION_CONTRACT.md
+        §7: respins are normal Standard 82-0 play, not a reason to exclude a
+        run from the board) -- respin counts remain a TIE-BREAK dimension in
+        the sort above, and are still returned per-row as displayable
+        metadata (`team_respins_used`/`season_respins_used` on
+        `PerfectSeasonRun`), just never a reason a run is left off entirely.
+        An earlier `no_respin_only` parameter did exactly that filtering and
+        has been removed, not merely defaulted off.
+
         `cursor` is an opaque encoding of the last row's sort key from the
         previous page (see leaderboard_memory.py/leaderboard_postgres.py
         for the concrete encoding), or None for the first page.

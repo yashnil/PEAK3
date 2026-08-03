@@ -2292,16 +2292,23 @@ def test_public_leaderboard_read_works_and_is_sorted(leaderboard_client: TestCli
     assert wins == sorted(wins, reverse=True)
 
 
-def test_no_respin_filter_excludes_runs_with_respins(leaderboard_client: TestClient):
+def test_respin_runs_stay_on_the_board_as_normal_play(leaderboard_client: TestClient):
+    """launch-polish IMPLEMENTATION_CONTRACT.md §7: respins are normal
+    Standard 82-0 play, not a reason to exclude a run. The 'No-respin runs
+    only' filter (and its `?no_respin=true` query param) is REMOVED, not
+    merely defaulted off -- a run that used a respin appears on the public
+    board exactly like one that didn't, with the respin count still present
+    as displayable metadata rather than a gate on visibility."""
     # Run A: no respins.
     token_a = _mint_test_jwt("user-a")
     _ensure_handle(leaderboard_client, token_a)
     state_a = _play_full_scored_game_as(leaderboard_client, token_a, seed=301)
-    leaderboard_client.post(
+    resp_a = leaderboard_client.post(
         f"/api/v1/perfect-season/games/{state_a['game_id']}/submit",
         json={"game_id": state_a["game_id"]},
         headers={"Authorization": f"Bearer {token_a}"},
     )
+    run_a_id = resp_a.json()["id"]
 
     # Run B: uses a respin on round 1 before playing it out.
     token_b = _mint_test_jwt("user-b")
@@ -2325,13 +2332,232 @@ def test_no_respin_filter_excludes_runs_with_respins(leaderboard_client: TestCli
         headers={"Authorization": f"Bearer {token_b}"},
     )
     del leaderboard_client.headers["Authorization"]
-    assert resp.json()["team_respins_used"] == 1
+    assert resp.status_code == 200, resp.text
+    run_b = resp.json()
+    run_b_id = run_b["id"]
+    assert run_b["team_respins_used"] == 1
 
-    resp = leaderboard_client.get("/api/v1/perfect-season/leaderboard?no_respin=true")
-    data = resp.json()
-    game_ids_with_respins = [r for r in data["runs"] if r["team_respins_used"] > 0 or r["season_respins_used"] > 0]
-    assert game_ids_with_respins == []
-    assert any(r["display_name"] for r in data["runs"])  # at least run A is present
+    # No `no_respin` param exists anymore -- the plain board is the only
+    # board, and both runs are on it.
+    data = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()
+    board_ids = {r["id"] for r in data["runs"]}
+    assert run_a_id in board_ids, "the no-respin run must be on the board"
+    assert run_b_id in board_ids, "the respin run must ALSO be on the board -- respins are normal play"
+
+    # The respin run's own row still carries its respin count as metadata.
+    run_b_row = next(r for r in data["runs"] if r["id"] == run_b_id)
+    assert run_b_row["team_respins_used"] == 1
+
+    # A stray `no_respin` query param is simply ignored (FastAPI drops
+    # unknown query params rather than erroring), not silently reinterpreted
+    # as a filter -- confirms the parameter's removal didn't leave a
+    # half-working shadow of the old behavior.
+    ignored = leaderboard_client.get(
+        "/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100&no_respin=true"
+    ).json()
+    assert {r["id"] for r in ignored["runs"]} == board_ids
+
+
+# ---------------------------------------------------------------------------
+# launch-polish IMPLEMENTATION_CONTRACT.md §7's explicit regression list.
+# Several of these overlap in mechanism with tests elsewhere in this file
+# (idempotent submission is one server-side property; "refresh", "retry
+# after timeout", and "same run twice" are all the same request replayed --
+# the server cannot distinguish WHY a client sent the same game_id twice).
+# That overlap is intentional, not redundancy: each test below is named for
+# the specific real-world story the brief called out, so a regression in
+# that property is caught under the name someone would actually search for,
+# regardless of which of these bodies they think to run.
+# ---------------------------------------------------------------------------
+
+def test_the_same_completed_run_submitted_twice_produces_one_entry(leaderboard_client: TestClient):
+    token = _mint_test_jwt("user-8item-same-run-twice")
+    _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=1301)
+    game_id = state["game_id"]
+
+    first = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    second = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json()["id"] == second.json()["id"], "two submissions of the same game must be the same entry"
+
+    mine = leaderboard_client.get(
+        "/api/v1/perfect-season/me/runs", headers={"Authorization": f"Bearer {token}"}
+    ).json()["runs"]
+    assert len([r for r in mine if r["id"] == first.json()["id"]]) == 1
+
+
+def test_two_distinct_completed_runs_produce_two_entries(leaderboard_client: TestClient):
+    token = _mint_test_jwt("user-8item-two-runs")
+    _ensure_handle(leaderboard_client, token)
+    run1 = _submit(leaderboard_client, token, seed=1302)
+    run2 = _submit(leaderboard_client, token, seed=1303)
+    assert run1["id"] != run2["id"]
+
+    mine = leaderboard_client.get(
+        "/api/v1/perfect-season/me/runs", headers={"Authorization": f"Bearer {token}"}
+    ).json()["runs"]
+    mine_ids = {r["id"] for r in mine}
+    assert {run1["id"], run2["id"]} <= mine_ids
+
+
+def test_anonymous_submission_is_rejected(leaderboard_client: TestClient):
+    state = _play_full_game(leaderboard_client, seed=1304)
+    game_id = state["game_id"]
+    token = _mint_test_jwt("user-8item-anon", is_anonymous=True)
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["error_code"] == "sign_in_required"
+
+
+def test_incomplete_score_submission_is_rejected(leaderboard_client: TestClient):
+    """A roster with at least one unscored card is never eligible for the
+    global leaderboard (Part E) -- `_play_full_game_as(..., prefer_scored=False)`
+    deliberately picks an unscored candidate whenever the board offers one,
+    to make this deterministic rather than depending on which team-seasons a
+    given seed happens to roll."""
+    token = _mint_test_jwt("user-8item-incomplete")
+    _ensure_handle(leaderboard_client, token)
+    state = _play_full_game_as(leaderboard_client, token, seed=1305, prefer_scored=False)
+    game_id = state["game_id"]
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if state.get("lineup_score_status") == "complete" or state.get("score_status") == "complete":
+        pytest.skip("this seed's board did not offer an unscored candidate in any round")
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "incomplete_score_not_eligible"
+
+
+def test_user_b_cannot_mutate_user_as_submitted_entry(leaderboard_client: TestClient):
+    """The only mutation surface a submitted run has at all is the
+    visibility toggle (SCORE_RECONCILIATION.md gap #3) -- everything else is
+    an immutable record. Proves user B's own credentials cannot flip user
+    A's run, and that the failure reads identically to a nonexistent run
+    (404, never 403), so it cannot be used to probe which run ids are real."""
+    token_a = _mint_test_jwt("user-8item-mutate-a")
+    _ensure_handle(leaderboard_client, token_a)
+    run_a = _submit(leaderboard_client, token_a, seed=1306)
+
+    token_b = _mint_test_jwt("user-8item-mutate-b")
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/runs/{run_a['id']}/visibility",
+        json={"is_public": False},
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    assert resp.status_code == 404
+
+    # Untouched: still on the public board, still public.
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()["runs"]
+    assert any(r["id"] == run_a["id"] for r in board)
+
+
+def test_pagination_across_the_whole_board_has_no_duplicate_entries(leaderboard_client: TestClient):
+    token = _mint_test_jwt("user-8item-pagination")
+    _ensure_handle(leaderboard_client, token)
+    submitted_ids = {
+        _submit(leaderboard_client, token, seed=seed)["id"] for seed in (1307, 1308, 1309)
+    }
+
+    seen: set[str] = set()
+    cursor = None
+    guard = 0
+    while True:
+        guard += 1
+        assert guard < 50, "pagination did not terminate"
+        url = "/api/v1/perfect-season/leaderboard?limit=2"
+        if cursor:
+            url += f"&cursor={cursor}"
+        page = leaderboard_client.get(url).json()
+        ids = {r["id"] for r in page["runs"]}
+        assert not (ids & seen), "a later page repeated a row from an earlier page"
+        seen |= ids
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert submitted_ids <= seen
+
+
+def test_a_page_refresh_replaying_the_same_submit_request_does_not_resubmit(leaderboard_client: TestClient):
+    """The exact browser-refresh story: a player submits, the page reloads
+    (or the submit button is somehow triggered again with the same game
+    already completed and submitted), and the client fires the identical
+    POST again. Must return the SAME record, not a second row."""
+    token = _mint_test_jwt("user-8item-refresh")
+    _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=1310)
+    game_id = state["game_id"]
+
+    original = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+
+    # Simulates the page reload: a brand new request, same game_id, same
+    # account, no client-side memory of the first submission at all.
+    replay = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    assert replay["id"] == original["id"]
+
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()["runs"]
+    assert sum(1 for r in board if r["id"] == original["id"]) == 1
+
+
+def test_retrying_after_a_client_side_timeout_is_idempotent(leaderboard_client: TestClient):
+    """The other common real-world duplicate-submission trigger: the
+    request actually succeeded server-side, but the client never saw the
+    response (a timeout, a dropped connection) and retries assuming it
+    failed. Indistinguishable from a refresh at the HTTP layer -- proven
+    separately anyway, since this is exactly the failure mode `game_id
+    UNIQUE` plus the check-then-insert in submit_run exists to make safe."""
+    token = _mint_test_jwt("user-8item-timeout-retry")
+    _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=1311)
+    game_id = state["game_id"]
+
+    # The "request whose response never arrived" -- from the server's point
+    # of view this looks identical to any other successful submit.
+    first = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+
+    # The client, having given up on the first response, retries.
+    retry_1 = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    # And a second retry, in case the first retry ALSO looked like it timed
+    # out -- still must not create a third row.
+    retry_2 = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+
+    assert first["id"] == retry_1["id"] == retry_2["id"]
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()["runs"]
+    assert sum(1 for r in board if r["id"] == first["id"]) == 1
 
 
 def test_me_runs_requires_auth_and_returns_own_runs(leaderboard_client: TestClient):

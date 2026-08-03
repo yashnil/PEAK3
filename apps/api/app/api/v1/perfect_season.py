@@ -690,7 +690,6 @@ async def set_run_visibility(
 async def get_leaderboard(
     leaderboard_repo: PerfectSeasonLeaderboardRepoDep,
     mode: Optional[str] = Query(None, description="Filter by mode (apex_1y/prime_3y/foundation_5y)"),
-    no_respin: bool = Query(False, description="Only include runs with zero respins used"),
     limit: int = Query(50, ge=1, le=100),
     cursor: Optional[str] = Query(None),
     daily: bool = Query(
@@ -713,8 +712,15 @@ async def get_leaderboard(
     # "official application day" boundary is defined (`nba_peak/daily_key.py`)
     # -- every daily mode in this codebase reads it from there rather than
     # re-deriving a UTC or fixed-offset boundary of its own.
+    # launch-polish IMPLEMENTATION_CONTRACT.md §7: no respin filter -- a
+    # `no_respin` query param used to exist here and has been REMOVED, not
+    # merely defaulted off. Respins are normal Standard 82-0 play; excluding
+    # a run for using one hid legitimate runs from the public board. Respin
+    # counts remain a tie-break dimension inside get_leaderboard's own sort
+    # and are still returned per-row as metadata
+    # (PerfectSeasonRunPublic.team_respins_used/season_respins_used).
     since = day_start_utc(parse_daily_key(daily_key())) if daily else None
-    runs = await leaderboard_repo.get_leaderboard(mode, no_respin, limit, cursor, since)
+    runs = await leaderboard_repo.get_leaderboard(mode, limit, cursor, since)
     # SCORE_RECONCILIATION.md gap #1: `next_cursor` was computed nowhere, ever
     # -- the repo-side encoder existed (leaderboard_postgres.py `_encode_cursor`
     # / leaderboard_memory.py's exported `encode_leaderboard_cursor`) but no
