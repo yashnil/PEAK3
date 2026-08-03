@@ -334,7 +334,19 @@ test.describe("Navbar Play", () => {
       [720, 450],
     ] as const) {
       await page.setViewportSize({ width, height });
-      await page.goto("/", { waitUntil: "domcontentloaded" });
+      // `networkidle`, not `domcontentloaded` -- this test's subject is
+      // geometry (see above), not hydration speed, and `domcontentloaded`
+      // fires before React attaches the trigger's click handler. A click
+      // that lands in that window is a real DOM click with no listener yet
+      // and is silently lost -- not a layout bug, and not what this test is
+      // for. Measured before making this change, not assumed: `next dev`
+      // (what this suite runs against) takes 300-550ms after
+      // `domcontentloaded` to attach; a real production build takes
+      // 18-112ms, an order of magnitude less and well inside normal human
+      // reaction time -- see PERFORMANCE.md's "Client hydration window
+      // (P6-f/P6-h investigation)" for the full measurement. `networkidle`
+      // is the fix on the test side, not a workaround for a product defect.
+      await page.goto("/", { waitUntil: "networkidle" });
       const trigger = page.getByTestId("nav-play-trigger");
       await trigger.click();
       const panel = page.getByTestId("nav-play-panel");
