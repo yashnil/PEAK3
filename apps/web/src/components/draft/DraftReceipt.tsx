@@ -1,24 +1,30 @@
 "use client";
 import { LineupEvaluation, ReceiptItem, SynergyItem } from "@/types/draft";
 
+// Theme-aware tokens (P3-G2), not literal hex: this map used to feed both a
+// text `color` AND a `${color}08`/`${color}30` hex-alpha-suffix background/
+// border, which is exactly the pattern that produced invalid CSS the moment
+// any of these became a `var(--token)` reference (see the same fix in
+// `progression/AchievementCard.tsx`) -- so both the color source AND the
+// alpha-blend method change together below.
 function ReceiptItemRow({ item }: { item: ReceiptItem }) {
   const typeColors: Record<string, string> = {
-    talent_core: "#f5c842",
-    strength: "#34d399",
-    weakness: "#ef4444",
-    warning: "#f59e0b",
-    synergy: "#a78bfa",
-    draft_summary: "#60a5fa",
-    data_note: "#6b7280",
+    talent_core: "var(--peak-accent-text, #f5c842)",
+    strength: "var(--accent-emerald)",
+    weakness: "var(--incorrect)",
+    warning: "var(--warning)",
+    synergy: "var(--accent-violet)",
+    draft_summary: "var(--accent-blue)",
+    data_note: "var(--text-muted)",
   };
-  const color = typeColors[item.item_type] ?? "#8c8fa8";
+  const color = typeColors[item.item_type] ?? "var(--text-secondary)";
 
   return (
     <div
       className="rounded-lg px-3 py-2.5 border"
       style={{
-        background: `${color}08`,
-        borderColor: `${color}30`,
+        background: `color-mix(in srgb, ${color} 3%, transparent)`,
+        borderColor: `color-mix(in srgb, ${color} 19%, transparent)`,
       }}
     >
       <div
@@ -39,7 +45,7 @@ function ReceiptItemRow({ item }: { item: ReceiptItem }) {
 
 function SynergyRow({ item }: { item: SynergyItem }) {
   if (!item.triggered) return null;
-  const color = item.rule_type === "positive" ? "#34d399" : "#ef4444";
+  const color = item.rule_type === "positive" ? "var(--accent-emerald)" : "var(--incorrect)";
   const sign = item.adjustment >= 0 ? "+" : "";
   return (
     <div
@@ -79,9 +85,9 @@ export default function DraftReceipt({ evaluation, onShare }: Props) {
       <div
         className="text-xs px-3 py-2 rounded-lg border"
         style={{
-          background: "#f59e0b10",
-          borderColor: "#f59e0b40",
-          color: "#f59e0b",
+          background: "var(--warning-bg)",
+          borderColor: "color-mix(in srgb, var(--warning) 40%, transparent)",
+          color: "var(--warning)",
         }}
       >
         ⚠ Experimental lineup model ({lineup_model_version}). Ratings are a
@@ -99,7 +105,7 @@ export default function DraftReceipt({ evaluation, onShare }: Props) {
           </div>
           <div
             className="text-5xl font-bold tabular-nums"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             {ratingDisplay}
           </div>
@@ -129,8 +135,8 @@ export default function DraftReceipt({ evaluation, onShare }: Props) {
       {/* Component scores */}
       <div className="grid grid-cols-2 gap-2">
         {[
-          { label: "Talent", value: talent_score, color: "#f5c842" },
-          { label: "Coverage", value: coverage_score, color: "#60a5fa" },
+          { label: "Talent", value: talent_score, color: "var(--peak-accent-text, #f5c842)" },
+          { label: "Coverage", value: coverage_score, color: "var(--accent-blue)" },
         ].map(({ label, value, color }) => (
           <div
             key={label}

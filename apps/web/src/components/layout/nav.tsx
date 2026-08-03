@@ -55,6 +55,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { isActive, topLevelLinks } from "@/lib/nav-model";
 import { AccountMenu } from "@/components/auth/AccountMenu";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { PlayMenu } from "./PlayMenu";
 import { MobileNavDrawer } from "./MobileNavDrawer";
 
@@ -118,6 +119,7 @@ export function Nav() {
               );
             })}
           </ul>
+          <ThemeToggle className="ml-2" />
           {/* Gating lives inside AccountMenu (it needs `user` anyway), so the
               anonymous-only deployment still renders no account affordance. */}
           <AccountMenu pathname={pathname} search={search} />

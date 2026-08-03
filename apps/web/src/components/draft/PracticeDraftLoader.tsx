@@ -62,7 +62,7 @@ export default function PracticeDraftLoader({ mode, seed }: Props) {
   if (failed) {
     return (
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
-        <p style={{ color: "#ef4444" }}>
+        <p style={{ color: "var(--incorrect)" }}>
           Could not create practice board. Is the API running?
         </p>
         <button

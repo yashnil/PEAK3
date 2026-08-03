@@ -47,9 +47,11 @@ export default function RankedHubPage() {
       <div
         className="mt-3 text-xs px-3 py-2 rounded-lg border inline-block"
         style={{
-          background: enabled ? "#34d39910" : "#f59e0b10",
-          borderColor: enabled ? "#34d39940" : "#f59e0b40",
-          color: enabled ? "#34d399" : "#f59e0b",
+          background: enabled ? "var(--correct-bg)" : "var(--warning-bg)",
+          borderColor: enabled
+            ? "color-mix(in srgb, var(--correct) 40%, transparent)"
+            : "color-mix(in srgb, var(--warning) 40%, transparent)",
+          color: enabled ? "var(--correct)" : "var(--warning)",
         }}
       >
         {/* The readiness enum (`green`/`amber`/…) is an operational signal, not
@@ -63,7 +65,7 @@ export default function RankedHubPage() {
 
       {!user && enabled && (
         <p className="mt-4 text-sm" style={{ color: "var(--text-muted)" }}>
-          <Link href="/signin?returnTo=/arena/ranked" style={{ color: "var(--peak-accent)" }}>
+          <Link href="/signin?returnTo=/arena/ranked" style={{ color: "var(--peak-accent-text)" }}>
             Sign in
           </Link>{" "}
           to join a ranked queue.

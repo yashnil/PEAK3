@@ -177,7 +177,7 @@ export default function CompletionPanel({
       className="card-elevated p-4 sm:p-5"
       style={{ borderColor: "color-mix(in srgb, var(--peak-accent) 40%, var(--border-subtle))" }}
     >
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--peak-accent)" }}>
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--peak-accent-text)" }}>
         {board.date}
         {board.theme ? ` · ${board.theme}` : ""}
       </p>
@@ -339,7 +339,7 @@ export default function CompletionPanel({
                   data-testid="complete-per-cell-toggle"
                   onClick={() => setShowAll((v) => !v)}
                   className="text-[11px] font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                  style={{ color: "var(--peak-accent)" }}
+                  style={{ color: "var(--peak-accent-text)" }}
                 >
                   {showAll ? "Show only what changed" : `Show all ${TOTAL_CELLS} squares`}
                 </button>
@@ -452,7 +452,7 @@ export default function CompletionPanel({
               <p
                 data-testid="complete-current-streak"
                 className="score-number font-display text-xl font-bold leading-none"
-                style={{ color: "var(--peak-accent)" }}
+                style={{ color: "var(--peak-accent-text)" }}
               >
                 {archive.current_streak}
               </p>
@@ -498,7 +498,7 @@ export default function CompletionPanel({
             className="mt-3 flex flex-wrap items-center gap-1.5 text-xs"
             style={{ color: "var(--text-secondary)" }}
           >
-            <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+            <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
             {isArchiveBoard ? (
               <>
                 <strong style={{ color: "var(--text-primary)" }}>That was an archive board.</strong>
@@ -506,7 +506,7 @@ export default function CompletionPanel({
                   href="/daily/grid"
                   data-testid="complete-play-today"
                   className="font-semibold underline underline-offset-2"
-                  style={{ color: "var(--peak-accent)" }}
+                  style={{ color: "var(--peak-accent-text)" }}
                 >
                   Play today&rsquo;s grid
                 </Link>
@@ -535,7 +535,7 @@ export default function CompletionPanel({
                 href="/daily/history"
                 data-testid="complete-history-link"
                 className="mt-2 inline-block text-[11px] font-semibold underline-offset-2 hover:underline"
-                style={{ color: "var(--peak-accent)" }}
+                style={{ color: "var(--peak-accent-text)" }}
               >
                 See all {archive.total_completed} grids
               </Link>

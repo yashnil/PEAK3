@@ -144,7 +144,7 @@ function AuthCompleteContent() {
       footer={
         <>
           Continuing automatically —{" "}
-          <Link href={next} className="underline" style={{ color: "var(--peak-accent)" }}>
+          <Link href={next} className="underline" style={{ color: "var(--peak-accent-text)" }}>
             go now
           </Link>
         </>
@@ -162,7 +162,7 @@ function AuthCompleteContent() {
             </span>
             <span
               className="text-lg font-bold tabular-nums"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               {line.count}
             </span>

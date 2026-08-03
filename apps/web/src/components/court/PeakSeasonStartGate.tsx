@@ -157,8 +157,8 @@ export default function PeakSeasonStartGate({
             className="text-[10px] font-black uppercase tracking-widest rounded-full px-2.5 py-1"
             style={
               isDaily
-                ? { background: "rgba(96,165,250,0.15)", color: "#60a5fa" }
-                : { background: "rgba(245,200,66,0.15)", color: "var(--peak-accent, #f5c842)" }
+                ? { background: "color-mix(in srgb, var(--accent-blue) 15%, transparent)", color: "var(--accent-blue)" }
+                : { background: "var(--peak-accent-bg)", color: "var(--peak-accent-text, #f5c842)" }
             }
           >
             {isDaily ? "Daily PEAK Season" : "82-0 PEAK Season"}
@@ -233,7 +233,7 @@ export default function PeakSeasonStartGate({
         )}
 
         {error && (
-          <p role="alert" className="text-sm" style={{ color: "#ef4444" }} data-testid="start-gate-error">
+          <p role="alert" className="text-sm" style={{ color: "var(--incorrect)" }} data-testid="start-gate-error">
             {error}
           </p>
         )}
@@ -243,7 +243,7 @@ export default function PeakSeasonStartGate({
           onClick={handleBegin}
           disabled={busy || authLoading}
           className="self-start px-6 py-3 rounded-lg text-sm font-bold uppercase tracking-wide disabled:opacity-60"
-          style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+          style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
         >
           {authLoading
             ? "Checking your session…"
@@ -268,7 +268,7 @@ function Step({ n }: { n: number }) {
     <span
       aria-hidden="true"
       className="shrink-0 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center mt-0.5"
-      style={{ background: "var(--bg-surface)", color: "var(--peak-accent, #f5c842)" }}
+      style={{ background: "var(--bg-surface)", color: "var(--peak-accent-text, #f5c842)" }}
     >
       {n}
     </span>

@@ -117,7 +117,7 @@ export default function ShareRunPanel({ state, result }: Props) {
           data-testid="share-run-native-btn"
           onClick={handleShare}
           className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5"
-          style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+          style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
         >
           <Share2 size={13} aria-hidden="true" />
           {shared ? "Shared!" : "Share"}

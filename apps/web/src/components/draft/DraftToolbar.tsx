@@ -29,9 +29,9 @@ export default function DraftToolbar({ gameState, onHold, onReframe, disabled }:
           "border border-transparent",
           hold_used || !hold_available || disabled
             ? "opacity-40 cursor-not-allowed"
-            : "hover:border-[var(--peak-accent)] hover:bg-[var(--peak-accent)] hover:text-black cursor-pointer",
+            : "hover:border-[var(--peak-accent)] hover:bg-[var(--peak-accent)] hover:text-[var(--text-inverse)] cursor-pointer",
           held_card && !hold_used
-            ? "border-[var(--peak-accent)] text-[var(--peak-accent)]"
+            ? "border-[var(--peak-accent)] text-[var(--peak-accent-text)]"
             : "text-[var(--text-secondary)]",
         ].join(" ")}
         style={{ background: "var(--bg-elevated)" }}
@@ -61,7 +61,7 @@ export default function DraftToolbar({ gameState, onHold, onReframe, disabled }:
           "border border-transparent",
           reframe_used || !reframe_available || disabled
             ? "opacity-40 cursor-not-allowed"
-            : "hover:border-[#a78bfa] hover:bg-[#a78bfa20] cursor-pointer",
+            : "hover:border-[var(--accent-violet)] hover:bg-[color-mix(in_srgb,var(--accent-violet)_20%,transparent)] cursor-pointer",
           "text-[var(--text-secondary)]",
         ].join(" ")}
         style={{ background: "var(--bg-elevated)" }}

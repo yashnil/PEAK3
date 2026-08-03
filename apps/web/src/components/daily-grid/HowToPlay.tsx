@@ -95,7 +95,7 @@ export default function HowToPlay({
         <div>
           <p
             className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             How to play
           </p>
@@ -144,7 +144,7 @@ export default function HowToPlay({
                 style={{
                   background: "var(--bg-elevated)",
                   border: "1px solid var(--border-subtle)",
-                  color: "var(--peak-accent)",
+                  color: "var(--peak-accent-text)",
                 }}
               >
                 <Icon size={15} />
@@ -170,7 +170,7 @@ export default function HowToPlay({
             className="flex gap-2 text-xs leading-relaxed"
             style={{ color: "var(--text-secondary)" }}
           >
-            <span aria-hidden="true" style={{ color: "var(--peak-accent)" }}>
+            <span aria-hidden="true" style={{ color: "var(--peak-accent-text)" }}>
               &middot;
             </span>
             {rule}

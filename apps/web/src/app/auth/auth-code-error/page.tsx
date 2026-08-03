@@ -73,7 +73,7 @@ function AuthErrorContent() {
       footer={
         <>
           You can keep playing every mode without an account —{" "}
-          <Link href="/" className="underline" style={{ color: "var(--peak-accent)" }}>
+          <Link href="/" className="underline" style={{ color: "var(--peak-accent-text)" }}>
             back to PEAK3 Arena
           </Link>
         </>

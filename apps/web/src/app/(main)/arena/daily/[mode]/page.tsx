@@ -184,7 +184,7 @@ export default function DailyDraftPage({ params }: Props) {
     return (
       <div className="mx-auto max-w-md px-4 py-16 text-center">
         <div className="card-elevated p-6 rounded-xl space-y-4">
-          <p className="text-sm" style={{ color: "#ef4444" }}>
+          <p className="text-sm" style={{ color: "var(--incorrect)" }}>
             {pageState.message}
           </p>
           <button
@@ -227,7 +227,7 @@ export default function DailyDraftPage({ params }: Props) {
           <div className="space-y-1">
             <span
               className="text-3xl font-bold score-number"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               {summary.lineup_peak_rating.toFixed(1)}
             </span>
@@ -261,9 +261,9 @@ export default function DailyDraftPage({ params }: Props) {
           <div
             className="text-xs px-3 py-2 rounded-lg border"
             style={{
-              background: "#f59e0b10",
-              borderColor: "#f59e0b40",
-              color: "#f59e0b",
+              background: "var(--warning-bg)",
+              borderColor: "color-mix(in srgb, var(--warning) 40%, transparent)",
+              color: "var(--warning)",
             }}
           >
             Replaying this board is for practice only and won&apos;t update
@@ -273,7 +273,7 @@ export default function DailyDraftPage({ params }: Props) {
           <Link
             href="/arena/daily"
             className="block text-sm"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Play Other Modes
           </Link>
@@ -291,9 +291,9 @@ export default function DailyDraftPage({ params }: Props) {
             <div
               className="text-xs px-3 py-2 rounded-lg border mb-2"
               style={{
-                background: "#f59e0b10",
-                borderColor: "#f59e0b40",
-                color: "#f59e0b",
+                background: "var(--warning-bg)",
+                borderColor: "color-mix(in srgb, var(--warning) 40%, transparent)",
+                color: "var(--warning)",
               }}
             >
               Replaying this board is for practice only and won&apos;t update

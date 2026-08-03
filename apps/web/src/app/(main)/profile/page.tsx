@@ -128,7 +128,7 @@ export default function ProfilePage() {
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
           Authentication is not configured. You can play all modes anonymously.
         </p>
-        <Link href="/" className="text-sm underline" style={{ color: "var(--peak-accent)" }}>
+        <Link href="/" className="text-sm underline" style={{ color: "var(--peak-accent-text)" }}>
           Back to PEAK3 Arena
         </Link>
       </div>
@@ -271,12 +271,12 @@ export default function ProfilePage() {
         </label>
 
         {error && (
-          <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "#ef444420", color: "#ef4444" }}>
+          <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
             {error}
           </p>
         )}
         {saved && (
-          <p role="status" className="text-sm" style={{ color: "#34d399" }}>
+          <p role="status" className="text-sm" style={{ color: "var(--correct)" }}>
             Profile saved.
           </p>
         )}

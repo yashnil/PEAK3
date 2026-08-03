@@ -112,3 +112,22 @@ export function componentColor(key: string): string {
   };
   return colors[key] ?? "var(--peak-accent)";
 }
+
+/**
+ * The text-safe sibling of `componentColor` (P3-G2). `--comp-*` is frozen
+ * (CLAUDE.md) and measures 1.8-2.6:1 as literal text against Arena Day's
+ * surfaces -- failing WCAG AA at every size. Use THIS for any rendered
+ * component percentage/score number or label; keep `componentColor` for a
+ * bar fill, border, or swatch, where the frozen value is exactly right.
+ */
+export function componentTextColor(key: string): string {
+  const colors: Record<string, string> = {
+    statistical_impact: "var(--comp-si-text)",
+    traditional_production: "var(--comp-tp-text)",
+    individual_recognition: "var(--comp-rec-text)",
+    postseason_individual_value: "var(--comp-po-text)",
+    team_achievement: "var(--comp-team-text)",
+    teammate_adjustment: "var(--comp-tm-text)",
+  };
+  return colors[key] ?? "var(--peak-accent-text)";
+}

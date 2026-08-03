@@ -64,11 +64,11 @@ function fitTooltip(
 function fitColor(roleFit: RoleFit | null | undefined, severity?: FitSeverity | null): string {
   if (roleFit === "off_position") {
     if (severity === "mild") return "var(--text-secondary)"; // neutral: costs nothing
-    if (severity === "moderate") return "#fb923c";
-    return "#ef4444";
+    if (severity === "moderate") return "var(--accent-orange)";
+    return "var(--incorrect)";
   }
-  if (roleFit === "primary") return "var(--peak-accent, #f5c842)";
-  if (roleFit === "natural" || roleFit === "secondary") return "#34d399";
+  if (roleFit === "primary") return "var(--peak-accent-text, #f5c842)";
+  if (roleFit === "natural" || roleFit === "secondary") return "var(--accent-emerald)";
   return "var(--text-secondary)";
 }
 
@@ -127,7 +127,7 @@ export default function PeakCardCourt({
         {slot.filled && fitPill && (
           <span
             className="text-[8px] font-semibold uppercase tracking-wide rounded px-1 py-px shrink-0 truncate max-w-[60%]"
-            style={{ color: fitColor(slot.role_fit, slot.role_fit_severity), background: "rgba(255,255,255,0.06)" }}
+            style={{ color: fitColor(slot.role_fit, slot.role_fit_severity), background: "var(--pk-surface-inset, var(--bg-elevated))" }}
             data-testid="role-fit-badge"
             title={fitPillTooltip}
           >
@@ -263,15 +263,15 @@ export default function PeakCardCourt({
           <Target
             size={18}
             aria-hidden="true"
-            style={{ color: isPendingTarget ? "var(--peak-accent, #f5c842)" : "var(--text-muted)", opacity: isPendingTarget ? 1 : 0.55 }}
+            style={{ color: isPendingTarget ? "var(--peak-accent-text, #f5c842)" : "var(--text-muted)", opacity: isPendingTarget ? 1 : 0.55 }}
           />
-          <div className="text-[11px] font-semibold" style={{ color: isPendingTarget ? "var(--peak-accent, #f5c842)" : "var(--text-muted)" }}>
+          <div className="text-[11px] font-semibold" style={{ color: isPendingTarget ? "var(--peak-accent-text, #f5c842)" : "var(--text-muted)" }}>
             {isPendingTarget ? "Place here" : "Open"}
           </div>
           {pendingFitPill && (
             <div
               className="text-[9px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
-              style={{ color: fitColor(pendingFit, pendingFitSeverity), background: "rgba(255,255,255,0.06)" }}
+              style={{ color: fitColor(pendingFit, pendingFitSeverity), background: "var(--pk-surface-inset, var(--bg-elevated))" }}
               data-testid="pending-fit-badge"
               title={pendingFitTooltip}
             >
@@ -328,7 +328,7 @@ export default function PeakCardCourt({
         }}
       >
         {content}
-        <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent, #f5c842)" }}>
+        <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
           {slot.filled ? "Swap here" : "Move here"}
         </span>
       </button>

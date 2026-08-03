@@ -1,12 +1,17 @@
 "use client";
 import { DraftCard as DraftCardType, ROLE_LABELS, DraftRole } from "@/types/draft";
 
+// Theme-aware `--accent-*` tokens (P3-G2), not literal hex -- same five hues
+// `--role-*` uses (this card's role identity, just not that literal token:
+// `--role-*` is RTT's own roster-role system, a different semantic reusing
+// the same palette by coincidence), but text-safe in both themes, which
+// `--role-*` is not measured/guaranteed to be.
 const ROLE_COLORS: Record<DraftRole, string> = {
-  lead_creator: "#f472b6",
-  guard_wing: "#60a5fa",
-  wing_forward: "#a78bfa",
-  forward_big: "#fb923c",
-  anchor: "#34d399",
+  lead_creator: "var(--accent-pink)",
+  guard_wing: "var(--accent-blue)",
+  wing_forward: "var(--accent-violet)",
+  forward_big: "var(--accent-orange)",
+  anchor: "var(--accent-emerald)",
 };
 
 interface Props {
@@ -29,7 +34,7 @@ export default function DraftCard({
   eligible,
 }: Props) {
   const primaryRole = showRole ?? card.primary_role;
-  const roleColor = primaryRole ? ROLE_COLORS[primaryRole] : "#8c8fa8";
+  const roleColor = primaryRole ? ROLE_COLORS[primaryRole] : "var(--text-secondary)";
 
   const scoreDisplay = Math.round(card.individual_peak_score);
   const rankDisplay = `#${card.individual_peak_rank}`;
@@ -49,7 +54,10 @@ export default function DraftCard({
       style={{
         opacity: dimmed ? 0.35 : 1,
         borderColor: selected ? roleColor : "var(--border-default)",
-        boxShadow: selected ? `0 0 0 2px ${roleColor}40` : undefined,
+        // `color-mix`, not a hex-alpha suffix -- `roleColor` is now a
+        // `var(--accent-*)` reference (P3-G2), and appending a hex pair to
+        // a var() reference is invalid CSS.
+        boxShadow: selected ? `0 0 0 2px color-mix(in srgb, ${roleColor} 40%, transparent)` : undefined,
       }}
       className={[
         "relative flex flex-col text-left w-full rounded-xl border transition-all duration-150",
@@ -100,9 +108,9 @@ export default function DraftCard({
           <span
             className="text-xs font-medium px-2 py-0.5 rounded-full"
             style={{
-              background: `${roleColor}20`,
+              background: `color-mix(in srgb, ${roleColor} 20%, transparent)`,
               color: roleColor,
-              border: `1px solid ${roleColor}40`,
+              border: `1px solid color-mix(in srgb, ${roleColor} 40%, transparent)`,
             }}
           >
             {ROLE_LABELS[primaryRole]}
@@ -114,7 +122,7 @@ export default function DraftCard({
       {card.data_completeness !== "complete" && (
         <div
           className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full"
-          style={{ background: "#f59e0b" }}
+          style={{ background: "var(--warning)" }}
           title="Data may be incomplete"
         />
       )}

@@ -90,7 +90,7 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
     >
       {phase === "submitted" && submittedRun ? (
         <div data-testid="leaderboard-submit-confirmation" className="flex flex-col gap-1">
-          <span className="font-semibold" style={{ color: "var(--peak-accent, #f5c842)" }}>
+          <span className="font-semibold" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
             Submitted to the global leaderboard as {submittedRun.display_name}
           </span>
           {rank !== null && (
@@ -105,7 +105,7 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
           <a
             href={signInHref}
             className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
-            style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+            style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
           >
             Sign in
           </a>
@@ -141,13 +141,13 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
               onClick={handleSubmit}
               disabled={phase === "submitting"}
               className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0 disabled:opacity-50"
-              style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+              style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
             >
               {phase === "submitting" ? "Submitting…" : "Submit to leaderboard"}
             </button>
           </div>
           {phase === "error" && errorMessage && (
-            <span role="alert" className="text-xs" style={{ color: "#ef4444" }} data-testid="leaderboard-submit-error">
+            <span role="alert" className="text-xs" style={{ color: "var(--incorrect)" }} data-testid="leaderboard-submit-error">
               {errorMessage}
             </span>
           )}

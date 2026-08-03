@@ -210,7 +210,7 @@ export default function ChallengeTokenPage({ params }: Props) {
           <Link
             href="/arena/daily"
             className="inline-block mt-2 text-sm underline"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Play today&apos;s Daily
           </Link>
@@ -224,7 +224,7 @@ export default function ChallengeTokenPage({ params }: Props) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="card-elevated max-w-md w-full p-8 text-center space-y-4">
-          <p className="text-sm" style={{ color: "#ef4444" }}>
+          <p className="text-sm" style={{ color: "var(--incorrect)" }}>
             {errorMessage ?? "Something went wrong. Please try again."}
           </p>
           <button
@@ -265,7 +265,7 @@ export default function ChallengeTokenPage({ params }: Props) {
             </h1>
             <p
               className="text-base font-semibold"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               {meta?.board_label}
             </p>
@@ -316,9 +316,9 @@ export default function ChallengeTokenPage({ params }: Props) {
           <div
             className="text-xs px-3 py-2 rounded-lg border mb-2"
             style={{
-              background: "#60a5fa10",
-              borderColor: "#60a5fa40",
-              color: "#60a5fa",
+              background: "color-mix(in srgb, var(--accent-blue) 10%, transparent)",
+              borderColor: "color-mix(in srgb, var(--accent-blue) 40%, transparent)",
+              color: "var(--accent-blue)",
             }}
           >
             Welcome back — your challenge is in progress

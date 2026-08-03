@@ -90,7 +90,7 @@ export default function CourtHistoryPage() {
           <Link
             href={signInHref}
             className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
-            style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+            style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
           >
             Sign in
           </Link>
@@ -102,7 +102,7 @@ export default function CourtHistoryPage() {
           role="alert"
           data-testid="history-error"
           className="rounded-lg p-4 text-sm text-center"
-          style={{ background: "var(--bg-surface)", color: "#ef4444" }}
+          style={{ background: "var(--bg-surface)", color: "var(--incorrect)" }}
         >
           {error}
         </div>
@@ -141,7 +141,7 @@ export default function CourtHistoryPage() {
           <Link
             href="/arena/court/practice/apex_1y"
             className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5"
-            style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+            style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
           >
             Build a lineup
           </Link>
@@ -165,14 +165,17 @@ export default function CourtHistoryPage() {
               >
                 <div className="flex flex-col gap-0.5 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold" style={{ color: "var(--peak-accent, #f5c842)" }}>
+                    <span className="font-bold" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
                       {r.wins}-{r.losses}
                     </span>
                     {isBest && (
                       <span
                         data-testid="history-personal-best-marker"
                         className="text-[9px] uppercase font-bold rounded px-1.5 py-0.5"
-                        style={{ background: "rgba(245,200,66,0.18)", color: "var(--peak-accent, #f5c842)" }}
+                        style={{
+                          background: "color-mix(in srgb, var(--peak-accent) 18%, transparent)",
+                          color: "var(--peak-accent-text, #f5c842)",
+                        }}
                       >
                         Personal best
                       </span>
@@ -181,7 +184,10 @@ export default function CourtHistoryPage() {
                       <span
                         data-testid="history-daily-badge"
                         className="text-[9px] uppercase font-semibold rounded px-1.5 py-0.5"
-                        style={{ background: "rgba(96,165,250,0.15)", color: "#60a5fa" }}
+                        style={{
+                          background: "color-mix(in srgb, var(--accent-blue) 15%, transparent)",
+                          color: "var(--accent-blue)",
+                        }}
                       >
                         Daily {r.challenge_date}
                       </span>
@@ -189,7 +195,7 @@ export default function CourtHistoryPage() {
                     {!r.leaderboard_eligible && (
                       <span
                         className="text-[9px] uppercase font-semibold rounded px-1.5 py-0.5"
-                        style={{ background: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }}
+                        style={{ background: "var(--pk-surface-inset, var(--bg-elevated))", color: "var(--text-muted)" }}
                         title="One or more cards had no official PEAK3 score — provisional, not leaderboard-eligible."
                       >
                         Provisional
@@ -208,7 +214,7 @@ export default function CourtHistoryPage() {
                       : ` · score incomplete (${r.exact_cards_scored}/${r.total_cards})`}
                   </span>
                 </div>
-                <span className="text-xs shrink-0" style={{ color: "var(--peak-accent, #f5c842)" }}>
+                <span className="text-xs shrink-0" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
                   Open →
                 </span>
               </Link>
