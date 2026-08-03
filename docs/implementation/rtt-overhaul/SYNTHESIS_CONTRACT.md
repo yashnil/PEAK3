@@ -211,11 +211,61 @@ surfaces), both by **measurement**, not inspection:
   `color-mix(--peak-accent 40%, --text-primary)`, which inherits
   `--text-primary`'s per-theme flip automatically — 13.26:1 dark, 4.91:1 light.
 
-**Rule for the remainder of the pass, including task #17:** any token tuned for
-one theme must be re-measured before it is reused as text in the other. Neither
-`--comp-*` nor `--peak-accent` is theme-portable as a text colour. Contrast
-tables are documented inline at the point of use, following the precedent
-already set in `RunMap.tsx`.
+**Rule for the remainder of the pass:** any token tuned for one theme must be
+re-measured before it is reused as text in the other. Neither `--comp-*` nor
+`--peak-accent` is theme-portable as a text colour. Contrast tables are
+documented inline at the point of use, following the precedent already set in
+`RunMap.tsx`.
+
+### 5.3 Lead ruling — one text-safe colour mechanism, not two
+
+Both frontend teammates independently hit the same wall and solved it
+differently. `platform` additionally measured `--peak-accent` at **1.50:1**
+against the light card surface, which fails AA at *every* text size — worse
+than `--correct`/`--incorrect`, which failed only at small sizes.
+
+| Teammate | Mechanism |
+| --- | --- |
+| `rtt-experience` | `color-mix(--peak-accent 40%, --text-primary)`, applied ad hoc at one call site |
+| `platform` | Named additive sibling tokens `--peak-accent-text`, `--comp-{si,tp,rec,po,team,tm}-text` — identical hex on Arena Night, darkened and measured ≥4.5:1 on Arena Day — plus `componentTextColor()` in `lib/utils.ts`, mirroring the existing `componentColor()` |
+
+**Ruling: `platform`'s named-token mechanism is the single approved one.**
+Reasons, in order of weight:
+
+1. It is **discoverable**. A later contributor reaching for a component colour
+   as text finds `componentTextColor()` next to `componentColor()`. A
+   `color-mix` expression buried at one call site teaches nobody.
+2. It is **measured once and reused**, rather than re-derived per site — so
+   correctness cannot drift between call sites.
+3. It is **testable**: a single test can assert every `-text` token clears
+   4.5:1 in both themes. An inline `color-mix` has to be verified visually at
+   every site that uses it.
+4. It mirrors the resolution already applied to `--correct`/`--incorrect`, so
+   the codebase ends with one pattern for this class of problem, not three.
+
+`rtt-experience` migrates its `RunMap` `color-mix` to `--peak-accent-text`.
+The frozen values are untouched by either mechanism — verified: `--peak-accent`
+`#f5c842`, `--comp-si` `#60a5fa`, `--comp-tp` `#a78bfa`, `--comp-rec` `#f472b6`,
+`--comp-po` `#fb923c`, `--comp-team` `#34d399`, `--comp-tm` `#94a3b8`, all
+matching CLAUDE.md exactly. The `-text` siblings are **additive**, which the
+token contract permits.
+
+### 5.4 Two latent CSS bugs found during migration
+
+Both pre-existing, both unrelated to theming, both invisible until a token
+replaced a literal:
+
+- `DraftScreen.tsx` built `"var(--peak-accent)10"` — a hex-alpha suffix
+  concatenated onto a `var()` reference. That is invalid CSS in **every**
+  theme, silently dropped by the browser.
+- `SpinStage.tsx` referenced `--border-muted`, a token **never defined
+  anywhere**, so its `#333` fallback was the only value that ever rendered.
+
+Root cause worth recording: `${color}NN` hex-alpha string concatenation only
+ever worked because the source was a literal hex. The moment such a value
+becomes a `var(--token)` reference, concatenation produces invalid CSS that
+fails silently. Every such site is now a `color-mix()` alpha wash. **Any future
+alpha-on-token work uses `color-mix()`, never string concatenation.**
 
 **Phase 5 must verify against the 8–12 s total and the preserved relative
 emphasis — not against §8's literal per-beat numbers.** An implementation
