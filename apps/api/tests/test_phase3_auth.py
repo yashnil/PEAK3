@@ -471,6 +471,39 @@ class TestMyProfile:
         _clear_overrides()
         assert resp.status_code == 422
 
+    @pytest.mark.parametrize("handle", ["adm1n", "0fficial", "supp0rt", "peak_3"])
+    def test_handle_validation_folds_leetspeak_before_the_substring_check(self, handle):
+        """A digit standing in for a letter, or the one legal separator
+        splitting up the product's own name, must not be a working bypass
+        of the impersonation guard -- "adm1n" reads as "admin", "0fficial"
+        as "official", "supp0rt" as "support", and "peak_3" as "peak3" once
+        folded. Real bypasses found and reported by game-experience's
+        adversarial verification of the impersonation guard."""
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            resp = client.put("/api/v1/profiles/me", json={"handle": handle})
+        _clear_overrides()
+        assert resp.status_code == 422, f"{handle!r} should have been rejected"
+
+    @pytest.mark.parametrize("handle", ["player123", "team07", "user2026", "b2b"])
+    def test_leetspeak_fold_does_not_over_block_ordinary_digit_handles(self, handle):
+        """The fold exists to catch digits standing in for specific letters
+        in a reserved word, not to treat every handle with a digit in it as
+        suspicious -- none of these fold into anything on the impersonation
+        or profanity lists."""
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            resp = client.put("/api/v1/profiles/me", json={"handle": handle})
+        _clear_overrides()
+        assert resp.status_code == 200, f"{handle!r} should NOT have been rejected"
+        assert resp.json()["handle"] == handle
+
     def test_handle_validation_does_not_over_block_ordinary_words(self):
         """Reserved-word/impersonation guards are exact-match or targeted
         substring only -- they must not catch ordinary handles that merely
@@ -539,6 +572,10 @@ class TestMySettings:
         data = resp.json()
         assert data["timezone"] == "UTC"
         assert data["reduced_motion"] is False
+        # launch-polish IMPLEMENTATION_CONTRACT.md §2: an account that has
+        # never chosen reads back None, never a server-side default -- the
+        # client keeps resolving from local storage in that case.
+        assert data["theme_preference"] is None
 
     def test_update_settings(self):
         subject = _auth(sub=f"user-{uuid.uuid4()}")
@@ -555,6 +592,52 @@ class TestMySettings:
         data = resp.json()
         assert data["timezone"] == "America/New_York"
         assert data["reduced_motion"] is True
+
+    @pytest.mark.parametrize("preference", ["system", "dark", "light"])
+    def test_update_theme_preference_round_trips(self, preference):
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            put_resp = client.put(
+                "/api/v1/profiles/me/settings", json={"theme_preference": preference}
+            )
+            get_resp = client.get("/api/v1/profiles/me/settings")
+        _clear_overrides()
+        assert put_resp.status_code == 200, put_resp.text
+        assert put_resp.json()["theme_preference"] == preference
+        assert get_resp.json()["theme_preference"] == preference
+
+    def test_theme_preference_rejects_an_unknown_value(self):
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            resp = client.put(
+                "/api/v1/profiles/me/settings", json={"theme_preference": "solarized"}
+            )
+        _clear_overrides()
+        assert resp.status_code == 422
+
+    def test_theme_preference_is_independent_of_the_other_two_fields(self):
+        """Setting theme_preference must not disturb timezone/reduced_motion,
+        and vice versa -- three independent preferences on one endpoint, not
+        one payload that has to be sent whole each time (UpdateSettingsRequest
+        applies via model_dump(exclude_unset=True), so an omitted field is
+        left alone rather than reset)."""
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            client.put("/api/v1/profiles/me/settings", json={"reduced_motion": True})
+            resp = client.put("/api/v1/profiles/me/settings", json={"theme_preference": "dark"})
+        _clear_overrides()
+        assert resp.status_code == 200
+        assert resp.json()["reduced_motion"] is True
+        assert resp.json()["theme_preference"] == "dark"
 
 
 # ---------------------------------------------------------------------------

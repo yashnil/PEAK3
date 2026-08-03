@@ -19,9 +19,17 @@ from app.models.profile import (
     UpdateSettingsRequest,
     UserSettingsResponse,
 )
-from app.repositories.profile_protocols import HandleTakenError, Profile
+from app.repositories.profile_protocols import HandleTakenError, Profile, UserSettings
 
 router = APIRouter()
+
+
+def _settings_to_response(s: UserSettings) -> UserSettingsResponse:
+    return UserSettingsResponse(
+        timezone=s.timezone,
+        reduced_motion=s.reduced_motion,
+        theme_preference=s.theme_preference,
+    )
 
 
 def _to_response(profile: Profile) -> ProfileResponse:
@@ -76,7 +84,7 @@ async def update_my_profile(
 @router.get("/profiles/me/settings", response_model=UserSettingsResponse)
 async def get_my_settings(auth: RequiredAuth, profile_repo: ProfileRepoDep) -> UserSettingsResponse:
     s = await profile_repo.get_or_create_settings(auth.sub)
-    return UserSettingsResponse(timezone=s.timezone, reduced_motion=s.reduced_motion)
+    return _settings_to_response(s)
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +100,7 @@ async def update_my_settings(
 ) -> UserSettingsResponse:
     updates = body.model_dump(exclude_unset=True)
     s = await profile_repo.update_settings(auth.sub, updates)
-    return UserSettingsResponse(timezone=s.timezone, reduced_motion=s.reduced_motion)
+    return _settings_to_response(s)
 
 
 # ---------------------------------------------------------------------------
