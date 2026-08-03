@@ -565,20 +565,23 @@ describe("ThemeToggle", () => {
     __resetThemeStoreForTests();
   });
 
-  it("icon variant cycles system -> dark -> light -> system on click", async () => {
+  it("icon variant starts on dark (the new default) and cycles dark -> light -> system -> dark on click", async () => {
     const user = userEvent.setup();
     render(<ThemeToggle />);
     const button = screen.getByTestId("theme-toggle");
-    // Starts on "system"; one click each moves through the cycle. The
-    // accessible name states BOTH the current state and where the next
-    // click goes, so a screen-reader user never clicks blind.
+    // Launch-polish IMPLEMENTATION_CONTRACT.md §2: with nothing stored, a
+    // fresh mount's preference IS "dark" now (not "system"), so the cycle
+    // that `nextThemePreference` always defined (system -> dark -> light ->
+    // system) is experienced starting from dark: dark -> light -> system ->
+    // dark. The accessible name states BOTH the current state and where the
+    // next click goes, so a screen-reader user never clicks blind.
+    expect(button).toHaveAccessibleName(/Arena Night\.\s*Switch to Arena Day/);
+    await user.click(button);
+    expect(button).toHaveAccessibleName(/Arena Day\.\s*Switch to System/);
+    await user.click(button);
     expect(button).toHaveAccessibleName(/System.*Switch to Arena Night/);
     await user.click(button);
-    expect(button).toHaveAccessibleName(/Arena Night.*Switch to Arena Day/);
-    await user.click(button);
-    expect(button).toHaveAccessibleName(/Arena Day.*Switch to System/);
-    await user.click(button);
-    expect(button).toHaveAccessibleName(/System.*Switch to Arena Night/);
+    expect(button).toHaveAccessibleName(/Arena Night\.\s*Switch to Arena Day/);
   });
 
   it("icon variant meets the 44px tap-target floor", () => {
@@ -595,22 +598,39 @@ describe("ThemeToggle", () => {
     const system = screen.getByTestId("theme-option-system");
     const dark = screen.getByTestId("theme-option-dark");
     const light = screen.getByTestId("theme-option-light");
-    expect(system).toHaveAttribute("aria-pressed", "true");
-    expect(dark).toHaveAttribute("aria-pressed", "false");
+    // Dark is the default with nothing stored (launch-polish
+    // IMPLEMENTATION_CONTRACT.md §2), not System.
+    expect(dark).toHaveAttribute("aria-pressed", "true");
+    expect(system).toHaveAttribute("aria-pressed", "false");
 
     await user.click(light);
     expect(light).toHaveAttribute("aria-pressed", "true");
-    expect(system).toHaveAttribute("aria-pressed", "false");
+    expect(dark).toHaveAttribute("aria-pressed", "false");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 
+  it("an explicitly chosen System preference is pressed and distinguishable from the default", async () => {
+    const user = userEvent.setup();
+    render(<ThemeToggle variant="menu" />);
+    const system = screen.getByTestId("theme-option-system");
+    const dark = screen.getByTestId("theme-option-dark");
+    await user.click(system);
+    expect(system).toHaveAttribute("aria-pressed", "true");
+    expect(dark).toHaveAttribute("aria-pressed", "false");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("system");
+  });
+
   it("persists the choice so a second mount reads it back", async () => {
+    // Chooses "light", not "dark" -- dark is now also the no-preference
+    // default, so persisting dark would pass even if persistence were
+    // broken (a fresh mount defaults there anyway). Light actually proves
+    // the round trip.
     const user = userEvent.setup();
     const { unmount } = render(<ThemeToggle variant="menu" />);
-    await user.click(screen.getByTestId("theme-option-dark"));
+    await user.click(screen.getByTestId("theme-option-light"));
     unmount();
 
     render(<ThemeToggle variant="menu" />);
-    expect(screen.getByTestId("theme-option-dark")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("theme-option-light")).toHaveAttribute("aria-pressed", "true");
   });
 });
