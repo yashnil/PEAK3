@@ -69,7 +69,28 @@ GRANT SELECT (
 -- the safe list above is newly public that wasn't already reachable through
 -- the product.
 
+-- Second, separate finding while re-checking this table's grants directly
+-- rather than trusting a prior migration's stated intent (the standard set
+-- by this launch-polish pass's re-verification failures):
+-- `profiles` was never included in
+-- 20260801170000_revoke_truncate_and_trigger.sql's table list (it predates
+-- `normalized_handle` and this migration, but not `profiles` itself -- it
+-- simply never covered every owner-scoped table, only the ones its own
+-- writer was touching that pass). anon/authenticated still hold TRUNCATE
+-- and TRIGGER on `profiles`, verified directly against the grant table, not
+-- inferred: TRUNCATE is a table-level write RLS does NOT filter (row
+-- policies constrain which rows a statement may touch; TRUNCATE removes
+-- every row regardless), so a role holding it could erase every profile
+-- regardless of how correct profiles_owner_write's row scoping is.
+-- `user_settings`, `anonymous_subjects` and `ownership_claims` were checked
+-- the same way and have the identical gap -- reported separately rather
+-- than fixed here, since closing it on tables outside this migration's
+-- stated scope (profiles' own column privileges) is a different change the
+-- lead should sequence, not one to fold in silently.
+REVOKE TRUNCATE, TRIGGER ON profiles FROM anon, authenticated;
+
 -- Down:
+-- GRANT TRUNCATE, TRIGGER ON profiles TO anon, authenticated;
 -- REVOKE SELECT (
 --     id, handle, normalized_handle, display_name, bio, region, avatar_key,
 --     is_public, history_public, joined_at, updated_at
