@@ -10,7 +10,7 @@ lead verified. Source-level against the integrated branch @ `ddba3f1`.
 | --- | --- | --- |
 | 1 | No preview before commit | **PASS** |
 | 2 | No undo | **PASS**, with an honest asymmetry |
-| 3 | Occupied slots inert during placement | **PASS** |
+| 3 | Occupied slots inert during placement | **FAIL** — my verdict was wrong, see §3 |
 | 4 | ~9 px Move button | **PASS with a documented deviation** |
 
 ### 1. Preview before commit
