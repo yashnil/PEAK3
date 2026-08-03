@@ -127,7 +127,7 @@ function AuthCompleteContent() {
           type="button"
           onClick={goNext}
           data-testid="auth-complete-continue"
-          className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+          className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
           style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           Continue
@@ -178,7 +178,7 @@ function AuthCompleteContent() {
         type="button"
         onClick={goNext}
         data-testid="auth-complete-continue"
-        className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+        className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
         style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
       >
         Continue

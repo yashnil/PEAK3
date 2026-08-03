@@ -38,7 +38,6 @@ const MODES: CourtMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
  */
 export default function ArenaLeaderboardsPage() {
   const [mode, setMode] = useState<CourtMode>("apex_1y");
-  const [noRespinOnly, setNoRespinOnly] = useState(false);
   const [runs, setRuns] = useState<PerfectSeasonRunPublic[] | null>(null);
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,7 +46,12 @@ export default function ArenaLeaderboardsPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getLeaderboard({ mode, noRespin: noRespinOnly, limit: 50 })
+    // launch-polish IMPLEMENTATION_CONTRACT.md §7: no respin filter -- the
+    // "No-respin runs only" toggle that used to live here is removed, not
+    // defaulted off. Respins are normal Standard 82-0 play; a run that used
+    // one is still shown, with a "respins used" badge per row below (kept
+    // as metadata, same as before) rather than being hidden from the board.
+    getLeaderboard({ mode, limit: 50 })
       .then((r) => {
         if (cancelled) return;
         setEnabled(r.leaderboard_enabled);
@@ -62,7 +66,7 @@ export default function ArenaLeaderboardsPage() {
     return () => {
       cancelled = true;
     };
-  }, [mode, noRespinOnly]);
+  }, [mode]);
 
   // Today's daily status is read once, independent of the mode tabs above —
   // it answers "is there a daily to play right now," not "what did this
@@ -119,15 +123,6 @@ export default function ArenaLeaderboardsPage() {
               {COURT_MODE_LABELS[m] ?? m}
             </button>
           ))}
-          <label className="flex items-center gap-1.5 text-xs ml-auto" style={{ color: "var(--text-secondary)" }}>
-            <input
-              type="checkbox"
-              checked={noRespinOnly}
-              onChange={(e) => setNoRespinOnly(e.target.checked)}
-              data-testid="leaderboard-no-respin-filter"
-            />
-            No-respin runs only
-          </label>
         </div>
 
         {enabled === false && (
@@ -138,7 +133,7 @@ export default function ArenaLeaderboardsPage() {
 
         {enabled && !loading && runs && runs.length === 0 && (
           <div className="rounded-lg p-4 text-sm text-center" style={{ background: "var(--bg-surface)", color: "var(--text-muted)" }}>
-            No runs submitted yet for this filter.
+            No runs submitted yet for this mode.
           </div>
         )}
 

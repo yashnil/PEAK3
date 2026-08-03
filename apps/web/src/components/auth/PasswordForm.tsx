@@ -175,7 +175,7 @@ export function PasswordForm({ mode, next }: PasswordFormProps) {
         type="submit"
         disabled={pending}
         data-testid="password-submit"
-        className="w-full py-2.5 rounded-lg text-sm font-semibold border transition-all hover:opacity-90 disabled:opacity-60"
+        className="w-full py-2.5 rounded-lg text-sm font-semibold border transition-opacity hover:opacity-90 disabled:opacity-60"
         style={{
           background: "var(--bg-elevated)",
           borderColor: "var(--border-default)",

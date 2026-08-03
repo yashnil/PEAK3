@@ -70,11 +70,30 @@ export default function RankingsTable({
   const columnCount = columns.length + (resorted ? 1 : 0) + 3;
 
   return (
-    <div className="overflow-x-auto">
+    // `--bg-surface-data` (§3 palette direction: "a subtle cool neutral for
+    // data-dense regions") turns the table into its own distinct panel,
+    // differentiated from the surrounding page by hue rather than by
+    // stacking yet another lightness step onto an already-compressed ladder.
+    <div
+      className="overflow-x-auto rounded-xl border"
+      style={{ background: "var(--bg-surface-data)", borderColor: "var(--border-default)" }}
+    >
       <table className="w-full text-sm" data-testid="rankings-table">
         <caption className="sr-only">{caption}</caption>
         <thead>
-          <tr className="border-b border-[var(--border-subtle)] text-left">
+          {/* Launch-polish IMPLEMENTATION_CONTRACT.md §3 correctness bug:
+              this row used to share `--border-subtle` (1.37:1 against
+              --bg-surface in Arena Day, under the WCAG 1.4.11 3:1 UI floor)
+              with every data row below, so the header was structurally
+              indistinguishable from a row of data. `--divider-strong` (a
+              data-dense-region-specific token, not a general border
+              darkening) fixes the contrast; the background band is what
+              actually anchors the header as a header, not just a heavier
+              line. */}
+          <tr
+            className="border-b-2 border-[var(--divider-strong)] text-left"
+            style={{ background: "var(--bg-elevated)" }}
+          >
             {resorted && (
               <th scope="col" className={cn(HEADER_CLASS, "w-10")} data-testid="rankings-position-header">
                 <span title="Position in the current sort">#</span>
@@ -123,7 +142,7 @@ export default function RankingsTable({
             <tr
               key={row.row_id}
               onClick={() => onOpenRow(row)}
-              className="group border-b border-[var(--border-subtle)] cursor-pointer transition-colors hover:bg-[var(--bg-surface)]"
+              className="group border-b border-[var(--divider-strong)] cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
               data-testid="rankings-row"
             >
               {resorted && (

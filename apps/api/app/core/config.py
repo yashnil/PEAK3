@@ -351,6 +351,18 @@ class Settings(BaseSettings):
     TELEMETRY_MAX_BATCH_SIZE: int = 20
     TELEMETRY_RETENTION_DAYS: int = 90
 
+    # launch-polish IMPLEMENTATION_CONTRACT.md §9. Off by default -- same
+    # posture as every other new-collection-surface flag in this file
+    # (TELEMETRY_ENABLED, COURTBUILDER_LEADERBOARD_ENABLED): a deployment
+    # opts in rather than a new endpoint being live at install time. The
+    # rate limit is intentionally much lower than telemetry's -- a real
+    # visitor submits contact at most a handful of times ever, never per
+    # minute, so this is sized to stop a script, not to accommodate normal
+    # use at any real volume.
+    CONTACT_ENABLED: bool = False
+    CONTACT_RATE_LIMIT: int = 3
+    CONTACT_RATE_LIMIT_WINDOW_SECONDS: float = 600.0
+
     @model_validator(mode="after")
     def warn_insecure_secret(self) -> "Settings":
         if self.SIGNING_SECRET == "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION":

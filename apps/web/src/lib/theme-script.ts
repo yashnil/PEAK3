@@ -51,7 +51,7 @@ export function themeInitScript(): string {
 var KEY=${JSON.stringify(THEME_STORAGE_KEY)};
 var stored=null;
 try{stored=window.localStorage.getItem(KEY);}catch(e){}
-var pref=(stored==="light"||stored==="dark")?stored:"system";
+var pref=(stored==="light"||stored==="dark"||stored==="system")?stored:"dark";
 var resolved=pref==="system"
   ?(window.matchMedia&&window.matchMedia(${JSON.stringify(LIGHT_QUERY)}).matches?"light":"dark")
   :pref;

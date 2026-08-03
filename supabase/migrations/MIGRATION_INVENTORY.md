@@ -36,6 +36,7 @@ migration change rather than hand-editing this file.
 | 29 | `20260801170000_revoke_truncate_and_trigger` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 30 | `20260803090000_perfect_season_daily_leaderboard_index` | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
 | 31 | `20260803100000_profile_handle_contract` | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| 32 | `20260803110000_contact_submissions` | 1 | 2 | 0 | 0 | 0 | 1 | 1 |
 
 ## Detail per migration
 
@@ -894,3 +895,30 @@ migration change rather than hand-editing this file.
 **External table dependencies (not created in this file):** none
 
 **Idempotency:** indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS
+
+### `20260803110000_contact_submissions.sql`
+
+**Tables created:** contact_submissions
+  - `contact_submissions`: id, subject_hash, subject_kind, category, relevant_area, subject, message, reply_email, status, created_at
+
+**Indexes:** contact_submissions_created_idx, contact_submissions_status_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** contact_submissions
+
+**Policies:** contact_submissions_no_client_access
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
