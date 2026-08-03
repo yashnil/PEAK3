@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { BattlePublic, BossPublic } from "@/types/run-the-table";
+import { BattlePublic, BossPublic, LaneField, RunCardPublic } from "@/types/run-the-table";
 import { Coachmark } from "@/components/ui/GuidedTour";
+import { Explainer } from "@/components/ui";
 import {
   battleVerdict,
   decisiveLane,
@@ -10,6 +11,20 @@ import {
   laneSentence,
   runningSeries,
 } from "@/lib/run-the-table-state";
+import { LANE_RATING_LABELS } from "@/lib/run-the-table-copy";
+
+/**
+ * A lane's top contributor's OWN value in that lane — never the lineup
+ * rating shown above it. `player_top_card`/`opponent_top_card` are full
+ * `RunCardPublic` objects and already carry `lane_index` on the wire
+ * (`card_public()`), so this needs no engine work — SCORE_RECONCILIATION.md
+ * §2: "The contributor's own value is already on the wire via card_public(),
+ * so showing both numbers side by side requires no engine work."
+ */
+function contributorOwnValue(card: RunCardPublic | null, lane: LaneField): number | null {
+  const v = card?.lane_index?.[lane];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
 
 const STAGGER_S = 0.09;
 const DURATION_S = 0.35;
@@ -196,6 +211,36 @@ export default function BattleReveal({
         )}
       </div>
 
+      {/* Column headers — these two numbers are a ROSTER-WIDE mean, never any
+          one player's own value (SCORE_RECONCILIATION.md §2). Labelled once
+          here rather than five times per lane so the wording doesn't compete
+          with the per-lane numbers below it. `roster_total` is a different,
+          reserved engine field — this rating is never called a "total". */}
+      <div
+        className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-2"
+        data-testid="rtt-battle-lane-rating-header"
+      >
+        <span
+          className="text-right text-[9px] font-bold uppercase tracking-widest"
+          style={{ color: "var(--text-muted)" }}
+        >
+          {LANE_RATING_LABELS.player}
+        </span>
+        <span className="flex w-24 items-center justify-center gap-1 @[520px]:w-28">
+          <Explainer
+            label={`What "${LANE_RATING_LABELS.player}" / "${LANE_RATING_LABELS.boss}" means`}
+            term={LANE_RATING_LABELS.definition}
+            data-testid="rtt-lane-rating-explainer"
+          />
+        </span>
+        <span
+          className="text-left text-[9px] font-bold uppercase tracking-widest"
+          style={{ color: "var(--text-muted)" }}
+        >
+          {LANE_RATING_LABELS.boss}
+        </span>
+      </div>
+
       {/* Lanes */}
       <ul className="flex flex-col gap-2" data-testid="rtt-battle-lanes">
         {battle.lanes.map((lane, i) => {
@@ -285,16 +330,54 @@ export default function BattleReveal({
                 </div>
               </div>
 
-              {/* Top contributor on each side */}
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 pt-0.5">
-                <span className="truncate text-right text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  {lane.player_top_card?.player_name ?? "—"}
+              {/* Top contributor on each side — visually and semantically a
+                  SEPARATE fact from the lineup rating above it: this is one
+                  player's OWN value in this lane, never the roster mean. No
+                  individual label may visually own the roster-wide number
+                  (SCORE_RECONCILIATION.md §2), so this row gets its own
+                  micro-label, its own border, and its own number — never
+                  stacked unlabelled under the lineup rating the way it used
+                  to be ("27.2 — Victor Wembanyama" read as one fact). */}
+              <div
+                className="mt-1 grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-md px-1.5 py-1"
+                style={{ background: "var(--bg-page)", border: "1px solid var(--border-subtle)" }}
+                data-testid={`rtt-lane-contributors-${lane.lane}`}
+              >
+                <span className="flex items-center justify-end gap-1.5 min-w-0 text-right">
+                  <span
+                    className="score-number shrink-0 text-[10px] font-semibold"
+                    style={{ color: "var(--text-secondary)" }}
+                    data-testid={`rtt-lane-player-contributor-value-${lane.lane}`}
+                  >
+                    {(() => {
+                      const own = contributorOwnValue(lane.player_top_card, lane.lane);
+                      return own !== null ? own.toFixed(1) : "—";
+                    })()}
+                  </span>
+                  <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
+                    {lane.player_top_card?.player_name ?? "—"}
+                  </span>
                 </span>
-                <span className="w-24 text-center text-[9px] @[520px]:w-28" style={{ color: "var(--text-muted)" }}>
-                  led by
+                <span
+                  className="w-24 text-center text-[8px] font-bold uppercase tracking-wider @[520px]:w-28"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {LANE_RATING_LABELS.topContributor}
                 </span>
-                <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  {lane.opponent_top_card?.player_name ?? "—"}
+                <span className="flex items-center gap-1.5 min-w-0">
+                  <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
+                    {lane.opponent_top_card?.player_name ?? "—"}
+                  </span>
+                  <span
+                    className="score-number shrink-0 text-[10px] font-semibold"
+                    style={{ color: "var(--text-secondary)" }}
+                    data-testid={`rtt-lane-opponent-contributor-value-${lane.lane}`}
+                  >
+                    {(() => {
+                      const own = contributorOwnValue(lane.opponent_top_card, lane.lane);
+                      return own !== null ? own.toFixed(1) : "—";
+                    })()}
+                  </span>
                 </span>
               </div>
 

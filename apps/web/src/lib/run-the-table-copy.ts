@@ -577,6 +577,28 @@ export const RTT_COPY = {
 } as const;
 
 /**
+ * SCORE_RECONCILIATION.md §2 (binding, lead arbitration): the per-lane number
+ * in a battle is a bench-weighted MEAN across the whole roster, not any one
+ * player's value and not a sum — `roster_total` already names the sum, so
+ * reusing "total" here would collide with a live, distinct engine field.
+ *
+ * These three strings are the ONLY place this wording lives; `BattleReveal`
+ * and `BossPreview`'s lane rows both render from here so the label and the
+ * disclosure text can never drift between the two surfaces that show a lane
+ * rating.
+ */
+export const LANE_RATING_LABELS = {
+  player: "YOUR LINEUP RATING",
+  boss: "BOSS LINEUP RATING",
+  /** Verbatim string from SCORE_RECONCILIATION.md §2 — do not paraphrase. */
+  definition:
+    "The bench-weighted average strength of the lineup in that PEAK3 component, normalized to a 0–100 scale.",
+  /** The second, separately-attributed number on a lane row: one player's OWN
+   *  value in that lane, from `card.lane_index` — never the lineup rating. */
+  topContributor: "Top contributor",
+} as const;
+
+/**
  * How a battle is decided.
  *
  * A FUNCTION, not a constant, because `LANES_TO_WIN` belongs to the engine and

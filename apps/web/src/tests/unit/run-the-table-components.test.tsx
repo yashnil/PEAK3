@@ -1424,8 +1424,12 @@ describe("BattleReveal", () => {
     await waitFor(() => expect(live).toHaveTextContent("VICTORY"));
     expect(live).toHaveTextContent("Decided on lanes won");
     for (let i = 0; i < 5; i += 1) {
-      expect(live).toHaveTextContent(`Lane ${i}:`);
+      expect(live).toHaveTextContent(`Lane ${i} lineup rating:`);
     }
+    // The top contributor's OWN value is announced too, not only the lineup
+    // rating — screen-reader users reach the same two distinctly-attributed
+    // numbers a sighted player now sees on the restructured lane row.
+    expect(live).toHaveTextContent("Top contributor: Tim Duncan");
     expect(live).toHaveTextContent("Credits awarded: 12");
   });
 
@@ -1452,6 +1456,49 @@ describe("BattleReveal", () => {
     const first = screen.getByTestId("rtt-lane-statistical_impact");
     expect(within(first).getByText("Tim Duncan")).toBeInTheDocument();
     expect(within(first).getByText("Kevin Garnett")).toBeInTheDocument();
+  });
+
+  // SCORE_RECONCILIATION.md §2 (binding): the per-lane number is a
+  // bench-weighted roster MEAN, never a named player's own value, and
+  // relabelling alone was declared insufficient — the contributor's own
+  // number must ALSO render, separately attributed. These three tests pin
+  // that P0 fix so it cannot silently regress to the old unlabelled,
+  // stacked-under-a-name presentation.
+  it("labels the lineup rating YOUR/BOSS, never as a bare number under a player's name", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const header = screen.getByTestId("rtt-battle-lane-rating-header");
+    expect(header).toHaveTextContent("YOUR LINEUP RATING");
+    expect(header).toHaveTextContent("BOSS LINEUP RATING");
+  });
+
+  it("shows the top contributor's OWN lane value, distinct from the lineup rating above it", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    // battleFixture's lane 0 (statistical_impact): lineup rating 60.0/58.0,
+    // but the top contributor's own lane_index value (from `card()`) is a
+    // DIFFERENT number — the whole point of the fix. Both must be on screen,
+    // each in its own labelled block, never one implying the other.
+    const contributors = screen.getByTestId("rtt-lane-contributors-statistical_impact");
+    expect(contributors).toHaveTextContent("Top contributor");
+    const playerValue = screen.getByTestId("rtt-lane-player-contributor-value-statistical_impact");
+    const opponentValue = screen.getByTestId("rtt-lane-opponent-contributor-value-statistical_impact");
+    expect(playerValue.textContent).not.toBe("60.0");
+    expect(opponentValue.textContent).not.toBe("58.0");
+  });
+
+  it("never lets an individual player's label sit directly on the roster-wide number", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const lane = screen.getByTestId("rtt-lane-statistical_impact");
+    const contributors = screen.getByTestId("rtt-lane-contributors-statistical_impact");
+    // The contributor block is a physically separate element from the lineup
+    // rating row it sits below — not a caption glued to the same number.
+    expect(contributors.parentElement).toBe(lane);
+    expect(contributors).not.toBe(lane.firstElementChild);
   });
 
   it("shows the full series count immediately once the reveal is skipped", async () => {

@@ -64,6 +64,7 @@ import {
   BattlePublic,
   LaneField,
   MapAct,
+  RunCardPublic,
   RunPublicState,
   RunReceipt,
   RunStatus,
@@ -75,6 +76,38 @@ import { ordinal, ordinalFixed, ordinalSuffix } from "@/lib/ordinal";
 // ---------------------------------------------------------------------------
 // Fixtures — shaped field-for-field like the API contract
 // ---------------------------------------------------------------------------
+
+/** A minimal, validly-shaped `RunCardPublic` — for lane-contributor fixtures
+ *  only, so a top-contributor test never has to restate every card field. */
+function topCard(over: Partial<RunCardPublic> = {}): RunCardPublic {
+  const laneIndex: Record<LaneField, number> = {
+    statistical_impact: 70,
+    traditional_production: 65,
+    individual_recognition: 60,
+    postseason_individual_value: 55,
+    team_achievement: 50,
+  };
+  return {
+    card_id: "card-a",
+    player_name: "Fixture Player",
+    player_slug: "fixture-player",
+    start_season: "2015-16",
+    end_season: "2017-18",
+    anchor_season: "2016-17",
+    window_label: "2015-16 – 2017-18",
+    prime_score: 88.4,
+    overall_percentile: 75.1,
+    eligible_roles: ["lead_creator"],
+    primary_role: "lead_creator",
+    lane_index: laneIndex,
+    lane_percentiles: laneIndex,
+    base_cost: 20,
+    cost: 20,
+    cost_modifiers: [],
+    refund_value: 10,
+    ...over,
+  };
+}
 
 function lane(
   over: Partial<BattleLanePublic> & Pick<BattleLanePublic, "lane" | "winner">,
@@ -591,12 +624,26 @@ describe("battle derivations", () => {
   });
 
   it("writes one screen-reader sentence per lane, flagging a rule-broken tie", () => {
+    // "lineup rating", never "score" or "total" — the number is a
+    // bench-weighted mean across the roster, not any one player's value
+    // (SCORE_RECONCILIATION.md §2), and the sentence must not imply otherwise.
     expect(laneSentence(lane({ lane: "statistical_impact", winner: "player" }))).toBe(
-      "Statistical Impact: 62.5 to 58.3. You win.",
+      "Statistical Impact lineup rating: 62.5 to 58.3. You win.",
     );
     expect(
       laneSentence(lane({ lane: "team_achievement", winner: "tie", tie_broken_by_rule: true })),
     ).toContain("boss rule broke the tie");
+  });
+
+  it("announces the top contributor's own value separately from the lineup rating", () => {
+    const withContributors = lane({
+      lane: "statistical_impact",
+      winner: "player",
+      player_top_card: topCard({ player_name: "Tim Duncan", lane_index: { statistical_impact: 71, traditional_production: 0, individual_recognition: 0, postseason_individual_value: 0, team_achievement: 0 } }),
+      opponent_top_card: topCard({ card_id: "z", player_name: "Kevin Garnett", lane_index: { statistical_impact: 69, traditional_production: 0, individual_recognition: 0, postseason_individual_value: 0, team_achievement: 0 } }),
+    });
+    const sentence = laneSentence(withContributors);
+    expect(sentence).toContain("Top contributor: Tim Duncan 71.0 vs Kevin Garnett 69.0.");
   });
 });
 

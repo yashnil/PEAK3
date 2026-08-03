@@ -60,7 +60,6 @@ vi.mock("@/lib/a11y", async () => {
 });
 
 import RunTheTableGame from "@/components/run-the-table/RunTheTableGame";
-import RevealReel from "@/components/run-the-table/RevealReel";
 import CreditSinks from "@/components/run-the-table/CreditSinks";
 import ScoutPrepare from "@/components/run-the-table/ScoutPrepare";
 import { runActions } from "@/lib/run-the-table-api";
@@ -439,118 +438,13 @@ describe("reveal gating", () => {
 });
 
 // ---------------------------------------------------------------------------
-// RevealReel
+// RevealSequenceSurface + useRevealSequence — see
+// `run-the-table-reveal.test.tsx` for the dedicated hook-level and
+// component-level coverage (superseded `RevealReel`, deleted with this pass:
+// PRODUCT_EXPERIENCE_CONTRACT.md §2 replaced its manual, one-card-per-click
+// UX with a single-action batched reveal, so its old assertions describe a
+// UX that no longer exists).
 // ---------------------------------------------------------------------------
-
-describe("RevealReel", () => {
-  function renderReel(track: RevealTrack, onReveal = vi.fn()) {
-    render(
-      <RevealReel track={track} kind="roster" title="Meet your roster" busy={false} onReveal={onReveal} />,
-    );
-    return onReveal;
-  }
-
-  it("shows the seven published slots in order, with nothing revealed yet", () => {
-    renderReel(rosterTrack(0));
-    for (const label of SLOT_LABELS) expect(screen.getByText(label)).toBeInTheDocument();
-    expect(screen.getByTestId("rtt-reveal-progress-roster")).toHaveTextContent("0 of 7 revealed");
-    // No card anywhere: an unrevealed slot must not leak its player.
-    expect(screen.queryByText("Player 0")).not.toBeInTheDocument();
-  });
-
-  it("renders the card the SERVER preselected — there is no client RNG", () => {
-    renderReel(rosterTrack(2));
-    expect(screen.getByText("Player 0")).toBeInTheDocument();
-    expect(screen.getByText("Player 1")).toBeInTheDocument();
-    expect(screen.queryByText("Player 2")).not.toBeInTheDocument();
-    expect(screen.getByTestId("rtt-reveal-slot-lead_creator")).toHaveAttribute(
-      "data-revealed",
-      "true",
-    );
-    expect(screen.getByTestId("rtt-reveal-slot-wing_forward")).toHaveAttribute(
-      "data-revealed",
-      "false",
-    );
-  });
-
-  it("offers skip-all only AFTER the first reveal, and never once complete", () => {
-    const { unmount } = render(
-      <RevealReel track={rosterTrack(0)} kind="roster" title="t" busy={false} onReveal={vi.fn()} />,
-    );
-    expect(screen.queryByTestId("rtt-reveal-skip-roster")).not.toBeInTheDocument();
-    expect(screen.getByTestId("rtt-reveal-next-roster")).toBeInTheDocument();
-    unmount();
-
-    render(
-      <RevealReel track={rosterTrack(1)} kind="roster" title="t" busy={false} onReveal={vi.fn()} />,
-    );
-    expect(screen.getByTestId("rtt-reveal-skip-roster")).toHaveTextContent("Skip all (6)");
-  });
-
-  it("hides both controls once the reveal is complete", () => {
-    renderReel(rosterTrack(7));
-    expect(screen.queryByTestId("rtt-reveal-next-roster")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("rtt-reveal-skip-roster")).not.toBeInTheDocument();
-  });
-
-  it("asks for one card on next, and everything left on skip-all", async () => {
-    const onReveal = renderReel(rosterTrack(3));
-    await userEvent.click(screen.getByTestId("rtt-reveal-next-roster"));
-    expect(onReveal).toHaveBeenLastCalledWith(1);
-    await userEvent.click(screen.getByTestId("rtt-reveal-skip-roster"));
-    expect(onReveal).toHaveBeenLastCalledWith(4);
-  });
-
-  /**
-   * The reel is the surface most likely to read as "a team being generated live
-   * by a model". It is not, and it says so on both variants.
-   */
-  it("labels itself as seed and rule generated, on both reveals", () => {
-    const { unmount } = render(
-      <RevealReel track={rosterTrack(1)} kind="roster" title="t" busy={false} onReveal={vi.fn()} />,
-    );
-    expect(screen.getByTestId("rtt-reveal-source-roster")).toHaveTextContent(
-      /seed and rule generated/i,
-    );
-    unmount();
-    render(
-      <RevealReel track={bossTrack(1)} kind="boss" title="The Wall" busy={false} onReveal={vi.fn()} />,
-    );
-    expect(screen.getByTestId("rtt-reveal-source-boss")).toHaveTextContent(
-      /not a team being built live/i,
-    );
-  });
-
-  /**
-   * REDUCED MOTION REVEALS INSTANTLY. Asserted on what the player can actually
-   * observe — the revealed card is in the document on first paint, with the
-   * same content either way — rather than on a transition config, which would
-   * be a test of the animation library.
-   */
-  it("renders the same revealed cards under reduced motion", () => {
-    reducedMotion = true;
-    const { unmount, container } = render(
-      <RevealReel track={rosterTrack(3)} kind="roster" title="t" busy={false} onReveal={vi.fn()} />,
-    );
-    const reduced = container.textContent;
-    expect(screen.getByText("Player 2")).toBeInTheDocument();
-    unmount();
-
-    reducedMotion = false;
-    const full = render(
-      <RevealReel track={rosterTrack(3)} kind="roster" title="t" busy={false} onReveal={vi.fn()} />,
-    );
-    expect(full.container.textContent).toBe(reduced);
-  });
-
-  it("disables both controls while a round trip is in flight", () => {
-    render(
-      <RevealReel track={rosterTrack(2)} kind="roster" title="t" busy onReveal={vi.fn()} />,
-    );
-    expect(screen.getByTestId("rtt-reveal-next-roster")).toBeDisabled();
-    expect(screen.getByTestId("rtt-reveal-skip-roster")).toBeDisabled();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // CreditSinks
@@ -790,43 +684,55 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(screen.queryByTestId("rtt-system-select")).not.toBeInTheDocument();
   });
 
-  it("posts a reveal action and shows the server's next card", async () => {
+  // SYNTHESIS_CONTRACT.md §2.2: the opening reveal is now ONE user action →
+  // ONE POST → the server's full, already-authoritative response; the client
+  // then paces its own presentation of that response. These three tests
+  // replace the old one-card-per-click assertions.
+
+  it("fires ONE batched reveal action for the whole roster — nothing shown before the press", async () => {
     await startAt(runState());
+    expect(screen.getByTestId("rtt-reveal-start-roster")).toBeInTheDocument();
+    expect(screen.queryByText(/Player \d/)).not.toBeInTheDocument();
+
     mockPostAction.mockResolvedValue(
-      runState({ action_count: 1, reveal: { roster: rosterTrack(1), boss: null } }),
+      runState({ action_count: 1, reveal: { roster: rosterTrack(7), boss: null } }),
     );
-    await userEvent.click(screen.getByTestId("rtt-reveal-next-roster"));
+    await userEvent.click(screen.getByTestId("rtt-reveal-start-roster"));
 
     await waitFor(() =>
       expect(mockPostAction).toHaveBeenCalledWith(
         "run-v3",
-        { action_type: "reveal", target: "roster", count: 1 },
-        expect.any(String),
-      ),
-    );
-    expect(await screen.findByText("Player 0")).toBeInTheDocument();
-  });
-
-  it("skips the rest of the reveal in ONE call", async () => {
-    await startAt(runState({ action_count: 1, reveal: { roster: rosterTrack(2), boss: null } }));
-    mockPostAction.mockResolvedValue(
-      runState({ action_count: 2, reveal: { roster: rosterTrack(7), boss: null } }),
-    );
-    await userEvent.click(screen.getByTestId("rtt-reveal-skip-roster"));
-
-    await waitFor(() =>
-      expect(mockPostAction).toHaveBeenCalledWith(
-        "run-v3",
-        { action_type: "reveal", target: "roster", count: 5 },
+        { action_type: "reveal", target: "roster", count: 7 },
         expect.any(String),
       ),
     );
     expect(mockPostAction).toHaveBeenCalledTimes(1);
-    // And the perk choice is what the completed reveal hands over to.
-    expect(await screen.findByTestId("rtt-system-select")).toBeInTheDocument();
   });
 
-  it("resumes a half-finished reveal after a reload rather than restarting it", async () => {
+  it("skip all resolves the sequence locally with no second round trip, then hands over to the perk choice", async () => {
+    // Matches the OLD behaviour exactly: finishing the reveal (by any means)
+    // hands over to the next screen in the same render the completion is
+    // observed — `needsOpeningReveal`/`showRosterReveal` and the surface
+    // itself are driven by the SAME `rosterSequence`, so there is no frame
+    // where "system_select" and "every card visible" are both true at once.
+    // The card-by-card visibility DURING an unfinished sequence is covered
+    // directly in `run-the-table-reveal.test.tsx`, against the surface
+    // component in isolation rather than through this auto-advancing shell.
+    await startAt(runState());
+    mockPostAction.mockResolvedValue(
+      runState({ action_count: 1, reveal: { roster: rosterTrack(7), boss: null } }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-reveal-start-roster"));
+    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-roster"));
+
+    // Skip-all is client-side choreography over the SAME response — never a
+    // second POST.
+    expect(mockPostAction).toHaveBeenCalledTimes(1);
+    expect(await screen.findByTestId("rtt-system-select")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-opening-reveal")).not.toBeInTheDocument();
+  });
+
+  it("resume before the reveal has ever been started shows the single-action cover, never a mid-reveal state", async () => {
     window.localStorage.setItem(
       "peak3.run-the-table.active",
       JSON.stringify({
@@ -834,15 +740,27 @@ describe("RunTheTableGame — v3 flow", () => {
         run_date: null, updated_at: "2026-08-01T00:00:00Z",
       }),
     );
-    mockGetRun.mockResolvedValue(
-      runState({ action_count: 3, reveal: { roster: rosterTrack(3), boss: null } }),
-    );
+    mockGetRun.mockResolvedValue(runState({ reveal: { roster: rosterTrack(0), boss: null } }));
     render(<RunTheTableGame />);
 
     await screen.findByTestId("rtt-opening-reveal");
-    expect(screen.getByTestId("rtt-reveal-progress-roster")).toHaveTextContent("3 of 7 revealed");
-    expect(screen.getByText("Player 2")).toBeInTheDocument();
-    expect(screen.queryByText("Player 3")).not.toBeInTheDocument();
+    expect(screen.getByTestId("rtt-reveal-start-roster")).toBeInTheDocument();
+    expect(screen.queryByText(/Player \d/)).not.toBeInTheDocument();
+  });
+
+  it("resume of an already-fully-revealed roster skips straight past the reveal — it never replays", async () => {
+    window.localStorage.setItem(
+      "peak3.run-the-table.active",
+      JSON.stringify({
+        schema_version: 1, run_id: "run-v3", seed: 4242, run_type: "standard",
+        run_date: null, updated_at: "2026-08-01T00:00:00Z",
+      }),
+    );
+    mockGetRun.mockResolvedValue(runState({ reveal: { roster: rosterTrack(7), boss: null } }));
+    render(<RunTheTableGame />);
+
+    await screen.findByTestId("rtt-system-select");
+    expect(screen.queryByTestId("rtt-opening-reveal")).not.toBeInTheDocument();
   });
 
   it("puts a boss reveal in front of the boss briefing", async () => {
