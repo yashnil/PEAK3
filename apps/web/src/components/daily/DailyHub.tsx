@@ -93,7 +93,7 @@ export default function DailyHub() {
       <header className="home-hero-glow -mx-3 rounded-2xl px-4 py-8 sm:-mx-4 sm:px-6 sm:py-10">
         <p
           className="text-[11px] font-bold uppercase tracking-[0.2em]"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
         >
           Daily Games
         </p>
@@ -110,7 +110,7 @@ export default function DailyHub() {
             className="mt-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs"
             style={{ background: "var(--bg-surface)", color: "var(--text-secondary)" }}
           >
-            <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+            <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
             Next boards in {formatCountdown(countdown)}
             <span className="sr-only"> (new daily board at midnight PT)</span>
           </p>
@@ -144,7 +144,7 @@ export default function DailyHub() {
                     <span
                       data-testid="daily-hub-grid-streak"
                       className="text-[11px] font-semibold"
-                      style={{ color: "var(--peak-accent)" }}
+                      style={{ color: "var(--peak-accent-text)" }}
                     >
                       {streak} day streak
                     </span>
@@ -179,7 +179,7 @@ export default function DailyHub() {
           href="/daily/history"
           data-testid="daily-hub-history-link"
           className="text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
         >
           Daily Grid history →
         </Link>

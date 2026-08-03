@@ -61,7 +61,7 @@ export function AchievementUnlock({ achievementKeys, allAchievements, onDismiss 
       >
         <p
           className="text-xs font-semibold tracking-widest uppercase text-center"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
           aria-live="assertive"
         >
           Achievement Unlocked

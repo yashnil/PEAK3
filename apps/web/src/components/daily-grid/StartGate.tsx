@@ -81,7 +81,7 @@ export default function StartGate({
     >
       <p
         className="text-[11px] font-semibold uppercase tracking-[0.18em]"
-        style={{ color: "var(--peak-accent)" }}
+        style={{ color: "var(--peak-accent-text)" }}
       >
         Daily Grid
       </p>
@@ -113,7 +113,7 @@ export default function StartGate({
         className="mt-1 flex items-center gap-1.5 text-sm leading-relaxed"
         style={{ color: "var(--text-secondary)" }}
       >
-        <Clock size={13} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+        <Clock size={13} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
         The timer starts only when you press Start.
       </p>
 

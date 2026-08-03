@@ -76,10 +76,13 @@ interface Props {
   skipRulesGate?: boolean;
 }
 
+// `StatTile`'s `accent` prop is used both as a decorative `borderTop` AND as
+// the tile's own value-text color -- so this needs the text-safe siblings,
+// not the frozen tokens directly (P3-G3: same rule as componentTextColor()).
 const DIFFICULTY_COLOR: Record<string, string> = {
-  easy: "var(--comp-team)",
-  medium: "var(--peak-accent)",
-  hard: "var(--comp-po)",
+  easy: "var(--comp-team-text)",
+  medium: "var(--peak-accent-text)",
+  hard: "var(--comp-po-text)",
 };
 
 function StatTile({
@@ -649,7 +652,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
             transition: reducedMotion ? "none" : "opacity 200ms ease",
           }}
         >
-          <CalendarClock size={14} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+          <CalendarClock size={14} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
           <strong style={{ color: "var(--text-primary)" }}>A new grid is up.</strong>
           <span>
             You are still on the {rolloverFrom || "previous"} board. Your picks on it are safe — but
@@ -699,7 +702,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
             href="/daily/grid"
             data-testid="daily-grid-play-today"
             className="font-semibold underline underline-offset-2"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Play today&rsquo;s grid
           </Link>
@@ -717,7 +720,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
               style={{ color: "var(--text-secondary)" }}
             >
               Fill the grid with exact NBA player-seasons. Scores stay hidden until each pick locks.{" "}
-              <strong style={{ color: "var(--peak-accent)" }}>
+              <strong style={{ color: "var(--peak-accent-text)" }}>
                 Your goal: maximize your PEAK3 total with nine different players.
               </strong>
             </p>
@@ -737,7 +740,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
                 <span
                   data-testid="daily-grid-streak-chip"
                   className="rounded-full px-1.5 py-px text-[10px] font-bold"
-                  style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent)" }}
+                  style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent-text)" }}
                 >
                   {archive.current_streak}d
                 </span>
@@ -783,7 +786,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
           <StatTile
             label="Score"
             value={String(totalArenaPoints(progress))}
-            accent="var(--peak-accent)"
+            accent="var(--peak-accent-text)"
             testId="daily-grid-score"
           />
           <StatTile
@@ -830,7 +833,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
           className="mt-3 rounded-lg px-3 py-2 text-xs leading-relaxed"
           style={{ background: "var(--peak-accent-bg)", color: "var(--text-secondary)" }}
         >
-          <strong style={{ color: "var(--peak-accent)" }}>One player per board, picks are final.</strong>{" "}
+          <strong style={{ color: "var(--peak-accent-text)" }}>One player per board, picks are final.</strong>{" "}
           Nine squares need nine different players, and a valid pick cannot be changed. Search helps you
           confirm eligibility, but scores reveal only after a pick locks. Answers are exact seasons —
           &ldquo;1999-00 Shaquille O&rsquo;Neal&rdquo;, not just &ldquo;Shaquille O&rsquo;Neal&rdquo;.{" "}
