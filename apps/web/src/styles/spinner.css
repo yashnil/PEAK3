@@ -85,6 +85,16 @@
 .spin-lockup-joint[data-sealed="true"] {
   opacity: 1;
   transform: translate3d(-50%, -50%, 0) scale(1);
+  /* P6-d: this element (`data-testid="spin-lockup-joint"` in SpinStage.tsx)
+     is aria-hidden="true" and its own docstring calls it "Purely decorative
+     -- the pair is stated in text below and announced through the live
+     region above." ~1.29:1 against this surface (calculated: frozen
+     --peak-accent against the confirmed container background; the sealed
+     "×" state didn't land within this sweep's animation-wait window, so
+     this is computed from the known token and background rather than a
+     live axe capture of the sealed frame specifically). Left unfixed --
+     decorative, not the WCAG text-contrast target, same call as the
+     home-launcher and playmenu icons above in this sweep. */
   color: var(--peak-accent);
   border-color: color-mix(in srgb, var(--peak-accent) 55%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--peak-accent) 12%, transparent);
@@ -114,6 +124,12 @@
   display: inline-block;
   margin: 0 0.4em;
   font-weight: 900;
+  /* P6-d: the host span is aria-hidden="true" (SpinStage.tsx) and its glyph
+     is drawn by `::before`'s `content:` below, specifically so it never
+     lands in extractable text (see the comment above this rule) -- purely
+     decorative by explicit design. Same ~1.29:1 estimate as
+     `.spin-lockup-joint` above (same token, same surface). Left unfixed for
+     the same reason. */
   color: var(--peak-accent);
 }
 

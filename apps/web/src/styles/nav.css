@@ -42,6 +42,14 @@
 }
 
 .pk-nav-wordmark:hover {
+  /* P6-d MEASURED PASS, left as the frozen `--peak-accent`: every visible
+     character inside `.pk-nav-wordmark` (nav.tsx's three spans -- "PEAK",
+     "3", "Arena") sets its OWN `color` via a Tailwind class, so none of them
+     inherit this rule -- it currently has no visible effect. Confirmed with
+     axe on the live hovered element: 5.16-6.53:1, the three spans' own
+     colors, unchanged by hover. Not dead code to delete (a future unwrapped
+     text node here would legitimately want a hover accent), but nothing to
+     fix today. */
   color: var(--peak-accent);
 }
 
@@ -316,6 +324,9 @@
 
 .pk-playmenu-row-featured .pk-playmenu-icon {
   background: var(--bg-page);
+  /* P6-d: `.pk-playmenu-icon` wraps only a Lucide <Icon> in PlayMenu.tsx,
+     marked aria-hidden="true" -- decorative, not the WCAG text-contrast
+     target (same call as the home-launcher icon above it in this sweep). */
   color: var(--peak-accent);
 }
 
@@ -335,7 +346,9 @@
 }
 
 .pk-playmenu-row-featured .pk-playmenu-label {
-  color: var(--peak-accent);
+  /* P6-d MEASURED FAIL: 1.27-1.28:1 (axe, live). `{item.label}` is a real,
+     visible menu-item name, not decorative. */
+  color: var(--peak-accent-text);
 }
 
 .pk-playmenu-badge {
@@ -346,7 +359,8 @@
   text-transform: uppercase;
   border-radius: var(--pk-r-pill);
   background: var(--bg-page);
-  color: var(--peak-accent);
+  /* P6-d MEASURED FAIL: 1.27:1 (axe, live, "Flagship" badge). */
+  color: var(--peak-accent-text);
 }
 
 .pk-playmenu-blurb {
@@ -363,7 +377,14 @@
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--peak-accent);
+  /* P6-d MEASURED FAIL: 1.47:1 (axe, live). aria-hidden="true" in
+     PlayMenu.tsx (the row's `aria-current="page"` already announces this to
+     screen readers), but it renders the real word "Current" -- a sighted
+     low-vision user still needs to read it. Same standard as the aria-hidden
+     "·" bullet fixed in #21/P5-F1: aria-hidden exempts an element from the
+     accessibility TREE, not from being visually rendered, and WCAG 1.4.3 is
+     about what is rendered. */
+  color: var(--peak-accent-text);
 }
 
 /* ----------------------------------------------------------------
@@ -437,7 +458,10 @@
   border: 1px solid var(--peak-accent);
   border-radius: var(--pk-r-md);
   background: var(--peak-accent-bg);
-  color: var(--peak-accent);
+  /* P6-d MEASURED FAIL: 1.32:1 against this element's own --peak-accent-bg
+     wash (axe, live, "Resume your run"). Text on its own wash -- the same
+     bug class as --accent-emerald and #29/P6-b, just the frozen token again. */
+  color: var(--peak-accent-text);
   font-size: 0.875rem;
   font-weight: 600;
 }
@@ -530,7 +554,9 @@
 .pk-nav-drawer-row[aria-current="page"],
 .pk-nav-drawer-toprow[aria-current="page"],
 .pk-nav-drawer-section-link[aria-current="page"] {
-  color: var(--peak-accent);
+  /* P6-d MEASURED FAIL: 1.39:1 (axe, live, ".pk-nav-drawer-row-label" --
+     e.g. "View all games"). Real navigation label text. */
+  color: var(--peak-accent-text);
 }
 
 /* The non-colour half of "you are here" — a mark that survives greyscale,
@@ -541,7 +567,10 @@
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--peak-accent);
+  /* P6-d MEASURED FAIL: 1.39:1 (axe, live, "• Current"). Real text, not
+     purely the bullet glyph -- some call sites render just "•", others
+     "• Current"; both share this rule and both need the fix. */
+  color: var(--peak-accent-text);
 }
 
 /* ----------------------------------------------------------------
