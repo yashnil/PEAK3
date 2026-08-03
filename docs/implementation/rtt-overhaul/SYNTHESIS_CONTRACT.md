@@ -151,6 +151,46 @@ container.** This codebase has already had to fix that bug twice
 (`RunMap.tsx:56-62`, `DraftRoom.tsx:99-101`). The "lights lower" beat and the
 run-map compaction must not reintroduce it.
 
+### 5.1 Lead ruling — §8's table vs the 8–12 s target
+
+`rtt-experience` found, and correctly flagged rather than silently resolved, a
+**genuine internal contradiction** in `PRODUCT_EXPERIENCE_CONTRACT.md`: §8's
+per-beat table sums to ≈2.9 s per card, which over 7 cards is ≈20 s, against
+§2's stated total of 8–12 s. Read literally and strictly sequentially, both
+cannot hold.
+
+**Ruling:**
+
+1. **The 8–12 s total is binding.** It originates in the product brief, not
+   only in the contract, and it is the requirement a player actually
+   experiences. Where the two conflict, the total wins.
+2. **§8's table is a relative-emphasis reference, not a set of absolute
+   durations.** Beats compress proportionally to fit the budget. The ordering
+   and the relative weighting must be preserved — `identity` and `score` remain
+   the two longest beats, per §2's "single most information-dense beat".
+3. **`lights_lower` fires once per sequence, not once per card.** Dimming and
+   undimming the shell seven times in ten seconds would itself be the
+   distracting motion the contract exists to prevent. This is a correction to
+   §8, which listed it as a per-card beat.
+4. The **sequential compressed model (~9.4 s / 7 cards) is accepted.** The
+   overlapping-cards alternative licensed by §2 step 9 remains valid but is not
+   required; it is a materially larger implementation for the same visible
+   result in the common case, and correctness under pause/resume/skip-all is
+   harder to guarantee.
+5. **Two duration scales legitimately coexist.** `platform` owns
+   `--pk-dur-reveal` (400 ms) and `--pk-dur-count` (600 ms) as the standalone
+   durations for single-shot use — `AnimatedNumber` on the credits tile, for
+   instance. `rtt-experience`'s sequence-local compressed values are derived
+   from those for use *inside* the 7-card sequence, where a beat genuinely must
+   be faster than a standalone animation. Neither is wrong; the derivation must
+   be documented at the definition site so a later reader cannot mistake one
+   for the other. `platform` does **not** retune its tokens to the compressed
+   values.
+
+**Phase 5 must verify against the 8–12 s total and the preserved relative
+emphasis — not against §8's literal per-beat numbers.** An implementation
+matching §8 literally would violate the binding total and must be rejected.
+
 ## 6. Loading and latency behaviour
 
 Measured baseline (`PERFORMANCE.md`), not estimated:
