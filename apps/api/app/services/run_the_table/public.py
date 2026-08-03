@@ -108,12 +108,23 @@ def card_public(pool: CardPool, card_id: str, systems: list[str] | None = None) 
     }
 
 
-def _slot_public(pool: CardPool, slot, systems: list[str]) -> dict:
+def _slot_public(pool: CardPool, slot, systems: list[str], revealed: bool = True) -> dict:
+    """One roster slot.
+
+    ``revealed=False`` conceals the slot to SHAPE ONLY -- no name, slug,
+    seasons, window, ``prime_score``, percentile, cost or lane values -- the
+    same "absent, not merely unlabeled" discipline ``boss_public`` already
+    applies to a boss roster the player has not reached. All 7 starter/bench
+    slots are drafted and assigned a real ``card_id`` synchronously at run
+    creation (``state.create_run``), so ``slot.card_id`` existing is NOT the
+    same question as "has this been shown to the player yet" -- that is what
+    ``revealed`` (driven by ``state.reveal_index`` in ``public_state``) answers.
+    """
     return {
         "slot_id": slot.slot_id,
         "role": slot.role,
         "is_starter": slot.is_starter,
-        "card": card_public(pool, slot.card_id, systems) if slot.card_id else None,
+        "card": card_public(pool, slot.card_id, systems) if (slot.card_id and revealed) else None,
     }
 
 
@@ -197,28 +208,76 @@ def _battle_public(pool: CardPool, b) -> dict:
         # actually moved rather than leaving it invisible.
         "lanes_to_win": b.lanes_to_win,
         "lane_bonuses": dict(b.lane_bonuses),
-        "lanes": [
-            {
-                "lane": l.lane,
-                "label": l.label,
-                "token": LANE_TOKENS[l.lane],
-                "player_score": l.player_score,
-                "opponent_score": l.opponent_score,
-                "winner": l.winner,
-                "margin": l.margin,
-                "tie_broken_by_rule": l.tie_broken_by_rule,
-                "player_prep_bonus": l.player_prep_bonus,
-                "player_top_card": (
-                    card_public(pool, l.player_top_card_id, [])
-                    if l.player_top_card_id else None
-                ),
-                "opponent_top_card": (
-                    card_public(pool, l.opponent_top_card_id, [])
-                    if l.opponent_top_card_id else None
-                ),
-            }
-            for l in b.lanes
-        ],
+        "lanes": [_lane_receipt_public(pool, l) for l in b.lanes],
+    }
+
+
+def _own_lane_value(pool: CardPool, card_id: Optional[str], lane: str) -> Optional[dict]:
+    """``{name, own_lane_index_value}`` for one lane's top contributor.
+
+    ``own_lane_index_value`` is the CARD's own ``lane_index`` in this lane --
+    deliberately not the lineup rating shown beside it, which is the whole
+    point (SCORE_RECONCILIATION.md §1/§2, SYNTHESIS_CONTRACT.md §1: "No
+    individual player label may visually own a roster-wide number"). This is
+    already on the wire via ``card_public()``'s ``lane_index`` dict; extracted
+    here to a flat scalar so a receipt never has to index into a nested dict
+    by lane name to explain itself.
+    """
+    if not card_id:
+        return None
+    c = pool.get(card_id)
+    return {"name": c.player_name, "own_lane_index_value": c.lane_index[lane]}
+
+
+def _lane_receipt_public(pool: CardPool, l) -> dict:
+    """One lane of a resolved battle, in full receipt detail.
+
+    SYNTHESIS_CONTRACT.md §2.3's contract field set --
+    ``player_lineup_rating``/``boss_lineup_rating``/``pre_perk_rating``/
+    ``perk_adjustment``/``bench_adjustment``/``final_rating``/
+    ``top_contributor``/``margin``/``winner`` -- is additive here alongside
+    the pre-existing field names (``player_score``, ``opponent_score``,
+    ``player_prep_bonus``, ``player_top_card``, ``opponent_top_card``), which
+    are kept unchanged rather than removed so nothing that already reads this
+    payload silently breaks during the overhaul's integration window.
+
+    ``final_rating`` always equals ``player_lineup_rating`` (both are
+    ``l.player_score``); it is published under its own contract name because
+    it is also, BY CONSTRUCTION, exactly
+    ``pre_perk_rating + bench_adjustment + perk_adjustment`` --
+    ``battle.resolve_battle`` computes ``bench_adjustment`` as that residual,
+    not as an independently-rounded value, precisely so a receipt can show the
+    three addends summing to the fourth with zero client recomputation and no
+    rounding drift to explain away.
+    """
+    return {
+        "lane": l.lane,
+        "label": l.label,
+        "token": LANE_TOKENS[l.lane],
+        "winner": l.winner,
+        "margin": l.margin,
+        "tie_broken_by_rule": l.tie_broken_by_rule,
+        # -- contract field names (SYNTHESIS_CONTRACT.md §2.3) --------------
+        "player_lineup_rating": l.player_score,
+        "boss_lineup_rating": l.opponent_score,
+        "pre_perk_rating": l.pre_perk_rating,
+        "perk_adjustment": l.player_prep_bonus,
+        "bench_adjustment": l.bench_adjustment,
+        "final_rating": l.player_score,
+        "top_contributor": _own_lane_value(pool, l.player_top_card_id, l.lane),
+        "opponent_top_contributor": _own_lane_value(pool, l.opponent_top_card_id, l.lane),
+        # -- kept for compatibility during the overhaul's integration window --
+        "player_score": l.player_score,
+        "opponent_score": l.opponent_score,
+        "player_prep_bonus": l.player_prep_bonus,
+        "player_top_card": (
+            card_public(pool, l.player_top_card_id, [])
+            if l.player_top_card_id else None
+        ),
+        "opponent_top_card": (
+            card_public(pool, l.opponent_top_card_id, [])
+            if l.opponent_top_card_id else None
+        ),
     }
 
 
@@ -647,11 +706,50 @@ def _map_public(state: RunState, blueprint: RunBlueprint) -> list[dict]:
 def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> dict:
     """Complete client payload for a run."""
     p_bw, _ = bench_weight_for(state.systems, None)
-    starters = [s.card_id for s in state.starters if s.card_id]
-    bench = [s.card_id for s in state.bench if s.card_id]
+
+    # Reveal concealment (SYNTHESIS_CONTRACT.md §2.1). `state.reveal_index` is
+    # the ONE source of truth for how many of the 7 ORIGINAL starting-roster
+    # slots the player has actually turned over. The index arithmetic below is
+    # not a new ordering concept -- it is exactly `opening_reveal()`'s own
+    # published order (starters 0..4 in ROLES order, bench at len(ROLES)+idx),
+    # which `state.create_run` already builds `state.starters`/`state.bench`
+    # in, so slot i's position in these lists already equals its reveal order.
+    #
+    # A slot is ALSO revealed the moment its card no longer matches the
+    # blueprint's original starting card for that position -- a draft buy or a
+    # trade (`state.py:action_draft_buy`/`action_trade`) mutates `slot.card_id`
+    # in place at the same index, and that card is one the player just chose
+    # themselves, not a spoiler the opening reveal is protecting. Without this,
+    # a player who reaches the Draft Room before finishing (or without ever
+    # starting) the opening reveal would see their own just-bought card
+    # reported as concealed, which is not what concealment is for.
+    starter_revealed = [
+        i < state.reveal_index or slot.card_id != blueprint.starting_starters[i]
+        for i, slot in enumerate(state.starters)
+    ]
+    bench_revealed = [
+        len(state.starters) + i < state.reveal_index
+        or slot.card_id != blueprint.starting_bench[i]
+        for i, slot in enumerate(state.bench)
+    ]
+    # A run resumed past act 1 always has reveal_index saturated at
+    # ROSTER_SIZE (the only way out of the opening reveal), so this is a no-op
+    # outside the narrow window where the reveal is genuinely still in
+    # progress -- every other screen's payload is unchanged.
+    roster_reveal_complete = state.reveal_index >= ROSTER_SIZE
+
+    starters = [
+        s.card_id for s, r in zip(state.starters, starter_revealed) if s.card_id and r
+    ]
+    bench = [s.card_id for s, r in zip(state.bench, bench_revealed) if s.card_id and r]
     # Scored exactly the way a battle would score it right now (no boss rule
     # applied yet), so the roster panel and the battle agree. Under Deep
-    # Rotation that is the better of two bench weights per lane.
+    # Rotation that is the better of two bench weights per lane. While the
+    # opening reveal is still in progress this is computed over REVEALED SLOTS
+    # ONLY -- never the full real roster -- so the aggregate cannot foreshadow
+    # the strength of a card the player has not turned over yet. See
+    # `roster_profile_partial` below, which is how the client is told this
+    # number will still move.
     profile = player_lane_profile(pool, starters, bench, state.systems, None)
 
     next_boss = None
@@ -695,8 +793,14 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
         "lives": state.lives,
         "max_lives": MAX_LIVES,
         "starting_credits": STARTING_CREDITS,
-        "starters": [_slot_public(pool, s, state.systems) for s in state.starters],
-        "bench": [_slot_public(pool, s, state.systems) for s in state.bench],
+        "starters": [
+            _slot_public(pool, s, state.systems, revealed=r)
+            for s, r in zip(state.starters, starter_revealed)
+        ],
+        "bench": [
+            _slot_public(pool, s, state.systems, revealed=r)
+            for s, r in zip(state.bench, bench_revealed)
+        ],
         "systems": [_system_public(s) for s in state.systems],
         "pending_system_offer": (
             [_system_public(s) for s in available_system_offer(state)]
@@ -719,6 +823,16 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
         ],
         "roster_total": roster_total(profile),
         "bench_weight": p_bw,
+        # SYNTHESIS_CONTRACT.md §2.1: while the opening reveal is in progress,
+        # `lane_profile`/`roster_total`/`bench_weight` above are computed over
+        # revealed slots only (see `profile` above) rather than the full real
+        # roster, so they cannot leak the strength of an unrevealed card in
+        # aggregate. This flag is how the client is told those three numbers
+        # are a snapshot that will still move, not the final roster profile --
+        # it covers all three because they are one coherent quantity computed
+        # from the same `profile`/`starters`/`bench`. `False` (including for
+        # every run resumed past act 1) means the numbers are final.
+        "roster_profile_partial": not roster_reveal_complete,
         "veteran_minimum_used_this_act": state.veteran_minimum_used_in_act.get(state.act, False),
         # -- v3 --------------------------------------------------------------
         # The reveal is presentation, but its PROGRESS is run state: a refresh
