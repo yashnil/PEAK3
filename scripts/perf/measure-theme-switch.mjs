@@ -7,9 +7,21 @@
 // wall-clock click -> visual-property-changed, not just click -> JS handler
 // returning, so it would surface a real rendering delay (e.g. a CSS
 // transition, a blocking fetch before the DOM write) if one existed.
-import { chromium } from "playwright";
+//
+// Lives in scripts/perf/ (moved from apps/web/ after the measurement below
+// was already taken, per the lead's "put it somewhere durable" instruction
+// -- purely a location change, the measurement logic is byte-for-byte the
+// same). Playwright itself is only installed under apps/web/node_modules,
+// so it's resolved from there explicitly rather than assuming a root
+// node_modules that doesn't exist in this repo.
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(path.join(__dirname, "../../apps/web/package.json"));
+const { chromium } = require("playwright");
 
-const URL = process.argv[2] || "http://localhost:3100/";
+const TARGET_URL = process.argv[2] || "http://localhost:3100/";
 const SAMPLES = Number(process.argv[3] || 15);
 
 const browser = await chromium.launch();
@@ -18,7 +30,7 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 // Fresh, clean localStorage each run (matches the "brand-new user" case for
 // the FIRST click; subsequent clicks in the same session are the toggle's
 // steady-state behavior).
-await page.goto(URL, { waitUntil: "networkidle" });
+await page.goto(TARGET_URL, { waitUntil: "networkidle" });
 
 const results = [];
 
@@ -73,4 +85,4 @@ const mean = sum / ms.length;
 const median = ms[Math.floor(ms.length / 2)];
 const p95 = ms[Math.floor(ms.length * 0.95)];
 
-console.log(JSON.stringify({ url: URL, samples: SAMPLES, timedOut, all: results, mean, median, p95, min: ms[0], max: ms[ms.length - 1] }, null, 2));
+console.log(JSON.stringify({ url: TARGET_URL, samples: SAMPLES, timedOut, all: results, mean, median, p95, min: ms[0], max: ms[ms.length - 1] }, null, 2));

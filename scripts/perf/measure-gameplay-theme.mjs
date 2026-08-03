@@ -52,7 +52,18 @@
 //      method as measure-theme-switch.mjs). Theme-agnostic, should stay
 //      ~20-40ms regardless of what's on screen.
 //   2. "settle" — computed by the backward walk described above.
-import { chromium } from "playwright";
+//
+// Lives in scripts/perf/ (moved from apps/web/ after the measurement was
+// already taken, per the lead's "put it somewhere durable" instruction --
+// purely a location change, the measurement logic is byte-for-byte the
+// same). Playwright is only installed under apps/web/node_modules, so it's
+// resolved from there explicitly.
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(path.join(__dirname, "../../apps/web/package.json"));
+const { chromium } = require("playwright");
 
 const BASE = "http://localhost:3001";
 
