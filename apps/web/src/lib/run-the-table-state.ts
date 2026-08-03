@@ -503,6 +503,21 @@ export interface CardLaneSummary {
 }
 
 /**
+ * What `RunTheTableGame` remembers from the current act's Scout & Prepare
+ * report, purely for later PRESENTATION — see that component's `scoutIntel`
+ * docstring for why it exists and why it is never a second source of truth
+ * for anything server-authoritative. Shared here so `RunHUD`, `DraftRoom`
+ * and `TradeDesk` all type it identically without importing a game-shell
+ * component from each other.
+ */
+export interface ScoutIntel {
+  bossId: string;
+  bossName: string;
+  weakestLane: LaneField;
+  weakestLabel: string;
+}
+
+/**
  * A card's strongest lane, weakest lane and one-word profile.
  *
  * Pure reading and comparison of `lane_percentiles`, which the engine already

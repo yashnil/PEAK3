@@ -635,3 +635,25 @@ export function creditsForegoneSentence(credits: number, cost: number): string {
   if (after === 0) return `Costs ${cost} — every credit you have, none left this act.`;
   return `Costs ${cost} — leaves ${after} for the rest of this act.`;
 }
+
+/**
+ * Scout & Prepare payoff (brief §E / P3-E2): "scout information must
+ * visibly matter later." Once the CURRENT act's boss has been scouted
+ * (`ScoutReport.weakest_lane`), one line says whether a market card's own
+ * strongest lane (`cardLaneSummary(...).strongest.lane`, pure comparison of
+ * the server's `lane_percentiles`) counters it — a comparison of two
+ * `LaneField`s the server already sent, never a new score or a re-ranking
+ * of the card.
+ *
+ * Returns `null` for every card that is not a match, so callers render
+ * nothing rather than a row of "no relevance" noise on every other offer.
+ */
+export function bossRelevanceSentence(
+  cardStrongestLane: LaneField,
+  bossName: string,
+  scoutedWeakestLane: LaneField,
+  scoutedWeakestLabel: string,
+): string | null {
+  if (cardStrongestLane !== scoutedWeakestLane) return null;
+  return `Scouted: hits ${bossName}'s weak ${scoutedWeakestLabel}.`;
+}

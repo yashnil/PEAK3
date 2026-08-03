@@ -1,7 +1,8 @@
 "use client";
 import { AnimatedNumber } from "@/components/ui";
 import { RunPublicState } from "@/types/run-the-table";
-import { ladderProgress } from "@/lib/run-the-table-state";
+import { ladderProgress, ScoutIntel } from "@/lib/run-the-table-state";
+import { componentTextColor } from "@/lib/utils";
 
 /**
  * The top HUD (PRODUCT_EXPERIENCE_CONTRACT.md §4): credits, lives, act/stage
@@ -22,9 +23,15 @@ interface Props {
   /** A short label for the thing the player is currently looking at —
    *  "Draft Room", "Boss battle", "Choose a Front Office Perk", etc. */
   objective: string;
+  /** The current act's Scout & Prepare report, if the player has taken it —
+   *  see `RunTheTableGame`'s `activeScoutIntel` for why this is `null` again
+   *  the moment the boss it was scouted against is no longer the one ahead.
+   *  Brief §E's HUD payoff: "pin the discovered vulnerability into the
+   *  HUD." */
+  scoutIntel?: ScoutIntel | null;
 }
 
-export default function RunHUD({ state, objective }: Props) {
+export default function RunHUD({ state, objective, scoutIntel = null }: Props) {
   const progress = ladderProgress(state.map);
   return (
     <div className="rtt-hud" data-testid="rtt-hud">
@@ -66,6 +73,24 @@ export default function RunHUD({ state, objective }: Props) {
         >
           {progress.done} of {progress.total} stages complete
         </span>
+        {/* Scout & Prepare payoff (brief §E): the boss's discovered
+            weakness stays on screen past the node it was found on, so a
+            Draft Room or Trade Desk two nodes later still shows it —
+            `scoutIntel` is `null` the instant it stops being about the
+            boss currently ahead. `componentTextColor`, not the frozen
+            `--comp-*` hex, for the same AA reason as the card fingerprint
+            below it. */}
+        {scoutIntel && (
+          <span
+            className="truncate text-[10px] font-semibold"
+            data-testid="rtt-hud-scout-pin"
+          >
+            Scouted {scoutIntel.bossName} · weak{" "}
+            <span style={{ color: componentTextColor(scoutIntel.weakestLane) }}>
+              {scoutIntel.weakestLabel}
+            </span>
+          </span>
+        )}
       </div>
     </div>
   );

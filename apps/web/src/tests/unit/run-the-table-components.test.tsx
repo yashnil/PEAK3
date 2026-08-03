@@ -1189,6 +1189,51 @@ describe("RunCard", () => {
       "Lane percentiles — Statistical Impact 88, Traditional Production 88, Individual Recognition 88, Playoff Rate Impact 88, Team Result 88.",
     );
   });
+
+  // -------------------------------------------------------------------
+  // Decision-first props (P3-E2): foregoneSentence / roleReplaced /
+  // bossRelevance — printed exactly as the caller computed them, never
+  // derived by the card itself.
+  // -------------------------------------------------------------------
+
+  it("renders no decision block at all when the caller passes none of the three", () => {
+    render(<RunCard card={card()} cost={26} />);
+    expect(screen.queryByTestId("rtt-card-decision")).not.toBeInTheDocument();
+  });
+
+  it("prints the caller's foregoneSentence, roleReplaced and bossRelevance verbatim", () => {
+    render(
+      <RunCard
+        card={card()}
+        cost={26}
+        foregoneSentence="Costs 26 — leaves 4 for the rest of this act."
+        roleReplaced="Anchor"
+        bossRelevance="Scouted: hits The Wall's weak Team Result."
+      />,
+    );
+    const decision = screen.getByTestId("rtt-card-decision");
+    expect(within(decision).getByTestId("rtt-card-foregone")).toHaveTextContent(
+      "Costs 26 — leaves 4 for the rest of this act.",
+    );
+    expect(within(decision).getByTestId("rtt-card-role-replaced")).toHaveTextContent(
+      "Replaces Anchor",
+    );
+    expect(within(decision).getByTestId("rtt-card-boss-relevance")).toHaveTextContent(
+      "Scouted: hits The Wall's weak Team Result.",
+    );
+  });
+
+  it("still renders the eligible-role chips and any cost modifier behind disclosure when showFingerprint is off", () => {
+    // TradeDesk's outgoing column passes `compact showFingerprint={false}`
+    // — `showFingerprint` turns off the fingerprint BARS, never the whole
+    // receipt (see the trade-desk.test.tsx regression this fixes).
+    render(<RunCard card={discountedCard()} cost={19} showFingerprint={false} />);
+    expect(screen.getByTestId("rtt-card-breakdown")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-card-roles")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-card-modifier-moneyball")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-card-fingerprint")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-card-fingerprint-sr")).not.toBeInTheDocument();
+  });
 });
 
 describe("DraftRoom", () => {
@@ -1382,14 +1427,87 @@ describe("DraftRoom", () => {
       <DraftRoom node={node} slots={[...starters(), ...bench()]} credits={30} busy={false} onBuy={vi.fn()} onPass={vi.fn()} />,
     );
     // Default offer costs 26 (see `card()`'s fixture default) — 30-26=4.
-    expect(screen.getByTestId("rtt-offer-tradeoff-tim-duncan-3yr-200203")).toHaveTextContent(
-      "leaves 4",
-    );
+    // The sentence now lives inside the offer's own `RunCard` (its
+    // `foregoneSentence` prop, `rtt-card-foregone`), not a separate span
+    // beside it — scoped by the offer's own button testid since every
+    // offer's card renders the same generic `rtt-card-foregone` id.
+    expect(
+      within(screen.getByTestId("rtt-offer-tim-duncan-3yr-200203")).getByTestId("rtt-card-foregone"),
+    ).toHaveTextContent("leaves 4");
     // Veteran-minimum-eligible card effectively costs 0 while the toggle is
     // on by default — nothing foregone.
-    expect(screen.getByTestId("rtt-offer-tradeoff-c")).toHaveTextContent("Free");
+    expect(within(screen.getByTestId("rtt-offer-c")).getByTestId("rtt-card-foregone")).toHaveTextContent(
+      "Free",
+    );
     // A blocked offer states no tradeoff at all — there's nothing to weigh.
-    expect(screen.queryByTestId("rtt-offer-tradeoff-b")).not.toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("rtt-offer-b")).queryByTestId("rtt-card-foregone"),
+    ).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------
+  // Scout & Prepare payoff (P3-E2): an offer whose own strongest lane
+  // counters the scouted boss's weakest lane gets the "Scouted: hits …"
+  // line and a matching highlight; every other offer gets neither.
+  // -------------------------------------------------------------------
+
+  it("marks an offer whose strongest lane counters the scouted weakness, and no other offer", () => {
+    const scoutedNode: ActiveNode = {
+      ...node,
+      offers: [
+        // Strongest lane team_achievement — counters the scouted weakness.
+        offer({
+          card_id: "counters",
+          player_name: "Counters The Wall",
+          lane_percentiles: {
+            statistical_impact: 40,
+            traditional_production: 40,
+            individual_recognition: 40,
+            postseason_individual_value: 40,
+            team_achievement: 95,
+          },
+        }),
+        // Strongest lane statistical_impact — does not counter it.
+        offer({ card_id: "no-match", player_name: "No Match" }),
+      ],
+    };
+    render(
+      <DraftRoom
+        node={scoutedNode}
+        slots={[...starters(), ...bench()]}
+        credits={30}
+        busy={false}
+        onBuy={vi.fn()}
+        onPass={vi.fn()}
+        scoutIntel={{
+          bossId: "the-wall",
+          bossName: "The Wall",
+          weakestLane: "team_achievement",
+          weakestLabel: "Team Result",
+        }}
+      />,
+    );
+    const matching = screen.getByTestId("rtt-offer-counters");
+    expect(matching).toHaveAttribute("data-matches-scout", "true");
+    expect(within(matching).getByTestId("rtt-card-boss-relevance")).toHaveTextContent(
+      "Scouted: hits The Wall's weak Team Result.",
+    );
+
+    const other = screen.getByTestId("rtt-offer-no-match");
+    expect(other).toHaveAttribute("data-matches-scout", "false");
+    expect(within(other).queryByTestId("rtt-card-boss-relevance")).not.toBeInTheDocument();
+  });
+
+  it("marks no offer at all when no boss has been scouted", () => {
+    render(
+      <DraftRoom node={node} slots={[...starters(), ...bench()]} credits={30} busy={false} onBuy={vi.fn()} onPass={vi.fn()} />,
+    );
+    for (const offerNode of node.offers ?? []) {
+      expect(screen.getByTestId(`rtt-offer-${offerNode.card_id}`)).toHaveAttribute(
+        "data-matches-scout",
+        "false",
+      );
+    }
   });
 });
 
@@ -1504,6 +1622,68 @@ describe("TradeDesk", () => {
     await userEvent.click(screen.getByTestId("rtt-trade-out-anchor"));
     await userEvent.click(screen.getByTestId("rtt-trade-confirm"));
     expect(onTrade).toHaveBeenCalledWith("anchor", "in-legal", 12);
+  });
+
+  // -------------------------------------------------------------------
+  // Scout & Prepare payoff (P3-E2) + "role replaced" at the point of
+  // choice, once Step 1 (who leaves) has picked a slot.
+  // -------------------------------------------------------------------
+
+  it("names the role replaced once an outgoing slot is picked, before the Review step", async () => {
+    render(<TradeDesk node={node} credits={40} busy={false} onTrade={vi.fn()} onDecline={vi.fn()} />);
+    expect(
+      within(screen.getByTestId("rtt-trade-in-in-legal")).queryByTestId("rtt-card-role-replaced"),
+    ).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("rtt-trade-out-anchor"));
+    expect(
+      within(screen.getByTestId("rtt-trade-in-in-legal")).getByTestId("rtt-card-role-replaced"),
+    ).toHaveTextContent("Replaces Anchor");
+  });
+
+  it("marks an incoming card whose strongest lane counters the scouted weakness", () => {
+    const scoutedNode: ActiveNode = {
+      ...node,
+      incoming: [
+        {
+          ...card({
+            card_id: "in-counters",
+            player_name: "Counters The Wall",
+            lane_percentiles: {
+              statistical_impact: 40,
+              traditional_production: 40,
+              individual_recognition: 40,
+              postseason_individual_value: 40,
+              team_achievement: 95,
+            },
+          }),
+          legal_slots: ["anchor"],
+        },
+        { ...card({ card_id: "in-plain", player_name: "Plain Card" }), legal_slots: ["anchor"] },
+      ],
+    };
+    render(
+      <TradeDesk
+        node={scoutedNode}
+        credits={40}
+        busy={false}
+        onTrade={vi.fn()}
+        onDecline={vi.fn()}
+        scoutIntel={{
+          bossId: "the-wall",
+          bossName: "The Wall",
+          weakestLane: "team_achievement",
+          weakestLabel: "Team Result",
+        }}
+      />,
+    );
+    const matching = screen.getByTestId("rtt-trade-in-in-counters");
+    expect(matching).toHaveAttribute("data-matches-scout", "true");
+    expect(within(matching).getByTestId("rtt-card-boss-relevance")).toHaveTextContent(
+      "Scouted: hits The Wall's weak Team Result.",
+    );
+    const other = screen.getByTestId("rtt-trade-in-in-plain");
+    expect(other).toHaveAttribute("data-matches-scout", "false");
+    expect(within(other).queryByTestId("rtt-card-boss-relevance")).not.toBeInTheDocument();
   });
 });
 
@@ -1667,6 +1847,48 @@ describe("BattleReveal", () => {
     expect(screen.getByTestId("rtt-lane-receipt-bench-statistical_impact")).toHaveTextContent("2.50");
     expect(screen.getByTestId("rtt-lane-receipt-perk-statistical_impact")).toHaveTextContent("2.50");
     expect(screen.getByTestId("rtt-lane-receipt-final-statistical_impact")).toHaveTextContent("60.00");
+  });
+
+  // -------------------------------------------------------------------
+  // Scout & Prepare payoff (P3-E2): "show when preparation affected a …
+  // result." `perk_adjustment` is the server's own decomposed addend —
+  // nonzero means a prepared-lane bonus was actually charged into this
+  // lane's rating, always visible, never behind the receipt disclosure.
+  // -------------------------------------------------------------------
+
+  it("flags a lane the boss battle actually charged a prepared bonus into", () => {
+    // battleFixture()'s every lane already carries perk_adjustment: 2.5.
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const flag = screen.getByTestId("rtt-lane-prepared-statistical_impact");
+    expect(flag).toHaveTextContent("+2.50");
+  });
+
+  it("shows no prepared-lane flag when this battle charged no bonus into it", () => {
+    const battle = battleFixture({
+      lanes: battleFixture().lanes.map((lane) =>
+        lane.lane === "statistical_impact"
+          ? { ...lane, perk_adjustment: 0, pre_perk_rating: lane.final_rating - lane.bench_adjustment }
+          : lane,
+      ),
+    });
+    render(<BattleReveal battle={battle} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />);
+    expect(screen.queryByTestId("rtt-lane-prepared-statistical_impact")).not.toBeInTheDocument();
+    // Every OTHER lane still carries its own 2.5 bonus and still flags it.
+    expect(screen.getByTestId("rtt-lane-prepared-traditional_production")).toBeInTheDocument();
+  });
+
+  it("shows what preparation actually cost as a negative adjustment too", () => {
+    const battle = battleFixture({
+      lanes: battleFixture().lanes.map((lane) =>
+        lane.lane === "statistical_impact" ? { ...lane, perk_adjustment: -1.25 } : lane,
+      ),
+    });
+    render(<BattleReveal battle={battle} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />);
+    const flag = screen.getByTestId("rtt-lane-prepared-statistical_impact");
+    expect(flag).toHaveTextContent("-1.25");
+    expect(flag).not.toHaveTextContent("+-1.25");
   });
 
   it("shows the full series count immediately once the reveal is skipped", async () => {

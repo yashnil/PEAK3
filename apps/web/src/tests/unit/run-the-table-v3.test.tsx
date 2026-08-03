@@ -962,6 +962,64 @@ describe("RunTheTableGame — v3 flow", () => {
     );
   });
 
+  // ---------------------------------------------------------------------
+  // Scout & Prepare payoff (brief §E / P3-E2): "scout information must
+  // visibly matter later — pin the discovered vulnerability into the HUD."
+  // ---------------------------------------------------------------------
+
+  it("pins the scouted weakness into the HUD, keeps it through the next node, and clears it once a different boss is ahead", async () => {
+    const theWall = {
+      boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+      act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+    };
+    // The report is on the wire the instant `film_room` is active — no POST
+    // required to SEE it (§'Scouting is free'). So the pin appears before
+    // the player has clicked anything on this node at all.
+    await startAt(
+      runState({
+        status: "node_active",
+        reveal: { roster: rosterTrack(7), boss: null },
+        active_node: scoutNode(),
+        next_boss: theWall,
+      }),
+    );
+    const pin = await screen.findByTestId("rtt-hud-scout-pin");
+    expect(pin).toHaveTextContent("The Wall");
+    expect(pin).toHaveTextContent("Team Result");
+
+    // Leaving the node (any action posts and replaces the whole state) —
+    // `next_boss` is still the same boss this report was about, so the pin
+    // must survive into the Draft Room two nodes later, not just the node
+    // scouting happened on.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "node_active",
+        reveal: { roster: rosterTrack(7), boss: null },
+        active_node: { node_id: "n2", node_type: "draft_room", title: "Open tryouts", summary: "", offers: [], can_pass: true },
+        next_boss: theWall,
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-scout-prepare-traditional_production"));
+    expect(await screen.findByTestId("rtt-draft-room")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-hud-scout-pin")).toHaveTextContent("The Wall");
+
+    // Now the boss ahead changes (a new act's Draft Room) — the SAME local
+    // `scoutIntel` is still sitting in state (scouting only clears on a new
+    // run), but it is no longer about the boss the player is about to face,
+    // so the pin must disappear rather than misreport a stale opponent.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "node_active",
+        reveal: { roster: rosterTrack(7), boss: null },
+        active_node: { node_id: "n3", node_type: "draft_room", title: "Open tryouts", summary: "", offers: [], can_pass: true },
+        next_boss: { ...theWall, boss_id: "the-standard", name: "The Standard" },
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-draft-pass"));
+    await waitFor(() => expect(mockPostAction).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("rtt-hud-scout-pin")).not.toBeInTheDocument();
+  });
+
   it("draws all five acts on the map without dropping a row", async () => {
     await startAt(runState({ reveal: { roster: rosterTrack(7), boss: null } }));
     // 5 acts x (2 stage rows + 1 boss row) = 15.

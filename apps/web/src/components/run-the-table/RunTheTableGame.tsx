@@ -37,11 +37,13 @@ import {
   isTerminal,
   loadActiveRun,
   makeIdempotencyKey,
+  LANE_LABELS,
   needsBossReveal,
   needsOpeningReveal,
   NODE_TYPE_LABELS,
   saveActiveRun,
   screenForStatus,
+  ScoutIntel,
   shouldClearStoredRun,
   tradeIncoming,
   trackRunTheTable,
@@ -248,6 +250,25 @@ export default function RunTheTableGame({
   const [rosterRevealDismissed, setRosterRevealDismissed] = useState(false);
   const [dismissedBossIntroId, setDismissedBossIntroId] = useState<string | null>(null);
   const [dismissedBossRevealId, setDismissedBossRevealId] = useState<string | null>(null);
+  /**
+   * SCOUT INTEL, remembered past the Scout & Prepare node it arrived on
+   * (brief §E: "scout information must visibly matter later — pin the
+   * discovered vulnerability into the HUD, highlight matching market
+   * cards"). `ScoutReport` (the boss's weakest/strongest lanes) is already
+   * on the wire the moment a `film_room` node is active — the same data
+   * `ScoutPrepare.tsx` already renders, computed by `bosses.scout_report()`,
+   * never anything this component derives. It exists ONLY on that one
+   * node's payload, though, and is gone from every subsequent
+   * `RunPublicState` the instant the player leaves it — so this is the one
+   * place in the whole surface that remembers a past node's data on
+   * purpose, purely for later PRESENTATION (a HUD pin, a market-card
+   * highlight), never as a second source of truth for anything
+   * server-authoritative: `legal_slots`/`selectable`/`blocked_reason` on
+   * every offer are still read fresh off `state` everywhere they matter.
+   * Declared here (not beside its effect below) so the run-reset effect
+   * can clear it without a forward reference.
+   */
+  const [scoutIntel, setScoutIntel] = useState<ScoutIntel | null>(null);
   const runIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!state || state.run_id === runIdRef.current) return;
@@ -255,6 +276,14 @@ export default function RunTheTableGame({
     setRosterRevealDismissed(false);
     setDismissedBossIntroId(null);
     setDismissedBossRevealId(null);
+    // Scout intel (below) is keyed off `active_node`, which has no memory of
+    // which run it came from — a fresh run's Act 1 must not open with a pin
+    // left over from the previous run's scouting. Cleared HERE, in the same
+    // effect that flips `runIdRef.current`, not a second effect watching
+    // `run_id` on its own: a second effect's `!== runIdRef.current` check
+    // would already see the ref this effect just updated in the same commit
+    // and never fire.
+    setScoutIntel(null);
   }, [state]);
 
   /**
@@ -294,6 +323,35 @@ export default function RunTheTableGame({
     state && rosterTrack && (needsOpeningReveal(state) || rosterSequence.started) && !rosterRevealDismissed
       ? new Set(rosterSequence.visible.map((s) => s.slot_id))
       : null;
+
+  /**
+   * Capture the scout report the moment it's on the wire (see the
+   * `scoutIntel` declaration above for why this survives past the node).
+   */
+  useEffect(() => {
+    const report = state?.active_node?.scout?.choices.find((c) => c.id === "scout_boss")?.report;
+    if (!report) return;
+    setScoutIntel({
+      bossId: report.boss_id,
+      bossName: report.name,
+      weakestLane: report.weakest_lane,
+      weakestLabel: LANE_LABELS[report.weakest_lane],
+    });
+  }, [state?.active_node]);
+
+  /**
+   * A run can have 0, 1, or 2 `film_room` visits per act (node types are
+   * rolled per stage, not guaranteed), and scouting only ever targets the
+   * CURRENT act's boss (`bosses.scout_report()` reads `boss.boss_id` off
+   * the same `blueprint.bosses[state.act - 1]` the rest of `state` uses).
+   * `scoutIntel` itself is only cleared on a new run, not on an act
+   * transition within one run — so a stale scout from Act 1 could
+   * otherwise keep "mattering" into Act 2's Draft Room. Every consumer
+   * reads THIS, not `scoutIntel` directly, so staleness is checked once
+   * rather than re-derived at every call site.
+   */
+  const activeScoutIntel =
+    scoutIntel && state?.next_boss && scoutIntel.bossId === state.next_boss.boss_id ? scoutIntel : null;
 
   /**
    * `?start=` — read ONCE, at first render, before any effect can run.
@@ -932,6 +990,7 @@ export default function RunTheTableGame({
             trackRunTheTable({ type: "rtt_offer_passed", node_type: "draft_room", act: state.act });
             act(runActions.draftPass(), "draft_pass", "Passed on the draft room.");
           }}
+          scoutIntel={activeScoutIntel}
         />
         {sinks}
         </>
@@ -943,6 +1002,7 @@ export default function RunTheTableGame({
           node={node}
           credits={state.credits}
           busy={busy}
+          scoutIntel={activeScoutIntel}
           onTrade={(outgoingSlotId, incomingCardId, netCost) => {
             trackRunTheTable({ type: "rtt_trade", net_cost: netCost, act: state.act });
             act(
@@ -1120,7 +1180,7 @@ export default function RunTheTableGame({
           progress and the current objective, always visible above the
           three-zone grid. Spans the full shell width via `.rtt-hud`'s
           `grid-column: 1 / -1` (rtt-polish.css). */}
-      <RunHUD state={state} objective={objective} />
+      <RunHUD state={state} objective={objective} scoutIntel={activeScoutIntel} />
 
       {/* Zone 1 — the ladder. Desktop only; a phone gets the progress strip
           inside the decision column instead (DOM order: strip, surface,

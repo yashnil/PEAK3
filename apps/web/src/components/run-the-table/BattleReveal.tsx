@@ -461,6 +461,28 @@ export default function BattleReveal({
                 </span>
               </div>
 
+              {/* Scout & Prepare payoff (brief §E / P3-E2): "show when
+                  preparation affected a … result." `perk_adjustment` is the
+                  server's own decomposed addend — nonzero here means this
+                  battle actually charged a prepared-lane bonus into this
+                  lane's rating, not a re-derivation of anything. Always
+                  visible, never behind the receipt disclosure below it: the
+                  payoff of scouting has to be legible without a click. */}
+              {lane.perk_adjustment !== 0 && (
+                <p
+                  className="pt-0.5 text-center text-[9px] font-semibold"
+                  style={{ color: "var(--peak-accent)" }}
+                  data-testid={`rtt-lane-prepared-${lane.lane}`}
+                >
+                  Prepared lane — Scout &amp; Prepare added{" "}
+                  <span className="score-number">
+                    {lane.perk_adjustment > 0 ? "+" : ""}
+                    {lane.perk_adjustment.toFixed(2)}
+                  </span>{" "}
+                  here before the battle.
+                </p>
+              )}
+
               {/* THE EXPANDABLE RECEIPT (SYNTHESIS_CONTRACT.md §2.3): how
                   `player_lineup_rating` was actually built, behind
                   disclosure so it never competes with the at-a-glance
