@@ -923,13 +923,21 @@ describe("RunMap", () => {
     // fail AA, and this word is the only TEXTUAL state indicator in the rail.
     // Each of these is >= 4.5:1 against the fill its own row paints.
     const colorOf = (key: string) => screen.getByTestId(`rtt-map-state-${key}`).style.color;
-    expect(colorOf("a1s1")).toBe("var(--peak-accent)"); // 10.95:1 on the accent wash
-    expect(colorOf("a1s2")).toBe("var(--text-muted)"); // 5.21:1 on --bg-elevated
-    expect(colorOf("a2s1")).toBe("var(--correct)"); // 7.40:1 on --bg-surface
+    // "current" used to be a bare `--peak-accent` (10.95:1 on Arena Night's
+    // accent wash) — but the SAME pure accent measured 1.24:1 on Arena Day's
+    // wash, nowhere near the 3:1 floor, since pale gold on near-white paper
+    // is a bad pairing regardless of theme. Mixed toward `--text-primary`
+    // (which itself flips dark/light-ink per theme) instead: 13.26:1 dark,
+    // 4.91:1 light. See RunMap.tsx's `STATE_TEXT` docstring for the measurements.
+    expect(colorOf("a1s1")).toContain("color-mix");
+    expect(colorOf("a1s1")).toContain("--peak-accent");
+    expect(colorOf("a1s2")).toBe("var(--text-muted)"); // 5.21:1 dark / 5.60:1 light
+    expect(colorOf("a2s1")).toBe("var(--correct)"); // 7.40:1 dark / 6.25:1 light
     expect(colorOf("a2boss")).toBe("var(--correct)");
-    expect(colorOf("a3boss")).toBe("var(--text-secondary)"); // 5.31:1 on --bg-surface
+    expect(colorOf("a3boss")).toBe("var(--text-secondary)"); // 5.31:1 dark / 7.60:1 light
     // --incorrect neat is only 4.48:1 on --bg-surface, so "lost" mixes toward
-    // --text-primary to reach 5.17:1 rather than shipping a near-miss.
+    // --text-primary to reach 5.17:1 dark / 6.51:1 light rather than shipping
+    // a near-miss.
     expect(colorOf("a1boss")).toContain("color-mix");
     // And no border token is ever used as a text colour.
     for (const key of ["a1s1", "a1s2", "a2s1", "a3boss", "a1boss", "a2boss"]) {
@@ -976,6 +984,14 @@ describe("LaneProfile", () => {
     expect(screen.getByTestId("rtt-lane-sr-statistical_impact")).toHaveTextContent(
       "Lane 0 is 20% of the PEAK3 score.",
     );
+  });
+
+  it("never colors the lane's own number with the frozen --comp-* hex — only the bar fill uses it", () => {
+    render(<LaneProfile lanes={lanes} />);
+    const bar = screen.getByTestId("rtt-lane-bar-statistical_impact");
+    expect(bar.style.background).toBe("var(--comp-si)");
+    const number = screen.getByText("50.0");
+    expect(number.style.color).toBe("var(--text-primary)");
   });
 
   it("adds no extra text when there is nothing title-only to expose", () => {
@@ -1085,6 +1101,28 @@ describe("RunCard", () => {
     expect(within(shape).getByTestId("rtt-card-weakest")).toHaveTextContent("Team Result");
     // A lopsided card is labelled by its strongest lane.
     expect(within(shape).getByTestId("rtt-card-profile")).toHaveTextContent("Impact-heavy");
+  });
+
+  it("never colors a lane-name TEXT node with the frozen --comp-* hex — it measures 1.6-2.6:1 on Arena Day", () => {
+    render(
+      <RunCard
+        card={card({
+          lane_percentiles: {
+            statistical_impact: 94,
+            traditional_production: 61,
+            individual_recognition: 40,
+            postseason_individual_value: 72,
+            team_achievement: 12,
+          },
+        })}
+        cost={26}
+      />,
+    );
+    const shape = screen.getByTestId("rtt-card-shape");
+    const strongestWord = within(shape).getByText("Statistical Impact");
+    const weakestWord = within(shape).getByText("Team Result");
+    expect(strongestWord.style.color).toBe("var(--text-primary)");
+    expect(weakestWord.style.color).toBe("var(--text-primary)");
   });
 
   it("calls a level card Balanced", () => {
@@ -1447,6 +1485,15 @@ describe("BattleReveal", () => {
     expect(screen.getByTestId("rtt-lane-statistical_impact")).toHaveAttribute("data-lane-winner", "player");
     expect(screen.getByTestId("rtt-lane-traditional_production")).toHaveAttribute("data-lane-winner", "opponent");
     expect(within(screen.getByTestId("rtt-battle-lanes")).getAllByRole("listitem")).toHaveLength(5);
+  });
+
+  it("never colors the lane-label TEXT with the frozen --comp-* hex — the color moves to the dot beside it", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const lane = screen.getByTestId("rtt-lane-statistical_impact");
+    const label = within(lane).getByText("Lane 0");
+    expect(label.style.color).toBe("var(--text-primary)");
   });
 
   it("names the top contributor the server sent on each side", () => {

@@ -290,13 +290,27 @@ export default function BattleReveal({
                   </div>
                 </div>
 
-                {/* Label */}
+                {/* Label. `color` (the frozen --comp-* hex) is measurably
+                    unreadable as TEXT on Arena Day — 1.6-2.6:1 against every
+                    surface tier, failing even the 3:1 large-text floor (see
+                    platform's THEME_MIGRATION_INVENTORY.md finding, verified
+                    independently here). It stays exactly what the token was
+                    tuned for: a fill/border accent (the bars above, the dot
+                    below) — never the label's own text color, which is
+                    always `--text-primary` in both themes. */}
                 <div className="flex w-24 flex-col items-center text-center @[520px]:w-28">
-                  <span
-                    className="text-[10px] font-medium leading-tight"
-                    style={{ color: lane.winner === "tie" ? "var(--text-muted)" : color }}
-                  >
-                    {lane.label}
+                  <span className="flex items-center gap-1">
+                    <span
+                      aria-hidden="true"
+                      className="h-1.5 w-1.5 shrink-0 rounded-full"
+                      style={{ background: lane.winner === "tie" ? "var(--text-muted)" : color }}
+                    />
+                    <span
+                      className="text-[10px] font-medium leading-tight"
+                      style={{ color: "var(--text-primary)" }}
+                    >
+                      {lane.label}
+                    </span>
                   </span>
                   <span className="text-[9px]" style={{ color: "var(--text-muted)" }}>
                     {lane.winner === "player"
@@ -458,7 +472,7 @@ export default function BattleReveal({
           onClick={onAdvance}
           disabled={busy}
           className="rtt-tap rounded-lg px-6 text-sm font-bold uppercase tracking-wide disabled:opacity-60"
-          style={{ background: "var(--peak-accent)", color: "#000" }}
+          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           {busy ? "Working…" : advanceLabel}
         </button>

@@ -74,7 +74,7 @@ export default function MobileTray({
             onClick={onPrimary}
             disabled={primaryDisabled}
             className="rtt-tap ml-auto shrink-0 rounded-lg px-4 text-xs font-bold uppercase tracking-wide disabled:opacity-50"
-            style={{ background: "var(--peak-accent)", color: "#000" }}
+            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
           >
             {primaryLabel}
           </button>

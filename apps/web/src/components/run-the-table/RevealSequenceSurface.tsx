@@ -132,7 +132,7 @@ export default function RevealSequenceSurface({
           onClick={handleReveal}
           disabled={busy}
           className="rtt-tap self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide disabled:opacity-60"
-          style={{ background: "var(--peak-accent)", color: "#000" }}
+          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           {busy ? "Working…" : kind === "roster" ? "Reveal your roster" : "Reveal the lineup"}
         </button>
@@ -180,7 +180,7 @@ export default function RevealSequenceSurface({
                   data-testid={`rtt-reveal-resume-${kind}`}
                   onClick={sequence.resume}
                   className="rtt-tap rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
-                  style={{ background: "var(--peak-accent)", color: "#000" }}
+                  style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
                 >
                   Resume
                 </button>

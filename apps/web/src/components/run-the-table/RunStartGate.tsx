@@ -341,7 +341,7 @@ export default function RunStartGate({
               onClick={() => onStart("challenge")}
               disabled={busy || disabled || Boolean(challengeError)}
               className="rtt-tap rounded-lg px-6 text-sm font-bold uppercase tracking-wide disabled:opacity-60"
-              style={{ background: "var(--peak-accent)", color: "#000" }}
+              style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
             >
               {busy ? "Starting…" : "Play this challenge"}
             </button>
@@ -359,7 +359,7 @@ export default function RunStartGate({
                     color: "var(--text-primary)",
                     border: "1px solid var(--border-emphasis)",
                   }
-                : { background: "var(--peak-accent)", color: "#000" }
+                : { background: "var(--peak-accent)", color: "var(--text-inverse)" }
             }
           >
             {busy ? "Starting…" : "Start a run"}
@@ -372,7 +372,7 @@ export default function RunStartGate({
             className="rtt-tap rounded-lg px-6 text-sm font-semibold uppercase tracking-wide disabled:opacity-60"
             style={
               dailyFirst
-                ? { background: "var(--peak-accent)", color: "#000" }
+                ? { background: "var(--peak-accent)", color: "var(--text-inverse)" }
                 : {
                     background: "var(--bg-surface)",
                     color: "var(--text-primary)",

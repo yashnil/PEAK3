@@ -2,7 +2,7 @@
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { BossPublic, LaneProfileEntry } from "@/types/run-the-table";
 import { Coachmark } from "@/components/ui/GuidedTour";
-import { bossBriefing, laneColorVar, type LaneProjection } from "@/lib/run-the-table-state";
+import { bossBriefing, type LaneProjection } from "@/lib/run-the-table-state";
 import { bossRulePlainEffect } from "@/lib/run-the-table-copy";
 import LaneProfile from "./LaneProfile";
 
@@ -151,17 +151,20 @@ export default function BossPreview({
           {/* Projected strengths — each side's best lane and its roster total,
               side by side. Both numbers are `roster_lane_profile` outputs the
               server already sent. */}
+          {/* Lane names in this sentence are `--text-primary`, never the
+              frozen `--comp-*` hex directly — that token measures 1.6-2.6:1
+              as inline TEXT on Arena Day, failing even the 3:1 large-text
+              floor. The color stays reserved for fills/borders elsewhere
+              (the lane bars, the fingerprint), never prose. */}
           <p className="text-[11px]" style={{ color: "var(--text-secondary)" }} data-testid="rtt-boss-strengths">
             <span style={{ color: "var(--text-muted)" }}>Projected strengths: </span>
             you are strongest in{" "}
-            <span style={{ color: laneColorVar(strongest(playerLanes).token) }}>
-              {strongest(playerLanes).label}
-            </span>{" "}
+            <span style={{ color: "var(--text-primary)" }}>{strongest(playerLanes).label}</span>{" "}
             <span className="score-number">{strongest(playerLanes).value.toFixed(1)}</span>
             {boss.lane_profile && boss.lane_profile.length > 0 && (
               <>
                 , they are strongest in{" "}
-                <span style={{ color: laneColorVar(strongest(boss.lane_profile).token) }}>
+                <span style={{ color: "var(--text-primary)" }}>
                   {strongest(boss.lane_profile).label}
                 </span>{" "}
                 <span className="score-number">
@@ -293,7 +296,7 @@ export default function BossPreview({
           onClick={onResolve}
           disabled={busy}
           className="rtt-tap rounded-lg px-6 text-sm font-bold uppercase tracking-wide disabled:opacity-60"
-          style={{ background: "var(--peak-accent)", color: "#000" }}
+          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           {busy ? "Resolving…" : "Resolve the matchup"}
         </button>
@@ -312,7 +315,9 @@ function strongest(lanes: readonly LaneProfileEntry[]): LaneProfileEntry {
 }
 
 /** One row of the briefing: a label, then the lanes and their gaps. Lane
- *  colour is the frozen `--comp-*` token, never a chosen colour. */
+ *  names render in `--text-primary` — the frozen `--comp-*` hex is reserved
+ *  for fills/borders, never prose text (it measures 1.6-2.6:1 as text on
+ *  Arena Day, failing even the 3:1 large-text floor). */
 function BriefingLine({
   label,
   lanes,
@@ -335,7 +340,7 @@ function BriefingLine({
         lanes.map((l, i) => (
           <span key={l.lane}>
             {i > 0 && ", "}
-            <span style={{ color: laneColorVar(l.token) }}>{l.label}</span>
+            <span style={{ color: "var(--text-primary)" }}>{l.label}</span>
             {showMargin && (
               <>
                 {" "}

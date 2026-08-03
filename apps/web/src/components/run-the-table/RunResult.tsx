@@ -422,7 +422,7 @@ export default function RunResult({
           onClick={onRunItBack}
           disabled={busy}
           className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-bold uppercase tracking-wide disabled:opacity-60"
-          style={{ background: "var(--peak-accent)", color: "#000" }}
+          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           <RotateCcw size={13} aria-hidden="true" />
           Run it back
