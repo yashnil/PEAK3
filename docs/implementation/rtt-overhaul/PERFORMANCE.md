@@ -441,9 +441,55 @@ element(s) not found` after an interaction fired immediately following
   healthy answers 3000 and 8000 before invoking the suite, not by trusting
   `BASE_URL` alone.
 
-No fix has been made to either test or product for this finding — the
-production number was gathered and reported for a scope decision before any
-change, per standing instruction on this task.
+**Ruling (lead): dev-mode test artifact, not a product defect.** 18-112ms
+and 18-44ms are an order of magnitude under the ~100ms threshold set before
+the number was seen, and the Supabase static-import lever identified above
+does not manifest at a magnitude any user would experience in a production
+bundle. No auth refactor. Both tests fixed to `waitUntil: "networkidle"`
+(not an arbitrary sleep) with an inline comment at each site citing these
+numbers, so the change reads as measured rather than cargo-culted; neither
+test's assertions were touched — `play-routing.spec.ts` still asserts the
+panel's geometry at all five widths, `gameplay.spec.ts` still asserts Escape
+restores focus to the CTA. Verified `--repeat-each=5` on both (5/5 each) and
+the two full spec files end to end (34/34, 35/35). See `fix(e2e): P6-f/P6-h`
+for the commit.
+
+#### Finding: the committed e2e suite can never exercise a production build
+
+This is a permanent architecture property, not specific to these two tests.
+`playwright.setup.ts`'s global setup requires the auth surface to render via
+`NEXT_PUBLIC_PEAK3_E2E_AUTH=1` (see that flag's own docstring in
+`lib/supabase/config.ts`), and that flag is compiled away whenever
+`NODE_ENV === "production"` — by design, so a test environment variable can
+never ship in a real deploy. A production build therefore fails the
+suite's own global setup before a single test runs. Consequence: the
+hydration race measured above is *guaranteed* to exist in the only
+environment this suite can ever execute in, which is why waiting for it is
+correct rather than a workaround — a test racing a condition permanently
+present in its own runtime is simply broken, independent of whether that
+condition would also affect a production visitor (it does not, here). The
+deeper consequence is a genuine coverage gap: no e2e run against this
+project, ever, exercises the actual minified/optimized bundle a real user
+receives. Recording it here as a known, structural limitation rather than
+letting the next person discover it while chasing a different bug.
+
+#### Finding: `BASE_URL` does not suppress Playwright's own `webServer`
+
+Restating the methodology trap above as its own item, because it is easy to
+rediscover the hard way. `playwright.config.ts`'s `webServer` entries start
+based on whether ports 3000/8000 already answer healthily — not based on
+whether `BASE_URL` points somewhere else. Passing `BASE_URL` to redirect a
+run at a manually-built/served instance is not sufficient by itself; if
+3000/8000 are free, Playwright starts its own `next dev` (and API) in the
+same `apps/web` directory regardless, and that process writes into the same
+`.next/` output a colocated `next start` is reading from. The result —
+`BUILD_ID` vanishing, served asset hashes no longer matching the HTML that
+references them, pages rendering unstyled, every static asset 400ing —
+presents identically to `getByTestId(...) element(s) not found`, the exact
+symptom of the real click race this investigation was chasing. The safe
+pattern is to ensure something already healthy answers 3000 and 8000 before
+invoking the suite (so `reuseExistingServer` reuses it), not to rely on
+`BASE_URL` alone.
 
 ---
 
