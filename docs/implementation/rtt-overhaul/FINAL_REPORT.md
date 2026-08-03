@@ -12,7 +12,7 @@ Branch `feature/arena-rtt-overhaul`, from `7c743f1`. Not merged. Not deployed.
 | `rtt-experience` | RTT frontend experience | `~/Desktop/PEAK3-agent-rtt` · `wt/arena-rtt` |
 | `platform` | Theme, homepage, leaderboard UI, assets, performance | `~/Desktop/PEAK3-agent-platform` · `wt/arena-platform` |
 
-31 tasks tracked with explicit dependencies. `#8` (theme tokens) gated `#9`/`#10`/`#11`
+35 tasks tracked with explicit dependencies. `#8` (theme tokens) gated `#9`/`#10`/`#11`
 so no two agents could invent competing visual systems — the single most important
 edge in the graph.
 
@@ -33,6 +33,10 @@ homepage/leaderboards → test and generated-file reconciliation.
 | `cad1a23` | platform: live color-contrast fix — **first real conflict, resolved centrally** |
 | `a169de7` | rtt: boss-reveal reset, reveal timing trim, raw ids out of copy |
 | `f428f45` | platform: remaining axe contrast failures |
+| `6e91619` | platform: measured raw-accent sweep in the last CSS files |
+| `86b5555` | rtt: 390px boss-reveal overflow + e2e driver repair |
+| `422be1b` | rtt: three reveal e2e tests fixed against the ruled skip behaviour |
+| `f1eb4a6` | platform: two e2e tests repaired for the hydration race |
 
 **One conflict in the whole pass**, in `RunTray.tsx` / `RunResult.tsx`. It was
 structural: platform edited an older `RunTray` where a position held a score,
@@ -83,7 +87,7 @@ presentational**.
 | --- | --- |
 | 5 canonical CSV sha256 hashes | identical to Phase 0 anchors |
 | `peak3.py` diff | empty — `OFFICIAL_WEIGHTS` and `calibrate_score()` untouched |
-| model-tests | 939 → **946 pass / 0 fail** |
+| model-tests | 939 → **955 pass / 0 fail** |
 | api-unit | 1198 → **1209 pass / 0 fail** |
 | RTT simulation audit | **PASS** — 19 invariants, 300 seeds, 2400 runs, 43 replays, 0 warnings, 174/174 cards reachable |
 | lineup tests | **43 pass** |
@@ -185,15 +189,57 @@ caller received the same 404, leaking no reason.
 
 `COURTBUILDER_LEADERBOARD_ENABLED` remains `False`. Ranked untouched and disabled.
 
+## 12a. What verification caught that nothing else did
+
+Eight defects in this pass were invisible to typecheck, lint and 1335 unit
+tests. Each surfaced only by running a real artifact, and each by a *different*
+runner — which is the transferable result.
+
+| Defect | Surfaced only by |
+| --- | --- |
+| `*/` inside a CSS comment closing the block early | `next build` |
+| `text-[var(--peak-accent)]` at 1.28:1 on every page | Lighthouse |
+| `--accent-*` as text on its own `color-mix` wash | the axe suite |
+| Boss reveal broken for 4 of 5 bosses per run | driving a multi-act run |
+| Boss reveal card overflowing the viewport at 390px | watching it at 390px |
+| e2e driver missing the `rtt-boss-intro` case | running the suite at all |
+| e2e driver not clicking Continue past a reveal | running the new test |
+| axe's own false PASS at 1.40:1 | a `getComputedStyle` cross-check |
+
+Two of these — the driver defects — were regressions **this pass introduced
+into its own test suite**, invisible because the suite had never been run.
+
+Four false positives were also self-caught by the agents that found them,
+before reporting: a `DOMRect` spread silently dropping prototype getters; a
+BSD-grep `\b` zero-result that had matched nothing; Playwright `fullPage`
+screenshots stitching sticky elements mid-page; and a `.next/` write-conflict
+presenting identically to a click race.
+
+## 12b. Testing-architecture gaps found
+
+- **The committed Playwright suite can never exercise a production build.**
+  `NEXT_PUBLIC_PEAK3_E2E_AUTH` is compiled away by `NODE_ENV=production` by
+  design, and `playwright.setup.ts`'s global setup requires it, so a production
+  build fails setup before any test runs. The e2e layer therefore only ever
+  tests `next dev`. Permanent, structural, and previously unknown.
+- **`BASE_URL` does not suppress `playwright.config.ts`'s own `webServer`**, so
+  a manual `next start` and Playwright's `next dev` write-conflict on the shared
+  `.next/` output — a failure that presents identically to a click race.
+- **Client hydration**: 300–550 ms in `next dev`, **18–112 ms in a production
+  build**. Two e2e tests raced it. Ruled a test defect on that measurement, with
+  the threshold fixed before the number was known. The unconditional
+  `@supabase/ssr` static import is the identified lever, documented and
+  deliberately **not** acted on — auth-adjacent refactoring is a separate pass.
+
 ## 13. Test totals
 
 | Suite | Baseline | Final |
 | --- | --- | --- |
-| model | 939 / 0 fail | **946 / 0 fail** |
+| model | 939 / 0 fail | **955 / 0 fail** |
 | api unit | 1198 / 0 fail | **1209 / 0 fail** |
 | frontend vitest | 1258 across 47 files | **1335+ across 51 files** |
 | lineup | not run | **43 / 0 fail** |
-| axe accessibility | never invoked | **13/13 specs, 0 violations** |
+| axe accessibility | never invoked | **13/13 specs, 0 violations** (17 → 5 → 0 across two fixes) |
 | typecheck / lint | clean / 0 warnings | clean / **0 warnings** |
 | production build | — | succeeds with real HTTPS API URL |
 
