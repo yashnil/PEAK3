@@ -1696,5 +1696,185 @@
     "idempotency_notes": [
       "none detected"
     ]
+  },
+  {
+    "filename": "20260801140000_owned_results_revoke.sql",
+    "identifier": "20260801140000_owned_results_revoke",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
+  },
+  {
+    "filename": "20260801150000_daily_grid_attempts.sql",
+    "identifier": "20260801150000_daily_grid_attempts",
+    "tables_created": {
+      "daily_grid_attempts": [
+        "id",
+        "owner_sub",
+        "daily_key",
+        "board_id",
+        "board_version",
+        "started_at",
+        "created_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "daily_grid_attempts_owner_idx",
+        "table": "daily_grid_attempts"
+      }
+    ],
+    "constraints": [
+      "daily_grid_attempts_unique_owner_day"
+    ],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "daily_grid_attempts"
+    ],
+    "policies": [
+      {
+        "name": "daily_grid_attempts_owner_read",
+        "table": "daily_grid_attempts"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260801160000_head_to_head.sql",
+    "identifier": "20260801160000_head_to_head",
+    "tables_created": {
+      "head_to_head_matches": [
+        "match_id",
+        "invite_hash",
+        "creator_sub",
+        "seed",
+        "source_run_type",
+        "engine_version",
+        "ruleset_version",
+        "card_pool_version",
+        "fairness",
+        "status",
+        "expires_at",
+        "settlement",
+        "settled_at",
+        "rematch_of",
+        "created_at"
+      ],
+      "head_to_head_participants": [
+        "match_id",
+        "participant_sub",
+        "role",
+        "run_id",
+        "status",
+        "result",
+        "submitted_at",
+        "joined_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "head_to_head_matches_rematch_uniq",
+        "table": "head_to_head_matches"
+      },
+      {
+        "name": "head_to_head_matches_creator_idx",
+        "table": "head_to_head_matches"
+      },
+      {
+        "name": "head_to_head_participants_role_uniq",
+        "table": "head_to_head_participants"
+      },
+      {
+        "name": "head_to_head_participants_sub_idx",
+        "table": "head_to_head_participants"
+      }
+    ],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [
+      "head_to_head_matches",
+      "head_to_head_participants"
+    ],
+    "policies": [
+      {
+        "name": "head_to_head_matches_participant_read",
+        "table": "head_to_head_matches"
+      },
+      {
+        "name": "head_to_head_participants_self_read",
+        "table": "head_to_head_participants"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
+    ]
+  },
+  {
+    "filename": "20260801170000_revoke_truncate_and_trigger.sql",
+    "identifier": "20260801170000_revoke_truncate_and_trigger",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
+  },
+  {
+    "filename": "20260803090000_perfect_season_daily_leaderboard_index.sql",
+    "identifier": "20260803090000_perfect_season_daily_leaderboard_index",
+    "tables_created": {},
+    "indexes": [
+      {
+        "name": "perfect_season_runs_daily_leaderboard_idx",
+        "table": "perfect_season_runs"
+      }
+    ],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
   }
 ]

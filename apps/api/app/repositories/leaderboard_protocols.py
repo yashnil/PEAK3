@@ -9,7 +9,7 @@ an explicit "Submit to leaderboard" action, never derived automatically.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Protocol, runtime_checkable
 
 
@@ -42,7 +42,14 @@ class PerfectSeasonRun:
     formula_version: Optional[str] = None
     simulation_version: Optional[str] = None
     is_public: bool = True
-    created_at: datetime = field(default_factory=lambda: datetime.now())
+    # tz-aware UTC, never a naive local-clock timestamp -- SCORE_RECONCILIATION.md's
+    # daily-board work depends on comparing this against
+    # `nba_peak.daily_key.day_start_utc`'s tz-aware boundary, and a naive
+    # `datetime.now()` here would either raise on that comparison (memory
+    # backend) or silently mis-tag the row's Postgres TIMESTAMPTZ if the
+    # server process's local zone is ever not UTC (Postgres backend, whose
+    # INSERT passes this value straight through). Was naive `datetime.now()`.
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     game_type: str = "peak_season"
 
 
@@ -63,16 +70,86 @@ class PerfectSeasonLeaderboardRepository(Protocol):
     async def get_run_by_game_id(self, game_id: str) -> Optional[PerfectSeasonRun]: ...
 
     async def get_leaderboard(
-        self, mode: Optional[str], no_respin_only: bool, limit: int, cursor: Optional[str]
+        self,
+        mode: Optional[str],
+        no_respin_only: bool,
+        limit: int,
+        cursor: Optional[str],
+        since: Optional[datetime] = None,
     ) -> list[PerfectSeasonRun]:
         """Public rows only, sorted wins desc, lineup_score desc, fewer
         respins used asc, created_at asc (Part E's exact sort spec).
         `cursor` is an opaque encoding of the last row's sort key from the
         previous page (see leaderboard_memory.py/leaderboard_postgres.py
-        for the concrete encoding), or None for the first page."""
+        for the concrete encoding), or None for the first page.
+
+        `since` -- tz-aware UTC, or None for the all-time board -- restricts
+        to runs submitted at or after that instant. This is what the daily
+        board IS: the identical query and tie-break order as all-time,
+        filtered to `created_at >= since`. The boundary itself is computed by
+        the CALLER (the router, from `nba_peak.daily_key.day_start_utc`, the
+        one shared "official application day" function every daily mode in
+        this codebase uses) -- this repository takes an already-resolved
+        instant and never derives a day boundary of its own, so there is
+        exactly one place in the whole codebase that can disagree about what
+        day it is.
+        """
+        ...
+
+    def encode_cursor(self, run: PerfectSeasonRun) -> str:
+        """The opaque `next_cursor` string for `run`, in THIS backend's own
+        `get_leaderboard`-`cursor`-decoding format.
+
+        Deliberately a method on the repository rather than a free function in
+        the router (`apps/api/app/api/v1/perfect_season.py`'s `get_leaderboard`
+        route calls this): the router does not know, and must not need to
+        know, which backend is active, and the memory and Postgres
+        implementations do not share one cursor encoding today (the memory
+        repo negates wins/lineup_score INSIDE the encoded value for a single
+        Python tuple comparison; the Postgres repo encodes raw values and
+        negates only inside the SQL predicate text). A router-level encoder
+        that assumed one shared format would silently produce a cursor the
+        ACTIVE backend's own `_decode_cursor` cannot read on the next page.
+        """
+        ...
+
+    async def set_visibility(
+        self, run_id: str, owner_sub: str, is_public: bool
+    ) -> Optional[PerfectSeasonRun]:
+        """Hide or unhide `run_id` on the public leaderboard. Owner-only:
+        `owner_sub` must match or nothing is changed. Returns the updated run,
+        or None if `run_id` does not exist or is not owned by `owner_sub`.
+
+        SCORE_RECONCILIATION.md gap #3: this is the ONLY mutation a submitted
+        run may ever undergo (`is_public` -- one column). Every other field
+        stays the immutable record of what was submitted (Part E: "Prefer
+        immutable submitted runs; no UPDATE except admin"), which is also why
+        this is a repository method with a narrow, single-column SQL
+        statement rather than a new RLS UPDATE policy: the existing
+        `perfect_season_runs` migration deliberately carries no UPDATE policy
+        at all (immutable-by-omission under RLS), and this stays that way --
+        the capability is reachable ONLY through the API's own service-role
+        connection and its own ownership check, never via a direct
+        anon/authenticated PostgREST UPDATE.
+        """
         ...
 
     async def list_runs_for_owner(self, owner_sub: str) -> list[PerfectSeasonRun]: ...
+
+    async def get_personal_placement(
+        self, owner_sub: str, mode: Optional[str]
+    ) -> Optional[tuple[int, PerfectSeasonRun]]:
+        """The caller's best-ranked PUBLIC run in `mode` (every mode if
+        `mode` is None) and its 1-indexed rank on that same public leaderboard
+        `get_leaderboard` serves -- SCORE_RECONCILIATION.md gap #2: a player
+        could see the board but never where they placed on it. Returns
+        `(rank, run)` for whichever of the caller's public runs sorts best by
+        the Part E tie-break order, or None if the caller has no public run in
+        `mode`. A run submitted `is_public=False` (once that becomes settable
+        -- gap #3) is correctly excluded: this is standing ON the public
+        board, not a private lookup of the caller's own best score.
+        """
+        ...
 
     async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
         """Reassign every submitted run owned by `from_sub` to `to_sub`.

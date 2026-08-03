@@ -77,6 +77,106 @@ class TestReceiptDeterminism:
         assert receipt["run_type"] == "standard"
 
 
+class TestReceiptBreakdownFixtures:
+    """SYNTHESIS_CONTRACT.md §2.3: "deterministic fixtures pin the three
+    audited seeds." These are the exact seeds `scripts/audit_rtt_score_semantics.py`
+    (P1-A) reconciled against the canonical 3Y leaderboard CSV -- 75
+    lane-battles, engine math verified bit-identical in all 75. This class
+    pins the SAME three seeds against the receipt-breakdown fields the P1-A
+    audit did not yet have (`pre_perk_rating`/`bench_adjustment`), so a
+    regression in either the battle math or the breakdown decomposition is
+    caught here rather than only by re-running the audit script by hand.
+
+    The starting five-plus-two roster is unmodified (no draft/trade) for every
+    seed, matching the audit's own methodology exactly, so these numbers are
+    directly comparable to `docs/implementation/rtt-overhaul/
+    rtt_score_semantics_audit.json`.
+    """
+
+    AUDIT_SEEDS = (11, 42, 2026)
+
+    def _battles(self, seed, pool, blueprints):
+        bp = blueprints(seed)
+        from nba_peak.run_the_table.battle import resolve_battle
+        from nba_peak.run_the_table.config import BOSS_WIN_CREDITS, COMEBACK_CREDITS
+
+        return bp, [
+            resolve_battle(
+                pool, list(bp.starting_starters), list(bp.starting_bench), boss,
+                systems=(), lives_before=3, comeback_credits=COMEBACK_CREDITS,
+                win_credits=BOSS_WIN_CREDITS,
+            )
+            for boss in bp.bosses
+        ]
+
+    def test_every_lane_of_every_battle_reconciles_for_all_three_seeds(
+        self, pool, blueprints
+    ):
+        """The broad invariant, across all 5 acts x 3 seeds x 5 lanes = 75
+        lane-battles -- the same count P1-A audited. `bench_adjustment` is a
+        residual by construction (`battle.resolve_battle`), so this must hold
+        exactly, not approximately."""
+        checked = 0
+        for seed in self.AUDIT_SEEDS:
+            _, battles = self._battles(seed, pool, blueprints)
+            for battle in battles:
+                for lane in battle.lanes:
+                    total = round(
+                        lane.pre_perk_rating + lane.bench_adjustment
+                        + lane.player_prep_bonus,
+                        4,
+                    )
+                    assert total == lane.player_score, (
+                        seed, battle.boss_id, lane.lane, total, lane.player_score,
+                    )
+                    checked += 1
+        assert checked == 75
+
+    # Act 1 ("the_wall") pinned exactly, per seed -- real engine output,
+    # captured once and checked in as a regression anchor. A change to either
+    # the lane math or the pool/leaderboard data that moves any of these
+    # numbers must be a deliberate, reviewed change, not a silent drift.
+    ACT1_PINNED = {
+        11: {
+            "statistical_impact": (23.7783, 25.007),
+            "traditional_production": (39.4687, 34.0851),
+            "individual_recognition": (13.7469, 10.2634),
+            "postseason_individual_value": (15.1098, 18.8647),
+            "team_achievement": (26.6511, 16.3495),
+        },
+        42: {
+            "statistical_impact": (20.8393, 25.007),
+            "traditional_production": (30.4607, 34.0851),
+            "individual_recognition": (16.7235, 10.2634),
+            "postseason_individual_value": (17.1358, 18.8647),
+            "team_achievement": (19.3007, 16.3495),
+        },
+        2026: {
+            "statistical_impact": (23.2867, 25.007),
+            "traditional_production": (25.2047, 34.0851),
+            "individual_recognition": (20.794, 10.2634),
+            "postseason_individual_value": (21.3054, 18.8647),
+            "team_achievement": (20.9487, 16.3495),
+        },
+    }
+
+    def test_act_one_lane_ratings_match_the_pinned_fixture(self, pool, blueprints):
+        for seed in self.AUDIT_SEEDS:
+            _, battles = self._battles(seed, pool, blueprints)
+            act1 = battles[0]
+            assert act1.boss_id == "the_wall"
+            for lane in act1.lanes:
+                expected_player, expected_opponent = self.ACT1_PINNED[seed][lane.lane]
+                assert lane.player_score == expected_player, (seed, lane.lane)
+                assert lane.opponent_score == expected_opponent, (seed, lane.lane)
+                # Zero perk, zero rule, zero bonus for act 1 under the
+                # unmodified starting roster: the vanilla baseline equals the
+                # final rating exactly.
+                assert lane.pre_perk_rating == expected_player
+                assert lane.bench_adjustment == 0.0
+                assert lane.player_prep_bonus == 0.0
+
+
 class TestReceiptContent:
     @pytest.fixture(scope="class")
     def finished(self, pool, play_policy):

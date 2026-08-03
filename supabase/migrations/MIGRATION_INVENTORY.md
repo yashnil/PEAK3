@@ -30,6 +30,11 @@ migration change rather than hand-editing this file.
 | 23 | `20260801110000_guest_claim_and_daily` | 1 | 1 | 2 | 0 | 0 | 1 | 5 |
 | 24 | `20260801120000_telemetry_events` | 1 | 3 | 2 | 1 | 0 | 1 | 1 |
 | 25 | `20260801130000_peak_duel_results_revoke` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 26 | `20260801140000_owned_results_revoke` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 27 | `20260801150000_daily_grid_attempts` | 1 | 1 | 1 | 0 | 0 | 1 | 1 |
+| 28 | `20260801160000_head_to_head` | 2 | 4 | 0 | 0 | 0 | 2 | 2 |
+| 29 | `20260801170000_revoke_truncate_and_trigger` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 30 | `20260803090000_perfect_season_daily_leaderboard_index` | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
 
 ## Detail per migration
 
@@ -729,3 +734,136 @@ migration change rather than hand-editing this file.
 **External table dependencies (not created in this file):** none
 
 **Idempotency:** none detected
+
+### `20260801140000_owned_results_revoke.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260801150000_daily_grid_attempts.sql`
+
+**Tables created:** daily_grid_attempts
+  - `daily_grid_attempts`: id, owner_sub, daily_key, board_id, board_version, started_at, created_at
+
+**Indexes:** daily_grid_attempts_owner_idx
+
+**Constraints:** daily_grid_attempts_unique_owner_day
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** daily_grid_attempts
+
+**Policies:** daily_grid_attempts_owner_read
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260801160000_head_to_head.sql`
+
+**Tables created:** head_to_head_matches, head_to_head_participants
+  - `head_to_head_matches`: match_id, invite_hash, creator_sub, seed, source_run_type, engine_version, ruleset_version, card_pool_version, fairness, status, expires_at, settlement, settled_at, rematch_of, created_at
+  - `head_to_head_participants`: match_id, participant_sub, role, run_id, status, result, submitted_at, joined_at
+
+**Indexes:** head_to_head_matches_rematch_uniq, head_to_head_matches_creator_idx, head_to_head_participants_role_uniq, head_to_head_participants_sub_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** head_to_head_matches, head_to_head_participants
+
+**Policies:** head_to_head_matches_participant_read, head_to_head_participants_self_read
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260801170000_revoke_truncate_and_trigger.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260803090000_perfect_season_daily_leaderboard_index.sql`
+
+**Tables created:** none
+
+**Indexes:** perfect_season_runs_daily_leaderboard_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS
