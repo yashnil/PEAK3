@@ -14,6 +14,8 @@ import GameCard from "@/components/shared/GameCard";
 import HeroLauncher from "@/components/home/HeroLauncher";
 import HeroVignette from "@/components/home/HeroVignette";
 import ModelProofStrip from "@/components/home/ModelProofStrip";
+import ComponentComparison from "@/components/home/ComponentComparison";
+import LeaderboardPreview from "@/components/home/LeaderboardPreview";
 import { loadHomeModelData } from "@/components/home/home-data";
 import { MODE_COPY } from "@/lib/modes";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
@@ -176,8 +178,21 @@ export default async function HomePage() {
 
       {/* ---------------------------------------------------------------
           2. The launcher — every mode, grouped, in one compact block.
+
+          MORE SEPARATION FROM THE HERO, QUIETER SURFACE TIER
+          (PRODUCT_EXPERIENCE_CONTRACT.md §7): a top border on
+          `--pk-surface-quiet-border` plus real vertical space is what
+          keeps the hero reading as a complete moment before this catalog
+          begins, rather than the page's second act at the hero's own
+          visual weight. This section was NOT rebuilt — it is honest
+          information architecture (every mode really does need a link) —
+          only recessed a tier below the arena-styled hero above it.
           --------------------------------------------------------------- */}
-      <section className="px-4 pb-14" aria-labelledby="modes-heading">
+      <section
+        className="px-4 pt-14 pb-14 border-t"
+        style={{ borderColor: "var(--pk-surface-quiet-border, var(--border-subtle))" }}
+        aria-labelledby="modes-heading"
+      >
         <div className="mx-auto max-w-5xl">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 id="modes-heading" className="font-display text-xl font-bold">
@@ -391,7 +406,7 @@ export default async function HomePage() {
                 >
                   <p
                     className="score-number text-lg font-bold"
-                    style={{ color: c.color, fontVariantNumeric: "tabular-nums" }}
+                    style={{ color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}
                   >
                     {c.pct}
                   </p>
@@ -401,6 +416,16 @@ export default async function HomePage() {
                 </li>
               ))}
             </ul>
+            {/* `c.color` (the frozen `--comp-*` identity hue) marks each
+                component via the card's top-border accent above, not as
+                text: the raw comp-* hexes measured 1.8-2.6:1 against
+                Arena Day's light card surface — below even the 3:1 large-
+                text floor for four of the five. `--text-primary` for the
+                number keeps every card readable in both themes; the color
+                identity is still fully legible in the border swatch,
+                exactly what PRODUCT_EXPERIENCE_CONTRACT.md §9 asks for
+                ("same hex, different deployment," never a re-invented
+                value). */}
 
             <p className="mt-3 text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
               Every card is rated by this five-component, open-weight formula applied to
@@ -416,6 +441,21 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ---------------------------------------------------------------
+          5. Interactive component comparison (P3-H,
+          SYNTHESIS_CONTRACT.md §7). Real methodology text and real
+          weights, click one open, jump to the rankings sorted by it.
+          Renders nothing if /api/v1/methodology could not be reached.
+          --------------------------------------------------------------- */}
+      <ComponentComparison methodology={modelData.methodology} />
+
+      {/* ---------------------------------------------------------------
+          6. Leaderboard preview (P3-H). Real 82-0 all-time top rows,
+          today's daily status, and a signed-in visitor's own personal
+          best — never a placeholder number for a signed-out visitor.
+          --------------------------------------------------------------- */}
+      <LeaderboardPreview />
 
       {/*
         Why an account — the last thing missing from this page.
@@ -473,7 +513,7 @@ export default async function HomePage() {
               <Link
                 href="/signup"
                 className="rounded-lg px-4 py-2.5 text-center text-sm font-semibold"
-                style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+                style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
                 data-testid="home-create-account"
               >
                 Create an account

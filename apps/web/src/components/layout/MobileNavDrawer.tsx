@@ -31,6 +31,7 @@ import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { ChevronDown, RotateCcw } from "lucide-react";
 import { Dialog } from "@/components/ui";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/utils";
 import {
   accountLinks,
@@ -132,6 +133,13 @@ export function MobileNavDrawer({
           >
             Close
           </button>
+        </div>
+
+        <div className="pk-nav-drawer-theme">
+          <span className="pk-nav-drawer-subtitle" id="pk-nav-drawer-theme-label">
+            Theme
+          </span>
+          <ThemeToggle variant="menu" className="mt-1" />
         </div>
 
         {resume.run && (

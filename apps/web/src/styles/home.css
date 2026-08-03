@@ -43,8 +43,13 @@
 }
 
 @media (min-width: 900px) {
+  /* P3-H: the vignette is the arena's "window in" (PRODUCT_EXPERIENCE_
+     CONTRACT.md §7) — real ranked windows and their component bars, not
+     decoration beside the headline. Gives it the larger share so the
+     first viewport reads as a piece of the game rather than a poster with
+     a thumbnail next to it. */
   .home-hero-grid[data-vignette="true"] {
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
     gap: var(--pk-space-12, 48px);
   }
 }
@@ -213,12 +218,12 @@
 
 .home-vignette-stage {
   position: relative;
-  height: 252px;
+  height: 268px;
 }
 
 @media (min-width: 640px) {
   .home-vignette-stage {
-    height: 276px;
+    height: 300px;
   }
 }
 

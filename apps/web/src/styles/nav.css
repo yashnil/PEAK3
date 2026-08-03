@@ -420,6 +420,14 @@
   color: var(--text-primary);
 }
 
+/* Theme control — sits above the resume banner so it is reachable without
+   expanding any accordion section (P3-G). */
+.pk-nav-drawer-theme {
+  padding: 0 var(--pk-space-2) var(--pk-space-2);
+  margin-bottom: var(--pk-space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .pk-nav-drawer-resume {
   display: flex;
   align-items: center;
