@@ -1,52 +1,57 @@
 "use client";
 
 /**
- * The homepage primary control — a menu button, not a link.
+ * The homepage primary control.
  *
- * WHY THIS EXISTS (plan §5.1). The old `home-primary-cta` was a link labelled
- * "Start a Run" that landed on `/arena/run-the-table`, whose first screen is
- * `RunStartGate` with a second, identical "Start a run" button. Two identical
- * commitments in a row read as a bug.
+ * Launch-polish §6 REPLACES the menu-button this used to be. The audit that
+ * fed the original brief ("opens a menu containing only 'Standard run'")
+ * turned out not to match this file at all -- `BASE_OPTIONS` always had two
+ * unconditional entries, never one -- but the brief's underlying INTENT was
+ * still real and still in scope: a homepage's primary action should be a
+ * direct action, not a decision. Clicking "Play Run the Table" used to open
+ * a dropdown and make the visitor choose among up to three items before
+ * anything happened at all; now it IS the choice, made the obvious way:
  *
- * Deleting the second gate was not an option: following a bare link must never
- * create a run (it fixes the seed and, for the daily, burns the day's attempt),
- * which `play-routing.spec.ts` pins. So the fix is at this end — the control
- * now NAMES the choice it is about to make instead of pretending there is only
- * one. Picking an option carries `?start=` into the route, which
- * `RunTheTableGame` (W4) consumes exactly once; a bare
- * `/arena/run-the-table` still shows the gate, unchanged.
+ *   - no run in progress  -> the primary control starts a standard run,
+ *     directly (`?start=standard`, auto-started once by `RunTheTableGame`);
+ *   - a run in progress   -> the primary control becomes "Continue Run",
+ *     landing on the bare route, which resumes it and creates nothing;
+ *   - "Start New Run" (only offered once there IS a run to prefer instead --
+ *     otherwise the primary control already IS starting a new run) and the
+ *     daily shared run are both still one click away, just as smaller,
+ *     secondary links rather than co-equal menu rows.
  *
- * Interaction is the WAI-ARIA menu-button pattern, hand-rolled rather than
- * pulled from a dependency (plan §2: zero new runtime packages):
- *   - `aria-haspopup="menu"` + `aria-expanded` + `aria-controls`
- *   - opening focuses the first item; ArrowUp opens onto the last
- *   - ArrowDown/ArrowUp/Home/End move between items
- *   - Escape closes and returns focus to the trigger
- *   - Tab or an outside click closes without stealing focus back
+ * The daily deliberately still does NOT carry `?start=`, for the same
+ * reason it never did: it is one shared board per UTC day and one attempt
+ * per player, so making the URL itself the trigger would let a bookmark, a
+ * forwarded link, or a restored browser session spend someone's attempt on
+ * navigation with no confirmation. `/arena/run-the-table?mode=daily` lands
+ * on the start gate with the daily button emphasised instead -- one extra
+ * click, and it is the click that spends the attempt.
  *
- * Deliberately an anchored in-place panel, NOT a Dialog: it locks nothing,
- * traps nothing and leaves the page behind readable. A modal for three links
- * would be heavier than the decision.
+ * No ARIA menu-button machinery is needed any more: every affordance here
+ * is a real `<Link>`, so Tab order, Enter-to-activate and screen-reader
+ * semantics are correct for free, with none of the open/close/focus-return
+ * bookkeeping the dropdown required.
  */
 
 import Link from "next/link";
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { CalendarDays, ChevronDown, Play, RotateCcw } from "lucide-react";
-import { useEscapeKey, useLayerStack } from "@/lib/a11y";
+import { useEffect, useState, type ReactNode } from "react";
+import { CalendarDays, Play, RotateCcw } from "lucide-react";
 import { loadActiveRun } from "@/lib/run-the-table-state";
 
-/** The three ways into RUN THE TABLE, in the order they are offered. */
+/** The three ways into RUN THE TABLE. */
 export const LAUNCHER_STANDARD_HREF = "/arena/run-the-table?start=standard";
 /**
  * Daily deliberately does NOT carry `?start=`.
  *
  * A standard run costs nothing to create — the seed is random, and starting a
- * second one loses you nothing — so auto-starting it from an explicit "Standard
- * run" choice is safe. The daily is not that: it is one shared board per UTC
- * day and one attempt per player. `?start=daily` on a plain `<Link>` makes the
- * URL itself the trigger, so anyone the address bar is copied to — a group
- * chat, a bookmark, a browser session restore — has today's attempt spent for
- * them on navigation, with no confirmation.
+ * second one loses you nothing — so auto-starting it directly is safe. The
+ * daily is not that: it is one shared board per UTC day and one attempt per
+ * player. `?start=daily` on a plain `<Link>` makes the URL itself the
+ * trigger, so anyone the address bar is copied to — a group chat, a
+ * bookmark, a browser session restore — has today's attempt spent for them
+ * on navigation, with no confirmation.
  *
  * `/arena/run-the-table?mode=daily` lands on the start gate with the daily
  * button emphasised, which is what `/arena` has always linked to
@@ -55,48 +60,12 @@ export const LAUNCHER_STANDARD_HREF = "/arena/run-the-table?start=standard";
  * attempt.
  */
 export const LAUNCHER_DAILY_HREF = "/arena/run-the-table?mode=daily";
-/** Resume is the bare route on purpose: it must NOT start anything. */
+/** The bare route on purpose: it must NOT start anything. */
 export const LAUNCHER_RESUME_HREF = "/arena/run-the-table";
 
-interface LauncherOption {
-  key: "standard" | "daily" | "resume";
-  href: string;
-  label: string;
-  hint: string;
-  testId: string;
-  Icon: typeof Play;
-}
-
-const BASE_OPTIONS: LauncherOption[] = [
-  {
-    key: "standard",
-    href: LAUNCHER_STANDARD_HREF,
-    label: "Standard run",
-    hint: "A fresh randomly-seeded run. Starts as soon as it loads.",
-    testId: "home-launcher-standard",
-    Icon: Play,
-  },
-  {
-    key: "daily",
-    href: LAUNCHER_DAILY_HREF,
-    label: "Today's shared run",
-    hint: "The same seeded board everyone else gets today. One attempt per day.",
-    testId: "home-launcher-daily",
-    Icon: CalendarDays,
-  },
-];
-
-const RESUME_OPTION: LauncherOption = {
-  key: "resume",
-  href: LAUNCHER_RESUME_HREF,
-  label: "Resume your run",
-  hint: "Pick up the run saved in this browser. Nothing new is started.",
-  testId: "home-launcher-resume",
-  Icon: RotateCcw,
-};
-
 export interface HeroLauncherProps {
-  /** Trigger label. Frozen by the plan; overridable only for tests. */
+  /** Trigger label when there is no run to continue. Frozen by the plan;
+   *  overridable only for tests. */
   label?: string;
   /**
    * Secondary action rendered beside the trigger — the homepage passes its
@@ -112,205 +81,54 @@ export default function HeroLauncher({
   children,
   className,
 }: HeroLauncherProps) {
-  const [open, setOpen] = useState(false);
-  const [hasActiveRun, setHasActiveRun] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const itemRefs = useRef<(HTMLAnchorElement | null)[]>([]);
-  /** Which item to focus once the menu has rendered. -1 means "the last". */
-  const pendingFocus = useRef<number>(0);
-  const menuId = useId();
-
   // Read on the client only: the server cannot know what is in localStorage,
-  // and rendering "Resume" during SSR would hydrate-mismatch every visitor
-  // whose browser has no saved run. Re-read on open so a run finished in
-  // another tab does not leave a stale entry.
+  // and rendering "Continue Run" during SSR would hydrate-mismatch every
+  // visitor whose browser has no saved run.
+  const [hasActiveRun, setHasActiveRun] = useState(false);
   useEffect(() => {
     setHasActiveRun(loadActiveRun() !== null);
   }, []);
 
-  const options = hasActiveRun ? [...BASE_OPTIONS, RESUME_OPTION] : BASE_OPTIONS;
-
-  const closeAndRefocus = useCallback(() => {
-    setOpen(false);
-    triggerRef.current?.focus();
-  }, []);
-
-  const isTopLayer = useLayerStack(open);
-  useEscapeKey(open, closeAndRefocus, isTopLayer);
-
-  // Outside click closes, and deliberately does NOT pull focus back to the
-  // trigger — the user is already on their way somewhere else.
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent | TouchEvent) => {
-      const target = event.target as Node | null;
-      if (target && rootRef.current?.contains(target)) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("touchstart", onPointerDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("touchstart", onPointerDown);
-    };
-  }, [open]);
-
-  // Focus the requested item once the menu exists.
-  useEffect(() => {
-    if (!open) return;
-    const items = itemRefs.current.filter(Boolean) as HTMLAnchorElement[];
-    if (items.length === 0) return;
-    const index = pendingFocus.current < 0 ? items.length - 1 : Math.min(pendingFocus.current, items.length - 1);
-    items[index]?.focus();
-  }, [open, options.length]);
-
-  const openMenu = useCallback((focusIndex: number) => {
-    pendingFocus.current = focusIndex;
-    setHasActiveRun(loadActiveRun() !== null);
-    setOpen(true);
-  }, []);
-
-  const onTriggerClick = () => {
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    openMenu(0);
-  };
-
-  const onTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      openMenu(0);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      openMenu(-1);
-    }
-  };
-
-  const focusItem = (index: number) => {
-    const items = itemRefs.current.filter(Boolean) as HTMLAnchorElement[];
-    if (items.length === 0) return;
-    const wrapped = ((index % items.length) + items.length) % items.length;
-    items[wrapped]?.focus();
-  };
-
-  const onItemKeyDown = (event: React.KeyboardEvent<HTMLAnchorElement>, index: number) => {
-    switch (event.key) {
-      case "ArrowDown":
-        event.preventDefault();
-        focusItem(index + 1);
-        break;
-      case "ArrowUp":
-        event.preventDefault();
-        focusItem(index - 1);
-        break;
-      case "Home":
-        event.preventDefault();
-        focusItem(0);
-        break;
-      case "End":
-        event.preventDefault();
-        focusItem(options.length - 1);
-        break;
-      case "Tab":
-        // Menus close on Tab rather than trapping — this is a menu button, not
-        // a modal, so the rest of the page must stay reachable.
-        //
-        // But NOT synchronously. React flushes this discrete event before the
-        // browser performs the default Tab, so `setOpen(false)` here unmounted
-        // the very element focus was leaving FROM. `document.activeElement`
-        // fell back to `<body>`, and the browser's Tab then walked from the top
-        // of the document — sending a keyboard user on the homepage back to the
-        // skip link instead of forward to "Explore Rankings".
-        //
-        // Deferring to a microtask lets the default Tab land first, so focus is
-        // already on the next real control when the panel goes away.
-        queueMicrotask(() => setOpen(false));
-        break;
-      default:
-        break;
-    }
-  };
+  const primaryHref = hasActiveRun ? LAUNCHER_RESUME_HREF : LAUNCHER_STANDARD_HREF;
+  const primaryLabel = hasActiveRun ? "Continue Run" : label;
+  const PrimaryIcon = hasActiveRun ? RotateCcw : Play;
 
   return (
     <div className={className ? `flex flex-col items-start ${className}` : "flex flex-col items-start"}>
       <div className="flex flex-wrap items-center" style={{ gap: "var(--pk-space-3, 12px)" }}>
-        <div ref={rootRef} className="home-launcher">
-          <button
-            ref={triggerRef}
-            type="button"
-            data-testid="home-primary-cta"
-            className="home-launcher-trigger"
-            aria-haspopup="menu"
-            aria-expanded={open}
-            aria-controls={open ? menuId : undefined}
-            onClick={onTriggerClick}
-            onKeyDown={onTriggerKeyDown}
-          >
-            {label}
-            <ChevronDown className="home-launcher-chevron" size={16} aria-hidden="true" />
-          </button>
-
-          {open && (
-            <div
-              id={menuId}
-              role="menu"
-              data-testid="home-launcher-menu"
-              aria-label="Choose how to start Run the Table"
-              className="home-launcher-menu"
-            >
-              {options.map((option, index) => {
-                const { Icon } = option;
-                return (
-                  <Link
-                    key={option.key}
-                    href={option.href}
-                    role="menuitem"
-                    tabIndex={-1}
-                    data-testid={option.testId}
-                    className="home-launcher-item"
-                    ref={(node) => {
-                      itemRefs.current[index] = node;
-                    }}
-                    onKeyDown={(event) => onItemKeyDown(event, index)}
-                    onClick={() => setOpen(false)}
-                  >
-                    <span className="home-launcher-item-icon" aria-hidden="true">
-                      <Icon size={15} />
-                    </span>
-                    <span className="min-w-0">
-                      <span
-                        className="block text-sm font-semibold"
-                        style={{ color: "var(--text-primary)" }}
-                      >
-                        {option.label}
-                      </span>
-                      <span className="home-launcher-hint">{option.hint}</span>
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
+        <Link href={primaryHref} data-testid="home-primary-cta" className="home-launcher-trigger">
+          <PrimaryIcon size={16} aria-hidden="true" />
+          {primaryLabel}
+        </Link>
         {children}
       </div>
 
-      {/* The resume state, stated in the page rather than only inside the menu
-          — a player with a run in flight should see that before they decide to
-          open anything. */}
-      {hasActiveRun && (
-        <p
-          data-testid="home-resume-notice"
-          className="mt-3 text-xs"
+      {/* Secondary, on purpose -- smaller type, no button chrome, plain
+          underline-on-hover links. The primary control above already IS
+          "start something"; these are the alternatives to that one
+          default, not co-equal choices in a menu. */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        {hasActiveRun && (
+          <Link
+            href={LAUNCHER_STANDARD_HREF}
+            data-testid="home-launcher-standard"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] rounded"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            <Play size={12} aria-hidden="true" />
+            Start New Run
+          </Link>
+        )}
+        <Link
+          href={LAUNCHER_DAILY_HREF}
+          data-testid="home-launcher-daily"
+          className="inline-flex items-center gap-1.5 text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] rounded"
           style={{ color: "var(--text-secondary)" }}
         >
-          You have a run in progress in this browser.
-        </p>
-      )}
+          <CalendarDays size={12} aria-hidden="true" />
+          Today&rsquo;s shared run <span style={{ color: "var(--text-muted)" }}>&middot; one attempt per day</span>
+        </Link>
+      </div>
     </div>
   );
 }

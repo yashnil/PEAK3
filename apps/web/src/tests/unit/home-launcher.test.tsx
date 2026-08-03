@@ -1,27 +1,33 @@
 /**
- * `HeroLauncher` — the homepage primary CTA (W2, plan §5.1).
+ * `HeroLauncher` — the homepage primary CTA (launch-polish §6).
  *
  * WHAT THESE PIN, and why each one matters:
  *
- *  - The trigger is a MENU BUTTON, not a link. The whole point of the change is
- *    that the homepage control names the choice it is about to make instead of
- *    routing to a second identical "Start a run" button. If this ever regresses
- *    to an anchor, the double funnel is back.
- *  - The three hrefs, verbatim. `?start=standard` and `?start=daily` are the
- *    contract with `RunTheTableGame` (W4), which consumes the param exactly
- *    once and strips it. "Resume" is the BARE route on purpose — following it
- *    must never create a run, which `play-routing.spec.ts` pins end to end.
- *  - "Resume your run" appears only when `loadActiveRun()` finds a stored run.
- *    Offering resume to someone with nothing to resume is a dead end, and
- *    rendering it during SSR would hydrate-mismatch every first-time visitor.
- *  - Escape closes and returns focus to the trigger; arrows move between
- *    options. A menu that strands focus on `<body>` is unusable by keyboard.
+ *  - The trigger is a real `<Link>`, not a menu button. Launch-polish §6
+ *    retired the dropdown: the homepage's primary action is now a direct
+ *    action, not a decision to make first. (The dropdown itself was already
+ *    never a one-item menu — `BASE_OPTIONS` always had two unconditional
+ *    entries — but the underlying intent, "make the first click count,"
+ *    still applied and is what this file now does.)
+ *  - No active run: the trigger goes straight to `?start=standard` and
+ *    reads "Play Run the Table". `?start=` is the contract with
+ *    `RunTheTableGame` (W4), which consumes the param exactly once and
+ *    strips it.
+ *  - An active run: the trigger becomes "Continue Run" and goes to the BARE
+ *    route — following it must never create a run, which `play-routing.spec.ts`
+ *    pins end to end.
+ *  - "Start New Run" only appears once there IS a run to prefer instead of
+ *    (otherwise the primary control already starts a new one). The daily
+ *    shared run is always offered, and never carries `?start=` — see
+ *    `LAUNCHER_DAILY_HREF`'s own docstring for why.
+ *  - Every affordance is a real link with a real `href`, so keyboard support
+ *    (Tab order, Enter-to-activate) needs no custom handling to verify.
  *
  * `next/link` renders a plain anchor under jsdom, so hrefs are asserted on the
  * real DOM attribute rather than on a mock.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
 
 import HeroLauncher, {
@@ -51,11 +57,6 @@ function trigger(): HTMLElement {
   return screen.getByTestId("home-primary-cta");
 }
 
-function openMenu(): HTMLElement {
-  fireEvent.click(trigger());
-  return screen.getByTestId("home-launcher-menu");
-}
-
 describe("HeroLauncher — the homepage primary CTA", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -66,144 +67,78 @@ describe("HeroLauncher — the homepage primary CTA", () => {
     window.localStorage.clear();
   });
 
-  it("renders a menu button, not a link", () => {
+  it("with no run in progress, is a direct link straight into a standard run", () => {
     render(<HeroLauncher />);
     const cta = trigger();
-    expect(cta.tagName).toBe("BUTTON");
-    expect(cta).toHaveAttribute("aria-haspopup", "menu");
-    expect(cta).toHaveAttribute("aria-expanded", "false");
+    expect(cta.tagName).toBe("A");
+    expect(cta).toHaveAttribute("href", LAUNCHER_STANDARD_HREF);
+    expect(cta).toHaveAttribute("href", "/arena/run-the-table?start=standard");
     expect(cta).toHaveTextContent(/Play Run the Table/i);
-    // The old funnel: a bare anchor straight into the mode.
-    expect(cta).not.toHaveAttribute("href");
   });
 
-  it("keeps the menu closed until it is asked for", () => {
+  it("renders no menu, no popup semantics and no dropdown at all", () => {
     render(<HeroLauncher />);
-    expect(screen.queryByTestId("home-launcher-menu")).toBeNull();
-    expect(screen.queryByTestId("home-launcher-standard")).toBeNull();
+    expect(trigger()).not.toHaveAttribute("aria-haspopup");
+    expect(trigger()).not.toHaveAttribute("aria-expanded");
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("menuitem")).toBeNull();
   });
 
-  it("opens on click and exposes aria-expanded", () => {
+  it("always offers the daily shared run as a secondary link, at its exact href", () => {
     render(<HeroLauncher />);
-    const menu = openMenu();
-    expect(menu).toHaveAttribute("role", "menu");
-    expect(trigger()).toHaveAttribute("aria-expanded", "true");
-    expect(trigger()).toHaveAttribute("aria-controls", menu.id);
-  });
-
-  it("offers a standard run and today's shared run at their exact hrefs", () => {
-    render(<HeroLauncher />);
-    const menu = openMenu();
-
-    const standard = within(menu).getByTestId("home-launcher-standard");
-    expect(standard).toHaveAttribute("href", LAUNCHER_STANDARD_HREF);
-    expect(standard).toHaveAttribute("href", "/arena/run-the-table?start=standard");
-    expect(standard).toHaveTextContent(/Standard run/i);
-
-    const daily = within(menu).getByTestId("home-launcher-daily");
+    const daily = screen.getByTestId("home-launcher-daily");
+    expect(daily.tagName).toBe("A");
     expect(daily).toHaveAttribute("href", LAUNCHER_DAILY_HREF);
     // NOT `?start=daily`. The daily is one shared board and one attempt per UTC
     // day, so making the URL itself the trigger would spend that attempt for
-    // anyone the link is forwarded to. Standard runs are free to create and do
-    // auto-start; the daily lands on the gate with its button emphasised.
+    // anyone the link is forwarded to.
     expect(daily).toHaveAttribute("href", "/arena/run-the-table?mode=daily");
     expect(daily.getAttribute("href")).not.toContain("start=");
-    expect(daily).toHaveTextContent(/Today's shared run/i);
-    expect(daily).toHaveTextContent(/One attempt per day/i);
-
-    expect(within(menu).getAllByRole("menuitem")).toHaveLength(2);
+    expect(daily).toHaveTextContent(/Today.s shared run/i);
+    expect(daily).toHaveTextContent(/one attempt per day/i);
   });
 
-  it("hides the resume option when storage holds no run", () => {
+  it("does not offer 'Start New Run' when there is nothing to prefer it over", () => {
     render(<HeroLauncher />);
-    openMenu();
-    expect(screen.queryByTestId("home-launcher-resume")).toBeNull();
-    expect(screen.queryByTestId("home-resume-notice")).toBeNull();
+    expect(screen.queryByTestId("home-launcher-standard")).toBeNull();
   });
 
-  it("ignores a corrupt stored run rather than offering a dead resume", () => {
+  it("with no stored run, does not offer Continue or Start New Run", () => {
+    render(<HeroLauncher />);
+    expect(trigger()).toHaveTextContent(/Play Run the Table/i);
+    expect(screen.queryByTestId("home-launcher-resume")).toBeNull();
+  });
+
+  it("ignores a corrupt stored run rather than offering a dead continue", () => {
     window.localStorage.setItem(RUN_THE_TABLE_STORAGE_KEY, "{not json");
     render(<HeroLauncher />);
-    openMenu();
-    expect(screen.queryByTestId("home-launcher-resume")).toBeNull();
+    expect(trigger()).toHaveTextContent(/Play Run the Table/i);
+    expect(trigger()).toHaveAttribute("href", LAUNCHER_STANDARD_HREF);
   });
 
-  it("offers resume at the BARE route when a run is stored", () => {
+  it("with a run in progress, the primary control becomes Continue Run at the BARE route", () => {
     seedActiveRun();
     render(<HeroLauncher />);
-    const menu = openMenu();
-
-    const resume = within(menu).getByTestId("home-launcher-resume");
-    // The bare route, with no `start` param: resuming must never create a run.
-    expect(resume).toHaveAttribute("href", LAUNCHER_RESUME_HREF);
-    expect(resume).toHaveAttribute("href", "/arena/run-the-table");
-    expect(within(menu).getAllByRole("menuitem")).toHaveLength(3);
-    expect(screen.getByTestId("home-resume-notice")).toBeInTheDocument();
+    const cta = trigger();
+    expect(cta).toHaveTextContent(/Continue Run/i);
+    // The bare route, with no `start` param: continuing must never create a
+    // second run.
+    expect(cta).toHaveAttribute("href", LAUNCHER_RESUME_HREF);
+    expect(cta).toHaveAttribute("href", "/arena/run-the-table");
   });
 
-  it("focuses the first option when opened", () => {
-    render(<HeroLauncher />);
-    openMenu();
-    expect(screen.getByTestId("home-launcher-standard")).toHaveFocus();
-  });
-
-  it("opens onto the last option with ArrowUp", () => {
+  it("with a run in progress, offers Start New Run as a secondary link", () => {
     seedActiveRun();
     render(<HeroLauncher />);
-    fireEvent.keyDown(trigger(), { key: "ArrowUp" });
-    expect(screen.getByTestId("home-launcher-resume")).toHaveFocus();
+    const startNew = screen.getByTestId("home-launcher-standard");
+    expect(startNew).toHaveAttribute("href", LAUNCHER_STANDARD_HREF);
+    expect(startNew).toHaveTextContent(/Start New Run/i);
   });
 
-  it("moves between options with the arrow keys, wrapping at the ends", () => {
+  it("with a run in progress, still offers the daily shared run", () => {
+    seedActiveRun();
     render(<HeroLauncher />);
-    openMenu();
-
-    const standard = screen.getByTestId("home-launcher-standard");
-    const daily = screen.getByTestId("home-launcher-daily");
-
-    fireEvent.keyDown(standard, { key: "ArrowDown" });
-    expect(daily).toHaveFocus();
-
-    fireEvent.keyDown(daily, { key: "ArrowDown" });
-    expect(standard).toHaveFocus();
-
-    fireEvent.keyDown(standard, { key: "ArrowUp" });
-    expect(daily).toHaveFocus();
-
-    fireEvent.keyDown(daily, { key: "Home" });
-    expect(standard).toHaveFocus();
-
-    fireEvent.keyDown(standard, { key: "End" });
-    expect(daily).toHaveFocus();
-  });
-
-  it("closes on Escape and returns focus to the trigger", () => {
-    render(<HeroLauncher />);
-    openMenu();
-    fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByTestId("home-launcher-menu")).toBeNull();
-    expect(trigger()).toHaveAttribute("aria-expanded", "false");
-    expect(trigger()).toHaveFocus();
-  });
-
-  it("closes on an outside click without stealing focus back", () => {
-    render(
-      <div>
-        <HeroLauncher />
-        <button type="button">elsewhere</button>
-      </div>,
-    );
-    openMenu();
-    fireEvent.mouseDown(screen.getByText("elsewhere"));
-    expect(screen.queryByTestId("home-launcher-menu")).toBeNull();
-    expect(trigger()).not.toHaveFocus();
-  });
-
-  it("closes when the trigger is pressed a second time", () => {
-    render(<HeroLauncher />);
-    openMenu();
-    fireEvent.click(trigger());
-    expect(screen.queryByTestId("home-launcher-menu")).toBeNull();
+    expect(screen.getByTestId("home-launcher-daily")).toHaveAttribute("href", LAUNCHER_DAILY_HREF);
   });
 
   it("renders the secondary action passed as children beside the trigger", () => {
