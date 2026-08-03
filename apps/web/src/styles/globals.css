@@ -127,16 +127,37 @@
   --accent-pink: #f472b6;
   --accent-orange: #fb923c;
   --accent-emerald: #34d399;
-  /* P6-b: text-safe siblings, dark values -- same hues, they already clear
-     4.5:1+ on Arena Night. See the light override for why these five are not
-     just reusing --accent-*'s own (already per-theme) value: axe caught
-     DraftCard.tsx's role chip (color: roleColor on a color-mix(roleColor 20%,
-     transparent) wash of ITSELF) failing 4.23-4.40:1 in light mode even
-     though --accent-* is already darkened for light mode -- the darkening
-     that clears a PLAIN card does not clear the same hue's own 20% wash,
-     same lesson as --accent-emerald/SeasonResultStub earlier. */
+  /* P6-b: text-safe siblings, dark values -- same hues, ASSUMED to already
+     clear 4.5:1+ on Arena Night against a plain card. That assumption was
+     never actually measured against the wash (only against --bg-surface/
+     --bg-elevated directly) -- and it was wrong for one of the five.
+     Launch-polish e2e (accessibility.spec.ts, "no critical/serious
+     violations on initial draft screen") caught DraftCard.tsx's role chip
+     (color: roleColor-text on color-mix(roleColor 20%, transparent), the
+     SAME wash-of-itself pattern the light-mode comment below already
+     names) failing in Arena Night: --accent-violet-text at #a78bfa
+     measured 4.43:1 against its own 20% wash over --bg-surface (axe's own
+     live measurement: 4.42:1, fgColor #a78bfa / bgColor #36334f) -- just
+     under the 4.5:1 AA floor for normal-size text. The other four hues
+     (blue/pink/orange/emerald) were swept the same way, all four wash
+     percentages actually used in the codebase (10/12/15/20%) against both
+     --bg-surface and --bg-elevated, and all clear 4.5:1+ everywhere
+     (4.59:1 worst case) -- violet was the only failure, not a reason to
+     doubt the other four. Fixed the same way light mode already was:
+     violet-text's dark value moved off the raw --accent-violet hex to a
+     measured, slightly lighter shade of the same hue (+0.04 HSL lightness),
+     clearing 5.36:1 in the worst of all eight wash/background
+     combinations -- not just the one axe happened to catch. See the light
+     override below for why these five are not just reusing --accent-*'s
+     own (already per-theme) value in the first place: axe caught
+     DraftCard.tsx's role chip failing 4.23-4.40:1 in LIGHT mode by the
+     same wash-of-itself mechanism, even though --accent-* is already
+     darkened for light mode -- the darkening that clears a PLAIN card does
+     not clear the same hue's own wash, same lesson as
+     --accent-emerald/SeasonResultStub earlier, now confirmed to apply
+     in both themes, not just light. */
   --accent-blue-text: #60a5fa;
-  --accent-violet-text: #a78bfa;
+  --accent-violet-text: #b69ffb;
   --accent-pink-text: #f472b6;
   --accent-orange-text: #fb923c;
   --accent-emerald-text: #34d399;
