@@ -26,7 +26,8 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 function mockFetch(status = 200, body: unknown = { game_id: "g-1" }) {
-  const fn = vi.fn(async (_url: string, _init?: RequestInit) => ({
+  const fn = vi.fn(async (...args: [string, RequestInit?]) => ({
+    _args: args,
     ok: status >= 200 && status < 300,
     status,
     json: async () => body,
