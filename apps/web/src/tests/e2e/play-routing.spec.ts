@@ -42,15 +42,22 @@
  *    being protected — "Play leads to the hub, and the hub's flagship is RUN
  *    THE TABLE" — is unchanged.
  *
- * 2. `home-primary-cta` is a BUTTON that opens an in-place launcher, rather
+ * 2. `home-primary-cta` was a BUTTON that opened an in-place launcher, rather
  *    than a link named "Start a Run" that led to a second screen also named
- *    "Start a run". The redundant confirmation is gone from the main path; the
- *    invariant it existed to protect is NOT. A bare visit to
- *    /arena/run-the-table still shows the gate and still creates no run, which
- *    is asserted separately and explicitly below. Only a deliberate choice —
- *    `?start=standard` from the launcher, or the gate's own button — starts one.
+ *    "Start a run" — the redundant confirmation was gone from the main path.
+ *    Launch-polish §6 went one step further: it is now a direct `<Link>`
+ *    straight into a standard run (or, with a run already in progress,
+ *    "Continue Run" straight into the bare route). There is no menu to open
+ *    at all any more — "Start New Run" and the daily shared run are smaller
+ *    secondary links beside it. The invariant the old second gate protected
+ *    is unchanged either way: a bare visit to /arena/run-the-table still
+ *    shows the gate and still creates no run, asserted separately below.
  */
 import { test, expect, Page, Locator } from "@playwright/test";
+import {
+  RUN_THE_TABLE_SCHEMA_VERSION,
+  RUN_THE_TABLE_STORAGE_KEY,
+} from "@/types/run-the-table";
 
 /** The navbar's Play trigger. A button since the UX pass — see the header. */
 function playTrigger(page: Page): Locator {
@@ -442,27 +449,23 @@ test.describe("82-0 start gate exposes no retired mode vocabulary", () => {
 });
 
 test.describe("Homepage", () => {
-  test("the primary CTA names the choice it is about to make", async ({ page }) => {
-    // WHAT CHANGED. The CTA was a link called "Start a Run" that led to a
-    // screen whose own button was called "Start a run" — the same words twice,
-    // one of them lying about what it did. It is now a disclosure button that
-    // opens the choice in place: standard run, today's shared run, and (only
-    // when one exists) resume.
+  test("the primary CTA is a direct link into a standard run, not a menu", async ({ page }) => {
+    // WHAT CHANGED (launch-polish §6). The CTA was a link called "Start a
+    // Run" that led to a screen whose own button was called "Start a run" —
+    // the same words twice. An earlier pass turned it into a disclosure
+    // button instead; this pass went further and removed the menu itself —
+    // the primary click IS starting a run now, with no decision in between.
     await page.goto("/", { waitUntil: "load" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible();
-    await expect(cta).toHaveJSProperty("tagName", "BUTTON");
+    await expect(cta).toHaveJSProperty("tagName", "A");
     await expect(cta).toContainText(/Play Run the Table/i);
-    await expect(cta).toHaveAttribute("aria-expanded", "false");
+    await expect(cta).not.toHaveAttribute("aria-haspopup");
+    // The explicit start intent is carried in the href itself. A run is
+    // created because the user asked for one, not because they navigated.
+    await expect(cta).toHaveAttribute("href", "/arena/run-the-table?start=standard");
 
     await cta.click();
-    await expect(cta).toHaveAttribute("aria-expanded", "true");
-
-    // The launcher's standard option carries the explicit start intent. A run
-    // is created because the user asked for one, not because they navigated.
-    const standard = page.locator('a[href="/arena/run-the-table?start=standard"]');
-    await expect(standard).toBeVisible();
-    await standard.click();
     await expect(page).toHaveURL(/\/arena\/run-the-table/, { timeout: 15_000 });
     await assertNoLegacyModeCards(page);
   });
@@ -482,12 +485,46 @@ test.describe("Homepage", () => {
     expect(created, "arriving at the route must never create a run").toEqual([]);
   });
 
-  test("the CTA launcher offers no resume option with no stored run", async ({ page }) => {
+  test("with no stored run, the CTA offers neither Continue Run nor Start New Run", async ({ page }) => {
     await page.goto("/", { waitUntil: "load" });
     await page.evaluate(() => window.localStorage.clear());
     await page.reload({ waitUntil: "load" });
-    await page.locator('[data-testid="home-primary-cta"]').click();
+    const cta = page.locator('[data-testid="home-primary-cta"]');
+    await expect(cta).toContainText(/Play Run the Table/i);
+    await expect(cta).not.toContainText(/Continue Run/i);
+    await expect(page.getByTestId("home-launcher-standard")).toHaveCount(0);
     await expect(page.getByRole("link", { name: /Resume/i })).toHaveCount(0);
+  });
+
+  test("with a run in progress, the CTA becomes Continue Run and Start New Run appears", async ({
+    page,
+  }) => {
+    await page.goto("/", { waitUntil: "load" });
+    await page.evaluate(
+      ({ key, schema }) => {
+        window.localStorage.setItem(
+          key,
+          JSON.stringify({
+            schema_version: schema,
+            run_id: "e2e-play-routing-run",
+            seed: 4242,
+            run_type: "standard",
+            updated_at: new Date().toISOString(),
+          }),
+        );
+      },
+      { key: RUN_THE_TABLE_STORAGE_KEY, schema: RUN_THE_TABLE_SCHEMA_VERSION },
+    );
+    await page.reload({ waitUntil: "load" });
+
+    const cta = page.locator('[data-testid="home-primary-cta"]');
+    await expect(cta).toContainText(/Continue Run/i);
+    // The bare route: continuing must never create a second run.
+    await expect(cta).toHaveAttribute("href", "/arena/run-the-table");
+
+    const startNew = page.getByTestId("home-launcher-standard");
+    await expect(startNew).toBeVisible();
+    await expect(startNew).toHaveAttribute("href", "/arena/run-the-table?start=standard");
   });
 
   test("the hero leads with RUN THE TABLE and nothing else is featured", async ({ page }) => {
