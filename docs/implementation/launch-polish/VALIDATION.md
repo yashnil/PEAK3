@@ -127,6 +127,28 @@ Each would have shipped as complete.
 - **The leaderboard had no duplication defect.** `game_id` idempotency works;
   32 rows were 8 fixture seeds × 4 test-suite executions against staging.
 
+## Known-safe, deliberately not changed
+
+11 sites still use a raw `--accent-*` as `color` rather than its `-text`
+sibling (`history/page.tsx:204`, `ChallengeComparison.tsx:165`,
+`SeasonResultStub.tsx:308,314`, `arena/page.tsx:203`, and others). Several sit
+on a `color-mix` wash of their own hue — the exact shape that failed for violet.
+
+**They are measured safe at the alphas they actually use.** visual-platform's
+sweep covered all five `-text` tokens × both themes × every wash alpha in this
+codebase (7/10/12/15/20 %) × both surface tiers: violet at **20 % over
+`--bg-surface`** was the only failure in 200 combinations. These sites use
+10–12 %, which clears.
+
+Not swapped, deliberately. Substituting `-text` siblings would change dark-mode
+appearance — violet's dark `-text` is now `#b69ffb`, not `#a78bfa` — and making
+unverified visual changes at the end of a validation cycle trades a measured-safe
+state for an unmeasured one. The new `accent-text-contrast.test.ts` guards the
+token values themselves, so a future drift is caught regardless of which token a
+call site reaches for.
+
+Recorded as a consistency follow-up, not a defect.
+
 ## External blockers
 
 1. **Staging cleanup** — the reviewed SQL is checked in at
