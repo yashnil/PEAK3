@@ -489,9 +489,15 @@ test.describe("RUN THE TABLE opening reveal", () => {
     await page.locator('[data-testid="rtt-reveal-resume-roster"]').click();
 
     // Skip all jumps every slot to fully settled with no further animation
-    // and no second round trip — the completion IS the handover, matching
-    // every other surface transition in this mode.
+    // and no second round trip — but settling is NOT the handover (the
+    // lead's ruling this pass: skip-all must land on every slot fully
+    // resolved and HOLD there so the player sees what was promised, before
+    // the screen changes). An explicit "Continue" press is what actually
+    // dismisses the surface.
     await page.locator('[data-testid="rtt-reveal-skip-roster"]').click();
+    const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
+    await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
+    await continueRoster.click();
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
 
@@ -523,6 +529,12 @@ test.describe("RUN THE TABLE opening reveal", () => {
     const skip = page.locator('[data-testid="rtt-reveal-skip-roster"]');
     await skip.waitFor({ state: "visible", timeout: 20_000 });
     await skip.click();
+    // Skip settles every slot but does not dismiss the surface on its own
+    // (see the note above) — "Continue" is a client-side choice with no
+    // server round trip of its own, so it cannot change `revealPosts` below.
+    const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
+    await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
+    await continueRoster.click();
 
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
     // Skipped, not discarded: every slot was still dealt, in one round trip.
@@ -544,9 +556,29 @@ test.describe("RUN THE TABLE opening reveal", () => {
 
     await page.locator('[data-testid="rtt-reveal-start-roster"]').click();
     await page.locator('[data-testid="rtt-reveal-skip-roster"]').click();
+
+    // TWO DIFFERENT FLAGS, checked separately, because they answer two
+    // different questions (RunTray.tsx / RunTheTableGame.tsx's
+    // `rosterConcealment`): `data-reveal-active` is "has the player
+    // dismissed this reveal yet" — stays true here, because skip alone does
+    // not dismiss (the lead's ruling this pass). Per-slot `data-concealed`
+    // tracks the PRESENTATION CURSOR, which skip-all legitimately fast-
+    // forwards to every slot — the full roster is already sitting in the
+    // main reveal card list on screen at this exact moment, so the compact
+    // dock matching that is correct, not a leak. (An earlier version of
+    // this test asserted every slot was STILL concealed here, which read as
+    // a stronger check but was actually asserting the wrong thing — verified
+    // live against the running app before writing this comment, not assumed.)
+    await expect(dock).toHaveAttribute("data-reveal-active", "true");
+    await expect(page.locator('[data-testid^="rtt-slot-compact-"][data-concealed="false"]')).toHaveCount(7);
+
+    const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
+    await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
+    await continueRoster.click();
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
 
-    // Once the sequence is fully resolved, the dock no longer conceals.
+    // Only once the player has explicitly moved on does the dock stop
+    // concealing.
     await expect(dock).toHaveAttribute("data-reveal-active", "false");
   });
 });
