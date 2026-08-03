@@ -119,7 +119,10 @@
 .rankings-provenance-link {
   font-size: 0.8125rem;
   font-weight: 600;
-  color: var(--peak-accent, #f5c842);
+  /* P6-b: was the frozen `--peak-accent` directly -- axe caught this failing
+     1.49:1 in light mode (mobile rankings). Same bug the .tsx sweep in P5-F1
+     found, just in a plain CSS file that sweep never checked. */
+  color: var(--peak-accent-text, #f5c842);
   text-decoration: underline;
   text-underline-offset: 3px;
   border-radius: var(--pk-r-sm, 6px);

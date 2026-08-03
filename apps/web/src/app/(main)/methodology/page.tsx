@@ -15,6 +15,18 @@ const COMPONENT_ACCENT_COLORS: Record<string, string> = {
   team_achievement: "var(--comp-team)",
 };
 
+// P6-b: the frozen `--comp-*` values above are correct for a background fill
+// or a border (COMPONENT_ACCENT_COLORS' other two call sites), but fail WCAG
+// AA used directly as text -- same class as `--peak-accent` vs
+// `--peak-accent-text` (P5-F1). This is the text-safe sibling map.
+const COMPONENT_ACCENT_TEXT_COLORS: Record<string, string> = {
+  statistical_impact: "var(--comp-si-text)",
+  traditional_production: "var(--comp-tp-text)",
+  individual_recognition: "var(--comp-rec-text)",
+  postseason_individual_value: "var(--comp-po-text)",
+  team_achievement: "var(--comp-team-text)",
+};
+
 export default function MethodologyPage() {
   const [methodology, setMethodology] = useState<Methodology | null>(null);
   const [loading, setLoading] = useState(true);
@@ -170,6 +182,7 @@ export default function MethodologyPage() {
                 isOpen={openId === component.id}
                 onToggle={() => setOpenId(openId === component.id ? null : component.id)}
                 color={COMPONENT_ACCENT_COLORS[component.id]}
+                textColor={COMPONENT_ACCENT_TEXT_COLORS[component.id]}
               />
             ))}
           </div>
@@ -259,7 +272,7 @@ export default function MethodologyPage() {
               <div key={c.id}>
                 <h3
                   className="font-semibold text-sm mb-1"
-                  style={{ color: COMPONENT_ACCENT_COLORS[c.id] }}
+                  style={{ color: COMPONENT_ACCENT_TEXT_COLORS[c.id] }}
                 >
                   {c.label} ({c.weight_pct}%)
                 </h3>
@@ -280,11 +293,15 @@ function ComponentAccordion({
   isOpen,
   onToggle,
   color,
+  textColor,
 }: {
   component: MethodologyComponent;
   isOpen: boolean;
   onToggle: () => void;
+  /** Border fill -- the frozen `--comp-*` value, correct as-is. */
   color: string;
+  /** Text-safe sibling (P6-b) -- use this one for anything rendered as `color`. */
+  textColor: string;
 }) {
   return (
     <div className="card-elevated overflow-hidden" style={{ borderLeftColor: color, borderLeftWidth: "3px" }}>
@@ -298,7 +315,7 @@ function ComponentAccordion({
         <div className="flex items-center gap-3">
           <span
             className="text-2xl font-bold score-number"
-            style={{ color }}
+            style={{ color: textColor }}
           >
             {component.weight_pct}%
           </span>
