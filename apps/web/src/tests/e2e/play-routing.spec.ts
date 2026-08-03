@@ -590,16 +590,19 @@ test.describe("/arena hub", () => {
     await expect(page.getByText("prototype", { exact: false })).toHaveCount(0);
   });
 
-  test("the flagship's own daily and run-history links are present", async ({ page }) => {
+  test("the flagship's own run-history link is present, and the daily link is gone", async ({
+    page,
+  }) => {
     await page.goto("/arena", { waitUntil: "load" });
-    await expect(page.locator('[data-testid="arena-rtt-daily-link"]')).toHaveAttribute(
-      "href",
-      "/arena/run-the-table?mode=daily",
-    );
     await expect(page.locator('[data-testid="arena-rtt-runs-link"]')).toHaveAttribute(
       "href",
       "/arena/run-the-table",
     );
+    // LP2-3: "Play today's shared run" was the third public entry point into
+    // daily play with no visible value over Standard — see
+    // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md`. The route
+    // it pointed at is untouched; this hub just no longer advertises it.
+    await expect(page.locator('[data-testid="arena-rtt-daily-link"]')).toHaveCount(0);
   });
 
   test("the 82-0 CTA reaches the start gate without starting a run", async ({ page }) => {

@@ -376,9 +376,17 @@ describe("RunTheTableGame — the start gate", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows today's daily seed so both entry points are distinguishable", async () => {
+  // LP2-3: "Today's run" is no longer offered on a bare visit to this gate —
+  // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md` found nothing a
+  // player could point to that it delivers over Standard. It still exists
+  // for whoever arrives via the preserved `?mode=daily` deep link (an old
+  // bookmark, a forwarded URL) — that path is exercised below and in
+  // `describe("RunTheTableGame — the ?start= contract")`.
+  it("does not show the daily button or note on a bare visit", async () => {
     render(<RunTheTableGame />);
-    expect(await screen.findByTestId("rtt-daily-note")).toHaveTextContent("4242");
+    await screen.findByTestId("rtt-start-gate");
+    expect(screen.queryByTestId("rtt-start-daily")).toBeNull();
+    expect(screen.queryByTestId("rtt-daily-note")).toBeNull();
   });
 
   it("starts a standard run only on an explicit click", async () => {
@@ -389,9 +397,11 @@ describe("RunTheTableGame — the start gate", () => {
     expect(await screen.findByTestId("rtt-shell")).toBeInTheDocument();
   });
 
-  it("starts today's run through the daily button", async () => {
+  it("shows today's daily seed and lets a ?mode=daily visitor start it", async () => {
+    window.history.replaceState({}, "", "/arena/run-the-table?mode=daily");
     mockCreateRun.mockResolvedValue(runState({ run_type: "daily" }));
-    render(<RunTheTableGame />);
+    render(<RunTheTableGame preferredMode="daily" />);
+    expect(await screen.findByTestId("rtt-daily-note")).toHaveTextContent("4242");
     await userEvent.click(await screen.findByTestId("rtt-start-daily"));
     await waitFor(() => expect(mockCreateRun).toHaveBeenCalledWith("daily", expect.anything()));
   });
@@ -706,8 +716,9 @@ describe("RunTheTableGame — resume", () => {
   });
 
   it("records the SERVER's daily key on a daily pointer", async () => {
+    window.history.replaceState({}, "", "/arena/run-the-table?mode=daily");
     mockCreateRun.mockResolvedValue(runState({ run_type: "daily", date: "2026-07-31" }));
-    render(<RunTheTableGame />);
+    render(<RunTheTableGame preferredMode="daily" />);
     await userEvent.click(await screen.findByTestId("rtt-start-daily"));
     await screen.findByTestId("rtt-shell");
     expect(JSON.parse(window.localStorage.getItem(RUN_THE_TABLE_STORAGE_KEY) ?? "{}")).toMatchObject(

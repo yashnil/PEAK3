@@ -728,8 +728,15 @@ test.describe("RUN THE TABLE resume", () => {
 // ---------------------------------------------------------------------------
 
 test.describe("RUN THE TABLE daily", () => {
+  // LP2-3 removed every public link into `?mode=daily` — see
+  // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md` — but the route
+  // itself, the button and the note it renders are all preserved for an
+  // existing bookmark, so this test now visits it directly rather than
+  // through `freshGate`'s default bare route.
+  const DAILY_ROUTE = `${ROUTE}?mode=daily`;
+
   test("today's run is the same board on a revisit", async ({ page }) => {
-    await freshGate(page);
+    await freshGate(page, DAILY_ROUTE);
     const note = page.locator('[data-testid="rtt-daily-note"]');
     // The daily is separately flag-gated; without it the descriptor never
     // loads and there is no note to compare. Skip rather than fail on a
@@ -740,9 +747,15 @@ test.describe("RUN THE TABLE daily", () => {
     const first = (await note.innerText()).trim();
     expect(first).toMatch(/\d/);
 
-    await freshGate(page);
+    await freshGate(page, DAILY_ROUTE);
     const second = (await page.locator('[data-testid="rtt-daily-note"]').innerText()).trim();
     expect(second).toBe(first);
+  });
+
+  test("a bare visit to the gate no longer offers 'Today's run'", async ({ page }) => {
+    await freshGate(page);
+    await expect(page.locator('[data-testid="rtt-start-daily"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="rtt-daily-note"]')).toHaveCount(0);
   });
 });
 
