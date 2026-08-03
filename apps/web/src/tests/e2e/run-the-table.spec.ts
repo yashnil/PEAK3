@@ -207,11 +207,25 @@ async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
       // paced presentation straight to fully resolved, with no second
       // request. Asserting the END state rather than watching the sequence
       // is the same reasoning as the battle skip below.
+      //
+      // Skip alone does NOT dismiss the surface — the lead's ruling was that
+      // skip-all must land on every slot fully resolved and HOLD there, so
+      // the player sees what was promised before the screen changes; only
+      // an explicit "Continue" press dismisses it (RunTheTableGame.tsx's
+      // `rosterRevealDismissed`/`dismissedBossRevealId`). This driver
+      // clicked start+skip and then waited on the surface's own removal —
+      // which without a `continue` click never happens — so every test in
+      // this file that reaches a reveal has been hanging for the full 20s
+      // timeout and then failing, unnoticed only because the suite has not
+      // actually been run this pass.
       const kind = surface === "rtt-opening-reveal" ? "roster" : "boss";
       await page.locator(`[data-testid="rtt-reveal-start-${kind}"]`).click();
       const skip = page.locator(`[data-testid="rtt-reveal-skip-${kind}"]`);
       await skip.waitFor({ state: "visible", timeout: 20_000 });
       await skip.click();
+      const cont = page.locator(`[data-testid="rtt-reveal-continue-${kind}"]`);
+      await cont.waitFor({ state: "visible", timeout: 20_000 });
+      await cont.click();
       break;
     }
     case "rtt-scout-prepare":
@@ -601,12 +615,21 @@ test.describe("RUN THE TABLE full run", () => {
    * identity/score column — the row's only `flex-1` element — until its
    * score number bled past the card, sometimes past the page's right edge
    * entirely. Fixed with an unconditional `max-w-[32%]` floor.
+   *
+   * `?seed=4` — PINNED, not incidental. Whether a row overflows depends on
+   * how long the two paired players' names/scores happen to be, and a
+   * "standard" run's seed is otherwise random per test run. Checked ten
+   * arbitrary seeds against the pre-fix code directly: most overflowed (6,
+   * 3, 12, 3, 3, 12, 6 elements) but two did not (0, 0) — an unpinned seed
+   * would have made this regression test itself flaky, intermittently
+   * "passing" against genuinely broken code. Seed 4 overflowed 12 elements
+   * pre-fix and 0 post-fix, confirmed both directions before pinning it.
    */
   test("@mobile the boss reveal's paired lineup never clips a card past the 390px viewport", async ({
     page,
   }) => {
     test.setTimeout(FULL_RUN_TIMEOUT_MS);
-    await freshGate(page);
+    await freshGate(page, `${ROUTE}?seed=4`);
     await startRun(page, "rtt-start-standard");
     await skipOpeningReveal(page);
     await driveTo(page, "rtt-boss-reveal");
