@@ -410,7 +410,16 @@ export default function PeakCardCourt({
       return (
         <div
           {...sharedProps}
-          data-testid="court-slot-blocked"
+          // `data-blocked`, NOT a `data-testid` override. `sharedProps` sets
+          // `data-testid="court-slot"`, and overriding it here removed these
+          // slots from every `[data-testid="court-slot"]` query for as long as
+          // a placement was pending -- including `playOneRound`'s
+          // filled-count assertion, which then read 0 filled slots before the
+          // click and 2 after (the placement plus the slot that had been
+          // invisible), failing as "one click filled two slots". A blocked
+          // slot is still a court slot; blocked is a STATE, not a different
+          // identity.
+          data-blocked="true"
           role="group"
           aria-disabled="true"
           aria-label={reason}
@@ -426,7 +435,9 @@ export default function PeakCardCourt({
         {...sharedProps}
         type="button"
         disabled
-        data-testid="court-slot-blocked"
+        // Same reasoning as the container branch above: a state attribute,
+        // never a testid override, so the slot stays countable as a court slot.
+        data-blocked="true"
         aria-disabled="true"
         aria-label={reason}
         style={{

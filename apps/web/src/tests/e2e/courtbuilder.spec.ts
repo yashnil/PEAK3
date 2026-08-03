@@ -1858,7 +1858,12 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     // the raw attribute too, not just Playwright's interpretation of it, so
     // this keeps failing if a future refactor drops the attribute even when
     // Playwright's own disabled-state logic changes.
-    const blocked = page.locator('[data-testid="court-slot-blocked"]');
+    // `data-blocked` on the court slot, not a separate testid: blocked is a
+    // STATE of a court slot, not a different kind of thing. Overriding the
+    // testid removed these from every `[data-testid="court-slot"]` query while
+    // a placement was pending, which broke `playOneRound`'s filled-count
+    // assertion in a way that read as "one click filled two slots".
+    const blocked = page.locator('[data-testid="court-slot"][data-blocked="true"]');
     await expect(blocked).toHaveCount(1);
     await expect(blocked).toHaveAttribute("aria-disabled", "true");
     await expect(blocked).toBeDisabled();
