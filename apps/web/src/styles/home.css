@@ -540,3 +540,21 @@
   outline-offset: 2px;
   border-radius: var(--pk-r-sm, 6px);
 }
+
+/* ================================================================
+   Leaderboard preview loading skeleton (launch-polish
+   IMPLEMENTATION_CONTRACT.md §10: "make the leaderboard preview read as
+   live") -- a pulsing row signals "real content is arriving," which
+   static "Loading…" text does not. Reduced-motion neutralises the pulse
+   automatically (globals.css's blanket rule); the row shape alone still
+   communicates "content incoming" at zero animation.
+   ================================================================ */
+.pk-skeleton-row {
+  background: var(--border-subtle);
+  animation: pk-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pk-skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

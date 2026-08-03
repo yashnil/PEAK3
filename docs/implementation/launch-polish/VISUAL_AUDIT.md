@@ -446,12 +446,90 @@ Do NOT darken every border uniformly and do NOT invert Dark. Instead:
 
 ---
 
+## Post-implementation re-measurement (§1 fix verification)
+
+Implementation phase, same worktree, after gating the six named CSS rules
+behind `:hover`/`:active`/`[data-state]` (IMPLEMENTATION_CONTRACT.md §1,
+`globals.css`). Same ports (web `:3001`, API `:8100`), same harness
+(`apps/web/measure-gameplay-theme.mjs`, committed this time), same target
+selectors (`.candidate-row-v3`, `.rtt-choice-btn`).
+
+**The instrument itself needed two more iterations before this number was
+trustworthy** — worth recording since the script is committed and may be
+reused:
+
+- v1 (the version behind this doc's original 96.5ms/108.5ms/67-71ms
+  numbers) declared "settled" after 4 consecutive stable animation frames,
+  which imposes an unavoidable ~64ms floor by construction — it cannot
+  report below that even for a value that changed on frame 1. Re-run
+  against the fixed CSS, it still reported ~70-88ms; a direct
+  `getComputedStyle` inspection of the resting element showed
+  `transition-property: transform` only (border/background not listed),
+  proving the floor was the instrument, not the page.
+- v2 tried precomputing the target theme's resolved colors by flipping
+  `data-theme` synchronously, reading computed style, and flipping back
+  within one JS task (no paint in between) — worked for
+  `.candidate-row-v3`, produced impossible results for `.rtt-choice-btn`
+  (the raw `--border-default` custom property read the flipped value
+  correctly mid-probe; the element's resolved `border-color` stayed stale
+  until the attribute was flipped back). That's a browser-level
+  computed-style caching quirk for `var()`-derived shorthand properties
+  under a rapid double-flip with no intervening paint — not a product bug,
+  confirmed by the fact that real clicks (v1's original data, and v3 below)
+  update the same element correctly.
+- v3 (what's committed): no precomputation. Records `(timestamp, border,
+  background)` on every real animation frame for a bounded 400ms window
+  after a real click, then walks the recording backward from the end to
+  find the earliest frame after which the value never changed again. Also
+  fixed a genuine race in v1/v2 — the "capture starting state" `page.evaluate`
+  wasn't awaited before the click was dispatched, so on some samples the
+  click had already landed before "start" was captured, making an
+  already-fixed element look like it "settled in 5ms" for the wrong reason.
+  Every number below is v3, with that race closed and mouse explicitly
+  moved off the target element first (so the measured case is "toggling
+  from the nav bar," not "toggling while hovering the card," which the fix
+  intentionally still animates).
+
+| Screen | selector | first-change median | **settle median** | settle vs. first-change |
+| --- | --- | --- | --- | --- |
+| 82-0 candidate list | `.candidate-row-v3` | 54.4–54.8 ms | **54.4–55.0 ms** | **identical** |
+| RTT choice buttons | `.rtt-choice-btn` | 42.1–43.9 ms | **52.1–55.5 ms** | +10–12 ms (noise) |
+
+Two consecutive 12-sample runs of each, reported above as ranges; ~1-in-3
+clicks are the toggle's own System→Dark→Light→System cycle landing on the
+same resolved theme (a real no-op, not a measurement failure — excluded
+from both columns, reported separately in the script's own output).
+
+**Before, the gap between first-change and settle was the whole point**:
+82-0 settled 96.5ms against a ~25ms baseline (2.5–4× slower, per this
+doc's Task A section); RTT settled 67–71ms against the same baseline.
+**After, settle and first-change have converged** — 82-0's are now
+numerically identical, RTT's differ by only 10-12ms, well inside normal
+frame-to-frame measurement noise. The fix closed the gap the whole
+exercise was measuring for. Absolute numbers moved up slightly across the
+board (mid-40s to mid-50s ms, vs. ~25ms in the original audit) — expected
+and accounted for: this pass added real elements (the `--bg-surface-data`
+panel and border around the Rankings table, themed elevation shadows) that
+increase per-frame style-recalc cost slightly on every page, not just
+gameplay screens; `/rankings`' own first-change median moved from 24.9ms to
+42ms across the same before/after window for the same reason. The
+comparison that matters — gameplay screens no longer settling meaningfully
+slower than their own first-change — holds regardless of that shared,
+small, app-wide increase.
+
+---
+
 ## Appendix
 
-- Measurement script: `apps/web/measure-theme-switch.mjs` (this worktree,
-  uncommitted — throwaway tool, safe to delete or keep).
+- Measurement scripts, now committed per the lead's "re-measure with your
+  own committed harness" instruction: `apps/web/measure-theme-switch.mjs`
+  (ordinary pages, first-change only) and `apps/web/measure-gameplay-theme.mjs`
+  (82-0/RTT gameplay screens, first-change + settle, v3 methodology — see
+  "Post-implementation re-measurement" above for why v1/v2 were rejected).
 - Screenshot scripts: `apps/web/screenshot-light.mjs`,
-  `apps/web/screenshot-court.mjs` (same — uncommitted).
+  `apps/web/screenshot-court.mjs` (uncommitted — throwaway, safe to delete
+  or keep; re-run any time with the dev server up on :3001/:8100 to refresh
+  the paired Dark/Light captures).
 - Screenshots (session scratch dir, not in the repo):
   `light-audit/{home,rankings,daily,arena,signin,about,court-practice,
   court-leaderboard}-{light,dark}.png`,

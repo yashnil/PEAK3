@@ -128,10 +128,20 @@ export function Nav() {
               );
             })}
           </ul>
-          <ThemeToggle className="ml-2" />
-          {/* Gating lives inside AccountMenu (it needs `user` anyway), so the
-              anonymous-only deployment still renders no account affordance. */}
-          <AccountMenu pathname={pathname} search={search} />
+          {/* Launch-polish IMPLEMENTATION_CONTRACT.md §10: "make the theme
+              control feel integrated rather than bolted on." It used to sit
+              at its own `ml-2` margin, immediately followed by AccountMenu's
+              own separate `ml-2` -- two independently-spaced items with no
+              signal that they're related, which is exactly what "bolted on"
+              looks like. A shared cluster with a hairline divider from the
+              nav links reads as one intentional "account & display" zone,
+              not an icon that wandered in from somewhere else. */}
+          <div className="ml-2 flex items-center gap-1 border-l border-[var(--border-subtle)] pl-2">
+            <ThemeToggle />
+            {/* Gating lives inside AccountMenu (it needs `user` anyway), so the
+                anonymous-only deployment still renders no account affordance. */}
+            <AccountMenu pathname={pathname} search={search} />
+          </div>
         </nav>
 
         {/* Mobile trigger. No `aria-controls`: the drawer is portalled and only
