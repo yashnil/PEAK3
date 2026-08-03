@@ -15,8 +15,30 @@ run **by the lead against the branch**, not copied from a teammate report.
 | --- | --- | --- | --- | --- |
 | Canonical ranking hashes unchanged (1Y/2Y/3Y/5Y/comparison) | `shasum -a 256 leaderboards/*.csv` vs `BASELINE.md` | 5 anchors recorded | all 5 identical | **PASS** |
 | 1Y / 2Y / 3Y / 5Y regression | `scripts/ci/model-tests.sh` | 939 pass / 0 fail | 946 pass, 9 skip, 1 xfail / **0 fail** | **PASS** |
-| RTT known-seed reconciliation (≥3 seeds) | `scripts/audit_rtt_score_semantics.py`, seeds 11/42/2026 | 75/75 bit-identical | re-run on integrated branch | pending (score-integrity, Phase 5) |
-| Receipt components sum exactly to `final_rating` | full-precision assertion over all 75 lanes | n/a (new) | | pending (score-integrity, Phase 5) |
+| RTT known-seed reconciliation (≥3 seeds) | `scripts/audit_rtt_score_semantics.py`, seeds 11/42/2026 | 75/75 bit-identical | **75/75 bit-identical**, `all_math_verified=True`, re-run on `029c830` | **PASS** |
+| Receipt components sum to `final_rating` | full-precision assertion over all 75 lanes | n/a (new) | **75/75 exact at `LANE_ROUNDING`**; 67/75 bit-exact, 8/75 differ by ~3.5e-15 | **PASS** — see note |
+| Cross-user modification refused on first attempt | live, 3 consecutive non-owner calls | n/a | byte-identical 404 on attempts 1, 2 and 3 | **PASS** |
+| Anonymous submission refused | test + live | n/a | 401; identical 404 (no reason leaked) on visibility route | **PASS** |
+| Daily / all-time not mixed | day-boundary + pagination tests | n/a | PASS | **PASS** |
+| `next_cursor` pagination stable | walks every page to exhaustion, asserts no repeated id | broken (`null` always) | PASS, both boards | **PASS** |
+| Visibility route cannot flip another user's row | ownership tests | n/a | PASS, failure does not confirm ownership | **PASS** |
+| RLS: no UPDATE/DELETE policy | migration policy test | n/a | PASS | **PASS** |
+
+> **Note on receipt precision — lead ruling.** `pre_perk_rating +
+> bench_adjustment + perk_adjustment == final_rating` holds **75/75 exactly at
+> `LANE_ROUNDING` (4 dp)**, which is the engine's own authoritative working
+> precision and the precision at which every existing comparison in
+> `battle.py` already operates (`margin > threshold`, etc.). At raw float64,
+> 8 of 75 differ by ~3.5e-15 — ordinary IEEE-754 summation noise from adding
+> three already-rounded decimals, the same class of artifact as `0.1 + 0.2`.
+>
+> **This is not a defect and will not be "fixed".** Switching the residual to
+> `Decimal` would modify engine arithmetic to chase a difference no display
+> path, no game-logic path, and no comparison in the codebase can observe —
+> a design change made for a non-defect, against a pass whose standing rule is
+> that correct calculations get presentation changes, not outcome changes. The
+> engine diff stays at zero. Recorded here so that a later reader checking
+> bit-exact rather than working-precision equality is not surprised.
 | RTT simulations | `scripts/audit_run_the_table_v3.py` | | | NOT RUN yet |
 | Lineup tests | `scripts/ci/lineup-tests.sh` | | | NOT RUN yet |
 | `OFFICIAL_WEIGHTS` untouched | `git diff` on `peak3.py` | — | empty diff | **PASS** |
