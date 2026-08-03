@@ -1837,19 +1837,44 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
     expect(filledBefore).toBe(1);
 
-    // The filled slot from round 1 is a real, DISABLED button -- reachable
-    // by Tab, announced by a screen reader -- not the inert `<div>` a click
-    // used to vanish into.
+    // The filled slot from round 1 must communicate WHY it can't be a
+    // placement target -- reachable by Tab, announced by a screen reader --
+    // not the inert, unlabeled element a click used to vanish into.
+    //
+    // Deliberately branch-agnostic. PeakCardCourt has two renderings for
+    // this state -- a real `disabled` `<button>` when no rearrange is
+    // possible, and a `role="group"` `aria-disabled` container (wrapping a
+    // still-functional "Move" button, so a real `<button disabled>` never
+    // wraps a live one) when it is -- and `rearrangeAvailable` is true from
+    // the player's SECOND pick onward, which is what this test itself
+    // exercises. So this only ever hits the second, container form here;
+    // asserting the underlying accessible PROPERTIES (disabled state,
+    // accessible name, visible text) rather than a specific tag or the
+    // `disabled` DOM property keeps this test true for the branch it
+    // actually reaches -- and honest about what "the button branch" would
+    // even mean. Playwright's `toBeDisabled()` recognizes `aria-disabled`
+    // for roles that support it (`group` included) exactly as it recognizes
+    // a native `disabled` attribute, so one assertion covers both. Checking
+    // the raw attribute too, not just Playwright's interpretation of it, so
+    // this keeps failing if a future refactor drops the attribute even when
+    // Playwright's own disabled-state logic changes.
     const blocked = page.locator('[data-testid="court-slot-blocked"]');
     await expect(blocked).toHaveCount(1);
+    await expect(blocked).toHaveAttribute("aria-disabled", "true");
     await expect(blocked).toBeDisabled();
     await expect(blocked).toHaveAccessibleName(/already filled by|place your new pick in an open slot/i);
     await expect(blocked).toContainText(/Full/i);
 
     // Clicking it does nothing -- no place request, no change in fill count.
-    await blocked.click({ force: true });
+    // Targets the explanatory text specifically, not the card's geometric
+    // centre: in the container branch that centre could plausibly overlap
+    // the still-live "Move" button stacked inside the same card, which
+    // would make this click do something (enter rearrange mode) instead of
+    // proving it does nothing.
+    await blocked.getByText(/Full — place in an open slot/i).click({ force: true });
     await page.waitForTimeout(300);
     await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(filledBefore);
+    await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
 
     // Every genuinely open slot is still a normal, legal placement target.
     const openSlot = page.locator('button[data-testid="court-slot"][data-filled="false"]').first();
