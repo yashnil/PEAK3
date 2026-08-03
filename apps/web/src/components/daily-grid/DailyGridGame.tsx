@@ -62,7 +62,8 @@ import {
 } from "@/lib/daily-grid-state";
 import DailyGridBoardView from "./DailyGridBoardView";
 import CellPanel from "./CellPanel";
-import CompletionPanel from "./CompletionPanel";
+import CompletionModal from "./CompletionModal";
+import CompletionTrigger from "./CompletionTrigger";
 import HowToPlay from "./HowToPlay";
 import StartGate from "./StartGate";
 
@@ -188,6 +189,19 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
   // The board whose official save has already been attempted, so a re-render
   // (or the archive effect firing again) cannot re-POST it.
   const officialSavedRef = useRef<string | null>(null);
+  // Launch-polish §4: whether the completion recap overlay is open. Starts
+  // false and an effect below flips it true the moment `complete` becomes
+  // true -- including on a mount that restores an already-finished board, so
+  // every existing "shows the completion panel" assertion still finds it
+  // without a click. Once the player closes it, `CompletionTrigger` (a fixed,
+  // compact pill -- never inline, never claiming board width) is what reopens
+  // it; nothing forces it open a second time on its own.
+  const [resultModalOpen, setResultModalOpen] = useState(false);
+  // Focused just before the modal opens (see the effect below) so `Dialog`'s
+  // own `useRestoreFocus` -- which captures `document.activeElement` at open
+  // time -- has something real to return focus to on close, even when the
+  // open was triggered by an effect rather than a user click on this button.
+  const completionTriggerRef = useRef<HTMLButtonElement>(null);
   const { user } = useAuth();
   const reducedMotion = usePrefersReducedMotion();
 
@@ -240,6 +254,10 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
         setOfficialSaved(false);
         officialSavedRef.current = null;
         setRolloverFrom(null);
+        // A fresh board is never complete, so the recap overlay from
+        // whatever board was just replaced (an explicit `?date=` swap, or
+        // the rollover "Play today's grid" action) must not carry over.
+        setResultModalOpen(false);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -484,6 +502,25 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
       return next;
     });
   }, [board, progress, result]);
+
+  // --- the completion overlay ----------------------------------------------
+  // Launch-polish §4. Opens once, the moment `progress` becomes complete --
+  // including on a mount that restores an already-finished board from
+  // localStorage, so every "shows the completion panel" caller still finds
+  // it with no click required. Never reopens itself after that: closing it
+  // is a real dismissal, and `CompletionTrigger` is the only way back in.
+  //
+  // Focuses the (already-mounted) floating trigger FIRST, synchronously,
+  // before the state update that opens the dialog -- `Dialog`'s own
+  // `useRestoreFocus` captures `document.activeElement` the instant it
+  // opens, and this effect is never itself the result of a click on that
+  // button, so without moving focus here first there would be nothing real
+  // for the dialog to hand focus back to on close.
+  useEffect(() => {
+    if (!progress || !isComplete(progress)) return;
+    completionTriggerRef.current?.focus();
+    setResultModalOpen(true);
+  }, [progress]);
 
   const handleSelect = useCallback(
     (row: number, col: number) => {
@@ -854,11 +891,17 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
         </p>
       </header>
 
-      {/* Desktop: grid left, workbench right, so the selected square's panel is
-          beside the board instead of below the fold. Mobile keeps them stacked.
-          `items-start` + `sticky` keeps the panel in view while the player
-          scrolls a long candidate list. */}
-      <div className="mt-5 grid items-start gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+      {/* Launch-polish §4: a single centred column at every width, capped
+          wider than an empty sidebar ever left the board (max-w-3xl, not the
+          header's max-w-6xl -- a 3x3 grid stretched to a 1152px reading
+          measure would be mostly gutter). The search/idle panel sits
+          DIRECTLY BENEATH the board, in normal document flow, not beside it
+          in a `sticky` rail with its own independently-scrolling results
+          list -- there is no narrower column left to compress into. The
+          completion recap is no longer here at all: once `complete`, it
+          lives in `CompletionModal`, an overlay that never reduces the
+          board's width, reopened by the floating `CompletionTrigger` below. */}
+      <div className="mx-auto mt-5 flex w-full max-w-3xl flex-col gap-4">
         <div
           className="court-grid-bg rounded-xl p-2 sm:p-3"
           data-tour-id="dg-board"
@@ -873,7 +916,7 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
           />
         </div>
 
-        <div className="lg:sticky lg:top-20" data-tour-id="dg-workbench">
+        <div data-tour-id="dg-workbench">
           {selected ? (
             <CellPanel
               key={`${selected.row}-${selected.col}`}
@@ -907,20 +950,30 @@ export default function DailyGridGame({ date, initialBoard, skipRulesGate }: Pro
               </div>
             )
           )}
-
-          {complete && !selected && (
-            <CompletionPanel
-              board={board}
-              progress={progress}
-              result={result}
-              resultError={resultError}
-              archive={archive}
-              isArchiveBoard={isArchiveBoard}
-              officialSaved={officialSaved}
-            />
-          )}
         </div>
       </div>
+
+      {complete && (
+        <>
+          <CompletionTrigger
+            ref={completionTriggerRef}
+            progress={progress}
+            result={result}
+            onOpen={() => setResultModalOpen(true)}
+          />
+          <CompletionModal
+            open={resultModalOpen}
+            onClose={() => setResultModalOpen(false)}
+            board={board}
+            progress={progress}
+            result={result}
+            resultError={resultError}
+            archive={archive}
+            isArchiveBoard={isArchiveBoard}
+            officialSaved={officialSaved}
+          />
+        </>
+      )}
 
       {/* Phase 11B: no reset control. A valid pick is locked and the board is
           the board -- a "start over" button would make both the day's score and
