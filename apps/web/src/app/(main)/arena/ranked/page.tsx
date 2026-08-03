@@ -65,7 +65,7 @@ export default function RankedHubPage() {
 
       {!user && enabled && (
         <p className="mt-4 text-sm" style={{ color: "var(--text-muted)" }}>
-          <Link href="/signin?returnTo=/arena/ranked" style={{ color: "var(--peak-accent)" }}>
+          <Link href="/signin?returnTo=/arena/ranked" style={{ color: "var(--peak-accent-text)" }}>
             Sign in
           </Link>{" "}
           to join a ranked queue.

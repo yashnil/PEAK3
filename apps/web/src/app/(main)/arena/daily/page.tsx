@@ -128,7 +128,7 @@ export default function DailyHubPage() {
                   <div>
                     <span
                       className="text-2xl font-bold score-number"
-                      style={{ color: "var(--peak-accent)" }}
+                      style={{ color: "var(--peak-accent-text)" }}
                     >
                       {completion.lineup_peak_rating.toFixed(1)}
                     </span>
@@ -189,7 +189,7 @@ export default function DailyHubPage() {
       <Link
         href="/arena"
         className="text-sm underline"
-        style={{ color: "var(--peak-accent)" }}
+        style={{ color: "var(--peak-accent-text)" }}
       >
         ← Back to Arena
       </Link>

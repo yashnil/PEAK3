@@ -119,7 +119,7 @@ export default async function ArenaPage() {
             href="/arena/run-the-table?start=standard"
             data-testid="arena-rtt-start-link"
             className="arena-inline-link"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Start a standard run
             <ArrowRight size={13} aria-hidden="true" />
@@ -128,7 +128,7 @@ export default async function ArenaPage() {
             href={RUN_THE_TABLE_DAILY_HREF}
             data-testid="arena-rtt-daily-link"
             className="arena-inline-link"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Play today&apos;s shared run
             <ArrowRight size={13} aria-hidden="true" />
@@ -278,7 +278,7 @@ export default async function ArenaPage() {
               href="/daily"
               data-testid="arena-daily-hub-link"
               className="arena-inline-link"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               Daily hub
               <ArrowRight size={13} aria-hidden="true" />

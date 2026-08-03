@@ -128,7 +128,7 @@ export default function ProfilePage() {
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
           Authentication is not configured. You can play all modes anonymously.
         </p>
-        <Link href="/" className="text-sm underline" style={{ color: "var(--peak-accent)" }}>
+        <Link href="/" className="text-sm underline" style={{ color: "var(--peak-accent-text)" }}>
           Back to PEAK3 Arena
         </Link>
       </div>
