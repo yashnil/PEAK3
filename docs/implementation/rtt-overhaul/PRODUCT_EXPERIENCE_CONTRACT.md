@@ -1,7 +1,12 @@
 # RUN THE TABLE — Product Experience Contract
 
 **Owner:** product-director (read-only audit; documentation-only deliverable)
-**Status:** Phase 1 audit complete. This is the implementation contract for P3-B/C/D/E/F/G.
+**Status:** Phase 1 audit complete, adopted by `SYNTHESIS_CONTRACT.md` (Phase 2 gate). Two of
+this document's original recommendations were overruled by the product owner during synthesis;
+both are corrected in place below, with the ruling stated at the point of correction, so this
+file stays the single current source rather than requiring a reader to cross-reference a diff.
+Where `SYNTHESIS_CONTRACT.md` or `SCORE_RECONCILIATION.md` and this document ever disagree,
+those two win — this paragraph exists so that should not happen again.
 **Scope:** every RTT screen state, the RTT game shell, and the RTT-adjacent theme/homepage surfaces.
 
 This document has two jobs. Part A is the audit: what is wrong, classified, with `file:line`
@@ -156,12 +161,26 @@ already-known card in that slot position appears alongside the boss's card as it
 the comparison is legible the instant the boss card lands, not three screens later.
 
 **Automatic 5-lane resolution**, each lane explicitly two-part and explicitly labeled:
-- A number labeled **LINEUP TOTAL** (this is `lane.player_score`/`lane.opponent_score` today —
-  the exact field is correct, it is only unlabeled; see the Part A finding on `BattleReveal.tsx`)
-  compares the two rosters' summed lane values.
-- A **separately shown, separately styled** "Top contributor" line beneath it, naming the
-  individual card and *that card's own* lane percentile (`RunCard.tsx` already computes this
-  per-card shape) — never sharing a number with the lineup total.
+- **CORRECTED BY RULING** — `SCORE_RECONCILIATION.md` §1-3, adopted verbatim in
+  `SYNTHESIS_CONTRACT.md` §1. My original draft specified the label **LINEUP TOTAL**. That was
+  overruled on evidence: `nba_peak/run_the_table/battle.py:99-125` shows the quantity is a
+  bench-weighted *arithmetic mean* of a 0-100-normalized component index across the roster, not
+  a sum — and `roster_total` already names a different, real engine quantity (the weighted sum
+  *across* the five lanes, `battle.py:178-185`), so reusing "total" here would have collided
+  with a live field name and replaced one misattribution with another. The binding labels are:
+  - Player side: **`YOUR LINEUP RATING`**. Boss side: **`BOSS LINEUP RATING`**.
+  - Definition string, shown on disclosure, verbatim: "The bench-weighted average strength of
+    the lineup in that PEAK3 component, normalized to a 0-100 scale."
+  - Contract field names: `lane_rating` (per-lane), `lineup_rating` (lineup-level). `roster_total`
+    stays reserved for the existing distinct engine quantity — never reused, never renamed.
+  - This is `lane.player_score`/`lane.opponent_score` on the wire today; the field's *meaning*
+    was correct all along, only its label and its lack of a definition were the defect.
+- A **separately shown, separately styled** `TOP CONTRIBUTOR` line beneath it, naming the
+  individual card and rendered with **its own** value from `card.lane_index` (already on the
+  wire via `card_public()` — no engine work required) — never sharing a number with the lineup
+  rating above it. Relabeling alone is insufficient; showing two unexplained adjacent numbers
+  with only one relabeled still misattributes the other. **No individual player label may ever
+  visually own a roster-wide number — this is a Phase 5 rejection criterion, not a preference.**
 - An animated margin (the gap between the two totals, growing/settling as the bars animate to
   their final width — reuse `LaneProfile`'s existing `animate`/`.rtt-lane-bar-animated` CSS
   transition mechanism, `LaneProfile.tsx:22-29`, `rtt-polish.css:170-175`).
@@ -261,6 +280,20 @@ Five actions at the bottom, all present today except the fifth:
 run it back · replay this seed · challenge a friend · copy summary · **share card (image)**.
 
 ### 7. Homepage specification
+
+**SCOPE OVERRULED BY THE PRODUCT OWNER — see `SYNTHESIS_CONTRACT.md` §7.** My original
+recommendation below scoped the homepage to hierarchy/separation fixes on the existing hero.
+`platform` is instead building the full brief scope: a live roster-vs-boss hero visual, real
+canonical rotating player-window cards, an interactive 5-component comparison with click-through
+into real rankings entries, a mode gallery, a leaderboard preview, and a credibility section (no
+fake metrics, no testimonials). My frozen-invariant constraints — the single `<h1>` with its
+exact frozen sentence, exactly one `[data-featured="true"]`, `MODE_COPY` as the single source of
+truth, and every listed `data-testid` — are carried into the binding contract unchanged and
+`platform` is bound by them. Verify against the full brief scope at Phase 5, not the narrower
+recommendation that follows; the narrower text is kept below only because its structural
+diagnosis (why the page reads as a directory today) remains correct evidence and the
+`RTT_ARCHITECTURE_AUDIT.md` platform audit independently reached the same diagnosis with its own
+line-level count (eleven-plus card/tile/button targets below the hero).
 
 Not a rebuild — the existing hero-first pass (`page.tsx:110-175`) is a reasonable foundation.
 The gap is structural, not cosmetic: the page reads as a directory the instant you scroll past
@@ -395,8 +428,12 @@ consistent with the "not just inverted colors" instruction:
 3. The opening reveal's total run time (unpaused, not skipped) is between 8 and 12 seconds.
 4. With `prefers-reduced-motion: reduce` set, the opening reveal completes in a single frame
    with the complete, correct final roster visible immediately.
-5. Every lane row in the battle/boss reveal visually distinguishes "lineup total" from "top
-   contributor" — distinct label text, distinct type treatment, no shared unlabeled number.
+5. **(Corrected — see §3.)** Every lane row in the battle/boss reveal shows `YOUR LINEUP RATING`
+   / `BOSS LINEUP RATING` (field `lane_rating`, defined on disclosure as "the bench-weighted
+   average strength of the lineup in that PEAK3 component, normalized to a 0-100 scale") visually
+   distinct from a separately labeled `TOP CONTRIBUTOR` line carrying that card's own
+   `lane_index` value — distinct label text, distinct type treatment, no shared or unlabeled
+   number, and no individual name ever positioned as if it owns the roster-wide rating.
 6. The boss cinematic includes a named intro beat, a stated win condition, a 3-2-1 countdown,
    and a skip control, all before the lineup reveal begins.
 7. The boss lineup reveal uses the same 9-step per-card grammar as the opening reveal (verified
