@@ -17,6 +17,13 @@ step "Unit tests (vitest)"
 npm run test
 
 step "Production build (clean .next)"
+# This build proves the app compiles; it is never served. next.config.ts's
+# deployability assertion correctly refuses the localhost API URL set above --
+# which means it refused THIS step, so CI's own required frontend gate could
+# not pass as scripted. The opt-out is deliberate and scoped to verification:
+# Vercel and Railway invoke `next build` directly and never set it, so a real
+# deploy still gets the full assertion.
+export PEAK3_BUILD_VERIFY_ONLY=1
 rm -rf .next
 npm run build
 
