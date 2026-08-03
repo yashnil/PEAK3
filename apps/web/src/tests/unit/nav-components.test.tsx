@@ -343,8 +343,19 @@ describe("PlayMenu — content", () => {
   });
 
   it("marks the current game, and only one of the two RUN THE TABLE rows", async () => {
+    // The daily row defaults off since LP2-3 (see
+    // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md`); enabled
+    // explicitly here to exercise the permanent invariant this test pins --
+    // a `mode=daily` visit marks the daily row current, never the standard
+    // one, even though both point at the same path.
     const user = userEvent.setup();
-    render(<PlayMenu pathname="/arena/run-the-table" search="mode=daily" />);
+    render(
+      <PlayMenu
+        pathname="/arena/run-the-table"
+        search="mode=daily"
+        availability={{ dailyRunTheTable: true }}
+      />,
+    );
     await user.click(trigger());
     const panel = screen.getByTestId("nav-play-panel");
     const current = panel.querySelectorAll('[aria-current="page"]');

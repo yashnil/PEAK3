@@ -17,11 +17,17 @@
  *    route — following it must never create a run, which `play-routing.spec.ts`
  *    pins end to end.
  *  - "Start New Run" only appears once there IS a run to prefer instead of
- *    (otherwise the primary control already starts a new one). The daily
- *    shared run is always offered, and never carries `?start=` — see
- *    `LAUNCHER_DAILY_HREF`'s own docstring for why.
+ *    (otherwise the primary control already starts a new one).
  *  - Every affordance is a real link with a real `href`, so keyboard support
  *    (Tab order, Enter-to-activate) needs no custom handling to verify.
+ *
+ * LP2-3 removed the third affordance this file used to pin: a "Today's
+ * shared run" secondary link, offered unconditionally beside the trigger.
+ * `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md` found nothing a
+ * player could point to that daily delivers over Standard, so it is gone
+ * from this component; the route itself (`/arena/run-the-table?mode=daily`)
+ * is untouched and still resolves for an existing bookmark. What this file
+ * now pins instead, alongside the tests below, is that the link stays gone.
  *
  * `next/link` renders a plain anchor under jsdom, so hrefs are asserted on the
  * real DOM attribute rather than on a mock.
@@ -31,7 +37,6 @@ import { render, screen, cleanup } from "@testing-library/react";
 import React from "react";
 
 import HeroLauncher, {
-  LAUNCHER_DAILY_HREF,
   LAUNCHER_RESUME_HREF,
   LAUNCHER_STANDARD_HREF,
 } from "@/components/home/HeroLauncher";
@@ -84,18 +89,10 @@ describe("HeroLauncher — the homepage primary CTA", () => {
     expect(screen.queryByRole("menuitem")).toBeNull();
   });
 
-  it("always offers the daily shared run as a secondary link, at its exact href", () => {
+  it("LP2-3: no longer offers a daily shared-run link at all", () => {
     render(<HeroLauncher />);
-    const daily = screen.getByTestId("home-launcher-daily");
-    expect(daily.tagName).toBe("A");
-    expect(daily).toHaveAttribute("href", LAUNCHER_DAILY_HREF);
-    // NOT `?start=daily`. The daily is one shared board and one attempt per UTC
-    // day, so making the URL itself the trigger would spend that attempt for
-    // anyone the link is forwarded to.
-    expect(daily).toHaveAttribute("href", "/arena/run-the-table?mode=daily");
-    expect(daily.getAttribute("href")).not.toContain("start=");
-    expect(daily).toHaveTextContent(/Today.s shared run/i);
-    expect(daily).toHaveTextContent(/one attempt per day/i);
+    expect(screen.queryByTestId("home-launcher-daily")).toBeNull();
+    expect(screen.queryByText(/Today.s shared run/i)).toBeNull();
   });
 
   it("does not offer 'Start New Run' when there is nothing to prefer it over", () => {
@@ -135,10 +132,10 @@ describe("HeroLauncher — the homepage primary CTA", () => {
     expect(startNew).toHaveTextContent(/Start New Run/i);
   });
 
-  it("with a run in progress, still offers the daily shared run", () => {
+  it("with a run in progress, still does not offer a daily shared-run link", () => {
     seedActiveRun();
     render(<HeroLauncher />);
-    expect(screen.getByTestId("home-launcher-daily")).toHaveAttribute("href", LAUNCHER_DAILY_HREF);
+    expect(screen.queryByTestId("home-launcher-daily")).toBeNull();
   });
 
   it("renders the secondary action passed as children beside the trigger", () => {
