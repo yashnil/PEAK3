@@ -8,26 +8,28 @@ Status legend: `PASS` · `FAIL` · `NOT RUN` (+ reason) · `BLOCKED` (+ blocker)
 
 ## 1. Numerical integrity
 
+Status as of integration step 1 (`029c830`). Every "After" figure below was
+run **by the lead against the branch**, not copied from a teammate report.
+
 | Check | Command / method | Baseline | After | Status |
 | --- | --- | --- | --- | --- |
-| Canonical ranking hashes unchanged (1Y/2Y/3Y/5Y/comparison) | `shasum -a 256 leaderboards/*.csv` vs `BASELINE.md` | recorded | | |
-| 1Y regression | `scripts/ci/model-tests.sh` | | | |
-| 2Y regression | `scripts/ci/model-tests.sh` | | | |
-| 3Y regression | `scripts/ci/model-tests.sh` | | | |
-| 5Y regression | `scripts/ci/model-tests.sh` | | | |
-| RTT known-seed reconciliation (≥3 seeds) | audit script + committed fixtures | | | |
-| RTT simulations | `scripts/audit_run_the_table_v3.py` | | | |
-| Lineup tests | `scripts/ci/lineup-tests.sh` | | | |
-| `OFFICIAL_WEIGHTS` untouched | `git diff` on `peak3.py` | | | |
-| `calibrate_score()` untouched | `git diff` on `peak3.py` | | | |
+| Canonical ranking hashes unchanged (1Y/2Y/3Y/5Y/comparison) | `shasum -a 256 leaderboards/*.csv` vs `BASELINE.md` | 5 anchors recorded | all 5 identical | **PASS** |
+| 1Y / 2Y / 3Y / 5Y regression | `scripts/ci/model-tests.sh` | 939 pass / 0 fail | 946 pass, 9 skip, 1 xfail / **0 fail** | **PASS** |
+| RTT known-seed reconciliation (≥3 seeds) | `scripts/audit_rtt_score_semantics.py`, seeds 11/42/2026 | 75/75 bit-identical | re-run on integrated branch | pending (score-integrity, Phase 5) |
+| Receipt components sum exactly to `final_rating` | full-precision assertion over all 75 lanes | n/a (new) | | pending (score-integrity, Phase 5) |
+| RTT simulations | `scripts/audit_run_the_table_v3.py` | | | NOT RUN yet |
+| Lineup tests | `scripts/ci/lineup-tests.sh` | | | NOT RUN yet |
+| `OFFICIAL_WEIGHTS` untouched | `git diff` on `peak3.py` | — | empty diff | **PASS** |
+| `calibrate_score()` untouched | `git diff` on `peak3.py` | — | empty diff | **PASS** |
+| Frozen colour tokens unchanged | `grep` vs CLAUDE.md | 7 tokens | `--peak-accent` `#f5c842` + all 6 `--comp-*` identical | **PASS** |
 
 ## 2. Backend
 
 | Check | Command | Baseline | After | Status |
 | --- | --- | --- | --- | --- |
-| Model tests | `scripts/ci/model-tests.sh` | 939 pass / 9 skip / 1 xfail / 0 fail | | |
-| FastAPI unit | `scripts/ci/api-unit-tests.sh` | 1198 pass / 2 skip / 5 desel / 0 fail | | |
-| PostgreSQL-backed integration | `scripts/ci/api-integration-tests.sh` | NOT RUN (needs real Postgres/Supabase test project) | | |
+| Model tests | `scripts/ci/model-tests.sh` | 939 pass / 0 fail | 946 pass / **0 fail** (lead-run, 521.96 s) | **PASS** |
+| FastAPI unit | `scripts/ci/api-unit-tests.sh` | 1198 pass / 0 fail | 1208 pass / **0 fail** (lead-run, 145.19 s) | **PASS** |
+| PostgreSQL-backed integration | `scripts/ci/api-integration-tests.sh` | NOT RUN (needs real Postgres/Supabase test project) | | pending Phase 6 |
 | Supabase RLS / ownership | integration suite | | | |
 | Leaderboard submission | new tests | | | |
 | Leaderboard read + pagination | new tests | | | |
@@ -45,7 +47,14 @@ Status legend: `PASS` · `FAIL` · `NOT RUN` (+ reason) · `BLOCKED` (+ blocker)
 | Typecheck | `scripts/ci/frontend-verify.sh` | clean | | |
 | Lint, zero warnings | `scripts/ci/frontend-verify.sh` | 0 warnings | | |
 | Unit tests (vitest) | `scripts/ci/frontend-verify.sh` | 1258 / 1258 across 47 files (342 RTT-owned) | | |
-| Production build | `scripts/ci/frontend-verify.sh` | fails as-scripted on deploy-safety env guard; passes with real HTTPS API URL | | |
+| Production build | `next build` with a real HTTPS API URL | fails as-scripted on deploy-safety env guard; passes with real URL | | |
+
+> **The production build is a mandatory gate in its own right, not a formality
+> after the fast gates.** During task #17 a stray `*/` inside a `globals.css`
+> comment prematurely closed the comment block. Typecheck passed, lint passed
+> with zero warnings, and all 1293 vitest tests passed — **only `next build`
+> caught it.** Any change touching CSS must run the real build before being
+> called done.
 | Playwright full suite, **zero retries** | `scripts/ci/e2e-tests.sh` | | | |
 | axe accessibility | e2e suite | | | |
 | Keyboard path through every cinematic | e2e suite | | | |
