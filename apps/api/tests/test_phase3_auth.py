@@ -373,6 +373,153 @@ class TestMyProfile:
         assert r2.status_code == 409
         assert r2.json()["detail"] == "handle_taken"
 
+    def test_duplicate_handle_case_insensitive_collision(self):
+        """launch-polish IMPLEMENTATION_CONTRACT.md §8: 'unique
+        case-insensitively'. test_duplicate_handle_returns_409 above proves
+        the same literal string collides; this proves a case VARIANT of an
+        already-taken handle collides too -- the actual case-insensitivity
+        guarantee, not just plain string equality."""
+        sub_a = f"user-{uuid.uuid4()}"
+        sub_b = f"user-{uuid.uuid4()}"
+        handle = f"caseclash{uuid.uuid4().hex[:6]}"
+
+        subject_a = _auth(sub=sub_a)
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject_a
+        app.dependency_overrides[get_required_auth] = lambda: subject_a
+        with TestClient(app) as client:
+            r1 = client.put("/api/v1/profiles/me", json={"handle": handle})
+        assert r1.status_code == 200
+
+        subject_b = _auth(sub=sub_b)
+        app.dependency_overrides[get_optional_auth] = lambda: subject_b
+        app.dependency_overrides[get_required_auth] = lambda: subject_b
+        with TestClient(app) as client:
+            # Same handle, different case -- both validators lowercase
+            # before comparing, so this must collide exactly like the
+            # identical string does.
+            r2 = client.put("/api/v1/profiles/me", json={"handle": handle.upper()})
+        _clear_overrides()
+        assert r2.status_code == 409
+        assert r2.json()["detail"] == "handle_taken"
+
+    def test_handle_validation_rejects_over_20_chars(self):
+        """Tightened from 3-30 to 3-20 (launch-polish IMPLEMENTATION_CONTRACT.md
+        §8). 21 characters, otherwise perfectly legal, must now be rejected --
+        this is the exact boundary the old 3-30 rule would have accepted."""
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            resp = client.put(
+                "/api/v1/profiles/me",
+                json={"handle": "a" * 21},
+            )
+        _clear_overrides()
+        assert resp.status_code == 422
+
+    def test_handle_validation_accepts_20_chars(self):
+        """The other side of the same boundary: exactly 20 is still legal."""
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            resp = client.put(
+                "/api/v1/profiles/me",
+                json={"handle": "a" + "b" * 18 + "c"},
+            )
+        _clear_overrides()
+        assert resp.status_code == 200
+        assert resp.json()["handle"] == "a" + "b" * 18 + "c"
+
+    def test_handle_validation_rejects_exact_reserved_word(self):
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            resp = client.put("/api/v1/profiles/me", json={"handle": "admin"})
+        _clear_overrides()
+        assert resp.status_code == 422
+
+    @pytest.mark.parametrize(
+        "handle",
+        ["peak3_staff", "real_admin", "notarobot_official", "peak3support", "the_moderator1"],
+    )
+    def test_handle_validation_rejects_impersonation_substrings(self, handle):
+        """A brand/authority term embedded anywhere in the handle is rejected,
+        not just an exact match -- the impersonation risk is the same either
+        way (§8: 'add substring/impersonation guard')."""
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            resp = client.put("/api/v1/profiles/me", json={"handle": handle})
+        _clear_overrides()
+        assert resp.status_code == 422, f"{handle!r} should have been rejected"
+
+    def test_handle_validation_rejects_profanity_substring(self):
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            resp = client.put("/api/v1/profiles/me", json={"handle": "totally_fuck_this"})
+        _clear_overrides()
+        assert resp.status_code == 422
+
+    def test_handle_validation_does_not_over_block_ordinary_words(self):
+        """Reserved-word/impersonation guards are exact-match or targeted
+        substring only -- they must not catch ordinary handles that merely
+        contain a short reserved word as a fragment (the failure mode a
+        blanket substring ban on RESERVED_HANDLES would have caused: "gamer"
+        contains "me", "playoffs99" contains "play")."""
+        subject = _auth(sub=f"user-{uuid.uuid4()}")
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject
+        app.dependency_overrides[get_required_auth] = lambda: subject
+        with TestClient(app) as client:
+            resp = client.put("/api/v1/profiles/me", json={"handle": "playoffs99"})
+        _clear_overrides()
+        assert resp.status_code == 200
+        assert resp.json()["handle"] == "playoffs99"
+
+    def test_cross_user_profile_write_never_touches_another_account(self):
+        """A user's PUT can only ever address their OWN profile -- there is
+        no target-user parameter in the request at all, only the
+        authenticated caller's own sub. This proves user B setting their own
+        display_name never alters anything about user A's profile, which is
+        the only 'cross-user write' surface this route exposes (there is no
+        route that accepts someone else's id to write through)."""
+        sub_a = f"user-{uuid.uuid4()}"
+        sub_b = f"user-{uuid.uuid4()}"
+
+        subject_a = _auth(sub=sub_a)
+        _clear_overrides()
+        app.dependency_overrides[get_optional_auth] = lambda: subject_a
+        app.dependency_overrides[get_required_auth] = lambda: subject_a
+        with TestClient(app) as client:
+            ra = client.put("/api/v1/profiles/me", json={"display_name": "Account A"})
+        assert ra.status_code == 200
+        assert ra.json()["display_name"] == "Account A"
+
+        subject_b = _auth(sub=sub_b)
+        app.dependency_overrides[get_optional_auth] = lambda: subject_b
+        app.dependency_overrides[get_required_auth] = lambda: subject_b
+        with TestClient(app) as client:
+            rb = client.put("/api/v1/profiles/me", json={"display_name": "Account B"})
+            # Re-read as A to confirm B's write was scoped to B's own row.
+            app.dependency_overrides[get_optional_auth] = lambda: subject_a
+            app.dependency_overrides[get_required_auth] = lambda: subject_a
+            ra_again = client.get("/api/v1/profiles/me")
+        _clear_overrides()
+        assert rb.status_code == 200
+        assert rb.json()["display_name"] == "Account B"
+        assert ra_again.json()["display_name"] == "Account A"
+
 
 # ---------------------------------------------------------------------------
 # GET/PUT /profiles/me/settings

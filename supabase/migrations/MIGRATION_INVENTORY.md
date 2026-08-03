@@ -35,6 +35,7 @@ migration change rather than hand-editing this file.
 | 28 | `20260801160000_head_to_head` | 2 | 4 | 0 | 0 | 0 | 2 | 2 |
 | 29 | `20260801170000_revoke_truncate_and_trigger` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 30 | `20260803090000_perfect_season_daily_leaderboard_index` | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| 31 | `20260803100000_profile_handle_contract` | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
 
 ## Detail per migration
 
@@ -847,6 +848,32 @@ migration change rather than hand-editing this file.
 **Tables created:** none
 
 **Indexes:** perfect_season_runs_daily_leaderboard_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS
+
+### `20260803100000_profile_handle_contract.sql`
+
+**Tables created:** none
+
+**Indexes:** profiles_normalized_handle_unique_idx
 
 **Constraints:** none
 
