@@ -390,6 +390,61 @@ measurement-only phase given the time budget; it is unaffected by anything
 in this audit and remains available for whoever runs the full validation
 matrix (P6).
 
+### Client hydration window (P6-f/P6-h investigation)
+
+The committed suite later found two failures on this platform's surfaces —
+`play-routing.spec.ts`'s "Play panel stays inside the viewport" and
+`gameplay.spec.ts`'s "launcher opens by keyboard" — both `getByTestId(...)
+element(s) not found` after an interaction fired immediately following
+`page.goto(..., { waitUntil: "domcontentloaded" })`. Measured, not assumed:
+
+- **`next dev` (what `dev:e2e`/the committed suite runs):** a click or
+  keypress fired immediately after `domcontentloaded` is a real race against
+  React attaching its listeners. Measured directly (poll-until-attached, 8
+  trials each): nav Play trigger 300-550ms after `domcontentloaded`; homepage
+  CTA (keyboard) 300-410ms. Switching only the wait condition to
+  `networkidle` took the same test from 10/10 fail to 0/10 fail with nothing
+  else changed — this is the mechanism, not a guess.
+- **A/B against the specific hypothesis that this pass's nav additions
+  (`ThemeToggle`, `AccountMenu`) caused it:** temporarily removed both from
+  `nav.tsx`, rebuilt, re-measured. Delay dropped from ~423-554ms to
+  ~343-457ms — real, but ~15-20% of the window, not the dominant cause.
+  Reverted; `nav.tsx` is unchanged.
+- **Production build (`next build` + `next start`, real HTTPS API URL):**
+  the same measurement, same two controls, 8 trials each, on a build whose
+  integrity was independently confirmed (screenshot + 10/10 scripted
+  single-click success before trusting any number): nav Play trigger
+  18-112ms after `domcontentloaded` (one 112ms outlier, rest 25-49ms);
+  homepage CTA keyboard path 18-44ms. Well under the ~100ms a real user's
+  reaction time would need to beat. This is a `next dev` characteristic at
+  this project's current size, not a production-facing defect.
+- **Could not confirm this last number by running the actual committed spec
+  against a production build** — `playwright.setup.ts`'s global setup
+  requires the auth surface to render via `NEXT_PUBLIC_PEAK3_E2E_AUTH=1`,
+  which is compiled away by `NODE_ENV === "production"` by design (see that
+  flag's own docstring) and so can never be true in a real production build.
+  The committed suite is structurally wired to run against `next dev` only;
+  this is a property of the suite, not something worked around here.
+- **A real methodology trap, worth recording so it is not repeated:**
+  pointing the committed suite at a manually-served build via `BASE_URL`
+  does *not* stop `playwright.config.ts`'s own `webServer` entries from
+  trying to start — they key off whether ports 3000/8000 already answer
+  healthily, not off `BASE_URL`. If they do not, Playwright starts its own
+  `next dev` in the *same* `apps/web` directory as a colocated `next start`,
+  and the two write-conflict on the shared `.next/` output — `BUILD_ID`
+  disappears, served CSS/JS chunk hashes stop matching the HTML that
+  references them, and the page renders unstyled with every static asset
+  400ing. That failure looks exactly like the click race under casual
+  inspection (`getByTestId(...) not found`) and cost real time here before
+  the actual cause (`.next/BUILD_ID` present one moment, gone the next, with
+  no edit in between) was traced. Avoid it by ensuring something already
+  healthy answers 3000 and 8000 before invoking the suite, not by trusting
+  `BASE_URL` alone.
+
+No fix has been made to either test or product for this finding — the
+production number was gathered and reported for a scope decision before any
+change, per standing instruction on this task.
+
 ---
 
 ## PLATFORM AUDIT
