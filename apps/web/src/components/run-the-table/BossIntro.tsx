@@ -80,7 +80,7 @@ export default function BossIntro({ boss, lanesToWin, reducedMotion, onComplete 
 
       <span
         className="text-[10px] font-bold uppercase tracking-widest"
-        style={{ color: "var(--peak-accent)" }}
+        style={{ color: "var(--peak-accent-text)" }}
       >
         Act {boss.act} · Boss Battle
       </span>
@@ -114,7 +114,7 @@ export default function BossIntro({ boss, lanesToWin, reducedMotion, onComplete 
         data-testid="rtt-boss-intro-countdown"
         data-count={numeral ?? "go"}
       >
-        <span className="text-5xl font-black" style={{ color: "var(--peak-accent)" }}>
+        <span className="text-5xl font-black" style={{ color: "var(--peak-accent-text)" }}>
           {numeral ?? "GO"}
         </span>
       </div>

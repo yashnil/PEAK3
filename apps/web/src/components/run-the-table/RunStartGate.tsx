@@ -109,7 +109,7 @@ export default function RunStartGate({
       >
         <span
           className="self-start text-[10px] font-black uppercase tracking-widest rounded-full px-2.5 py-1"
-          style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent)" }}
+          style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent-text)" }}
         >
           Run the Table
         </span>
@@ -189,7 +189,7 @@ export default function RunStartGate({
               >
                 <span
                   className="text-[10px] font-bold uppercase tracking-widest"
-                  style={{ color: copy.accentVar }}
+                  style={{ color: copy.accentTextVar }}
                 >
                   {copy.label}
                 </span>
@@ -229,7 +229,7 @@ export default function RunStartGate({
                     </span>
                     <span
                       className="score-number shrink-0 text-[11px] font-bold"
-                      style={{ color: "var(--peak-accent)" }}
+                      style={{ color: "var(--peak-accent-text)" }}
                     >
                       {sink.cost} cr
                     </span>
@@ -262,7 +262,7 @@ export default function RunStartGate({
             style={{ background: "var(--bg-surface)", color: "var(--text-secondary)" }}
             data-testid="rtt-local-demo-notice"
           >
-            <strong style={{ color: "var(--peak-accent)" }}>Local demo mode.</strong> The card pool
+            <strong style={{ color: "var(--peak-accent-text)" }}>Local demo mode.</strong> The card pool
             has not been built in this environment
             {readiness?.card_pool?.error ? ` (${readiness.card_pool.error})` : ""}, so starting a run
             will fail until it is. Run <code>make build-game-data</code> and reload.
@@ -315,7 +315,7 @@ export default function RunStartGate({
               </>
             ) : challenge ? (
               <>
-                <strong style={{ color: "var(--peak-accent)" }}>
+                <strong style={{ color: "var(--peak-accent-text)" }}>
                   You were challenged to a board.
                 </strong>{" "}
                 Seed <span className="score-number">{challenge.seed}</span>
@@ -324,7 +324,7 @@ export default function RunStartGate({
               </>
             ) : (
               <>
-                <strong style={{ color: "var(--peak-accent)" }}>
+                <strong style={{ color: "var(--peak-accent-text)" }}>
                   You were challenged to a board.
                 </strong>{" "}
                 Checking the link…
@@ -415,7 +415,7 @@ function Step({ n }: { n: number }) {
     <span
       aria-hidden="true"
       className="shrink-0 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center mt-0.5"
-      style={{ background: "var(--bg-surface)", color: "var(--peak-accent)" }}
+      style={{ background: "var(--bg-surface)", color: "var(--peak-accent-text)" }}
     >
       {n}
     </span>

@@ -62,7 +62,7 @@ export default function BossPreview({
       <header className="flex flex-col gap-1">
         <span
           className="text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
         >
           Act {boss.act} · Boss
         </span>
@@ -103,7 +103,7 @@ export default function BossPreview({
         >
           <span
             className="text-[10px] font-bold uppercase tracking-widest"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Rule in force · {boss.rule.name}
           </span>
@@ -263,7 +263,7 @@ export default function BossPreview({
                   </span>
                   <span
                     className="score-number ml-auto text-[11px]"
-                    style={{ color: "var(--peak-accent)" }}
+                    style={{ color: "var(--peak-accent-text)" }}
                   >
                     {card.prime_score.toFixed(1)}
                   </span>

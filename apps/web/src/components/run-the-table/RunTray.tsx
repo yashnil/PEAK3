@@ -194,7 +194,7 @@ export default function RunTray({
                       </span>
                       <span
                         className="score-number ml-auto shrink-0 text-[11px]"
-                        style={{ color: "var(--peak-accent)" }}
+                        style={{ color: "var(--peak-accent-text)" }}
                       >
                         {slot.card.prime_score.toFixed(1)}
                       </span>
@@ -289,7 +289,7 @@ export default function RunTray({
             const hint = perkStrategyHint(sys.id);
             return (
               <div key={sys.id} className="flex flex-col" data-testid={`rtt-tray-system-${sys.id}`}>
-                <span className="text-[11px] font-semibold" style={{ color: "var(--peak-accent)" }}>
+                <span className="text-[11px] font-semibold" style={{ color: "var(--peak-accent-text)" }}>
                   {sys.name}
                 </span>
                 {/* The same three layers as `SystemSelect` (plan §6): plain
@@ -368,7 +368,7 @@ export default function RunTray({
           </h3>
           {armed.prep && (
             <p className="text-[11px]" data-testid="rtt-armed-prep" style={{ color: "var(--text-primary)" }}>
-              <span style={{ color: "var(--peak-accent)" }}>{armed.prep.label}</span> prepared{" "}
+              <span style={{ color: "var(--peak-accent-text)" }}>{armed.prep.label}</span> prepared{" "}
               <span className="score-number">+{armed.prep.bonus}</span> for the act{" "}
               {armed.prep.act} boss. Spent in that battle either way.
             </p>
@@ -376,7 +376,7 @@ export default function RunTray({
           {armed.role_focus && (
             <p className="text-[11px]" data-testid="rtt-armed-role-focus" style={{ color: "var(--text-primary)" }}>
               Role Focus on{" "}
-              <span style={{ color: "var(--peak-accent)" }}>
+              <span style={{ color: "var(--peak-accent-text)" }}>
                 {ROLE_LABELS[armed.role_focus.role]}
               </span>{" "}
               — the next market will carry a legal offer for it.

@@ -118,13 +118,13 @@ export default function DailyPage() {
           {completion && (
             <div className="grid grid-cols-2 gap-3">
               <div className="card-surface p-3 text-center">
-                <p className="text-xl font-bold score-number text-[var(--peak-accent)]">
+                <p className="text-xl font-bold score-number text-[var(--peak-accent-text)]">
                   {completion.correct}/{completion.total}
                 </p>
                 <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Correct</p>
               </div>
               <div className="card-surface p-3 text-center">
-                <p className="text-xl font-bold score-number text-[var(--peak-accent)]">
+                <p className="text-xl font-bold score-number text-[var(--peak-accent-text)]">
                   {completion.arena_points.toLocaleString()}
                 </p>
                 <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Points</p>

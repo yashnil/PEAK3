@@ -261,7 +261,7 @@ function ScoutBossPanel({
         </span>
         {report.rule && (
           <p className="text-xs" data-testid="rtt-scout-rule" style={{ color: "var(--text-secondary)" }}>
-            <strong style={{ color: "var(--peak-accent)" }}>{report.rule.name}</strong>{" "}
+            <strong style={{ color: "var(--peak-accent-text)" }}>{report.rule.name}</strong>{" "}
             {report.rule.summary}
           </p>
         )}
@@ -428,7 +428,7 @@ function ReservePanel({
                   </span>
                   <span
                     className="score-number shrink-0 text-xs font-bold"
-                    style={{ color: "var(--peak-accent)" }}
+                    style={{ color: "var(--peak-accent-text)" }}
                   >
                     {candidate.locked_cost} cr
                   </span>

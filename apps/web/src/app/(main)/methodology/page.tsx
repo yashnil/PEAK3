@@ -71,7 +71,7 @@ export default function MethodologyPage() {
             Source:{" "}
             <a
               href="https://github.com"
-              className="text-[var(--peak-accent)] underline"
+              className="text-[var(--peak-accent-text)] underline"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -103,11 +103,11 @@ export default function MethodologyPage() {
               every board and modal states which model produced it.
             </p>
             <p className="font-mono text-sm text-[var(--text-secondary)] leading-relaxed">
-              prime_index = 0.38·<span style={{ color: "var(--comp-si)" }}>Statistical Impact</span>
-              {" "}+ 0.21·<span style={{ color: "var(--comp-tp)" }}>Traditional Production</span>
-              {" "}+ 0.20·<span style={{ color: "var(--comp-rec)" }}>Individual Recognition</span>
-              {" "}+ 0.18·<span style={{ color: "var(--comp-po)" }}>Playoff Rate Impact</span>
-              {" "}+ 0.03·<span style={{ color: "var(--comp-team)" }}>Team Result</span>
+              prime_index = 0.38·<span style={{ color: "var(--comp-si-text)" }}>Statistical Impact</span>
+              {" "}+ 0.21·<span style={{ color: "var(--comp-tp-text)" }}>Traditional Production</span>
+              {" "}+ 0.20·<span style={{ color: "var(--comp-rec-text)" }}>Individual Recognition</span>
+              {" "}+ 0.18·<span style={{ color: "var(--comp-po-text)" }}>Playoff Rate Impact</span>
+              {" "}+ 0.03·<span style={{ color: "var(--comp-team-text)" }}>Team Result</span>
               {" "}± teammate_adj
             </p>
             <div className="border-t border-[var(--border-subtle)] pt-3">
@@ -209,7 +209,7 @@ export default function MethodologyPage() {
                 </p>
               </div>
               <div className="card-elevated p-3 text-center">
-                <p className="font-bold text-[var(--peak-accent)]">
+                <p className="font-bold text-[var(--peak-accent-text)]">
                   {methodology.calibration.display_label}
                 </p>
                 <p className="text-xs text-[var(--text-muted)]">

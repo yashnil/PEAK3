@@ -107,7 +107,7 @@ export default function RunCard({
             </span>
             <span
               className="score-number text-[11px] shrink-0"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
               title="PEAK3 3-year prime score"
               data-testid="rtt-card-prime-score"
             >
@@ -246,7 +246,7 @@ export default function RunCard({
           {bossRelevance && (
             <span
               className="text-[10px] font-semibold"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
               data-testid="rtt-card-boss-relevance"
             >
               {bossRelevance}

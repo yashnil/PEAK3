@@ -308,7 +308,7 @@ export default function RunResult({
             <>
               <strong style={{ color: "var(--text-primary)" }}>{receipt.run_mvp.player_name}</strong>{" "}
               {receipt.run_mvp.anchor_season} — removing them costs the roster{" "}
-              <span className="score-number" style={{ color: "var(--peak-accent)" }}>
+              <span className="score-number" style={{ color: "var(--peak-accent-text)" }}>
                 {receipt.run_mvp.marginal_contribution.toFixed(2)}
               </span>{" "}
               of overall total.
@@ -413,7 +413,7 @@ export default function RunResult({
                   {slotLabel({ slot_id: entry.slot_id, role: entry.role, is_starter: true })} · {entry.window}
                 </span>
               </span>
-              <span className="score-number ml-auto text-xs shrink-0" style={{ color: "var(--peak-accent)" }}>
+              <span className="score-number ml-auto text-xs shrink-0" style={{ color: "var(--peak-accent-text)" }}>
                 {entry.prime_score.toFixed(1)}
               </span>
             </li>
@@ -449,7 +449,7 @@ export default function RunResult({
             return (
               <div key={sys.id} className="flex flex-col" data-testid={`rtt-result-system-${sys.id}`}>
                 <p className="text-xs" style={{ color: "var(--text-primary)" }}>
-                  <span className="font-semibold" style={{ color: "var(--peak-accent)" }}>
+                  <span className="font-semibold" style={{ color: "var(--peak-accent-text)" }}>
                     {sys.name}
                   </span>{" "}
                   — {plain ?? sys.summary}

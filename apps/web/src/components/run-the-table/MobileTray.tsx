@@ -35,7 +35,7 @@ export default function MobileTray({
             </span>
             <span
               className="score-number text-sm font-bold"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
               data-testid="rtt-mobile-credits"
             >
               {state.credits}

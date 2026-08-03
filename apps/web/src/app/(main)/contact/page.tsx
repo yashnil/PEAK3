@@ -43,7 +43,7 @@ export default function ContactPage() {
         </div>
 
         <div className="rounded-lg border border-[var(--peak-accent-dim)] bg-[var(--peak-accent-bg)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-          <strong className="text-[var(--peak-accent)]">Beta draft — pending legal review.</strong>{" "}
+          <strong className="text-[var(--peak-accent-text)]">Beta draft — pending legal review.</strong>{" "}
           This page was written by the engineering team and has not been reviewed by a lawyer.
           It will change before a public launch.
         </div>
@@ -68,7 +68,7 @@ export default function ContactPage() {
               Email{" "}
               <a
                 href={`mailto:${CONTACT_EMAIL}`}
-                className="text-[var(--peak-accent)] underline"
+                className="text-[var(--peak-accent-text)] underline"
               >
                 {CONTACT_EMAIL}
               </a>
@@ -116,7 +116,7 @@ export default function ContactPage() {
               self-serve account deletion or data export yet, so deletion is handled manually.
               Send your account handle and say clearly that you are requesting deletion. See
               the{" "}
-              <Link href="/privacy" className="text-[var(--peak-accent)] underline">
+              <Link href="/privacy" className="text-[var(--peak-accent-text)] underline">
                 privacy notice
               </Link>
               .
@@ -124,7 +124,7 @@ export default function ContactPage() {
             <li>
               <strong className="text-[var(--text-primary)]">Accessibility.</strong> Reports are
               treated as defects. Background and known gaps are listed on the{" "}
-              <Link href="/accessibility" className="text-[var(--peak-accent)] underline">
+              <Link href="/accessibility" className="text-[var(--peak-accent-text)] underline">
                 accessibility page
               </Link>
               .
@@ -137,11 +137,11 @@ export default function ContactPage() {
             <li>
               <strong className="text-[var(--text-primary)]">The model.</strong> Disagreements
               with a rating are welcome, and best made against the published{" "}
-              <Link href="/methodology" className="text-[var(--peak-accent)] underline">
+              <Link href="/methodology" className="text-[var(--peak-accent-text)] underline">
                 methodology
               </Link>{" "}
               and{" "}
-              <Link href="/data-sources" className="text-[var(--peak-accent)] underline">
+              <Link href="/data-sources" className="text-[var(--peak-accent-text)] underline">
                 data sources
               </Link>
               .

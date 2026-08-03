@@ -63,6 +63,15 @@
   --apex-coral: #ff6b47;
   --prime-gold: #f5c842;
   --foundation-blue: #4a90d9;
+  /* P5-F1: these two are not CLAUDE.md-frozen, but they hit the exact same
+     literal-text-color bug as `--peak-accent` above (used for both a border/
+     background AND a node-legend/system label's `color`, e.g.
+     `RunStartGate.tsx`'s node legend keyed off `NODE_TYPE_COPY[type].accentVar`).
+     Text-safe siblings, same pattern; dark values below are the base hues
+     unchanged (already 5-6:1 on the dark surface) — see the light override
+     for the darkened values. */
+  --apex-coral-text: #ff6b47;
+  --foundation-blue-text: #4a90d9;
 
   /* Role colors */
   --role-lead-creator: #f472b6;
@@ -236,6 +245,15 @@
      against this theme's `--bg-surface`; this darker, still-gold value
      clears 6.14:1. `--peak-accent` itself is NOT overridden here (frozen). */
   --peak-accent-text: #7a5807;
+
+  /* P5-F1: same darkening treatment for the two Peak Draft mode hues that
+     are also used as literal text (node-legend labels keyed off
+     `NODE_TYPE_COPY[type].accentVar`). Measured against this theme's
+     `--bg-surface` (#fbf8f2): apex-coral #ff6b47 was 2.66:1, foundation-blue
+     #4a90d9 was 3.15:1 -- both fail 4.5:1. Darkened to clear it with the
+     same margin as the other -text tokens on this surface. */
+  --apex-coral-text: #a5452e;
+  --foundation-blue-text: #305d8d;
 
   /* The TEXT-safe component colors -- see the CRITICAL FINDING comment on
      --comp-si-text etc.'s dark values above. Same darkening approach and
@@ -421,7 +439,11 @@ html, body {
 }
 
 .text-peak-accent {
-  color: var(--peak-accent);
+  /* Text-safe sibling, not the frozen token itself — see the P3-G banner
+     above `--peak-accent-text`'s definition. Unused in JSX today (grepped),
+     kept correct rather than deleted since it is a plausible future
+     call site and a wrong definition is a trap either way. */
+  color: var(--peak-accent-text);
 }
 
 .text-correct {
@@ -1212,7 +1234,10 @@ html, body {
 }
 
 .spin-locked-stamp {
-  color: var(--peak-accent, #f5c842);
+  /* Text-safe sibling — P5-F1: this plain CSS class carried the same
+     literal-text-color bug the Tailwind arbitrary-value sweep found, just
+     in a form that grep for `text-[var(--peak-accent)]` could not see. */
+  color: var(--peak-accent-text, #f5c842);
   padding: 3px 14px;
   border: 1.5px solid var(--peak-accent, #f5c842);
   border-radius: 999px;
@@ -1517,7 +1542,8 @@ html, body {
 }
 
 .respin-banner {
-  color: var(--peak-accent, #f5c842);
+  /* Text-safe sibling — same P5-F1 finding as `.spin-locked-stamp` above. */
+  color: var(--peak-accent-text, #f5c842);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;

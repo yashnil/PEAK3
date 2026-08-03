@@ -141,7 +141,7 @@ export default function RevealCard({
               </span>
               <span
                 className="score-number truncate text-[10px]"
-                style={{ color: "var(--peak-accent)" }}
+                style={{ color: "var(--peak-accent-text)" }}
               >
                 {pairedWith.prime_score.toFixed(1)}
               </span>

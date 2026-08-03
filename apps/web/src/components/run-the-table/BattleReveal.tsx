@@ -156,7 +156,7 @@ export default function BattleReveal({
         <div className="flex flex-col gap-0.5">
           <span
             className="text-[10px] font-bold uppercase tracking-widest"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Act {battle.act} · Battle
           </span>
@@ -176,7 +176,7 @@ export default function BattleReveal({
           {boss?.rule && (
             <span
               className="text-[11px]"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
               data-testid="rtt-battle-rule"
             >
               Rule in force · {boss.rule.name} —{" "}
@@ -471,7 +471,7 @@ export default function BattleReveal({
               {lane.perk_adjustment !== 0 && (
                 <p
                   className="pt-0.5 text-center text-[9px] font-semibold"
-                  style={{ color: "var(--peak-accent)" }}
+                  style={{ color: "var(--peak-accent-text)" }}
                   data-testid={`rtt-lane-prepared-${lane.lane}`}
                 >
                   Prepared lane — Scout &amp; Prepare added{" "}
@@ -527,7 +527,7 @@ export default function BattleReveal({
                   <span aria-hidden="true">=</span>
                   <span data-testid={`rtt-lane-receipt-final-${lane.lane}`}>
                     Final{" "}
-                    <span className="score-number" style={{ color: "var(--peak-accent)" }}>
+                    <span className="score-number" style={{ color: "var(--peak-accent-text)" }}>
                       {lane.final_rating.toFixed(2)}
                     </span>
                   </span>
@@ -540,7 +540,7 @@ export default function BattleReveal({
               {lane.tie_broken_by_rule && (
                 <p
                   className="pt-0.5 text-center text-[9px]"
-                  style={{ color: "var(--peak-accent)" }}
+                  style={{ color: "var(--peak-accent-text)" }}
                   data-testid={`rtt-lane-rule-${lane.lane}`}
                 >
                   This lane was level on totals; {boss?.rule?.name ?? "the boss rule"} decided it.
