@@ -1984,5 +1984,23 @@
     "idempotency_notes": [
       "none detected"
     ]
+  },
+  {
+    "filename": "20260803140000_revoke_truncate_trigger_identity_tables.sql",
+    "identifier": "20260803140000_revoke_truncate_trigger_identity_tables",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
   }
 ]
