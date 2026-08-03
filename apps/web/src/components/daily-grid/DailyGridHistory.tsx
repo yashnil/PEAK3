@@ -162,8 +162,8 @@ export default function DailyGridHistory() {
       >
         {playedToday ? (
           <>
-            <CalendarClock size={14} aria-hidden="true" style={{ color: "var(--comp-team)" }} />
-            <strong style={{ color: "var(--comp-team)" }}>Today&rsquo;s grid is done.</strong>
+            <CalendarClock size={14} aria-hidden="true" style={{ color: "var(--comp-team-text)" }} />
+            <strong style={{ color: "var(--comp-team-text)" }}>Today&rsquo;s grid is done.</strong>
             {countdown !== null && (
               <span style={{ color: "var(--text-secondary)" }}>
                 Next board in {formatCountdown(countdown)}.

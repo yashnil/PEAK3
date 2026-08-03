@@ -76,7 +76,7 @@ export default function RecentResults({ entries, emptyMessage, linkToBoards }: P
                 ) : null}
               </span>
               {entry.percent_of_max !== null && (
-                <span className="block text-[10px]" style={{ color: "var(--comp-team)" }}>
+                <span className="block text-[10px]" style={{ color: "var(--comp-team-text)" }}>
                   {entry.percent_of_max}%
                 </span>
               )}

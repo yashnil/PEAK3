@@ -211,6 +211,14 @@ export interface NodeTypeCopy {
    * reusing them for node types would break that correspondence.
    */
   accentVar: string;
+  /**
+   * The text-safe sibling of `accentVar` (P5-F1). `accentVar` is correct for
+   * a border or background fill; used directly as a label's `color` it fails
+   * WCAG AA in light mode (Lighthouse caught this live on the RTT route —
+   * see PERFORMANCE.md). Use this one for text, `accentVar` for everything
+   * else, same as `--peak-accent` vs `--peak-accent-text` elsewhere.
+   */
+  accentTextVar: string;
   /** What the node is for, in one clause. */
   purpose: string;
   /** What actually happens when you take it. Concrete, never a tease. */
@@ -238,6 +246,7 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     label: "Draft Room",
     icon: "draft",
     accentVar: "var(--peak-accent)",
+    accentTextVar: "var(--peak-accent-text)",
     purpose: "Buy one player or keep your credits.",
     // NO OFFER COUNT. This used to read "Three priced cards", which is a run
     // shape number this file's own header forbids restating — and v3 can put a
@@ -252,6 +261,7 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     label: "Trade Desk",
     icon: "trade",
     accentVar: "var(--foundation-blue)",
+    accentTextVar: "var(--foundation-blue-text)",
     purpose: "Replace one roster player. You receive a refund toward the incoming card.",
     // The refund is a share of the outgoing card's ORIGINAL price, not of what
     // you paid after a discount (`pricing.refund_for` reads `base_cost`).
@@ -269,6 +279,7 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     label: "Scout & Prepare",
     icon: "film",
     accentVar: "var(--apex-coral)",
+    accentTextVar: "var(--apex-coral-text)",
     purpose: "Scout the boss, shape the next market, or reserve a future card.",
     // Exactly the three branches `state.action_film_room` implements. There is
     // no "take the credits" option at all in v3 — it was deleted, not zeroed —
@@ -282,6 +293,7 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     label: "Rest / Bank",
     icon: "rest",
     accentVar: "var(--correct)",
+    accentTextVar: "var(--correct)",
     purpose: "Recover one life or take credits. Your roster does not change.",
     consequence:
       "Get a lost life back, or bank credits instead. At full lives there is nothing to recover.",

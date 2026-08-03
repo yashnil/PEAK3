@@ -125,7 +125,7 @@ export default function BattleReveal({
         <div className="flex flex-col gap-0.5">
           <span
             className="text-[10px] font-bold uppercase tracking-widest"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Act {battle.act} · Battle
           </span>
@@ -145,7 +145,7 @@ export default function BattleReveal({
           {boss?.rule && (
             <span
               className="text-[11px]"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
               data-testid="rtt-battle-rule"
             >
               Rule in force · {boss.rule.name} —{" "}
@@ -304,7 +304,7 @@ export default function BattleReveal({
               {lane.tie_broken_by_rule && (
                 <p
                   className="pt-0.5 text-center text-[9px]"
-                  style={{ color: "var(--peak-accent)" }}
+                  style={{ color: "var(--peak-accent-text)" }}
                   data-testid={`rtt-lane-rule-${lane.lane}`}
                 >
                   This lane was level on totals; {boss?.rule?.name ?? "the boss rule"} decided it.

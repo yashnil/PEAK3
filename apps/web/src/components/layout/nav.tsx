@@ -88,8 +88,8 @@ export function Nav() {
           className="pk-nav-wordmark font-display text-lg font-bold tracking-tight"
           aria-label="PEAK3 Arena home"
         >
-          <span className="text-[var(--peak-accent)]">PEAK</span>
-          <span className="text-[var(--text-secondary)]">3</span>
+          <span className="text-[var(--peak-accent-text)]">PEAK</span>
+          <span className="text-[var(--text-secondary)]">3</span>{" "}
           <span className="ml-1.5 text-xs font-medium text-[var(--text-muted)] tracking-widest uppercase">
             Arena
           </span>

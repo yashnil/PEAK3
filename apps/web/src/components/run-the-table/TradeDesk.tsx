@@ -111,7 +111,7 @@ export default function TradeDesk({ node, credits, busy, onTrade, onDecline }: P
       <header className="flex flex-col gap-1">
         <span
           className="text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
         >
           Trade Desk
         </span>
@@ -533,7 +533,7 @@ function OfferButton({
       {selected && (
         <span
           className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
-          style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent)" }}
+          style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent-text)" }}
         >
           <Check size={9} strokeWidth={3.5} aria-hidden="true" />
           {selectedLabel}

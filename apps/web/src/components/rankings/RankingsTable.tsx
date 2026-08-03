@@ -156,7 +156,7 @@ export default function RankingsTable({
                         onOpenRow(row);
                       }}
                       aria-label={`Explain the PEAK3 score for ${row.player_name}, ${row.label}`}
-                      className="block max-w-full truncate rounded text-left font-medium text-[var(--text-primary)] transition-colors group-hover:text-[var(--peak-accent)] hover:text-[var(--peak-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                      className="block max-w-full truncate rounded text-left font-medium text-[var(--text-primary)] transition-colors group-hover:text-[var(--peak-accent-text)] hover:text-[var(--peak-accent-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                     >
                       {row.player_name}
                     </button>
@@ -173,7 +173,7 @@ export default function RankingsTable({
               <td className="hidden px-3 py-2.5 text-xs text-[var(--text-secondary)] md:table-cell">
                 {row.team ?? "—"}
               </td>
-              <td className="px-3 py-2.5 text-right score-number font-bold text-[var(--peak-accent)]">
+              <td className="px-3 py-2.5 text-right score-number font-bold text-[var(--peak-accent-text)]">
                 {formatScore1(row.prime_score)}
               </td>
               {showComponents &&

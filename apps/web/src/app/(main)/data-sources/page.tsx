@@ -36,7 +36,7 @@ export default function DataSourcesPage() {
         </div>
 
         <div className="rounded-lg border border-[var(--peak-accent-dim)] bg-[var(--peak-accent-bg)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-          <strong className="text-[var(--peak-accent)]">Beta draft — pending legal review.</strong>{" "}
+          <strong className="text-[var(--peak-accent-text)]">Beta draft — pending legal review.</strong>{" "}
           This page was written by the engineering team from the code and has not been reviewed
           by a lawyer. It will change before a public launch.
         </div>
@@ -131,12 +131,12 @@ export default function DataSourcesPage() {
 
         <Section title="Read further">
           <p>
-            <Link href="/methodology" className="text-[var(--peak-accent)] underline">
+            <Link href="/methodology" className="text-[var(--peak-accent-text)] underline">
               The methodology →
             </Link>
           </p>
           <p className="mt-2">
-            <Link href="/about" className="text-[var(--peak-accent)] underline">
+            <Link href="/about" className="text-[var(--peak-accent-text)] underline">
               About PEAK3 Arena →
             </Link>
           </p>

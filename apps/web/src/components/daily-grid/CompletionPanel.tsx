@@ -308,7 +308,7 @@ export default function CompletionPanel({
                   <p className="text-[10px] uppercase tracking-[0.1em]" style={{ color: "var(--text-muted)" }}>
                     PEAK3 would have used
                   </p>
-                  <p style={{ color: "var(--comp-team)" }}>
+                  <p style={{ color: "var(--comp-team-text)" }}>
                     {result.biggest_miss.optimal_player_season.label} · {result.biggest_miss.optimal_points} pts
                   </p>
                 </div>
@@ -318,7 +318,7 @@ export default function CompletionPanel({
             <p
               data-testid="complete-perfect"
               className="mt-4 rounded-lg px-3 py-2 text-sm font-semibold"
-              style={{ background: "var(--bg-surface)", color: "var(--comp-team)" }}
+              style={{ background: "var(--bg-surface)", color: "var(--comp-team-text)" }}
             >
               No square left a single point on the board.
             </p>
@@ -370,9 +370,9 @@ export default function CompletionPanel({
                         — you beat it here ({cell.optimal_points})
                       </span>
                     ) : cell.matched_optimal ? (
-                      <span style={{ color: "var(--comp-team)" }}>— matched</span>
+                      <span style={{ color: "var(--comp-team-text)" }}>— matched</span>
                     ) : (
-                      <span style={{ color: "var(--comp-team)" }}>
+                      <span style={{ color: "var(--comp-team-text)" }}>
                         → {cell.optimal_player_season.label} ({cell.optimal_points})
                       </span>
                     )}

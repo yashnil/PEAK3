@@ -48,7 +48,7 @@ export default function DraftRoom({ node, slots, credits, busy, onBuy, onPass }:
       <header className="flex flex-col gap-1">
         <span
           className="text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
         >
           Draft Room
         </span>
