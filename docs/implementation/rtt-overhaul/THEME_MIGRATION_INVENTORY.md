@@ -109,38 +109,40 @@ rankings table), `ScoreExplainModal.tsx`, `ComponentBreakdown.tsx`,
 every occurrence found in the §1 migration groups above (Peak Draft, 82-0,
 general pages) while touching those files for the hex work.
 
-**NOT fixed — genuinely out of scope for one more pass, flagged for the
-lead rather than silently left**: a grep for `color:\s*"var(--peak-accent)"`
-across the whole non-RTT app still returns **30 files** this pass did not
-open: `auth/complete`, `auth/auth-code-error`, `signin`, `signup`, `u/[handle]`,
-`AuthShell.tsx`, every `daily-grid/*` component (`DailyGridGame.tsx`,
+**UPDATE (P3-G3): closed.** All 30 files fixed — `auth/complete`,
+`auth/auth-code-error`, `signin`, `signup`, `u/[handle]`, `AuthShell.tsx`,
+`MagicLinkForm.tsx`, every `daily-grid/*` component (`DailyGridGame.tsx`,
 `GridCell.tsx`, `StartGate.tsx`, `CompletionPanel.tsx`, `RecentResults.tsx`,
 `DailyGridHistory.tsx`, `HowToPlay.tsx`), `DailyHub.tsx`,
 `RankingsProvenance.tsx`, `ranked/RankedScreen.tsx`,
 `ranked/RankedRatingCards.tsx`, `arena/ranked/[mode]/leaderboard/page.tsx`,
-every `progression/*` component beyond the two already fixed
-(`PersonalRecords.tsx`, `StreakCard.tsx`, `XpProgress.tsx`). These are not
-clearly owned by anyone under the current `FILE_OWNERSHIP.md`.
+the rest of `progression/*` (`AchievementUnlock.tsx`, `PersonalRecords.tsx`),
+plus a second sweep of `arena/`, `arena/daily/`, `arena/ranked/`, `history/`,
+`profile/`, `progress/` that caught several instances the P3-G2 pass on
+those same files had missed. `components/ui/StatusChip.tsx` (a shared
+primitive) was also fixed, ahead of the 30-file sweep, since its `accent`/
+`info` tones fed the same bug into anything that renders a chip.
 
-**Also fixed**: `components/ui/StatusChip.tsx` (`platform`-owned, a shared
-primitive) — its `accent`/`info` tones rendered `--peak-accent`/`--comp-si`
-directly as the chip's own text. Any of the 30 files above that render a
-chip via this component now get the fix automatically; the 30-file count
-was taken BEFORE this fix and has not been re-measured after it, so the
-true remaining count is likely somewhat lower.
+**Two real wash-pairing bugs found and fixed while closing this**, same
+class as the `--accent-emerald` fix earlier in §1 — a token can be
+correctly darkened for plain-card text and still fail once paired with a
+tinted wash of *itself*:
+- `DailyGridGame.tsx`'s `DIFFICULTY_COLOR` map fed `StatTile`'s `accent`
+  prop, which that component uses as BOTH a decorative `borderTop` AND the
+  tile's own value-text color — needed the `-text` siblings for the text
+  half of that dual use.
+- `StreakCard.tsx`'s two "reserve day available" badges paired
+  `--peak-accent` literally against a hardcoded `rgba(245,200,66,0.15)`
+  wash — promoted to `--peak-accent-bg` + `--peak-accent-text`, verified
+  safe together (measured across every wash percentage actually used in
+  this codebase — see the `--accent-emerald` commit for the full sweep
+  methodology).
 
-### Recommendation
-
-`--peak-accent-text` and `--comp-*-text` already exist and are proven
-correct (used in a dozen+ files above, plus the shared `StatusChip`) —
-finishing this is now a mechanical find/measure/replace pass, not new
-design work: for each `color: "var(--peak-accent)"` (or `componentColor(...)`
-used as literal text rather than a fill/border), swap to the `-text`
-sibling. Recommend the lead assign an owner for this specific, now
-well-defined remainder before Arena Day ships broadly; the theme TOGGLE
-already works everywhere (verified), the risk is purely these specific
-text colors reading as washed-out gold-on-near-white on the files not yet
-touched.
+A final `grep -rn 'color: "var(--peak-accent)"'` across `apps/web/src`,
+excluding `rtt-experience`'s `components/run-the-table/**`, now returns
+zero results. Committed in three seams (auth / daily-grid+progression /
+ranked+remaining-pages), each independently verified against a real
+`next build`, per the incremental-commit and real-build lessons from P3-G2.
 
 ## §3. Not real color bugs (confirmed, left alone)
 
