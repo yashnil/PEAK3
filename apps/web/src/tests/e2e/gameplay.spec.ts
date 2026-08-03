@@ -155,7 +155,19 @@ test.describe("Arena landing", () => {
   });
 
   test("the launcher opens by keyboard and Escape restores focus to the CTA", async ({ page }) => {
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+    // `networkidle`, not `domcontentloaded` -- this test's subject is the
+    // keyboard interaction (ArrowDown opens the menu, focus moves onto the
+    // first item, Escape restores it), not hydration speed. `focus()` is a
+    // plain DOM call and succeeds before React hydrates, but the ArrowDown
+    // keydown handler is React-attached; pressed in that window it is a
+    // real keypress with no listener yet, silently lost. Measured before
+    // this change: `next dev` (what this suite runs against) takes
+    // 300-410ms after `domcontentloaded` to attach; a real production
+    // build takes 18-44ms -- see PERFORMANCE.md's "Client hydration window
+    // (P6-f/P6-h investigation)". Same fix and same reasoning as
+    // play-routing.spec.ts's viewport test; the two failures were the
+    // identical race on two unrelated controls, not two separate bugs.
+    await page.goto("/", { waitUntil: "networkidle" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await cta.focus();
     await page.keyboard.press("ArrowDown");
