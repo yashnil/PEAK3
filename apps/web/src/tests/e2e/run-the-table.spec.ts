@@ -109,6 +109,15 @@ const FULL_RUN_TIMEOUT_MS = 180_000;
 const SURFACE_IDS = [
   "rtt-result",
   "rtt-opening-reveal",
+  // `rtt-boss-intro` (name, philosophy, win condition, 3-2-1 countdown,
+  // skip) sits in front of `rtt-boss-reveal` at the SAME `boss_ready`
+  // server status — see `RunTheTableGame`'s `dismissedBossIntroId` gate.
+  // Missing from this list, `currentSurface()` threw "no known surface"
+  // the instant any full-run test reached its first boss, so no test in
+  // this file that calls `playToResult` had ever actually completed a run
+  // — every one of them errored out at act 1's boss without anyone
+  // noticing, because the suite itself was not being run this pass.
+  "rtt-boss-intro",
   "rtt-boss-reveal",
   "rtt-system-select",
   "rtt-node-choice",
@@ -185,6 +194,12 @@ async function currentSurface(page: Page): Promise<SurfaceId> {
  */
 async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
   switch (surface) {
+    case "rtt-boss-intro":
+      // The pre-roll: name, philosophy, win condition, 3-2-1 countdown. Skip
+      // is interactive from the first frame (no waiting on the countdown) —
+      // lands directly on the paired lineup reveal, same status, next gate.
+      await page.locator('[data-testid="rtt-boss-intro-skip"]').click();
+      break;
     case "rtt-opening-reveal":
     case "rtt-boss-reveal": {
       // One action starts the WHOLE reveal in a single batched round trip
@@ -296,15 +311,19 @@ async function revealedSlotCount(page: Page): Promise<number> {
  *  the SURFACE rather than on a particular outcome — which is why it needed no
  *  change when the outcome taxonomy became TABLE CLEARED / RUN ENDED AT THE
  *  FINAL BOSS / RUN ENDED IN ACT N. */
-async function playToResult(page: Page, maxSteps = 90): Promise<void> {
+async function driveTo(page: Page, target: SurfaceId, maxSteps = 90): Promise<void> {
   for (let i = 0; i < maxSteps; i++) {
     const surface = await currentSurface(page);
     // Every surface, every step — see `expectNoRawObjects`.
     await expectNoRawObjects(page);
-    if (surface === "rtt-result") return;
+    if (surface === target) return;
     await stepOnce(page, surface);
   }
-  throw new Error(`run did not reach a receipt within ${maxSteps} steps`);
+  throw new Error(`did not reach ${target} within ${maxSteps} steps`);
+}
+
+async function playToResult(page: Page, maxSteps = 90): Promise<void> {
+  return driveTo(page, "rtt-result", maxSteps);
 }
 
 async function storedRun(page: Page): Promise<StoredRun | null> {
@@ -561,6 +580,56 @@ test.describe("RUN THE TABLE full run", () => {
     await playToResult(page);
     await expect(page.locator('[data-testid="rtt-result"]')).toBeVisible();
     await expectNoHorizontalOverflow(page);
+  });
+
+  /**
+   * P6-c regression. `expectNoHorizontalOverflow` above checks
+   * `document.body.scrollWidth` against `document.body.clientWidth` — a
+   * real check, but a DOCUMENT-level one, and it is never called while the
+   * boss reveal itself is on screen (only at the start gate, right after
+   * starting, and at the receipt). It also would not have caught this: the
+   * overflowing content did not make the page scrollable, it just bled past
+   * its own card and the viewport's edge while `document.body` stayed the
+   * same width — a `scrollWidth` check and a per-element
+   * `getBoundingClientRect()` check catch genuinely different failure
+   * modes, and this bug only shows up in the second one.
+   *
+   * ROOT CAUSE (RevealCard.tsx): the paired (player's already-known) card
+   * block was `shrink-0` with `@[420px]:max-w-[40%]` — a container query
+   * that left it UNCONSTRAINED below a 420px container, so at 390px it
+   * claimed whatever width its content wanted and squeezed the boss-side
+   * identity/score column — the row's only `flex-1` element — until its
+   * score number bled past the card, sometimes past the page's right edge
+   * entirely. Fixed with an unconditional `max-w-[32%]` floor.
+   */
+  test("@mobile the boss reveal's paired lineup never clips a card past the 390px viewport", async ({
+    page,
+  }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
+    await driveTo(page, "rtt-boss-reveal");
+
+    // Deliberately NOT `stepOnce` here — it also waits for the surface to be
+    // replaced (by the "Continue" click), and the settled-but-still-mounted
+    // moment in between is exactly what needs inspecting.
+    await page.locator('[data-testid="rtt-reveal-start-boss"]').click();
+    const skip = page.locator('[data-testid="rtt-reveal-skip-boss"]');
+    await skip.waitFor({ state: "visible", timeout: 20_000 });
+    await skip.click();
+    await expect(
+      page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]'),
+    ).toHaveCount(7);
+
+    const overflowing = await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('[data-testid="rtt-reveal-card"]'));
+      return rows
+        .flatMap((row) => Array.from(row.querySelectorAll<HTMLElement>("*")))
+        .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1)
+        .map((el) => el.getAttribute("data-testid") || `.${el.className}`);
+    });
+    expect(overflowing, `element(s) clipped past the viewport: ${overflowing.join(", ")}`).toHaveLength(0);
   });
 });
 
