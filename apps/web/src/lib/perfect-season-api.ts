@@ -238,13 +238,14 @@ export async function submitRun(gameId: string, accessToken: string): Promise<Pe
 
 export async function getLeaderboard(params: {
   mode?: CourtMode;
-  noRespin?: boolean;
   limit?: number;
   cursor?: string;
 } = {}): Promise<LeaderboardResponse> {
+  // launch-polish IMPLEMENTATION_CONTRACT.md §7: no respin filter -- removed,
+  // not defaulted off. Respins are normal Standard 82-0 play; the API no
+  // longer accepts a no_respin param at all (apps/api/app/api/v1/perfect_season.py).
   const qs = new URLSearchParams();
   if (params.mode) qs.set("mode", params.mode);
-  if (params.noRespin) qs.set("no_respin", "true");
   if (params.limit) qs.set("limit", String(params.limit));
   if (params.cursor) qs.set("cursor", params.cursor);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
