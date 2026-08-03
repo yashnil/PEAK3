@@ -119,7 +119,7 @@ export default function ShareChallenge({
             Your lineup peak rating:{" "}
             <span
               className="font-bold tabular-nums"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               {(Math.round(lineupPeakRating * 10) / 10).toFixed(1)}
             </span>
@@ -148,9 +148,9 @@ export default function ShareChallenge({
               style={
                 copyState === "error"
                   ? {
-                      background: "rgba(239,68,68,0.12)",
-                      color: "#ef4444",
-                      border: "1px solid rgba(239,68,68,0.35)",
+                      background: "var(--incorrect-bg)",
+                      color: "var(--incorrect)",
+                      border: "1px solid color-mix(in srgb, var(--incorrect) 35%, transparent)",
                     }
                   : {
                       background: "var(--peak-accent)",

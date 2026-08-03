@@ -98,7 +98,7 @@ export default function ArenaLeaderboardsPage() {
           --------------------------------------------------------------- */}
       <section className="flex flex-col gap-3" aria-labelledby="leaderboard-82-0-heading">
         <div className="flex items-center gap-2">
-          <Trophy size={16} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+          <Trophy size={16} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
           <h2 id="leaderboard-82-0-heading" className="text-sm font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
             82-0 · All-Time
           </h2>
@@ -170,7 +170,7 @@ export default function ArenaLeaderboardsPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-secondary)" }}>
-                  <span className="font-bold" style={{ color: "var(--peak-accent, #f5c842)" }}>
+                  <span className="font-bold" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
                     {r.wins}-{r.losses}
                   </span>
                   <span>{r.lineup_score.toFixed(1)} score</span>
@@ -186,7 +186,7 @@ export default function ArenaLeaderboardsPage() {
           --------------------------------------------------------------- */}
       <section className="flex flex-col gap-3" aria-labelledby="leaderboard-daily-heading">
         <div className="flex items-center gap-2">
-          <CalendarDays size={16} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+          <CalendarDays size={16} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
           <h2 id="leaderboard-daily-heading" className="text-sm font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
             82-0 · Daily
           </h2>

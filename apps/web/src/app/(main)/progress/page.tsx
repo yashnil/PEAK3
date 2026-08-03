@@ -90,7 +90,7 @@ export default function ProgressPage() {
       </div>
 
       {error && (
-        <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "#ef444420", color: "#ef4444" }}>
+        <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
           {error}
         </p>
       )}

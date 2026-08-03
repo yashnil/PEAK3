@@ -63,9 +63,9 @@ export default function DailyHubPage() {
         style={{ background: "var(--bg-elevated)", borderColor: "var(--peak-accent, #f5c842)" }}
       >
         <span style={{ color: "var(--text-primary)" }}>
-          <strong style={{ color: "var(--peak-accent, #f5c842)" }}>New:</strong> build a roster and chase an 82-0 season in 82-0 Peak Season.
+          <strong style={{ color: "var(--peak-accent-text, #f5c842)" }}>New:</strong> build a roster and chase an 82-0 season in 82-0 Peak Season.
         </span>
-        <span className="font-semibold shrink-0" style={{ color: "var(--peak-accent, #f5c842)" }}>
+        <span className="font-semibold shrink-0" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
           Try it →
         </span>
       </Link>

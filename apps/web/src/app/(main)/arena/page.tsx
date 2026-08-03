@@ -199,9 +199,9 @@ export default async function ArenaPage() {
                 style={{
                   minHeight: "var(--pk-tap-min, 44px)",
                   borderRadius: "var(--pk-r-md, 10px)",
-                  background: "rgba(96,165,250,0.12)",
-                  color: "#60a5fa",
-                  borderColor: "#60a5fa",
+                  background: "color-mix(in srgb, var(--accent-blue) 12%, transparent)",
+                  color: "var(--accent-blue)",
+                  borderColor: "var(--accent-blue)",
                 }}
               >
                 Play today&apos;s Daily

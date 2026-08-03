@@ -165,7 +165,7 @@ export function PasswordForm({ mode, next }: PasswordFormProps) {
           role="alert"
           data-testid="password-error"
           className="text-sm rounded-lg px-3 py-2"
-          style={{ background: "#ef444420", color: "#ef4444" }}
+          style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}
         >
           {error}
         </p>

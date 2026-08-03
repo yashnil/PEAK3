@@ -110,7 +110,7 @@ export default function HistoryPage() {
       </div>
 
       {error && (
-        <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "#ef444420", color: "#ef4444" }}>
+        <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
           {error}
         </p>
       )}
@@ -201,7 +201,7 @@ export default function HistoryPage() {
                 {item.reframe_used && (
                   <span
                     className="text-xs px-1.5 py-0.5 rounded"
-                    style={{ background: "rgba(167,139,250,0.12)", color: "#a78bfa" }}
+                    style={{ background: "color-mix(in srgb, var(--accent-violet) 12%, transparent)", color: "var(--accent-violet)" }}
                   >
                     Reframe
                   </span>

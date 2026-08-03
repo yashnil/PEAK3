@@ -36,7 +36,7 @@ export default function LineupInsightPanel({ result }: { result: SimulationResul
                 style={{
                   width: `${pct}%`,
                   background: value < 0
-                    ? "#ef4444"
+                    ? "var(--incorrect)"
                     : "linear-gradient(90deg, color-mix(in srgb, var(--peak-accent, #f5c842) 70%, transparent), var(--peak-accent, #f5c842))",
                   boxShadow: value >= 70 ? "0 0 8px -1px color-mix(in srgb, var(--peak-accent, #f5c842) 70%, transparent)" : undefined,
                 }}

@@ -1,95 +1,162 @@
-# Theme token migration — inventory (P3-G)
+# Theme token migration — inventory (P3-G / P3-G2)
 
 Companion to `PERFORMANCE.md`'s original 217-hex-across-54-files finding.
-Counts below are **standalone hardcoded hex** only — `var(--token, #hexfallback)`
-is a safe fallback pattern (the token still drives the rendered color; the
-hex only covers the CSS-custom-property-unsupported case) and is excluded
-from these counts, which is why the numbers here are lower than the original
-audit's raw grep.
+P3-G fixed the homepage/leaderboard remainder and shipped the light theme;
+**P3-G2 completed the rest of the hardcoded-hex migration** (Peak Draft,
+82-0 gameplay, progression, auth forms, general app pages — everything
+outside RTT, which `rtt-experience` owns) and, in the course of measuring
+contrast for it, found a second, larger, separate bug class described in
+§2 below.
 
-## What this pass fixed
+## §1. Hardcoded-hex migration — done
 
-Files in `platform`'s ownership (globals.css, homepage, header/account-menu,
-Arena Leaderboards frontend, shared `ui/**`):
+**134 of 137 non-RTT hardcoded hex occurrences fixed** (the 3 remaining —
+`GuidedTour.tsx`'s 2 SVG mask fills and `privacy/page.tsx`'s 2 HTML-entity
+false-positives from the audit's regex — were never real color bugs; see
+§3). RTT's own 18 (`RunMap.tsx`, `RunStartGate.tsx`, `TradeDesk.tsx`, and
+five more) are untouched — `rtt-experience`'s exclusively-owned files, per
+`FILE_OWNERSHIP.md`.
 
-| File | Fixed |
-| --- | --- |
-| `app/(main)/page.tsx` | `color: "#000"` → `var(--text-inverse)` (gold-fill button text) |
-| `app/(main)/rankings/page.tsx` | `color: "#000"` → `var(--text-inverse)`; `color: "#ef4444"` → `var(--incorrect)` (exact same hex as the token — a literal duplicate, not a different color choice) |
-| `app/(main)/arena/court/leaderboard/page.tsx` | `color: "#000"` → `var(--text-inverse)` |
+| Group | Files | Fixed |
+| --- | --- | --- |
+| Peak Draft | 11 | `DraftReceipt.tsx` (15 — the worst single offender in the original audit), `DraftCard.tsx` (7), `RoleSelector.tsx` (5), `LineupBoard.tsx` (5), `DraftScreen.tsx` (5), `DNABar.tsx` (4), `ChallengeComparison.tsx` (4), `DraftToolbar.tsx` (2), `ShareChallenge.tsx` (1), `PracticeDraftLoader.tsx` (1), `DNARadar.tsx` (1) |
+| 82-0 / CourtBuilder gameplay | 11 | `SeasonResultStub.tsx`, `SaveRunPanel.tsx`, `PeakCardCourt.tsx`, `PeakSeasonStartGate.tsx`, `LeaderboardSubmitPanel.tsx`, `CourtBuilder.tsx`, `PeakPicksRecap.tsx`, `LineupInsightPanel.tsx`, `PlayAgainPanel.tsx`, `ShareRunPanel.tsx`, `EligiblePlayerSearch.tsx`, `SpinStage.tsx` |
+| Progression | 2 | `AchievementCard.tsx`, `AchievementUnlock.tsx` |
+| Auth forms | 3 | `SignInPanel.tsx`, `PasswordForm.tsx`, `MagicLinkForm.tsx` |
+| General app pages | 12 | `arena/labs`, `arena/daily/[mode]`, `arena/ranked`, `arena/court/history`, `c/[token]`, `profile`, `history`, `progress`, `arena`, `arena/daily`, `arena/court/results/[id]`, `rankings` |
 
-Plus new light-theme tokens (`:root[data-theme="light"]` in `globals.css`),
-two new motion durations (`--pk-dur-reveal`, `--pk-dur-count`, mirrored in
-`lib/motion.ts`), and new shared primitives (`ThemeToggle`, `ErrorState`) —
-see the commit for the full theme-system change.
+New reusable tokens this pass added to `globals.css` (dark value = the
+pre-existing literal, unchanged; light value measured against the P3-G
+surfaces, not assumed):
 
-Two occurrences deliberately left alone as **not real color bugs**:
+- `--warning` / `--warning-bg` — promoted from a repeated literal
+  `#f59e0b` (measured 2.03:1 on Arena Day; light value `#8a5a05` clears
+  5.4:1+).
+- `--accent-blue` / `-violet` / `-pink` / `-orange` / `-emerald` — the
+  general-purpose text-safe version of the five `--role-*`/`--comp-*`
+  hues, for one-off status badges that are not themselves a PEAK3
+  component or roster role.
+- `--achievement-onboarding` / `-challenge` / `-construction` / `-habit` —
+  progression's own category colors (same hue family as `--role-*` by
+  coincidence, not by reference), promoted out of hardcoded hex in
+  `AchievementCard.tsx`/`AchievementUnlock.tsx`.
+
+**Two real, load-bearing bugs found and fixed while migrating, unrelated to
+theming**:
+- `DraftScreen.tsx`'s hold-pending banner used `"var(--peak-accent)10"` /
+  `"var(--peak-accent)40"` — a hex-alpha suffix appended directly to a
+  `var()` reference, which is invalid CSS the browser silently drops. This
+  was broken in **every** theme before this pass, not just light mode.
+- `SpinStage.tsx` referenced `var(--border-muted, #333)` twice —
+  `--border-muted` was never defined anywhere in `globals.css`, so the
+  fallback `#333` (unthemed dark gray) was the only value that ever
+  rendered. Repointed at the real `--border-subtle` token.
+
+Also fixed 4 more instances of the `rgba(255,255,255,0.06..0.08)` "ghost
+white badge" bug this pass's earlier audit already flagged once
+(`arena/court/history/page.tsx`, `LiveBuildPanel.tsx`, `PeakCardCourt.tsx`
+×2, `SeasonResultStub.tsx`, `EligiblePlayerSearch.tsx` ×3) — a hardcoded
+white-alpha wash that reads as invisible-to-muddy on a light card.
+
+**The `${color}NN` hex-alpha-suffix pattern.** Several files (`DraftCard.tsx`,
+`LineupBoard.tsx`, `RoleSelector.tsx`, `AchievementCard.tsx`,
+`AchievementUnlock.tsx`, `DraftReceipt.tsx`) built a translucent
+background/border by string-concatenating a two-digit hex pair onto a color
+variable (`${color}20`, `color + "40"`). That only ever worked because the
+variable held a literal hex string; the instant it became a `var(--token)`
+reference (required for a theme-aware value), the concatenation produced
+invalid CSS like `var(--accent-blue)20`, silently dropped by the browser.
+Every one of these was rewritten to `color-mix(in srgb, ${color} 20%,
+transparent)`, which works with any CSS color value.
+
+## §2. NEW FINDING — `--peak-accent`/`--comp-*` used as literal text color, app-wide
+
+While fixing the hardcoded hex above, contrast measurement (not assumption)
+turned up a second, larger, and more severe bug — not a hardcoded-hex
+bypass, but a **frozen token used correctly by name and still wrong**:
+
+- `#f5c842` (`--peak-accent`) as text on the new `--bg-surface`: **1.50:1**.
+  Fails WCAG AA at every text size — there is no size at which this
+  passes, unlike `--correct`/`--incorrect` (§ P3-G's PERFORMANCE.md note),
+  which only failed small text.
+- `--comp-si`/`-tp`/`-rec`/`-po`/`-team` as text: **1.8–2.6:1** each,
+  same failure.
+
+Both are frozen (CLAUDE.md — "Component color tokens" — and the token
+contract) so their *value* cannot change; the fix is the same shape as
+`--correct`/`--incorrect`'s: a new, additive, text-safe sibling token that
+is identical to the frozen one on Arena Night and darkened for Arena Day,
+used ONLY where the frozen token would otherwise be read as text (never as
+a fill, bar, or border, where the frozen value is exactly right).
+
+**Shipped this pass** (`globals.css` + `lib/utils.ts`):
+- `--peak-accent-text` (dark `#f5c842` / light `#7a5807`, 6.14:1).
+- `--comp-si-text` / `-tp-text` / `-rec-text` / `-po-text` / `-team-text` /
+  `-tm-text` (dark = frozen hex / light = darkened, 4.5:1+ each).
+- `componentTextColor(key)` in `lib/utils.ts`, the sibling of the existing
+  `componentColor(key)` — same key set, text-safe values.
+
+**Fixed with these tokens, everywhere found**: every file this pass or
+Task 8/11 touched directly — `page.tsx` (homepage: hero headline accent,
+"Daily hub"/"Explore the full methodology" links, bullet arrows),
+`ComponentComparison.tsx`, `LeaderboardPreview.tsx`, `HeroVignette.tsx`,
+`ModelProofStrip.tsx`, `rankings/page.tsx`, `arena/court/leaderboard/page.tsx`,
+plus the full rankings component-color surface once the pattern was
+understood: `RankingsTable.tsx` (column headers + every component score
+cell — the single most-visible instance, rendered on every row of the main
+rankings table), `ScoreExplainModal.tsx`, `ComponentBreakdown.tsx`,
+`players/[slug]/page.tsx`, `components/game/component-comparison.tsx`. Also
+every occurrence found in the §1 migration groups above (Peak Draft, 82-0,
+general pages) while touching those files for the hex work.
+
+**NOT fixed — genuinely out of scope for one more pass, flagged for the
+lead rather than silently left**: a grep for `color:\s*"var(--peak-accent)"`
+across the whole non-RTT app still returns **30 files** this pass did not
+open: `auth/complete`, `auth/auth-code-error`, `signin`, `signup`, `u/[handle]`,
+`AuthShell.tsx`, every `daily-grid/*` component (`DailyGridGame.tsx`,
+`GridCell.tsx`, `StartGate.tsx`, `CompletionPanel.tsx`, `RecentResults.tsx`,
+`DailyGridHistory.tsx`, `HowToPlay.tsx`), `DailyHub.tsx`,
+`RankingsProvenance.tsx`, `ranked/RankedScreen.tsx`,
+`ranked/RankedRatingCards.tsx`, `arena/ranked/[mode]/leaderboard/page.tsx`,
+every `progression/*` component beyond the two already fixed
+(`PersonalRecords.tsx`, `StreakCard.tsx`, `XpProgress.tsx`). These are not
+clearly owned by anyone under the current `FILE_OWNERSHIP.md`.
+
+**Also fixed**: `components/ui/StatusChip.tsx` (`platform`-owned, a shared
+primitive) — its `accent`/`info` tones rendered `--peak-accent`/`--comp-si`
+directly as the chip's own text. Any of the 30 files above that render a
+chip via this component now get the fix automatically; the 30-file count
+was taken BEFORE this fix and has not been re-measured after it, so the
+true remaining count is likely somewhat lower.
+
+### Recommendation
+
+`--peak-accent-text` and `--comp-*-text` already exist and are proven
+correct (used in a dozen+ files above, plus the shared `StatusChip`) —
+finishing this is now a mechanical find/measure/replace pass, not new
+design work: for each `color: "var(--peak-accent)"` (or `componentColor(...)`
+used as literal text rather than a fill/border), swap to the `-text`
+sibling. Recommend the lead assign an owner for this specific, now
+well-defined remainder before Arena Day ships broadly; the theme TOGGLE
+already works everywhere (verified), the risk is purely these specific
+text colors reading as washed-out gold-on-near-white on the files not yet
+touched.
+
+## §3. Not real color bugs (confirmed, left alone)
+
 - `app/layout.tsx` — the static `<meta name="theme-color" content="#0a0b0d">`
   fallback, overwritten synchronously by the blocking init script; matches
   `THEME_COLOR.dark` in `lib/theme-script.ts` by construction.
 - `components/ui/GuidedTour.tsx` (2× `fill="#fff"` / `fill="#000"`) — SVG
   luminance-mask values (white = visible, black = masked), not a themeable
   UI color; a mask fill is not lightness-of-page, it is mask math.
-
-## Remainder — real standalone hex outside this pass's ownership
-
-**155 standalone hex values across 49 files.** None of the files below are
-owned by `platform` under `FILE_OWNERSHIP.md`; several are not clearly owned
-by *any* of the four teammates. Recorded here rather than silently left out,
-per SYNTHESIS_CONTRACT.md §3's "documented inventory of any remainder"
-requirement.
-
-### Owned by `rtt-experience` (exclusive — `platform` does not touch)
-
-18 occurrences / 8 files: `RunMap.tsx` (8), `RunStartGate.tsx` (3),
-`TradeDesk.tsx` (2), `RunResult.tsx` (1), `RevealReel.tsx` (1),
-`MobileTray.tsx` (1), `BossPreview.tsx` (1), `BattleReveal.tsx` (1).
-
-### Unowned by the current `FILE_OWNERSHIP.md` — needs an explicit owner
-
-**Peak Draft** (the older, deferred card-draft mode — not RTT, not
-homepage, not the leaderboard surfaces this pass covers): 50 occurrences /
-11 files — `DraftReceipt.tsx` (15, the single worst offender in the
-original audit), `DraftCard.tsx` (7), `RoleSelector.tsx` (5),
-`LineupBoard.tsx` (5), `DraftScreen.tsx` (5), `DNABar.tsx` (4),
-`ChallengeComparison.tsx` (4), `DraftToolbar.tsx` (2), `ShareChallenge.tsx` (1),
-`PracticeDraftLoader.tsx` (1), `DNARadar.tsx` (1).
-
-**82-0 / CourtBuilder gameplay** (the spin/build/save flow itself, distinct
-from the Arena Leaderboards *listing* page this pass did cover):
-24 occurrences / 11 files — `SeasonResultStub.tsx` (4, of 11 total —
-7 are safe fallbacks), `SaveRunPanel.tsx` (4 of 10), `PeakCardCourt.tsx`
-(3 of 8), `PeakSeasonStartGate.tsx` (3 of 7), `LeaderboardSubmitPanel.tsx`
-(3 of 6), `CourtBuilder.tsx` (2 of 4), `PeakPicksRecap.tsx` (1 of 4),
-`LineupInsightPanel.tsx` (1 of 4), `PlayAgainPanel.tsx` (1 of 3),
-`ShareRunPanel.tsx` (1 of 2), `EligiblePlayerSearch.tsx` (1 of 2).
-
-**Progression** (achievement UI, not itself RTT/homepage/leaderboard):
-8 occurrences / 2 files — `AchievementUnlock.tsx` (4), `AchievementCard.tsx` (4).
-
-**Auth forms** (distinct from `AccountMenu.tsx`, which *is* in scope and was
-audited clean): 6 occurrences / 3 files — `SignInPanel.tsx` (2),
-`PasswordForm.tsx` (2), `MagicLinkForm.tsx` (2).
-
-**General app pages** outside the homepage/leaderboard surfaces this pass
-covers: 46 occurrences / 12 files — `arena/labs/page.tsx` (9),
-`arena/daily/[mode]/page.tsx` (7), `arena/ranked/page.tsx` (6),
-`arena/court/history/page.tsx` (4 of 9), `c/[token]/page.tsx` (4),
-`privacy/page.tsx` (4), `profile/page.tsx` (3), `history/page.tsx` (3),
-`progress/page.tsx` (2), `arena/page.tsx` (2), `arena/daily/page.tsx`
-(1 of 4), `arena/court/results/[id]/page.tsx` (1 of 2).
-
-### Recommendation
-
-None of the four unowned groups above are RTT, homepage, or the Arena
-Leaderboards *listing* page — the three surfaces this pass's mandate
-covered. Migrating them is genuine, further work (each needs its own
-audit for which hex is a real color decision vs. a safe token-equivalent
-literal, the same way `"#ef4444"` above turned out to be a literal
-duplicate of `--incorrect` rather than an intentional different red).
-Recommend the lead assign an owner for a follow-up pass — Peak Draft and
-82-0 gameplay are the two largest blocks and the most visible if a light-
-theme toggle ships without them: those two modes will render correctly
-under Arena Night (nothing changed there) but will keep their *dark-theme*
-hardcoded colors under Arena Day, i.e. dark literals on a light background,
-until migrated.
+- `privacy/page.tsx` (`&#123;`/`&#125;` in a code snippet) — HTML entity
+  codes for literal curly braces, matched by the audit's `#[0-9a-f]{3,8}`
+  regex as a false positive; not a color at all.
+- `arena/daily/page.tsx`'s `background: "var(--correct)", color: "#fff"` —
+  white text on a solid `--correct` fill. Measured: 2.28:1 on Arena
+  Night's `--correct` (a **pre-existing** dark-mode failure, unrelated to
+  this pass) and 6.63:1 on Arena Day's darker `--correct` (fine). Not a
+  regression this pass introduces, and fixing the pre-existing dark-mode
+  case is outside this pass's mandate (light-mode migration) — noted here
+  rather than silently carried forward unmentioned.

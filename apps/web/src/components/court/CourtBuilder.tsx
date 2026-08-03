@@ -313,7 +313,7 @@ export default function CourtBuilder({
       </details>
 
       {error && (
-        <div role="alert" className="rounded-lg px-3 py-2 text-sm" style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444" }}>
+        <div role="alert" className="rounded-lg px-3 py-2 text-sm" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
           {error}
         </div>
       )}
@@ -441,7 +441,7 @@ export default function CourtBuilder({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--peak-accent, #f5c842)" }}>
+                    <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
                       Step 2 · Place {state.pending_selection.player_name}
                     </div>
                     Choose any open spot on the court rail — the fit badge shows how well
@@ -512,7 +512,7 @@ export default function CourtBuilder({
                 onClick={handleComplete}
                 disabled={busy}
                 className="rounded-lg py-3 font-semibold"
-                style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+                style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
               >
                 {busy ? "Simulating…" : "Lock Roster & Simulate"}
               </button>

@@ -21,7 +21,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, ChevronDown } from "lucide-react";
-import { componentColor } from "@/lib/utils";
+import { componentColor, componentTextColor } from "@/lib/utils";
 import type { Methodology, MethodologyComponent } from "@/types";
 
 export interface ComponentComparisonProps {
@@ -81,7 +81,12 @@ function ComponentRow({
   onToggle: () => void;
 }) {
   const panelId = `home-comparison-${component.id}`;
+  // `color` (the frozen --comp-* hue) for the swatch dot and the open
+  // border -- decorative, exactly where the frozen value belongs.
+  // `textColor` for anything actually rendered as text (P3-G2: the raw
+  // --comp-* hues measured 1.8-2.6:1 against Arena Day's card surface).
   const color = componentColor(component.id);
+  const textColor = componentTextColor(component.id);
 
   return (
     <li
@@ -112,7 +117,7 @@ function ComponentRow({
             </span>
             <span
               className="score-number text-xs font-semibold"
-              style={{ color, fontVariantNumeric: "tabular-nums" }}
+              style={{ color: textColor, fontVariantNumeric: "tabular-nums" }}
             >
               {component.weight_pct.toFixed(0)}%
             </span>
@@ -163,7 +168,7 @@ function ComponentRow({
             href={`/rankings?sort=${component.id}`}
             data-testid={`home-comparison-see-rankings-${component.id}`}
             className="arena-inline-link mt-3 inline-flex"
-            style={{ color, minHeight: "var(--pk-tap-min, 44px)", alignItems: "center" }}
+            style={{ color: textColor, minHeight: "var(--pk-tap-min, 44px)", alignItems: "center" }}
           >
             See rankings sorted by {component.label}
             <ArrowRight size={13} aria-hidden="true" />

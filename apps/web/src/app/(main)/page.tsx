@@ -128,7 +128,7 @@ export default async function HomePage() {
           <div className="min-w-0">
             <p
               className="text-[11px] font-semibold uppercase tracking-[0.2em]"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               Flagship mode · Run the Table
             </p>
@@ -145,7 +145,7 @@ export default async function HomePage() {
             >
               Build a roster of peaks.
               <br />
-              <span style={{ color: "var(--peak-accent)" }}>Run the table.</span>
+              <span style={{ color: "var(--peak-accent-text)" }}>Run the table.</span>
             </h1>
 
             <p className="mt-4 max-w-xl text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
@@ -234,7 +234,7 @@ export default async function HomePage() {
               href="/daily"
               data-testid="home-daily-hub-link"
               className="arena-inline-link"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               Daily hub
               <ArrowRight size={13} aria-hidden="true" />
@@ -385,7 +385,7 @@ export default async function HomePage() {
               <Link
                 href="/methodology"
                 className="arena-inline-link"
-                style={{ color: "var(--peak-accent)" }}
+                style={{ color: "var(--peak-accent-text)" }}
               >
                 Explore the full methodology
                 <ArrowRight size={13} aria-hidden="true" />
@@ -497,7 +497,7 @@ export default async function HomePage() {
                   "Ranked duels against another player",
                 ].map((line) => (
                   <li key={line} className="flex items-start gap-2">
-                    <span aria-hidden="true" style={{ color: "var(--peak-accent)" }}>
+                    <span aria-hidden="true" style={{ color: "var(--peak-accent-text)" }}>
                       →
                     </span>
                     <span>{line}</span>

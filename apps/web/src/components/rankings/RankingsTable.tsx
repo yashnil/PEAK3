@@ -21,7 +21,7 @@
  */
 
 import type { RankingRow } from "@/types";
-import { cn, componentColor, componentLabel } from "@/lib/utils";
+import { cn, componentColor, componentTextColor, componentLabel } from "@/lib/utils";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import {
   RANKING_COLUMNS,
@@ -111,7 +111,7 @@ export default function RankingsTable({
                   full={column.full}
                   align="right"
                   color={
-                    column.key === "total" ? undefined : componentColor(column.key as string)
+                    column.key === "total" ? undefined : componentTextColor(column.key as string)
                   }
                   className={column.cellClass}
                 />
@@ -188,7 +188,7 @@ export default function RankingsTable({
                       "hidden px-3 py-2.5 text-right score-number text-xs lg:table-cell",
                       sortKey === key ? "font-bold" : ""
                     )}
-                    style={{ color: componentColor(key) }}
+                    style={{ color: componentTextColor(key) }}
                   >
                     {formatScore1(row.components?.[key])}
                   </td>

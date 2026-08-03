@@ -30,10 +30,12 @@ export const metadata: Metadata = {
 
 const MODES: DraftMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
 const MODE_ICONS = { apex_1y: "⚡", prime_3y: "✦", foundation_5y: "🏛" };
+// Already-existing tokens (globals.css "Peak Draft mode colors"), referenced
+// rather than restated as literals (P3-G2).
 const MODE_CSS: Record<DraftMode, string> = {
-  apex_1y: "#ff6b47",
-  prime_3y: "#f5c842",
-  foundation_5y: "#4a90d9",
+  apex_1y: "var(--apex-coral)",
+  prime_3y: "var(--prime-gold)",
+  foundation_5y: "var(--foundation-blue)",
 };
 
 function ModeCard({ mode }: { mode: DraftMode }) {
@@ -65,7 +67,7 @@ function ModeCard({ mode }: { mode: DraftMode }) {
         <Link
           href={`/arena/daily/${mode}`}
           className="block text-center py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
-          style={{ background: color, color: "#000" }}
+          style={{ background: color, color: "var(--text-inverse)" }}
         >
           Daily Draft
         </Link>
@@ -90,10 +92,13 @@ export default function LegacyLabsPage() {
     <div className="mx-auto max-w-2xl px-4 py-10" data-testid="legacy-labs-page">
       <div
         className="mb-8 rounded-xl border p-4 flex flex-col gap-2"
-        style={{ background: "var(--bg-surface)", borderColor: "#f59e0b40" }}
+        style={{
+          background: "var(--bg-surface)",
+          borderColor: "color-mix(in srgb, var(--warning) 40%, transparent)",
+        }}
         data-testid="legacy-labs-banner"
       >
-        <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "#f59e0b" }}>
+        <div className="text-xs font-bold uppercase tracking-widest" style={{ color: "var(--warning)" }}>
           Legacy Labs
         </div>
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
@@ -119,7 +124,11 @@ export default function LegacyLabsPage() {
       </p>
       <div
         className="mt-3 text-xs px-3 py-2 rounded-lg border inline-block"
-        style={{ background: "#f59e0b10", borderColor: "#f59e0b40", color: "#f59e0b" }}
+        style={{
+          background: "var(--warning-bg)",
+          borderColor: "color-mix(in srgb, var(--warning) 40%, transparent)",
+          color: "var(--warning)",
+        }}
       >
         The lineup rating is an experimental model, not a prediction of wins or objective truth.
       </div>

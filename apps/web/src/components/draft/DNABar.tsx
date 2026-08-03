@@ -11,10 +11,10 @@ const DIMS = [
 ] as const;
 
 function dimColor(val: number): string {
-  if (val < 15) return "#ef4444";  // catastrophic hole
-  if (val < 35) return "#f59e0b";
-  if (val >= 75) return "#34d399";
-  return "#60a5fa";
+  if (val < 15) return "var(--incorrect)";  // catastrophic hole
+  if (val < 35) return "var(--warning)";
+  if (val >= 75) return "var(--accent-emerald)";
+  return "var(--accent-blue)";
 }
 
 interface Props {

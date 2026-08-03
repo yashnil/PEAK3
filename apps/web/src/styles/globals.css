@@ -45,6 +45,19 @@
   /* PEAK3 accent — warm court gold */
   --peak-accent: #f5c842;
   --peak-accent-dim: #c9a32a;
+  /* P3-G2 CRITICAL FINDING, added here (dark value only — see the light
+     override below): `--peak-accent` is used as literal TEXT color in
+     132 places across 65 files (grepped app-wide, not just this task's
+     41-file remainder). Measured, not assumed: #f5c842 on the new light
+     `--bg-surface` is 1.50:1 — fails WCAG AA at EVERY text size, gold on
+     near-white has no safe size to fall back to the way `--correct`/
+     `--incorrect` did. `--peak-accent` ITSELF stays frozen (CLAUDE.md) —
+     this is a SEPARATE token for the text use case specifically, so a
+     background fill, border or underline still gets the real frozen
+     gold while a text consumer has a legible option to move to. Not a
+     full site-wide migration in this pass — see the handoff note to the
+     lead; fixed here and on every surface this pass's tasks own. */
+  --peak-accent-text: #f5c842;
 
   /* Peak Draft mode colors */
   --apex-coral: #ff6b47;
@@ -59,6 +72,32 @@
   --role-anchor: #34d399;
   --peak-accent-bg: rgba(245, 200, 66, 0.08);
 
+  /* Achievement category colors (progression). Same hue family as the role
+     colors above by coincidence, not by reference -- a different semantic
+     (what KIND of achievement, not which roster role), kept as its own
+     token group so the two can vary independently. P3-G2: these used to be
+     literal hex inside AchievementCard.tsx/AchievementUnlock.tsx, rendered
+     directly as small/bold text -- safe on Arena Night, all four measured
+     1.8-2.6:1 on Arena Day (fails even the 3:1 large-text floor). See the
+     `[data-theme="light"]` block below for the corrected values. */
+  --achievement-onboarding: #60a5fa;
+  --achievement-challenge: #fb923c;
+  --achievement-construction: #a78bfa;
+  --achievement-habit: #34d399;
+
+  /* Generic accent chips (P3-G2). The general-purpose, text-safe-in-both-
+     themes version of the same five hues `--role-*`/`--comp-*` use, for
+     the many small one-off status badges across the app (a "Reframe used"
+     tag, a "respins used" tag, and similar) that are not themselves a
+     PEAK3 component or a roster role and so are free to actually change
+     value between themes, unlike the frozen tokens above. Prefer these
+     over a fresh literal the next time a small colored badge is needed. */
+  --accent-blue: #60a5fa;
+  --accent-violet: #a78bfa;
+  --accent-pink: #f472b6;
+  --accent-orange: #fb923c;
+  --accent-emerald: #34d399;
+
   /* Game states */
   --correct: #22c55e;
   --correct-dim: #15803d;
@@ -67,6 +106,12 @@
   --incorrect-dim: #b91c1c;
   --incorrect-bg: rgba(239, 68, 68, 0.1);
   --neutral: #6b7280;
+  /* P3-G2: promoted from a literal `#f59e0b` (arena/ranked's "not enabled
+     yet" notice) to a real token for the same reason `--correct`/
+     `--incorrect` are -- a status color used as text needs a light-mode
+     value of its own; see the `[data-theme="light"]` block for why. */
+  --warning: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.1);
 
   /* Component colors */
   --comp-si: #60a5fa;    /* Statistical Impact — blue */
@@ -75,6 +120,22 @@
   --comp-po: #fb923c;    /* Playoff Rate Impact — orange */
   --comp-team: #34d399;  /* Team Result — emerald */
   --comp-tm: #94a3b8;    /* Teammate Adj — slate */
+  /* P3-G2 CRITICAL FINDING (same shape as --peak-accent-text above):
+     --comp-* is used as literal TEXT color in several places (component
+     percentage numerals, sorted-column labels). Measured against this
+     theme's --bg-surface: 1.8-2.6:1 for every one of the five, all
+     failing WCAG AA at every text size. --comp-* itself stays frozen
+     (CLAUDE.md/token contract) -- these are the text-safe siblings, used
+     ONLY where --comp-* would otherwise be read as text; a fill, bar or
+     border still uses --comp-* directly. Dark values below are identical
+     to the frozen hex (already legible on Arena Night); see the
+     `[data-theme="light"]` block for the corrected light values. */
+  --comp-si-text: #60a5fa;
+  --comp-tp-text: #a78bfa;
+  --comp-rec-text: #f472b6;
+  --comp-po-text: #fb923c;
+  --comp-team-text: #34d399;
+  --comp-tm-text: #94a3b8;
 
   /* Court geometry accent */
   --court-line: rgba(245, 200, 66, 0.06);
@@ -162,14 +223,54 @@
   --incorrect: #c62828;
   --incorrect-dim: #8e1c1c;
   --incorrect-bg: rgba(198, 40, 40, 0.09);
+  /* Same measurement: #f59e0b landed at 2.03:1 against `--bg-surface`. */
+  --warning: #8a5a05;
+  --warning-bg: rgba(138, 90, 5, 0.10);
 
   /* Gold accent's soft wash, re-tuned the same way (the solid
      `--peak-accent` hex itself is frozen — see banner above). */
   --peak-accent-bg: rgba(245, 200, 66, 0.14);
 
+  /* The TEXT-safe gold — see the CRITICAL FINDING comment on
+     `--peak-accent-text`'s dark value above. #f5c842 measured 1.50:1
+     against this theme's `--bg-surface`; this darker, still-gold value
+     clears 6.14:1. `--peak-accent` itself is NOT overridden here (frozen). */
+  --peak-accent-text: #7a5807;
+
+  /* The TEXT-safe component colors -- see the CRITICAL FINDING comment on
+     --comp-si-text etc.'s dark values above. Same darkening approach and
+     source values as the matching --accent-* / --achievement-* hues
+     (--comp-si = --accent-blue, --comp-tp = --accent-violet,
+     --comp-rec = --accent-pink, --comp-po = --accent-orange,
+     --comp-team = --accent-emerald), plus slate for --comp-tm (2.42:1 on
+     this surface, uniquely -- not shared with any --accent-* hue). Every
+     one clears 4.5:1+ here. --comp-* itself is NOT overridden (frozen). */
+  --comp-si-text: #1d5fc4;
+  --comp-tp-text: #6b46c9;
+  --comp-rec-text: #b01f70;
+  --comp-po-text: #96490d;
+  --comp-team-text: #0f7a4f;
+  --comp-tm-text: #525b68;
+
   /* Court geometry accent — a hair stronger than Arena Night's so the
      court-line grid motif stays visible against a light surface. */
   --court-line: rgba(180, 138, 20, 0.08);
+
+  /* Achievement category colors, darkened for AA as real rendered text
+     (measured against `--bg-surface`/`--bg-page`, not assumed): Arena
+     Night's values landed at 1.8-2.6:1 here, below even the 3:1 large-
+     text floor. Same hue family, same category identity, legible. */
+  --achievement-onboarding: #1d5fc4;
+  --achievement-challenge: #96490d;
+  --achievement-construction: #6b46c9;
+  --achievement-habit: #0f7a4f;
+
+  /* Generic accent chips — same darkening rule, measured the same way. */
+  --accent-blue: #1d5fc4;
+  --accent-violet: #6b46c9;
+  --accent-pink: #b01f70;
+  --accent-orange: #96490d;
+  --accent-emerald: #0f7a4f;
 }
 
 /* ================================================================

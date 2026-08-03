@@ -283,7 +283,7 @@ export default function RankingsPage() {
                     active
                       ? {
                           background: "var(--peak-accent-bg, rgba(245,200,66,0.12))",
-                          color: "var(--peak-accent, #f5c842)",
+                          color: "var(--peak-accent-text, #f5c842)",
                           border: "1px solid var(--peak-accent-dim)",
                         }
                       : {
@@ -323,7 +323,7 @@ export default function RankingsPage() {
             >
               <span>
                 Sorted by{" "}
-                <strong style={{ color: "var(--peak-accent, #f5c842)" }}>{sortColumn.full}</strong>{" "}
+                <strong style={{ color: "var(--peak-accent-text, #f5c842)" }}>{sortColumn.full}</strong>{" "}
                 {sortDirection === "desc" ? "high to low" : "low to high"}
               </span>
               <button

@@ -151,7 +151,7 @@ export default function LeaderboardPreview() {
                     </span>
                     <span
                       className="shrink-0 font-bold"
-                      style={{ color: "var(--peak-accent)", fontVariantNumeric: "tabular-nums" }}
+                      style={{ color: "var(--peak-accent-text)", fontVariantNumeric: "tabular-nums" }}
                     >
                       {r.wins}-{r.losses}
                     </span>
@@ -187,10 +187,10 @@ export default function LeaderboardPreview() {
                     className="mt-1 flex items-baseline gap-1.5"
                     data-testid="home-leaderboard-personal-best"
                   >
-                    <Trophy size={13} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+                    <Trophy size={13} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
                     <span
                       className="score-number text-lg font-bold"
-                      style={{ color: "var(--peak-accent)", fontVariantNumeric: "tabular-nums" }}
+                      style={{ color: "var(--peak-accent-text)", fontVariantNumeric: "tabular-nums" }}
                     >
                       {personalBest.best_lineup_score.toFixed(1)}
                     </span>

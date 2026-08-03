@@ -1,7 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { componentLabel, componentColor } from "@/lib/utils";
+import { componentLabel, componentColor, componentTextColor } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -126,13 +126,14 @@ export default async function PlayerPage({ params }: Props) {
                       {COMPONENT_KEYS.map((key) => {
                         const val = win.components[key];
                         const color = componentColor(key);
+                        const textColor = componentTextColor(key);
                         const maxVal = 40;
                         const barPct = Math.max(0, Math.min(100, (val / maxVal) * 100));
                         return (
                           <div key={key} className="flex items-center gap-3">
                             <p
                               className="text-xs w-36 shrink-0 text-right"
-                              style={{ color }}
+                              style={{ color: textColor }}
                             >
                               {componentLabel(key)}
                             </p>
