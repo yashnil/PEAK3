@@ -268,11 +268,6 @@ function battleFixture(over: Partial<BattlePublic> = {}): BattlePublic {
       final_rating: 60 + i,
       top_contributor: { name: "Tim Duncan", own_lane_index_value: 72 },
       opponent_top_contributor: { name: "Kevin Garnett", own_lane_index_value: 72 },
-      // -- deprecated aliases, still on the wire during the integration window --
-      player_score: 60 + i,
-      opponent_score: 58,
-      player_top_card: card({ player_name: "Tim Duncan" }),
-      opponent_top_card: card({ card_id: "z", player_name: "Kevin Garnett" }),
     })),
     ...over,
   };

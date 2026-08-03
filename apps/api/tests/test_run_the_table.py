@@ -1796,9 +1796,9 @@ def test_scouting_arms_one_capped_lane_preparation_that_reaches_the_battle(
     battle = state["battles"][-1]
     assert battle["lane_bonuses"] == {lane: SCOUT_PREP_LANE_BONUS}
     prepared = next(l for l in battle["lanes"] if l["lane"] == lane)
-    assert prepared["player_prep_bonus"] == SCOUT_PREP_LANE_BONUS
+    assert prepared["perk_adjustment"] == SCOUT_PREP_LANE_BONUS
     assert all(
-        l["player_prep_bonus"] == 0.0 for l in battle["lanes"] if l["lane"] != lane
+        l["perk_adjustment"] == 0.0 for l in battle["lanes"] if l["lane"] != lane
     )
     # Spent on this act's boss whether or not it helped.
     assert state["armed"]["prep"] is None
@@ -2101,11 +2101,19 @@ def test_battle_receipt_carries_the_full_contract_field_set(client: TestClient):
         if lane["opponent_top_contributor"] is not None:
             assert set(lane["opponent_top_contributor"]) == {"name", "own_lane_index_value"}
 
-        # Pre-existing field names are kept alongside the new contract names
-        # during the overhaul's integration window (FILE_OWNERSHIP.md /
-        # SYNTHESIS_CONTRACT.md §9's cherry-pick order).
-        assert lane["player_score"] == lane["player_lineup_rating"]
-        assert lane["opponent_score"] == lane["boss_lineup_rating"]
+        # The integration-window aliases were retired by task #18 once every
+        # reader had migrated to the contract names above. Asserted as ABSENT
+        # rather than merely unused, so a well-meaning future change cannot
+        # quietly reintroduce a second name for the same number -- which is the
+        # ambiguity SCORE_RECONCILIATION set out to remove. In particular
+        # `player_top_card` carried a full card dict including `prime_score`,
+        # one line from the lineup rating, which is precisely the
+        # individual-owns-a-roster-number misread this overhaul fixed.
+        for retired in (
+            "player_score", "opponent_score", "player_prep_bonus",
+            "player_top_card", "opponent_top_card",
+        ):
+            assert retired not in lane, f"retired alias {retired!r} is back on the wire"
 
 
 # ---------------------------------------------------------------------------

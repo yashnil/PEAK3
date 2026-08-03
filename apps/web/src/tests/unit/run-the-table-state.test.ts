@@ -93,11 +93,6 @@ function lane(
     final_rating: 62.5,
     top_contributor: null,
     opponent_top_contributor: null,
-    // -- deprecated aliases --------------------------------------------------
-    player_score: 62.5,
-    opponent_score: 58.25,
-    player_top_card: null,
-    opponent_top_card: null,
     ...over,
   };
 }

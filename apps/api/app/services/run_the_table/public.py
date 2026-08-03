@@ -235,11 +235,15 @@ def _lane_receipt_public(pool: CardPool, l) -> dict:
     SYNTHESIS_CONTRACT.md §2.3's contract field set --
     ``player_lineup_rating``/``boss_lineup_rating``/``pre_perk_rating``/
     ``perk_adjustment``/``bench_adjustment``/``final_rating``/
-    ``top_contributor``/``margin``/``winner`` -- is additive here alongside
-    the pre-existing field names (``player_score``, ``opponent_score``,
-    ``player_prep_bonus``, ``player_top_card``, ``opponent_top_card``), which
-    are kept unchanged rather than removed so nothing that already reads this
-    payload silently breaks during the overhaul's integration window.
+    ``top_contributor``/``margin``/``winner``.
+
+    The former names (``player_score``, ``opponent_score``,
+    ``player_prep_bonus``, ``player_top_card``, ``opponent_top_card``) were
+    published alongside these during the overhaul's integration window and
+    were retired by task #18 once every reader had migrated. Note
+    ``ScoutLaneProjection`` and the ranked payload have their own, unrelated
+    ``player_score``/``opponent_score`` fields -- those are NOT aliases and
+    were correctly left alone.
 
     ``final_rating`` always equals ``player_lineup_rating`` (both are
     ``l.player_score``); it is published under its own contract name because
@@ -266,18 +270,6 @@ def _lane_receipt_public(pool: CardPool, l) -> dict:
         "final_rating": l.player_score,
         "top_contributor": _own_lane_value(pool, l.player_top_card_id, l.lane),
         "opponent_top_contributor": _own_lane_value(pool, l.opponent_top_card_id, l.lane),
-        # -- kept for compatibility during the overhaul's integration window --
-        "player_score": l.player_score,
-        "opponent_score": l.opponent_score,
-        "player_prep_bonus": l.player_prep_bonus,
-        "player_top_card": (
-            card_public(pool, l.player_top_card_id, [])
-            if l.player_top_card_id else None
-        ),
-        "opponent_top_card": (
-            card_public(pool, l.opponent_top_card_id, [])
-            if l.opponent_top_card_id else None
-        ),
     }
 
 

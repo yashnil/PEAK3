@@ -240,7 +240,10 @@ export interface BossPublic {
  *  `public.py::_own_lane_value` sends a narrow `{name, own_lane_index_value}`,
  *  not the full card; if a surface ever needs more of that card (window,
  *  season, cost) that is a new field to request, never a reason to revive
- *  the full-dict `player_top_card`/`opponent_top_card` aliases below. */
+ *  the full-dict `player_top_card`/`opponent_top_card` aliases that task #18
+ *  retired. Narrowness is the point: the full card carried a `prime_score`
+ *  that sat one line from the lineup rating and invited exactly the
+ *  individual-owns-a-roster-number misread this overhaul exists to fix. */
 export interface LaneTopContributor {
   name: string;
   own_lane_index_value: number;
@@ -276,20 +279,6 @@ export interface BattleLanePublic {
   final_rating: number;
   top_contributor: LaneTopContributor | null;
   opponent_top_contributor: LaneTopContributor | null;
-  // -- deprecated aliases, kept only for the overhaul's integration window --
-  // (task #18 retires these once every reader has migrated off them; see
-  // apps/api/app/services/run_the_table/public.py::_lane_receipt_public's
-  // own docstring for the same note on the server side.) -------------------
-  /** @deprecated use `player_lineup_rating` */
-  player_score: number;
-  /** @deprecated use `boss_lineup_rating` */
-  opponent_score: number;
-  /** @deprecated use `perk_adjustment` */
-  player_prep_bonus?: number;
-  /** @deprecated use `top_contributor` */
-  player_top_card: RunCardPublic | null;
-  /** @deprecated use `opponent_top_contributor` */
-  opponent_top_card: RunCardPublic | null;
 }
 
 export interface BattlePublic {
