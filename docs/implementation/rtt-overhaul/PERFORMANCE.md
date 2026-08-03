@@ -312,17 +312,73 @@ below).
 
 ### Lighthouse
 
-**Lighthouse was NOT RUN.** `apps/web` has no `lighthouse` devDependency and
-`npx lighthouse` was not attempted against a live dev server in this pass —
-doing so meaningfully requires the web app running against a real API
-(local API + local web + `npx lighthouse http://localhost:3000` and
-`.../arena/run-the-table`), which was deprioritized in favor of the API-side
-measurement above given the time budget for this phase. This is a concrete
-gap for whoever picks up the "after" measurement: run
-`npx --yes lighthouse http://localhost:3000 --output=json` and the same
-against a booted (not mid-run) `/arena/run-the-table` for real Performance/
-Accessibility/CLS numbers on both the homepage and an RTT route, per the
-original ask. Flagging explicitly rather than estimating.
+**Lighthouse was RUN.** `lighthouse@13.4.1` added as an `apps/web`
+devDependency. Method: `next build` with `NEXT_PUBLIC_API_URL=https://
+peak3-staging.up.railway.app` (the deploy-safety guard in `next.config.ts`
+refuses a `localhost` value at `next build` time, confirmed again here — see
+that file's `assertDeployableEnv()`), served locally via `next start -p 3010`,
+audited with `npx lighthouse --preset=desktop --chrome-flags="--headless=new
+--no-sandbox"` against both routes. A local API was also booted in-memory on
+`127.0.0.1:8010` per the ask, but the *built* bundle's API URL is inlined at
+build time and cannot point at it without retriggering the same guard — see
+the CORS caveat below for what that means for these numbers.
+
+| Route | Perf | A11y | Best Practices | SEO | FCP | LCP | TBT | CLS | Speed Index | TTI |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `/` (homepage) | 99 | 96 | 96 | 100 | 0.2 s | 0.9 s | 0 ms | 0 | 1.0 s | 0.9 s |
+| `/arena/run-the-table` | 98 | 96 | 96 | 90 | 0.3 s | 1.0 s | 0 ms | 0.052 | 0.3 s | 1.0 s |
+
+Raw reports: `homepage.report.{json,html}` / `rtt.report.{json,html}`,
+generated in this run (not committed — regenerate with the command above; they
+are large Lighthouse artifacts, not source).
+
+**Caveat — this is not a fully-hydrated-page measurement.** The staging API's
+CORS allowlist is (correctly, per `apps/api/app/core/config.py`)
+`https://peak3-staging.vercel.app` only, verified directly:
+`OPTIONS .../run-the-table/meta` with `Origin: http://localhost:3010` returns
+`400 Disallowed CORS origin`; the same call with `Origin:
+https://peak3-staging.vercel.app` returns `200`. So every live data fetch
+(`run-the-table/meta`, `run-the-table/readiness`, `perfect-season/daily`,
+`perfect-season/leaderboard`) failed client-side in this local run, and both
+pages rendered their empty/error/skeleton states rather than fully populated
+ones. This is the CORS boundary working as designed, not a defect — it is a
+consequence of auditing a locally-served build against the real staging API
+from an origin nothing allowlists. It means the Performance numbers above are
+likely optimistic relative to a real fully-hydrated page (less JS work,
+smaller payload), and is also *why* the 0.052 CLS on the RTT route is
+probably an empty-state artifact, not signal about a real stage transition —
+**it still does not answer the stage-transition CLS question this section
+originally flagged**, which needs a live run against a real API (Phase 5).
+
+**Real, load-bearing finding despite the caveat — an actual WCAG contrast
+failure, live in the rendered page, independent of the CORS issue:**
+`color-contrast` scored 0 on both routes. `--peak-accent` (`#f5c842`) is used
+as a literal Tailwind arbitrary-value text color (`text-[var(--peak-accent)]`)
+against light-mode backgrounds in ~15 files never touched by the `-text`
+sibling-token migration (Tasks #17/#20), because that migration's scope was
+the 30-file remainder tracked in `THEME_MIGRATION_INVENTORY.md`, not a
+codebase-wide grep. Confirmed instances include the header wordmark
+(`components/layout/nav.tsx:91`, `<span className="text-[var(--peak-accent)]">
+PEAK</span>`, 1.28:1 against `#ece7dc`) and, on the RTT route specifically,
+difficulty/rank badges at 1.32:1 and 1.49:1, plus `--foundation-blue` at
+3.15:1 and `--apex-coral` at 2.66:1 (both need 4.5:1). Full file list from
+`grep -rn "text-\[var(--peak-accent)\]" src/`: `contact`, `privacy`, `terms`,
+`accessibility`, `data-sources`, `about`, `methodology`, `players/[slug]`,
+`play/endless`, `play/daily`, `c/not-found`, `layout/nav.tsx`,
+`layout/Footer.tsx`, `game/reveal-panel.tsx`, `game/game-engine.tsx`,
+`game/challenge-summary.tsx`, `rankings/RankingsTable.tsx`,
+`rankings/ScoreExplainModal.tsx`. Not fixed here — out of scope for closing
+the Lighthouse *measurement* gap — but this is real, reproducible, and the
+same bug class as the `--peak-accent-text`/`--comp-*-text` fixes already
+shipped; flagging for a follow-up task rather than silently leaving it.
+
+Also observed, noted for completeness, not investigated further (out of
+scope for this pass): `label-content-name-mismatch` (nav wordmark's visible
+text doesn't fully match its `aria-label`), `errors-in-console` (the CORS
+failures above, plus one unrelated 404), and `meta-description` scoring 0 on
+the RTT route despite the tag being present and correct in the served HTML
+(`curl` confirms it server-side) — Lighthouse's runtime DOM check disagrees
+with the static HTML for a reason not chased down here.
 
 ### Playwright
 

@@ -969,11 +969,10 @@ describe("RunMap", () => {
     // "current" used to be a bare `--peak-accent` (10.95:1 on Arena Night's
     // accent wash) — but the SAME pure accent measured 1.24:1 on Arena Day's
     // wash, nowhere near the 3:1 floor, since pale gold on near-white paper
-    // is a bad pairing regardless of theme. Mixed toward `--text-primary`
-    // (which itself flips dark/light-ink per theme) instead: 13.26:1 dark,
-    // 4.91:1 light. See RunMap.tsx's `STATE_TEXT` docstring for the measurements.
-    expect(colorOf("a1s1")).toContain("color-mix");
-    expect(colorOf("a1s1")).toContain("--peak-accent");
+    // is a bad pairing regardless of theme. Now reads the named, app-wide
+    // text-safe sibling token instead of a locally-derived color-mix — see
+    // RunMap.tsx's `STATE_TEXT` docstring.
+    expect(colorOf("a1s1")).toBe("var(--peak-accent-text)");
     expect(colorOf("a1s2")).toBe("var(--text-muted)"); // 5.21:1 dark / 5.60:1 light
     expect(colorOf("a2s1")).toBe("var(--correct)"); // 7.40:1 dark / 6.25:1 light
     expect(colorOf("a2boss")).toBe("var(--correct)");
@@ -1029,12 +1028,16 @@ describe("LaneProfile", () => {
     );
   });
 
-  it("never colors the lane's own number with the frozen --comp-* hex — only the bar fill uses it", () => {
+  it("colors the lane's own number with the text-safe sibling token, never the frozen fill token", () => {
     render(<LaneProfile lanes={lanes} />);
     const bar = screen.getByTestId("rtt-lane-bar-statistical_impact");
+    // The bar fill uses the frozen accent — correct, it's a fill, not text.
     expect(bar.style.background).toBe("var(--comp-si)");
+    // The number beside it uses the text-safe sibling (P3-G2/componentTextColor),
+    // which preserves the lane's identity colour while clearing AA on Arena
+    // Day — never the frozen fill token, and never a drop to neutral text.
     const number = screen.getByText("50.0");
-    expect(number.style.color).toBe("var(--text-primary)");
+    expect(number.style.color).toBe("var(--comp-si-text)");
   });
 
   it("adds no extra text when there is nothing title-only to expose", () => {
@@ -1164,8 +1167,10 @@ describe("RunCard", () => {
     const shape = screen.getByTestId("rtt-card-shape");
     const strongestWord = within(shape).getByText("Statistical Impact");
     const weakestWord = within(shape).getByText("Team Result");
-    expect(strongestWord.style.color).toBe("var(--text-primary)");
-    expect(weakestWord.style.color).toBe("var(--text-primary)");
+    // Text-safe sibling tokens (componentTextColor, P3-G2) — identity colour
+    // preserved, AA-clearing, never the frozen fill token or neutral text.
+    expect(strongestWord.style.color).toBe("var(--comp-si-text)");
+    expect(weakestWord.style.color).toBe("var(--comp-team-text)");
   });
 
   it("calls a level card Balanced", () => {
@@ -1580,13 +1585,15 @@ describe("BattleReveal", () => {
     expect(within(screen.getByTestId("rtt-battle-lanes")).getAllByRole("listitem")).toHaveLength(5);
   });
 
-  it("never colors the lane-label TEXT with the frozen --comp-* hex — the color moves to the dot beside it", () => {
+  it("colors the lane-label TEXT with the text-safe sibling token — the frozen fill token stays on the dot beside it", () => {
     render(
       <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
     );
     const lane = screen.getByTestId("rtt-lane-statistical_impact");
     const label = within(lane).getByText("Lane 0");
-    expect(label.style.color).toBe("var(--text-primary)");
+    // componentTextColor("statistical_impact") — identity colour preserved,
+    // AA-clearing, never the frozen `--comp-si` fill token used on the dot.
+    expect(label.style.color).toBe("var(--comp-si-text)");
   });
 
   it("names the top contributor the server sent on each side", () => {

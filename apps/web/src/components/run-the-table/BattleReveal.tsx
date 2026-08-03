@@ -12,6 +12,7 @@ import {
   runningSeries,
 } from "@/lib/run-the-table-state";
 import { LANE_RATING_LABELS } from "@/lib/run-the-table-copy";
+import { componentTextColor } from "@/lib/utils";
 
 const STAGGER_S = 0.09;
 const DURATION_S = 0.35;
@@ -355,14 +356,16 @@ export default function BattleReveal({
                   </div>
                 </div>
 
-                {/* Label. `color` (the frozen --comp-* hex) is measurably
-                    unreadable as TEXT on Arena Day — 1.6-2.6:1 against every
-                    surface tier, failing even the 3:1 large-text floor (see
-                    platform's THEME_MIGRATION_INVENTORY.md finding, verified
-                    independently here). It stays exactly what the token was
+                {/* Label. `color` (`laneColorVar` — the frozen --comp-* hex)
+                    is measurably unreadable as TEXT on Arena Day — 1.6-2.6:1
+                    against every surface tier, failing even the 3:1
+                    large-text floor. It stays exactly what the token was
                     tuned for: a fill/border accent (the bars above, the dot
-                    below) — never the label's own text color, which is
-                    always `--text-primary` in both themes. */}
+                    below). The label's own text uses `componentTextColor`
+                    (lib/utils.ts, P3-G2) — the named, app-wide text-safe
+                    sibling that preserves the lane's identity colour while
+                    clearing AA, rather than dropping to neutral
+                    `--text-primary`. */}
                 <div className="flex w-24 flex-col items-center text-center @[520px]:w-28">
                   <span className="flex items-center gap-1">
                     <span
@@ -372,7 +375,9 @@ export default function BattleReveal({
                     />
                     <span
                       className="text-[10px] font-medium leading-tight"
-                      style={{ color: "var(--text-primary)" }}
+                      style={{
+                        color: lane.winner === "tie" ? "var(--text-primary)" : componentTextColor(lane.lane),
+                      }}
                     >
                       {lane.label}
                     </span>

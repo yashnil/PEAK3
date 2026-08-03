@@ -1,6 +1,7 @@
 "use client";
 import { LaneProfileEntry } from "@/types/run-the-table";
 import { laneColorVar } from "@/lib/run-the-table-state";
+import { componentTextColor } from "@/lib/utils";
 
 /**
  * The five-lane roster profile.
@@ -76,13 +77,15 @@ export default function LaneProfile({
                 />
               )}
             </div>
-            {/* The lane's own number, never colored with the lane token —
-                `laneColorVar` is a fill/border accent (the bar above), and
-                the frozen `--comp-*` hex measures 1.6-2.6:1 as text on
-                Arena Day, failing even the 3:1 large-text floor. */}
+            {/* The lane's own number, never colored with `laneColorVar` (a
+                fill/border accent, same as the bar above) — the frozen
+                `--comp-*` hex measures 1.6-2.6:1 as text on Arena Day,
+                failing even the 3:1 large-text floor. `componentTextColor`
+                (lib/utils.ts, P3-G2) keeps the lane's identity colour while
+                clearing AA, rather than dropping to neutral text. */}
             <div
               className="score-number w-9 shrink-0 text-right text-[11px]"
-              style={{ color: "var(--text-primary)" }}
+              style={{ color: componentTextColor(lane.lane) }}
             >
               {lane.value.toFixed(1)}
             </div>
