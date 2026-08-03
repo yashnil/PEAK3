@@ -558,11 +558,16 @@ export default function CourtBuilder({
                     Choose any open spot on the court rail — the fit badge shows how well
                     they match that spot, but every open spot is a legal placement.
                   </div>
+                  {/* Launch-polish LP2-1: this banner has plenty of room
+                      (unlike the roster card's Move button), so the
+                      44x44 floor is met by growing the real button
+                      itself rather than a separate hit-area wrapper --
+                      nothing here was visually cramped to begin with. */}
                   <button
                     data-testid="cancel-selection-btn"
                     onClick={handleCancel}
                     disabled={busy}
-                    className="text-xs font-semibold uppercase tracking-wide rounded px-2 py-1 shrink-0"
+                    className="min-h-[44px] shrink-0 rounded px-3 text-xs font-semibold uppercase tracking-wide"
                     style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
                   >
                     Choose someone else
@@ -604,10 +609,13 @@ export default function CourtBuilder({
                 <span className="text-[11px]" style={{ color: "var(--text-primary)" }}>
                   Moving from <strong>{SLOT_LABELS[movingSlot]}</strong> — pick a destination slot. No re-spin, no cards lost.
                 </span>
+                {/* Launch-polish LP2-1: "Cancel" alone is short enough that
+                    padding-only growth would meet the height floor but not
+                    the width one, so both are pinned explicitly. */}
                 <button
                   data-testid="rearrange-cancel-btn"
                   onClick={cancelRearrange}
-                  className="text-[10px] font-semibold uppercase tracking-wide rounded px-2 py-1 shrink-0"
+                  className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded px-3 text-[10px] font-semibold uppercase tracking-wide"
                   style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
                 >
                   Cancel
@@ -640,13 +648,16 @@ export default function CourtBuilder({
                   </strong>
                   ?
                 </span>
+                {/* Launch-polish LP2-1: both short labels, both pinned to
+                    44x44 on width and height -- same reasoning as
+                    rearrange-cancel-btn above. */}
                 <span className="flex shrink-0 items-center gap-1.5">
                   <button
                     type="button"
                     data-testid="swap-confirm-btn"
                     onClick={confirmPendingSwap}
                     disabled={busy}
-                    className="text-[10px] font-bold uppercase tracking-wide rounded px-2.5 py-1 disabled:opacity-50"
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded px-3 text-[10px] font-bold uppercase tracking-wide disabled:opacity-50"
                     style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
                   >
                     Swap
@@ -656,7 +667,7 @@ export default function CourtBuilder({
                     data-testid="swap-confirm-cancel-btn"
                     onClick={cancelPendingSwap}
                     disabled={busy}
-                    className="text-[10px] font-semibold uppercase tracking-wide rounded px-2 py-1 disabled:opacity-50"
+                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded px-3 text-[10px] font-semibold uppercase tracking-wide disabled:opacity-50"
                     style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
                   >
                     Cancel

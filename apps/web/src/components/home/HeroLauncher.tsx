@@ -21,13 +21,20 @@
  *     daily shared run are both still one click away, just as smaller,
  *     secondary links rather than co-equal menu rows.
  *
- * The daily deliberately still does NOT carry `?start=`, for the same
- * reason it never did: it is one shared board per UTC day and one attempt
- * per player, so making the URL itself the trigger would let a bookmark, a
- * forwarded link, or a restored browser session spend someone's attempt on
- * navigation with no confirmation. `/arena/run-the-table?mode=daily` lands
- * on the start gate with the daily button emphasised instead -- one extra
- * click, and it is the click that spends the attempt.
+ * LAUNCH-POLISH LP2-3 REMOVED THE THIRD WAY IN. This launcher used to offer a
+ * "Today's shared run" secondary link beside the primary CTA. It is gone:
+ * `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md` traced every
+ * stage of run generation, battle resolution and pricing and found no
+ * `run_type` branch anywhere — a daily run and a standard run given the same
+ * seed are byte-identical in everything except which seed they got — and the
+ * one player-facing signal the backend computes specifically for daily
+ * (`already_played`) was never wired into this frontend at all. A link that
+ * cannot point to anything a player would choose it FOR does not belong next
+ * to the one that can. The backend contract is untouched: `GET
+ * /run-the-table/daily`, `daily_seed()`, the partial unique index and any
+ * already-saved daily run all still work exactly as before, and an existing
+ * bookmark or shared link to `/arena/run-the-table?mode=daily` still resolves
+ * — it is simply no longer a link this app hands out.
  *
  * No ARIA menu-button machinery is needed any more: every affordance here
  * is a real `<Link>`, so Tab order, Enter-to-activate and screen-reader
@@ -37,29 +44,11 @@
 
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
-import { CalendarDays, Play, RotateCcw } from "lucide-react";
+import { Play, RotateCcw } from "lucide-react";
 import { loadActiveRun } from "@/lib/run-the-table-state";
 
-/** The three ways into RUN THE TABLE. */
+/** The two ways into RUN THE TABLE from the homepage. */
 export const LAUNCHER_STANDARD_HREF = "/arena/run-the-table?start=standard";
-/**
- * Daily deliberately does NOT carry `?start=`.
- *
- * A standard run costs nothing to create — the seed is random, and starting a
- * second one loses you nothing — so auto-starting it directly is safe. The
- * daily is not that: it is one shared board per UTC day and one attempt per
- * player. `?start=daily` on a plain `<Link>` makes the URL itself the
- * trigger, so anyone the address bar is copied to — a group chat, a
- * bookmark, a browser session restore — has today's attempt spent for them
- * on navigation, with no confirmation.
- *
- * `/arena/run-the-table?mode=daily` lands on the start gate with the daily
- * button emphasised, which is what `/arena` has always linked to
- * (`RUN_THE_TABLE_DAILY_HREF` in lib/modes.ts) and what the route's own
- * docstring promises. One extra click, and it is the click that spends the
- * attempt.
- */
-export const LAUNCHER_DAILY_HREF = "/arena/run-the-table?mode=daily";
 /** The bare route on purpose: it must NOT start anything. */
 export const LAUNCHER_RESUME_HREF = "/arena/run-the-table";
 
@@ -105,10 +94,13 @@ export default function HeroLauncher({
 
       {/* Secondary, on purpose -- smaller type, no button chrome, plain
           underline-on-hover links. The primary control above already IS
-          "start something"; these are the alternatives to that one
-          default, not co-equal choices in a menu. */}
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-        {hasActiveRun && (
+          "start something"; this is the alternative to that one default,
+          not a co-equal choice in a menu. Only rendered once there is
+          something to prefer it over -- with no run in progress there is
+          nothing this link would offer that the primary control doesn't
+          already do. */}
+      {hasActiveRun && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5">
           <Link
             href={LAUNCHER_STANDARD_HREF}
             data-testid="home-launcher-standard"
@@ -118,17 +110,8 @@ export default function HeroLauncher({
             <Play size={12} aria-hidden="true" />
             Start New Run
           </Link>
-        )}
-        <Link
-          href={LAUNCHER_DAILY_HREF}
-          data-testid="home-launcher-daily"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] rounded"
-          style={{ color: "var(--text-secondary)" }}
-        >
-          <CalendarDays size={12} aria-hidden="true" />
-          Today&rsquo;s shared run <span style={{ color: "var(--text-muted)" }}>&middot; one attempt per day</span>
-        </Link>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

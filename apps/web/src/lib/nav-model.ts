@@ -117,9 +117,11 @@ export interface TopLevelNavLink {
 /**
  * Runtime facts the menu cannot know statically.
  *
- * Every flag defaults to `true` because every corresponding route is currently
- * live and tested; they exist so that a mode taken offline is removed from the
- * menu by a caller rather than by editing this file under time pressure.
+ * Every flag defaults to `true` — every corresponding route is currently live
+ * and tested — EXCEPT `dailyRunTheTable`; they exist so that a mode taken
+ * offline (or, per LP2-3 below, on hold pending a reason to advertise it) is
+ * removed from the menu by a caller rather than by editing this file under
+ * time pressure.
  */
 export interface NavAvailability {
   /** 82-0 PEAK Season is playable. */
@@ -134,9 +136,24 @@ export interface NavAvailability {
   matchHistory?: boolean;
 }
 
+/**
+ * LP2-3: `dailyRunTheTable` defaults to `false`, not `true` like every other
+ * flag in this object.
+ *
+ * `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md` traced every
+ * stage of run generation, battle resolution and pricing and found no
+ * `run_type` branch anywhere a player could feel — a daily run and a
+ * standard run given the same seed are identical in everything except which
+ * seed they got — and the one signal the backend computes specifically for
+ * daily (`already_played`) was never wired into any frontend surface that
+ * reads this flag. This is a menu default, not a capability removal: the
+ * route, the seed function, the partial unique index and any already-saved
+ * daily run are all untouched, and passing `{ dailyRunTheTable: true }`
+ * still turns the nav entry back on exactly as before.
+ */
 const DEFAULT_AVAILABILITY: Required<NavAvailability> = {
   peakSeason: true,
-  dailyRunTheTable: true,
+  dailyRunTheTable: false,
   ranked: true,
   leaderboard: true,
   matchHistory: true,

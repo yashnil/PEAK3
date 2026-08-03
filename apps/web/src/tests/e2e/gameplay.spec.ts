@@ -109,22 +109,19 @@ test.describe("Arena landing", () => {
     await expect(page.locator('[data-testid="home-launcher-menu"]')).toHaveCount(0);
   });
 
-  test("the daily is a secondary link that never spends the attempt on navigation", async ({
-    page,
-  }) => {
+  // LP2-3 removed the homepage's "Today's shared run" secondary link.
+  // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md` found nothing a
+  // player could point to that daily delivers over Standard, and the one
+  // signal the backend computes specifically for it (`already_played`) was
+  // never read by this frontend at all. The next test below --
+  // "a shared ?mode=daily link never spends the daily attempt on
+  // navigation" -- is what still guards the correctness property the old
+  // version of THIS test used to pin (no URL may spend the day's attempt);
+  // it does so by visiting the preserved route directly, independent of
+  // whether anything on the homepage links to it.
+  test("the homepage no longer offers a daily shared-run link", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-
-    // Present without any click -- secondary by visual weight, not by being
-    // hidden behind a disclosure.
-    const daily = page.locator('[data-testid="home-launcher-daily"]');
-    await expect(daily).toBeVisible();
-    // Deliberately NOT `?start=daily`: the daily is one shared board and one
-    // attempt per UTC day, so a URL that spends it on navigation would burn the
-    // attempt of everyone the link reaches. It lands on the gate instead. This
-    // is the assertion worth keeping from the pre-launch-polish version of this
-    // test -- it guards a correctness property, not a layout choice.
-    await expect(daily).toHaveAttribute("href", "/arena/run-the-table?mode=daily");
-
+    await expect(page.locator('[data-testid="home-launcher-daily"]')).toHaveCount(0);
     // "Start New Run" is deliberately absent with no run in progress: it only
     // earns a place once there is something to prefer it over.
     await expect(page.locator('[data-testid="home-launcher-standard"]')).toHaveCount(0);
@@ -167,7 +164,7 @@ test.describe("Arena landing", () => {
     );
   });
 
-  test("a keyboard user reaches the run and the daily without a pointer", async ({ page }) => {
+  test("a keyboard user reaches the run without a pointer", async ({ page }) => {
     // This test used to drive the launcher MENU's roving-focus behaviour
     // (ArrowDown opens, focus lands on the first item, Escape restores). That
     // menu is gone (launch-polish §I) and with it the whole apparatus -- which
@@ -175,9 +172,11 @@ test.describe("Arena landing", () => {
     // there is no custom keyboard contract left to regress.
     //
     // What still has to hold, and is what this now asserts: a keyboard-only
-    // player can reach BOTH the primary run and the daily, and activating the
-    // primary with Enter actually starts one. That is the promise; the menu
-    // was only ever one implementation of it.
+    // player can reach the primary run and activating it with Enter actually
+    // starts one. That is the promise; the menu was only ever one
+    // implementation of it. (This test used to also check a second, daily
+    // link here -- LP2-3 removed it from the homepage; see
+    // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md`.)
     //
     // `networkidle`, not `domcontentloaded`: `focus()` is a plain DOM call that
     // succeeds pre-hydration, but activation is React-attached, so a keypress
@@ -187,15 +186,10 @@ test.describe("Arena landing", () => {
     // window (P6-f/P6-h investigation)".
     await page.goto("/", { waitUntil: "networkidle" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
-    const daily = page.locator('[data-testid="home-launcher-daily"]');
 
     await cta.focus();
     await expect(cta).toBeFocused();
-    // The daily is reachable by keyboard alone, not pointer-only.
-    await daily.focus();
-    await expect(daily).toBeFocused();
 
-    await cta.focus();
     await Promise.all([
       page.waitForURL("**/arena/run-the-table**"),
       page.keyboard.press("Enter"),
