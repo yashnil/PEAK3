@@ -5790,6 +5790,12 @@ def test_undo_reverses_a_placement_into_an_empty_slot(client: TestClient):
     undone = _undo(client, game_id, placed["state_version"]).json()
     pg_slot = next(s for s in undone["slots"] if s["slot_type"] == "PG")
     assert pg_slot["filled"] is False, "the slot must be empty again"
+    # Not just "empty" by the filled flag -- the fit fields must not hold a
+    # stale value for a card that is no longer there (raised explicitly
+    # during review: an undo can look right on "is a player there?" and
+    # still leave a wrong fit badge behind).
+    assert pg_slot["role_fit"] is None
+    assert pg_slot["role_fit_severity"] is None
     assert undone["current_round"] == round_before, "the round must roll back"
     assert undone["undo"]["available"] is False, "consumed -- cannot be undone twice"
 
@@ -5803,7 +5809,17 @@ def test_undo_reverses_a_placement_into_an_empty_slot(client: TestClient):
 def test_undo_reverses_a_swap_restoring_both_displaced_players(client: TestClient):
     """The 'replacement restoring the displaced player' requirement: swap
     two ALREADY-OCCUPIED slots, undo, and confirm each player is back in
-    their original slot -- not just that the slots are filled."""
+    their original slot -- not just that the slots are filled.
+
+    Also asserts role_fit/role_fit_severity, not just card identity --
+    raised explicitly during review: action_swap_slots RECOMPUTES fit for
+    both slots on every swap (_recompute_slot_fit), so reversing a swap by
+    re-running the same swap logic must independently reproduce the exact
+    PRE-swap fit values, not just move the right card back. A snapshot
+    that only remembered cards (not fit) could put the right player in the
+    right slot while silently leaving a stale or wrong fit badge -- this
+    proves that did not happen, rather than assuming _recompute_slot_fit
+    is deterministic."""
     state = _create(client, mode="apex_1y", seed=603)
     game_id = state["game_id"]
     for slot_type in ("PG", "SG"):
@@ -5812,22 +5828,32 @@ def test_undo_reverses_a_swap_restoring_both_displaced_players(client: TestClien
         _select(client, game_id, candidate["player_slug"])
         state = _place(client, game_id, slot_type)
 
-    pg_before = _slot_identity(next(s for s in state["slots"] if s["slot_type"] == "PG"))
-    sg_before = _slot_identity(next(s for s in state["slots"] if s["slot_type"] == "SG"))
+    pg_slot_before = next(s for s in state["slots"] if s["slot_type"] == "PG")
+    sg_slot_before = next(s for s in state["slots"] if s["slot_type"] == "SG")
+    pg_before = _slot_identity(pg_slot_before)
+    sg_before = _slot_identity(sg_slot_before)
     assert pg_before and sg_before and pg_before != sg_before
+    pg_fit_before = (pg_slot_before["role_fit"], pg_slot_before["role_fit_severity"])
+    sg_fit_before = (sg_slot_before["role_fit"], sg_slot_before["role_fit_severity"])
 
     swapped = _swap(client, game_id, "PG", "SG")
     assert swapped["undo"]["kind"] == "swap"
-    pg_after_swap = _slot_identity(next(s for s in swapped["slots"] if s["slot_type"] == "PG"))
-    sg_after_swap = _slot_identity(next(s for s in swapped["slots"] if s["slot_type"] == "SG"))
-    assert pg_after_swap == sg_before, "PG must now hold what was in SG"
-    assert sg_after_swap == pg_before, "SG must now hold what was in PG"
+    pg_slot_after_swap = next(s for s in swapped["slots"] if s["slot_type"] == "PG")
+    sg_slot_after_swap = next(s for s in swapped["slots"] if s["slot_type"] == "SG")
+    assert _slot_identity(pg_slot_after_swap) == sg_before, "PG must now hold what was in SG"
+    assert _slot_identity(sg_slot_after_swap) == pg_before, "SG must now hold what was in PG"
 
     undone = _undo(client, game_id, swapped["state_version"]).json()
-    pg_final = _slot_identity(next(s for s in undone["slots"] if s["slot_type"] == "PG"))
-    sg_final = _slot_identity(next(s for s in undone["slots"] if s["slot_type"] == "SG"))
-    assert pg_final == pg_before, "the displaced PG player must be restored"
-    assert sg_final == sg_before, "the displaced SG player must be restored"
+    pg_slot_final = next(s for s in undone["slots"] if s["slot_type"] == "PG")
+    sg_slot_final = next(s for s in undone["slots"] if s["slot_type"] == "SG")
+    assert _slot_identity(pg_slot_final) == pg_before, "the displaced PG player must be restored"
+    assert _slot_identity(sg_slot_final) == sg_before, "the displaced SG player must be restored"
+    assert (pg_slot_final["role_fit"], pg_slot_final["role_fit_severity"]) == pg_fit_before, (
+        "PG's fit badge must match what it was before the swap, not the swapped-in fit"
+    )
+    assert (sg_slot_final["role_fit"], sg_slot_final["role_fit_severity"]) == sg_fit_before, (
+        "SG's fit badge must match what it was before the swap, not the swapped-in fit"
+    )
 
 
 def test_undo_rejects_a_stale_expected_state_version(client: TestClient):
