@@ -39,6 +39,7 @@ migration change rather than hand-editing this file.
 | 32 | `20260803110000_contact_submissions` | 1 | 2 | 0 | 0 | 0 | 1 | 1 |
 | 33 | `20260803120000_profile_column_privileges` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 34 | `20260803130000_user_settings_theme_preference` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 35 | `20260803140000_revoke_truncate_trigger_identity_tables` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 ## Detail per migration
 
@@ -952,6 +953,32 @@ migration change rather than hand-editing this file.
 **Idempotency:** none detected
 
 ### `20260803130000_user_settings_theme_preference.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260803140000_revoke_truncate_trigger_identity_tables.sql`
 
 **Tables created:** none
 

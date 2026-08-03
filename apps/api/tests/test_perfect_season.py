@@ -5718,3 +5718,346 @@ def test_respin_idempotency_survives_a_state_serialization_round_trip():
     spin_after = ps_state.find_spin(revived.board, revived.current_round)
     assert revived.team_respins_used == 1
     assert (spin_after.team_id, spin_after.era_label) == landed
+
+
+# ---------------------------------------------------------------------------
+# Authoritative Undo (launch-polish IMPLEMENTATION_CONTRACT.md §5).
+# ---------------------------------------------------------------------------
+
+def _swap(client: TestClient, game_id: str, slot_a: str, slot_b: str) -> dict:
+    resp = client.post(
+        f"/api/v1/perfect-season/games/{game_id}/swap-slots",
+        json={"game_id": game_id, "slot_a": slot_a, "slot_b": slot_b},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _undo(
+    client: TestClient,
+    game_id: str,
+    expected_state_version: int,
+    idempotency_key: str | None = None,
+):
+    body: dict = {"game_id": game_id, "expected_state_version": expected_state_version}
+    if idempotency_key is not None:
+        body["idempotency_key"] = idempotency_key
+    return client.post(f"/api/v1/perfect-season/games/{game_id}/undo", json=body)
+
+
+def _slot_identity(slot: dict) -> str | None:
+    """Whichever card-identity key is set on a filled slot -- `peak_window_id`
+    for the legacy engine, `exact_player_season_key` for team_year mode
+    (COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED defaults True, so plain
+    `client`-fixture tests exercise team_year by default). Never both."""
+    return slot.get("peak_window_id") or slot.get("exact_player_season_key")
+
+
+def test_undo_is_unavailable_before_anything_has_been_placed(client: TestClient):
+    state = _create(client, mode="apex_1y", seed=601)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    assert state["undo"] == {"available": False, "kind": None, "expires_at": None}
+
+    resp = _undo(client, game_id, state["state_version"])
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "undo_not_available"
+
+
+def test_undo_reverses_a_placement_into_an_empty_slot(client: TestClient):
+    """Undo the most recent EMPTY-SLOT placement: the slot empties again,
+    the round/status roll back, and the exact same card becomes the
+    pending selection again -- proven behaviorally by placing it into a
+    DIFFERENT slot afterward and confirming that succeeds, not just by
+    inspecting the response shape."""
+    state = _create(client, mode="apex_1y", seed=602)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    round_before = state["current_round"]
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+
+    placed = _place(client, game_id, "PG")
+    assert placed["undo"] == {
+        "available": True, "kind": "place", "expires_at": placed["undo"]["expires_at"],
+    }
+    assert placed["undo"]["expires_at"] is not None
+    pg_slot = next(s for s in placed["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is True
+    placed_identity = _slot_identity(pg_slot)
+    assert placed_identity is not None
+
+    undone = _undo(client, game_id, placed["state_version"]).json()
+    pg_slot = next(s for s in undone["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is False, "the slot must be empty again"
+    # Not just "empty" by the filled flag -- the fit fields must not hold a
+    # stale value for a card that is no longer there (raised explicitly
+    # during review: an undo can look right on "is a player there?" and
+    # still leave a wrong fit badge behind).
+    assert pg_slot["role_fit"] is None
+    assert pg_slot["role_fit_severity"] is None
+    assert undone["current_round"] == round_before, "the round must roll back"
+    assert undone["undo"]["available"] is False, "consumed -- cannot be undone twice"
+
+    # The same card is available again -- placeable into a DIFFERENT slot.
+    replaced = _place(client, game_id, "SG")
+    sg_slot = next(s for s in replaced["slots"] if s["slot_type"] == "SG")
+    assert sg_slot["filled"] is True
+    assert _slot_identity(sg_slot) == placed_identity
+
+
+def test_undo_reverses_a_swap_restoring_both_displaced_players(client: TestClient):
+    """The 'replacement restoring the displaced player' requirement: swap
+    two ALREADY-OCCUPIED slots, undo, and confirm each player is back in
+    their original slot -- not just that the slots are filled.
+
+    Also asserts role_fit/role_fit_severity, not just card identity --
+    raised explicitly during review: action_swap_slots RECOMPUTES fit for
+    both slots on every swap (_recompute_slot_fit), so reversing a swap by
+    re-running the same swap logic must independently reproduce the exact
+    PRE-swap fit values, not just move the right card back. A snapshot
+    that only remembered cards (not fit) could put the right player in the
+    right slot while silently leaving a stale or wrong fit badge -- this
+    proves that did not happen, rather than assuming _recompute_slot_fit
+    is deterministic."""
+    state = _create(client, mode="apex_1y", seed=603)
+    game_id = state["game_id"]
+    for slot_type in ("PG", "SG"):
+        state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+        candidate = state["current_spin"]["candidates"][0]
+        _select(client, game_id, candidate["player_slug"])
+        state = _place(client, game_id, slot_type)
+
+    pg_slot_before = next(s for s in state["slots"] if s["slot_type"] == "PG")
+    sg_slot_before = next(s for s in state["slots"] if s["slot_type"] == "SG")
+    pg_before = _slot_identity(pg_slot_before)
+    sg_before = _slot_identity(sg_slot_before)
+    assert pg_before and sg_before and pg_before != sg_before
+    pg_fit_before = (pg_slot_before["role_fit"], pg_slot_before["role_fit_severity"])
+    sg_fit_before = (sg_slot_before["role_fit"], sg_slot_before["role_fit_severity"])
+
+    swapped = _swap(client, game_id, "PG", "SG")
+    assert swapped["undo"]["kind"] == "swap"
+    pg_slot_after_swap = next(s for s in swapped["slots"] if s["slot_type"] == "PG")
+    sg_slot_after_swap = next(s for s in swapped["slots"] if s["slot_type"] == "SG")
+    assert _slot_identity(pg_slot_after_swap) == sg_before, "PG must now hold what was in SG"
+    assert _slot_identity(sg_slot_after_swap) == pg_before, "SG must now hold what was in PG"
+
+    undone = _undo(client, game_id, swapped["state_version"]).json()
+    pg_slot_final = next(s for s in undone["slots"] if s["slot_type"] == "PG")
+    sg_slot_final = next(s for s in undone["slots"] if s["slot_type"] == "SG")
+    assert _slot_identity(pg_slot_final) == pg_before, "the displaced PG player must be restored"
+    assert _slot_identity(sg_slot_final) == sg_before, "the displaced SG player must be restored"
+    assert (pg_slot_final["role_fit"], pg_slot_final["role_fit_severity"]) == pg_fit_before, (
+        "PG's fit badge must match what it was before the swap, not the swapped-in fit"
+    )
+    assert (sg_slot_final["role_fit"], sg_slot_final["role_fit_severity"]) == sg_fit_before, (
+        "SG's fit badge must match what it was before the swap, not the swapped-in fit"
+    )
+
+
+def test_undo_rejects_a_stale_expected_state_version(client: TestClient):
+    """'Reject stale undo SAFELY -- no partial mutation': send a version
+    that does not match, and confirm the roster is completely untouched
+    afterward, not partially reversed."""
+    state = _create(client, mode="apex_1y", seed=604)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+
+    resp = _undo(client, game_id, placed["state_version"] - 1)
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "stale_state"
+
+    unchanged = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    assert unchanged["state_version"] == placed["state_version"], "no partial mutation"
+    pg_slot = next(s for s in unchanged["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is True, "the placement must still stand"
+
+
+def test_undo_is_no_longer_available_once_another_action_has_happened(client: TestClient):
+    """Nothing explicitly 'clears' undo_snapshot on a select/place -- the
+    state_version comparison alone makes it unavailable once anything else
+    has happened, which this proves for the 'select a new candidate'
+    case specifically (not just 'a second placement', which overwrites
+    the snapshot outright)."""
+    state = _create(client, mode="apex_1y", seed=605)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+    version_after_place = placed["state_version"]
+
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    next_candidate = state["current_spin"]["candidates"][0]
+    selected = _select(client, game_id, next_candidate["player_slug"])
+    assert selected["undo"]["available"] is False
+
+    resp = _undo(client, game_id, version_after_place)
+    # The client's OWN belief (version_after_place) is now stale too, since
+    # selecting bumped state_version -- this hits stale_state before it
+    # would even get to ask "is there anything to undo".
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "stale_state"
+
+    # And an up-to-date caller gets the more specific answer.
+    resp2 = _undo(client, game_id, selected["state_version"])
+    assert resp2.status_code == 400
+    assert resp2.json()["detail"]["error_code"] == "undo_not_available"
+
+
+def test_undo_expires_after_the_server_enforced_window(client: TestClient):
+    """The bound is server-side and time-based (state.py::UNDO_WINDOW_SECONDS),
+    not a client affordance -- proven by directly backdating the stored
+    snapshot's expiry (same technique
+    test_daily_leaderboard_uses_the_official_application_day_boundary uses
+    for created_at) rather than waiting 15 real seconds."""
+    from datetime import datetime, timedelta, timezone as _tz
+
+    from app.core.dependencies import _memory_court_lineup_repo
+
+    state = _create(client, mode="apex_1y", seed=606)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+
+    stored = _memory_court_lineup_repo._lineups[game_id]
+    assert stored.undo_snapshot is not None
+    stored.undo_snapshot.expires_at = (datetime.now(_tz.utc) - timedelta(seconds=1)).isoformat()
+
+    # The public state itself must already report it as unavailable...
+    refetched = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    assert refetched["undo"]["available"] is False
+
+    # ...and the action itself must refuse it, not just the display flag.
+    resp = _undo(client, game_id, placed["state_version"])
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "undo_expired"
+
+    pg_slot = client.get(f"/api/v1/perfect-season/games/{game_id}").json()["slots"]
+    assert next(s for s in pg_slot if s["slot_type"] == "PG")["filled"] is True, (
+        "an expired undo must leave the placement standing"
+    )
+
+
+def test_undo_survives_a_reload_within_the_window(client: TestClient):
+    """Explicit design decision: the bound is wall-clock time from the
+    action, not tied to a browser session or a reload -- a re-fetch of the
+    same server-side game (simulating a page reload) within the window
+    must not by itself invalidate Undo."""
+    state = _create(client, mode="apex_1y", seed=607)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+
+    # Simulates a reload: a brand-new GET, no client-side memory carried
+    # over except what the server itself would give a fresh page load.
+    reloaded = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    assert reloaded["undo"]["available"] is True
+    assert reloaded["state_version"] == placed["state_version"]
+
+    undone = _undo(client, game_id, reloaded["state_version"]).json()
+    pg_slot = next(s for s in undone["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is False
+
+
+def test_undo_duplicate_request_is_idempotent_not_a_double_undo(client: TestClient):
+    state = _create(client, mode="apex_1y", seed=608)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+
+    first = _undo(client, game_id, placed["state_version"], idempotency_key="undo-k-1")
+    assert first.status_code == 200
+    second = _undo(client, game_id, placed["state_version"], idempotency_key="undo-k-1")
+    assert second.status_code == 200
+    assert second.json() == first.json(), "a replayed undo must return the identical result"
+
+    # Placing again (a THIRD action) must succeed normally -- proves the
+    # slot was only ever emptied once, not "double-undone" into some
+    # inconsistent state.
+    replaced = _place(client, game_id, "PG")
+    assert next(s for s in replaced["slots"] if s["slot_type"] == "PG")["filled"] is True
+
+
+def test_undo_denies_a_signed_in_stranger(leaderboard_client: TestClient):
+    """Cross-user denial: the owner's game, undone by someone else's
+    credentials, must be refused exactly like every other mutating
+    CourtBuilder route refuses a non-owner (403), and the placement must
+    survive untouched.
+
+    Uses `leaderboard_client` rather than the plain `client` fixture purely
+    because it already configures `settings.SUPABASE_JWT_SECRET` so
+    `_mint_test_jwt` tokens actually verify -- unrelated to the
+    leaderboard feature itself."""
+    client = leaderboard_client
+    owner_token = _mint_test_jwt("user-undo-owner")
+    stranger_token = _mint_test_jwt("user-undo-stranger")
+
+    client.headers["Authorization"] = f"Bearer {owner_token}"
+    state = _create(client, mode="apex_1y", seed=609)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+    del client.headers["Authorization"]
+
+    client.headers["Authorization"] = f"Bearer {stranger_token}"
+    resp = _undo(client, game_id, placed["state_version"])
+    del client.headers["Authorization"]
+    assert resp.status_code == 403
+
+    client.headers["Authorization"] = f"Bearer {owner_token}"
+    unchanged = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    del client.headers["Authorization"]
+    pg_slot = next(s for s in unchanged["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is True, "a stranger's rejected undo must not touch the owner's roster"
+
+
+def test_undo_state_survives_a_serialization_round_trip():
+    """Same discipline as test_respin_idempotency_survives_a_state_serialization_round_trip:
+    the Postgres path stores state as JSON, so state_version/undo_snapshot/
+    last_undo_key must all round-trip through court_state_to_dict/
+    court_state_from_dict or a durable deployment would silently lose Undo
+    on every reload."""
+    from app.services.perfect_season.serialization import (
+        court_state_from_dict,
+        court_state_to_dict,
+    )
+
+    state = ps_state.create_perfect_season_game(
+        mode="apex_1y", seed=610, team_spin_enabled=True, team_year_enabled=False,
+    )
+    spin = ps_state.find_spin(state.board, state.current_round)
+    ps_state.action_select_player(state, spin.candidate_player_slugs[0])
+    ps_state.action_place_card(state, "PG")
+
+    # select (1) then place (2) -- both mutating actions bump state_version.
+    assert state.state_version == 2
+    assert state.undo_snapshot is not None
+    assert state.undo_snapshot.kind == "place"
+
+    revived = court_state_from_dict(court_state_to_dict(state))
+    assert revived.state_version == 2
+    assert revived.undo_snapshot is not None
+    assert revived.undo_snapshot.kind == "place"
+    assert revived.undo_snapshot.slot_type == "PG"
+    assert revived.undo_snapshot.state_version_after == 2
+
+    # And the revived snapshot actually undoes correctly, not just
+    # round-trips its own fields.
+    ps_state.action_undo_last_placement(revived, expected_state_version=2)
+    pg_slot = next(s for s in revived.slots if s.slot_type == "PG")
+    assert pg_slot.peak_window_id is None
+    assert revived.state_version == 3
+    assert revived.undo_snapshot is None

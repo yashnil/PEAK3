@@ -108,5 +108,18 @@ CREATE POLICY contact_submissions_no_client_access ON contact_submissions
 
 REVOKE SELECT, INSERT, UPDATE, DELETE ON contact_submissions FROM anon, authenticated;
 
+-- TRUNCATE and TRIGGER, same reasoning as
+-- 20260801170000_revoke_truncate_and_trigger.sql (which predates this table
+-- and so never covered it): 20260630130100_default_privileges.sql grants on
+-- ALL TABLES, and Postgres's table privilege set is larger than the CRUD
+-- four -- TRUNCATE in particular is a write RLS does NOT filter (it is
+-- table-level, not row-level), so a role holding it could erase every
+-- submission regardless of the deny-all policy above. Revoked here directly
+-- rather than left for a later cleanup migration to catch, now that the
+-- gap is known.
+REVOKE TRUNCATE, TRIGGER ON contact_submissions FROM anon, authenticated;
+
 -- Down:
+-- GRANT TRUNCATE, TRIGGER ON contact_submissions TO anon, authenticated;
+-- GRANT SELECT, INSERT, UPDATE, DELETE ON contact_submissions TO anon, authenticated;
 -- DROP TABLE IF EXISTS contact_submissions;

@@ -85,7 +85,7 @@ from nba_peak.perfect_season.positions import (
     primary_position,
     secondary_positions,
 )
-from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot
+from nba_peak.perfect_season.schemas import CourtLineupState, CourtSlot, UndoSnapshot
 from nba_peak.perfect_season.simulation import (
     _fit_points,
     _weighted_starter_talent,
@@ -178,6 +178,44 @@ def create_perfect_season_game(
 def _assert_active(state: CourtLineupState) -> None:
     if state.status in ("rounds_complete", "result_ready"):
         raise CourtError("game_already_complete", "This CourtBuilder attempt is already complete")
+
+
+#: launch-polish IMPLEMENTATION_CONTRACT.md §5: "the toast offers Undo for a
+#: bounded duration, after which the move stays committed." Enforced
+#: SERVER-SIDE, not as a client-only affordance -- the client is never the
+#: authority on the roster (state.py's own module docstring: "no exact
+#: score is ever included... this module never computes or approximates the
+#: canonical score itself" is the same principle applied one layer up: the
+#: client renders what the server returns, it does not decide what is still
+#: legal to do). A client-only timer would let a client with a stopped clock,
+#: a stale tab, or a deliberately-patched frontend keep offering Undo
+#: indefinitely; the server's own `expires_at` is what actually closes the
+#: window. Deliberately RELOAD-INDEPENDENT: the bound is wall-clock time
+#: from the action, not tied to a browser session, so "undo after reload"
+#: (within the window) still works and there is nothing separate to expire
+#: on reload -- one bound, one reason, stated once. 15 seconds matches a
+#: typical toast lifetime; not configurable per-request (a client claiming a
+#: longer window would be exactly the kind of client-trusted timing this
+#: exists to not have).
+UNDO_WINDOW_SECONDS = 15
+
+
+def _undo_expiry() -> str:
+    from datetime import timedelta
+
+    return (datetime.now(timezone.utc) + timedelta(seconds=UNDO_WINDOW_SECONDS)).isoformat()
+
+
+def _touch(state: CourtLineupState) -> None:
+    """Stamp `last_action_at` AND bump `state_version` -- the ONE place
+    either happens, so every state-mutating action goes through here rather
+    than each hand-rolling both lines (which is exactly how a future action
+    could bump one and forget the other). Call this LAST, after every other
+    mutation in the action, so state_version's bump is the final word on
+    "this action changed something."
+    """
+    state.last_action_at = datetime.now(timezone.utc).isoformat()
+    state.state_version += 1
 
 
 def _used_player_slugs(state: CourtLineupState) -> set[str]:
@@ -336,7 +374,7 @@ def action_select_player(
 
     state.pending_selection_spin_id = spin.spin_id
     state.status = "placement_pending"
-    state.last_action_at = datetime.now(timezone.utc).isoformat()
+    _touch(state)
     return state
 
 
@@ -360,7 +398,7 @@ def action_cancel_selection(state: CourtLineupState) -> CourtLineupState:
     state.pending_selection_exact_season_key = None
     state.pending_selection_spin_id = None
     state.status = "selection_pending"
-    state.last_action_at = datetime.now(timezone.utc).isoformat()
+    _touch(state)
     return state
 
 
@@ -386,6 +424,17 @@ def action_place_card(
     if slot is None or slot.peak_window_id is not None or slot.exact_player_season_key is not None:
         raise CourtError("slot_not_open", f"Slot '{slot_type}' is not open")
 
+    # Undo snapshot (launch-polish IMPLEMENTATION_CONTRACT.md §5): captured
+    # BEFORE any mutation below, from exactly the fields this action is
+    # about to change/clear. `round_before`/`status_before` are what
+    # current_round/status ARE RIGHT NOW -- read before the "advance to
+    # next round" logic further down changes them.
+    pending_peak_window_id = state.pending_selection_peak_window_id
+    pending_exact_season_key = state.pending_selection_exact_season_key
+    pending_spin_id = state.pending_selection_spin_id
+    round_before = state.current_round
+    status_before = state.status
+
     slot.round_number = state.current_round
     slot.resolved_via_spin_id = state.pending_selection_spin_id
 
@@ -405,7 +454,19 @@ def action_place_card(
     state.pending_selection_peak_window_id = None
     state.pending_selection_exact_season_key = None
     state.pending_selection_spin_id = None
-    state.last_action_at = datetime.now(timezone.utc).isoformat()
+    _touch(state)
+
+    state.undo_snapshot = UndoSnapshot(
+        kind="place",
+        state_version_after=state.state_version,
+        expires_at=_undo_expiry(),
+        slot_type=slot_type,
+        round_before=round_before,
+        status_before=status_before,
+        pending_selection_peak_window_id=pending_peak_window_id,
+        pending_selection_exact_season_key=pending_exact_season_key,
+        pending_selection_spin_id=pending_spin_id,
+    )
 
     filled = sum(1 for s in state.slots if s.peak_window_id is not None or s.exact_player_season_key is not None)
     if filled >= TOTAL_ROUNDS:
@@ -518,8 +579,161 @@ def action_swap_slots(state: CourtLineupState, slot_a: str, slot_b: str) -> Cour
     _recompute_slot_fit(state, a)
     _recompute_slot_fit(state, b)
 
-    state.last_action_at = datetime.now(timezone.utc).isoformat()
+    _touch(state)
+
+    # Undo snapshot: a swap is its own inverse, so reversing it needs
+    # nothing beyond which two slots moved -- re-swapping the same pair
+    # restores both cards (including the "one slot was empty" case: moving
+    # a card into an empty slot and vacating its old one is still exactly
+    # undone by swapping them back). role_fit/role_fit_severity need no
+    # special handling either: _recompute_slot_fit derives them fresh from
+    # whatever card is CURRENTLY in each slot, which is correct again once
+    # the re-swap puts each card back where it started.
+    state.undo_snapshot = UndoSnapshot(
+        kind="swap",
+        state_version_after=state.state_version,
+        expires_at=_undo_expiry(),
+        slot_a=slot_a,
+        slot_b=slot_b,
+    )
     return state
+
+
+# ---------------------------------------------------------------------------
+# Authoritative Undo (launch-polish IMPLEMENTATION_CONTRACT.md §5).
+#
+# THE SERVER OWNS THE ROSTER, ALWAYS. The client sends an intent (undo the
+# last thing) plus what it BELIEVES the current state is
+# (expected_state_version); it never sends a reconstructed roster for the
+# server to accept, and this function never trusts anything about prior
+# state except what is already stored on `state` itself.
+#
+# ROLE LEGALITY IS NOT AT RISK HERE, BY CONSTRUCTION. CourtSlot's own
+# docstring: "Soft assignment, never a hard eligibility lock... any player
+# may be placed in any slot." There is no illegal roster state in this
+# engine for an undo to accidentally produce -- reversing a place or swap
+# only ever returns the roster to a state it was ALREADY in a moment ago,
+# which was itself already legal. "Preserve role legality" is satisfied by
+# construction, not by an extra check this function has to perform.
+#
+# WHY TWO SEPARATE STALENESS CHECKS, NOT ONE. `expected_state_version`
+# mismatching `state.state_version` means the CALLER is out of sync with
+# reality in general (a `stale_state` rejection -- the same shape any
+# optimistic-concurrency-checked mutation would use). That is a different,
+# NECESSARY, and NOT sufficient condition for "there is something valid to
+# undo": a caller can be perfectly in sync (expected_state_version DOES
+# equal the current state_version) while the thing they want to undo is no
+# longer the most recent action, because some OTHER action (select a new
+# candidate, respin, complete) ran after the placement/swap and left
+# `undo_snapshot` in place without superseding it. Only place/swap ever
+# WRITE a new `undo_snapshot`; nothing else clears the old one explicitly,
+# because it does not need to -- `state_version` is monotonic
+# (`_touch` only ever increments it), so `undo_snapshot.state_version_after`
+# falling behind the CURRENT `state.state_version` is exactly and only true
+# when something has happened since, and that comparison alone is what
+# "undo_not_available" checks. No separate invalidation bookkeeping exists
+# to forget to update.
+# ---------------------------------------------------------------------------
+
+def action_undo_last_placement(
+    state: CourtLineupState,
+    expected_state_version: int,
+    idempotency_key: Optional[str] = None,
+) -> CourtLineupState:
+    """Reverse the single most recent placement or swap.
+
+    Ownership is NOT checked here -- same division of responsibility as
+    every other action in this module: the route's `_load_owned_lineup`
+    (apps/api/app/api/v1/perfect_season.py) is the one and only place
+    owner_sub is compared against the authenticated caller, before this
+    function is ever reached.
+    """
+    # Idempotent replay, checked BEFORE any other validation -- same
+    # discipline as _replayed_respin: a retried request for an undo the
+    # server already applied must return the CURRENT (already-undone)
+    # state untouched, even if the game has moved on since (a new
+    # selection made, say), because the caller is retrying an action the
+    # server already honoured, not asking for a new one.
+    if idempotency_key and idempotency_key == state.last_undo_key:
+        return state
+
+    if expected_state_version != state.state_version:
+        raise CourtError(
+            "stale_state",
+            f"This game has moved on since your last update (expected version "
+            f"{expected_state_version}, currently {state.state_version}). Reload "
+            "and try again.",
+        )
+
+    snapshot = state.undo_snapshot
+    if snapshot is None or snapshot.state_version_after != state.state_version:
+        raise CourtError(
+            "undo_not_available",
+            "There is nothing to undo -- either nothing has been placed or "
+            "moved yet, or something else has happened since.",
+        )
+
+    if datetime.fromisoformat(snapshot.expires_at) <= datetime.now(timezone.utc):
+        raise CourtError(
+            "undo_expired",
+            "The window to undo that move has passed -- it is now committed.",
+        )
+
+    # Everything above is read-only validation; nothing on `state` has been
+    # touched yet, so a raise at any point above leaves no partial mutation
+    # behind ("reject stale undo safely").
+    if snapshot.kind == "swap":
+        _reverse_swap(state, snapshot)
+    elif snapshot.kind == "place":
+        _reverse_place(state, snapshot)
+    else:  # pragma: no cover - defensive; only "place"/"swap" are ever written
+        raise CourtError("undo_not_available", f"Unknown undo kind '{snapshot.kind}'")
+
+    state.undo_snapshot = None
+    if idempotency_key:
+        state.last_undo_key = idempotency_key
+    _touch(state)
+    return state
+
+
+def _reverse_swap(state: CourtLineupState, snapshot: UndoSnapshot) -> None:
+    """A swap is its own inverse -- re-run the exact same swap logic
+    action_swap_slots uses, without going through that function's own
+    status/ownership checks a second time (this IS the undo of one of
+    those checks having already passed once)."""
+    a = next((s for s in state.slots if s.slot_type == snapshot.slot_a), None)
+    b = next((s for s in state.slots if s.slot_type == snapshot.slot_b), None)
+    if a is None or b is None:  # pragma: no cover - defensive; slots are fixed at creation
+        raise CourtError("undo_not_available", "The slots from that swap no longer exist")
+    for field_name in _SWAPPABLE_CARD_FIELDS:
+        a_value = getattr(a, field_name)
+        setattr(a, field_name, getattr(b, field_name))
+        setattr(b, field_name, a_value)
+    _recompute_slot_fit(state, a)
+    _recompute_slot_fit(state, b)
+
+
+def _reverse_place(state: CourtLineupState, snapshot: UndoSnapshot) -> None:
+    """Undo a placement into a previously-empty slot: empty the slot again,
+    restore current_round/status to what they were immediately before the
+    placement, and restore the SAME card as the pending selection again --
+    exactly as if the player had never placed it."""
+    slot = next((s for s in state.slots if s.slot_type == snapshot.slot_type), None)
+    if slot is None:  # pragma: no cover - defensive; slots are fixed at creation
+        raise CourtError("undo_not_available", "That slot no longer exists")
+
+    slot.peak_window_id = None
+    slot.exact_player_season_key = None
+    slot.role_fit = None
+    slot.role_fit_severity = None
+    slot.round_number = None
+    slot.resolved_via_spin_id = None
+
+    state.current_round = snapshot.round_before
+    state.status = snapshot.status_before
+    state.pending_selection_peak_window_id = snapshot.pending_selection_peak_window_id
+    state.pending_selection_exact_season_key = snapshot.pending_selection_exact_season_key
+    state.pending_selection_spin_id = snapshot.pending_selection_spin_id
 
 
 # ---------------------------------------------------------------------------
@@ -906,7 +1120,7 @@ def _apply_respin(
         remembered = _remembered_respin_keys(state, kind)
         remembered.append(idempotency_key)
         state.last_respin_keys[kind] = remembered[-_RESPIN_KEY_MEMORY:]
-    state.last_action_at = datetime.now(timezone.utc).isoformat()
+    _touch(state)
     return state
 
 
@@ -1122,7 +1336,7 @@ def action_complete_game(state: CourtLineupState) -> CourtLineupState:
         state.simulation_result.peak_picks_recap = _compute_peak_picks_recap(state, team_year_board=False)
 
     state.status = "result_ready"
-    state.last_action_at = datetime.now(timezone.utc).isoformat()
+    _touch(state)
     return state
 
 
@@ -1682,6 +1896,37 @@ def get_public_state(state: CourtLineupState, include_asset_urls: bool = False) 
         "team_respins_remaining_total": max(0, MAX_TEAM_RESPINS - state.team_respins_used),
         "season_respins_used_total": state.season_respins_used,
         "season_respins_remaining_total": max(0, MAX_SEASON_RESPINS - state.season_respins_used),
+        # launch-polish IMPLEMENTATION_CONTRACT.md §5: the client sends this
+        # BACK as `expected_state_version` on an undo request -- optimistic
+        # concurrency, same shape any "reject this if something changed"
+        # mutation would use. Bumped by exactly 1 on every state-mutating
+        # action (state.py::_touch), so a client re-fetching after any
+        # action always sees a version strictly ahead of what it last held.
+        "state_version": state.state_version,
+        # Whether POST .../undo would currently succeed, and why not if it
+        # wouldn't -- computed the SAME way action_undo_last_placement itself
+        # validates (snapshot exists, matches the current version, not
+        # expired), so this can never claim Undo is available when the
+        # action would actually reject it, or vice versa. `kind` lets the
+        # client label the toast ("Undo placement" vs "Undo swap") without
+        # guessing; nothing about WHICH slot(s) are involved is exposed here
+        # -- the client sends no reversal details of its own, only the
+        # intent to undo, so it does not need them.
+        "undo": _undo_availability_public(state),
+    }
+
+
+def _undo_availability_public(state: CourtLineupState) -> dict:
+    snapshot = state.undo_snapshot
+    available = (
+        snapshot is not None
+        and snapshot.state_version_after == state.state_version
+        and datetime.fromisoformat(snapshot.expires_at) > datetime.now(timezone.utc)
+    )
+    return {
+        "available": available,
+        "kind": snapshot.kind if available and snapshot else None,
+        "expires_at": snapshot.expires_at if available and snapshot else None,
     }
 
 
