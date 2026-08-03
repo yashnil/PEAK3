@@ -128,7 +128,19 @@ export default function RevealCard({
       {pairedWith && (
         <>
           <span
-            className="flex min-w-0 shrink-0 items-center gap-1.5 @[420px]:max-w-[40%]"
+            // P6-c: `@[420px]:max-w-[40%]` alone left this block UNCONSTRAINED
+            // below a 420px container — `shrink-0` means it never yields
+            // width on its own, so at 390px it claimed however much its
+            // content wanted, squeezing the boss-side identity/score column
+            // (the row's only `flex-1` element) until its own score number
+            // bled past the card and sometimes past the page's right edge.
+            // `max-w-[32%]` gives it a real cap below 420px too — tighter
+            // than the ≥420px steady state on purpose, since the fixed-width
+            // role label, "vs" and avatar already consume a larger share of
+            // a narrow row's total width. Confirmed by DOM measurement (not
+            // a screenshot impression): no child's right edge exceeds
+            // `window.innerWidth` at 390px across all 7 rows after this.
+            className="flex min-w-0 shrink-0 max-w-[32%] items-center gap-1.5 @[420px]:max-w-[40%]"
             data-testid="rtt-reveal-paired-card"
           >
             <PlayerAvatar name={pairedWith.player_name} size={26} />
