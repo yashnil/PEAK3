@@ -263,14 +263,22 @@
   --achievement-onboarding: #1d5fc4;
   --achievement-challenge: #96490d;
   --achievement-construction: #6b46c9;
-  --achievement-habit: #0f7a4f;
+  /* Re-measured (not the original #0f7a4f): several call sites render this
+     as text ON its own tinted wash (`color-mix(in srgb, var(--accent-
+     emerald) 10%, transparent)` as the background, same color as the
+     text) rather than on a plain card surface — e.g.
+     `SeasonResultStub.tsx`'s "matched" badge. #0f7a4f measured 4.42:1
+     against that specific 10%-wash composite, just under the 4.5:1 floor,
+     even though it cleared 4.5:1+ against a plain `--bg-surface`/`--bg-
+     page` card. This darker value clears 5.4:1+ against the wash too. */
+  --achievement-habit: #0c6941;
 
   /* Generic accent chips — same darkening rule, measured the same way. */
   --accent-blue: #1d5fc4;
   --accent-violet: #6b46c9;
   --accent-pink: #b01f70;
   --accent-orange: #96490d;
-  --accent-emerald: #0f7a4f;
+  --accent-emerald: #0c6941;
 }
 
 /* ================================================================
