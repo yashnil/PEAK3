@@ -891,6 +891,44 @@ describe("RunMap", () => {
     expect(screen.getByTestId("rtt-map-row-a1s1")).toHaveAttribute("data-row-state", "locked");
   });
 
+  it("shows ≤2 unreached future stages expanded by default — the rest sit behind a collapsed drawer", () => {
+    const map: MapAct[] = [
+      {
+        act: 1,
+        stages: [
+          { act: 1, stage: 1, state: "done", chosen_node_id: "n", chosen_node_type: "draft_room", option_types: ["draft_room", "trade_desk"], scouted: false },
+          { act: 1, stage: 2, state: "current", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "film_room"], scouted: false },
+        ],
+        boss: { boss_id: "boss-a1", name: "Boss 1", state: "locked" },
+      },
+      {
+        act: 2,
+        stages: [
+          { act: 2, stage: 1, state: "locked", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "trade_desk"], scouted: false },
+          { act: 2, stage: 2, state: "locked", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "rest_bank"], scouted: false },
+        ],
+        boss: { boss_id: "boss-a2", name: "Boss 2", state: "locked" },
+      },
+    ];
+    render(<RunMap map={map} />);
+    // History (before "current"): collapsed by default.
+    const history = screen.getByTestId("rtt-map-history");
+    expect(history.tagName).toBe("DETAILS");
+    expect(history).not.toHaveAttribute("open");
+    // Near-term: current (a1s2) + up to 2 unreached (a1boss, a2s1) render
+    // OUTSIDE any collapsed container.
+    for (const key of ["a1s2", "a1boss", "a2s1"]) {
+      const row = screen.getByTestId(`rtt-map-row-${key}`);
+      expect(row.closest("details")).toBeNull();
+    }
+    // Everything past that sits behind its own collapsed drawer.
+    const future = screen.getByTestId("rtt-map-future");
+    expect(future.tagName).toBe("DETAILS");
+    expect(future).not.toHaveAttribute("open");
+    expect(screen.getByTestId("rtt-map-row-a2s2").closest("details")).toBe(future);
+    expect(screen.getByTestId("rtt-map-row-a2boss").closest("details")).toBe(future);
+  });
+
   it("colours the state word with a FOREGROUND token, never the row border", () => {
     const map: MapAct[] = [
       {

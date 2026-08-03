@@ -39,6 +39,7 @@ import {
   makeIdempotencyKey,
   needsBossReveal,
   needsOpeningReveal,
+  NODE_TYPE_LABELS,
   saveActiveRun,
   screenForStatus,
   shouldClearStoredRun,
@@ -60,6 +61,7 @@ import NodeChoice from "./NodeChoice";
 import DraftRoom from "./DraftRoom";
 import TradeDesk from "./TradeDesk";
 import ChoiceNode from "./ChoiceNode";
+import RunHUD from "./RunHUD";
 import BossIntro from "./BossIntro";
 import BossPreview from "./BossPreview";
 import BattleReveal from "./BattleReveal";
@@ -709,6 +711,30 @@ export default function RunTheTableGame({
   const node = state.active_node;
   const battle = currentBattle(state);
 
+  /**
+   * The HUD's one-line objective — RunHUD.tsx deliberately does not own this
+   * (it would be a second switch statement duplicating the one below). Kept
+   * as plain, short labels; the surface itself still carries the full title/
+   * summary/consequence copy this only summarises.
+   */
+  const objective = showRosterReveal
+    ? "Meet your roster"
+    : showBossIntro || showBossReveal
+      ? `Boss battle — ${bossTrack?.name ?? "Act " + state.act}`
+      : screen === "system_select"
+        ? "Choose a Front Office Perk"
+        : screen === "node_active" && node
+          ? NODE_TYPE_LABELS[node.node_type]
+          : screen === "node_select"
+            ? "Choose your next stop"
+            : screen === "boss_preview"
+              ? `Boss briefing — ${state.next_boss?.name ?? ""}`
+              : screen === "battle"
+                ? `Boss battle — ${battle?.boss_id ?? ""}`
+                : screen === "result"
+                  ? "Run complete"
+                  : "Run the Table";
+
   let surface: React.ReactNode = null;
   let mobilePrimaryLabel: string | null = null;
   let mobilePrimary: (() => void) | null = null;
@@ -1089,6 +1115,12 @@ export default function RunTheTableGame({
 
   return (
     <div className="rtt-shell" data-testid="rtt-shell" data-tour-blocked={tourBlocked ? "true" : "false"}>
+      {/* Top HUD (PRODUCT_EXPERIENCE_CONTRACT.md §4) — credits, lives, act
+          progress and the current objective, always visible above the
+          three-zone grid. Spans the full shell width via `.rtt-hud`'s
+          `grid-column: 1 / -1` (rtt-polish.css). */}
+      <RunHUD state={state} objective={objective} />
+
       {/* Zone 1 — the ladder. Desktop only; a phone gets the progress strip
           inside the decision column instead (DOM order: strip, surface,
           roster). It RECEDES: `.rtt-map-rail` quiets the whole rail so the
@@ -1243,8 +1275,8 @@ export function surfaceKeyFor(
  *   rtt-run-map        RunMap's <nav>
  *   rtt-progress-strip RunProgressStrip's root (mobile)
  *   rtt-decision       the surfaceRef wrapper above
- *   rtt-credits        RunTray's Credits tile
- *   rtt-lives          RunTray's Lives tile
+ *   rtt-credits        RunHUD's Credits tile (moved out of RunTray — §4)
+ *   rtt-lives          RunHUD's Lives tile (moved out of RunTray — §4)
  *   rtt-roster         RunTray's roster <section>
  *   rtt-systems        RunTray's rtt-active-systems <section>
  *   rtt-lane-profile   RunTray's lane-profile <details>

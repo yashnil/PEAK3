@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
-import { AnimatedNumber } from "@/components/ui";
 import { RunPublicState } from "@/types/run-the-table";
 import { ROLE_LABELS, filledCount, slotLabel } from "@/lib/run-the-table-state";
 import {
@@ -14,12 +13,19 @@ import {
 import LaneProfile from "./LaneProfile";
 
 /**
- * The persistent front-office rail: a compact scoreboard, then the 5+2 roster,
- * then the active Front Office Perks, then the five-lane profile.
+ * The persistent front-office rail: the 5+2 roster, the active Front Office
+ * Perks, then the five-lane profile.
  *
- * Every number here is straight off `public_state()` — credits, lives, the
- * lane profile and `roster_total` are all the engine's own values, so what the
- * rail shows is exactly what the next battle resolves against.
+ * The credits/lives/act SCOREBOARD used to live at the top of this rail. It
+ * moved to `RunHUD.tsx`, rendered once above the whole three-zone shell —
+ * PRODUCT_EXPERIENCE_CONTRACT.md §4's "promote that pattern to the top of
+ * the shell rather than burying it inside the rail." This component no
+ * longer renders `rtt-credits`/`rtt-lives`/`rtt-act`/`rtt-scoreboard` at all;
+ * `RunHUD` is the one place they live now.
+ *
+ * Every number still here is straight off `public_state()` — the lane
+ * profile and `roster_total` are the engine's own values, so what the rail
+ * shows is exactly what the next battle resolves against.
  *
  * Rendered ONCE by `RunTheTableGame` (it used to be two instances, a desktop
  * rail and a mobile copy, which duplicated every `data-testid`). Each
@@ -98,39 +104,6 @@ export default function RunTray({
       >
         Front office
       </h2>
-
-      {/* Scoreboard — three numbers, one line, no chrome competing with the
-          decision column. */}
-      <div className="rtt-scoreboard" data-testid="rtt-scoreboard">
-        <Tile
-          label="Credits"
-          accent="var(--peak-accent)"
-          testid="rtt-credits"
-          tourId="rtt-credits"
-          /* Counts, but `AnimatedNumber` assigns the authoritative value on the
-             terminal frame and carries it in an sr-only sibling from the first
-             paint — the displayed credits are never a rounded tween. */
-          value={
-            <AnimatedNumber
-              value={state.credits}
-              className="text-lg font-bold leading-none"
-            />
-          }
-        />
-        <Tile
-          label="Lives"
-          accent={state.lives <= 1 ? "var(--incorrect)" : "var(--correct)"}
-          testid="rtt-lives"
-          tourId="rtt-lives"
-          value={`${state.lives}/${state.max_lives}`}
-        />
-        <Tile
-          label="Act"
-          accent="var(--text-primary)"
-          testid="rtt-act"
-          value={`${Math.min(state.act, state.acts_total)}/${state.acts_total}`}
-        />
-      </div>
 
       {/* Roster — compact, expandable dock (PRODUCT_EXPERIENCE_CONTRACT.md §4).
           Defaults COLLAPSED (avatar + score only); expands to the full row
@@ -455,38 +428,5 @@ export default function RunTray({
         </div>
       </details>
     </aside>
-  );
-}
-
-function Tile({
-  label,
-  value,
-  accent,
-  testid,
-  tourId,
-}: {
-  label: string;
-  value: React.ReactNode;
-  accent: string;
-  testid: string;
-  tourId?: string;
-}) {
-  return (
-    <div
-      data-testid={testid}
-      data-tour-id={tourId}
-      className="rtt-scoreboard-tile"
-      style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
-    >
-      <span className="text-[9px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-        {label}
-      </span>
-      <span
-        className="score-number text-lg font-bold leading-none"
-        style={{ color: accent }}
-      >
-        {value}
-      </span>
-    </div>
   );
 }

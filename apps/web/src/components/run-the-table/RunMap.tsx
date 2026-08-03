@@ -116,9 +116,104 @@ const STATE_TEXT: Record<string, string> = {
   drawn: "var(--text-secondary)",
 };
 
+/** How many UNREACHED future rows render expanded by default, beyond the
+ *  current row itself — PRODUCT_EXPERIENCE_CONTRACT.md §4 / VERIFICATION_PLAN
+ *  §2 item 9: "≤2 stages of unreached future content expanded by default." */
+const NEAR_TERM_FUTURE_ROWS = 2;
+
+function Row({
+  row,
+  reducedMotion,
+}: {
+  row: LadderRow;
+  reducedMotion: boolean;
+}) {
+  const s = rowStyle(row);
+  const isBoss = row.kind === "boss";
+  const isCurrent = row.state === "current";
+  return (
+    <li className="relative">
+      {/* Shared-element indicator: ONE element that travels down the
+          ladder as the run advances, rather than a highlight blinking
+          out here and in there. `layoutId` is what makes it the same
+          element to Motion. Skipped entirely under reduced motion. */}
+      {isCurrent && !reducedMotion && (
+        <motion.span
+          layoutId="rtt-current-node"
+          aria-hidden="true"
+          data-testid="rtt-map-current-indicator"
+          className="rtt-map-current-indicator"
+          transition={{ type: "spring", stiffness: 380, damping: 34 }}
+        />
+      )}
+      <div
+        data-testid={`rtt-map-row-${row.key}`}
+        data-row-state={row.state}
+        data-row-kind={row.kind}
+        className={`rtt-map-row ${isBoss ? "rtt-map-row-boss" : ""}${
+          isCurrent ? " rtt-map-row-current" : ""
+        }`}
+        style={{
+          background: s.background,
+          borderColor: s.borderColor,
+        }}
+      >
+        <span aria-hidden="true" className="rtt-map-dot" style={{ background: s.borderColor }} />
+        <span className="flex flex-col min-w-0">
+          <span
+            className={`truncate ${isBoss ? "text-[11px] font-bold uppercase tracking-wide" : "text-[11px] font-semibold"}`}
+            style={{ color: s.color }}
+          >
+            {row.label}
+          </span>
+          {/* `row.sublabel` unconditionally. This used to be a ternary
+              whose two branches were the identical expression — dead
+              code that read as if a locked, unscouted stage showed
+              something different, which it never did. What a locked row
+              may show is decided by the SERVER (`_map_public` sends
+              only the stage's shape), and `ladderRows` already resolves
+              it into `sublabel`. */}
+          <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
+            {row.sublabel}
+            {row.scouted ? " · scouted" : ""}
+          </span>
+        </span>
+        <span
+          data-testid={`rtt-map-state-${row.key}`}
+          className="ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-wider"
+          style={{ color: STATE_TEXT[row.state] ?? "var(--text-secondary)" }}
+        >
+          {STATE_WORD[row.state] ?? row.state}
+        </span>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * The compact act timeline (PRODUCT_EXPERIENCE_CONTRACT.md §4): everything
+ * already completed sits behind a collapsed HISTORY drawer, the current
+ * position and up to `NEAR_TERM_FUTURE_ROWS` stages after it render
+ * expanded and prominent, and anything further out sits behind its own
+ * collapsed FUTURE drawer — never rendered as inert, visually-truncated
+ * full content (VERIFICATION_PLAN.md §2 item 9 fails exactly that: a
+ * "collapsed" state that still puts full row content in the DOM/a11y tree).
+ * Both drawers are real `<details>` — keyboard-operable via the native
+ * `<summary>` focus/Enter/Space contract, no custom key handling needed.
+ */
 export default function RunMap({ map }: Props) {
   const rows = ladderRows(map);
   const reducedMotion = usePrefersReducedMotion();
+
+  const currentIndex = rows.findIndex((r) => r.state === "current");
+  // No current row (e.g. the run just ended) — nothing is "near", so history
+  // is everything and there is no future to speak of.
+  const splitAt = currentIndex === -1 ? rows.length : currentIndex;
+  const historyRows = rows.slice(0, splitAt);
+  const nearEnd = currentIndex === -1 ? splitAt : currentIndex + 1 + NEAR_TERM_FUTURE_ROWS;
+  const nearRows = rows.slice(splitAt, nearEnd);
+  const futureRows = rows.slice(nearEnd);
+
   return (
     <nav
       aria-label="Run map"
@@ -138,74 +233,44 @@ export default function RunMap({ map }: Props) {
       >
         Run map
       </h2>
+
+      {historyRows.length > 0 && (
+        <details className="rtt-map-history" data-testid="rtt-map-history">
+          <summary
+            className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--text-muted)" }}
+          >
+            History · {historyRows.length} stage{historyRows.length === 1 ? "" : "s"}
+          </summary>
+          <ol className="flex flex-col gap-1 pt-1">
+            {historyRows.map((row) => (
+              <Row key={row.key} row={row} reducedMotion={reducedMotion} />
+            ))}
+          </ol>
+        </details>
+      )}
+
       <ol className="flex flex-col gap-1">
-        {rows.map((row) => {
-          const s = rowStyle(row);
-          const isBoss = row.kind === "boss";
-          const isCurrent = row.state === "current";
-          return (
-            <li key={row.key} className="relative">
-              {/* Shared-element indicator: ONE element that travels down the
-                  ladder as the run advances, rather than a highlight blinking
-                  out here and in there. `layoutId` is what makes it the same
-                  element to Motion. Skipped entirely under reduced motion. */}
-              {isCurrent && !reducedMotion && (
-                <motion.span
-                  layoutId="rtt-current-node"
-                  aria-hidden="true"
-                  data-testid="rtt-map-current-indicator"
-                  className="rtt-map-current-indicator"
-                  transition={{ type: "spring", stiffness: 380, damping: 34 }}
-                />
-              )}
-              <div
-                data-testid={`rtt-map-row-${row.key}`}
-                data-row-state={row.state}
-                data-row-kind={row.kind}
-                className={`rtt-map-row ${isBoss ? "rtt-map-row-boss" : ""}${
-                  isCurrent ? " rtt-map-row-current" : ""
-                }`}
-                style={{
-                  background: s.background,
-                  borderColor: s.borderColor,
-                }}
-              >
-                <span
-                  aria-hidden="true"
-                  className="rtt-map-dot"
-                  style={{ background: s.borderColor }}
-                />
-                <span className="flex flex-col min-w-0">
-                  <span
-                    className={`truncate ${isBoss ? "text-[11px] font-bold uppercase tracking-wide" : "text-[11px] font-semibold"}`}
-                    style={{ color: s.color }}
-                  >
-                    {row.label}
-                  </span>
-                  {/* `row.sublabel` unconditionally. This used to be a ternary
-                      whose two branches were the identical expression — dead
-                      code that read as if a locked, unscouted stage showed
-                      something different, which it never did. What a locked row
-                      may show is decided by the SERVER (`_map_public` sends
-                      only the stage's shape), and `ladderRows` already resolves
-                      it into `sublabel`. */}
-                  <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    {row.sublabel}
-                    {row.scouted ? " · scouted" : ""}
-                  </span>
-                </span>
-                <span
-                  data-testid={`rtt-map-state-${row.key}`}
-                  className="ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-wider"
-                  style={{ color: STATE_TEXT[row.state] ?? "var(--text-secondary)" }}
-                >
-                  {STATE_WORD[row.state] ?? row.state}
-                </span>
-              </div>
-            </li>
-          );
-        })}
+        {nearRows.map((row) => (
+          <Row key={row.key} row={row} reducedMotion={reducedMotion} />
+        ))}
       </ol>
+
+      {futureRows.length > 0 && (
+        <details className="rtt-map-future" data-testid="rtt-map-future">
+          <summary
+            className="cursor-pointer select-none text-[10px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--text-muted)" }}
+          >
+            +{futureRows.length} more stage{futureRows.length === 1 ? "" : "s"}
+          </summary>
+          <ol className="flex flex-col gap-1 pt-1">
+            {futureRows.map((row) => (
+              <Row key={row.key} row={row} reducedMotion={reducedMotion} />
+            ))}
+          </ol>
+        </details>
+      )}
     </nav>
   );
 }
