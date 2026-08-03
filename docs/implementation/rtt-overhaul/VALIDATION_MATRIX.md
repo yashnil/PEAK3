@@ -67,10 +67,10 @@ run **by the lead against the branch**, not copied from a teammate report.
 
 | Check | Command | Baseline | After | Status |
 | --- | --- | --- | --- | --- |
-| Typecheck | `scripts/ci/frontend-verify.sh` | clean | | |
-| Lint, zero warnings | `scripts/ci/frontend-verify.sh` | 0 warnings | | |
-| Unit tests (vitest) | `scripts/ci/frontend-verify.sh` | 1258 / 1258 across 47 files (342 RTT-owned) | | |
-| Production build | `next build` with a real HTTPS API URL | fails as-scripted on deploy-safety env guard; passes with real URL | | |
+| Typecheck | `scripts/ci/frontend-verify.sh` | clean | clean, lead-run on `a169de7` | **PASS** |
+| Lint, zero warnings | `scripts/ci/frontend-verify.sh` | 0 warnings | **0 warnings** | **PASS** |
+| Unit tests (vitest) | `scripts/ci/frontend-verify.sh` | 1258 / 1258 across 47 files | **1335 / 1335 across 51 files** (+77) | **PASS** |
+| Production build | `next build` with a real HTTPS API URL | fails as-scripted on deploy-safety env guard; passes with real URL | succeeds with real HTTPS URL | **PASS** |
 
 > **The production build is a mandatory gate in its own right, not a formality
 > after the fast gates.** During task #17 a stray `*/` inside a `globals.css`
@@ -79,7 +79,7 @@ run **by the lead against the branch**, not copied from a teammate report.
 > caught it.** Any change touching CSS must run the real build before being
 > called done.
 | Playwright full suite, **zero retries** | `scripts/ci/e2e-tests.sh` | | NOT RUN — product-director tested against a manually-launched local instance (in-memory API + `next dev`) with hand-written Playwright scripts, not the committed suite via this script; the suite itself was not invoked in this pass | **NOT RUN** |
-| axe accessibility | e2e suite | | NOT RUN as a full axe sweep; targeted DOM/computed-style checks substituted for the specific claims under test (see §5) | **NOT RUN** (partial substitute evidence in §5) |
+| axe accessibility | `accessibility.spec.ts` via `scripts/ci/e2e-tests.sh` | never invoked in this pass | **17 critical/serious violations** against pre-`#21` code → **5** after the contrast fix. The 5 remaining are `--accent-*` used as literal `color` on its own `color-mix` wash (draft screen role chip, rankings, mobile rankings, methodology, hold-in-use) → task **#29** | **FAIL** → #29 open |
 | Keyboard path through every cinematic | e2e suite | | Opening-reveal start control and the lineup-rating disclosure (`rtt-lane-rating-explainer`) independently confirmed keyboard-focusable and `Enter`-activatable, live, on `feature/arena-rtt-overhaul` @ `3988355`. Boss-intro countdown and the pause/resume controls were not independently keyboard-tested (ran out of session time — see report to lead) | **PARTIAL** |
 | Screen-reader announcements (where testable) | e2e suite | | Opening-reveal live region (`rtt-reveal-live-roster`) confirmed empty pre-reveal and filled with the full "Meet your roster fully revealed. Name, score. …" sentence for all 7 slots after completion — mount-empty-then-fill pattern holds | **PASS** (spot-checked, not exhaustive) |
 
@@ -115,15 +115,28 @@ left blank, per this file's own header rule.
 ## 5. Manual / browser states
 
 All rows below were tested by product-director **live**, driving a real
-headless Chromium session — never read off a teammate's report. Two passes:
+headless Chromium session — never read off a teammate's report. Three passes:
 an initial pass against a local boot of `feature/arena-rtt-overhaul` @
 `3988355` (in-memory API at `127.0.0.1:8010`, `next dev` web at
 `127.0.0.1:3010`, sharing the same worktree/ports as `platform`'s own live
-testing — this caused real, confusing cross-contamination, see below), and a
+testing — this caused real, confusing cross-contamination, see below); a
 follow-up pass in a **fully isolated worktree** (`/private/tmp/peak3-verify/
-integration`, unique ports 8030/3030) against current HEAD (`f1687de`) to
-close every gap and rule out the port collision as an explanation for any
-finding. Method for every row is the falsification method specified in
+integration`, unique ports 8030/3030) against `f1687de` to close every gap and
+rule out the port collision as an explanation for any finding; and a final
+pass, same isolated worktree updated to current HEAD **`cad1a23`** (includes
+the lead's merge-conflict resolution across the 20 RTT components `platform`
+touched for the contrast fix, and `platform`'s independent Lighthouse
+re-confirmation — neither re-verified here per the lead's instruction, since
+both are already independently confirmed by their owners), for the
+scout-intel HUD payoff — the one piece that needed a specific seed/stage path
+(`seed=11`, supplied by the lead from the generator) rather than more
+sampling. Nothing in the scout-payoff mechanism (`RunTheTableGame.tsx`'s
+`scoutIntel` state, the boss-id gate, `DraftRoom`/`TradeDesk`'s
+`data-matches-scout`) touches color tokens, so the intervening contrast-fix
+merge is not expected to have altered any of it, and the live results below
+confirm that expectation held.
+
+Method for every row is the falsification method specified in
 `VERIFICATION_PLAN.md`, executed by product-director, not merely referenced.
 
 **Port collision, disclosed.** The lead's own worktrees at Phase 0 shared no
@@ -161,7 +174,7 @@ being guarded against, regardless of which side it comes from.
 | Reveal controls | pause, skip all, reduced-motion immediate | **PASS, all three now independently clicked live** (isolated worktree). Pause: progress genuinely froze at "1 of 7 revealed" for 2.5s of continued waiting, confirmed by polling, not assumed. Resume: progress advanced within 2s of clicking it, and the sequence still reached natural completion afterward. Skip-all: collapses the presentation cursor to the end on click. Reduced motion: every sampled reveal-card's computed `transitionDuration`/`animationDuration` reads `"1e-05s"` (functionally zero) under `prefers-reduced-motion: reduce`; total wall-clock for the whole 7-card sequence was 497ms (96% reduction) — the CSS-level check is what proves "collapsed" vs. "shortened" per `SYNTHESIS_CONTRACT.md` §5, and it passes cleanly. |
 | Draft | decision-first card; receipts behind disclosure | **PASS**, live (isolated worktree, current HEAD, task #22's restructure). `rtt-card-decision`/`rtt-card-foregone` render immediately after the card's identity/score with real consequence text ("Costs 4 — leaves 46 for the rest of this act."), followed by a `<details>` "Full breakdown" disclosure (`rtt-card-breakdown`) for the granular lane/receipt data — confirmed by DOM position, not just testid presence. |
 | Trade | decision-first card; credits + role replaced visible | **PASS**, live, same session. Same `rtt-card-decision`/`rtt-card-foregone`/`rtt-card-breakdown` structure on incoming cards; outgoing slots additionally show per-slot advisory text (`rtt-trade-out-{slot}-advisory`). |
-| Scout payoff | vulnerability pinned in HUD; matching market cards highlighted; effect shown later | **NOT RUN.** Did not land on a `film_room` node in any of the sampled seeds across two sessions — not a failure, just not reached. Needs a seed/path specifically targeting a Scout node. |
+| Scout payoff | vulnerability pinned in HUD; matching market cards highlighted; effect shown later; pin correctly scoped per-boss (not a stale carry-over) | **PASS, all six sub-checks, live, `seed=11`** (lead-supplied seed/stage path: film_room at a1s1, a market node immediately after at a1s2). (1) Scouted at a1s1 — report named the correct boss ("The Wall"), correct weakest lane ("Individual Recognition"), correct strongest lanes, correct projected margin. (2/3) Advanced to a1s2 (Draft Room) **without re-scouting** — HUD pin (`rtt-hud-scout-pin`) correctly read "Scouted The Wall · weak Individual Recognition", persisting from data set once at the node, not re-fetched. (4) Market cards carried `data-matches-scout`: 1 of 3 offers `true` (Rudy Gobert), 2 `false` — a real discriminator, not a blanket highlight; confirmed in source (`RunCard.tsx:246-252`) that the same `bossRelevance` value driving the highlight also renders the "Scouted: hits …" text line. (5) **THE GUARD — the sub-check the lead flagged as most likely to be wrong — holds.** Traced live: pin correctly went to `(absent)` through Act 2's `system_select`/`node_choice` (Act 1's `scoutIntel.bossId` no longer matches the new `state.next_boss.boss_id` — `RunTheTableGame.tsx:353-354`'s gate), then correctly reappeared with the NEW boss's name ("Strength in Numbers") the moment the driver happened to land on Act 2's own film_room node — verified against source (`RunTheTableGame.tsx:331-340`) that this is a fresh, free, always-on preview refetched per-node (scouting costs nothing; the node's payload always carries the report), not stale Act-1 data being relabeled. Initially read this as a possible leak/staleness bug until the source trace resolved it — recording the investigation so a later reader isn't left wondering why the boss name changed without an explicit re-scout click. (6) `rtt-lane-prepared-{lane}` confirmed visible (not behind a disclosure) at the battle-reveal screen: "Prepared lane — Scout & Prepare added +2.50 here before the battle." (7) Per the lead's note, Act 2's boss-reveal rendered pre-completed due to task #27's bug during this drive — not re-reported, clicked through as instructed. |
 | Boss intro | name, philosophy, win condition, 3-2-1 countdown, skip | **PASS, fully confirmed live** (isolated worktree; this was only PARTIAL in the first pass — closed the gap). Stopped the driver exactly on `rtt-boss-intro` and inspected it directly: boss name ("THE WALL"), philosophy (`boss.tagline`, rendered and included in the live-region announcement per source), win condition ("Win 3 of the five lanes and you win the battle."), a real 3-2-1 countdown watched ticking 3→2→1→gone at 700ms/numeral (matches the source constant, auto-completes ~2.1s), skip visible from the first frame. Confirmed skip actually short-circuits: a second run clicking skip immediately collapsed the intro in 832ms instead of the full ~2.1s. |
 | Paired lineup reveal | sequential paired rows; boss names concealed until reveal; no click per player | **PASS** for "no click per player" on the FIRST boss of a run (same batched single-action mechanic as the opening reveal). **FAIL for every subsequent boss** — see the new HIGH-severity finding below; this row is superseded by it. |
 | — **NEW FINDING** — Boss reveal breaks after boss #1 | (not on the original checklist — found during a full-run drive-through) | **FAIL, HIGH severity.** `useRevealSequence.ts`'s internal state (`started`/`complete`/`skippedRef`) has no reset path — grepped every set call, confirmed. `bossSequence` is one hook instance reused for the whole run with no `key`-forced remount per boss and no identity-watching reset effect. Once the first boss's reveal completes (skip or natural), every subsequent boss's reveal renders **already complete** — no start button, no cinematic, cards just instantly present. Reproduced driving a full run through Acts 1→2 live. This defeats the "paired sequential lineup reveal" requirement for 4 of 5 bosses in a standard run — the majority case, not an edge case. → task #27 (rtt-experience), full root-cause trace and two candidate fixes in the task body. The run remains mechanically completable (a "Continue" button is still clickable), so this did not block reaching the result screen. |
