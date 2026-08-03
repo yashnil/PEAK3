@@ -2126,6 +2126,41 @@ def _mint_test_jwt(sub: str, email: str = "test@example.com", is_anonymous: bool
     return _jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
 
 
+def _sub_from_token(token: str) -> str:
+    import jwt as _jwt
+
+    payload = _jwt.decode(token, TEST_JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+    return payload["sub"]
+
+
+def _ensure_handle(client: TestClient, token: str) -> str:
+    """PUTs a valid, deterministic public handle for this token's account and
+    returns it. launch-polish IMPLEMENTATION_CONTRACT.md §8 makes a real
+    handle mandatory for leaderboard submission (superseding the old
+    email-derived-fallback / Player-XXXXXX-default behavior), so every test
+    helper that submits a run has to set one up first -- the same
+    prerequisite a real player's onboarding flow enforces.
+
+    Derived from a hash of the sub rather than the sub text itself: several
+    test subs in this file are hyphenated and/or longer than the new 20-char
+    handle limit ("user-visibility-owner" alone is 22 chars), and a naive
+    sanitize-and-truncate risks two different subs colliding on the same
+    truncated handle. A content hash sidesteps both problems and needs no
+    per-test-name adjustment as this file grows.
+    """
+    import hashlib
+
+    sub = _sub_from_token(token)
+    handle = "u" + hashlib.sha256(sub.encode()).hexdigest()[:15]
+    resp = client.put(
+        "/api/v1/profiles/me",
+        json={"handle": handle},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    return handle
+
+
 def _play_full_scored_game_as(client: TestClient, token: str, seed: int) -> dict:
     """Like _play_full_game, but always picks a fully-scored candidate each
     round (never a team_year_roster_only/exact_season_unscored one) so the
@@ -2187,6 +2222,7 @@ def test_unauthenticated_submit_returns_401(leaderboard_client: TestClient):
 
 def test_authenticated_submit_succeeds_and_recomputes_from_server_state(leaderboard_client: TestClient):
     token = _mint_test_jwt("user-abc")
+    _ensure_handle(leaderboard_client, token)
     state = _play_full_scored_game_as(leaderboard_client, token, seed=102)
     game_id = state["game_id"]
 
@@ -2239,6 +2275,7 @@ def test_anonymous_session_cannot_submit(leaderboard_client: TestClient):
 def test_public_leaderboard_read_works_and_is_sorted(leaderboard_client: TestClient):
     for i, seed in enumerate([201, 202, 203]):
         token = _mint_test_jwt(f"user-{i}")
+        _ensure_handle(leaderboard_client, token)
         state = _play_full_scored_game_as(leaderboard_client, token, seed=seed)
         leaderboard_client.post(
             f"/api/v1/perfect-season/games/{state['game_id']}/submit",
@@ -2258,6 +2295,7 @@ def test_public_leaderboard_read_works_and_is_sorted(leaderboard_client: TestCli
 def test_no_respin_filter_excludes_runs_with_respins(leaderboard_client: TestClient):
     # Run A: no respins.
     token_a = _mint_test_jwt("user-a")
+    _ensure_handle(leaderboard_client, token_a)
     state_a = _play_full_scored_game_as(leaderboard_client, token_a, seed=301)
     leaderboard_client.post(
         f"/api/v1/perfect-season/games/{state_a['game_id']}/submit",
@@ -2267,6 +2305,7 @@ def test_no_respin_filter_excludes_runs_with_respins(leaderboard_client: TestCli
 
     # Run B: uses a respin on round 1 before playing it out.
     token_b = _mint_test_jwt("user-b")
+    _ensure_handle(leaderboard_client, token_b)
     leaderboard_client.headers["Authorization"] = f"Bearer {token_b}"
     state_b = _create(leaderboard_client, mode="apex_1y", seed=302)
     game_id_b = state_b["game_id"]
@@ -2300,6 +2339,7 @@ def test_me_runs_requires_auth_and_returns_own_runs(leaderboard_client: TestClie
     assert resp.status_code == 401
 
     token = _mint_test_jwt("user-me")
+    _ensure_handle(leaderboard_client, token)
     state = _play_full_scored_game_as(leaderboard_client, token, seed=401)
     leaderboard_client.post(
         f"/api/v1/perfect-season/games/{state['game_id']}/submit",
@@ -2314,6 +2354,7 @@ def test_me_runs_requires_auth_and_returns_own_runs(leaderboard_client: TestClie
 
 def test_duplicate_submission_is_idempotent_not_duplicated(leaderboard_client: TestClient):
     token = _mint_test_jwt("user-dup")
+    _ensure_handle(leaderboard_client, token)
     state = _play_full_scored_game_as(leaderboard_client, token, seed=501)
     game_id = state["game_id"]
     resp1 = leaderboard_client.post(
@@ -2362,6 +2403,7 @@ def test_rls_migration_has_expected_policies():
 # ---------------------------------------------------------------------------
 
 def _submit(client: TestClient, token: str, seed: int) -> dict:
+    _ensure_handle(client, token)
     state = _play_full_scored_game_as(client, token, seed=seed)
     resp = client.post(
         f"/api/v1/perfect-season/games/{state['game_id']}/submit",
@@ -2519,18 +2561,52 @@ def test_cannot_hide_someone_elses_run_and_the_failure_does_not_confirm_ownershi
     assert any(r["id"] == run["id"] for r in board)
 
 
-def test_display_name_never_falls_back_to_the_account_email(leaderboard_client: TestClient):
-    """Gap #4: the fallback used to be `auth.email.split('@')[0]` -- every
+def test_display_name_is_the_public_handle_never_derived_from_email(leaderboard_client: TestClient):
+    """Gap #4's original fallback was `auth.email.split('@')[0]` -- every
     caller in this file mints a token carrying `test@example.com` (the
     default), so under the old code every submitted run in this whole test
-    module would have published the handle "test". It must now be the
-    neutral `Player-XXXXXX` form instead, unconditionally, unless the
-    account's profile has an explicitly-set display name."""
+    module would have published the handle "test". That was first fixed by
+    defaulting to a neutral `Player-XXXXXX` form. launch-polish
+    IMPLEMENTATION_CONTRACT.md §8 goes further: "Leaderboards display only
+    the public handle" -- not a free-text display_name, and not any
+    auto-generated default either, since a handle is now REQUIRED (see
+    test_submit_without_a_handle_is_rejected below) rather than defaulted.
+    `display_name` on a submitted run is the account's chosen handle, full
+    stop -- never anything derived from the account's email or Google name,
+    and never a value the account did not itself choose."""
     sub = "user-email-fallback"
     token = _mint_test_jwt(sub, email="definitely-not-public@example.com")
-    run = _submit(leaderboard_client, token, seed=901)
-    assert run["display_name"] == f"Player-{sub[-6:]}"
+    handle = _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=901)
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{state['game_id']}/submit",
+        json={"game_id": state["game_id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    run = resp.json()
+    assert run["display_name"] == handle
     assert "definitely-not-public" not in run["display_name"]
+    assert run["display_name"] != "test", (
+        "this is the exact contamination signature from "
+        "docs/implementation/launch-polish/IDENTITY_AUDIT.md §1 -- every "
+        "test JWT in this file defaults to test@example.com"
+    )
+
+
+def test_submit_without_a_handle_is_rejected(leaderboard_client: TestClient):
+    """The other half of the same contract: a signed-in account with no
+    handle set gets a stable, actionable rejection -- never a silent
+    auto-generated public identity it never chose."""
+    token = _mint_test_jwt("user-no-handle-yet")
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=902)
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{state['game_id']}/submit",
+        json={"game_id": state["game_id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "handle_required"
 
 
 def test_daily_leaderboard_uses_the_official_application_day_boundary(

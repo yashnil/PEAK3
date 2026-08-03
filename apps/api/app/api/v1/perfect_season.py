@@ -601,21 +601,33 @@ async def submit_run(
     ) if team_year_board else len(game_state.slots)
 
     profile = await profile_repo.get_or_create_profile(auth.sub)
-    # SCORE_RECONCILIATION.md gap #4: the fallback used to be
-    # `auth.email.split("@")[0]` -- publishing the account email's local part
-    # on the GLOBAL leaderboard for anyone who had never explicitly set a
-    # display name, with no consent gate. `profile.display_name` being set at
-    # all already IS the explicit opt-in (it is only ever set through the
-    # account's own profile-editing route, never derived here); the
-    # non-consented default is now unconditionally the neutral
-    # `Player-XXXXXX` handle already used for the no-email case, never
-    # anything derived from the account's email.
-    display_name = profile.display_name or f"Player-{auth.sub[-6:]}"
+    # launch-polish IMPLEMENTATION_CONTRACT.md §8: "Leaderboards display only
+    # the public handle" -- not `display_name` (a free-text field that was
+    # never validated for uniqueness, reservation, or impersonation) and
+    # never anything derived from the account's email or Google name.
+    #
+    # This supersedes SCORE_RECONCILIATION.md gap #4's fix, which replaced an
+    # email-derived fallback with a neutral `Player-XXXXXX` default. That was
+    # correct as far as it went, but a *silent, always-succeeding* fallback
+    # is also how "require a valid handle before public leaderboard
+    # submission" (§8) would quietly never be enforced -- every submission
+    # would succeed either way, just with a different string attached. A
+    # handle is now REQUIRED, not defaulted: a signed-in account with no
+    # handle set gets a stable, actionable rejection instead of an
+    # auto-generated public identity it never chose.
+    if not profile.handle:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "handle_required",
+                "message": "Set a public handle before submitting to the leaderboard.",
+            },
+        )
 
     run = PerfectSeasonRun(
         id="",
         owner_sub=auth.sub,
-        display_name=display_name,
+        display_name=profile.handle,
         mode=game_state.mode,
         game_id=game_id,
         seed=game_state.board.seed,

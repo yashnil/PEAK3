@@ -1876,5 +1876,28 @@
     "idempotency_notes": [
       "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
     ]
+  },
+  {
+    "filename": "20260803100000_profile_handle_contract.sql",
+    "identifier": "20260803100000_profile_handle_contract",
+    "tables_created": {},
+    "indexes": [
+      {
+        "name": "profiles_normalized_handle_unique_idx",
+        "table": "profiles"
+      }
+    ],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS"
+    ]
   }
 ]
