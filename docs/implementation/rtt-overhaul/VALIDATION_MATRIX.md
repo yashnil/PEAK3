@@ -39,8 +39,9 @@ run **by the lead against the branch**, not copied from a teammate report.
 > that correct calculations get presentation changes, not outcome changes. The
 > engine diff stays at zero. Recorded here so that a later reader checking
 > bit-exact rather than working-precision equality is not surprised.
-| RTT simulations | `scripts/audit_run_the_table_v3.py` | | | NOT RUN yet |
-| Lineup tests | `scripts/ci/lineup-tests.sh` | | | NOT RUN yet |
+| RTT simulations | `scripts/audit_run_the_table_v3.py --seeds 300 --replay-sample 40` | never run in this pass | **PASS** — 19 hard invariants held across 300 seeds / 2400 runs / 43 replay checks, 0 soft warnings; 174 of 174 cards reachable, 0 unreachable | **PASS** |
+| Lineup tests | `scripts/ci/lineup-tests.sh` | never run in this pass | **43 passed** | **PASS** |
+| Web dataset build + exporter validation | `scripts/ci/build-web-data.sh` | never run in this pass | generated and validated: 1yr 250 / 2yr 249 / 3yr 248 / 5yr 237, 0 provisional | **PASS** |
 | `OFFICIAL_WEIGHTS` untouched | `git diff` on `peak3.py` | — | empty diff | **PASS** |
 | `calibrate_score()` untouched | `git diff` on `peak3.py` | — | empty diff | **PASS** |
 | Frozen colour tokens unchanged | `grep` vs CLAUDE.md | 7 tokens | `--peak-accent` `#f5c842` + all 6 `--comp-*` identical | **PASS** |
