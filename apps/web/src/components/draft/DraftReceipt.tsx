@@ -191,7 +191,7 @@ export default function DraftReceipt({ evaluation, onShare }: Props) {
       {onShare && (
         <button
           onClick={onShare}
-          className="py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+          className="py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
           style={{
             background: "var(--border-default)",
             color: "var(--text-primary)",

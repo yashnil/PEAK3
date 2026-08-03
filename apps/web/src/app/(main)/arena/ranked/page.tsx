@@ -102,7 +102,7 @@ export default function RankedHubPage() {
 
                 <Link
                   href={`/arena/ranked/${mode}`}
-                  className="text-center py-2 rounded-lg text-sm font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  className="text-center py-2 rounded-lg text-sm font-semibold transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                   style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
                 >
                   Join queue

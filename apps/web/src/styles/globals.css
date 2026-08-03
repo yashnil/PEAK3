@@ -1054,10 +1054,18 @@ html, body {
   text-align: left;
   border-radius: 14px;
   padding: 10px 12px;
-  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+  /* `transform` never changes value on a theme swap, so it is safe to leave
+     unconditional. `border-color`/`background` DO change value on a theme
+     swap (they read theme tokens) -- an unconditional transition on those
+     used to cross-fade the whole 82-0 candidate list on every theme toggle
+     (measured: ~96ms settle vs. ~25ms baseline elsewhere, launch-polish
+     IMPLEMENTATION_CONTRACT.md §1). Gated below to the `:hover` rule that
+     actually wants them animated, so a theme swap snaps instantly again. */
+  transition: transform 120ms ease;
 }
 
 .candidate-card-v2:hover:not(:disabled) {
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
   transform: translateY(-1px);
   border-color: var(--peak-accent-dim) !important;
 }
@@ -1085,10 +1093,14 @@ html, body {
   text-align: left;
   border-radius: 12px;
   padding: 8px 10px;
-  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+  /* Same theme-swap fix as .candidate-card-v2 above -- border-color/
+     background gated to :hover only, transform left unconditional since it
+     never changes on a theme swap. */
+  transition: transform 120ms ease;
 }
 
 .candidate-row-v3:hover:not(:disabled) {
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
   border-color: var(--peak-accent-dim) !important;
   background: var(--bg-surface-hover) !important;
 }
@@ -1298,15 +1310,21 @@ html, body {
   width: 7px;
   height: 7px;
   border-radius: 999px;
+  /* Base (pending) state reads a theme token, so its own transition would
+     cross-fade on every theme swap. `[data-state]` below reads the frozen
+     `--peak-accent` (identical hex both themes) and carries its own
+     transition instead -- animates in on the real state change (a round
+     resolving), snaps instantly on a theme swap either way. */
   background: var(--border-emphasis);
-  transition: background 150ms ease, transform 150ms ease;
 }
 
 .round-progress-dot[data-state="done"] {
+  transition: background 150ms ease, transform 150ms ease;
   background: var(--peak-accent, #f5c842);
 }
 
 .round-progress-dot[data-state="current"] {
+  transition: background 150ms ease, transform 150ms ease;
   background: var(--peak-accent, #f5c842);
   transform: scale(1.3);
 }
@@ -1532,13 +1550,19 @@ html, body {
 .spin-wheel-box {
   position: relative;
   border-radius: 18px;
-  transition: box-shadow 200ms ease, transform 200ms ease;
+  /* `box-shadow` only ever gets a value from the `[data-phase]` states
+     below, both driven by `--slot-accent`/`--peak-accent` (frozen, identical
+     hex in both themes) -- so it never actually changes on a theme swap.
+     Moved the transition onto those states anyway, both for hygiene
+     (consistent with the other five fixes in this pass) and so the
+     ceremony's fade-in on entering a phase keeps working unconditionally. */
 }
 
 /* Once a roll is revealed, the wheel box picks up a soft glow in the
    rolled team's own color (--slot-accent, set inline from getTeamColors)
    -- real team identity used consistently, without a logo. */
 .spin-wheel-box[data-phase="revealed"] {
+  transition: box-shadow 200ms ease, transform 200ms ease;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 45%, transparent),
     0 0 28px -6px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 55%, transparent);
 }
@@ -1548,6 +1572,7 @@ html, body {
    ticking through, not just the final landed one) -- the box no longer
    sits visually inert until the very end of the ceremony. */
 .spin-wheel-box[data-phase="spinning"] {
+  transition: box-shadow 200ms ease, transform 200ms ease;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 20%, transparent),
     0 0 16px -8px color-mix(in srgb, var(--slot-accent, var(--peak-accent)) 35%, transparent);
 }
@@ -1757,11 +1782,16 @@ html, body {
   border-radius: 14px;
   border: 1px solid var(--border-default);
   background: var(--bg-elevated);
-  transition: border-color 140ms ease, background-color 140ms ease;
+  /* border-color/background read theme tokens directly, so an unconditional
+     transition here used to cross-fade the whole RTT choice/offer panel on
+     every theme toggle (measured: ~70ms settle vs. ~25ms baseline elsewhere,
+     launch-polish IMPLEMENTATION_CONTRACT.md §1). Moved onto the interactive
+     states below, which is what actually wants them animated. */
 }
 
 .rtt-choice-btn:hover:not(:disabled),
 .rtt-offer-btn:hover:not(:disabled) {
+  transition: border-color 140ms ease, background-color 140ms ease;
   border-color: var(--peak-accent-dim);
   background: var(--bg-surface-hover);
 }
@@ -1776,6 +1806,7 @@ html, body {
 
 .rtt-choice-btn[aria-disabled="true"]:hover,
 .rtt-offer-btn[aria-disabled="true"]:hover {
+  transition: border-color 140ms ease, background-color 140ms ease;
   border-color: var(--border-subtle);
   background: var(--bg-page);
 }

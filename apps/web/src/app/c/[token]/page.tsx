@@ -295,7 +295,7 @@ export default function ChallengeTokenPage({ params }: Props) {
           <button
             onClick={handleStartChallenge}
             disabled={isStarting}
-            className="w-full py-3 rounded-lg font-semibold text-sm transition-all hover:opacity-90 disabled:opacity-60"
+            className="w-full py-3 rounded-lg font-semibold text-sm transition-opacity hover:opacity-90 disabled:opacity-60"
             style={{
               background: "var(--peak-accent)",
               color: "var(--text-inverse)",

@@ -284,7 +284,7 @@ export default function ProfilePage() {
         <button
           type="submit"
           disabled={saving}
-          className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-60"
+          className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60"
           style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           {saving ? "Saving…" : "Save Profile"}

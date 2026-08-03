@@ -80,7 +80,7 @@ export default function DraftCard({
         boxShadow: selected ? `0 0 0 2px color-mix(in srgb, ${roleColor} 40%, transparent)` : undefined,
       }}
       className={[
-        "relative flex flex-col text-left w-full rounded-xl border transition-all duration-150",
+        "relative flex flex-col text-left w-full rounded-xl border transition-[background-color,border-color,box-shadow,opacity] duration-150",
         "bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)]",
         compact ? "p-3 gap-1" : "p-4 gap-2",
         onClick ? "cursor-pointer" : "cursor-default",

@@ -249,7 +249,7 @@ export default function DailyDraftPage({ params }: Props) {
 
           <button
             onClick={() => handleViewResult(summary, date)}
-            className="w-full py-2 rounded-lg text-sm font-medium border transition-all hover:bg-[var(--bg-surface)]"
+            className="w-full py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-[var(--bg-surface)]"
             style={{
               borderColor: "var(--border-default)",
               color: "var(--text-primary)",
