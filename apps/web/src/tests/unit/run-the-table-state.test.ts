@@ -549,6 +549,22 @@ describe("roster derivations", () => {
     expect(pips.slice(5).every((p) => !p.is_starter)).toBe(true);
     expect(pips.every((p) => p.filled === false)).toBe(true);
   });
+
+  // P5-F5: a pip used to carry only `slot_id` ("lead_creator", "bench_1"),
+  // which is what let a caller print the raw id to a screen reader instead
+  // of a real label. `role` is now carried through so `slotLabel()` can
+  // build one, exactly as every other roster-facing surface already does.
+  it("carries each starter's role, so a caller can build a real label instead of the raw slot id", () => {
+    const pips = rosterPips(runFixture());
+    expect(pips.slice(0, 5).map((p) => p.role)).toEqual([
+      "lead_creator",
+      "guard_wing",
+      "wing_forward",
+      "forward_big",
+      "anchor",
+    ]);
+    expect(pips.slice(5).every((p) => p.role === null)).toBe(true);
+  });
 });
 
 describe("battle derivations", () => {

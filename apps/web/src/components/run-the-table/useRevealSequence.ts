@@ -37,6 +37,29 @@ export interface UseRevealSequenceArgs<T> {
    *  while the batched request is still in flight. */
   total: number;
   reducedMotion: boolean;
+  /**
+   * Identity of the reveal TRACK this call represents — a boss id for the
+   * boss reveal, a run id for the roster reveal. `null`/`undefined` means
+   * "no identity to key on," which is only correct for a caller with
+   * exactly one reveal per component lifetime.
+   *
+   * `RunTheTableGame` calls this hook ONCE per reveal kind and reuses that
+   * single instance for the entire session — `RunTheTableGame` does not
+   * remount between runs, and a five-act run meets five different bosses
+   * inside ONE mount (P5-F4, product-director: the second boss reveal
+   * rendered fully `complete` with no start button, because `started`/
+   * `complete`/`skippedRef` from the FIRST boss's reveal never reset before
+   * the second boss's fresh, empty `items` arrived). A `key` prop on the
+   * SURFACE component cannot fix this — the state lives here, in the hook
+   * instance owned by `RunTheTableGame`, not in the surface that renders it.
+   * So the hook detects the identity change itself: when `resetKey` differs
+   * from the previous render's, every piece of this hook's state (and the
+   * refs that track it) is put back to its initial values, synchronously
+   * during render — the same pattern `itemsLenRef`/`totalRef` below already
+   * use for "adjust local state from a changed prop without an extra
+   * render," documented by React for exactly this case.
+   */
+  resetKey?: string | number | null;
 }
 
 export interface RevealSequenceState<T> {
@@ -67,6 +90,7 @@ export function useRevealSequence<T>({
   items,
   total,
   reducedMotion,
+  resetKey = null,
 }: UseRevealSequenceArgs<T>): RevealSequenceState<T> {
   const [started, setStarted] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -84,6 +108,29 @@ export function useRevealSequence<T>({
   const totalRef = useRef(total);
   itemsLenRef.current = items.length;
   totalRef.current = total;
+
+  // P5-F4 fix — see `resetKey`'s docstring. A NEW track under the SAME hook
+  // instance (a different boss, a different run) must start exactly where a
+  // fresh call to this hook would: nothing started, nothing complete, no
+  // stale timer or skip/pause flag surviving from the track this replaced.
+  const resetKeyRef = useRef(resetKey);
+  if (resetKeyRef.current !== resetKey) {
+    resetKeyRef.current = resetKey;
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    positionRef.current = null;
+    animatingRef.current = false;
+    pausedRef.current = false;
+    skippedRef.current = false;
+    setStarted(false);
+    setPaused(false);
+    setPresentationCursor(0);
+    setActiveIndex(null);
+    setActiveBeat(null);
+    setComplete(false);
+  }
 
   const clearTimer = useCallback(() => {
     if (timerRef.current !== null) {

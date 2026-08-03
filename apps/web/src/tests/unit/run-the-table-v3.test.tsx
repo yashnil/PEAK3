@@ -11,7 +11,7 @@
  * prove there is no client-side randomness anywhere in the reel.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -132,7 +132,7 @@ function rosterTrack(revealed: number): RevealTrack {
   };
 }
 
-function bossTrack(revealed: number): BossRevealTrack {
+function bossTrack(revealed: number, over: Partial<BossRevealTrack> = {}): BossRevealTrack {
   return {
     ...rosterTrack(revealed),
     act: 1,
@@ -142,6 +142,7 @@ function bossTrack(revealed: number): BossRevealTrack {
     rule: { id: "the_wall", name: "The Wall", summary: "A lane is only taken by 1.50 points." },
     source: "curated",
     deterministic: true,
+    ...over,
   };
 }
 
@@ -854,6 +855,79 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(screen.getByText("Mine 0")).toBeInTheDocument();
   });
 
+  // P5-F4 (product-director, HIGH severity): the SECOND boss reveal in a run
+  // used to inherit `started`/`complete`/`skippedRef` from the FIRST boss's
+  // already-finished sequence — `bossSequence` is ONE `useRevealSequence`
+  // call reused for the entire session, `RunTheTableGame` never remounts
+  // between bosses, and nothing reset it. It rendered fully `complete` with
+  // no start button at all — every boss after the first was unreachable as
+  // a cinematic. Fixed by `useRevealSequence`'s `resetKey` (keyed on
+  // `boss_id`). This test is the requested regression: it must fail on the
+  // old behaviour and pass on the fix, by reaching a SECOND boss reveal and
+  // asserting it demands the same start/skip/continue flow as the first.
+  it("resets the boss reveal for the SECOND boss in a run — it does not inherit the first boss's completed state", async () => {
+    const bossOne = {
+      boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+      act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+      starters: [], bench: [], lane_profile: [], roster_total: 60,
+    };
+    const bossTwo = {
+      ...bossOne, boss_id: "strength-in-numbers", name: "Strength in Numbers", act: 2,
+    };
+
+    await startAt(
+      runState({
+        status: "boss_ready", act: 1,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(0) },
+        next_boss: bossOne,
+      }),
+    );
+    // Boss 1: intro, then a reveal that genuinely has to be started.
+    expect(screen.getByTestId("rtt-boss-intro")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
+    expect(await screen.findByTestId("rtt-boss-reveal")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-reveal-start-boss")).toBeInTheDocument();
+
+    // Play it through to fully resolved, then dismiss it — mirrors the skip
+    // + continue flow every other boss-reveal test in this file uses.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready", act: 1,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
+        next_boss: bossOne,
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-reveal-start-boss"));
+    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-boss"));
+    await userEvent.click(await screen.findByTestId("rtt-reveal-continue-boss"));
+    expect(await screen.findByTestId("rtt-boss-preview")).toBeInTheDocument();
+
+    // Resolve boss 1 and land straight on boss 2's fresh, UNREVEALED track —
+    // the exact transition P5-F4 broke.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready", act: 2,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(0, { act: 2, boss_id: "strength-in-numbers", name: "Strength in Numbers" }) },
+        next_boss: bossTwo,
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-resolve-boss"));
+
+    // Boss 2's intro must appear again (a fresh `bossIntroDone` for the new
+    // `boss_id`) ...
+    expect(await screen.findByTestId("rtt-boss-intro")).toBeInTheDocument();
+    expect(screen.getByText("Strength in Numbers")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
+
+    // ... and the THIS IS THE REGRESSION: boss 2's reveal must demand a
+    // press, exactly like boss 1's did — not render pre-completed with no
+    // start control, which is what the un-reset hook instance produced.
+    const reveal2 = await screen.findByTestId("rtt-boss-reveal");
+    expect(within(reveal2).getByTestId("rtt-reveal-start-boss")).toBeInTheDocument();
+    expect(within(reveal2).queryByTestId("rtt-reveal-continue-boss")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Player \d/)).not.toBeInTheDocument();
+  });
+
   it("hands over to the briefing once the boss lineup is fully revealed", async () => {
     await startAt(
       runState({
@@ -871,6 +945,39 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(screen.queryByTestId("rtt-boss-intro")).not.toBeInTheDocument();
     expect(screen.queryByTestId("rtt-boss-reveal")).not.toBeInTheDocument();
     expect(screen.getByTestId("rtt-boss-preview")).toBeInTheDocument();
+  });
+
+  // P5-F5 (platform): the battle screen's HUD objective rendered the raw
+  // snake_case `boss_id` ("Boss battle — the_wall") instead of the boss's
+  // display name. `action_resolve_boss` never increments `state.act` (only
+  // `action_advance` does, after this screen — nba_peak/run_the_table/
+  // state.py:546-564), so `next_boss` is still, correctly, the boss this
+  // battle was fought against at this exact status.
+  it("names the boss in the battle HUD objective, never the raw id", async () => {
+    await startAt(
+      runState({
+        status: "boss_resolved",
+        act: 1,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
+        next_boss: {
+          boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+          act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+          starters: [], bench: [], lane_profile: [], roster_total: 60,
+        },
+        battles: [
+          {
+            boss_id: "the-wall", act: 1, outcome: "win", decided_by: "lanes",
+            player_lanes_won: 3, opponent_lanes_won: 2, ties: 0, summed_margin: 4.2,
+            player_roster_total: 61.2, opponent_roster_total: 59.9, bench_weight: 0.35,
+            rule_id: "the_wall", credits_awarded: 12, lives_after: 3, lanes: [],
+          },
+        ],
+      }),
+    );
+    const objective = await screen.findByTestId("rtt-hud-objective");
+    expect(objective).toHaveTextContent("Boss battle — The Wall");
+    expect(objective.textContent).not.toContain("the-wall");
+    expect(objective.textContent).not.toContain("the_wall");
   });
 
   it("renders a market node's priced controls and posts the refresh", async () => {
