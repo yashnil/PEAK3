@@ -244,10 +244,35 @@ reachable only from a deliberate local shell — **CI secrets are ruled out.**
 `handle` UNIQUE via a case-insensitive functional index, `display_name`,
 `is_public`, `history_public`, timestamps — and is Postgres-backed on staging.
 
-**Biggest finding: `profiles`, `user_settings`, `anonymous_subjects` and
-`ownership_claims` have NO RLS at all**, unlike every table added since. That is
-a live privacy gap sitting directly under the table this work extends. **Close it
-first.**
+### CORRECTED — the "no RLS" finding was wrong
+
+The original audit claimed `profiles` / `user_settings` / `anonymous_subjects` /
+`ownership_claims` had **no RLS at all**. That is **false**, and
+`identity-community` retracted it unprompted before writing a migration against
+it. The lead verified the retraction independently.
+
+`supabase/migrations/20260630124900_rls.sql:6-9` enables RLS on all four, from
+the initial commit — `profiles_public_read` (SELECT where `is_public`),
+owner-scoped policies elsewhere, `anonymous_subjects` denied outright via
+`FOR ALL USING (false)`. `20260801110000_guest_claim_and_daily.sql:137-174` later
+made the owner-write policies' `WITH CHECK` explicit. **There is no "RLS first"
+migration to write, and one would have been redundant.**
+
+**The real, narrower gap — verified and in scope:** `profiles_public_read` is
+`FOR SELECT USING (is_public = true)` with **no column restriction**. RLS is
+row-level, so a public row exposes its *entire* row to a direct PostgREST caller
+holding the anon/authenticated key — including **`auth_sub`, the raw Supabase
+identity** (`20260630124500_identity.sql:13`), not just the intended public
+fields. The FastAPI layer never leaks it (`ProfileResponse` has no `auth_sub`),
+which makes this exactly the "second independent layer in case these tables are
+ever exposed through Supabase's own REST API" threat model that the
+`perfect_season_runs` migration already documents for itself.
+
+Fix as a **column-exposure tightening** — column-level `REVOKE`/`GRANT` on
+`auth_sub`, or a narrow public view — folded into the handle work rather than
+shipped as a standalone priority migration. Ordering constraint from §12 is
+relaxed accordingly: handles no longer wait on an RLS migration that isn't
+needed.
 
 Contract: `user_id` · `public_handle` · `normalized_handle` · optional display
 name · visibility preference · `created_at` · `updated_at`.
@@ -329,10 +354,11 @@ lead.
 ## 12. Migration order
 
 1. **conftest guard** — DONE (`e16c95a`). First, so nothing can refill the board.
-2. **RLS on `profiles` / `user_settings` / `anonymous_subjects` / `ownership_claims`.**
-3. **Handle/public-profile** schema additions.
-4. **`contact_submissions`** table + route.
-5. **Cleanup SQL** — checked in, executed only by an operator with credentials.
+2. **Handle/public-profile** schema additions, carrying the `auth_sub`
+   column-exposure tightening (see §8 — the "RLS first" step was based on a
+   retracted finding and is not needed).
+3. **`contact_submissions`** table + route.
+4. **Cleanup SQL** — checked in, executed only by an operator with credentials.
 
 ## 13. Standing constraints
 
