@@ -106,6 +106,19 @@
   --accent-pink: #f472b6;
   --accent-orange: #fb923c;
   --accent-emerald: #34d399;
+  /* P6-b: text-safe siblings, dark values -- same hues, they already clear
+     4.5:1+ on Arena Night. See the light override for why these five are not
+     just reusing --accent-*'s own (already per-theme) value: axe caught
+     DraftCard.tsx's role chip (color: roleColor on a color-mix(roleColor 20%,
+     transparent) wash of ITSELF) failing 4.23-4.40:1 in light mode even
+     though --accent-* is already darkened for light mode -- the darkening
+     that clears a PLAIN card does not clear the same hue's own 20% wash,
+     same lesson as --accent-emerald/SeasonResultStub earlier. */
+  --accent-blue-text: #60a5fa;
+  --accent-violet-text: #a78bfa;
+  --accent-pink-text: #f472b6;
+  --accent-orange-text: #fb923c;
+  --accent-emerald-text: #34d399;
 
   /* Game states */
   --correct: #22c55e;
@@ -267,7 +280,13 @@
   --comp-tp-text: #6b46c9;
   --comp-rec-text: #b01f70;
   --comp-po-text: #96490d;
-  --comp-team-text: #0f7a4f;
+  /* P6-b: was #0f7a4f, which clears a plain card (the comment above) but
+     measured 4.34:1 against RankingsTable's row-hover wash (#ece7dc) --
+     axe caught it live, same "plain card doesn't prove the wash" lesson as
+     --accent-emerald. Realigned to --accent-emerald's already-fixed light
+     value (#0c6941, 5.47:1 on this exact background) since the two are the
+     same underlying hue by the comment two lines up. */
+  --comp-team-text: #0c6941;
   --comp-tm-text: #525b68;
 
   /* Court geometry accent — a hair stronger than Arena Night's so the
@@ -297,6 +316,19 @@
   --accent-pink: #b01f70;
   --accent-orange: #96490d;
   --accent-emerald: #0c6941;
+
+  /* P6-b: text-safe siblings — darker again than --accent-* itself. Measured
+     against every wash alpha actually used on these hues in the codebase
+     (10/12/15/20%, the last being DraftCard.tsx's role chip, the failing
+     case) composited over both --bg-surface and --bg-elevated; each value
+     below clears 5.4:1+ in the WORST of those eight combinations, not just
+     the one axe happened to catch. --accent-* itself is unchanged — it is
+     still correct for a background fill or a border. */
+  --accent-blue-text: #2b4a70;
+  --accent-violet-text: #4b3e70;
+  --accent-pink-text: #6d3351;
+  --accent-orange-text: #70411b;
+  --accent-emerald-text: #14543d;
 }
 
 /* ================================================================

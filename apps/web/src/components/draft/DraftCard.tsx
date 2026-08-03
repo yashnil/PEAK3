@@ -4,14 +4,31 @@ import { DraftCard as DraftCardType, ROLE_LABELS, DraftRole } from "@/types/draf
 // Theme-aware `--accent-*` tokens (P3-G2), not literal hex -- same five hues
 // `--role-*` uses (this card's role identity, just not that literal token:
 // `--role-*` is RTT's own roster-role system, a different semantic reusing
-// the same palette by coincidence), but text-safe in both themes, which
-// `--role-*` is not measured/guaranteed to be.
+// the same palette by coincidence).
+//
+// P6-b CORRECTION: this comment used to claim --accent-* is "text-safe in
+// both themes" -- it is not, and that exact claim is why the bug below
+// shipped. --accent-* IS darkened per theme (unlike --role-*), but only
+// enough to clear a PLAIN card; used as `color` on top of a color-mix wash
+// of itself (the role pill below, `color-mix(roleColor 20%, transparent)`),
+// axe measured it failing 4.23-4.40:1 in light mode. `--accent-*-text` is
+// the actually-text-safe sibling, darkened again specifically for that case.
 const ROLE_COLORS: Record<DraftRole, string> = {
   lead_creator: "var(--accent-pink)",
   guard_wing: "var(--accent-blue)",
   wing_forward: "var(--accent-violet)",
   forward_big: "var(--accent-orange)",
   anchor: "var(--accent-emerald)",
+};
+
+/** Text-safe siblings of `ROLE_COLORS` (P6-b) -- use for `color`, never for a
+ *  background or border, where `ROLE_COLORS` itself is correct. */
+const ROLE_TEXT_COLORS: Record<DraftRole, string> = {
+  lead_creator: "var(--accent-pink-text)",
+  guard_wing: "var(--accent-blue-text)",
+  wing_forward: "var(--accent-violet-text)",
+  forward_big: "var(--accent-orange-text)",
+  anchor: "var(--accent-emerald-text)",
 };
 
 interface Props {
@@ -35,6 +52,9 @@ export default function DraftCard({
 }: Props) {
   const primaryRole = showRole ?? card.primary_role;
   const roleColor = primaryRole ? ROLE_COLORS[primaryRole] : "var(--text-secondary)";
+  // `var(--text-secondary)` is already text-safe on its own -- no separate
+  // "-text" fallback needed when there is no role.
+  const roleTextColor = primaryRole ? ROLE_TEXT_COLORS[primaryRole] : "var(--text-secondary)";
 
   const scoreDisplay = Math.round(card.individual_peak_score);
   const rankDisplay = `#${card.individual_peak_rank}`;
@@ -109,7 +129,7 @@ export default function DraftCard({
             className="text-xs font-medium px-2 py-0.5 rounded-full"
             style={{
               background: `color-mix(in srgb, ${roleColor} 20%, transparent)`,
-              color: roleColor,
+              color: roleTextColor,
               border: `1px solid color-mix(in srgb, ${roleColor} 40%, transparent)`,
             }}
           >
