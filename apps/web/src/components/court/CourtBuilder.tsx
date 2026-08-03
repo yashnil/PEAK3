@@ -28,6 +28,7 @@ import PeakCardCourt from "./PeakCardCourt";
 import CourtLayout from "./CourtLayout";
 import SeasonResultStub from "./SeasonResultStub";
 import LiveBuildPanel from "./LiveBuildPanel";
+import ActionToast from "./ActionToast";
 import { getTeamColors } from "@/lib/team-colors";
 
 interface Props {
@@ -88,6 +89,34 @@ export default function CourtBuilder({
   // and a screen reader with no extra machinery, and there is no such thing
   // as a half-completed drop.
   const [movingSlot, setMovingSlot] = useState<SlotType | null>(null);
+  // Launch-polish §5, gap 1: a third step, ONLY for the higher-stakes case --
+  // exchanging two already-placed cards, where two earlier decisions move at
+  // once. Set when the clicked destination is itself filled; a move into an
+  // open slot (nothing displaced) still executes on the first click, backed
+  // by the Undo toast below instead of a confirmation step.
+  const [pendingSwapConfirm, setPendingSwapConfirm] = useState<{ from: SlotType; to: SlotType } | null>(null);
+  // Launch-polish §5, gap 2: the one-line, auto-dismissing receipt for the
+  // last placement or swap, with a single reversing/redirecting action.
+  const [actionToast, setActionToast] = useState<{
+    message: string;
+    actionLabel: string;
+    onAction: () => void;
+  } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  const dismissToast = useCallback(() => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    setActionToast(null);
+  }, []);
+  const showToast = useCallback((message: string, actionLabel: string, onAction: () => void) => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    setActionToast({ message, actionLabel, onAction });
+    toastTimerRef.current = window.setTimeout(() => setActionToast(null), 8000);
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   const phase = uiPhaseFromStatus(state.status);
   // A submitted/simulated result is the saved and shared artifact -- it must
@@ -97,7 +126,10 @@ export default function CourtBuilder({
   const filledSlotCount = state.slots.filter((s) => s.filled).length;
   const rearrangeAvailable = canRearrange && filledSlotCount >= 1;
 
-  const cancelRearrange = useCallback(() => setMovingSlot(null), []);
+  const cancelRearrange = useCallback(() => {
+    setMovingSlot(null);
+    setPendingSwapConfirm(null);
+  }, []);
 
   // Escape cancels rearrange mode -- the standard exit for a transient modal
   // interaction mode, so the user is never trapped in "pick a destination".
@@ -160,7 +192,22 @@ export default function CourtBuilder({
 
   async function handlePlace(slotType: SlotType) {
     const next = await withBusy(() => placeCard(state.game_id, slotType));
-    if (next) setState(next);
+    if (next) {
+      setState(next);
+      // Launch-polish §5, gap 2. There is no backend action that removes a
+      // placed card (`action_place_card` in state.py has no inverse -- see
+      // the comment on `performSwap` below for the same limit on swaps), so
+      // this is honestly labeled "Move", not "Undo": it jumps straight into
+      // rearrange mode with the just-placed card preselected as the source,
+      // which is the fastest real correction path that exists today, rather
+      // than claiming a full reversal the API cannot actually perform.
+      const placed = next.slots.find((s) => s.slot_type === slotType);
+      if (placed?.player_name) {
+        showToast(`Placed ${placed.player_name} in ${SLOT_LABELS[slotType]}.`, "Move", () => {
+          setMovingSlot(slotType);
+        });
+      }
+    }
   }
 
   async function handleCancel() {
@@ -203,18 +250,72 @@ export default function CourtBuilder({
   /** Perform the rearrange. Never re-spins and never re-selects -- the server
    * only exchanges the two slots' card identity fields and recomputes both
    * slots' role_fit, so the roster count and every card's data are preserved
-   * by construction (see state.py::action_swap_slots). */
-  async function handleSwap(target: SlotType) {
+   * by construction (see state.py::action_swap_slots).
+   *
+   * Launch-polish §5, gap 2: `action_swap_slots` is its own exact inverse --
+   * calling it a second time with the same two slot types puts both cards
+   * back exactly where they started, including their recomputed role_fit.
+   * That symmetry is what makes a REAL "Undo" (not the honestly-weaker
+   * "Move" shortcut `handlePlace` above has to settle for) possible here:
+   * `opts.silent` is set on exactly that reversing call, so undoing an undo
+   * -- or a toast surviving long enough to fire twice -- can never chain
+   * into a second toast.
+   */
+  const performSwap = useCallback(
+    async (from: SlotType, to: SlotType, opts?: { silent?: boolean }) => {
+      // Captured BEFORE the request, not read off `next` afterward -- once
+      // the swap lands, "from" holds whoever USED to be in "to". The toast
+      // and the Undo closure both need to know who was where beforehand.
+      const beforeFrom = state.slots.find((s) => s.slot_type === from);
+      const beforeTo = state.slots.find((s) => s.slot_type === to);
+      const next = await withBusy(() => swapSlots(state.game_id, from, to));
+      if (!next) return next;
+      setState(next);
+      if (!opts?.silent) {
+        const wasSwap = !!beforeFrom?.filled && !!beforeTo?.filled;
+        const message = wasSwap
+          ? `Swapped ${beforeFrom?.player_name ?? SLOT_LABELS[from]} and ${beforeTo?.player_name ?? SLOT_LABELS[to]}.`
+          : `Moved ${beforeFrom?.player_name ?? "the card"} to ${SLOT_LABELS[to]}.`;
+        showToast(message, "Undo", () => {
+          void performSwap(to, from, { silent: true });
+        });
+      }
+      return next;
+    },
+    [state.game_id, state.slots, showToast],
+  );
+
+  /** The click on a swap-target slot. Only the higher-stakes case --
+   * displacing a card that was already placed -- pauses for confirmation;
+   * a move into an open slot (nothing displaced) still commits on this one
+   * click, backed by the Undo toast in `performSwap` instead. */
+  function requestSwap(target: SlotType) {
     const from = movingSlot;
     if (!from || from === target) {
       setMovingSlot(null);
       return;
     }
-    const next = await withBusy(() => swapSlots(state.game_id, from, target));
-    // Leave rearrange mode either way -- on failure the error banner explains
-    // why, and keeping the mode open would invite the same failing click.
+    const targetSlot = state.slots.find((s) => s.slot_type === target);
+    if (targetSlot?.filled) {
+      setPendingSwapConfirm({ from, to: target });
+      return;
+    }
     setMovingSlot(null);
-    if (next) setState(next);
+    void performSwap(from, target);
+  }
+
+  function confirmPendingSwap() {
+    if (!pendingSwapConfirm) return;
+    const { from, to } = pendingSwapConfirm;
+    setPendingSwapConfirm(null);
+    setMovingSlot(null);
+    void performSwap(from, to);
+  }
+
+  function cancelPendingSwap() {
+    // `movingSlot` stays set -- declining THIS destination should return to
+    // "pick a destination", not discard the whole rearrange.
+    setPendingSwapConfirm(null);
   }
 
   async function handleComplete() {
@@ -250,8 +351,17 @@ export default function CourtBuilder({
       : undefined;
     // While a card is being moved, every OTHER slot (filled or empty) is a
     // destination -- moving into an empty slot is a plain move, and into a
-    // filled one is a swap. Both go through the same endpoint.
-    const isSwapTarget = movingSlot != null && movingSlot !== slot.slot_type;
+    // filled one is a swap. Both go through the same endpoint. Frozen (no
+    // target is clickable) while a swap confirmation is already pending, so
+    // a second click cannot race the one awaiting "Confirm".
+    const isSwapTarget =
+      movingSlot != null && movingSlot !== slot.slot_type && !pendingSwapConfirm;
+    // Launch-polish §5, gap 3: a FILLED slot during the active placement
+    // decision is a genuinely illegal destination for the card about to be
+    // placed (see PeakCardCourt's own comment) -- but only when it is not
+    // ALSO the live rearrange target/source, which already has its own,
+    // higher-priority styling.
+    const blockedDuringPlacement = phase === "placing" && slot.filled && movingSlot == null;
     return (
       <PeakCardCourt
         slot={slot}
@@ -265,12 +375,13 @@ export default function CourtBuilder({
         pendingFitSeverity={pendingSlotFit?.role_fit_severity}
         pendingPrimaryPosition={phase === "placing" ? state.pending_selection?.primary_position : undefined}
         onMove={
-          rearrangeAvailable && slot.filled && movingSlot == null && !busy
+          rearrangeAvailable && slot.filled && movingSlot == null && !busy && !pendingSwapConfirm
             ? () => setMovingSlot(slot.slot_type)
             : undefined
         }
-        onSwapTarget={isSwapTarget && !busy ? () => handleSwap(slot.slot_type) : undefined}
+        onSwapTarget={isSwapTarget && !busy ? () => requestSwap(slot.slot_type) : undefined}
         movingFromSlotLabel={movingSlot ? SLOT_LABELS[movingSlot] : null}
+        blockedDuringPlacement={blockedDuringPlacement}
       />
     );
   }
@@ -483,7 +594,7 @@ export default function CourtBuilder({
                 Move players to improve position fit — this never re-spins.
               </p>
             )}
-            {movingSlot != null && (
+            {movingSlot != null && !pendingSwapConfirm && (
               <div
                 data-testid="rearrange-banner"
                 role="status"
@@ -501,6 +612,56 @@ export default function CourtBuilder({
                 >
                   Cancel
                 </button>
+              </div>
+            )}
+            {/* Launch-polish §5, gap 1: the confirmation step, ONLY for
+                displacing an already-placed card. `cancelPendingSwap`
+                deliberately leaves `movingSlot` set -- declining this ONE
+                destination should return to "pick a destination", not
+                discard the whole rearrange and make the player start over. */}
+            {pendingSwapConfirm && (
+              <div
+                data-testid="swap-confirm-banner"
+                role="alertdialog"
+                aria-label="Confirm swap"
+                className="rounded-lg px-2.5 py-2 flex items-center justify-between gap-2 -mt-1"
+                style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)" }}
+              >
+                <span className="text-[11px]" style={{ color: "var(--text-primary)" }}>
+                  Swap{" "}
+                  <strong>
+                    {state.slots.find((s) => s.slot_type === pendingSwapConfirm.from)?.player_name ??
+                      SLOT_LABELS[pendingSwapConfirm.from]}
+                  </strong>{" "}
+                  ↔{" "}
+                  <strong>
+                    {state.slots.find((s) => s.slot_type === pendingSwapConfirm.to)?.player_name ??
+                      SLOT_LABELS[pendingSwapConfirm.to]}
+                  </strong>
+                  ?
+                </span>
+                <span className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    data-testid="swap-confirm-btn"
+                    onClick={confirmPendingSwap}
+                    disabled={busy}
+                    className="text-[10px] font-bold uppercase tracking-wide rounded px-2.5 py-1 disabled:opacity-50"
+                    style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+                  >
+                    Swap
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="swap-confirm-cancel-btn"
+                    onClick={cancelPendingSwap}
+                    disabled={busy}
+                    className="text-[10px] font-semibold uppercase tracking-wide rounded px-2 py-1 disabled:opacity-50"
+                    style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+                  >
+                    Cancel
+                  </button>
+                </span>
               </div>
             )}
             {state.live_build && <LiveBuildPanel liveBuild={state.live_build} />}
@@ -530,6 +691,15 @@ export default function CourtBuilder({
             playAgainBusy={busy}
           />
         </div>
+      )}
+
+      {actionToast && (
+        <ActionToast
+          message={actionToast.message}
+          actionLabel={actionToast.actionLabel}
+          onAction={actionToast.onAction}
+          onDismiss={dismissToast}
+        />
       )}
     </div>
   );
