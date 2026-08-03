@@ -709,15 +709,11 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(mockPostAction).toHaveBeenCalledTimes(1);
   });
 
-  it("skip all resolves the sequence locally with no second round trip, then hands over to the perk choice", async () => {
-    // Matches the OLD behaviour exactly: finishing the reveal (by any means)
-    // hands over to the next screen in the same render the completion is
-    // observed — `needsOpeningReveal`/`showRosterReveal` and the surface
-    // itself are driven by the SAME `rosterSequence`, so there is no frame
-    // where "system_select" and "every card visible" are both true at once.
-    // The card-by-card visibility DURING an unfinished sequence is covered
-    // directly in `run-the-table-reveal.test.tsx`, against the surface
-    // component in isolation rather than through this auto-advancing shell.
+  it("skip all lands on all 7 slots fully resolved and HOLDS — 'skip the animation' is not 'skip the information'", async () => {
+    // The lead's ruling: jumping straight to system_select under-delivered —
+    // the player must see the roster they were promised before the screen
+    // changes. Skip-all now only ever advances the local sequence to
+    // `complete`; only an explicit "Continue" press dismisses the surface.
     await startAt(runState());
     mockPostAction.mockResolvedValue(
       runState({ action_count: 1, reveal: { roster: rosterTrack(7), boss: null } }),
@@ -728,6 +724,14 @@ describe("RunTheTableGame — v3 flow", () => {
     // Skip-all is client-side choreography over the SAME response — never a
     // second POST.
     expect(mockPostAction).toHaveBeenCalledTimes(1);
+    // Held: every card fully resolved, still on the reveal surface.
+    expect(await screen.findByText("Player 0")).toBeInTheDocument();
+    expect(screen.getByText("Player 6")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-opening-reveal")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-system-select")).not.toBeInTheDocument();
+
+    // The explicit continue is what actually leaves the screen.
+    await userEvent.click(screen.getByTestId("rtt-reveal-continue-roster"));
     expect(await screen.findByTestId("rtt-system-select")).toBeInTheDocument();
     expect(screen.queryByTestId("rtt-opening-reveal")).not.toBeInTheDocument();
   });
@@ -763,7 +767,33 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(screen.queryByTestId("rtt-opening-reveal")).not.toBeInTheDocument();
   });
 
-  it("puts a boss reveal in front of the boss briefing", async () => {
+  it("puts the boss INTRO in front of everything — name, win condition, countdown, a live skip", async () => {
+    await startAt(
+      runState({
+        status: "boss_ready",
+        act: 1,
+        lanes_to_win: 3,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(0) },
+        next_boss: {
+          boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+          act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+        },
+      }),
+    );
+    expect(screen.getByTestId("rtt-boss-intro")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-boss-reveal")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-boss-preview")).not.toBeInTheDocument();
+    expect(screen.getByText("The Wall")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-boss-intro-win-condition")).toHaveTextContent(
+      "Win 3 of the five lanes",
+    );
+    // The skip control is interactive from the first frame, not merely
+    // present-but-disabled (VERIFICATION_PLAN.md §2 item 6).
+    const skip = screen.getByTestId("rtt-boss-intro-skip");
+    expect(skip).toBeEnabled();
+  });
+
+  it("boss intro skip lands on the paired lineup reveal — one press, no countdown wait", async () => {
     await startAt(
       runState({
         status: "boss_ready",
@@ -775,11 +805,53 @@ describe("RunTheTableGame — v3 flow", () => {
         },
       }),
     );
+    await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
     expect(screen.getByTestId("rtt-boss-reveal")).toBeInTheDocument();
-    expect(screen.queryByTestId("rtt-boss-preview")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-boss-intro")).not.toBeInTheDocument();
     expect(screen.getByTestId("rtt-reveal-source-boss")).toHaveTextContent(
       /seed and rule generated/i,
     );
+  });
+
+  it("pairs the player's already-known card beside the boss's card as each slot resolves", async () => {
+    const myStarters = SLOT_IDS.slice(0, 5).map((slot_id, i) => ({
+      slot_id,
+      role: slot_id as never,
+      is_starter: true,
+      card: {
+        card_id: `mine-${i}`, player_name: `Mine ${i}`, player_slug: `mine-${i}`,
+        start_season: "1988-89", end_season: "1990-91", anchor_season: "1989-90",
+        window_label: "1988-89–1990-91", prime_score: 70 + i, overall_percentile: 50,
+        eligible_roles: [], primary_role: slot_id as never,
+        lane_index: { statistical_impact: 1, traditional_production: 1, individual_recognition: 1, postseason_individual_value: 1, team_achievement: 1 },
+        lane_percentiles: { statistical_impact: 1, traditional_production: 1, individual_recognition: 1, postseason_individual_value: 1, team_achievement: 1 },
+        base_cost: 10, cost: 10, cost_modifiers: [], refund_value: 5,
+      },
+    }));
+    await startAt(
+      runState({
+        status: "boss_ready",
+        act: 1,
+        starters: myStarters,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(0) },
+        next_boss: {
+          boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+          act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+        },
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready", act: 1, starters: myStarters,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-reveal-start-boss"));
+    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-boss"));
+    const paired = await screen.findAllByTestId("rtt-reveal-paired-card");
+    expect(paired.length).toBeGreaterThan(0);
+    expect(screen.getByText("Mine 0")).toBeInTheDocument();
   });
 
   it("hands over to the briefing once the boss lineup is fully revealed", async () => {
@@ -796,6 +868,7 @@ describe("RunTheTableGame — v3 flow", () => {
         },
       }),
     );
+    expect(screen.queryByTestId("rtt-boss-intro")).not.toBeInTheDocument();
     expect(screen.queryByTestId("rtt-boss-reveal")).not.toBeInTheDocument();
     expect(screen.getByTestId("rtt-boss-preview")).toBeInTheDocument();
   });

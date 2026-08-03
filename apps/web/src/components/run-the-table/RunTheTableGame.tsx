@@ -60,6 +60,7 @@ import NodeChoice from "./NodeChoice";
 import DraftRoom from "./DraftRoom";
 import TradeDesk from "./TradeDesk";
 import ChoiceNode from "./ChoiceNode";
+import BossIntro from "./BossIntro";
 import BossPreview from "./BossPreview";
 import BattleReveal from "./BattleReveal";
 import RunResult from "./RunResult";
@@ -226,6 +227,35 @@ export default function RunTheTableGame({
   });
 
   /**
+   * DISMISSAL, separate from COMPLETION.
+   *
+   * The lead's ruling: "skip-all must land on all 7 slots FULLY RESOLVED and
+   * hold there, so the player sees the roster they were promised before the
+   * screen changes... requires an explicit continue." So `sequence.complete`
+   * (every card settled — from the hook) and "the player has left this
+   * screen" (from here) are now two different facts. The reveal surface's
+   * own "Continue" footer button is what flips these; skip-all only ever
+   * advances `sequence.complete`, never dismissal directly.
+   *
+   * Reset on a new run (`run_id` change) — plain React state has no idea a
+   * new run started, since `RunTheTableGame` does not remount between runs
+   * (`commit()` just replaces `state`). Boss dismissal is keyed by
+   * `boss_id`, not a bare boolean, because a five-act run meets five bosses
+   * in one session and each needs its own intro + reveal + dismissal cycle.
+   */
+  const [rosterRevealDismissed, setRosterRevealDismissed] = useState(false);
+  const [dismissedBossIntroId, setDismissedBossIntroId] = useState<string | null>(null);
+  const [dismissedBossRevealId, setDismissedBossRevealId] = useState<string | null>(null);
+  const runIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!state || state.run_id === runIdRef.current) return;
+    runIdRef.current = state.run_id;
+    setRosterRevealDismissed(false);
+    setDismissedBossIntroId(null);
+    setDismissedBossRevealId(null);
+  }, [state]);
+
+  /**
    * Is the reveal surface still the thing on screen?
    *
    * `needsOpeningReveal(state)`/`needsBossReveal(state)` are the SERVER's
@@ -235,13 +265,20 @@ export default function RunTheTableGame({
    * request resolves — long before the local, paced presentation has
    * finished. `rosterSequence.started` covers exactly that gap: once the
    * player's one press has fired the request, the surface stays up until
-   * the LOCAL sequence (`rosterSequence.complete`) says every card has
-   * settled, never the server's flag alone.
+   * the player explicitly continues past the fully-resolved roster, never
+   * the server's flag alone and never `sequence.complete` alone either.
    */
   const showRosterReveal =
-    !!state && (needsOpeningReveal(state) || rosterSequence.started) && !rosterSequence.complete;
-  const showBossReveal =
-    !!state && (needsBossReveal(state) || bossSequence.started) && !bossSequence.complete;
+    !!state && (needsOpeningReveal(state) || rosterSequence.started) && !rosterRevealDismissed;
+
+  const bossActive =
+    !!state && !!bossTrack && (needsBossReveal(state) || bossSequence.started);
+  const bossIntroDone = !bossTrack || dismissedBossIntroId === bossTrack.boss_id;
+  const bossRevealDismissedNow = !!bossTrack && dismissedBossRevealId === bossTrack.boss_id;
+  /** The pre-roll: name, philosophy, win condition, countdown, skip. */
+  const showBossIntro = bossActive && !bossIntroDone;
+  /** The paired lineup reveal, after the intro is dismissed. */
+  const showBossReveal = bossActive && bossIntroDone && !bossRevealDismissedNow;
 
   /**
    * Handed to `RunTray`'s roster dock — see that component's
@@ -252,7 +289,7 @@ export default function RunTheTableGame({
    * opening reveal genuinely owns this roster right now.
    */
   const rosterConcealment: Set<string> | null =
-    state && rosterTrack && (needsOpeningReveal(state) || rosterSequence.started) && !rosterSequence.complete
+    state && rosterTrack && (needsOpeningReveal(state) || rosterSequence.started) && !rosterRevealDismissed
       ? new Set(rosterSequence.visible.map((s) => s.slot_id))
       : null;
 
@@ -489,7 +526,7 @@ export default function RunTheTableGame({
    * page does not yank focus away from the top of the document.
    */
   const surfaceKey = state
-    ? surfaceKeyFor(state, { roster: showRosterReveal, boss: showBossReveal })
+    ? surfaceKeyFor(state, { roster: showRosterReveal, bossIntro: showBossIntro, boss: showBossReveal })
     : null;
   useEffect(() => {
     if (!surfaceKey) {
@@ -737,6 +774,30 @@ export default function RunTheTableGame({
         reducedMotion={reducedMotion}
         busy={busy}
         onStartReveal={(count) => reveal("roster", count)}
+        footer={
+          // "Skip the animation" is not "skip the information" — skip-all
+          // lands on all 7 slots fully resolved and HOLDS there; only this
+          // explicit press leaves the screen (lead's ruling, see
+          // `rosterRevealDismissed`'s docstring above).
+          <button
+            type="button"
+            data-testid="rtt-reveal-continue-roster"
+            onClick={() => setRosterRevealDismissed(true)}
+            className="rtt-tap self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide"
+            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+          >
+            Continue
+          </button>
+        }
+      />
+    );
+  } else if (showBossIntro && bossTrack && state.next_boss) {
+    surface = (
+      <BossIntro
+        boss={state.next_boss}
+        lanesToWin={state.next_boss.lanes_to_win ?? state.lanes_to_win}
+        reducedMotion={reducedMotion}
+        onComplete={() => setDismissedBossIntroId(bossTrack.boss_id)}
       />
     );
   } else if (showBossReveal && bossTrack) {
@@ -754,9 +815,23 @@ export default function RunTheTableGame({
             (c) => c.card_id === cardId,
           ) ?? null
         }
+        pairedCardLookup={(slotId) =>
+          [...state.starters, ...state.bench].find((s) => s.slot_id === slotId)?.card ?? null
+        }
         reducedMotion={reducedMotion}
         busy={busy}
         onStartReveal={(count) => reveal("boss", count)}
+        footer={
+          <button
+            type="button"
+            data-testid="rtt-reveal-continue-boss"
+            onClick={() => setDismissedBossRevealId(bossTrack.boss_id)}
+            className="rtt-tap self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide"
+            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+          >
+            Continue to the briefing
+          </button>
+        }
       />
     );
   } else if (screen === "system_select") {
@@ -1145,14 +1220,17 @@ export default function RunTheTableGame({
  */
 export function surfaceKeyFor(
   state: RunPublicState,
-  activeReveal?: { roster: boolean; boss: boolean },
+  activeReveal?: { roster: boolean; bossIntro: boolean; boss: boolean },
 ): string {
   // A reveal is a distinct surface that OCCUPIES another screen's slot, so the
   // key has to say so — otherwise finishing the opening reveal would replace it
   // with the System select under the identical key `system_select:1`, and the
   // focus effect (which fires only on a key change) would never move focus to
-  // the surface that just arrived.
+  // the surface that just arrived. The boss intro is likewise its own key —
+  // it occupies the same `boss_ready` status the reveal and the briefing
+  // also occupy, and needs its own focus-on-arrival moment.
   if (activeReveal ? activeReveal.roster : needsOpeningReveal(state)) return "reveal_roster:1";
+  if (activeReveal?.bossIntro) return `boss_intro:${state.act}`;
   if (activeReveal ? activeReveal.boss : needsBossReveal(state)) return `reveal_boss:${state.act}`;
   return `${screenForStatus(state.status)}:${state.active_node?.node_id ?? state.act}`;
 }

@@ -45,6 +45,10 @@ interface Props {
    *  has already authorized. See `RevealCard`'s data-gap docstring. Never
    *  called for a concealed slot. */
   cardLookup: (cardId: string) => RunCardPublic | null;
+  /** Boss reveal only — the player's already-known card for this slot_id,
+   *  rendered statically alongside the boss's card as it resolves (§3's
+   *  "paired sequential lineup reveal"). Omitted for the roster reveal. */
+  pairedCardLookup?: (slotId: string) => RunCardPublic | null;
   reducedMotion: boolean;
   busy: boolean;
   /** Fires the batched `reveal(target, track.total)` POST. Does not itself
@@ -65,6 +69,7 @@ export default function RevealSequenceSurface({
   sourceNote,
   orderLabelFor,
   cardLookup,
+  pairedCardLookup,
   reducedMotion,
   busy,
   onStartReveal,
@@ -167,6 +172,7 @@ export default function RevealSequenceSurface({
                   }
                   status={status}
                   reducedMotion={reducedMotion}
+                  pairedWith={pairedCardLookup ? pairedCardLookup(orderSlot.slot_id) : null}
                 />
               );
             })}

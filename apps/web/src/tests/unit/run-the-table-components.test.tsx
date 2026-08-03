@@ -1478,6 +1478,41 @@ describe("BattleReveal", () => {
     expect(screen.getByTestId("rtt-battle-skip")).toBeVisible();
   });
 
+  it("offers pause before the reveal completes, replay only after", async () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    expect(screen.getByTestId("rtt-battle-pause")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-battle-replay")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("rtt-battle-skip"));
+    // Skipping to the result is itself a valid way to reach `done` — replay
+    // becomes available, pause no longer means anything.
+    expect(await screen.findByTestId("rtt-battle-replay")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-battle-pause")).not.toBeInTheDocument();
+  });
+
+  it("pause holds the series count in place; replay restarts the SAME already-resolved battle, no re-fetch", async () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    await userEvent.click(screen.getByTestId("rtt-battle-pause"));
+    expect(screen.getByTestId("rtt-battle-resume")).toBeInTheDocument();
+    const heldSeries = screen.getByTestId("rtt-battle-series").textContent;
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 150));
+    });
+    expect(screen.getByTestId("rtt-battle-series").textContent).toBe(heldSeries);
+
+    await userEvent.click(screen.getByTestId("rtt-battle-resume"));
+    await userEvent.click(screen.getByTestId("rtt-battle-skip"));
+    const replay = await screen.findByTestId("rtt-battle-replay");
+    // The verdict is identical after replay — same `battle` prop, no server
+    // round trip involved (this component takes no fetch function at all).
+    await userEvent.click(replay);
+    expect(screen.getByTestId("rtt-battle-stamp")).toHaveAttribute("data-outcome", "win");
+  });
+
   it("renders all five lanes with the server's winner on each", () => {
     render(
       <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,

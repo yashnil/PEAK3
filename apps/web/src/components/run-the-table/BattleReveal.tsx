@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { BattlePublic, BossPublic, LaneField, RunCardPublic } from "@/types/run-the-table";
 import { Coachmark } from "@/components/ui/GuidedTour";
@@ -45,12 +45,19 @@ const STEP_MS = STAGGER_S * 1000;
  *  1. The COMPLETE verdict (every lane's numbers, the winner, the tiebreak) is
  *     in the DOM at t=0 inside `role="status" aria-live="polite"`. Nothing a
  *     player or a screen reader needs is gated behind an animation.
- *  2. "Reveal instantly" is always present, never conditional on the reveal
+ *  2. "Skip to result" is always present, never conditional on the reveal
  *     being in progress — a player who wants the answer gets it in one click.
  *  3. `useReducedMotion()` collapses the whole thing to `initial: false,
  *     duration: 0`, so the reveal is finished on first paint.
  *
  * Only `transform` and `opacity` are animated.
+ *
+ * Pause/resume and replay (PRODUCT_EXPERIENCE_CONTRACT.md §3) are additive:
+ * pause holds the lane-by-lane interval in place without losing progress;
+ * replay is offered only once `done`, and replays the ALREADY-RESOLVED
+ * `battle` prop from the top — no network call, no re-decision, matching the
+ * hard rule "Replay replays an already-resolved result. It never re-fetches
+ * or re-decides."
  */
 interface Props {
   battle: BattlePublic;
@@ -76,6 +83,19 @@ export default function BattleReveal({
 
   const [revealed, setRevealed] = useState(instant ? battle.lanes.length : 0);
 
+  /** Pause holds the interval in place — the tick still fires on schedule but
+   *  does nothing while paused, so resuming continues from wherever it was
+   *  rather than losing time. `replayCount` re-runs the effect from scratch:
+   *  REPLAY, not a re-fetch — `battle` itself never changes, only the local
+   *  presentation restarts (§3: "replays an already-resolved result, never
+   *  re-fetches or re-decides"). */
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+  const [replayCount, setReplayCount] = useState(0);
+
   useEffect(() => {
     if (instant) {
       setRevealed(battle.lanes.length);
@@ -84,12 +104,20 @@ export default function BattleReveal({
     setRevealed(0);
     let n = 0;
     const id = window.setInterval(() => {
+      if (pausedRef.current) return;
       n += 1;
       setRevealed(n);
       if (n >= battle.lanes.length) window.clearInterval(id);
     }, STEP_MS);
     return () => window.clearInterval(id);
-  }, [instant, battle.lanes.length, battle.boss_id]);
+  }, [instant, battle.lanes.length, battle.boss_id, replayCount]);
+
+  /** Available only once the reveal has completed once — never before. */
+  const handleReplay = () => {
+    setPaused(false);
+    setSkipped(false);
+    setReplayCount((c) => c + 1);
+  };
 
   const series = runningSeries(battle.lanes, revealed);
   const verdict = battleVerdict(battle);
@@ -168,19 +196,69 @@ export default function BattleReveal({
             </span>
           )}
         </div>
-        <button
-          type="button"
-          data-testid="rtt-battle-skip"
-          onClick={() => setSkipped(true)}
-          className="rtt-tap rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
-          style={{
-            background: "var(--bg-surface)",
-            color: "var(--text-secondary)",
-            border: "1px solid var(--border-default)",
-          }}
-        >
-          Reveal instantly
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Pause/resume — meaningless once every lane is already resolved,
+              so it only appears mid-reveal, same as the reveal sequence's
+              own pause control. */}
+          {!done &&
+            !instant &&
+            (paused ? (
+              <button
+                type="button"
+                data-testid="rtt-battle-resume"
+                onClick={() => setPaused(false)}
+                className="rtt-tap rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
+                style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+              >
+                Resume
+              </button>
+            ) : (
+              <button
+                type="button"
+                data-testid="rtt-battle-pause"
+                onClick={() => setPaused(true)}
+                className="rtt-tap rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
+                style={{
+                  background: "var(--bg-surface)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border-default)",
+                }}
+              >
+                Pause
+              </button>
+            ))}
+          <button
+            type="button"
+            data-testid="rtt-battle-skip"
+            onClick={() => setSkipped(true)}
+            className="rtt-tap rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
+            style={{
+              background: "var(--bg-surface)",
+              color: "var(--text-secondary)",
+              border: "1px solid var(--border-default)",
+            }}
+          >
+            Skip to result
+          </button>
+          {/* Replay — available ONLY once the sequence has completed once.
+              Replays the ALREADY-RESOLVED `battle` prop; no network call,
+              no re-decision. */}
+          {done && (
+            <button
+              type="button"
+              data-testid="rtt-battle-replay"
+              onClick={handleReplay}
+              className="rtt-tap rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
+              style={{
+                background: "var(--bg-surface)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border-default)",
+              }}
+            >
+              Replay
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Running series count */}

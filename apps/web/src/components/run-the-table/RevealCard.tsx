@@ -2,7 +2,7 @@
 import { motion } from "motion/react";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { AnimatedNumber } from "@/components/ui";
-import { LANE_FIELDS, LaneField, RevealSlot, Role } from "@/types/run-the-table";
+import { LANE_FIELDS, LaneField, RevealSlot, Role, RunCardPublic } from "@/types/run-the-table";
 import { LANE_LABELS, ROLE_LABELS, laneColorVar } from "@/lib/run-the-table-state";
 import {
   REVEAL_BEAT_DURATION_MS,
@@ -50,6 +50,14 @@ interface Props {
   lanePercentiles: Record<LaneField, number> | null;
   status: RevealCardStatus;
   reducedMotion: boolean;
+  /** Boss reveal only — the PLAYER's already-known card in this same slot
+   *  position (matched by `slot_id`; `boss_reveal_order()` and
+   *  `opening_reveal()` both use the same role-keyed scheme, so a slot_id
+   *  match is always the same seat, never a guess). Fully known already, so
+   *  it renders statically — no beats, no concealment — beside the boss
+   *  card as it resolves, satisfying PRODUCT_EXPERIENCE_CONTRACT.md §3's
+   *  "paired sequential lineup reveal". Omit for the roster reveal. */
+  pairedWith?: RunCardPublic | null;
 }
 
 /**
@@ -76,6 +84,7 @@ export default function RevealCard({
   lanePercentiles,
   status,
   reducedMotion,
+  pairedWith,
 }: Props) {
   const concealed = status === "concealed";
   const settled = status === "settled";
@@ -111,6 +120,42 @@ export default function RevealCard({
       >
         {orderLabel}
       </span>
+
+      {/* The paired half — your already-known card in this same seat. Static:
+          nothing about it is concealed or animated, it is simply what you
+          already knew, placed beside the boss card so the comparison reads
+          the instant the boss card lands rather than three screens later. */}
+      {pairedWith && (
+        <>
+          <span
+            className="flex min-w-0 shrink-0 items-center gap-1.5 @[420px]:max-w-[40%]"
+            data-testid="rtt-reveal-paired-card"
+          >
+            <PlayerAvatar name={pairedWith.player_name} size={26} />
+            <span className="flex min-w-0 flex-col">
+              <span
+                className="truncate text-xs font-bold"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {pairedWith.player_name}
+              </span>
+              <span
+                className="score-number truncate text-[10px]"
+                style={{ color: "var(--peak-accent)" }}
+              >
+                {pairedWith.prime_score.toFixed(1)}
+              </span>
+            </span>
+          </span>
+          <span
+            aria-hidden="true"
+            className="shrink-0 text-[9px] font-black uppercase tracking-wider"
+            style={{ color: "var(--text-muted)" }}
+          >
+            vs
+          </span>
+        </>
+      )}
 
       {concealed ? (
         <span
