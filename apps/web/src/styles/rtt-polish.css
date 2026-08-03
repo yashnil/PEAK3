@@ -81,6 +81,56 @@
 }
 
 /* ----------------------------------------------------------------
+   Top HUD (PRODUCT_EXPERIENCE_CONTRACT.md §4) — the scoreboard tiles
+   promoted out of the rail, plus the current objective, always
+   visible above the three-zone grid. Quieter than `.rtt-decision-zone`
+   by construction: no border/shadow of its own, just a hairline
+   divider beneath it, so it reads as a persistent strip rather than a
+   fourth competing panel.
+   ---------------------------------------------------------------- */
+.rtt-hud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  /* `.rtt-shell` becomes a 3-column grid at desktop width (globals.css,
+     platform-owned) — this is the one rule that makes the HUD span all
+     three columns as its own row rather than falling into the left
+     column's implicit next grid cell. Harmless below 1024px, where
+     `.rtt-shell` is a flex column and `grid-column` has no effect. */
+  grid-column: 1 / -1;
+}
+
+.rtt-hud-tiles {
+  flex: 0 0 auto;
+  width: auto;
+  grid-auto-flow: column;
+  grid-template-columns: none;
+}
+
+.rtt-hud-tiles .rtt-scoreboard-tile {
+  min-width: 64px;
+  padding: 6px 10px;
+}
+
+.rtt-hud-objective {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+@media (max-width: 640px) {
+  .rtt-hud-objective {
+    display: none;
+  }
+}
+
+/* ----------------------------------------------------------------
    Run map — recedes when it is not the thing being decided
    ---------------------------------------------------------------- */
 

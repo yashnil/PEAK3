@@ -184,18 +184,28 @@ export default function RunCard({
           className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]"
           data-testid="rtt-card-shape"
         >
+          {/* The lane color is a fill/border accent, never text — the frozen
+              --comp-* hexes measure 1.6-2.6:1 as text on Arena Day, failing
+              even the 3:1 large-text floor. A small dot carries the color;
+              the label word itself is always `--text-primary`. */}
           <span style={{ color: "var(--text-muted)" }} data-testid="rtt-card-strongest">
             Strongest{" "}
-            <span style={{ color: laneColorVar(shape.strongest.token) }}>
-              {shape.strongest.label}
-            </span>{" "}
+            <span
+              aria-hidden="true"
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ background: laneColorVar(shape.strongest.token) }}
+            />{" "}
+            <span style={{ color: "var(--text-primary)" }}>{shape.strongest.label}</span>{" "}
             <span className="score-number">{shape.strongest.percentile.toFixed(0)}</span>
           </span>
           <span style={{ color: "var(--text-muted)" }} data-testid="rtt-card-weakest">
             Weakest{" "}
-            <span style={{ color: laneColorVar(shape.weakest.token) }}>
-              {shape.weakest.label}
-            </span>{" "}
+            <span
+              aria-hidden="true"
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ background: laneColorVar(shape.weakest.token) }}
+            />{" "}
+            <span style={{ color: "var(--text-primary)" }}>{shape.weakest.label}</span>{" "}
             <span className="score-number">{shape.weakest.percentile.toFixed(0)}</span>
           </span>
           <span

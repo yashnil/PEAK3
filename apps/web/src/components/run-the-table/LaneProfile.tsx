@@ -76,9 +76,13 @@ export default function LaneProfile({
                 />
               )}
             </div>
+            {/* The lane's own number, never colored with the lane token —
+                `laneColorVar` is a fill/border accent (the bar above), and
+                the frozen `--comp-*` hex measures 1.6-2.6:1 as text on
+                Arena Day, failing even the 3:1 large-text floor. */}
             <div
               className="score-number w-9 shrink-0 text-right text-[11px]"
-              style={{ color }}
+              style={{ color: "var(--text-primary)" }}
             >
               {lane.value.toFixed(1)}
             </div>

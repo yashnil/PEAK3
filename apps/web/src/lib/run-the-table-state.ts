@@ -1100,13 +1100,32 @@ export function decisiveLane(
   };
 }
 
-/** One sentence per lane, for the `aria-live` region and the skip-to-end view. */
+/**
+ * One sentence per lane, for the `aria-live` region and the skip-to-end view.
+ *
+ * Names the lineup rating as a rating (never "score" or "total" — see
+ * `LANE_RATING_LABELS`) and, when the engine sent one, the top contributor's
+ * OWN value separately — so a screen-reader user reaches the same two
+ * distinctly-attributed numbers a sighted player now sees on the lane row,
+ * never the pre-fix reading where one number could be mistaken for a named
+ * player's score.
+ */
 export function laneSentence(lane: BattleLanePublic): string {
   const winner =
     lane.winner === "player" ? "You win" : lane.winner === "opponent" ? "They win" : "Tied";
-  return `${lane.label}: ${lane.player_score.toFixed(1)} to ${lane.opponent_score.toFixed(
+  const contributorClause =
+    lane.top_contributor && lane.opponent_top_contributor
+      ? ` Top contributor: ${lane.top_contributor.name} ${lane.top_contributor.own_lane_index_value.toFixed(
+          1,
+        )} vs ${lane.opponent_top_contributor.name} ${lane.opponent_top_contributor.own_lane_index_value.toFixed(
+          1,
+        )}.`
+      : "";
+  return `${lane.label} lineup rating: ${lane.player_lineup_rating.toFixed(
     1,
-  )}. ${winner}${lane.tie_broken_by_rule ? " (boss rule broke the tie)" : ""}.`;
+  )} to ${lane.boss_lineup_rating.toFixed(1)}. ${winner}${
+    lane.tie_broken_by_rule ? " (boss rule broke the tie)" : ""
+  }.${contributorClause}`;
 }
 
 // ---------------------------------------------------------------------------

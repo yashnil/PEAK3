@@ -256,11 +256,21 @@ function battleFixture(over: Partial<BattlePublic> = {}): BattlePublic {
       lane: l,
       label: `Lane ${i}`,
       token: (["si", "tp", "rec", "po", "team"] as const)[i],
-      player_score: 60 + i,
-      opponent_score: 58,
       winner: i % 2 === 0 ? ("player" as const) : ("opponent" as const),
       margin: 2 + i,
       tie_broken_by_rule: false,
+      // -- contract fields (SYNTHESIS_CONTRACT.md §2.3) --------------------
+      player_lineup_rating: 60 + i,
+      boss_lineup_rating: 58,
+      pre_perk_rating: 55 + i,
+      perk_adjustment: 2.5,
+      bench_adjustment: (60 + i) - (55 + i) - 2.5,
+      final_rating: 60 + i,
+      top_contributor: { name: "Tim Duncan", own_lane_index_value: 72 },
+      opponent_top_contributor: { name: "Kevin Garnett", own_lane_index_value: 72 },
+      // -- deprecated aliases, still on the wire during the integration window --
+      player_score: 60 + i,
+      opponent_score: 58,
       player_top_card: card({ player_name: "Tim Duncan" }),
       opponent_top_card: card({ card_id: "z", player_name: "Kevin Garnett" }),
     })),
@@ -891,6 +901,44 @@ describe("RunMap", () => {
     expect(screen.getByTestId("rtt-map-row-a1s1")).toHaveAttribute("data-row-state", "locked");
   });
 
+  it("shows ≤2 unreached future stages expanded by default — the rest sit behind a collapsed drawer", () => {
+    const map: MapAct[] = [
+      {
+        act: 1,
+        stages: [
+          { act: 1, stage: 1, state: "done", chosen_node_id: "n", chosen_node_type: "draft_room", option_types: ["draft_room", "trade_desk"], scouted: false },
+          { act: 1, stage: 2, state: "current", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "film_room"], scouted: false },
+        ],
+        boss: { boss_id: "boss-a1", name: "Boss 1", state: "locked" },
+      },
+      {
+        act: 2,
+        stages: [
+          { act: 2, stage: 1, state: "locked", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "trade_desk"], scouted: false },
+          { act: 2, stage: 2, state: "locked", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "rest_bank"], scouted: false },
+        ],
+        boss: { boss_id: "boss-a2", name: "Boss 2", state: "locked" },
+      },
+    ];
+    render(<RunMap map={map} />);
+    // History (before "current"): collapsed by default.
+    const history = screen.getByTestId("rtt-map-history");
+    expect(history.tagName).toBe("DETAILS");
+    expect(history).not.toHaveAttribute("open");
+    // Near-term: current (a1s2) + up to 2 unreached (a1boss, a2s1) render
+    // OUTSIDE any collapsed container.
+    for (const key of ["a1s2", "a1boss", "a2s1"]) {
+      const row = screen.getByTestId(`rtt-map-row-${key}`);
+      expect(row.closest("details")).toBeNull();
+    }
+    // Everything past that sits behind its own collapsed drawer.
+    const future = screen.getByTestId("rtt-map-future");
+    expect(future.tagName).toBe("DETAILS");
+    expect(future).not.toHaveAttribute("open");
+    expect(screen.getByTestId("rtt-map-row-a2s2").closest("details")).toBe(future);
+    expect(screen.getByTestId("rtt-map-row-a2boss").closest("details")).toBe(future);
+  });
+
   it("colours the state word with a FOREGROUND token, never the row border", () => {
     const map: MapAct[] = [
       {
@@ -923,13 +971,21 @@ describe("RunMap", () => {
     // fail AA, and this word is the only TEXTUAL state indicator in the rail.
     // Each of these is >= 4.5:1 against the fill its own row paints.
     const colorOf = (key: string) => screen.getByTestId(`rtt-map-state-${key}`).style.color;
-    expect(colorOf("a1s1")).toBe("var(--peak-accent)"); // 10.95:1 on the accent wash
-    expect(colorOf("a1s2")).toBe("var(--text-muted)"); // 5.21:1 on --bg-elevated
-    expect(colorOf("a2s1")).toBe("var(--correct)"); // 7.40:1 on --bg-surface
+    // "current" used to be a bare `--peak-accent` (10.95:1 on Arena Night's
+    // accent wash) — but the SAME pure accent measured 1.24:1 on Arena Day's
+    // wash, nowhere near the 3:1 floor, since pale gold on near-white paper
+    // is a bad pairing regardless of theme. Mixed toward `--text-primary`
+    // (which itself flips dark/light-ink per theme) instead: 13.26:1 dark,
+    // 4.91:1 light. See RunMap.tsx's `STATE_TEXT` docstring for the measurements.
+    expect(colorOf("a1s1")).toContain("color-mix");
+    expect(colorOf("a1s1")).toContain("--peak-accent");
+    expect(colorOf("a1s2")).toBe("var(--text-muted)"); // 5.21:1 dark / 5.60:1 light
+    expect(colorOf("a2s1")).toBe("var(--correct)"); // 7.40:1 dark / 6.25:1 light
     expect(colorOf("a2boss")).toBe("var(--correct)");
-    expect(colorOf("a3boss")).toBe("var(--text-secondary)"); // 5.31:1 on --bg-surface
+    expect(colorOf("a3boss")).toBe("var(--text-secondary)"); // 5.31:1 dark / 7.60:1 light
     // --incorrect neat is only 4.48:1 on --bg-surface, so "lost" mixes toward
-    // --text-primary to reach 5.17:1 rather than shipping a near-miss.
+    // --text-primary to reach 5.17:1 dark / 6.51:1 light rather than shipping
+    // a near-miss.
     expect(colorOf("a1boss")).toContain("color-mix");
     // And no border token is ever used as a text colour.
     for (const key of ["a1s1", "a1s2", "a2s1", "a3boss", "a1boss", "a2boss"]) {
@@ -976,6 +1032,14 @@ describe("LaneProfile", () => {
     expect(screen.getByTestId("rtt-lane-sr-statistical_impact")).toHaveTextContent(
       "Lane 0 is 20% of the PEAK3 score.",
     );
+  });
+
+  it("never colors the lane's own number with the frozen --comp-* hex — only the bar fill uses it", () => {
+    render(<LaneProfile lanes={lanes} />);
+    const bar = screen.getByTestId("rtt-lane-bar-statistical_impact");
+    expect(bar.style.background).toBe("var(--comp-si)");
+    const number = screen.getByText("50.0");
+    expect(number.style.color).toBe("var(--text-primary)");
   });
 
   it("adds no extra text when there is nothing title-only to expose", () => {
@@ -1085,6 +1149,28 @@ describe("RunCard", () => {
     expect(within(shape).getByTestId("rtt-card-weakest")).toHaveTextContent("Team Result");
     // A lopsided card is labelled by its strongest lane.
     expect(within(shape).getByTestId("rtt-card-profile")).toHaveTextContent("Impact-heavy");
+  });
+
+  it("never colors a lane-name TEXT node with the frozen --comp-* hex — it measures 1.6-2.6:1 on Arena Day", () => {
+    render(
+      <RunCard
+        card={card({
+          lane_percentiles: {
+            statistical_impact: 94,
+            traditional_production: 61,
+            individual_recognition: 40,
+            postseason_individual_value: 72,
+            team_achievement: 12,
+          },
+        })}
+        cost={26}
+      />,
+    );
+    const shape = screen.getByTestId("rtt-card-shape");
+    const strongestWord = within(shape).getByText("Statistical Impact");
+    const weakestWord = within(shape).getByText("Team Result");
+    expect(strongestWord.style.color).toBe("var(--text-primary)");
+    expect(weakestWord.style.color).toBe("var(--text-primary)");
   });
 
   it("calls a level card Balanced", () => {
@@ -1285,6 +1371,21 @@ describe("DraftRoom", () => {
     await userEvent.click(pass);
     expect(onPass).toHaveBeenCalled();
   });
+
+  it("states what is foregone — credits remaining after the purchase, not just the card's gain", () => {
+    render(
+      <DraftRoom node={node} slots={[...starters(), ...bench()]} credits={30} busy={false} onBuy={vi.fn()} onPass={vi.fn()} />,
+    );
+    // Default offer costs 26 (see `card()`'s fixture default) — 30-26=4.
+    expect(screen.getByTestId("rtt-offer-tradeoff-tim-duncan-3yr-200203")).toHaveTextContent(
+      "leaves 4",
+    );
+    // Veteran-minimum-eligible card effectively costs 0 while the toggle is
+    // on by default — nothing foregone.
+    expect(screen.getByTestId("rtt-offer-tradeoff-c")).toHaveTextContent("Free");
+    // A blocked offer states no tradeoff at all — there's nothing to weigh.
+    expect(screen.queryByTestId("rtt-offer-tradeoff-b")).not.toBeInTheDocument();
+  });
 });
 
 describe("TradeDesk", () => {
@@ -1424,8 +1525,12 @@ describe("BattleReveal", () => {
     await waitFor(() => expect(live).toHaveTextContent("VICTORY"));
     expect(live).toHaveTextContent("Decided on lanes won");
     for (let i = 0; i < 5; i += 1) {
-      expect(live).toHaveTextContent(`Lane ${i}:`);
+      expect(live).toHaveTextContent(`Lane ${i} lineup rating:`);
     }
+    // The top contributor's OWN value is announced too, not only the lineup
+    // rating — screen-reader users reach the same two distinctly-attributed
+    // numbers a sighted player now sees on the restructured lane row.
+    expect(live).toHaveTextContent("Top contributor: Tim Duncan");
     expect(live).toHaveTextContent("Credits awarded: 12");
   });
 
@@ -1434,6 +1539,41 @@ describe("BattleReveal", () => {
       <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
     );
     expect(screen.getByTestId("rtt-battle-skip")).toBeVisible();
+  });
+
+  it("offers pause before the reveal completes, replay only after", async () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    expect(screen.getByTestId("rtt-battle-pause")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-battle-replay")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("rtt-battle-skip"));
+    // Skipping to the result is itself a valid way to reach `done` — replay
+    // becomes available, pause no longer means anything.
+    expect(await screen.findByTestId("rtt-battle-replay")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-battle-pause")).not.toBeInTheDocument();
+  });
+
+  it("pause holds the series count in place; replay restarts the SAME already-resolved battle, no re-fetch", async () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    await userEvent.click(screen.getByTestId("rtt-battle-pause"));
+    expect(screen.getByTestId("rtt-battle-resume")).toBeInTheDocument();
+    const heldSeries = screen.getByTestId("rtt-battle-series").textContent;
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 150));
+    });
+    expect(screen.getByTestId("rtt-battle-series").textContent).toBe(heldSeries);
+
+    await userEvent.click(screen.getByTestId("rtt-battle-resume"));
+    await userEvent.click(screen.getByTestId("rtt-battle-skip"));
+    const replay = await screen.findByTestId("rtt-battle-replay");
+    // The verdict is identical after replay — same `battle` prop, no server
+    // round trip involved (this component takes no fetch function at all).
+    await userEvent.click(replay);
+    expect(screen.getByTestId("rtt-battle-stamp")).toHaveAttribute("data-outcome", "win");
   });
 
   it("renders all five lanes with the server's winner on each", () => {
@@ -1445,6 +1585,15 @@ describe("BattleReveal", () => {
     expect(within(screen.getByTestId("rtt-battle-lanes")).getAllByRole("listitem")).toHaveLength(5);
   });
 
+  it("never colors the lane-label TEXT with the frozen --comp-* hex — the color moves to the dot beside it", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const lane = screen.getByTestId("rtt-lane-statistical_impact");
+    const label = within(lane).getByText("Lane 0");
+    expect(label.style.color).toBe("var(--text-primary)");
+  });
+
   it("names the top contributor the server sent on each side", () => {
     render(
       <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
@@ -1452,6 +1601,65 @@ describe("BattleReveal", () => {
     const first = screen.getByTestId("rtt-lane-statistical_impact");
     expect(within(first).getByText("Tim Duncan")).toBeInTheDocument();
     expect(within(first).getByText("Kevin Garnett")).toBeInTheDocument();
+  });
+
+  // SCORE_RECONCILIATION.md §2 (binding): the per-lane number is a
+  // bench-weighted roster MEAN, never a named player's own value, and
+  // relabelling alone was declared insufficient — the contributor's own
+  // number must ALSO render, separately attributed. These three tests pin
+  // that P0 fix so it cannot silently regress to the old unlabelled,
+  // stacked-under-a-name presentation.
+  it("labels the lineup rating YOUR/BOSS, never as a bare number under a player's name", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const header = screen.getByTestId("rtt-battle-lane-rating-header");
+    expect(header).toHaveTextContent("YOUR LINEUP RATING");
+    expect(header).toHaveTextContent("BOSS LINEUP RATING");
+  });
+
+  it("shows the top contributor's OWN lane value, distinct from the lineup rating above it", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    // battleFixture's lane 0 (statistical_impact): lineup rating 60.0/58.0,
+    // but the top contributor's own lane_index value (from `card()`) is a
+    // DIFFERENT number — the whole point of the fix. Both must be on screen,
+    // each in its own labelled block, never one implying the other.
+    const contributors = screen.getByTestId("rtt-lane-contributors-statistical_impact");
+    expect(contributors).toHaveTextContent("Top contributor");
+    const playerValue = screen.getByTestId("rtt-lane-player-contributor-value-statistical_impact");
+    const opponentValue = screen.getByTestId("rtt-lane-opponent-contributor-value-statistical_impact");
+    expect(playerValue.textContent).not.toBe("60.0");
+    expect(opponentValue.textContent).not.toBe("58.0");
+  });
+
+  it("never lets an individual player's label sit directly on the roster-wide number", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const lane = screen.getByTestId("rtt-lane-statistical_impact");
+    const contributors = screen.getByTestId("rtt-lane-contributors-statistical_impact");
+    // The contributor block is a physically separate element from the lineup
+    // rating row it sits below — not a caption glued to the same number.
+    expect(contributors.parentElement).toBe(lane);
+    expect(contributors).not.toBe(lane.firstElementChild);
+  });
+
+  it("expandable receipt: pre_perk_rating + bench_adjustment + perk_adjustment sums to final_rating, behind disclosure", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const receipt = screen.getByTestId("rtt-lane-receipt-statistical_impact");
+    expect(receipt.tagName).toBe("DETAILS");
+    // Collapsed by default — it must not compete with the at-a-glance numbers.
+    expect(receipt).not.toHaveAttribute("open");
+    // battleFixture's lane 0: pre_perk_rating 55, bench_adjustment 2.5,
+    // perk_adjustment 2.5 → sums to final_rating 60 (player_lineup_rating).
+    expect(screen.getByTestId("rtt-lane-receipt-pre-statistical_impact")).toHaveTextContent("55.00");
+    expect(screen.getByTestId("rtt-lane-receipt-bench-statistical_impact")).toHaveTextContent("2.50");
+    expect(screen.getByTestId("rtt-lane-receipt-perk-statistical_impact")).toHaveTextContent("2.50");
+    expect(screen.getByTestId("rtt-lane-receipt-final-statistical_impact")).toHaveTextContent("60.00");
   });
 
   it("shows the full series count immediately once the reveal is skipped", async () => {
@@ -1690,6 +1898,153 @@ describe("RunResult", () => {
     await userEvent.click(screen.getByTestId("rtt-replay-seed"));
     expect(onRunItBack).toHaveBeenCalledTimes(1);
     expect(onReplaySeed).toHaveBeenCalledTimes(1);
+  });
+
+  it("makes the verdict the largest, first-in-DOM-order element — never a caption under the headline", () => {
+    renderResult();
+    const stamp = screen.getByTestId("rtt-result-verdict");
+    // `text-4xl` (36px) vs the headline's `text-base` (16px) — this used to
+    // be backwards (`text-[11px]` under a `text-2xl` headline).
+    expect(stamp.className).toContain("text-4xl");
+    const headline = screen.getByText("Ran the table.");
+    expect(headline.className).not.toContain("text-2xl");
+    // First in DOM order: nothing above the fold precedes it.
+    const shell = screen.getByTestId("rtt-result");
+    const firstText = shell.querySelector("span, h2, p");
+    expect(firstText).toBe(stamp);
+  });
+
+  it("shows the largest mistake whenever the receipt's own data supports one — never a placeholder", () => {
+    renderResult({
+      best_acquisition: {
+        card_id: "bad-buy", player_name: "Overpaid Guy", player_slug: "overpaid-guy",
+        anchor_season: "1990-91", window: "1988-89–1990-91", prime_score: 55, base_cost: 30,
+        cost: 30, score_delta: -4.5, value_per_credit: -0.15, replaced: null, act: 2,
+      },
+    });
+    const mistake = screen.getByTestId("rtt-result-largest-mistake");
+    expect(mistake).toHaveTextContent("Worst acquisition");
+    expect(mistake).toHaveTextContent("Overpaid Guy");
+    expect(mistake).toHaveTextContent("-4.50");
+  });
+
+  it("omits the largest-mistake section entirely when nothing negative exists — absence, not a placeholder", () => {
+    renderResult();
+    expect(screen.queryByTestId("rtt-result-largest-mistake")).not.toBeInTheDocument();
+  });
+
+  it("shows the closest LOST lane only — a closest WON lane is a different fact and stays hidden", () => {
+    const { rerender } = renderResult({
+      closest_battle: { boss_id: "b1", act: 3, outcome: "loss", lanes: "2-3", tightest_lane_margin: 0.4, summed_margin: -1.2 },
+    });
+    expect(screen.getByTestId("rtt-result-closest-lost")).toBeInTheDocument();
+
+    rerender(
+      <RunResult
+        receipt={receiptFixture({
+          closest_battle: { boss_id: "b1", act: 3, outcome: "win", lanes: "3-2", tightest_lane_margin: 0.4, summed_margin: 1.2 },
+        })}
+        versions={VERSIONS}
+        busy={false}
+        onRunItBack={vi.fn()}
+        onReplaySeed={vi.fn()}
+        onChallenge={vi.fn().mockResolvedValue("tok-1")}
+      />,
+    );
+    expect(screen.queryByTestId("rtt-result-closest-lost")).not.toBeInTheDocument();
+  });
+
+  it("promotes the better of best_acquisition/best_trade to one 'best move' callout, the other as a secondary line", () => {
+    renderResult({
+      best_acquisition: {
+        card_id: "a", player_name: "Good Buy", player_slug: "good-buy",
+        anchor_season: "1990-91", window: "1988-89–1990-91", prime_score: 80, base_cost: 20,
+        cost: 20, score_delta: 3, value_per_credit: 0.15, replaced: null, act: 1,
+      },
+      best_trade: {
+        incoming: { card_id: "b", player_name: "Traded In", player_slug: "traded-in", anchor_season: "1990-91", window: "1988-89–1990-91", prime_score: 85, base_cost: 22 },
+        outgoing: { card_id: "c", player_name: "Traded Out", player_slug: "traded-out", anchor_season: "1990-91", window: "1988-89–1990-91", prime_score: 70, base_cost: 18 },
+        net_cost: 4, score_delta: 6, act: 2,
+      },
+    });
+    const bestMove = screen.getByTestId("rtt-result-best-move");
+    // Trade's +6 beats acquisition's +3 — trade is promoted.
+    expect(bestMove).toHaveTextContent("Traded In");
+    expect(bestMove).toHaveTextContent("Also bought Good Buy");
+  });
+
+  it("always states leaderboard placement — 'not ranked yet' is the correct explicit state, never a silent omission", () => {
+    renderResult();
+    expect(screen.getByTestId("rtt-result-leaderboard")).toHaveTextContent(/not ranked yet/i);
+  });
+
+  it("offers a real rendered share-card image, distinct from and in addition to the clipboard text action", async () => {
+    // jsdom implements neither canvas 2D contexts nor `<a>` navigation —
+    // stubbed here so the test exercises the REAL draw/export call path
+    // (drawShareCard, toDataURL, the download link) without console noise
+    // that belongs to jsdom's own known gaps, not this component.
+    const drawSpy = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      fillRect: vi.fn(), fillText: vi.fn(), measureText: vi.fn(() => ({ width: 0 })),
+      set fillStyle(_v: string) {}, set font(_v: string) {},
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(() => {
+      drawSpy();
+      return "data:image/png;base64,stub";
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    renderResult();
+    const canvas = screen.getByTestId("rtt-share-canvas") as HTMLCanvasElement;
+    expect(canvas.tagName).toBe("CANVAS");
+    expect(canvas).toHaveAttribute("data-ready", "false");
+    await userEvent.click(screen.getByTestId("rtt-share-card"));
+    expect(canvas).toHaveAttribute("data-ready", "true");
+    expect(drawSpy).toHaveBeenCalled();
+    // Clipboard text still works, unchanged, as its own separate action.
+    expect(screen.getByTestId("rtt-copy-summary")).toBeInTheDocument();
+
+    vi.restoreAllMocks();
+  });
+
+  it("builds a decision timeline from the run's map when one is supplied, omits it when not", () => {
+    const map: MapAct[] = [
+      {
+        act: 1,
+        stages: [
+          { act: 1, stage: 1, state: "done", chosen_node_id: "n", chosen_node_type: "draft_room", option_types: ["draft_room", "trade_desk"], scouted: false },
+          { act: 1, stage: 2, state: "locked", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "film_room"], scouted: false },
+        ],
+        boss: { boss_id: "boss-a1", name: "Boss 1", state: "won" },
+      },
+    ];
+    const { rerender } = render(
+      <RunResult
+        receipt={receiptFixture()}
+        versions={VERSIONS}
+        map={map}
+        busy={false}
+        onRunItBack={vi.fn()}
+        onReplaySeed={vi.fn()}
+        onChallenge={vi.fn().mockResolvedValue("t")}
+      />,
+    );
+    expect(screen.getByTestId("rtt-result-timeline-a1s1")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-result-timeline-a1boss")).toHaveTextContent("Won");
+    // The still-locked stage never played — not part of the story.
+    expect(screen.queryByTestId("rtt-result-timeline-a1s2")).not.toBeInTheDocument();
+
+    rerender(
+      <RunResult
+        receipt={receiptFixture()}
+        versions={VERSIONS}
+        busy={false}
+        onRunItBack={vi.fn()}
+        onReplaySeed={vi.fn()}
+        onChallenge={vi.fn().mockResolvedValue("t")}
+      />,
+    );
+    expect(screen.queryByTestId("rtt-result-timeline")).not.toBeInTheDocument();
   });
 });
 

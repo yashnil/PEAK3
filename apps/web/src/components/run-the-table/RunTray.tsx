@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
-import { AnimatedNumber } from "@/components/ui";
 import { RunPublicState } from "@/types/run-the-table";
 import { ROLE_LABELS, filledCount, slotLabel } from "@/lib/run-the-table-state";
 import {
@@ -14,12 +13,19 @@ import {
 import LaneProfile from "./LaneProfile";
 
 /**
- * The persistent front-office rail: a compact scoreboard, then the 5+2 roster,
- * then the active Front Office Perks, then the five-lane profile.
+ * The persistent front-office rail: the 5+2 roster, the active Front Office
+ * Perks, then the five-lane profile.
  *
- * Every number here is straight off `public_state()` — credits, lives, the
- * lane profile and `roster_total` are all the engine's own values, so what the
- * rail shows is exactly what the next battle resolves against.
+ * The credits/lives/act SCOREBOARD used to live at the top of this rail. It
+ * moved to `RunHUD.tsx`, rendered once above the whole three-zone shell —
+ * PRODUCT_EXPERIENCE_CONTRACT.md §4's "promote that pattern to the top of
+ * the shell rather than burying it inside the rail." This component no
+ * longer renders `rtt-credits`/`rtt-lives`/`rtt-act`/`rtt-scoreboard` at all;
+ * `RunHUD` is the one place they live now.
+ *
+ * Every number still here is straight off `public_state()` — the lane
+ * profile and `roster_total` are the engine's own values, so what the rail
+ * shows is exactly what the next battle resolves against.
  *
  * Rendered ONCE by `RunTheTableGame` (it used to be two instances, a desktop
  * rail and a mobile copy, which duplicated every `data-testid`). Each
@@ -37,11 +43,34 @@ interface Props {
    * disagrees just opens it — the `<details>` keeps whatever they chose.
    */
   laneProfileRelevant?: boolean;
+  /**
+   * THE LEAK-BY-CONSTRUCTION FIX (PRODUCT_EXPERIENCE_CONTRACT.md §2,
+   * SYNTHESIS_CONTRACT.md §4). `null` — the default — means no opening
+   * reveal is in progress: every filled slot renders exactly as it always
+   * has. A `Set` (even empty) means the opening reveal owns this roster
+   * right now; ONLY the `slot_id`s in that set may show identity, and it
+   * comes from the same `useRevealSequence` presentation cursor
+   * `RevealSequenceSurface` is animating against — one source of truth,
+   * not two components independently promising not to leak. Every other
+   * slot renders concealed — `aria-label="Not revealed yet"` — regardless
+   * of what `slot.card` itself contains, because `state.starters`/`.bench`
+   * are NOT trusted for identity while this prop says a reveal is active
+   * (the backend payload contract fix is task #15/#6's job; this rail must
+   * not depend on it landing first).
+   */
+  concealedRosterUnless?: Set<string> | null;
 }
 
-export default function RunTray({ state, laneProfileRelevant = false }: Props) {
+export default function RunTray({
+  state,
+  laneProfileRelevant = false,
+  concealedRosterUnless = null,
+}: Props) {
   const roster = [...state.starters, ...state.bench];
-  const filled = filledCount(roster);
+  // While a reveal is active, "filled" counts what has actually been SHOWN,
+  // not what the payload happens to contain — see `concealedRosterUnless`.
+  const filled = concealedRosterUnless ? concealedRosterUnless.size : filledCount(roster);
+  const [expanded, setExpanded] = useState(false);
   /**
    * The v3 "armed" block, or null when nothing is armed.
    *
@@ -76,44 +105,17 @@ export default function RunTray({ state, laneProfileRelevant = false }: Props) {
         Front office
       </h2>
 
-      {/* Scoreboard — three numbers, one line, no chrome competing with the
-          decision column. */}
-      <div className="rtt-scoreboard" data-testid="rtt-scoreboard">
-        <Tile
-          label="Credits"
-          accent="var(--peak-accent)"
-          testid="rtt-credits"
-          tourId="rtt-credits"
-          /* Counts, but `AnimatedNumber` assigns the authoritative value on the
-             terminal frame and carries it in an sr-only sibling from the first
-             paint — the displayed credits are never a rounded tween. */
-          value={
-            <AnimatedNumber
-              value={state.credits}
-              className="text-lg font-bold leading-none"
-            />
-          }
-        />
-        <Tile
-          label="Lives"
-          accent={state.lives <= 1 ? "var(--incorrect)" : "var(--correct)"}
-          testid="rtt-lives"
-          tourId="rtt-lives"
-          value={`${state.lives}/${state.max_lives}`}
-        />
-        <Tile
-          label="Act"
-          accent="var(--text-primary)"
-          testid="rtt-act"
-          value={`${Math.min(state.act, state.acts_total)}/${state.acts_total}`}
-        />
-      </div>
-
-      {/* Roster */}
+      {/* Roster — compact, expandable dock (PRODUCT_EXPERIENCE_CONTRACT.md §4).
+          Defaults COLLAPSED (avatar + score only); expands to the full row
+          this section always showed. Concealment (during an active opening
+          reveal) overrides collapse state entirely — a concealed slot shows
+          nothing in either mode. */}
       <section
         className="rounded-xl border p-2.5 flex flex-col gap-2"
         style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
         data-tour-id="rtt-roster"
+        data-testid="rtt-roster-dock"
+        data-reveal-active={concealedRosterUnless ? "true" : "false"}
       >
         <div className="flex items-baseline justify-between gap-2">
           <h3
@@ -122,61 +124,142 @@ export default function RunTray({ state, laneProfileRelevant = false }: Props) {
           >
             Roster · 5 + 2
           </h3>
-          <span className="score-number text-[10px]" style={{ color: "var(--text-secondary)" }}>
-            {filled}/{roster.length} filled
-          </span>
-        </div>
-        <ul className="flex flex-col gap-1">
-          {roster.map((slot) => (
-            <li
-              key={slot.slot_id}
-              data-testid={`rtt-slot-${slot.slot_id}`}
-              data-filled={slot.card ? "true" : "false"}
-              /* `rtt-roster-row` gives a filled slot a short settle-in when it
-                 first appears, so a card bought in the Draft Room visibly
-                 lands here rather than materialising between frames. Reduced
-                 motion drops it in globals-adjacent CSS. */
-              className="rtt-roster-row min-w-0"
+          <span className="flex items-center gap-2">
+            <span className="score-number text-[10px]" style={{ color: "var(--text-secondary)" }}>
+              {filled}/{roster.length} filled
+            </span>
+            <button
+              type="button"
+              data-testid="rtt-roster-dock-toggle"
+              aria-expanded={expanded}
+              onClick={() => setExpanded((e) => !e)}
+              className="rtt-tap rounded px-1.5 text-[9px] font-semibold uppercase tracking-wide"
               style={{
-                background: slot.is_starter ? "var(--bg-surface)" : "transparent",
-                border: `1px solid ${slot.is_starter ? "var(--border-subtle)" : "transparent"}`,
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border-subtle)",
+                background: "var(--bg-surface)",
               }}
             >
-              <span
-                className="w-[70px] shrink-0 text-[10px] uppercase tracking-wide"
-                style={{ color: "var(--text-muted)" }}
-              >
-                {slotLabel(slot)}
-              </span>
-              {slot.card ? (
-                <>
-                  <PlayerAvatar name={slot.card.player_name} size={22} />
-                  <span className="flex flex-col min-w-0">
-                    <span
-                      className="truncate text-[11px] font-semibold"
-                      style={{ color: "var(--text-primary)" }}
-                    >
-                      {slot.card.player_name}
-                    </span>
-                    <span className="truncate text-[9px]" style={{ color: "var(--text-muted)" }}>
-                      {slot.card.window_label}
-                    </span>
-                  </span>
+              {expanded ? "Collapse" : "Expand"}
+            </button>
+          </span>
+        </div>
+        {expanded ? (
+          <ul className="flex flex-col gap-1">
+            {roster.map((slot) => {
+              const concealed = concealedRosterUnless != null && !concealedRosterUnless.has(slot.slot_id);
+              return (
+                <li
+                  key={slot.slot_id}
+                  data-testid={`rtt-slot-${slot.slot_id}`}
+                  data-filled={!concealed && slot.card ? "true" : "false"}
+                  data-concealed={concealed ? "true" : "false"}
+                  /* `rtt-roster-row` gives a filled slot a short settle-in when
+                     it first appears, so a card bought in the Draft Room
+                     visibly lands here rather than materialising between
+                     frames. Reduced motion drops it in globals-adjacent CSS. */
+                  className="rtt-roster-row min-w-0"
+                  style={{
+                    background: slot.is_starter ? "var(--bg-surface)" : "transparent",
+                    border: `1px solid ${slot.is_starter ? "var(--border-subtle)" : "transparent"}`,
+                  }}
+                >
                   <span
-                    className="score-number ml-auto shrink-0 text-[11px]"
-                    style={{ color: "var(--peak-accent)" }}
+                    className="w-[70px] shrink-0 text-[10px] uppercase tracking-wide"
+                    style={{ color: "var(--text-muted)" }}
                   >
-                    {slot.card.prime_score.toFixed(1)}
+                    {slotLabel(slot)}
                   </span>
-                </>
-              ) : (
-                <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                  Empty
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
+                  {concealed ? (
+                    <span
+                      className="text-sm font-semibold"
+                      style={{ color: "var(--text-muted)" }}
+                      aria-label="Not revealed yet"
+                    >
+                      —
+                    </span>
+                  ) : slot.card ? (
+                    <>
+                      <PlayerAvatar name={slot.card.player_name} size={22} />
+                      <span className="flex flex-col min-w-0">
+                        <span
+                          className="truncate text-[11px] font-semibold"
+                          style={{ color: "var(--text-primary)" }}
+                        >
+                          {slot.card.player_name}
+                        </span>
+                        <span className="truncate text-[9px]" style={{ color: "var(--text-muted)" }}>
+                          {slot.card.window_label}
+                        </span>
+                      </span>
+                      <span
+                        className="score-number ml-auto shrink-0 text-[11px]"
+                        style={{ color: "var(--peak-accent)" }}
+                      >
+                        {slot.card.prime_score.toFixed(1)}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                      Empty
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          // Collapsed: avatars/initials + score only, per slot — the compact
+          // default. A concealed slot renders a neutral placeholder chip,
+          // never an avatar, never a score.
+          <ul className="flex flex-wrap gap-1.5" data-testid="rtt-roster-dock-collapsed">
+            {roster.map((slot) => {
+              const concealed = concealedRosterUnless != null && !concealedRosterUnless.has(slot.slot_id);
+              return (
+                <li
+                  key={slot.slot_id}
+                  data-testid={`rtt-slot-compact-${slot.slot_id}`}
+                  data-filled={!concealed && slot.card ? "true" : "false"}
+                  data-concealed={concealed ? "true" : "false"}
+                  className="flex flex-col items-center gap-0.5 rounded-lg px-1 py-1"
+                  style={{ background: "var(--bg-surface)", minWidth: "36px" }}
+                  title={
+                    !concealed && slot.card
+                      ? `${slotLabel(slot)}: ${slot.card.player_name}, ${slot.card.window_label}, ${slot.card.prime_score.toFixed(1)}`
+                      : undefined
+                  }
+                >
+                  {concealed ? (
+                    <span
+                      aria-label="Not revealed yet"
+                      className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[10px]"
+                      style={{ background: "var(--pk-surface-inset)", color: "var(--text-muted)" }}
+                    >
+                      ?
+                    </span>
+                  ) : slot.card ? (
+                    <PlayerAvatar name={slot.card.player_name} size={22} />
+                  ) : (
+                    <span
+                      aria-hidden="true"
+                      className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[10px]"
+                      style={{ background: "var(--pk-surface-inset)", color: "var(--text-muted)" }}
+                    >
+                      —
+                    </span>
+                  )}
+                  <span
+                    className="score-number text-[9px]"
+                    style={{ color: concealed ? "var(--text-muted)" : "var(--peak-accent)" }}
+                    aria-hidden="true"
+                  >
+                    {!concealed && slot.card ? slot.card.prime_score.toFixed(1) : "—"}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
 
       {/* Front Office Perks (internally: Systems) */}
@@ -345,38 +428,5 @@ export default function RunTray({ state, laneProfileRelevant = false }: Props) {
         </div>
       </details>
     </aside>
-  );
-}
-
-function Tile({
-  label,
-  value,
-  accent,
-  testid,
-  tourId,
-}: {
-  label: string;
-  value: React.ReactNode;
-  accent: string;
-  testid: string;
-  tourId?: string;
-}) {
-  return (
-    <div
-      data-testid={testid}
-      data-tour-id={tourId}
-      className="rtt-scoreboard-tile"
-      style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
-    >
-      <span className="text-[9px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-        {label}
-      </span>
-      <span
-        className="score-number text-lg font-bold leading-none"
-        style={{ color: accent }}
-      >
-        {value}
-      </span>
-    </div>
   );
 }

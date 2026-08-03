@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { ActiveNode, DraftOffer, RosterSlotPublic } from "@/types/run-the-table";
 import { draftOffers, slotLabel } from "@/lib/run-the-table-state";
+import { creditsForegoneSentence } from "@/lib/run-the-table-copy";
 import { Coachmark } from "@/components/ui/GuidedTour";
 import RunCard from "./RunCard";
 
@@ -111,6 +112,18 @@ export default function DraftRoom({ node, slots, credits, busy, onBuy, onPass }:
                   cost={free && useVetMin ? 0 : offer.cost}
                   strikeCost={free && useVetMin ? offer.cost : offer.base_cost}
                 />
+                {/* WHAT IS FOREGONE, not just what is gained (§5) — the card
+                    above already states the gain; credits are the scarce
+                    resource this decision actually spends. */}
+                {!blocked && (
+                  <span
+                    className="mt-1 block text-[10px]"
+                    style={{ color: "var(--text-muted)" }}
+                    data-testid={`rtt-offer-tradeoff-${offer.card_id}`}
+                  >
+                    {creditsForegoneSentence(credits, free && useVetMin ? 0 : offer.cost)}
+                  </span>
+                )}
                 {free && (
                   <span
                     className="mt-1 inline-block text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5"
