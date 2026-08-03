@@ -83,7 +83,7 @@ export function AccountMenu({ pathname, search = "", returnTo }: AccountMenuProp
         href={signInHref(target)}
         data-testid="nav-signin"
         className={cn(
-          "pk-nav-account ml-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
+          "pk-nav-account px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
           "text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]",
         )}
       >
@@ -95,7 +95,7 @@ export function AccountMenu({ pathname, search = "", returnTo }: AccountMenuProp
   const label = user.name ?? user.email ?? "your account";
 
   return (
-    <div ref={rootRef} className="relative ml-2">
+    <div ref={rootRef} className="relative">
       <button
         ref={triggerRef}
         type="button"
