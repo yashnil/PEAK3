@@ -127,6 +127,34 @@ Each would have shipped as complete.
 - **The leaderboard had no duplication defect.** `game_id` idempotency works;
   32 rows were 8 fixture seeds × 4 test-suite executions against staging.
 
+## Revealed, not introduced — with provenance
+
+The `--accent-violet-text` contrast failure is a **pre-existing dark-mode
+defect from the previous pass**, newly exposed by this pass's correct
+Dark-by-default change. Established by evidence, not narrative:
+
+1. Chromium's default unemulated `prefers-color-scheme` in a fresh Playwright
+   context is **light** — tested directly, `matchMedia('(prefers-color-scheme:
+   light)').matches → true`. Nothing in the spec or `playwright.config.ts`
+   forces a `colorScheme`.
+2. **Before** this pass: no stored preference → `system` → resolved via
+   `matchMedia` → **light**. In light, `--accent-violet-text` was already
+   correctly darkened (`#4b3e70`, **7.72:1** against its own wash). The test
+   passed every run.
+3. **After** this pass's Dark-by-default change: no stored preference → `dark`
+   deterministically, no system resolution involved. This test rendered in dark
+   **for the first time** the moment that commit landed.
+4. `git log -S "accent-violet-text: #a78bfa"` locates the bad value at
+   **`8a0e8ed`** — the previous pass's own P6-b fix, well before this branch
+   existed. That fix measured light's wash contrast but not dark's.
+
+So the value was always wrong for its own wash; the code path that renders it
+simply never ran in dark until now. **We revealed it. We did not introduce it.**
+
+Worth noting the pattern: P6-b was itself the fix for "`--accent-*` used as text
+on a wash of itself", and it closed that hole in light while leaving it open in
+dark. The same class, the same pass, one theme.
+
 ## Known-safe, deliberately not changed
 
 11 sites still use a raw `--accent-*` as `color` rather than its `-text`
