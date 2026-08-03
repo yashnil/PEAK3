@@ -918,14 +918,18 @@ export function filledCount(slots: RosterSlotPublic[]): number {
   return slots.filter((s) => s.card !== null).length;
 }
 
-/** Roster pips for the sticky mobile tray: one entry per slot, starters first. */
+/** Roster pips for the sticky mobile tray: one entry per slot, starters first.
+ *  `role` is carried through (not just `slot_id`) so a caller can build a real
+ *  label via `slotLabel()` rather than read the raw slot id — see P5-F5. */
 export function rosterPips(state: Pick<RunPublicState, "starters" | "bench">): {
   slot_id: string;
+  role: Role | null;
   filled: boolean;
   is_starter: boolean;
 }[] {
   return [...state.starters, ...state.bench].map((s) => ({
     slot_id: s.slot_id,
+    role: s.role,
     filled: s.card !== null,
     is_starter: s.is_starter,
   }));

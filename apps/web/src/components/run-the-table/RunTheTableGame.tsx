@@ -222,12 +222,22 @@ export default function RunTheTableGame({
     items: rosterTrack?.revealed_slots ?? [],
     total: rosterTrack?.total ?? 0,
     reducedMotion,
+    // A new run's fresh, empty roster track must never inherit `started`/
+    // `complete` left over from a PREVIOUS run's reveal — this component
+    // does not remount between runs (see `runIdRef` below), and a session
+    // can start "another run" without a page reload.
+    resetKey: state?.run_id ?? null,
   });
   const bossTrack = state?.reveal?.boss ?? null;
   const bossSequence = useRevealSequence<RevealSlot>({
     items: bossTrack?.revealed_slots ?? [],
     total: bossTrack?.total ?? 0,
     reducedMotion,
+    // P5-F4 (product-director): without this, the SECOND boss reveal in a
+    // run inherited `started`/`complete`/`skippedRef` from the FIRST boss's
+    // already-finished sequence and rendered fully complete with no start
+    // button — every boss after the first was unreachable as a cinematic.
+    resetKey: bossTrack?.boss_id ?? null,
   });
 
   /**
@@ -788,7 +798,19 @@ export default function RunTheTableGame({
             : screen === "boss_preview"
               ? `Boss briefing — ${state.next_boss?.name ?? ""}`
               : screen === "battle"
-                ? `Boss battle — ${battle?.boss_id ?? ""}`
+                ? // P5-F5 (platform): this rendered the raw snake_case
+                  // `boss_id` — `BattlePublic` (`battle`) never carries a
+                  // display name at all, only the id. `state.next_boss` is
+                  // the fix, not a new lookup: `action_resolve_boss` never
+                  // increments `state.act` (only `action_advance` does,
+                  // after this screen), so at the "battle" screen
+                  // `next_boss` is still, correctly, the boss this battle
+                  // was just fought against — the exact same source
+                  // `BattleReveal`'s own header already trusts for the
+                  // same reason. `battle.boss_id` stays only as the
+                  // last-resort fallback `next_boss` itself already uses
+                  // elsewhere in this file.
+                  `Boss battle — ${state.next_boss?.name ?? battle?.boss_id ?? ""}`
                 : screen === "result"
                   ? "Run complete"
                   : "Run the Table";

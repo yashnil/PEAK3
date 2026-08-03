@@ -38,6 +38,32 @@
  * of an internal contradiction in the source contract, not a literal
  * restatement of §8's table, and the overlapping-cards model remains an open
  * alternative if Phase 5 prefers it.
+ *
+ * TRIMMED AGAIN in Phase 5 (P5-F2, product-director finding): the ≈11.8s
+ * figure above is the THEORETICAL unpaced sum computed from these constants —
+ * it is not what a browser actually measures. product-director externally
+ * timed the real opening reveal (click → `data-reveal-complete="true"`,
+ * `Date.now()`, never trusting an in-app number) at a median of 12604ms
+ * across 5 seeds (12595-12632ms, ~40ms spread — systematic, not noise), all
+ * five over the binding 12000ms ceiling. The gap (~800ms, ~6.8%) is real
+ * per-sequence scheduling overhead across the ~63 chained `setTimeout`/rAF
+ * beats (9 beats × 7 cards) that the theoretical sum never accounted for —
+ * every beat here was already a THEORETICAL duration, not a measured one, so
+ * "matches the on-record ~11.8s figure" was never proof the wall clock did.
+ *
+ * `identity`/`score` stay exactly as they were — the OFFICIAL
+ * `--pk-dur-reveal`/`--pk-dur-count` tokens, platform's, never touched here.
+ * The other five beats (role/silhouette/window/signature/settle) are cut
+ * further, roughly proportionally (a ~25-33% reduction each, preserving the
+ * original ordering — silhouette and signature the next-longest pair after
+ * identity/score, role and window tied below them, settle shortest), landing
+ * the theoretical sum at 10470ms for 7 cards. With the same ~800ms measured
+ * overhead that would land the real median at ≈11.3s — inside the 8-12s
+ * band with ~700ms of margin against the 12s ceiling, not tuned to sit
+ * exactly on it. The 700ms margin is deliberately larger than the
+ * observed 40ms seed-to-seed spread was under `next dev`; it has NOT yet
+ * been confirmed against a `next build` + `next start` production bundle
+ * (see the P5-F2 task note for that re-measurement).
  */
 import { MOTION_DURATION_MS } from "@/lib/motion";
 
@@ -65,13 +91,13 @@ export type RevealBeat = (typeof REVEAL_BEATS)[number];
  *  tokens, unmodified. */
 export const REVEAL_BEAT_DURATION_MS: Record<RevealBeat, number> = {
   lights_lower: MOTION_DURATION_MS.slow, // 320ms, once per sequence
-  role: 120,
-  silhouette: 150,
+  role: 90,
+  silhouette: 100,
   identity: MOTION_DURATION_MS.reveal, // 400ms — --pk-dur-reveal, official
-  window: 120,
+  window: 90,
   score: MOTION_DURATION_MS.count, // 600ms — --pk-dur-count, official
-  signature: 150,
-  settle: 100,
+  signature: 100,
+  settle: 70,
   // "No dead air between cards" (§2 step 9) — the next card's `role` begins
   // immediately after `settle`; the gap beat exists as a named instant for
   // components that key off it, not as a visible hold.
