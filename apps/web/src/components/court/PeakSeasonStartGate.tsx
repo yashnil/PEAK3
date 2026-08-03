@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { createCourtGame, getCourtGame, PerfectSeasonAPIError } from "@/lib/perfect-season-api";
+import { useAuth } from "@/lib/auth-context";
 import { CourtLineupPublicState, CourtMode } from "@/types/perfect-season";
 import CourtBuilder from "./CourtBuilder";
 
@@ -60,6 +61,21 @@ export default function PeakSeasonStartGate({
 }: Props) {
   const [game, setGame] = useState<CourtLineupPublicState | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * Wait for the Supabase session before touching the API.
+   *
+   * `AuthProvider` resolves the session in an effect, so for the first moments
+   * after hydration `getAccessToken()` returns null even for a signed-in
+   * player. A create issued in that window carries no bearer, and the API
+   * quite correctly files the run under a guest subject -- the run is then
+   * owned by somebody who is not the person looking at it, permanently.
+   *
+   * Nothing retries and nothing is hidden: the request is simply not made
+   * until the identity that will own it is known. `loading` is false almost
+   * immediately (and is false from the start when auth is not configured), so
+   * anonymous play is not delayed in any perceptible way.
+   */
+  const { loading: authLoading } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const isDaily = challengeKind === "daily";
 
@@ -80,10 +96,16 @@ export default function PeakSeasonStartGate({
   }, []);
 
   useEffect(() => {
+    // Also gated on auth: a resume fired pre-hydration reads the run as a
+    // guest and 403s against the player's own run.
+    if (authLoading) return;
     if (resumeGameId) void resume(resumeGameId);
-  }, [resumeGameId, resume]);
+  }, [resumeGameId, resume, authLoading]);
 
   async function handleBegin() {
+    // Belt and braces: the button is disabled while `authLoading`, but a
+    // keyboard activation racing the state update must not slip through.
+    if (authLoading) return;
     setBusy(true);
     setError(null);
     try {
@@ -219,11 +241,17 @@ export default function PeakSeasonStartGate({
         <button
           data-testid="begin-run-btn"
           onClick={handleBegin}
-          disabled={busy}
+          disabled={busy || authLoading}
           className="self-start px-6 py-3 rounded-lg text-sm font-bold uppercase tracking-wide disabled:opacity-60"
           style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
         >
-          {busy ? "Starting…" : isDaily ? "Begin Daily Run" : "Begin 82-0 Run"}
+          {authLoading
+            ? "Checking your session…"
+            : busy
+              ? "Starting…"
+              : isDaily
+                ? "Begin Daily Run"
+                : "Begin 82-0 Run"}
         </button>
 
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
