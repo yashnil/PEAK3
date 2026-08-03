@@ -31,7 +31,35 @@ no un-place action (`:200`). It jumps into rearrange mode with the card
 preselected. **This is the right call.** An "Undo" that does not undo teaches a
 false model of the control; the weaker true label beats the stronger false one.
 
-### 3. Occupied slots during placement
+### 3. Occupied slots during placement — **MY VERDICT HERE WAS WRONG**
+
+**Corrected after `game-experience` found the gap in its own work.** What I
+wrote below is accurate about the code and wrong about the product.
+
+I read both branches, noted the `onMove` path falls back to a labelled
+container because a disabled button wrapping a live button is invalid HTML, and
+called it "a deliberate, documented trade". **I never checked which branch
+actually renders in ordinary play.**
+
+`onMove` requires `rearrangeAvailable = filledSlotCount >= 1` — true the instant
+*any* slot is filled. So from a player's second pick onward, the labelled
+disabled button is **unreachable**. The branch I treated as the corner case is
+the common case, and the branch I verified as the fix is the corner case. The
+accessible explanation reaches a real player almost never.
+
+Caught by the e2e test `game-experience` wrote for its own work, which failed
+reproducibly in a clean single-worker environment — not by my source read. My
+method's stated limit (source-level, not driven live) is exactly what let this
+through, which is why the limit was worth writing down even though it read as a
+caveat at the time.
+
+Fixed by giving the container branch its own `aria-label`/`aria-disabled`, so
+the explanation reaches assistive tech regardless of which branch renders, and
+by re-pointing the test at the *property* rather than a specific testid.
+
+**Original (incomplete) verification follows.**
+
+### 3a. Occupied slots during placement — as originally verified
 
 Was a plain `<div>` with no handler — clicking did nothing, with no explanation.
 Now a real `<button disabled>` carrying the reason as its `aria-label`:
@@ -85,7 +113,10 @@ changing broken behaviour.
 Source-level, against the integrated tree, cross-read with `state.py` to confirm
 the engine actually behaves as the UI claims.
 
-**Not** driven live in a browser by the lead. Live click/keyboard/mobile
+**Not** driven live in a browser by the lead — and that limit produced a real
+miss, recorded above in §3. Reading two branches and reasoning about which one
+*should* apply is not the same as observing which one *does*. A source read can
+confirm code exists; only running it confirms code runs. Live click/keyboard/mobile
 exercise of the swap flow is covered by the two Playwright specs
 `game-experience` added and by the full e2e run in validation. Recording the
 limit rather than implying a browser session that did not happen.
