@@ -64,7 +64,6 @@ import {
   BattlePublic,
   LaneField,
   MapAct,
-  RunCardPublic,
   RunPublicState,
   RunReceipt,
   RunStatus,
@@ -77,48 +76,26 @@ import { ordinal, ordinalFixed, ordinalSuffix } from "@/lib/ordinal";
 // Fixtures — shaped field-for-field like the API contract
 // ---------------------------------------------------------------------------
 
-/** A minimal, validly-shaped `RunCardPublic` — for lane-contributor fixtures
- *  only, so a top-contributor test never has to restate every card field. */
-function topCard(over: Partial<RunCardPublic> = {}): RunCardPublic {
-  const laneIndex: Record<LaneField, number> = {
-    statistical_impact: 70,
-    traditional_production: 65,
-    individual_recognition: 60,
-    postseason_individual_value: 55,
-    team_achievement: 50,
-  };
-  return {
-    card_id: "card-a",
-    player_name: "Fixture Player",
-    player_slug: "fixture-player",
-    start_season: "2015-16",
-    end_season: "2017-18",
-    anchor_season: "2016-17",
-    window_label: "2015-16 – 2017-18",
-    prime_score: 88.4,
-    overall_percentile: 75.1,
-    eligible_roles: ["lead_creator"],
-    primary_role: "lead_creator",
-    lane_index: laneIndex,
-    lane_percentiles: laneIndex,
-    base_cost: 20,
-    cost: 20,
-    cost_modifiers: [],
-    refund_value: 10,
-    ...over,
-  };
-}
-
 function lane(
   over: Partial<BattleLanePublic> & Pick<BattleLanePublic, "lane" | "winner">,
 ): BattleLanePublic {
   return {
     label: "Statistical Impact",
     token: "si",
-    player_score: 62.5,
-    opponent_score: 58.25,
     margin: 4.25,
     tie_broken_by_rule: false,
+    // -- contract fields (SYNTHESIS_CONTRACT.md §2.3) ----------------------
+    player_lineup_rating: 62.5,
+    boss_lineup_rating: 58.25,
+    pre_perk_rating: 62.5,
+    perk_adjustment: 0,
+    bench_adjustment: 0,
+    final_rating: 62.5,
+    top_contributor: null,
+    opponent_top_contributor: null,
+    // -- deprecated aliases --------------------------------------------------
+    player_score: 62.5,
+    opponent_score: 58.25,
     player_top_card: null,
     opponent_top_card: null,
     ...over,
@@ -639,8 +616,8 @@ describe("battle derivations", () => {
     const withContributors = lane({
       lane: "statistical_impact",
       winner: "player",
-      player_top_card: topCard({ player_name: "Tim Duncan", lane_index: { statistical_impact: 71, traditional_production: 0, individual_recognition: 0, postseason_individual_value: 0, team_achievement: 0 } }),
-      opponent_top_card: topCard({ card_id: "z", player_name: "Kevin Garnett", lane_index: { statistical_impact: 69, traditional_production: 0, individual_recognition: 0, postseason_individual_value: 0, team_achievement: 0 } }),
+      top_contributor: { name: "Tim Duncan", own_lane_index_value: 71 },
+      opponent_top_contributor: { name: "Kevin Garnett", own_lane_index_value: 69 },
     });
     const sentence = laneSentence(withContributors);
     expect(sentence).toContain("Top contributor: Tim Duncan 71.0 vs Kevin Garnett 69.0.");

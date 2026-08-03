@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { BattlePublic, BossPublic, LaneField, RunCardPublic } from "@/types/run-the-table";
+import { BattlePublic, BossPublic } from "@/types/run-the-table";
 import { Coachmark } from "@/components/ui/GuidedTour";
 import { Explainer } from "@/components/ui";
 import {
@@ -12,19 +12,6 @@ import {
   runningSeries,
 } from "@/lib/run-the-table-state";
 import { LANE_RATING_LABELS } from "@/lib/run-the-table-copy";
-
-/**
- * A lane's top contributor's OWN value in that lane — never the lineup
- * rating shown above it. `player_top_card`/`opponent_top_card` are full
- * `RunCardPublic` objects and already carry `lane_index` on the wire
- * (`card_public()`), so this needs no engine work — SCORE_RECONCILIATION.md
- * §2: "The contributor's own value is already on the wire via card_public(),
- * so showing both numbers side by side requires no engine work."
- */
-function contributorOwnValue(card: RunCardPublic | null, lane: LaneField): number | null {
-  const v = card?.lane_index?.[lane];
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
 
 const STAGGER_S = 0.09;
 const DURATION_S = 0.35;
@@ -323,9 +310,9 @@ export default function BattleReveal({
       <ul className="flex flex-col gap-2" data-testid="rtt-battle-lanes">
         {battle.lanes.map((lane, i) => {
           const color = laneColorVar(lane.token);
-          const max = Math.max(lane.player_score, lane.opponent_score, 1);
-          const playerPct = (lane.player_score / max) * 100;
-          const opponentPct = (lane.opponent_score / max) * 100;
+          const max = Math.max(lane.player_lineup_rating, lane.boss_lineup_rating, 1);
+          const playerPct = (lane.player_lineup_rating / max) * 100;
+          const opponentPct = (lane.boss_lineup_rating / max) * 100;
           const isRevealed = i < revealed;
           return (
             <motion.li
@@ -352,7 +339,7 @@ export default function BattleReveal({
                     className="score-number text-xs"
                     style={{ color: "var(--text-secondary)" }}
                   >
-                    {lane.player_score.toFixed(1)}
+                    {lane.player_lineup_rating.toFixed(1)}
                   </span>
                   <div
                     className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full @[520px]:w-20"
@@ -417,7 +404,7 @@ export default function BattleReveal({
                     className="score-number text-xs"
                     style={{ color: "var(--text-secondary)" }}
                   >
-                    {lane.opponent_score.toFixed(1)}
+                    {lane.boss_lineup_rating.toFixed(1)}
                   </span>
                 </div>
               </div>
@@ -441,13 +428,10 @@ export default function BattleReveal({
                     style={{ color: "var(--text-secondary)" }}
                     data-testid={`rtt-lane-player-contributor-value-${lane.lane}`}
                   >
-                    {(() => {
-                      const own = contributorOwnValue(lane.player_top_card, lane.lane);
-                      return own !== null ? own.toFixed(1) : "—";
-                    })()}
+                    {lane.top_contributor ? lane.top_contributor.own_lane_index_value.toFixed(1) : "—"}
                   </span>
                   <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    {lane.player_top_card?.player_name ?? "—"}
+                    {lane.top_contributor?.name ?? "—"}
                   </span>
                 </span>
                 <span
@@ -458,20 +442,70 @@ export default function BattleReveal({
                 </span>
                 <span className="flex items-center gap-1.5 min-w-0">
                   <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
-                    {lane.opponent_top_card?.player_name ?? "—"}
+                    {lane.opponent_top_contributor?.name ?? "—"}
                   </span>
                   <span
                     className="score-number shrink-0 text-[10px] font-semibold"
                     style={{ color: "var(--text-secondary)" }}
                     data-testid={`rtt-lane-opponent-contributor-value-${lane.lane}`}
                   >
-                    {(() => {
-                      const own = contributorOwnValue(lane.opponent_top_card, lane.lane);
-                      return own !== null ? own.toFixed(1) : "—";
-                    })()}
+                    {lane.opponent_top_contributor
+                      ? lane.opponent_top_contributor.own_lane_index_value.toFixed(1)
+                      : "—"}
                   </span>
                 </span>
               </div>
+
+              {/* THE EXPANDABLE RECEIPT (SYNTHESIS_CONTRACT.md §2.3): how
+                  `player_lineup_rating` was actually built, behind
+                  disclosure so it never competes with the at-a-glance
+                  numbers above. The three addends are the server's own
+                  decomposition — `bench_adjustment` is computed as the
+                  residual so they sum to `final_rating` with zero client
+                  arithmetic and no rounding drift to explain. */}
+              <details
+                className="mt-1"
+                data-testid={`rtt-lane-receipt-${lane.lane}`}
+              >
+                <summary
+                  className="cursor-pointer select-none text-[9px]"
+                  style={{ color: "var(--text-muted)", textDecoration: "underline", textUnderlineOffset: "2px" }}
+                >
+                  How this rating was built
+                </summary>
+                <div
+                  className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md px-1.5 py-1 text-[10px]"
+                  style={{ background: "var(--bg-page)", color: "var(--text-secondary)" }}
+                >
+                  <span data-testid={`rtt-lane-receipt-pre-${lane.lane}`}>
+                    Before perk{" "}
+                    <span className="score-number" style={{ color: "var(--text-primary)" }}>
+                      {lane.pre_perk_rating.toFixed(2)}
+                    </span>
+                  </span>
+                  <span aria-hidden="true">+</span>
+                  <span data-testid={`rtt-lane-receipt-bench-${lane.lane}`}>
+                    Bench{" "}
+                    <span className="score-number" style={{ color: "var(--text-primary)" }}>
+                      {lane.bench_adjustment.toFixed(2)}
+                    </span>
+                  </span>
+                  <span aria-hidden="true">+</span>
+                  <span data-testid={`rtt-lane-receipt-perk-${lane.lane}`}>
+                    Perk{" "}
+                    <span className="score-number" style={{ color: "var(--text-primary)" }}>
+                      {lane.perk_adjustment.toFixed(2)}
+                    </span>
+                  </span>
+                  <span aria-hidden="true">=</span>
+                  <span data-testid={`rtt-lane-receipt-final-${lane.lane}`}>
+                    Final{" "}
+                    <span className="score-number" style={{ color: "var(--peak-accent)" }}>
+                      {lane.final_rating.toFixed(2)}
+                    </span>
+                  </span>
+                </div>
+              </details>
 
               {/* Why the boss rule changed anything. `tie_broken_by_rule` is
                   the only per-lane rule signal the engine emits, and it used to

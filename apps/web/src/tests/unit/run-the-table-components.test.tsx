@@ -256,11 +256,21 @@ function battleFixture(over: Partial<BattlePublic> = {}): BattlePublic {
       lane: l,
       label: `Lane ${i}`,
       token: (["si", "tp", "rec", "po", "team"] as const)[i],
-      player_score: 60 + i,
-      opponent_score: 58,
       winner: i % 2 === 0 ? ("player" as const) : ("opponent" as const),
       margin: 2 + i,
       tie_broken_by_rule: false,
+      // -- contract fields (SYNTHESIS_CONTRACT.md §2.3) --------------------
+      player_lineup_rating: 60 + i,
+      boss_lineup_rating: 58,
+      pre_perk_rating: 55 + i,
+      perk_adjustment: 2.5,
+      bench_adjustment: (60 + i) - (55 + i) - 2.5,
+      final_rating: 60 + i,
+      top_contributor: { name: "Tim Duncan", own_lane_index_value: 72 },
+      opponent_top_contributor: { name: "Kevin Garnett", own_lane_index_value: 72 },
+      // -- deprecated aliases, still on the wire during the integration window --
+      player_score: 60 + i,
+      opponent_score: 58,
       player_top_card: card({ player_name: "Tim Duncan" }),
       opponent_top_card: card({ card_id: "z", player_name: "Kevin Garnett" }),
     })),
@@ -1634,6 +1644,22 @@ describe("BattleReveal", () => {
     // rating row it sits below — not a caption glued to the same number.
     expect(contributors.parentElement).toBe(lane);
     expect(contributors).not.toBe(lane.firstElementChild);
+  });
+
+  it("expandable receipt: pre_perk_rating + bench_adjustment + perk_adjustment sums to final_rating, behind disclosure", () => {
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const receipt = screen.getByTestId("rtt-lane-receipt-statistical_impact");
+    expect(receipt.tagName).toBe("DETAILS");
+    // Collapsed by default — it must not compete with the at-a-glance numbers.
+    expect(receipt).not.toHaveAttribute("open");
+    // battleFixture's lane 0: pre_perk_rating 55, bench_adjustment 2.5,
+    // perk_adjustment 2.5 → sums to final_rating 60 (player_lineup_rating).
+    expect(screen.getByTestId("rtt-lane-receipt-pre-statistical_impact")).toHaveTextContent("55.00");
+    expect(screen.getByTestId("rtt-lane-receipt-bench-statistical_impact")).toHaveTextContent("2.50");
+    expect(screen.getByTestId("rtt-lane-receipt-perk-statistical_impact")).toHaveTextContent("2.50");
+    expect(screen.getByTestId("rtt-lane-receipt-final-statistical_impact")).toHaveTextContent("60.00");
   });
 
   it("shows the full series count immediately once the reveal is skipped", async () => {

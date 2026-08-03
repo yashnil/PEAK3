@@ -233,20 +233,63 @@ export interface BossPublic {
 // Battles
 // ---------------------------------------------------------------------------
 
+/** One lane's top contributor, on their OWN terms — never the lineup rating
+ *  shown beside them. `own_lane_index_value` is the CARD's own `lane_index`
+ *  in this lane (SCORE_RECONCILIATION.md §1/§2, SYNTHESIS_CONTRACT.md §1:
+ *  "No individual player label may visually own a roster-wide number").
+ *  `public.py::_own_lane_value` sends a narrow `{name, own_lane_index_value}`,
+ *  not the full card; if a surface ever needs more of that card (window,
+ *  season, cost) that is a new field to request, never a reason to revive
+ *  the full-dict `player_top_card`/`opponent_top_card` aliases below. */
+export interface LaneTopContributor {
+  name: string;
+  own_lane_index_value: number;
+}
+
 export interface BattleLanePublic {
   lane: LaneField;
   label: string;
   token: LaneToken;
-  player_score: number;
-  opponent_score: number;
   winner: LaneWinner;
   margin: number;
   tie_broken_by_rule: boolean;
-  player_top_card: RunCardPublic | null;
-  opponent_top_card: RunCardPublic | null;
-  /** v3: the Scout & Prepare bonus already folded into `player_score`, carried
-   *  separately so the result screen can say which lane it moved. */
+  // -- contract field names (SYNTHESIS_CONTRACT.md §2.3) --------------------
+  /** The bench-weighted lineup rating for this lane — a roster-wide MEAN,
+   *  never an individual's value. Rendered as "YOUR LINEUP RATING". */
+  player_lineup_rating: number;
+  /** Same, for the boss's lineup. Rendered as "BOSS LINEUP RATING". */
+  boss_lineup_rating: number;
+  /** The lane rating BEFORE any Scout & Prepare bonus — the first addend of
+   *  the expandable-receipt sum. */
+  pre_perk_rating: number;
+  /** The Scout & Prepare bonus actually applied to this lane (0 if none was
+   *  prepared here) — the second addend. */
+  perk_adjustment: number;
+  /** The residual `battle.resolve_battle` computes so the three addends sum
+   *  to `final_rating` with zero client recomputation and no rounding drift
+   *  to explain — the third addend, never independently derived here. */
+  bench_adjustment: number;
+  /** By construction, `pre_perk_rating + bench_adjustment + perk_adjustment`
+   *  — always numerically equal to `player_lineup_rating`, published under
+   *  its own contract name because it is the SUM the expandable receipt
+   *  displays, not merely a repeat of the rating above it. */
+  final_rating: number;
+  top_contributor: LaneTopContributor | null;
+  opponent_top_contributor: LaneTopContributor | null;
+  // -- deprecated aliases, kept only for the overhaul's integration window --
+  // (task #18 retires these once every reader has migrated off them; see
+  // apps/api/app/services/run_the_table/public.py::_lane_receipt_public's
+  // own docstring for the same note on the server side.) -------------------
+  /** @deprecated use `player_lineup_rating` */
+  player_score: number;
+  /** @deprecated use `boss_lineup_rating` */
+  opponent_score: number;
+  /** @deprecated use `perk_adjustment` */
   player_prep_bonus?: number;
+  /** @deprecated use `top_contributor` */
+  player_top_card: RunCardPublic | null;
+  /** @deprecated use `opponent_top_contributor` */
+  opponent_top_card: RunCardPublic | null;
 }
 
 export interface BattlePublic {
