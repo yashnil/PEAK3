@@ -1873,6 +1873,153 @@ describe("RunResult", () => {
     expect(onRunItBack).toHaveBeenCalledTimes(1);
     expect(onReplaySeed).toHaveBeenCalledTimes(1);
   });
+
+  it("makes the verdict the largest, first-in-DOM-order element — never a caption under the headline", () => {
+    renderResult();
+    const stamp = screen.getByTestId("rtt-result-verdict");
+    // `text-4xl` (36px) vs the headline's `text-base` (16px) — this used to
+    // be backwards (`text-[11px]` under a `text-2xl` headline).
+    expect(stamp.className).toContain("text-4xl");
+    const headline = screen.getByText("Ran the table.");
+    expect(headline.className).not.toContain("text-2xl");
+    // First in DOM order: nothing above the fold precedes it.
+    const shell = screen.getByTestId("rtt-result");
+    const firstText = shell.querySelector("span, h2, p");
+    expect(firstText).toBe(stamp);
+  });
+
+  it("shows the largest mistake whenever the receipt's own data supports one — never a placeholder", () => {
+    renderResult({
+      best_acquisition: {
+        card_id: "bad-buy", player_name: "Overpaid Guy", player_slug: "overpaid-guy",
+        anchor_season: "1990-91", window: "1988-89–1990-91", prime_score: 55, base_cost: 30,
+        cost: 30, score_delta: -4.5, value_per_credit: -0.15, replaced: null, act: 2,
+      },
+    });
+    const mistake = screen.getByTestId("rtt-result-largest-mistake");
+    expect(mistake).toHaveTextContent("Worst acquisition");
+    expect(mistake).toHaveTextContent("Overpaid Guy");
+    expect(mistake).toHaveTextContent("-4.50");
+  });
+
+  it("omits the largest-mistake section entirely when nothing negative exists — absence, not a placeholder", () => {
+    renderResult();
+    expect(screen.queryByTestId("rtt-result-largest-mistake")).not.toBeInTheDocument();
+  });
+
+  it("shows the closest LOST lane only — a closest WON lane is a different fact and stays hidden", () => {
+    const { rerender } = renderResult({
+      closest_battle: { boss_id: "b1", act: 3, outcome: "loss", lanes: "2-3", tightest_lane_margin: 0.4, summed_margin: -1.2 },
+    });
+    expect(screen.getByTestId("rtt-result-closest-lost")).toBeInTheDocument();
+
+    rerender(
+      <RunResult
+        receipt={receiptFixture({
+          closest_battle: { boss_id: "b1", act: 3, outcome: "win", lanes: "3-2", tightest_lane_margin: 0.4, summed_margin: 1.2 },
+        })}
+        versions={VERSIONS}
+        busy={false}
+        onRunItBack={vi.fn()}
+        onReplaySeed={vi.fn()}
+        onChallenge={vi.fn().mockResolvedValue("tok-1")}
+      />,
+    );
+    expect(screen.queryByTestId("rtt-result-closest-lost")).not.toBeInTheDocument();
+  });
+
+  it("promotes the better of best_acquisition/best_trade to one 'best move' callout, the other as a secondary line", () => {
+    renderResult({
+      best_acquisition: {
+        card_id: "a", player_name: "Good Buy", player_slug: "good-buy",
+        anchor_season: "1990-91", window: "1988-89–1990-91", prime_score: 80, base_cost: 20,
+        cost: 20, score_delta: 3, value_per_credit: 0.15, replaced: null, act: 1,
+      },
+      best_trade: {
+        incoming: { card_id: "b", player_name: "Traded In", player_slug: "traded-in", anchor_season: "1990-91", window: "1988-89–1990-91", prime_score: 85, base_cost: 22 },
+        outgoing: { card_id: "c", player_name: "Traded Out", player_slug: "traded-out", anchor_season: "1990-91", window: "1988-89–1990-91", prime_score: 70, base_cost: 18 },
+        net_cost: 4, score_delta: 6, act: 2,
+      },
+    });
+    const bestMove = screen.getByTestId("rtt-result-best-move");
+    // Trade's +6 beats acquisition's +3 — trade is promoted.
+    expect(bestMove).toHaveTextContent("Traded In");
+    expect(bestMove).toHaveTextContent("Also bought Good Buy");
+  });
+
+  it("always states leaderboard placement — 'not ranked yet' is the correct explicit state, never a silent omission", () => {
+    renderResult();
+    expect(screen.getByTestId("rtt-result-leaderboard")).toHaveTextContent(/not ranked yet/i);
+  });
+
+  it("offers a real rendered share-card image, distinct from and in addition to the clipboard text action", async () => {
+    // jsdom implements neither canvas 2D contexts nor `<a>` navigation —
+    // stubbed here so the test exercises the REAL draw/export call path
+    // (drawShareCard, toDataURL, the download link) without console noise
+    // that belongs to jsdom's own known gaps, not this component.
+    const drawSpy = vi.fn();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      fillRect: vi.fn(), fillText: vi.fn(), measureText: vi.fn(() => ({ width: 0 })),
+      set fillStyle(_v: string) {}, set font(_v: string) {},
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockImplementation(() => {
+      drawSpy();
+      return "data:image/png;base64,stub";
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+    renderResult();
+    const canvas = screen.getByTestId("rtt-share-canvas") as HTMLCanvasElement;
+    expect(canvas.tagName).toBe("CANVAS");
+    expect(canvas).toHaveAttribute("data-ready", "false");
+    await userEvent.click(screen.getByTestId("rtt-share-card"));
+    expect(canvas).toHaveAttribute("data-ready", "true");
+    expect(drawSpy).toHaveBeenCalled();
+    // Clipboard text still works, unchanged, as its own separate action.
+    expect(screen.getByTestId("rtt-copy-summary")).toBeInTheDocument();
+
+    vi.restoreAllMocks();
+  });
+
+  it("builds a decision timeline from the run's map when one is supplied, omits it when not", () => {
+    const map: MapAct[] = [
+      {
+        act: 1,
+        stages: [
+          { act: 1, stage: 1, state: "done", chosen_node_id: "n", chosen_node_type: "draft_room", option_types: ["draft_room", "trade_desk"], scouted: false },
+          { act: 1, stage: 2, state: "locked", chosen_node_id: null, chosen_node_type: null, option_types: ["draft_room", "film_room"], scouted: false },
+        ],
+        boss: { boss_id: "boss-a1", name: "Boss 1", state: "won" },
+      },
+    ];
+    const { rerender } = render(
+      <RunResult
+        receipt={receiptFixture()}
+        versions={VERSIONS}
+        map={map}
+        busy={false}
+        onRunItBack={vi.fn()}
+        onReplaySeed={vi.fn()}
+        onChallenge={vi.fn().mockResolvedValue("t")}
+      />,
+    );
+    expect(screen.getByTestId("rtt-result-timeline-a1s1")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-result-timeline-a1boss")).toHaveTextContent("Won");
+    // The still-locked stage never played — not part of the story.
+    expect(screen.queryByTestId("rtt-result-timeline-a1s2")).not.toBeInTheDocument();
+
+    rerender(
+      <RunResult
+        receipt={receiptFixture()}
+        versions={VERSIONS}
+        busy={false}
+        onRunItBack={vi.fn()}
+        onReplaySeed={vi.fn()}
+        onChallenge={vi.fn().mockResolvedValue("t")}
+      />,
+    );
+    expect(screen.queryByTestId("rtt-result-timeline")).not.toBeInTheDocument();
+  });
 });
 
 describe("RunSkeleton", () => {

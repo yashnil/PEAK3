@@ -1068,6 +1068,7 @@ export default function RunTheTableGame({
         receipt={state.receipt}
         versions={state.versions}
         actsTotal={state.acts_total}
+        map={state.map}
         busy={busy}
         onRunItBack={handleRunItBack}
         onReplaySeed={handleReplaySeed}
