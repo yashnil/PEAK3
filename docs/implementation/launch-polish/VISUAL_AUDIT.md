@@ -56,6 +56,73 @@ lead wants a p95 number off a production build, that requires `next build &&
 next start`, which this pass did not run (dev-server timing already answers
 the code-shape question; a prod re-measure is cheap to add later).
 
+### A1b. Follow-up measurement — gameplay screens (closes the loop on A2's transition hypothesis)
+
+A1's baseline (`/`, `/rankings`) deliberately avoided gameplay screens because
+neither page renders the specific classes flagged in A2 as having
+unconditional, non-hover-gated color transitions. That leaves the hypothesis
+untested — closed here by driving the actual UI into both target states and
+re-measuring, on this branch's own dev server (not staging; see the note on
+the second explanation below).
+
+**Reaching the states.** `page.emulateMedia({ reducedMotion: 'reduce' })`
+collapses both ceremonies to their final state near-instantly, per
+`PRODUCT_EXPERIENCE_CONTRACT.md`'s own "reduced motion → zero duration" rule
+— confirmed in code, not assumed: 82-0's reveal totals
+`REDUCED_MOTION_LOCK_MS + REDUCED_MOTION_REVEAL_MS` = 40 + 40 = 80 ms
+(`SpinStage.tsx:192,517-521`, vs. several seconds normally), and RTT's
+opening roster reveal is likewise collapsed. Driven via real UI interaction
+(click "Begin 82-0 Run" → spin auto-resolves → candidate panel renders;
+click "Start a Run" → skip the first-run guided tour → "Reveal your roster"
+→ land on "Choose a Front Office Perk," three `.rtt-choice-btn` cards) —
+scripting the API directly was considered but the UI path was cheap enough
+here that it wasn't needed. Script: `apps/web/measure-gameplay-theme.mjs`
+(uncommitted, same as the other measurement tools).
+
+**Two numbers per click, not one**, because on these screens "first pixel
+changed" (body background, which has no transition and so is a poor proxy
+here) and "this specific element finished animating" are genuinely
+different instants:
+
+| Screen | selector | first-change median | first-change p95 | **settle median** | **settle p95** |
+| --- | --- | --- | --- | --- | --- |
+| 82-0 candidate list (17 open cards on screen) | `.candidate-row-v3` | 42 ms | 50 ms | **96.5 ms** | **108.5 ms** |
+| RTT "Choose a Front Office Perk" (3 cards) | `.rtt-choice-btn` | 32–35 ms | 37–80 ms | **67–71 ms** | **72–80 ms** |
+
+"Settle" = the clicked-on element's own computed `border-color` +
+`background-color` stop changing for 4 consecutive animation frames
+(~64 ms), i.e. the CSS transition (120 ms/140 ms nominal, per A2's
+citations) has visibly finished. Two consecutive runs of each screen
+produced consistent numbers (both included above where they differ
+slightly); raw per-click data is in the script's stdout, not reproduced
+here.
+
+**Verdict: the hypothesis is confirmed true, and now bounded.** Gameplay
+screens are measurably slower than `/`/`/rankings` — settle time is
+roughly 2.5–4× the ~25 ms baseline, and first-change itself is also higher
+(32–42 ms vs. ~25 ms, plausibly just more DOM/CSSOM work with 3–17
+transition-eligible cards on screen at once). This is real, reproduced
+twice, on **this branch's actual dev server** — not a guess, and not
+explained by a stale deployment, since this worktree's code is what was
+measured. At the same time, keep the number honest: 65–110 ms is a
+noticeable-but-small lag, not a multi-second stall — it sits right at the
+edge of human perceptibility, which fits "a pause I noticed" better than
+"the app hung." **Fix is exactly what A2 already named**: scope
+`.candidate-card-v2`/`.candidate-row-v3`/`.round-progress-dot`/
+`.spin-wheel-box`/`.rtt-choice-btn`/`.rtt-offer-btn`'s `border-color`/
+`background`/`background-color`/`box-shadow` transitions so they don't fire
+on a theme swap (e.g. gate them behind `:hover`/`:active`/`[data-state]`
+the way most of the rest of the transition inventory already is, rather
+than leaving them unconditional) — no palette or token change required.
+
+**On the "stale staging" alternative explanation**: this measurement can't
+speak to whether the user's original report was against a stale deployed
+build — that requires comparing against staging, out of this audit's reach.
+What it does establish is that the effect is **also real on current code**,
+independently of any staging staleness: even if the user's report happened
+to be filed against a stale build, fixing the six unconditional-transition
+rules above is still correct, measured work on `wt/lp-visual`'s own HEAD.
+
 ### A2. Candidate-by-candidate
 
 | Candidate | Verdict | Evidence |
@@ -63,7 +130,7 @@ the code-shape question; a prod re-measure is cheap to add later).
 | Account-preference API call blocking the visual change | **FALSE** | `setThemePreference()` (`apps/web/src/lib/theme.ts:154-166`) does exactly three things: `localStorage.setItem`, `applyResolvedTheme()` (sets `data-theme`, `style.colorScheme`, the `theme-color` meta), `notify()`. No `fetch`/`await` anywhere in the theme module. `AccountMenu.tsx` renders `<ThemeToggle variant="menu" />` (line 171) as a plain sibling in the signed-in panel — it does not wrap it in any save/submit handler. Grepped the whole theme call graph; zero network calls. |
 | React rerendering too much of the app | **FALSE** | Only `ThemeToggle.tsx` imports from `@/lib/theme` (`useTheme`) anywhere in `apps/web/src`. The theme store (`theme.ts:89-99`, a plain `Set<Listener>`, not a React context) only notifies subscribers of `useSyncExternalStore` — i.e. only mounted `<ThemeToggle>` instances re-render on a theme change (up to three: desktop nav icon, mobile drawer menu, account-menu panel). The rest of the app's color change is 100% CSS custom-property cascade, invisible to React. |
 | Theme provider remounting children | **FALSE, and inapplicable** | There is no `<ThemeProvider>` component — `lib/theme.ts` is a plain external store, not a React context provider, so there is nothing to remount. Grepped every `resolved === "light"` / `useResolvedTheme` conditional in the app (`ThemeToggle.tsx:81` is the only one) — nothing branches a component tree on theme, so nothing keys/remounts on it. |
-| Transitions applied to every element or every CSS property | **PARTIALLY TRUE, but narrow — not global, not literal `transition: all`** | No `* { transition: ... }` or unscoped `html`/`body` color transition exists anywhere in `globals.css`/`home.css`/`nav.css`/`rankings.css`/`rtt-polish.css`/`tour.css`/`spinner.css` (grepped explicitly). **But** several *base-state* (not `:hover`-gated) component rules transition color-bearing properties whose *value itself* changes on a theme swap, so the browser genuinely animates them instead of snapping: `.candidate-card-v2` / `.candidate-row-v3` — `transition: transform 120ms ease, border-color 120ms ease, background 120ms ease` (`globals.css:1057`, `:1088`, unconditional selector); `.round-progress-dot` — `transition: background 150ms ease, transform 150ms ease` (`globals.css:1302`); `.spin-wheel-box` — `transition: box-shadow 200ms ease, transform 200ms ease` (`globals.css:1535`); `.rtt-choice-btn, .rtt-offer-btn` — `transition: border-color 140ms ease, background-color 140ms ease` (`globals.css:1760`). These sit on Peak Draft, 82-0, and RTT gameplay surfaces specifically — none of which appear on `/` or `/rankings`, the two pages measured in A1. This is the most likely source of the reported "pause": on a gameplay screen dominated by one of these classes, a theme swap will visibly cross-fade over 120–200 ms instead of snapping, while the rest of the app (measured at ~20–30 ms) snaps instantly — the *inconsistency* between "most things instant, this one thing eases" is what reads as a stutter. Not measured live (reaching RTT/82-0 mid-game state requires bypassing real gameplay setup, out of scope for a Phase 1 audit), but the CSS is unambiguous: swap `--border-default`/`--bg-elevated` and any element whose `border-color`/`background` is unconditionally transitioning will animate the swap. `.pk-nav-wordmark`'s own unconditional `transition: color var(--pk-dur-fast)` (`nav.css:41`) is dead code by the file's own comment (children set their own `color`, nothing inherits it) — not a contributor. |
+| Transitions applied to every element or every CSS property | **TRUE for the narrow, named set — confirmed live in A1b, not just by reading the CSS** | No `* { transition: ... }` or unscoped `html`/`body` color transition exists anywhere in `globals.css`/`home.css`/`nav.css`/`rankings.css`/`rtt-polish.css`/`tour.css`/`spinner.css` (grepped explicitly) — this is not a global rule. **But** several *base-state* (not `:hover`-gated) component rules transition color-bearing properties whose *value itself* changes on a theme swap, so the browser genuinely animates them instead of snapping: `.candidate-card-v2` / `.candidate-row-v3` — `transition: transform 120ms ease, border-color 120ms ease, background 120ms ease` (`globals.css:1057`, `:1088`, unconditional selector); `.round-progress-dot` — `transition: background 150ms ease, transform 150ms ease` (`globals.css:1302`); `.spin-wheel-box` — `transition: box-shadow 200ms ease, transform 200ms ease` (`globals.css:1535`); `.rtt-choice-btn, .rtt-offer-btn` — `transition: border-color 140ms ease, background-color 140ms ease` (`globals.css:1760`). These sit on Peak Draft, 82-0, and RTT gameplay surfaces specifically — none of which appear on `/` or `/rankings`, the two pages measured in A1. **A1b closes the loop**: driven live into the 82-0 candidate list and an RTT choice screen, the clicked element's own transition-settle time measured 65–110 ms vs. the ~25 ms baseline elsewhere — a real, reproduced, ~2.5–4× slowdown, not merely plausible from reading the CSS. `.pk-nav-wordmark`'s own unconditional `transition: color var(--pk-dur-fast)` (`nav.css:41`) is dead code by the file's own comment (children set their own `color`, nothing inherits it) — not a contributor. |
 | Delayed localStorage/cookie persistence | **FALSE** | `window.localStorage.setItem` (`theme.ts:159`) is a synchronous browser API call, in the same tick as the DOM write that follows it (`applyResolvedTheme`, line 164) and precedes `notify()` (line 165). No batching, no debounce, no cookie round-trip (theme is never sent to the server at all — see A3). |
 | Hydration logic | **Not applicable to a live click** | Hydration only matters for the *first* paint (covered by the blocking inline script in `theme-script.ts`, run before React mounts — no FOUC by construction, verified: the script sets `data-theme` synchronously in `<head>`, first child, before any `[data-theme]`-scoped CSS could apply). A click on an already-mounted page never touches hydration. |
 | Loading an alternate stylesheet | **FALSE** | One stylesheet (`globals.css`, statically imported at build time), theming is done entirely via the `:root[data-theme="light"]` attribute-selector override block (`globals.css:204-332`). No `<link>` swap, no dynamic `import()` of a theme CSS module anywhere in the codebase. |
