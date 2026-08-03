@@ -88,29 +88,28 @@ const STATE_WORD: Record<string, string> = {
  *   drawn    --text-secondary on --bg-surface    dark 5.31:1 · light 7.60:1
  *   lost     incorrect@85%+primary on --bg-surface dark 5.17:1 · light 6.51:1
  *   done/won --correct        on --bg-surface    dark 7.40:1 · light 6.25:1
- *   current  see below — NOT a bare `--peak-accent` any more
+ *   current  --peak-accent-text on the 8/14% accent wash   dark 10.95:1 · light 4.91:1
  *
  * `--incorrect` neat is only 4.48:1 on `--bg-surface`, which is why "lost"
  * mixes it toward `--text-primary` rather than shipping a near-miss.
  *
- * `current` WAS a real, previously-unmeasured light-theme failure. Dark's
- * `--peak-accent` (frozen, #f5c842) on the 8% accent wash over `--bg-page`
- * measures a comfortable 10.95:1 — but the SAME pure accent on Arena Day's
- * 14% wash over its (much lighter) `--bg-page` measures **1.24:1**, nowhere
- * near even the 3:1 large-text floor, because pale gold on near-white paper
- * is a bad pairing regardless of theme intent. `--peak-accent` cannot change
- * (CLAUDE.md, frozen in both themes), so the fix mixes it toward
- * `--text-primary` — which itself flips dark-ink/light-ink per theme, so one
- * expression clears both: `color-mix(in srgb, var(--peak-accent) 40%,
- * var(--text-primary))` measures 13.26:1 on the dark wash (still excellent,
- * up from 10.95) and 4.91:1 on the light wash (clears the 4.5:1 body-text
- * floor this small, non-bold label actually needs — it is 9px, well under
- * the large-text size threshold).
+ * `current` WAS a real, previously-unmeasured light-theme failure: dark's
+ * frozen `--peak-accent` (#f5c842) on the 8% accent wash over `--bg-page`
+ * measures a comfortable 10.95:1, but the SAME pure accent on Arena Day's
+ * 14% wash measured **1.24:1**, nowhere near even the 3:1 large-text floor —
+ * pale gold on near-white paper is a bad pairing regardless of theme intent.
+ * First fixed locally here with a `color-mix` toward `--text-primary`; the
+ * lead ruled for platform's app-wide mechanism instead (SYNTHESIS_CONTRACT.md
+ * §5.3) once the same class of bug turned up everywhere `--peak-accent`/
+ * `--comp-*` were used as text — `--peak-accent-text` is the named,
+ * once-measured, testable sibling token (identical hex on Arena Night,
+ * darkened to 4.91:1+ on Arena Day), and this row now consumes that instead
+ * of re-deriving the mix at this one call site.
  */
 const STATE_TEXT: Record<string, string> = {
   done: "var(--correct)",
   won: "var(--correct)",
-  current: "color-mix(in srgb, var(--peak-accent) 40%, var(--text-primary))",
+  current: "var(--peak-accent-text)",
   locked: "var(--text-muted)",
   lost: "color-mix(in srgb, var(--incorrect) 85%, var(--text-primary))",
   drawn: "var(--text-secondary)",

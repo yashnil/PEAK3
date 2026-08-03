@@ -12,6 +12,7 @@ import {
   laneColorVar,
   percentileSentence,
 } from "@/lib/run-the-table-state";
+import { componentTextColor } from "@/lib/utils";
 
 const LANE_TOKENS = ["si", "tp", "rec", "po", "team"] as const;
 
@@ -186,8 +187,10 @@ export default function RunCard({
         >
           {/* The lane color is a fill/border accent, never text — the frozen
               --comp-* hexes measure 1.6-2.6:1 as text on Arena Day, failing
-              even the 3:1 large-text floor. A small dot carries the color;
-              the label word itself is always `--text-primary`. */}
+              even the 3:1 large-text floor. A small dot carries the accent;
+              the label word uses `componentTextColor` (lib/utils.ts,
+              P3-G2) — the named text-safe sibling that keeps the lane's
+              identity colour rather than dropping to neutral text. */}
           <span style={{ color: "var(--text-muted)" }} data-testid="rtt-card-strongest">
             Strongest{" "}
             <span
@@ -195,7 +198,9 @@ export default function RunCard({
               className="inline-block h-1.5 w-1.5 rounded-full"
               style={{ background: laneColorVar(shape.strongest.token) }}
             />{" "}
-            <span style={{ color: "var(--text-primary)" }}>{shape.strongest.label}</span>{" "}
+            <span style={{ color: componentTextColor(shape.strongest.lane) }}>
+              {shape.strongest.label}
+            </span>{" "}
             <span className="score-number">{shape.strongest.percentile.toFixed(0)}</span>
           </span>
           <span style={{ color: "var(--text-muted)" }} data-testid="rtt-card-weakest">
@@ -205,7 +210,9 @@ export default function RunCard({
               className="inline-block h-1.5 w-1.5 rounded-full"
               style={{ background: laneColorVar(shape.weakest.token) }}
             />{" "}
-            <span style={{ color: "var(--text-primary)" }}>{shape.weakest.label}</span>{" "}
+            <span style={{ color: componentTextColor(shape.weakest.lane) }}>
+              {shape.weakest.label}
+            </span>{" "}
             <span className="score-number">{shape.weakest.percentile.toFixed(0)}</span>
           </span>
           <span
