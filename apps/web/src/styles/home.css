@@ -194,6 +194,13 @@
   border-radius: var(--pk-r-sm, 6px);
   border: 1px solid var(--border-subtle);
   background: var(--pk-surface-inset, var(--bg-elevated));
+  /* P6-d MEASURED, not swapped: this `color` reaches only the Lucide <Icon>
+     inside via currentColor -- `HeroLauncher.tsx` marks the wrapping span
+     `aria-hidden="true"` and the visible label text is a SEPARATE sibling
+     span using `--text-primary`. A decorative icon is not the WCAG
+     text-contrast target (same call as `DailyGridGame.tsx`'s icon in
+     #21/P5-F1). Left as the frozen `--peak-accent`. Axe confirmed no
+     violation here. */
   color: var(--peak-accent);
 }
 
@@ -415,7 +422,12 @@
 }
 
 .pk-game-card[data-featured="true"] .pk-game-card-action {
-  color: var(--peak-accent);
+  /* P6-d MEASURED FAIL: 1.40:1 against this card's actual light-mode
+     background (getComputedStyle, not assumed) -- the frozen `--peak-accent`
+     used as literal `color` here reaches `.pk-game-card-action-text`'s real
+     visible CTA label ("Play"/custom cta) via inheritance, it does not stop
+     at a decorative icon. Text-safe sibling. */
+  color: var(--peak-accent-text);
 }
 
 .pk-game-card-action-text {
@@ -425,7 +437,8 @@
 
 .pk-game-card:hover .pk-game-card-action,
 .pk-game-card:focus-visible .pk-game-card-action {
-  color: var(--peak-accent);
+  /* P6-d: same measured failure and fix as the featured-card rule above. */
+  color: var(--peak-accent-text);
 }
 
 .pk-game-card:hover .pk-game-card-action-text,
