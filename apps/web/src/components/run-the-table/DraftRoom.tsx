@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
 import { ActiveNode, DraftOffer, RosterSlotPublic } from "@/types/run-the-table";
-import { draftOffers, slotLabel } from "@/lib/run-the-table-state";
-import { creditsForegoneSentence } from "@/lib/run-the-table-copy";
+import { cardLaneSummary, draftOffers, ScoutIntel, slotLabel } from "@/lib/run-the-table-state";
+import { bossRelevanceSentence, creditsForegoneSentence } from "@/lib/run-the-table-copy";
 import { Coachmark } from "@/components/ui/GuidedTour";
 import RunCard from "./RunCard";
 
@@ -25,9 +25,22 @@ interface Props {
   busy: boolean;
   onBuy: (offer: DraftOffer, slotId: string, useVeteranMinimum: boolean) => void;
   onPass: () => void;
+  /** The current act's Scout & Prepare report, if taken — see
+   *  `RunTheTableGame`'s `activeScoutIntel`. Drives the "Scouted: hits …"
+   *  line on any offer whose strongest lane counters the scouted weakness,
+   *  and the matching highlight on its button. */
+  scoutIntel?: ScoutIntel | null;
 }
 
-export default function DraftRoom({ node, slots, credits, busy, onBuy, onPass }: Props) {
+export default function DraftRoom({
+  node,
+  slots,
+  credits,
+  busy,
+  onBuy,
+  onPass,
+  scoutIntel = null,
+}: Props) {
   const offers = draftOffers(node);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Defaults ON when eligible, because that is the assumption the server's own
@@ -78,11 +91,26 @@ export default function DraftRoom({ node, slots, credits, busy, onBuy, onPass }:
           // focusable and inert. `busy` is transient and keeps using
           // `disabled`.
           const blocked = !offer.selectable;
+          // Scout & Prepare payoff (brief §E / P3-E2): does this offer's own
+          // strongest lane counter the scouted boss's weakest one? Pure
+          // comparison of two `LaneField`s the server already sent
+          // (`cardLaneSummary`, `ScoutIntel.weakestLane`) — never a new
+          // ranking of the card.
+          const relevance = scoutIntel
+            ? bossRelevanceSentence(
+                cardLaneSummary(offer.lane_percentiles).strongest.lane,
+                scoutIntel.bossName,
+                scoutIntel.weakestLane,
+                scoutIntel.weakestLabel,
+              )
+            : null;
+          const matchesScout = relevance !== null;
           return (
             <li key={offer.card_id} className="min-w-0">
               <button
                 type="button"
                 data-testid={`rtt-offer-${offer.card_id}`}
+                data-matches-scout={matchesScout ? "true" : "false"}
                 aria-pressed={isSelected}
                 aria-disabled={blocked || undefined}
                 onClick={() => {
@@ -105,25 +133,25 @@ export default function DraftRoom({ node, slots, credits, busy, onBuy, onPass }:
                     : blocked
                       ? "var(--bg-page)"
                       : "var(--bg-elevated)",
+                  // The scout-match highlight is a RING, layered on top of the
+                  // selection/blocked fill logic above rather than replacing
+                  // it — a scouted card that is also selected or blocked must
+                  // still read as selected/blocked first.
+                  boxShadow: matchesScout && !blocked ? "inset 0 0 0 2px var(--peak-accent)" : undefined,
                 }}
               >
                 <RunCard
                   card={offer}
                   cost={free && useVetMin ? 0 : offer.cost}
                   strikeCost={free && useVetMin ? offer.cost : offer.base_cost}
+                  // WHAT IS FOREGONE, not just what is gained (§5) — the
+                  // card's own gain is already stated above this line;
+                  // credits are the scarce resource the decision spends.
+                  foregoneSentence={
+                    blocked ? null : creditsForegoneSentence(credits, free && useVetMin ? 0 : offer.cost)
+                  }
+                  bossRelevance={relevance}
                 />
-                {/* WHAT IS FOREGONE, not just what is gained (§5) — the card
-                    above already states the gain; credits are the scarce
-                    resource this decision actually spends. */}
-                {!blocked && (
-                  <span
-                    className="mt-1 block text-[10px]"
-                    style={{ color: "var(--text-muted)" }}
-                    data-testid={`rtt-offer-tradeoff-${offer.card_id}`}
-                  >
-                    {creditsForegoneSentence(credits, free && useVetMin ? 0 : offer.cost)}
-                  </span>
-                )}
                 {free && (
                   <span
                     className="mt-1 inline-block text-[9px] font-bold uppercase tracking-wider rounded px-1.5 py-0.5"

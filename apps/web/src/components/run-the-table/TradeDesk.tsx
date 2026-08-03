@@ -2,10 +2,12 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, Ban, Check } from "lucide-react";
 import { Coachmark } from "@/components/ui/GuidedTour";
-import { creditsForegoneSentence, nodeTypeCopy } from "@/lib/run-the-table-copy";
+import { bossRelevanceSentence, creditsForegoneSentence, nodeTypeCopy } from "@/lib/run-the-table-copy";
 import { ActiveNode } from "@/types/run-the-table";
 import {
+  cardLaneSummary,
   EMPTY_TRADE_SELECTION,
+  ScoutIntel,
   TradeSelection,
   buildTradeReview,
   chooseIncoming,
@@ -72,9 +74,21 @@ interface Props {
   busy: boolean;
   onTrade: (outgoingSlotId: string, incomingCardId: string, netCost: number) => void;
   onDecline: () => void;
+  /** The current act's Scout & Prepare report, if taken — see
+   *  `RunTheTableGame`'s `activeScoutIntel`. Same payoff as `DraftRoom`:
+   *  an incoming card whose strongest lane counters the scouted weakness
+   *  gets the "Scouted: hits …" line and a matching highlight. */
+  scoutIntel?: ScoutIntel | null;
 }
 
-export default function TradeDesk({ node, credits, busy, onTrade, onDecline }: Props) {
+export default function TradeDesk({
+  node,
+  credits,
+  busy,
+  onTrade,
+  onDecline,
+  scoutIntel = null,
+}: Props) {
   const incoming = tradeIncoming(node);
   const outgoing = tradeOutgoing(node);
   const [selection, setSelection] = useState<TradeSelection>(EMPTY_TRADE_SELECTION);
@@ -213,6 +227,17 @@ export default function TradeDesk({ node, credits, busy, onTrade, onDecline }: P
               const { eligible, reason } = selected
                 ? { eligible: true, reason: null }
                 : incomingEligibility(card, pickedOut);
+              // Scout & Prepare payoff (brief §E / P3-E2) — same comparison
+              // as `DraftRoom`: does this incoming card's own strongest lane
+              // counter the scouted boss's weakest one?
+              const relevance = scoutIntel
+                ? bossRelevanceSentence(
+                    cardLaneSummary(card.lane_percentiles).strongest.lane,
+                    scoutIntel.bossName,
+                    scoutIntel.weakestLane,
+                    scoutIntel.weakestLabel,
+                  )
+                : null;
               return (
                 <li key={card.card_id}>
                   <OfferButton
@@ -223,19 +248,23 @@ export default function TradeDesk({ node, credits, busy, onTrade, onDecline }: P
                     busy={busy}
                     onPick={() => handleIncoming(card.card_id)}
                     selectedLabel="Bringing in"
+                    matchesScout={relevance !== null}
                   >
-                    <RunCard card={card} cost={card.cost} strikeCost={card.base_cost} compact />
-                    {/* WHAT IS FOREGONE (§5) — the card's cost against the
-                        credits on hand, at the point of choice, before the
-                        Review step recomputes the true net (cost minus the
-                        outgoing player's refund). */}
-                    <span
-                      className="mt-1 block text-[10px]"
-                      style={{ color: "var(--text-muted)" }}
-                      data-testid={`rtt-trade-in-tradeoff-${card.card_id}`}
-                    >
-                      {creditsForegoneSentence(credits, card.cost)}
-                    </span>
+                    <RunCard
+                      card={card}
+                      cost={card.cost}
+                      strikeCost={card.base_cost}
+                      compact
+                      // WHAT IS FOREGONE (§5) — the card's cost against the
+                      // credits on hand, at the point of choice, before the
+                      // Review step recomputes the true net (cost minus the
+                      // outgoing player's refund). "Role replaced" is legible
+                      // here too, once Step 1 has picked who leaves, rather
+                      // than only in the Review step further down.
+                      foregoneSentence={creditsForegoneSentence(credits, card.cost)}
+                      roleReplaced={pickedOut ? slotLabel(pickedOut) : null}
+                      bossRelevance={relevance}
+                    />
                   </OfferButton>
                 </li>
               );
@@ -497,6 +526,7 @@ function OfferButton({
   busy,
   onPick,
   selectedLabel,
+  matchesScout = false,
   children,
 }: {
   testId: string;
@@ -508,6 +538,11 @@ function OfferButton({
   busy: boolean;
   onPick: () => void;
   selectedLabel: string;
+  /** Scout & Prepare payoff (brief §E / P3-E2): this card's strongest lane
+   *  counters the currently scouted boss's weakest lane. A ring, layered
+   *  over the selected/eligible fill logic below rather than replacing it —
+   *  same treatment `DraftRoom` gives a matching offer. */
+  matchesScout?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -516,6 +551,7 @@ function OfferButton({
       data-testid={testId}
       data-selected={selected ? "true" : "false"}
       data-eligible={eligible ? "true" : "false"}
+      data-matches-scout={matchesScout ? "true" : "false"}
       aria-pressed={selected}
       aria-disabled={!eligible || undefined}
       onClick={() => {
@@ -539,6 +575,7 @@ function OfferButton({
           : eligible
             ? "var(--bg-elevated)"
             : "var(--bg-page)",
+        boxShadow: matchesScout && eligible ? "inset 0 0 0 2px var(--peak-accent)" : undefined,
       }}
     >
       {selected && (
