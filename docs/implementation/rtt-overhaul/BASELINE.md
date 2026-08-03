@@ -121,11 +121,26 @@ before/after comparisons use the same instrument.
 
 ## Test totals at baseline
 
-| Suite | Count | Source |
+All measured in the teammates' own worktrees at `7c743f1`, before any
+implementation edit.
+
+| Suite | Result | Source |
 | --- | --- | --- |
-| RTT-owned frontend vitest | 342 passing | measured fresh in `wt/arena-rtt` (298 run-the-table-v3/copy/state/components + 44 trade-desk/head-to-head) |
-| RTT e2e (`run-the-table.spec.ts`) | ~14 tests | not executed at baseline (requires API up) |
-| Model / API unit / API integration / full frontend-verify | see `VALIDATION_MATRIX.md` | recorded by score-integrity and platform during Phase 1 |
+| `scripts/ci/model-tests.sh` | **939 passed**, 9 skipped, 1 xfailed, **0 failed** | `wt/arena-score` |
+| `scripts/ci/api-unit-tests.sh` | **1198 passed**, 2 skipped, 5 deselected, **0 failed** | `wt/arena-score` |
+| `scripts/ci/frontend-verify.sh` — vitest | **1258 passed / 1258** across 47 files | `wt/arena-platform` |
+| `scripts/ci/frontend-verify.sh` — typecheck | clean | `wt/arena-platform` |
+| `scripts/ci/frontend-verify.sh` — lint | **0 warnings** | `wt/arena-platform` |
+| `scripts/ci/frontend-verify.sh` — production build | fails **as scripted** on a deploy-safety env guard; succeeds manually with a real HTTPS API URL | `wt/arena-platform` |
+| RTT-owned frontend vitest (subset of the 1258) | 342 passing | `wt/arena-rtt` (298 run-the-table-v3/copy/state/components + 44 trade-desk/head-to-head) |
+| RTT e2e (`run-the-table.spec.ts`) | ~14 tests, **not executed** at baseline (requires API up) | `wt/arena-rtt` |
+| `scripts/ci/api-integration-tests.sh` | **not executed** at baseline (needs a real Postgres/Supabase test project) | — |
+
+Canonical CSV sha256 hashes were independently re-verified in `wt/arena-score`
+and **match the anchors above exactly**.
+
+Largest frontend route at baseline: `/arena/run-the-table` — 26.9 KB, 259 KB
+First Load JS.
 
 CI entry points (the Makefile and `.github/workflows/ci.yml` both call these —
 "green locally" and "green in CI" are claims about the same commands):
@@ -159,8 +174,14 @@ Card pool at baseline: **174 cards**, 3-year duration, prime_score range
    `roster_total` / `bench_weight` are computed from the full real roster, so
    aggregate strength foreshadows the reveal even with names hidden.
 2. **Seven round trips for the opening reveal.** One
-   `POST /api/v1/run-the-table/runs/{id}/actions` per card; "skip all" collapses
-   it to 2 minimum and is only offered after 1 of 7 is revealed.
+   `POST /api/v1/run-the-table/runs/{id}/actions` per card
+   (`RevealReel.tsx:165` always sends `count=1`); "skip all" collapses it to 2
+   minimum and is only offered after 1 of 7 is revealed. Note: the atomic batch
+   primitive **already exists server-side** — `action_reveal`
+   (`state.py:1039`) saturates on an arbitrary `count` and is simply never
+   invoked for the default path. Batching alone would be a no-op for the
+   spoiler, though, since the leak in defect 1 has already happened at run
+   creation regardless; the gating fix is what makes batching a real fix.
 3. **Battle-number semantics.** Values presented as `27.2 — Victor Wembanyama`
    read as individual player Statistical Impact. Actual provenance is being
    established in `SCORE_RECONCILIATION.md`; the verdict must distinguish a
