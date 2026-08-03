@@ -521,3 +521,56 @@ scope.
    staging (Postgres-backed, not memory-mode). The real gaps are RLS on
    `profiles` and a profanity/impersonation guard beyond exact reserved-word
    matching, both additive.
+
+---
+
+## Addendum — post-implementation corrections (2026-08-03)
+
+Two things changed after this document was written and reviewed. Recorded
+here rather than silently, since both revise a claim made above.
+
+**1. "RLS on `profiles`" (§2.2/§2.3, and item 6 above) was WRONG — retracted
+and independently re-verified by the lead.** `profiles`, `user_settings`,
+`anonymous_subjects` and `ownership_claims` have had RLS enabled since the
+very first migration (`20260630124900_rls.sql:6-9`, PR #1, commit
+`3e10e29`) — this audit missed it because it grepped for `CREATE
+TABLE.*profiles` and never separately grepped for RLS statements across the
+whole migrations directory; table definition and table policy live in
+different files in this codebase's convention. The **real, narrower** gap
+was column-level, not row-level: `profiles_public_read`'s row policy
+(`is_public = true`) was correct, but combined with
+`20260630130100_default_privileges.sql`'s table-wide grant, a direct
+PostgREST caller holding the anon/authenticated key could read every
+column of a public row — including `auth_sub`, the raw Supabase identity —
+never just the fields `ProfileResponse` actually exposes. Closed in
+`supabase/migrations/20260803120000_profile_column_privileges.sql`
+(REVOKE + column-scoped re-GRANT, same shape as `20260801100000_rls_gaps.sql`'s
+treatment of `board_snapshots`/`challenges`), verified against a real local
+Postgres instance both before the fix (leak reproduced) and after (permission
+denied for `auth_sub`/`SELECT *`, safe columns still readable, row filter
+still enforced) — see `apps/api/tests/integration/test_rls_policies.py`'s
+"Column-level privileges on profiles" section for the automated version of
+that same proof. A first attempt at this fix was described in an earlier
+message as "folded into the handle work" but the actual migration
+(`20260803100000_profile_handle_contract.sql`) shipped with zero
+grant/revoke/policy statements — caught by game-experience's adversarial
+re-verification, not by this document. The lesson stands on both sides: a
+search that doesn't match is only evidence once you've proven it would
+match a known positive, and a fix described in a commit message is only
+real once it's independently re-checked against the artifact itself.
+
+**2. `SCORE_RECONCILIATION.md` gap #4 is SUPERSEDED, not merely fixed —
+close it, don't carry it forward as "fixed in source, deployment
+unverified."** That gap's original fix (referenced throughout this
+document, e.g. §1.3, §2.1) replaced the email-local-part fallback with a
+neutral `Player-XXXXXX` default. `perfect_season.py::submit_run` has since
+gone further: a handle is now **required**, not defaulted — the whole
+fallback concept is gone, and the persisted run's public identity is
+always `profile.handle`. That is a strictly stronger guarantee than
+anything gap #4 described, and it makes the earlier "deployment status
+UNVERIFIED" caveat moot for every NEW submission going forward: whatever
+build is actually deployed, the code path that could ever produce an
+email-derived or otherwise-uninvited public name no longer exists once
+this ships. See `docs/implementation/launch-polish/IMPLEMENTATION_CONTRACT.md`
+§8 and the `handle_required` rejection in `perfect_season.py` for the
+current, binding behavior.

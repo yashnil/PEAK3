@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 # Exact-match only. Short, common words that would over-block real handles
@@ -44,11 +44,42 @@ PROFANITY_SUBSTRINGS = frozenset({
 # §8), start/end alnum, interior letters/digits/underscores only.
 HANDLE_RE = re.compile(r"^[a-z0-9][a-z0-9_]{1,18}[a-z0-9]$")
 
+# A light leetspeak fold, applied only to the copy the substring guards check
+# -- never to the stored/returned handle. Closes the cheapest class of
+# bypass without pretending to catch every one: "adm1n", "0fficial",
+# "supp0rt" and "peak_3" all read as their plain-text equivalent once digits
+# are folded back to letters and the one legal separator is stripped. Six
+# substitutions, chosen because they are unambiguous in this direction
+# (a digit standing in for one specific letter, not a letter that could be
+# several digits) -- "1" is folded to "i" only ("l" is a plausible read too,
+# but "i" is what makes "adm1n" -> "admin"; a handle-length string is short
+# enough that this narrow choice does not need to also catch "1" as "l").
+_LEET_FOLD = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t"})
 
-def _contains_any(normalized: str, terms: frozenset[str]) -> Optional[str]:
-    """First matching term found as a substring of `normalized`, or None."""
+
+def _fold_for_substring_check(text: str) -> str:
+    return text.replace("_", "").translate(_LEET_FOLD)
+
+
+# The GUARD TERMS are folded too, at import time, and the comparison happens
+# entirely in folded space -- both sides, not just the input. "peak3" itself
+# contains a digit ("3"), so folding ONLY the input and comparing it against
+# an unfolded "peak3" would fold "peak3" -> "peake" and stop matching its own
+# unfolded self, which is the opposite of the point. Folding the term list
+# once means "peak3", "peak_3" and any other spelling that folds to the same
+# string all compare equal, consistently.
+_IMPERSONATION_SUBSTRINGS_FOLDED = frozenset(
+    _fold_for_substring_check(t) for t in IMPERSONATION_SUBSTRINGS
+)
+_PROFANITY_SUBSTRINGS_FOLDED = frozenset(
+    _fold_for_substring_check(t) for t in PROFANITY_SUBSTRINGS
+)
+
+
+def _contains_any(text: str, terms: frozenset[str]) -> Optional[str]:
+    """First matching term found as a substring of `text`, or None."""
     for term in terms:
-        if term in normalized:
+        if term in text:
             return term
     return None
 
@@ -90,14 +121,20 @@ class UpdateProfileRequest(BaseModel):
             )
         if normalized in RESERVED_HANDLES:
             raise ValueError(f"Handle '{normalized}' is reserved.")
-        impersonation_hit = _contains_any(normalized, IMPERSONATION_SUBSTRINGS)
+        # Substring guards check the FOLDED form (separators stripped, light
+        # leetspeak reversed) -- see _fold_for_substring_check's docstring.
+        # The stored/returned value below is always the untouched
+        # `normalized` string; folding exists only to decide whether to
+        # reject, never to change what gets saved.
+        folded = _fold_for_substring_check(normalized)
+        impersonation_hit = _contains_any(folded, _IMPERSONATION_SUBSTRINGS_FOLDED)
         if impersonation_hit is not None:
             raise ValueError(
-                f"Handle '{normalized}' is not allowed: it contains "
-                f"'{impersonation_hit}', which is reserved to prevent "
-                "impersonation of PEAK3 staff or the product itself."
+                f"Handle '{normalized}' is not allowed: it resembles a "
+                "reserved term, kept to prevent impersonation of PEAK3 "
+                "staff or the product itself."
             )
-        if _contains_any(normalized, PROFANITY_SUBSTRINGS) is not None:
+        if _contains_any(folded, _PROFANITY_SUBSTRINGS_FOLDED) is not None:
             raise ValueError(
                 f"Handle '{normalized}' is not allowed. Choose a different handle."
             )
@@ -107,11 +144,19 @@ class UpdateProfileRequest(BaseModel):
 class UserSettingsResponse(BaseModel):
     timezone: str
     reduced_motion: bool
+    # launch-polish IMPLEMENTATION_CONTRACT.md §2: nullable, deliberately.
+    # None (never coerced to a default here) means "this account has never
+    # chosen" -- the client keeps resolving from local storage in that case,
+    # exactly as it does today. A stored value only ever gets here through
+    # an explicit choice on the account-preference UI (see UpdateSettingsRequest
+    # below); this field never invents one.
+    theme_preference: Optional[Literal["system", "dark", "light"]] = None
 
 
 class UpdateSettingsRequest(BaseModel):
     timezone: Optional[str] = Field(None, max_length=64)
     reduced_motion: Optional[bool] = None
+    theme_preference: Optional[Literal["system", "dark", "light"]] = None
 
     @field_validator("timezone")
     @classmethod

@@ -1948,5 +1948,41 @@
       "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
       "policies: DROP POLICY IF EXISTS guard before CREATE POLICY"
     ]
+  },
+  {
+    "filename": "20260803120000_profile_column_privileges.sql",
+    "identifier": "20260803120000_profile_column_privileges",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
+  },
+  {
+    "filename": "20260803130000_user_settings_theme_preference.sql",
+    "identifier": "20260803130000_user_settings_theme_preference",
+    "tables_created": {},
+    "indexes": [],
+    "constraints": [],
+    "functions": [],
+    "triggers": [],
+    "rls_enabled_on": [],
+    "policies": [],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "none detected"
+    ]
   }
 ]

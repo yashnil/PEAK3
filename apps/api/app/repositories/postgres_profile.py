@@ -48,6 +48,7 @@ def _row_to_settings(row) -> UserSettings:
         profile_id=str(row["profile_id"]),
         timezone=row["timezone"],
         reduced_motion=row["reduced_motion"],
+        theme_preference=row["theme_preference"],
     )
 
 
@@ -145,6 +146,10 @@ class PostgresProfileRepository:
         if updates.get("reduced_motion") is not None:
             fields.append(f"reduced_motion = ${idx}")
             values.append(updates["reduced_motion"])
+            idx += 1
+        if updates.get("theme_preference") is not None:
+            fields.append(f"theme_preference = ${idx}")
+            values.append(updates["theme_preference"])
             idx += 1
 
         if not fields:
