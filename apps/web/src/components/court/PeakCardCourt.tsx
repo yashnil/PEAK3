@@ -386,15 +386,36 @@ export default function PeakCardCourt({
       </span>
     );
     // `action_swap_slots` allows rearranging even mid-placement (state.py's
-    // own docstring: "including with a selection pending"), so `onMove` can
-    // legitimately be live on this same card at the same time. A `<button
-    // disabled>` wrapping a real, clickable "Move" button would be invalid,
-    // inert HTML -- so when both apply, this stays a plain container (the
-    // reason is still stated in visible text, just not as this card's own
-    // accessible name) and the inner Move button keeps working normally.
+    // own docstring: "including with a selection pending"), so `onMove` is
+    // live on this same card THE MOMENT ANY SLOT HAS A CARD IN IT --
+    // `rearrangeAvailable` only requires `filledSlotCount >= 1`, which this
+    // very slot being filled already satisfies. That makes this branch, not
+    // the disabled `<button>` below, the one a player actually sees from
+    // their second pick onward -- confirmed live (courtbuilder.spec.ts's
+    // "not a dead click" case), not just reasoned about; an earlier source
+    // read of this function (LEAD_82_0_VERIFICATION.md) assumed the button
+    // branch was the common case without checking which one actually
+    // renders. A `<button disabled>` wrapping a real, clickable "Move"
+    // button would still be invalid, inert HTML, so this stays a plain
+    // container rather than a nested interactive control -- but it now
+    // carries the same `aria-disabled` + accessible name as the button
+    // branch, via `role="group"` (which is what makes `aria-label` on a
+    // non-form element reach the accessibility tree at all), so a screen
+    // reader gets the explanation regardless of which branch rendered. The
+    // inner Move `<button>` computes its own accessible name independently
+    // of this wrapper's `aria-label` -- an ancestor's label never overrides
+    // a descendant control's own name -- so it keeps working exactly as
+    // before.
     if (onMove) {
       return (
-        <div {...sharedProps} style={{ ...sharedProps.style, opacity: 0.85 }}>
+        <div
+          {...sharedProps}
+          data-testid="court-slot-blocked"
+          role="group"
+          aria-disabled="true"
+          aria-label={reason}
+          style={{ ...sharedProps.style, opacity: 0.85 }}
+        >
           {content}
           {fullNote}
         </div>
@@ -406,6 +427,7 @@ export default function PeakCardCourt({
         type="button"
         disabled
         data-testid="court-slot-blocked"
+        aria-disabled="true"
         aria-label={reason}
         style={{
           ...sharedProps.style,
