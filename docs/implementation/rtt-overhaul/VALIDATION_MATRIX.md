@@ -50,8 +50,8 @@ run **by the lead against the branch**, not copied from a teammate report.
 
 | Check | Command | Baseline | After | Status |
 | --- | --- | --- | --- | --- |
-| Model tests | `scripts/ci/model-tests.sh` | 939 pass / 0 fail | 946 pass / **0 fail** (lead-run, 521.96 s) | **PASS** |
-| FastAPI unit | `scripts/ci/api-unit-tests.sh` | 1198 pass / 0 fail | 1208 pass / **0 fail** (lead-run, 145.19 s) | **PASS** |
+| Model tests | `scripts/ci/model-tests.sh` | 939 pass / 0 fail | **955 pass, 1 xfail / 0 fail** (lead-run on the final tree, 512.08 s; the 9 previously-skipped now run once `data/web/` exists) | **PASS** |
+| FastAPI unit | `scripts/ci/api-unit-tests.sh` | 1198 pass / 0 fail | **1209 pass / 0 fail** (lead-run on the final tree, 146.17 s) | **PASS** |
 | PostgreSQL-backed integration | `scripts/ci/api-integration-tests.sh` | NOT RUN (needs real Postgres/Supabase test project) | | pending Phase 6 |
 | Supabase RLS / ownership | integration suite | | | |
 | Leaderboard submission | new tests | | | |
@@ -78,8 +78,8 @@ run **by the lead against the branch**, not copied from a teammate report.
 > with zero warnings, and all 1293 vitest tests passed — **only `next build`
 > caught it.** Any change touching CSS must run the real build before being
 > called done.
-| Playwright full suite, **zero retries** | `scripts/ci/e2e-tests.sh` | | NOT RUN — product-director tested against a manually-launched local instance (in-memory API + `next dev`) with hand-written Playwright scripts, not the committed suite via this script; the suite itself was not invoked in this pass | **NOT RUN** |
-| axe accessibility | `accessibility.spec.ts` via `scripts/ci/e2e-tests.sh` | never invoked in this pass | **17 critical/serious violations** against pre-`#21` code → **5** after the contrast fix. The 5 remaining are `--accent-*` used as literal `color` on its own `color-mix` wash (draft screen role chip, rankings, mobile rankings, methodology, hold-in-use) → task **#29** | **FAIL** → #29 open |
+| Playwright full suite, **zero retries** | `scripts/ci/e2e-tests.sh` | never invoked in this pass | **345 tests. 340 passed / 5 failed** on first real run. 3 RTT reveal failures fixed (#34, re-verified 16/16). 2 remain OPEN: `nav-play-panel` and the homepage keyboard launcher — both traced to one page-wide hydration race, see §6 note | **5 FAILED → 2 OPEN** |
+| axe accessibility | `accessibility.spec.ts` via `scripts/ci/e2e-tests.sh` | never invoked in this pass | **17 critical/serious violations** against pre-`#21` code → **5** after the contrast fix → **13/13 specs, 0 critical/serious** after #29. Re-confirmed on the current tip. | **PASS** |
 | Keyboard path through every cinematic | e2e suite | | Opening-reveal start control and the lineup-rating disclosure (`rtt-lane-rating-explainer`) independently confirmed keyboard-focusable and `Enter`-activatable, live, on `feature/arena-rtt-overhaul` @ `3988355`. Boss-intro countdown and the pause/resume controls were not independently keyboard-tested (ran out of session time — see report to lead) | **PARTIAL** |
 | Screen-reader announcements (where testable) | e2e suite | | Opening-reveal live region (`rtt-reveal-live-roster`) confirmed empty pre-reveal and filled with the full "Meet your roster fully revealed. Name, score. …" sentence for all 7 slots after completion — mount-empty-then-fill pattern holds | **PASS** (spot-checked, not exhaustive) |
 
