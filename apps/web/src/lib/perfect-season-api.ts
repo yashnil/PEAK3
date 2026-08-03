@@ -18,6 +18,8 @@ import {
   SlotType,
 } from "@/types/perfect-season";
 
+import { getAccessToken } from "@/lib/auth";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 class PerfectSeasonAPIError extends Error {
@@ -41,10 +43,43 @@ function parseErrorDetail(detail: unknown, status: number): { message: string; c
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // THE BEARER TOKEN IS ATTACHED HERE, CENTRALLY, FOR EVERY CALL.
+  //
+  // It used to be attached only by the handful of functions that took an
+  // `accessToken` parameter (save, submit, my-runs, personal-bests). Create,
+  // load, respin, select, place and complete sent no Authorization at all, so
+  // `resolve_owner_sub` on the API fell through to the anonymous branch and a
+  // signed-in player's brand-new run was created under a GUEST subject.
+  //
+  // On a same-origin deployment that merely mislabelled the owner. Split across
+  // origins it broke outright: the guest identity is carried by the `peak3_anon`
+  // cookie, and a cross-site cookie is not sent by the browser at all, so every
+  // request minted a *fresh* anonymous subject. Create returned 200, the very
+  // next load returned 403 `not_your_game`, and starting again produced a new
+  // board and the same error — because each request was a different person.
+  //
+  // Read here rather than threaded through ~15 call sites so no future caller
+  // can forget it, mirroring run-the-table-api.ts which already does this and
+  // for the same reason. `getAccessToken` returns null when signed out or on
+  // the server, and a null token leaves the request exactly as it was, so
+  // anonymous play is untouched.
+  let authHeader: Record<string, string> = {};
+  try {
+    const accessToken = await getAccessToken();
+    if (accessToken) authHeader = { Authorization: `Bearer ${accessToken}` };
+  } catch {
+    // An auth-layer hiccup must never block a guest-playable request.
+  }
+
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
-    headers: { "Content-Type": "application/json", ...options.headers },
-    credentials: "include",
     ...options,
+    // Spread AFTER `options` so a caller cannot accidentally drop credentials
+    // or the auth header by passing its own `headers`/`credentials`. An
+    // explicit `Authorization` in options.headers still wins, because
+    // options.headers is spread last — that is how the token-taking functions
+    // keep working unchanged.
+    headers: { "Content-Type": "application/json", ...authHeader, ...options.headers },
+    credentials: "include",
   });
   const json = await res.json().catch(() => ({ detail: "Unknown error" }));
   if (!res.ok) {

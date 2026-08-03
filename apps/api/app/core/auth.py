@@ -397,11 +397,42 @@ def resolve_owner_sub(
         value=cookie_value,
         max_age=ANON_COOKIE_MAX_AGE,
         httponly=True,
-        samesite="lax",
-        secure=not _settings.DEBUG,
         path="/",
+        **anon_cookie_attributes(),
     )
     return new_sub
+
+
+def anon_cookie_attributes() -> dict:
+    """`samesite`/`secure` for the guest-identity cookie, per deployment shape.
+
+    WHY THIS IS NOT JUST `samesite="lax"`. It was, and on a split-origin
+    deployment that silently destroyed guest identity. The web app is served
+    from one registrable domain and the API from another
+    (`*.vercel.app` and `*.up.railway.app` on staging), which makes every API
+    call CROSS-SITE. A `SameSite=Lax` cookie is not sent on a cross-site
+    `fetch` at all, so `resolve_owner_sub` above never saw the cookie it had
+    just issued: each request minted a brand-new `anon:` subject.
+
+    The observable symptom was an ownership error that looked like a bug in
+    ownership: `POST /perfect-season/games` returned 200, the very next
+    `GET /perfect-season/games/{id}` returned 403 `not_your_game`, and starting
+    over produced a different board and the same error -- because every request
+    was a different anonymous person. Nothing was wrong with the ownership
+    check; the identity was being thrown away between requests.
+
+    `SameSite=None` is what "this cookie is meant to travel to our own API on
+    another origin" is spelled as, and browsers require `Secure` alongside it.
+    Locally (DEBUG) the API is same-site on localhost and served over plain
+    HTTP, where `SameSite=None; Secure` would be *rejected* -- so `Lax` stays
+    the local default. DEBUG is the existing switch for "is this deployed", so
+    no new variable is introduced.
+    """
+    from app.core.config import settings as _s
+
+    if _s.DEBUG:
+        return {"samesite": "lax", "secure": False}
+    return {"samesite": "none", "secure": True}
 
 
 # ---------------------------------------------------------------------------
