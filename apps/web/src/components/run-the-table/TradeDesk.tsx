@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, Ban, Check } from "lucide-react";
 import { Coachmark } from "@/components/ui/GuidedTour";
-import { nodeTypeCopy } from "@/lib/run-the-table-copy";
+import { creditsForegoneSentence, nodeTypeCopy } from "@/lib/run-the-table-copy";
 import { ActiveNode } from "@/types/run-the-table";
 import {
   EMPTY_TRADE_SELECTION,
@@ -225,6 +225,17 @@ export default function TradeDesk({ node, credits, busy, onTrade, onDecline }: P
                     selectedLabel="Bringing in"
                   >
                     <RunCard card={card} cost={card.cost} strikeCost={card.base_cost} compact />
+                    {/* WHAT IS FOREGONE (§5) — the card's cost against the
+                        credits on hand, at the point of choice, before the
+                        Review step recomputes the true net (cost minus the
+                        outgoing player's refund). */}
+                    <span
+                      className="mt-1 block text-[10px]"
+                      style={{ color: "var(--text-muted)" }}
+                      data-testid={`rtt-trade-in-tradeoff-${card.card_id}`}
+                    >
+                      {creditsForegoneSentence(credits, card.cost)}
+                    </span>
                   </OfferButton>
                 </li>
               );

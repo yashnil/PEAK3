@@ -1361,6 +1361,21 @@ describe("DraftRoom", () => {
     await userEvent.click(pass);
     expect(onPass).toHaveBeenCalled();
   });
+
+  it("states what is foregone — credits remaining after the purchase, not just the card's gain", () => {
+    render(
+      <DraftRoom node={node} slots={[...starters(), ...bench()]} credits={30} busy={false} onBuy={vi.fn()} onPass={vi.fn()} />,
+    );
+    // Default offer costs 26 (see `card()`'s fixture default) — 30-26=4.
+    expect(screen.getByTestId("rtt-offer-tradeoff-tim-duncan-3yr-200203")).toHaveTextContent(
+      "leaves 4",
+    );
+    // Veteran-minimum-eligible card effectively costs 0 while the toggle is
+    // on by default — nothing foregone.
+    expect(screen.getByTestId("rtt-offer-tradeoff-c")).toHaveTextContent("Free");
+    // A blocked offer states no tradeoff at all — there's nothing to weigh.
+    expect(screen.queryByTestId("rtt-offer-tradeoff-b")).not.toBeInTheDocument();
+  });
 });
 
 describe("TradeDesk", () => {

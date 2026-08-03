@@ -616,3 +616,22 @@ export function lanesToWinSentence(lanesToWin?: number | null): string {
   }
   return "Win a majority of the five lanes and you win the battle.";
 }
+
+/**
+ * What buying/trading for THIS card costs, in the one currency the run makes
+ * scarce: what you can no longer afford afterward.
+ *
+ * PRODUCT_EXPERIENCE_CONTRACT.md §5: "every priced decision surface must
+ * show, at the point of choice, what is foregone — not just what is
+ * gained." Every card already states its own gain (`RunCard`'s lane
+ * fingerprint, its score, its role fit); this is the one line stating the
+ * OTHER half — arithmetic over two numbers the server already sent
+ * (`credits`, `cost`/`net`), never a re-derivation of either.
+ */
+export function creditsForegoneSentence(credits: number, cost: number): string {
+  const after = credits - cost;
+  if (cost <= 0) return `Free — still leaves you all ${credits} credits.`;
+  if (after < 0) return `Costs ${cost} — you don't have it (${credits} available).`;
+  if (after === 0) return `Costs ${cost} — every credit you have, none left this act.`;
+  return `Costs ${cost} — leaves ${after} for the rest of this act.`;
+}
