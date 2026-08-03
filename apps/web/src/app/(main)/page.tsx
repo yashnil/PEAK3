@@ -14,6 +14,8 @@ import GameCard from "@/components/shared/GameCard";
 import HeroLauncher from "@/components/home/HeroLauncher";
 import HeroVignette from "@/components/home/HeroVignette";
 import ModelProofStrip from "@/components/home/ModelProofStrip";
+import ComponentComparison from "@/components/home/ComponentComparison";
+import LeaderboardPreview from "@/components/home/LeaderboardPreview";
 import { loadHomeModelData } from "@/components/home/home-data";
 import { MODE_COPY } from "@/lib/modes";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
@@ -176,8 +178,21 @@ export default async function HomePage() {
 
       {/* ---------------------------------------------------------------
           2. The launcher — every mode, grouped, in one compact block.
+
+          MORE SEPARATION FROM THE HERO, QUIETER SURFACE TIER
+          (PRODUCT_EXPERIENCE_CONTRACT.md §7): a top border on
+          `--pk-surface-quiet-border` plus real vertical space is what
+          keeps the hero reading as a complete moment before this catalog
+          begins, rather than the page's second act at the hero's own
+          visual weight. This section was NOT rebuilt — it is honest
+          information architecture (every mode really does need a link) —
+          only recessed a tier below the arena-styled hero above it.
           --------------------------------------------------------------- */}
-      <section className="px-4 pb-14" aria-labelledby="modes-heading">
+      <section
+        className="px-4 pt-14 pb-14 border-t"
+        style={{ borderColor: "var(--pk-surface-quiet-border, var(--border-subtle))" }}
+        aria-labelledby="modes-heading"
+      >
         <div className="mx-auto max-w-5xl">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 id="modes-heading" className="font-display text-xl font-bold">
@@ -426,6 +441,21 @@ export default async function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ---------------------------------------------------------------
+          5. Interactive component comparison (P3-H,
+          SYNTHESIS_CONTRACT.md §7). Real methodology text and real
+          weights, click one open, jump to the rankings sorted by it.
+          Renders nothing if /api/v1/methodology could not be reached.
+          --------------------------------------------------------------- */}
+      <ComponentComparison methodology={modelData.methodology} />
+
+      {/* ---------------------------------------------------------------
+          6. Leaderboard preview (P3-H). Real 82-0 all-time top rows,
+          today's daily status, and a signed-in visitor's own personal
+          best — never a placeholder number for a signed-out visitor.
+          --------------------------------------------------------------- */}
+      <LeaderboardPreview />
 
       {/*
         Why an account — the last thing missing from this page.
