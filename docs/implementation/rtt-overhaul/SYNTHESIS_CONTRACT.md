@@ -177,15 +177,45 @@ cannot hold.
    required; it is a materially larger implementation for the same visible
    result in the common case, and correctness under pause/resume/skip-all is
    harder to guarantee.
-5. **Two duration scales legitimately coexist.** `platform` owns
-   `--pk-dur-reveal` (400 ms) and `--pk-dur-count` (600 ms) as the standalone
-   durations for single-shot use — `AnimatedNumber` on the credits tile, for
-   instance. `rtt-experience`'s sequence-local compressed values are derived
-   from those for use *inside* the 7-card sequence, where a beat genuinely must
-   be faster than a standalone animation. Neither is wrong; the derivation must
-   be documented at the definition site so a later reader cannot mistake one
-   for the other. `platform` does **not** retune its tokens to the compressed
-   values.
+5. **Duration scale — superseded by a better resolution.** This clause
+   originally permitted two coexisting scales: `platform`'s standalone
+   `--pk-dur-reveal` (400 ms) / `--pk-dur-count` (600 ms), and
+   `rtt-experience`'s sequence-local compressed values.
+
+   `rtt-experience` instead **converged on one scale** (commit `7e7eadb`):
+   `reveal-timing.ts` now consumes the official `MOTION_DURATION_MS.reveal` /
+   `.count` for those two beats, and the *other* beats were re-tuned so the
+   7-card sequence still lands at ~11.8 s — inside the binding 8–12 s target.
+
+   This is strictly better and is now the contract: one scale, no divergence,
+   nothing for a later reader to confuse. The permission to diverge is
+   withdrawn. Note ~11.8 s sits near the top of the 8–12 s band, so any future
+   beat added to the sequence must come out of an existing beat's budget, not
+   on top of it.
+
+### 5.2 Component colours are not text colours on Arena Day
+
+Established independently by `platform` (homepage) and `rtt-experience` (RTT
+surfaces), both by **measurement**, not inspection:
+
+- Every `--comp-*` clears AA on Arena Night (6.2–10.2:1) and **fails even the
+  3:1 large-text floor on Arena Day** (1.6–2.6:1) when used as plain text.
+- `--comp-*` is therefore safe as **bar fill and border only**. Where a
+  component colour currently carries a numeral or a word, the text moves to
+  `var(--text-primary)` and the colour is retained as an adjacent dot or
+  border accent, preserving identity without carrying legibility.
+- `rtt-experience` additionally found `RunMap`'s "current row" state word using
+  bare `--peak-accent` on the accent wash: 10.95:1 on Arena Night but
+  **1.24:1 on Arena Day**. Pale gold on near-white is a bad pairing regardless
+  of which theme intended the combination. Resolved with
+  `color-mix(--peak-accent 40%, --text-primary)`, which inherits
+  `--text-primary`'s per-theme flip automatically — 13.26:1 dark, 4.91:1 light.
+
+**Rule for the remainder of the pass, including task #17:** any token tuned for
+one theme must be re-measured before it is reused as text in the other. Neither
+`--comp-*` nor `--peak-accent` is theme-portable as a text colour. Contrast
+tables are documented inline at the point of use, following the precedent
+already set in `RunMap.tsx`.
 
 **Phase 5 must verify against the 8–12 s total and the preserved relative
 emphasis — not against §8's literal per-beat numbers.** An implementation
