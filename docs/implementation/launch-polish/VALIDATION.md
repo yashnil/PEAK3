@@ -21,6 +21,22 @@ step**: `assertDeployableEnv()` refuses a localhost `NEXT_PUBLIC_API_URL`, and
 both the script and `ci.yml:217` set exactly that. It now runs unmodified, with
 no manual URL substitution.
 
+## Playwright
+
+**348 passed / 0 failed**, zero retries, 21.2 min, run completed (verified from
+the log, not the exit code).
+
+Three earlier full-suite runs were invalid and are recorded as such rather than
+quietly re-run: one SIGTERM'd at test 52, one that hit `ERR_CONNECTION_REFUSED`
+on every test because the dev server never started, and one where the server
+died mid-run after 39 stray processes accumulated and load reached ~9. Exit code
+was `0` for all three. **The summary line, not the exit code, is the signal.**
+
+The one *valid* failing run (331/17) produced two real clusters, both fixed:
+six tests pinning the removed CTA menu, and eleven caused by a `data-testid`
+override that made filled slots vanish from queries mid-placement. The product
+never double-placed — the measurement changed identity.
+
 ## Backend
 
 | Check | Result | Status |

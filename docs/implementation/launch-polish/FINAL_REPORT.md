@@ -239,6 +239,7 @@ start-gate routing — a bare link must never silently spend the day's one attem
 | Production build | — | **succeeds** |
 | `frontend-verify.sh` end-to-end | **could not pass** | **`✓ Frontend verified`** |
 | axe accessibility | — | **13/13, 0 violations** |
+| Playwright full suite, zero retries | — | **348 passed / 0 failed** (21.2 min, clean run) |
 | Canonical hashes (5 CSVs) | — | **identical** |
 | `peak3.py` / `battle.py` diff | — | **empty** |
 
