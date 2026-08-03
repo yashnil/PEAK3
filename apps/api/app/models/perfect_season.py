@@ -92,6 +92,13 @@ class SubmitRunRequest(BaseModel):
     game_id: str
 
 
+class SetRunVisibilityRequest(BaseModel):
+    """SCORE_RECONCILIATION.md gap #3: the one mutation a submitted run may
+    ever undergo. `is_public` only -- every scored/roster field remains the
+    immutable record of what was submitted."""
+    is_public: bool
+
+
 class PerfectSeasonRunPublic(BaseModel):
     id: str
     display_name: str
@@ -116,10 +123,26 @@ class LeaderboardResponse(BaseModel):
     leaderboard_enabled: bool
     runs: list[PerfectSeasonRunPublic] = []
     next_cursor: Optional[str] = None
+    # Echoes the request's own `daily` flag/resolved date, so a client never
+    # has to infer from the row contents alone whether it is looking at the
+    # all-time or the daily board.
+    daily: bool = False
+    daily_key: Optional[str] = None
 
 
 class MyRunsResponse(BaseModel):
     runs: list[PerfectSeasonRunPublic] = []
+
+
+class PersonalPlacementResponse(BaseModel):
+    """SCORE_RECONCILIATION.md gap #2: where the caller stands on the public
+    leaderboard, not merely their own submitted runs. `rank`/`run` are both
+    `None` together -- never one without the other -- when the caller has no
+    public run in `mode`."""
+    leaderboard_enabled: bool
+    mode: Optional[str] = None
+    rank: Optional[int] = None
+    run: Optional[PerfectSeasonRunPublic] = None
 
 
 # ---------------------------------------------------------------------------

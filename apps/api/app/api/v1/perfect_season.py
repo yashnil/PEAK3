@@ -54,6 +54,7 @@ from app.models.perfect_season import (
     MyRunsResponse,
     PerfectSeasonRunPublic,
     PersonalBestsPublic,
+    PersonalPlacementResponse,
     PlaceCardRequest,
     PublicCourtStateResponse,
     RespinRequest,
@@ -62,6 +63,7 @@ from app.models.perfect_season import (
     SaveRunRequest,
     SaveRunResponse,
     SelectPlayerRequest,
+    SetRunVisibilityRequest,
     SharedCourtResultResponse,
     SubmitRunRequest,
     SwapSlotsRequest,
@@ -82,7 +84,7 @@ from nba_peak.perfect_season.daily import (
     today_utc_date,
     validate_challenge_date,
 )
-from nba_peak.daily_key import daily_window
+from nba_peak.daily_key import daily_key, day_start_utc, daily_window, parse_daily_key
 from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME, resolve_player_season_card
 from nba_peak.perfect_season.simulation import compute_exact_fit_components, simulate_exact_season
 from pydantic import BaseModel
@@ -599,7 +601,16 @@ async def submit_run(
     ) if team_year_board else len(game_state.slots)
 
     profile = await profile_repo.get_or_create_profile(auth.sub)
-    display_name = profile.display_name or (auth.email.split("@")[0] if auth.email else f"Player-{auth.sub[-6:]}")
+    # SCORE_RECONCILIATION.md gap #4: the fallback used to be
+    # `auth.email.split("@")[0]` -- publishing the account email's local part
+    # on the GLOBAL leaderboard for anyone who had never explicitly set a
+    # display name, with no consent gate. `profile.display_name` being set at
+    # all already IS the explicit opt-in (it is only ever set through the
+    # account's own profile-editing route, never derived here); the
+    # non-consented default is now unconditionally the neutral
+    # `Player-XXXXXX` handle already used for the no-email case, never
+    # anything derived from the account's email.
+    display_name = profile.display_name or f"Player-{auth.sub[-6:]}"
 
     run = PerfectSeasonRun(
         id="",
@@ -638,6 +649,31 @@ def _card_scored(exact_player_season_key: str) -> bool:
     return card is not None and card.score_status == "exact_season_scored"
 
 
+@router.post("/perfect-season/runs/{run_id}/visibility", response_model=PerfectSeasonRunPublic)
+async def set_run_visibility(
+    run_id: str,
+    body: SetRunVisibilityRequest,
+    auth: RequiredAuth,
+    leaderboard_repo: PerfectSeasonLeaderboardRepoDep,
+) -> PerfectSeasonRunPublic:
+    """SCORE_RECONCILIATION.md gap #3: hide or unhide a submitted run.
+
+    The only mutation a submitted run may ever undergo -- `is_public`, one
+    column -- everything else stays the immutable record of what was
+    submitted (Part E: "Prefer immutable submitted runs; no UPDATE except
+    admin"). Ownership is checked in `leaderboard_repo.set_visibility` itself
+    (`WHERE id = ... AND owner_sub = ...`), and a mismatch is reported the
+    same way "does not exist" is -- 404, not 403 -- so this endpoint cannot be
+    used to probe whether a given run id belongs to someone else.
+    """
+    _require_courtbuilder_enabled()
+    _require_leaderboard_enabled()
+    updated = await leaderboard_repo.set_visibility(run_id, auth.sub, body.is_public)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Run not found or not yours")
+    return _run_to_public(updated)
+
+
 @router.get("/perfect-season/leaderboard", response_model=LeaderboardResponse)
 async def get_leaderboard(
     leaderboard_repo: PerfectSeasonLeaderboardRepoDep,
@@ -645,11 +681,69 @@ async def get_leaderboard(
     no_respin: bool = Query(False, description="Only include runs with zero respins used"),
     limit: int = Query(50, ge=1, le=100),
     cursor: Optional[str] = Query(None),
+    daily: bool = Query(
+        False,
+        description=(
+            "Restrict to runs submitted since the start of the current "
+            "application day (midnight America/Los_Angeles) instead of the "
+            "all-time board. Same query, same tie-break order."
+        ),
+    ),
 ) -> LeaderboardResponse:
     if not settings.COURTBUILDER_LEADERBOARD_ENABLED:
-        return LeaderboardResponse(leaderboard_enabled=False, runs=[], next_cursor=None)
-    runs = await leaderboard_repo.get_leaderboard(mode, no_respin, limit, cursor)
-    return LeaderboardResponse(leaderboard_enabled=True, runs=[_run_to_public(r) for r in runs])
+        return LeaderboardResponse(
+            leaderboard_enabled=False, runs=[], next_cursor=None,
+            daily=daily, daily_key=daily_key() if daily else None,
+        )
+    # The daily board is NOT a separate mode or a separate table -- it is the
+    # identical query and tie-break order as all-time, filtered to
+    # `created_at >= start of today`. `day_start_utc` is the ONE place the
+    # "official application day" boundary is defined (`nba_peak/daily_key.py`)
+    # -- every daily mode in this codebase reads it from there rather than
+    # re-deriving a UTC or fixed-offset boundary of its own.
+    since = day_start_utc(parse_daily_key(daily_key())) if daily else None
+    runs = await leaderboard_repo.get_leaderboard(mode, no_respin, limit, cursor, since)
+    # SCORE_RECONCILIATION.md gap #1: `next_cursor` was computed nowhere, ever
+    # -- the repo-side encoder existed (leaderboard_postgres.py `_encode_cursor`
+    # / leaderboard_memory.py's exported `encode_leaderboard_cursor`) but no
+    # caller invoked it, so a client had no way to request page 2. Mirrors
+    # ranked.py:458's `next_cursor = ... if len(ratings) == limit else None`.
+    # `encode_cursor` is a REPOSITORY method (not a router-level free function
+    # like ranked's) because the memory and Postgres backends do not share one
+    # cursor wire format -- see leaderboard_protocols.py's docstring on it.
+    # The cursor itself already encodes created_at, so a page-2 request
+    # carries the daily filter forward correctly with no extra state needed.
+    next_cursor = leaderboard_repo.encode_cursor(runs[-1]) if len(runs) == limit else None
+    return LeaderboardResponse(
+        leaderboard_enabled=True, runs=[_run_to_public(r) for r in runs],
+        next_cursor=next_cursor, daily=daily,
+        daily_key=daily_key() if daily else None,
+    )
+
+
+@router.get("/perfect-season/leaderboard/me", response_model=PersonalPlacementResponse)
+async def get_personal_placement(
+    auth: RequiredAuth,
+    leaderboard_repo: PerfectSeasonLeaderboardRepoDep,
+    mode: Optional[str] = Query(None, description="Filter by mode (apex_1y/prime_3y/foundation_5y)"),
+) -> PersonalPlacementResponse:
+    """SCORE_RECONCILIATION.md gap #2: "no personal-placement endpoint... a
+    player could see the board but never where they placed on it." Requires a
+    real account for the same reason submission does -- an anonymous session
+    cannot have a submitted run to rank in the first place. Reads the SAME
+    public rows `GET /perfect-season/leaderboard` serves (`is_public=TRUE`,
+    same sort order), so a rank returned here always corresponds to a
+    position that leaderboard would actually show on some page of it.
+    """
+    if not settings.COURTBUILDER_LEADERBOARD_ENABLED:
+        return PersonalPlacementResponse(leaderboard_enabled=False, mode=mode)
+    placement = await leaderboard_repo.get_personal_placement(auth.sub, mode)
+    if placement is None:
+        return PersonalPlacementResponse(leaderboard_enabled=True, mode=mode)
+    rank, run = placement
+    return PersonalPlacementResponse(
+        leaderboard_enabled=True, mode=mode, rank=rank, run=_run_to_public(run),
+    )
 
 
 @router.get("/perfect-season/me/runs", response_model=MyRunsResponse)

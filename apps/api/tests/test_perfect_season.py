@@ -2357,6 +2357,304 @@ def test_rls_migration_has_expected_policies():
 
 
 # ---------------------------------------------------------------------------
+# SCORE_RECONCILIATION.md gaps #1-4: pagination, personal placement,
+# visibility (hide/unhide), and the email-derived display-name fallback.
+# ---------------------------------------------------------------------------
+
+def _submit(client: TestClient, token: str, seed: int) -> dict:
+    state = _play_full_scored_game_as(client, token, seed=seed)
+    resp = client.post(
+        f"/api/v1/perfect-season/games/{state['game_id']}/submit",
+        json={"game_id": state["game_id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def test_leaderboard_pagination_returns_a_usable_next_cursor(leaderboard_client: TestClient):
+    """Gap #1: `next_cursor` used to be `None` on every response, even with
+    more rows available -- confirmed live against this same in-memory backend
+    before the fix. Three submitted runs, `limit=2`: page 1 must carry a
+    cursor page 2 can actually use, page 2 must be the REMAINING row with no
+    overlap, and the final page's cursor must be null."""
+    seeds_and_subs = [(601, "user-page-a"), (602, "user-page-b"), (603, "user-page-c")]
+    submitted_ids = []
+    for seed, sub in seeds_and_subs:
+        token = _mint_test_jwt(sub)
+        run = _submit(leaderboard_client, token, seed)
+        submitted_ids.append(run["id"])
+
+    page1 = leaderboard_client.get("/api/v1/perfect-season/leaderboard?limit=2").json()
+    assert len(page1["runs"]) == 2
+    assert page1["next_cursor"] is not None, "more rows exist past this page"
+
+    page2 = leaderboard_client.get(
+        f"/api/v1/perfect-season/leaderboard?limit=2&cursor={page1['next_cursor']}"
+    ).json()
+    page1_ids = {r["id"] for r in page1["runs"]}
+    page2_ids = {r["id"] for r in page2["runs"]}
+    assert not (page1_ids & page2_ids), "page 2 repeated a row from page 1"
+
+    # The board may hold rows from other tests sharing this in-memory
+    # backend within the same process; walk pages until exhausted and assert
+    # the invariant that matters regardless of total count: the LAST page's
+    # cursor is null, and no id repeats across the whole walk.
+    seen: set[str] = set(page1_ids) | set(page2_ids)
+    cursor = page2["next_cursor"]
+    guard = 0
+    while cursor is not None:
+        guard += 1
+        assert guard < 50, "pagination did not terminate"
+        page = leaderboard_client.get(
+            f"/api/v1/perfect-season/leaderboard?limit=2&cursor={cursor}"
+        ).json()
+        ids = {r["id"] for r in page["runs"]}
+        assert not (ids & seen), "a later page repeated an earlier row"
+        seen |= ids
+        cursor = page["next_cursor"]
+    assert set(submitted_ids) <= seen
+
+
+def test_personal_placement_requires_auth_and_reports_rank(leaderboard_client: TestClient):
+    """Gap #2: no endpoint reported the caller's own rank on the public
+    board. Confirms both the auth gate and that the reported rank matches the
+    row's actual 1-indexed position in `get_leaderboard`'s own sort order."""
+    resp = leaderboard_client.get("/api/v1/perfect-season/leaderboard/me")
+    assert resp.status_code == 401
+
+    token = _mint_test_jwt("user-placement-none")
+    # No public run yet in this mode: rank/run are both None, not an error.
+    resp = leaderboard_client.get(
+        "/api/v1/perfect-season/leaderboard/me?mode=apex_1y",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["leaderboard_enabled"] is True
+    assert body["rank"] is None
+    assert body["run"] is None
+
+    _submit(leaderboard_client, token, seed=701)
+    resp = leaderboard_client.get(
+        "/api/v1/perfect-season/leaderboard/me?mode=apex_1y",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    body = resp.json()
+    assert body["rank"] is not None
+    assert body["run"] is not None
+
+    # The reported rank must match the row's real position on the same
+    # public board `GET /leaderboard` serves -- fetched with a limit large
+    # enough to contain it (a handful of rows from this and sibling tests).
+    board = leaderboard_client.get(
+        "/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100"
+    ).json()["runs"]
+    position = next(i for i, r in enumerate(board) if r["id"] == body["run"]["id"]) + 1
+    assert position == body["rank"]
+
+
+def test_owner_can_hide_and_unhide_their_own_run(leaderboard_client: TestClient):
+    """Gap #3: `is_public` had no client-facing route to flip it at all."""
+    token = _mint_test_jwt("user-visibility")
+    run = _submit(leaderboard_client, token, seed=801)
+    run_id = run["id"]
+
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()["runs"]
+    assert any(r["id"] == run_id for r in board)
+
+    hide = leaderboard_client.post(
+        f"/api/v1/perfect-season/runs/{run_id}/visibility",
+        json={"is_public": False},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert hide.status_code == 200, hide.text
+
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()["runs"]
+    assert not any(r["id"] == run_id for r in board), "hidden run still on the public board"
+
+    # The owner still sees it in their own history -- hiding is not deleting.
+    mine = leaderboard_client.get(
+        "/api/v1/perfect-season/me/runs", headers={"Authorization": f"Bearer {token}"}
+    ).json()["runs"]
+    assert any(r["id"] == run_id for r in mine)
+
+    unhide = leaderboard_client.post(
+        f"/api/v1/perfect-season/runs/{run_id}/visibility",
+        json={"is_public": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert unhide.status_code == 200
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()["runs"]
+    assert any(r["id"] == run_id for r in board)
+
+
+def test_cannot_hide_someone_elses_run_and_the_failure_does_not_confirm_ownership(
+    leaderboard_client: TestClient,
+):
+    """A run id belonging to another account must fail exactly like a
+    nonexistent one (404, never 403) -- so this endpoint cannot be used to
+    probe whether a given id is a real run someone else owns."""
+    owner_token = _mint_test_jwt("user-visibility-owner")
+    run = _submit(leaderboard_client, owner_token, seed=802)
+
+    attacker_token = _mint_test_jwt("user-visibility-attacker")
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/runs/{run['id']}/visibility",
+        json={"is_public": False},
+        headers={"Authorization": f"Bearer {attacker_token}"},
+    )
+    assert resp.status_code == 404
+
+    nonexistent = leaderboard_client.post(
+        "/api/v1/perfect-season/runs/00000000-0000-0000-0000-000000000000/visibility",
+        json={"is_public": False},
+        headers={"Authorization": f"Bearer {attacker_token}"},
+    )
+    assert nonexistent.status_code == 404
+    assert nonexistent.json()["detail"] == resp.json()["detail"]
+
+    # The victim's run is untouched.
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()["runs"]
+    assert any(r["id"] == run["id"] for r in board)
+
+
+def test_display_name_never_falls_back_to_the_account_email(leaderboard_client: TestClient):
+    """Gap #4: the fallback used to be `auth.email.split('@')[0]` -- every
+    caller in this file mints a token carrying `test@example.com` (the
+    default), so under the old code every submitted run in this whole test
+    module would have published the handle "test". It must now be the
+    neutral `Player-XXXXXX` form instead, unconditionally, unless the
+    account's profile has an explicitly-set display name."""
+    sub = "user-email-fallback"
+    token = _mint_test_jwt(sub, email="definitely-not-public@example.com")
+    run = _submit(leaderboard_client, token, seed=901)
+    assert run["display_name"] == f"Player-{sub[-6:]}"
+    assert "definitely-not-public" not in run["display_name"]
+
+
+def test_daily_leaderboard_uses_the_official_application_day_boundary(
+    leaderboard_client: TestClient,
+):
+    """The daily board is the SAME query as all-time, filtered to
+    `created_at >= day_start_utc(today)` -- `nba_peak.daily_key`'s one shared
+    boundary, midnight America/Los_Angeles, not UTC and not a fixed offset.
+    A run timestamped one second before that instant must be excluded; one
+    second after (or exactly at it, since the filter is `>=`) must be
+    included -- proven by directly controlling `created_at` on the stored
+    row, not by waiting for a real clock boundary."""
+    from datetime import timedelta
+
+    from app.core.dependencies import _memory_perfect_season_leaderboard_repo
+    from nba_peak.daily_key import daily_key, day_start_utc, parse_daily_key
+
+    boundary = day_start_utc(parse_daily_key(daily_key()))
+
+    token_before = _mint_test_jwt("user-daily-before")
+    run_before = _submit(leaderboard_client, token_before, seed=1001)
+    token_at = _mint_test_jwt("user-daily-at")
+    run_at = _submit(leaderboard_client, token_at, seed=1002)
+    token_after = _mint_test_jwt("user-daily-after")
+    run_after = _submit(leaderboard_client, token_after, seed=1003)
+
+    stored = _memory_perfect_season_leaderboard_repo._runs
+    stored[run_before["id"]].created_at = boundary - timedelta(seconds=1)
+    stored[run_at["id"]].created_at = boundary
+    stored[run_after["id"]].created_at = boundary + timedelta(seconds=1)
+
+    daily_ids = {
+        r["id"]
+        for r in leaderboard_client.get(
+            "/api/v1/perfect-season/leaderboard?daily=true&limit=100"
+        ).json()["runs"]
+    }
+    assert run_before["id"] not in daily_ids, "a run before the boundary leaked onto the daily board"
+    assert run_at["id"] in daily_ids, "the boundary instant itself must be inclusive (>=)"
+    assert run_after["id"] in daily_ids
+
+    # All-time is unaffected: every one of them is still there.
+    all_time_ids = {
+        r["id"]
+        for r in leaderboard_client.get(
+            "/api/v1/perfect-season/leaderboard?limit=100"
+        ).json()["runs"]
+    }
+    assert {run_before["id"], run_at["id"], run_after["id"]} <= all_time_ids
+
+
+def test_daily_leaderboard_response_echoes_the_request_and_uses_the_same_tie_break(
+    leaderboard_client: TestClient,
+):
+    resp = leaderboard_client.get("/api/v1/perfect-season/leaderboard?daily=true").json()
+    assert resp["daily"] is True
+    from nba_peak.daily_key import daily_key
+    assert resp["daily_key"] == daily_key()
+
+    all_time = leaderboard_client.get("/api/v1/perfect-season/leaderboard").json()
+    assert all_time["daily"] is False
+    assert all_time["daily_key"] is None
+
+    # Same tie-break order on both boards -- if the daily board ever sorted
+    # differently, a player could not reason about the two consistently.
+    token_a = _mint_test_jwt("user-daily-sort-a")
+    _submit(leaderboard_client, token_a, seed=1101)
+    token_b = _mint_test_jwt("user-daily-sort-b")
+    _submit(leaderboard_client, token_b, seed=1102)
+
+    daily_runs = leaderboard_client.get(
+        "/api/v1/perfect-season/leaderboard?daily=true&limit=100"
+    ).json()["runs"]
+    wins = [r["wins"] for r in daily_runs]
+    assert wins == sorted(wins, reverse=True)
+
+
+def test_daily_leaderboard_pagination_carries_the_daily_filter_forward(
+    leaderboard_client: TestClient,
+):
+    """Gap #1 applies to the daily board too: `next_cursor` must be usable,
+    and following it must stay within today's runs -- never spill a run from
+    a different day onto page 2."""
+    from datetime import timedelta
+
+    from app.core.dependencies import _memory_perfect_season_leaderboard_repo
+    from nba_peak.daily_key import daily_key, day_start_utc, parse_daily_key
+
+    boundary = day_start_utc(parse_daily_key(daily_key()))
+    stored = _memory_perfect_season_leaderboard_repo._runs
+
+    today_ids = []
+    for i, seed in enumerate([1201, 1202, 1203]):
+        token = _mint_test_jwt(f"user-daily-page-{i}")
+        run = _submit(leaderboard_client, token, seed)
+        today_ids.append(run["id"])
+
+    yesterday_token = _mint_test_jwt("user-daily-page-yesterday")
+    yesterday_run = _submit(leaderboard_client, yesterday_token, seed=1204)
+    stored[yesterday_run["id"]].created_at = boundary - timedelta(hours=1)
+
+    page1 = leaderboard_client.get("/api/v1/perfect-season/leaderboard?daily=true&limit=2").json()
+    assert len(page1["runs"]) == 2
+    assert yesterday_run["id"] not in {r["id"] for r in page1["runs"]}
+    assert page1["next_cursor"] is not None
+
+    seen = {r["id"] for r in page1["runs"]}
+    cursor = page1["next_cursor"]
+    guard = 0
+    while cursor is not None:
+        guard += 1
+        assert guard < 50
+        page = leaderboard_client.get(
+            f"/api/v1/perfect-season/leaderboard?daily=true&limit=2&cursor={cursor}"
+        ).json()
+        ids = {r["id"] for r in page["runs"]}
+        assert yesterday_run["id"] not in ids, "yesterday's run leaked onto a later daily page"
+        assert not (ids & seen)
+        seen |= ids
+        cursor = page["next_cursor"]
+    assert set(today_ids) <= seen
+
+
+# ---------------------------------------------------------------------------
 # Phase 7A Part A: traded-player / team-stint roster coverage
 # ---------------------------------------------------------------------------
 

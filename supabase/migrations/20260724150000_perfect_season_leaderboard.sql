@@ -80,6 +80,17 @@ CREATE POLICY perfect_season_runs_owner_read ON perfect_season_runs
 -- Insert only as yourself. No UPDATE/DELETE policy at all -- immutable
 -- submitted runs (Part E: "Prefer immutable submitted runs; no UPDATE
 -- except admin"), denied by default under RLS with no matching policy.
+--
+-- SCORE_RECONCILIATION.md gap #3 (owner hide/unhide) does NOT add an UPDATE
+-- policy here, on purpose: `POST /perfect-season/runs/{id}/visibility`
+-- toggles `is_public` through the API's own service-role connection with a
+-- narrow, single-column, ownership-scoped SQL statement
+-- (leaderboard_postgres.py:set_visibility) -- reachable only through that
+-- endpoint's own auth + ownership check, never via a direct
+-- anon/authenticated PostgREST UPDATE. A broader owner-UPDATE RLS policy
+-- would let a direct REST caller rewrite ANY column of their own row
+-- (wins/lineup_score included), which is a real weakening of "immutable
+-- submitted runs" that the narrower service-role-only path avoids.
 DROP POLICY IF EXISTS perfect_season_runs_owner_insert ON perfect_season_runs;
 CREATE POLICY perfect_season_runs_owner_insert ON perfect_season_runs
     FOR INSERT WITH CHECK (owner_sub = auth.uid()::text);
