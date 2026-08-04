@@ -32,14 +32,14 @@ export default function PeakPicksRecap({ recap }: Props) {
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <TrendingUp size={14} style={{ color: "var(--peak-accent, #f5c842)" }} aria-hidden="true" />
+          <TrendingUp size={14} style={{ color: "var(--peak-accent-text, #f5c842)" }} aria-hidden="true" />
           <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
             What PEAK3 would have picked
           </span>
         </div>
         <span
           className="text-[10px] font-bold uppercase tracking-wide rounded-full px-2 py-0.5"
-          style={{ background: "rgba(245,200,66,0.12)", color: "var(--peak-accent, #f5c842)" }}
+          style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent-text, #f5c842)" }}
           data-testid="peak-picks-match-count"
         >
           {matchedCount}/{recap.length} matched
@@ -55,7 +55,11 @@ export default function PeakPicksRecap({ recap }: Props) {
             data-testid="peak-picks-recap-row"
             data-matched={entry.matched}
             className="flex items-center gap-2 text-xs rounded-lg px-2 py-1.5"
-            style={{ background: entry.matched ? "rgba(52,211,153,0.07)" : "var(--bg-elevated)" }}
+            style={{
+              background: entry.matched
+                ? "color-mix(in srgb, var(--accent-emerald) 7%, transparent)"
+                : "var(--bg-elevated)",
+            }}
           >
             <span
               className="text-[9px] font-bold uppercase tracking-wide shrink-0 w-14"
@@ -64,7 +68,7 @@ export default function PeakPicksRecap({ recap }: Props) {
               Rd {entry.round_number} · {SLOT_LABELS[entry.slot_type as SlotType] ?? entry.slot_type}
             </span>
             {entry.matched ? (
-              <span className="flex items-center gap-1 flex-1 min-w-0" style={{ color: "#34d399" }}>
+              <span className="flex items-center gap-1 flex-1 min-w-0" style={{ color: "var(--accent-emerald)" }}>
                 <Check size={12} aria-hidden="true" className="shrink-0" />
                 <span className="truncate font-semibold">You matched PEAK3&apos;s pick -- {entry.picked_player_name}</span>
               </span>
@@ -75,7 +79,7 @@ export default function PeakPicksRecap({ recap }: Props) {
                   {entry.picked_score != null ? ` (${entry.picked_score.toFixed(1)})` : ""}
                 </span>
                 {" · "}
-                <span style={{ color: "var(--peak-accent, #f5c842)" }}>
+                <span style={{ color: "var(--peak-accent-text, #f5c842)" }}>
                   PEAK3: {entry.peak_pick_player_name}
                   {entry.peak_pick_score != null ? ` (${entry.peak_pick_score.toFixed(1)})` : ""}
                 </span>

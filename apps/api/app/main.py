@@ -23,6 +23,7 @@ from app.api.v1 import daily_grid as daily_grid_router
 from app.api.v1 import run_the_table as run_the_table_router
 from app.api.v1 import head_to_head as head_to_head_router
 from app.api.v1 import telemetry as telemetry_router
+from app.api.v1 import contact as contact_router
 from app.core.config import settings
 from app.core.dataset import dataset_store
 from app.core.repository_registry import (
@@ -157,3 +158,7 @@ app.include_router(head_to_head_router.router, prefix="/api/v1", tags=["head-to-
 # build does not have it" indistinguishable to the client, and would mean the
 # disabled path was never exercised by the test suite.
 app.include_router(telemetry_router.router, prefix="/api/v1", tags=["telemetry"])
+# Contact / feedback. Same "always mounted, gated by settings" shape as
+# telemetry immediately above, for the same reason -- PEAK3_CONTACT_ENABLED
+# (default OFF) decides live behavior, not whether the route exists.
+app.include_router(contact_router.router, prefix="/api/v1", tags=["contact"])

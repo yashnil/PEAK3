@@ -31,6 +31,7 @@ import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { ChevronDown, RotateCcw } from "lucide-react";
 import { Dialog } from "@/components/ui";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { cn } from "@/lib/utils";
 import {
   accountLinks,
@@ -42,6 +43,7 @@ import {
   SIGN_IN_HREF,
   type NavAvailability,
   type NavItem,
+  type TopLevelNavLink,
 } from "@/lib/nav-model";
 import { useAuth } from "@/lib/auth-context";
 import { signInHref } from "@/lib/supabase/safe-next";
@@ -79,9 +81,15 @@ export function MobileNavDrawer({
   const rankings = topLevelLinks.find((l) => l.id === "rankings");
   // "Learn" is a drawer-only grouping: Methodology and About are two top-level
   // links on desktop, but on a phone they are one section of reading material.
-  const learnLinks = topLevelLinks.filter(
-    (l) => l.id === "methodology" || l.id === "about",
-  );
+  // Contact joins them here rather than becoming a 5th persistent item on the
+  // already-compact desktop bar (launch-polish IMPLEMENTATION_CONTRACT.md
+  // §10 asks to add it while explicitly preserving that compactness) — the
+  // footer link on every page already covers desktop, and a phone's Learn
+  // accordion has the room for one more row without pushing Rankings down.
+  const learnLinks: TopLevelNavLink[] = [
+    ...topLevelLinks.filter((l) => l.id === "methodology" || l.id === "about"),
+    { id: "contact", label: "Contact", href: "/contact" },
+  ];
 
   const playActive = isActive(pathname, PLAY_TRIGGER_ACTIVE, search);
   const dailyActive = daily ? isActive(pathname, daily, search) : false;
@@ -132,6 +140,13 @@ export function MobileNavDrawer({
           >
             Close
           </button>
+        </div>
+
+        <div className="pk-nav-drawer-theme">
+          <span className="pk-nav-drawer-subtitle" id="pk-nav-drawer-theme-label">
+            Theme
+          </span>
+          <ThemeToggle variant="menu" className="mt-1" />
         </div>
 
         {resume.run && (

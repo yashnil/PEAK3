@@ -23,9 +23,9 @@ const OUTCOME_TEXT: Record<ComparisonOutcome, string> = {
 };
 
 const OUTCOME_COLOR: Record<ComparisonOutcome, string> = {
-  recipient_wins: "#34d399",
-  challenger_wins: "#ef4444",
-  draw: "#f5c842",
+  recipient_wins: "var(--accent-emerald)",
+  challenger_wins: "var(--incorrect)",
+  draw: "var(--peak-accent-text)",
 };
 
 // ── Sub-components ─────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ function ScoreCol({
       </div>
       <div
         className="text-4xl font-bold tabular-nums leading-none"
-        style={{ color: isWinner ? "var(--peak-accent)" : "var(--text-primary)" }}
+        style={{ color: isWinner ? "var(--peak-accent-text)" : "var(--text-primary)" }}
       >
         {rating.toFixed(1)}
       </div>
@@ -150,8 +150,8 @@ function PicksCol({
           <span
             className="text-xs px-1.5 py-0.5 rounded font-medium"
             style={{
-              background: "rgba(245,200,66,0.12)",
-              color: "var(--peak-accent)",
+              background: "var(--peak-accent-bg)",
+              color: "var(--peak-accent-text)",
             }}
           >
             ✓ Hold
@@ -161,8 +161,8 @@ function PicksCol({
           <span
             className="text-xs px-1.5 py-0.5 rounded font-medium"
             style={{
-              background: "rgba(167,139,250,0.12)",
-              color: "#a78bfa",
+              background: "color-mix(in srgb, var(--accent-violet) 12%, transparent)",
+              color: "var(--accent-violet)",
             }}
           >
             ✓ Reframe
@@ -189,7 +189,7 @@ function PicksCol({
             </span>
             <span
               className="text-xs tabular-nums font-semibold shrink-0"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               {card.individual_peak_score.toFixed(1)}
             </span>
@@ -321,7 +321,7 @@ export default function ChallengeComparison({
       <div className="flex flex-col gap-2">
         <Link
           href="/arena/daily"
-          className="block w-full text-center py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+          className="block w-full text-center py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
           style={{
             background: "var(--peak-accent)",
             color: "var(--text-inverse)",
@@ -333,7 +333,7 @@ export default function ChallengeComparison({
         {onPlayAgain && (
           <button
             onClick={onPlayAgain}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-80"
+            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
             style={{
               background: "var(--bg-elevated)",
               border: "1px solid var(--border-default)",
@@ -347,7 +347,7 @@ export default function ChallengeComparison({
         {challengeUrl && (
           <button
             onClick={handleShareResult}
-            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-80"
+            className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
             style={{
               background: "var(--bg-elevated)",
               border: "1px solid var(--border-default)",

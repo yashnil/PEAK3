@@ -17,13 +17,26 @@ vi.mock("@/lib/auth-context", () => ({
 vi.mock("@/lib/auth", () => ({
   getAccessToken: vi.fn().mockResolvedValue("fake-token"),
 }));
+const mockSubmitRun = vi.fn();
 vi.mock("@/lib/perfect-season-api", () => ({
   getLeaderboard: vi.fn().mockResolvedValue({ leaderboard_enabled: true, runs: [] }),
-  submitRun: vi.fn(),
-  PerfectSeasonAPIError: class PerfectSeasonAPIError extends Error {},
+  submitRun: (...args: unknown[]) => mockSubmitRun(...args),
+  // Mirrors the real class's (status, detail, code) constructor -- a test
+  // asserting on `.code` needs the mock to actually carry one.
+  PerfectSeasonAPIError: class PerfectSeasonAPIError extends Error {
+    constructor(
+      public status: number,
+      detail: string,
+      public code?: string,
+    ) {
+      super(detail);
+    }
+  },
 }));
 
 import LeaderboardSubmitPanel from "@/components/court/LeaderboardSubmitPanel";
+import { PerfectSeasonAPIError } from "@/lib/perfect-season-api";
+import userEvent from "@testing-library/user-event";
 
 describe("LeaderboardSubmitPanel incomplete-score handling", () => {
   it("shows a disabled, explained state up front for an incomplete-score run -- never a live-looking submit button", async () => {
@@ -52,5 +65,45 @@ describe("LeaderboardSubmitPanel incomplete-score handling", () => {
     await waitFor(() => {
       expect(screen.getByTestId("leaderboard-submit-btn")).toBeInTheDocument();
     });
+  });
+});
+
+/**
+ * Launch-polish: the server now refuses `submit_run` with 400
+ * `handle_required` once a public handle is mandatory for a leaderboard
+ * submission -- and the handle-onboarding prompt deliberately never blocks
+ * gameplay, so a player CAN reach a finished, eligible run and be refused
+ * here having never set one. A generic error string would leave them to
+ * guess that "handle" means the profile page; this is the one-click route
+ * out that closes that gap.
+ */
+describe("LeaderboardSubmitPanel handle_required handling", () => {
+  it("offers a direct link to /profile when the server refuses with handle_required", async () => {
+    const user = userEvent.setup();
+    mockSubmitRun.mockRejectedValueOnce(
+      new PerfectSeasonAPIError(400, "A public handle is required to submit to the leaderboard.", "handle_required"),
+    );
+    render(<LeaderboardSubmitPanel gameId="g1" mode="apex_1y" lineupScoreStatus="complete" />);
+
+    await user.click(await screen.findByTestId("leaderboard-submit-btn"));
+
+    const error = await screen.findByTestId("leaderboard-submit-error");
+    expect(error).toHaveTextContent(/public handle is required/i);
+    const link = screen.getByTestId("leaderboard-submit-handle-link");
+    expect(link).toHaveAttribute("href", "/profile");
+    expect(link).toHaveTextContent(/set up your public handle/i);
+  });
+
+  it("does not offer the handle link for an unrelated submit failure", async () => {
+    const user = userEvent.setup();
+    mockSubmitRun.mockRejectedValueOnce(
+      new PerfectSeasonAPIError(500, "Something went wrong on our end.", "internal_error"),
+    );
+    render(<LeaderboardSubmitPanel gameId="g1" mode="apex_1y" lineupScoreStatus="complete" />);
+
+    await user.click(await screen.findByTestId("leaderboard-submit-btn"));
+
+    await screen.findByTestId("leaderboard-submit-error");
+    expect(screen.queryByTestId("leaderboard-submit-handle-link")).not.toBeInTheDocument();
   });
 });

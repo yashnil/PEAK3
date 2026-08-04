@@ -2,11 +2,13 @@
 
 import { Achievement } from "@/lib/progression-api";
 
+// Theme-aware — see `--achievement-*` in globals.css for why these are not
+// literal hex (P3-G2: measured contrast failure as text on Arena Day).
 const CATEGORY_COLORS: Record<string, string> = {
-  onboarding:   "#60a5fa",  // blue
-  challenge:    "#fb923c",  // orange
-  construction: "#a78bfa",  // violet
-  habit:        "#34d399",  // emerald
+  onboarding:   "var(--achievement-onboarding)",
+  challenge:    "var(--achievement-challenge)",
+  construction: "var(--achievement-construction)",
+  habit:        "var(--achievement-habit)",
 };
 
 interface Props {
@@ -23,7 +25,14 @@ export function AchievementCard({ achievement, showDescription = false }: Props)
       className="rounded-lg border p-3 flex gap-3 items-start"
       style={{
         background: earned ? "var(--bg-surface)" : "var(--bg-page)",
-        borderColor: earned ? color + "40" : "var(--border-subtle)",
+        // `color-mix`, not a hex-alpha string suffix (`color + "40"`): once
+        // `color` became a `var(--achievement-*)` reference (P3-G2), a
+        // trailing hex pair produced the invalid CSS color
+        // `var(--achievement-onboarding)40`, which the browser drops
+        // silently rather than erroring on -- caught by actually reading
+        // the computed style, not by assuming string concatenation still
+        // worked once the value stopped being a literal hex.
+        borderColor: earned ? `color-mix(in srgb, ${color} 40%, transparent)` : "var(--border-subtle)",
         opacity: earned ? 1 : 0.65,
       }}
       role="article"
@@ -33,9 +42,9 @@ export function AchievementCard({ achievement, showDescription = false }: Props)
       <div
         className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
         style={{
-          background: earned ? color + "20" : "var(--bg-elevated)",
+          background: earned ? `color-mix(in srgb, ${color} 20%, transparent)` : "var(--bg-elevated)",
           color: earned ? color : "var(--text-muted)",
-          border: `1.5px solid ${earned ? color + "60" : "transparent"}`,
+          border: `1.5px solid ${earned ? `color-mix(in srgb, ${color} 60%, transparent)` : "transparent"}`,
         }}
         aria-hidden="true"
       >
@@ -52,7 +61,7 @@ export function AchievementCard({ achievement, showDescription = false }: Props)
           </span>
           <span
             className="text-xs px-1.5 py-0.5 rounded capitalize"
-            style={{ background: color + "18", color }}
+            style={{ background: `color-mix(in srgb, ${color} 18%, transparent)`, color }}
           >
             {achievement.category}
           </span>

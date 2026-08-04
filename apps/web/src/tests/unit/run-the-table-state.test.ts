@@ -82,12 +82,17 @@ function lane(
   return {
     label: "Statistical Impact",
     token: "si",
-    player_score: 62.5,
-    opponent_score: 58.25,
     margin: 4.25,
     tie_broken_by_rule: false,
-    player_top_card: null,
-    opponent_top_card: null,
+    // -- contract fields (SYNTHESIS_CONTRACT.md §2.3) ----------------------
+    player_lineup_rating: 62.5,
+    boss_lineup_rating: 58.25,
+    pre_perk_rating: 62.5,
+    perk_adjustment: 0,
+    bench_adjustment: 0,
+    final_rating: 62.5,
+    top_contributor: null,
+    opponent_top_contributor: null,
     ...over,
   };
 }
@@ -544,6 +549,22 @@ describe("roster derivations", () => {
     expect(pips.slice(5).every((p) => !p.is_starter)).toBe(true);
     expect(pips.every((p) => p.filled === false)).toBe(true);
   });
+
+  // P5-F5: a pip used to carry only `slot_id` ("lead_creator", "bench_1"),
+  // which is what let a caller print the raw id to a screen reader instead
+  // of a real label. `role` is now carried through so `slotLabel()` can
+  // build one, exactly as every other roster-facing surface already does.
+  it("carries each starter's role, so a caller can build a real label instead of the raw slot id", () => {
+    const pips = rosterPips(runFixture());
+    expect(pips.slice(0, 5).map((p) => p.role)).toEqual([
+      "lead_creator",
+      "guard_wing",
+      "wing_forward",
+      "forward_big",
+      "anchor",
+    ]);
+    expect(pips.slice(5).every((p) => p.role === null)).toBe(true);
+  });
 });
 
 describe("battle derivations", () => {
@@ -591,12 +612,26 @@ describe("battle derivations", () => {
   });
 
   it("writes one screen-reader sentence per lane, flagging a rule-broken tie", () => {
+    // "lineup rating", never "score" or "total" — the number is a
+    // bench-weighted mean across the roster, not any one player's value
+    // (SCORE_RECONCILIATION.md §2), and the sentence must not imply otherwise.
     expect(laneSentence(lane({ lane: "statistical_impact", winner: "player" }))).toBe(
-      "Statistical Impact: 62.5 to 58.3. You win.",
+      "Statistical Impact lineup rating: 62.5 to 58.3. You win.",
     );
     expect(
       laneSentence(lane({ lane: "team_achievement", winner: "tie", tie_broken_by_rule: true })),
     ).toContain("boss rule broke the tie");
+  });
+
+  it("announces the top contributor's own value separately from the lineup rating", () => {
+    const withContributors = lane({
+      lane: "statistical_impact",
+      winner: "player",
+      top_contributor: { name: "Tim Duncan", own_lane_index_value: 71 },
+      opponent_top_contributor: { name: "Kevin Garnett", own_lane_index_value: 69 },
+    });
+    const sentence = laneSentence(withContributors);
+    expect(sentence).toContain("Top contributor: Tim Duncan 71.0 vs Kevin Garnett 69.0.");
   });
 });
 

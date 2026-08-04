@@ -162,8 +162,8 @@ export default function DailyGridHistory() {
       >
         {playedToday ? (
           <>
-            <CalendarClock size={14} aria-hidden="true" style={{ color: "var(--comp-team)" }} />
-            <strong style={{ color: "var(--comp-team)" }}>Today&rsquo;s grid is done.</strong>
+            <CalendarClock size={14} aria-hidden="true" style={{ color: "var(--comp-team-text)" }} />
+            <strong style={{ color: "var(--comp-team-text)" }}>Today&rsquo;s grid is done.</strong>
             {countdown !== null && (
               <span style={{ color: "var(--text-secondary)" }}>
                 Next board in {formatCountdown(countdown)}.
@@ -172,7 +172,7 @@ export default function DailyGridHistory() {
           </>
         ) : (
           <>
-            <Flame size={14} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+            <Flame size={14} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
             <strong style={{ color: "var(--text-primary)" }}>
               You have not played today&rsquo;s grid yet.
             </strong>
@@ -180,7 +180,7 @@ export default function DailyGridHistory() {
               href="/daily/grid"
               data-testid="daily-history-play-today"
               className="font-semibold underline underline-offset-2"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               Play it now
             </Link>

@@ -1,6 +1,6 @@
 "use client";
 import { RunPublicState } from "@/types/run-the-table";
-import { rosterPips } from "@/lib/run-the-table-state";
+import { rosterPips, slotLabel } from "@/lib/run-the-table-state";
 
 /**
  * The sticky bottom tray, mobile only (`.rtt-mobile-tray` hides itself at
@@ -35,7 +35,7 @@ export default function MobileTray({
             </span>
             <span
               className="score-number text-sm font-bold"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
               data-testid="rtt-mobile-credits"
             >
               {state.credits}
@@ -62,7 +62,12 @@ export default function MobileTray({
                   background: pip.filled ? "var(--peak-accent)" : "var(--border-emphasis)",
                 }}
               >
-                <span className="sr-only">{`${pip.slot_id}: ${pip.filled ? "filled" : "empty"}`}</span>
+                {/* P5-F5: this printed the raw slot id ("lead_creator",
+                    "bench_1") to a screen reader instead of a real label —
+                    the same class of defect as the battle HUD's raw
+                    `boss_id`, just audio-only. `slotLabel` is the same
+                    helper every other roster-facing surface already uses. */}
+                <span className="sr-only">{`${slotLabel(pip)}: ${pip.filled ? "filled" : "empty"}`}</span>
               </li>
             ))}
           </ul>
@@ -74,7 +79,7 @@ export default function MobileTray({
             onClick={onPrimary}
             disabled={primaryDisabled}
             className="rtt-tap ml-auto shrink-0 rounded-lg px-4 text-xs font-bold uppercase tracking-wide disabled:opacity-50"
-            style={{ background: "var(--peak-accent)", color: "#000" }}
+            style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
           >
             {primaryLabel}
           </button>

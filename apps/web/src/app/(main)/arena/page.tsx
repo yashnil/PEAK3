@@ -3,11 +3,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ArrowRight, Grid3x3, Swords, Trophy } from "lucide-react";
 import GameCard from "@/components/shared/GameCard";
-import {
-  MODE_COPY,
-  RUN_THE_TABLE_DAILY_HREF,
-  RUN_THE_TABLE_RUNS_HREF,
-} from "@/lib/modes";
+import { MODE_COPY, RUN_THE_TABLE_RUNS_HREF } from "@/lib/modes";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 
 /**
@@ -24,9 +20,15 @@ import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
  * What changed is that it is no longer the ONLY launcher — the homepage now
  * starts a run directly — so this page is free to be denser and more explicit:
  * groups carry a one-line description, the secondary links say what they do
- * ("Start a standard run", "Play today's shared run") instead of repeating
- * "Your runs →" twice on one screen, and the surfaces vary by tier rather than
+ * ("Start a standard run", "Resume a saved run") instead of repeating "Your
+ * runs →" twice on one screen, and the surfaces vary by tier rather than
  * repeating one bordered rectangle.
+ *
+ * LAUNCH-POLISH LP2-3 removed the third link, "Play today's shared run" —
+ * see `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md`. Nothing
+ * about the daily mode changed behind it: the route, the seed and any saved
+ * daily run are untouched, this page just no longer advertises it as a
+ * choice next to Standard.
  *
  * Phase 10C history, still true: the legacy 1Y Apex / 3Y Prime / 5Y Foundation
  * draft modes are NOT listed here. They live at /arena/labs, unlinked from the
@@ -119,18 +121,9 @@ export default async function ArenaPage() {
             href="/arena/run-the-table?start=standard"
             data-testid="arena-rtt-start-link"
             className="arena-inline-link"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Start a standard run
-            <ArrowRight size={13} aria-hidden="true" />
-          </Link>
-          <Link
-            href={RUN_THE_TABLE_DAILY_HREF}
-            data-testid="arena-rtt-daily-link"
-            className="arena-inline-link"
-            style={{ color: "var(--peak-accent)" }}
-          >
-            Play today&apos;s shared run
             <ArrowRight size={13} aria-hidden="true" />
           </Link>
           <Link
@@ -199,9 +192,9 @@ export default async function ArenaPage() {
                 style={{
                   minHeight: "var(--pk-tap-min, 44px)",
                   borderRadius: "var(--pk-r-md, 10px)",
-                  background: "rgba(96,165,250,0.12)",
-                  color: "#60a5fa",
-                  borderColor: "#60a5fa",
+                  background: "color-mix(in srgb, var(--accent-blue) 12%, transparent)",
+                  color: "var(--accent-blue)",
+                  borderColor: "var(--accent-blue)",
                 }}
               >
                 Play today&apos;s Daily
@@ -278,7 +271,7 @@ export default async function ArenaPage() {
               href="/daily"
               data-testid="arena-daily-hub-link"
               className="arena-inline-link"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               Daily hub
               <ArrowRight size={13} aria-hidden="true" />

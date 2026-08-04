@@ -67,7 +67,7 @@ export function MagicLinkForm({ next, label = "Email me a sign-in link" }: Magic
           type="button"
           onClick={() => setSentTo(null)}
           className="underline text-xs"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
         >
           Use a different address
         </button>
@@ -107,7 +107,7 @@ export function MagicLinkForm({ next, label = "Email me a sign-in link" }: Magic
           role="alert"
           data-testid="magic-link-error"
           className="text-sm rounded-lg px-3 py-2"
-          style={{ background: "#ef444420", color: "#ef4444" }}
+          style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}
         >
           {error}
         </p>
@@ -117,7 +117,7 @@ export function MagicLinkForm({ next, label = "Email me a sign-in link" }: Magic
         type="submit"
         disabled={pending}
         data-testid="magic-link-submit"
-        className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-60"
+        className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60"
         style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
       >
         {pending ? "Sending…" : label}

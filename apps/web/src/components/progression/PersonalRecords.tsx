@@ -58,7 +58,7 @@ export function PersonalRecords({ records }: Props) {
                 </div>
                 <div
                   className="text-xl font-bold tabular-nums"
-                  style={{ color: "var(--peak-accent)" }}
+                  style={{ color: "var(--peak-accent-text)" }}
                 >
                   {formatValue(r)}
                 </div>

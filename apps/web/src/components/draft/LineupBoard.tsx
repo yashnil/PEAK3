@@ -1,12 +1,14 @@
 "use client";
 import { SelectedCard, DRAFT_ROLES, DraftRole, ROLE_LABELS, DraftCard } from "@/types/draft";
 
+// Theme-aware `--accent-*` tokens (P3-G2) -- see the identical comment in
+// DraftCard.tsx, which owns the canonical explanation of this mapping.
 const ROLE_COLORS: Record<DraftRole, string> = {
-  lead_creator: "#f472b6",
-  guard_wing: "#60a5fa",
-  wing_forward: "#a78bfa",
-  forward_big: "#fb923c",
-  anchor: "#34d399",
+  lead_creator: "var(--accent-pink)",
+  guard_wing: "var(--accent-blue)",
+  wing_forward: "var(--accent-violet)",
+  forward_big: "var(--accent-orange)",
+  anchor: "var(--accent-emerald)",
 };
 
 interface Props {
@@ -40,8 +42,10 @@ export default function LineupBoard({ selectedCards, openRoles, heldCard }: Prop
             key={role}
             className="flex items-center gap-2 rounded-lg px-3 py-2"
             style={{
-              background: filled ? `${color}10` : "var(--bg-elevated)",
-              border: `1px solid ${filled ? color + "40" : "var(--border-subtle)"}`,
+              // `color-mix`, not a hex-alpha suffix -- `color` is now a
+              // `var(--accent-*)` reference (P3-G2).
+              background: filled ? `color-mix(in srgb, ${color} 10%, transparent)` : "var(--bg-elevated)",
+              border: `1px solid ${filled ? `color-mix(in srgb, ${color} 40%, transparent)` : "var(--border-subtle)"}`,
             }}
           >
             {/* Role indicator */}

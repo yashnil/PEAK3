@@ -14,12 +14,38 @@ import {
   DEFAULT_SORT_DIRECTION,
   DEFAULT_SORT_KEY,
   RANKING_COLUMNS,
+  RANKING_COMPONENT_KEYS,
   hasComponents,
   isDefaultSort,
   sortRankingRows,
   type RankingSortKey,
   type SortDirection,
 } from "@/components/rankings/board-model";
+
+/**
+ * `?sort=statistical_impact` (any `RankingComponentKey`, or `"total"`) —
+ * the deep link the homepage's interactive component comparison uses so
+ * "click a component" lands here already sorted by it, instead of on a
+ * generic rankings page the visitor has to re-sort themselves. Reads once
+ * on mount; the page's own sort controls own it from then on (this is a
+ * starting point, not a synced URL state).
+ *
+ * Read via `window.location.search` in an effect, NOT `next/navigation`'s
+ * `useSearchParams()` — the same choice `nav.tsx`'s `useLocationSearch`
+ * already made and documents: that hook forces the nearest static shell
+ * into a Suspense boundary, a real cost for a one-time initial read. This
+ * page is already `"use client"`, so there is no server-render agreement
+ * to protect; reading after mount is the same pattern, applied here too.
+ */
+function isDeepLinkableSortKey(value: string | null): value is RankingSortKey {
+  return value === "total" || (RANKING_COMPONENT_KEYS as readonly string[]).includes(value ?? "");
+}
+
+function readSortFromLocation(): RankingSortKey | null {
+  if (typeof window === "undefined") return null;
+  const raw = new URLSearchParams(window.location.search).get("sort");
+  return isDeepLinkableSortKey(raw) ? raw : null;
+}
 
 /**
  * PEAK3 Rankings.
@@ -102,6 +128,16 @@ export default function RankingsPage() {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
     return () => clearTimeout(t);
   }, [search]);
+
+  // `?sort=<component>` deep link (the homepage's component comparison uses
+  // this) — read once, on mount, so a visitor who arrives already sorted
+  // can still freely change it afterward with the page's own controls.
+  useEffect(() => {
+    const requested = readSortFromLocation();
+    if (!requested) return;
+    setSortKey(requested);
+    setSortDirection(RANKING_COLUMNS.find((c) => c.key === requested)?.initialDirection ?? "desc");
+  }, []);
 
   // Component weights and long-form copy for the modal come from the real
   // methodology endpoint -- never hardcoded in TS (project rule).
@@ -213,7 +249,7 @@ export default function RankingsPage() {
                   className="text-xs font-semibold uppercase tracking-wide rounded-lg px-3.5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                   style={
                     active
-                      ? { background: "var(--peak-accent, #f5c842)", color: "#000" }
+                      ? { background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }
                       : { background: "transparent", color: "var(--text-secondary)" }
                   }
                 >
@@ -247,7 +283,7 @@ export default function RankingsPage() {
                     active
                       ? {
                           background: "var(--peak-accent-bg, rgba(245,200,66,0.12))",
-                          color: "var(--peak-accent, #f5c842)",
+                          color: "var(--peak-accent-text, #f5c842)",
                           border: "1px solid var(--peak-accent-dim)",
                         }
                       : {
@@ -287,7 +323,7 @@ export default function RankingsPage() {
             >
               <span>
                 Sorted by{" "}
-                <strong style={{ color: "var(--peak-accent, #f5c842)" }}>{sortColumn.full}</strong>{" "}
+                <strong style={{ color: "var(--peak-accent-text, #f5c842)" }}>{sortColumn.full}</strong>{" "}
                 {sortDirection === "desc" ? "high to low" : "low to high"}
               </span>
               <button
@@ -316,7 +352,7 @@ export default function RankingsPage() {
             role="alert"
             data-testid="rankings-error"
             className="rounded-lg p-4 text-sm text-center"
-            style={{ background: "var(--bg-surface)", color: "#ef4444" }}
+            style={{ background: "var(--bg-surface)", color: "var(--incorrect)" }}
           >
             {error}
           </div>

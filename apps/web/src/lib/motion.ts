@@ -34,6 +34,11 @@ export const MOTION_DURATION_MS = {
   base: 200,
   slow: 320,
   slower: 480,
+  // Added for the cinematic sequences (PRODUCT_EXPERIENCE_CONTRACT.md §8).
+  // Mirrors `--pk-dur-reveal` / `--pk-dur-count` in globals.css — extends the
+  // existing scale rather than a new hardcoded number at each call site.
+  reveal: 400,
+  count: 600,
 } as const;
 
 /** The same durations in seconds, the unit `motion` transitions expect. */
@@ -43,6 +48,8 @@ export const MOTION_DURATION_S = {
   base: 0.2,
   slow: 0.32,
   slower: 0.48,
+  reveal: 0.4,
+  count: 0.6,
 } as const;
 
 export type MotionDurationName = keyof typeof MOTION_DURATION_MS;

@@ -40,7 +40,7 @@ export function ChallengeSummary({ state, date }: ChallengeSummaryProps) {
         <p className="text-sm font-medium text-[var(--text-muted)] uppercase tracking-widest mb-2">
           Challenge Complete
         </p>
-        <h2 className="font-display text-5xl font-extrabold text-[var(--peak-accent)] score-number">
+        <h2 className="font-display text-5xl font-extrabold text-[var(--peak-accent-text)] score-number">
           {state.total_arena_points.toLocaleString()}
         </h2>
         <p className="text-[var(--text-secondary)] mt-1">Arena Points</p>

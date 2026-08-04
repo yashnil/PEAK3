@@ -11,10 +11,10 @@ const DIMS = [
 ] as const;
 
 function dimColor(val: number): string {
-  if (val < 15) return "#ef4444";  // catastrophic hole
-  if (val < 35) return "#f59e0b";
-  if (val >= 75) return "#34d399";
-  return "#60a5fa";
+  if (val < 15) return "var(--incorrect)";  // catastrophic hole
+  if (val < 35) return "var(--warning)";
+  if (val >= 75) return "var(--accent-emerald)";
+  return "var(--accent-blue)";
 }
 
 interface Props {
@@ -49,7 +49,7 @@ export default function DNABar({ dna, label }: Props) {
               style={{ background: "var(--border-subtle)" }}
             >
               <div
-                className="h-1.5 rounded-full transition-all duration-500"
+                className="h-1.5 rounded-full transition-[width] duration-500"
                 style={{ width: `${Math.min(100, val)}%`, background: color }}
               />
             </div>

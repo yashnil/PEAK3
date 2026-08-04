@@ -18,6 +18,8 @@ import {
   SlotType,
 } from "@/types/perfect-season";
 
+import { getAccessToken } from "@/lib/auth";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 class PerfectSeasonAPIError extends Error {
@@ -41,10 +43,43 @@ function parseErrorDetail(detail: unknown, status: number): { message: string; c
 }
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // THE BEARER TOKEN IS ATTACHED HERE, CENTRALLY, FOR EVERY CALL.
+  //
+  // It used to be attached only by the handful of functions that took an
+  // `accessToken` parameter (save, submit, my-runs, personal-bests). Create,
+  // load, respin, select, place and complete sent no Authorization at all, so
+  // `resolve_owner_sub` on the API fell through to the anonymous branch and a
+  // signed-in player's brand-new run was created under a GUEST subject.
+  //
+  // On a same-origin deployment that merely mislabelled the owner. Split across
+  // origins it broke outright: the guest identity is carried by the `peak3_anon`
+  // cookie, and a cross-site cookie is not sent by the browser at all, so every
+  // request minted a *fresh* anonymous subject. Create returned 200, the very
+  // next load returned 403 `not_your_game`, and starting again produced a new
+  // board and the same error — because each request was a different person.
+  //
+  // Read here rather than threaded through ~15 call sites so no future caller
+  // can forget it, mirroring run-the-table-api.ts which already does this and
+  // for the same reason. `getAccessToken` returns null when signed out or on
+  // the server, and a null token leaves the request exactly as it was, so
+  // anonymous play is untouched.
+  let authHeader: Record<string, string> = {};
+  try {
+    const accessToken = await getAccessToken();
+    if (accessToken) authHeader = { Authorization: `Bearer ${accessToken}` };
+  } catch {
+    // An auth-layer hiccup must never block a guest-playable request.
+  }
+
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
-    headers: { "Content-Type": "application/json", ...options.headers },
-    credentials: "include",
     ...options,
+    // Spread AFTER `options` so a caller cannot accidentally drop credentials
+    // or the auth header by passing its own `headers`/`credentials`. An
+    // explicit `Authorization` in options.headers still wins, because
+    // options.headers is spread last — that is how the token-taking functions
+    // keep working unchanged.
+    headers: { "Content-Type": "application/json", ...authHeader, ...options.headers },
+    credentials: "include",
   });
   const json = await res.json().catch(() => ({ detail: "Unknown error" }));
   if (!res.ok) {
@@ -182,6 +217,48 @@ export async function swapSlots(
   });
 }
 
+/**
+ * Launch-polish LP2-2: reverse the single most recent placement or swap.
+ *
+ * `expectedStateVersion` is `state.state_version` from the last state this
+ * client received -- never a value this client derives or increments
+ * itself. The server compares it against its own counter and rejects
+ * (`stale_state`) if anything has moved on; a SEPARATE server-side check
+ * rejects (`undo_not_available` / `undo_expired`) even when the caller is
+ * perfectly in sync, if the specific thing it wants undone is no longer the
+ * most recent action or the (server-enforced, reload-independent) window
+ * has closed. This function sends no reversal details of its own -- no
+ * slot, no card, not even "place" vs "swap" -- only the intent to undo and
+ * the caller's belief about the current state; the server decides the rest
+ * from its own stored snapshot. See `idempotencyKey` below for why a
+ * double-click or a retried request cannot double-undo.
+ */
+export async function undoLastPlacement(
+  gameId: string,
+  expectedStateVersion: number,
+  idempotencyKey?: string,
+): Promise<CourtLineupPublicState> {
+  return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/undo`, {
+    method: "POST",
+    body: JSON.stringify(
+      idempotencyKey
+        ? { game_id: gameId, expected_state_version: expectedStateVersion, idempotency_key: idempotencyKey }
+        : { game_id: gameId, expected_state_version: expectedStateVersion },
+    ),
+  });
+}
+
+/**
+ * Derived from state the caller already has, not generated fresh per call --
+ * same reasoning as `respinIdempotencyKey` above. Two clicks of the same
+ * Undo button both read the same `expected_state_version` (the first
+ * response has not landed yet), so both send the same key and the server
+ * recognises the second as a replay instead of undoing twice.
+ */
+export function undoIdempotencyKey(gameId: string, expectedStateVersion: number): string {
+  return `${gameId}:undo:v${expectedStateVersion}`;
+}
+
 export async function completeCourtGame(gameId: string): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/complete`, {
     method: "POST",
@@ -203,13 +280,14 @@ export async function submitRun(gameId: string, accessToken: string): Promise<Pe
 
 export async function getLeaderboard(params: {
   mode?: CourtMode;
-  noRespin?: boolean;
   limit?: number;
   cursor?: string;
 } = {}): Promise<LeaderboardResponse> {
+  // launch-polish IMPLEMENTATION_CONTRACT.md §7: no respin filter -- removed,
+  // not defaulted off. Respins are normal Standard 82-0 play; the API no
+  // longer accepts a no_respin param at all (apps/api/app/api/v1/perfect_season.py).
   const qs = new URLSearchParams();
   if (params.mode) qs.set("mode", params.mode);
-  if (params.noRespin) qs.set("no_respin", "true");
   if (params.limit) qs.set("limit", String(params.limit));
   if (params.cursor) qs.set("cursor", params.cursor);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";

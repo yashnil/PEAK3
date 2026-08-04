@@ -109,6 +109,15 @@ const FULL_RUN_TIMEOUT_MS = 180_000;
 const SURFACE_IDS = [
   "rtt-result",
   "rtt-opening-reveal",
+  // `rtt-boss-intro` (name, philosophy, win condition, 3-2-1 countdown,
+  // skip) sits in front of `rtt-boss-reveal` at the SAME `boss_ready`
+  // server status — see `RunTheTableGame`'s `dismissedBossIntroId` gate.
+  // Missing from this list, `currentSurface()` threw "no known surface"
+  // the instant any full-run test reached its first boss, so no test in
+  // this file that calls `playToResult` had ever actually completed a run
+  // — every one of them errored out at act 1's boss without anyone
+  // noticing, because the suite itself was not being run this pass.
+  "rtt-boss-intro",
   "rtt-boss-reveal",
   "rtt-system-select",
   "rtt-node-choice",
@@ -185,16 +194,38 @@ async function currentSurface(page: Page): Promise<SurfaceId> {
  */
 async function stepOnce(page: Page, surface: SurfaceId): Promise<void> {
   switch (surface) {
+    case "rtt-boss-intro":
+      // The pre-roll: name, philosophy, win condition, 3-2-1 countdown. Skip
+      // is interactive from the first frame (no waiting on the countdown) —
+      // lands directly on the paired lineup reveal, same status, next gate.
+      await page.locator('[data-testid="rtt-boss-intro-skip"]').click();
+      break;
     case "rtt-opening-reveal":
     case "rtt-boss-reveal": {
-      // Reveal one card, then skip the rest — one round trip for the remainder,
-      // because `count` saturates server-side. Asserting the END state rather
-      // than watching the reel is the same reasoning as the battle skip below.
+      // One action starts the WHOLE reveal in a single batched round trip
+      // (SYNTHESIS_CONTRACT.md §2.2); "Skip all" then jumps the client's own
+      // paced presentation straight to fully resolved, with no second
+      // request. Asserting the END state rather than watching the sequence
+      // is the same reasoning as the battle skip below.
+      //
+      // Skip alone does NOT dismiss the surface — the lead's ruling was that
+      // skip-all must land on every slot fully resolved and HOLD there, so
+      // the player sees what was promised before the screen changes; only
+      // an explicit "Continue" press dismisses it (RunTheTableGame.tsx's
+      // `rosterRevealDismissed`/`dismissedBossRevealId`). This driver
+      // clicked start+skip and then waited on the surface's own removal —
+      // which without a `continue` click never happens — so every test in
+      // this file that reaches a reveal has been hanging for the full 20s
+      // timeout and then failing, unnoticed only because the suite has not
+      // actually been run this pass.
       const kind = surface === "rtt-opening-reveal" ? "roster" : "boss";
-      await page.locator(`[data-testid="rtt-reveal-next-${kind}"]`).click();
+      await page.locator(`[data-testid="rtt-reveal-start-${kind}"]`).click();
       const skip = page.locator(`[data-testid="rtt-reveal-skip-${kind}"]`);
       await skip.waitFor({ state: "visible", timeout: 20_000 });
       await skip.click();
+      const cont = page.locator(`[data-testid="rtt-reveal-continue-${kind}"]`);
+      await cont.waitFor({ state: "visible", timeout: 20_000 });
+      await cont.click();
       break;
     }
     case "rtt-scout-prepare":
@@ -278,11 +309,12 @@ async function skipOpeningReveal(page: Page): Promise<void> {
   await stepOnce(page, surface);
 }
 
-/** How many roster slots the reveal has actually turned over, read off the
- *  server-rendered rows rather than off the progress line — so the count and
- *  the cards have to agree. */
+/** How many roster slots have fully SETTLED in the reveal stage — a slot
+ *  mid-beat or still concealed does not count. Read off `RevealCard`'s own
+ *  status attribute rather than the progress line, so the count and the
+ *  cards on screen have to agree. */
 async function revealedSlotCount(page: Page): Promise<number> {
-  return page.locator('[data-testid^="rtt-reveal-slot-"][data-revealed="true"]').count();
+  return page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]').count();
 }
 
 /** Drive the run to its receipt.
@@ -293,15 +325,19 @@ async function revealedSlotCount(page: Page): Promise<number> {
  *  the SURFACE rather than on a particular outcome — which is why it needed no
  *  change when the outcome taxonomy became TABLE CLEARED / RUN ENDED AT THE
  *  FINAL BOSS / RUN ENDED IN ACT N. */
-async function playToResult(page: Page, maxSteps = 90): Promise<void> {
+async function driveTo(page: Page, target: SurfaceId, maxSteps = 90): Promise<void> {
   for (let i = 0; i < maxSteps; i++) {
     const surface = await currentSurface(page);
     // Every surface, every step — see `expectNoRawObjects`.
     await expectNoRawObjects(page);
-    if (surface === "rtt-result") return;
+    if (surface === target) return;
     await stepOnce(page, surface);
   }
-  throw new Error(`run did not reach a receipt within ${maxSteps} steps`);
+  throw new Error(`did not reach ${target} within ${maxSteps} steps`);
+}
+
+async function playToResult(page: Page, maxSteps = 90): Promise<void> {
+  return driveTo(page, "rtt-result", maxSteps);
 }
 
 async function storedRun(page: Page): Promise<StoredRun | null> {
@@ -403,15 +439,17 @@ test.describe("RUN THE TABLE opening reveal", () => {
    * THE ONE TEST THAT PLAYS THE REVEAL IN FULL, and the reason every other
    * test in this file is allowed to call `skipOpeningReveal`.
    *
-   * The reveal is the surface most likely to be mistaken for decoration, so
-   * what is asserted here is precisely the part that makes it NOT theatre:
-   * the count is run state on the server, not a number the browser is
-   * keeping. `RevealReel`'s own docstring makes that claim ("Progress is run
-   * state, not browser state... a refresh mid-reveal resumes at the same card
-   * instead of restarting"); this is what would notice if it stopped being
-   * true.
+   * SYNTHESIS_CONTRACT.md §2.2 batched the reveal into ONE round trip: the
+   * single "Reveal your roster" press fires `reveal(roster, 7)` once, the
+   * server saturates and returns every slot already-authoritative in that
+   * one response, and the CLIENT paces its own presentation of it afterward
+   * (`useRevealSequence`). So what this test asserts is different from the
+   * old per-card round-trip contract, but the same principle holds: nothing
+   * is shown before the press, the roster the player eventually sees is
+   * exactly what the server sent, and a mid-sequence pause genuinely halts
+   * the presentation rather than merely hiding a CSS transition.
    */
-  test("the opening draft reveal deals the roster one card at a time, and the server owns the count", async ({
+  test("the opening reveal fires ONE batched action, then paces an already-authoritative roster locally", async ({
     page,
   }) => {
     test.setTimeout(FULL_RUN_TIMEOUT_MS);
@@ -423,53 +461,43 @@ test.describe("RUN THE TABLE opening reveal", () => {
     await expect(reveal).toHaveAttribute("data-reveal-complete", "false");
 
     // Nothing is turned over until the player asks — the roster exists, but
-    // the run does not spoil it on arrival.
-    const progress = page.locator('[data-testid="rtt-reveal-progress-roster"]');
-    await expect(progress).toContainText(/\b0 of \d+ revealed\b/);
-    // `textContent`, not `innerText`: the progress line is styled
-    // `uppercase`, and `innerText` returns what is RENDERED ("0 OF 7
-    // REVEALED") while `toContainText` above matches on textContent. Reading
-    // the two different ways is how the number and the assertion disagree.
-    const total = Number(/of (\d+)/.exec((await progress.textContent()) ?? "")![1]);
-    expect(total).toBeGreaterThan(1);
+    // the run does not spoil it on arrival, anywhere on screen (including
+    // the persistent roster dock — see the leak-fix assertions below).
+    const start = page.locator('[data-testid="rtt-reveal-start-roster"]');
+    await expect(start).toBeVisible();
     expect(await revealedSlotCount(page)).toBe(0);
 
-    // "Skip all" is the SERVER's `can_skip` (`0 < revealed < total`), so it
-    // does not exist yet: there is nothing to skip past that the player has
-    // seen. Its absence here is what makes `skipOpeningReveal`'s two round
-    // trips the floor rather than laziness.
-    await expect(page.locator('[data-testid="rtt-reveal-skip-roster"]')).toHaveCount(0);
+    // The ONE action. It fires exactly one POST — the network assertion
+    // lives in the batching-specific test below; here we assert the visible
+    // consequence: the sequence starts pacing, and pause genuinely holds it.
+    await Promise.all([
+      page.waitForResponse(
+        (r) =>
+          r.url().includes("/actions") && r.request().method() === "POST" && r.status() === 200,
+      ),
+      start.click(),
+    ]);
+    await expect(page.locator('[data-testid="rtt-reveal-pause-roster"]')).toBeVisible({
+      timeout: 20_000,
+    });
 
-    const next = page.locator('[data-testid="rtt-reveal-next-roster"]');
-    await next.click();
-    await expect(progress).toContainText(`1 of ${total} revealed`);
-    expect(await revealedSlotCount(page)).toBe(1);
-    await expect(page.locator('[data-testid="rtt-reveal-skip-roster"]')).toBeVisible();
+    // Pause holds the sequence — the settled count must not advance while paused.
+    await page.locator('[data-testid="rtt-reveal-pause-roster"]').click();
+    const heldCount = await revealedSlotCount(page);
+    await page.waitForTimeout(600);
+    expect(await revealedSlotCount(page)).toBe(heldCount);
+    await page.locator('[data-testid="rtt-reveal-resume-roster"]').click();
 
-    // The whole point: reload mid-reveal and the run comes back on the SAME
-    // card. A client-side counter would restart at zero here.
-    await page.reload({ waitUntil: "load" });
-    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toBeVisible({ timeout: 20_000 });
-    await expect(page.locator('[data-testid="rtt-reveal-progress-roster"]')).toContainText(
-      `1 of ${total} revealed`,
-    );
-    expect(await revealedSlotCount(page)).toBe(1);
-
-    // Then the rest, card by card rather than skipped — the full reveal this
-    // test exists to preserve.
-    for (let revealed = 1; revealed < total - 1; revealed++) {
-      await page.locator('[data-testid="rtt-reveal-next-roster"]').click();
-      await expect(page.locator('[data-testid="rtt-reveal-progress-roster"]')).toContainText(
-        `${revealed + 1} of ${total} revealed`,
-      );
-      expect(await revealedSlotCount(page)).toBe(revealed + 1);
-    }
-
-    // The last card completes the reveal, and completing it IS the handover:
-    // `needsOpeningReveal` reads the server's `complete` flag, so the surface
-    // unmounts in favour of the first real decision rather than sitting there
-    // with a "continue" button.
-    await page.locator('[data-testid="rtt-reveal-next-roster"]').click();
+    // Skip all jumps every slot to fully settled with no further animation
+    // and no second round trip — but settling is NOT the handover (the
+    // lead's ruling this pass: skip-all must land on every slot fully
+    // resolved and HOLD there so the player sees what was promised, before
+    // the screen changes). An explicit "Continue" press is what actually
+    // dismisses the surface.
+    await page.locator('[data-testid="rtt-reveal-skip-roster"]').click();
+    const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
+    await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
+    await continueRoster.click();
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
 
@@ -480,23 +508,78 @@ test.describe("RUN THE TABLE opening reveal", () => {
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
   });
 
-  test("the skip affordance finishes the roster in one call", async ({ page }) => {
-    // The efficient path every other test takes, asserted once here so those
-    // tests are not each proving it. `skipAllCount` saturates server-side, so
-    // one press finishes whatever is left however long the roster is.
+  test("the reveal is exactly ONE POST regardless of skip", async ({ page }) => {
     await freshGate(page);
     await startRun(page, "rtt-start-standard");
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toBeVisible();
 
-    await page.locator('[data-testid="rtt-reveal-next-roster"]').click();
+    let revealPosts = 0;
+    page.on("requestfinished", (req) => {
+      if (req.method() !== "POST" || !req.url().includes("/actions")) return;
+      let body: { action_type?: string } | null = null;
+      try {
+        body = req.postDataJSON() as { action_type?: string } | null;
+      } catch {
+        body = null;
+      }
+      if (body?.action_type === "reveal") revealPosts += 1;
+    });
+
+    await page.locator('[data-testid="rtt-reveal-start-roster"]').click();
     const skip = page.locator('[data-testid="rtt-reveal-skip-roster"]');
     await skip.waitFor({ state: "visible", timeout: 20_000 });
     await skip.click();
+    // Skip settles every slot but does not dismiss the surface on its own
+    // (see the note above) — "Continue" is a client-side choice with no
+    // server round trip of its own, so it cannot change `revealPosts` below.
+    const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
+    await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
+    await continueRoster.click();
 
     await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
-    // Skipped, not discarded: every slot was still dealt, and the player can
-    // see all of them on the next surface's tray.
+    // Skipped, not discarded: every slot was still dealt, in one round trip.
     await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toHaveCount(0);
+    expect(revealPosts).toBe(1);
+  });
+
+  test("the roster dock conceals every unrevealed slot during the sequence — no name, score, or window leaks", async ({
+    page,
+  }) => {
+    await freshGate(page);
+    await startRun(page, "rtt-start-standard");
+    await expect(page.locator('[data-testid="rtt-opening-reveal"]')).toBeVisible();
+
+    const dock = page.locator('[data-testid="rtt-roster-dock"]');
+    await expect(dock).toHaveAttribute("data-reveal-active", "true");
+    // Every compact roster chip reads concealed before the reveal starts.
+    await expect(page.locator('[data-testid^="rtt-slot-compact-"][data-concealed="false"]')).toHaveCount(0);
+
+    await page.locator('[data-testid="rtt-reveal-start-roster"]').click();
+    await page.locator('[data-testid="rtt-reveal-skip-roster"]').click();
+
+    // TWO DIFFERENT FLAGS, checked separately, because they answer two
+    // different questions (RunTray.tsx / RunTheTableGame.tsx's
+    // `rosterConcealment`): `data-reveal-active` is "has the player
+    // dismissed this reveal yet" — stays true here, because skip alone does
+    // not dismiss (the lead's ruling this pass). Per-slot `data-concealed`
+    // tracks the PRESENTATION CURSOR, which skip-all legitimately fast-
+    // forwards to every slot — the full roster is already sitting in the
+    // main reveal card list on screen at this exact moment, so the compact
+    // dock matching that is correct, not a leak. (An earlier version of
+    // this test asserted every slot was STILL concealed here, which read as
+    // a stronger check but was actually asserting the wrong thing — verified
+    // live against the running app before writing this comment, not assumed.)
+    await expect(dock).toHaveAttribute("data-reveal-active", "true");
+    await expect(page.locator('[data-testid^="rtt-slot-compact-"][data-concealed="false"]')).toHaveCount(7);
+
+    const continueRoster = page.locator('[data-testid="rtt-reveal-continue-roster"]');
+    await continueRoster.waitFor({ state: "visible", timeout: 20_000 });
+    await continueRoster.click();
+    await expect(page.locator('[data-testid="rtt-system-select"]')).toBeVisible({ timeout: 20_000 });
+
+    // Only once the player has explicitly moved on does the dock stop
+    // concealing.
+    await expect(dock).toHaveAttribute("data-reveal-active", "false");
   });
 });
 
@@ -544,6 +627,65 @@ test.describe("RUN THE TABLE full run", () => {
     await expect(page.locator('[data-testid="rtt-result"]')).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });
+
+  /**
+   * P6-c regression. `expectNoHorizontalOverflow` above checks
+   * `document.body.scrollWidth` against `document.body.clientWidth` — a
+   * real check, but a DOCUMENT-level one, and it is never called while the
+   * boss reveal itself is on screen (only at the start gate, right after
+   * starting, and at the receipt). It also would not have caught this: the
+   * overflowing content did not make the page scrollable, it just bled past
+   * its own card and the viewport's edge while `document.body` stayed the
+   * same width — a `scrollWidth` check and a per-element
+   * `getBoundingClientRect()` check catch genuinely different failure
+   * modes, and this bug only shows up in the second one.
+   *
+   * ROOT CAUSE (RevealCard.tsx): the paired (player's already-known) card
+   * block was `shrink-0` with `@[420px]:max-w-[40%]` — a container query
+   * that left it UNCONSTRAINED below a 420px container, so at 390px it
+   * claimed whatever width its content wanted and squeezed the boss-side
+   * identity/score column — the row's only `flex-1` element — until its
+   * score number bled past the card, sometimes past the page's right edge
+   * entirely. Fixed with an unconditional `max-w-[32%]` floor.
+   *
+   * `?seed=4` — PINNED, not incidental. Whether a row overflows depends on
+   * how long the two paired players' names/scores happen to be, and a
+   * "standard" run's seed is otherwise random per test run. Checked ten
+   * arbitrary seeds against the pre-fix code directly: most overflowed (6,
+   * 3, 12, 3, 3, 12, 6 elements) but two did not (0, 0) — an unpinned seed
+   * would have made this regression test itself flaky, intermittently
+   * "passing" against genuinely broken code. Seed 4 overflowed 12 elements
+   * pre-fix and 0 post-fix, confirmed both directions before pinning it.
+   */
+  test("@mobile the boss reveal's paired lineup never clips a card past the 390px viewport", async ({
+    page,
+  }) => {
+    test.setTimeout(FULL_RUN_TIMEOUT_MS);
+    await freshGate(page, `${ROUTE}?seed=4`);
+    await startRun(page, "rtt-start-standard");
+    await skipOpeningReveal(page);
+    await driveTo(page, "rtt-boss-reveal");
+
+    // Deliberately NOT `stepOnce` here — it also waits for the surface to be
+    // replaced (by the "Continue" click), and the settled-but-still-mounted
+    // moment in between is exactly what needs inspecting.
+    await page.locator('[data-testid="rtt-reveal-start-boss"]').click();
+    const skip = page.locator('[data-testid="rtt-reveal-skip-boss"]');
+    await skip.waitFor({ state: "visible", timeout: 20_000 });
+    await skip.click();
+    await expect(
+      page.locator('[data-testid="rtt-reveal-card"][data-reveal-status="settled"]'),
+    ).toHaveCount(7);
+
+    const overflowing = await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('[data-testid="rtt-reveal-card"]'));
+      return rows
+        .flatMap((row) => Array.from(row.querySelectorAll<HTMLElement>("*")))
+        .filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1)
+        .map((el) => el.getAttribute("data-testid") || `.${el.className}`);
+    });
+    expect(overflowing, `element(s) clipped past the viewport: ${overflowing.join(", ")}`).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -586,8 +728,15 @@ test.describe("RUN THE TABLE resume", () => {
 // ---------------------------------------------------------------------------
 
 test.describe("RUN THE TABLE daily", () => {
+  // LP2-3 removed every public link into `?mode=daily` — see
+  // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md` — but the route
+  // itself, the button and the note it renders are all preserved for an
+  // existing bookmark, so this test now visits it directly rather than
+  // through `freshGate`'s default bare route.
+  const DAILY_ROUTE = `${ROUTE}?mode=daily`;
+
   test("today's run is the same board on a revisit", async ({ page }) => {
-    await freshGate(page);
+    await freshGate(page, DAILY_ROUTE);
     const note = page.locator('[data-testid="rtt-daily-note"]');
     // The daily is separately flag-gated; without it the descriptor never
     // loads and there is no note to compare. Skip rather than fail on a
@@ -598,9 +747,15 @@ test.describe("RUN THE TABLE daily", () => {
     const first = (await note.innerText()).trim();
     expect(first).toMatch(/\d/);
 
-    await freshGate(page);
+    await freshGate(page, DAILY_ROUTE);
     const second = (await page.locator('[data-testid="rtt-daily-note"]').innerText()).trim();
     expect(second).toBe(first);
+  });
+
+  test("a bare visit to the gate no longer offers 'Today's run'", async ({ page }) => {
+    await freshGate(page);
+    await expect(page.locator('[data-testid="rtt-start-daily"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="rtt-daily-note"]')).toHaveCount(0);
   });
 });
 

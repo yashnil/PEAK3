@@ -30,7 +30,7 @@ export default function AccessibilityPage() {
         </div>
 
         <div className="rounded-lg border border-[var(--peak-accent-dim)] bg-[var(--peak-accent-bg)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-          <strong className="text-[var(--peak-accent)]">Beta draft — pending legal review.</strong>{" "}
+          <strong className="text-[var(--peak-accent-text)]">Beta draft — pending legal review.</strong>{" "}
           This statement was written by the engineering team from the code. It has not been
           through legal review or an independent accessibility audit, and it will change
           before a public launch.
@@ -114,7 +114,7 @@ export default function AccessibilityPage() {
             If something is unusable for you, that is a bug and we want the report. Tell us
             what you were trying to do, what happened, the page you were on, and the browser
             and assistive technology you were using, through the{" "}
-            <Link href="/contact" className="text-[var(--peak-accent)] underline">
+            <Link href="/contact" className="text-[var(--peak-accent-text)] underline">
               contact page
             </Link>
             . Accessibility reports are treated as defects, not feature requests.

@@ -116,15 +116,31 @@ class PostgresPerfectSeasonLeaderboardRepository:
             return run
 
     async def get_leaderboard(
-        self, mode: Optional[str], no_respin_only: bool, limit: int, cursor: Optional[str]
+        self,
+        mode: Optional[str],
+        limit: int,
+        cursor: Optional[str],
+        since: Optional[datetime] = None,
     ) -> list[PerfectSeasonRun]:
         conditions = ["is_public = TRUE"]
         params: list[Any] = []
         if mode:
             params.append(mode)
             conditions.append(f"mode = ${len(params)}")
-        if no_respin_only:
-            conditions.append("team_respins_used = 0 AND season_respins_used = 0")
+        # No respin filter here on purpose -- launch-polish
+        # IMPLEMENTATION_CONTRACT.md §7: respins are normal Standard 82-0
+        # play. `(team_respins_used + season_respins_used)` stays in the
+        # ORDER BY tie-break below and on the row itself as displayable
+        # metadata; it is never a WHERE condition that excludes a run.
+        if since is not None:
+            # The daily board: identical query, filtered to the current
+            # application day. `since` is the router's already-resolved
+            # boundary (`nba_peak.daily_key.day_start_utc`) -- this repo never
+            # derives a day boundary of its own. Served by
+            # `perfect_season_runs_daily_leaderboard_idx` (companion migration
+            # 20260803090000).
+            params.append(since)
+            conditions.append(f"created_at >= ${len(params)}")
 
         cursor_clause = ""
         if cursor:
@@ -152,12 +168,66 @@ class PostgresPerfectSeasonLeaderboardRepository:
             rows = await conn.fetch(query, *params)
             return [_row_to_run(r) for r in rows]
 
+    async def get_personal_placement(
+        self, owner_sub: str, mode: Optional[str]
+    ) -> Optional[tuple[int, PerfectSeasonRun]]:
+        # A window function ranks every public row once, in the SAME order
+        # `get_leaderboard` sorts by; filtering to the caller afterward and
+        # taking the best (lowest) rank is a single query regardless of board
+        # size -- no need to fetch and re-sort the whole leaderboard in
+        # Python, and no risk of that Python re-sort silently drifting from
+        # this SQL ORDER BY over time.
+        conditions = ["is_public = TRUE"]
+        params: list[Any] = []
+        if mode:
+            params.append(mode)
+            conditions.append(f"mode = ${len(params)}")
+        query = f"""
+            WITH ranked AS (
+                SELECT *, ROW_NUMBER() OVER (
+                    ORDER BY wins DESC, lineup_score DESC,
+                             (team_respins_used + season_respins_used) ASC, created_at ASC
+                ) AS rank
+                FROM perfect_season_runs
+                WHERE {" AND ".join(conditions)}
+            )
+            SELECT * FROM ranked WHERE owner_sub = ${len(params) + 1}
+            ORDER BY rank ASC LIMIT 1
+        """
+        params.append(owner_sub)
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(query, *params)
+        if row is None:
+            return None
+        rank = row["rank"]
+        run = _row_to_run(row)
+        return rank, run
+
     async def list_runs_for_owner(self, owner_sub: str) -> list[PerfectSeasonRun]:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT * FROM perfect_season_runs WHERE owner_sub = $1 ORDER BY created_at DESC", owner_sub
             )
             return [_row_to_run(r) for r in rows]
+
+    async def set_visibility(
+        self, run_id: str, owner_sub: str, is_public: bool
+    ) -> Optional[PerfectSeasonRun]:
+        # Single-column, ownership-scoped UPDATE -- the narrowest statement
+        # that can express "hide/unhide my own run" without touching any
+        # other field. See the protocol docstring for why this stays a
+        # repository method with no matching RLS policy rather than a
+        # broader owner-UPDATE policy.
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE perfect_season_runs SET is_public = $1
+                WHERE id = $2 AND owner_sub = $3
+                RETURNING *
+                """,
+                is_public, run_id, owner_sub,
+            )
+        return _row_to_run(row) if row is not None else None
 
     async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
         """Reassign this owner's submitted runs to `to_sub` -- the guest-claim
@@ -172,3 +242,21 @@ class PostgresPerfectSeasonLeaderboardRepository:
                 from_sub, to_sub,
             )
         return int(result.split()[-1])
+
+    def encode_cursor(self, run: PerfectSeasonRun) -> str:
+        """`run` as the dict shape `_encode_cursor`/`get_leaderboard`'s SQL
+        keyset comparison already expect -- built from the domain object
+        directly (no DB round trip needed; every field it reads is already on
+        `run`) so a run just returned by `get_leaderboard` can be turned
+        straight into the next page's cursor.
+        """
+        return _encode_cursor(
+            {
+                "wins": run.wins,
+                "lineup_score": run.lineup_score,
+                "team_respins_used": run.team_respins_used,
+                "season_respins_used": run.season_respins_used,
+                "created_at": run.created_at,
+                "id": run.id,
+            }
+        )

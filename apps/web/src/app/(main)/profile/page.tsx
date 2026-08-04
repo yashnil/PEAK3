@@ -8,41 +8,7 @@ import { getAccessToken } from "@/lib/auth";
 import { InitialsAvatar } from "@/components/auth/InitialsAvatar";
 import { signInHref } from "@/lib/supabase/safe-next";
 import RankedRatingCards from "@/components/ranked/RankedRatingCards";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-interface Profile {
-  handle: string | null;
-  display_name: string | null;
-  bio: string | null;
-  is_public: boolean;
-  history_public: boolean;
-  joined_at: string;
-}
-
-async function fetchProfile(token: string): Promise<Profile> {
-  const res = await fetch(`${API_BASE}/api/v1/profiles/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error("Failed to load profile");
-  return res.json();
-}
-
-async function updateProfile(token: string, data: Partial<Profile>): Promise<Profile> {
-  const res = await fetch(`${API_BASE}/api/v1/profiles/me`, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail ?? "Failed to update profile");
-  }
-  return res.json();
-}
+import { fetchProfile, updateProfile, ProfileAPIError, type Profile } from "@/lib/profile-api";
 
 export default function ProfilePage() {
   const { user, loading, supabaseEnabled, signOut } = useAuth();
@@ -100,7 +66,7 @@ export default function ProfilePage() {
       setProfile(updated);
       setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed.");
+      setError(err instanceof ProfileAPIError ? err.message : "Save failed.");
     } finally {
       setSaving(false);
     }
@@ -128,7 +94,7 @@ export default function ProfilePage() {
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
           Authentication is not configured. You can play all modes anonymously.
         </p>
-        <Link href="/" className="text-sm underline" style={{ color: "var(--peak-accent)" }}>
+        <Link href="/" className="text-sm underline" style={{ color: "var(--peak-accent-text)" }}>
           Back to PEAK3 Arena
         </Link>
       </div>
@@ -209,7 +175,7 @@ export default function ProfilePage() {
             value={handle}
             onChange={(e) => setHandle(e.target.value)}
             placeholder="your_handle"
-            maxLength={30}
+            maxLength={20}
             className="w-full rounded-lg px-3 py-2 text-sm border"
             style={{
               background: "var(--bg-surface)",
@@ -218,7 +184,9 @@ export default function ProfilePage() {
             }}
           />
           <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-            3–30 characters, letters/digits/underscores. Used in public profile URL.
+            3–20 characters, letters/digits/underscores. This is what other players see —
+            on the leaderboard and anywhere else your activity is public. Never your name
+            or email. Required before you can submit a run to a public leaderboard.
           </p>
         </div>
 
@@ -271,12 +239,12 @@ export default function ProfilePage() {
         </label>
 
         {error && (
-          <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "#ef444420", color: "#ef4444" }}>
+          <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
             {error}
           </p>
         )}
         {saved && (
-          <p role="status" className="text-sm" style={{ color: "#34d399" }}>
+          <p role="status" className="text-sm" style={{ color: "var(--correct)" }}>
             Profile saved.
           </p>
         )}
@@ -284,7 +252,7 @@ export default function ProfilePage() {
         <button
           type="submit"
           disabled={saving}
-          className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90 disabled:opacity-60"
+          className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-60"
           style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           {saving ? "Saving…" : "Save Profile"}

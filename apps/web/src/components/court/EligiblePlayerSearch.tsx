@@ -114,7 +114,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
                     <span
                       data-testid="candidate-position-badge"
                       className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
-                      style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
+                      style={{ color: "var(--text-muted)", background: "var(--pk-surface-inset, var(--bg-elevated))" }}
                     >
                       {positions}
                     </span>
@@ -123,7 +123,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
                     <span
                       data-testid="candidate-roster-only-badge"
                       className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
-                      style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
+                      style={{ color: "var(--text-muted)", background: "var(--pk-surface-inset, var(--bg-elevated))" }}
                       title="Roster Only: a real team-season roster member, not currently part of PEAK3's scored universe."
                     >
                       Roster Only
@@ -133,7 +133,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
                     <span
                       data-testid="candidate-unscored-badge"
                       className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
-                      style={{ color: "#fb923c", background: "rgba(251,146,60,0.1)" }}
+                      style={{ color: "var(--accent-orange)", background: "color-mix(in srgb, var(--accent-orange) 10%, transparent)" }}
                       title="Score Pending: exact season score unavailable; the official lineup score may be incomplete."
                     >
                       Score Pending
@@ -143,7 +143,7 @@ export default function EligiblePlayerSearch({ candidates, onSelect, disabled }:
                     <span
                       data-testid="candidate-season-aggregate-badge"
                       className="text-[9px] font-semibold uppercase tracking-wide rounded px-1 py-px"
-                      style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.06)" }}
+                      style={{ color: "var(--text-muted)", background: "var(--pk-surface-inset, var(--bg-elevated))" }}
                       title="Season Aggregate: this player was traded mid-season -- the score shown is their whole-season total, not specific to this exact team stint."
                     >
                       Season Aggregate

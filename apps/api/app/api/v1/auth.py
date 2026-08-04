@@ -317,7 +317,14 @@ async def claim_anonymous_activity(
     persisted = await claim_repo.get_claim_by_anon(anon_sub) or claim
 
     # 6. Clear the anonymous cookie (consumed)
-    response.delete_cookie(ANON_COOKIE_NAME, path="/", samesite="lax")
+    # Attributes must match the ones the cookie was SET with (see
+    # core/auth.anon_cookie_attributes) -- a delete whose samesite/secure
+    # differ targets a different cookie and silently leaves the original in
+    # place, which after a claim would mean the guest identity outliving the
+    # claim that was supposed to retire it.
+    from app.core.auth import anon_cookie_attributes
+
+    response.delete_cookie(ANON_COOKIE_NAME, path="/", **anon_cookie_attributes())
 
     return _claim_response(persisted, real_sub, reason="claimed")
 
