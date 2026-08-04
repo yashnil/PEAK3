@@ -39,7 +39,7 @@ import { Nav } from "@/components/layout/nav";
 import { PlayMenu } from "@/components/layout/PlayMenu";
 import { MobileNavDrawer } from "@/components/layout/MobileNavDrawer";
 import { MODE_COPY } from "@/lib/modes";
-import { MIN_TAP_TARGET_PX, navGroups } from "@/lib/nav-model";
+import { MIN_TAP_TARGET_PX, navGroups, topLevelLinks } from "@/lib/nav-model";
 import { getFocusableElements } from "@/lib/a11y";
 import { RUN_THE_TABLE_SCHEMA_VERSION, RUN_THE_TABLE_STORAGE_KEY } from "@/types/run-the-table";
 
@@ -134,6 +134,35 @@ describe("Nav shell", () => {
     await user.click(screen.getByTestId("nav-account-trigger"));
     await user.click(screen.getByTestId("nav-signout"));
     expect(authState.signOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("names every top-level control unambiguously, on desktop as on mobile", () => {
+    // `getByRole("link", { name })` matches SUBSTRINGS, and the Play panel is a
+    // descendant of this same landmark -- with it open, the name "Daily"
+    // matches "Daily Grid Challenge", "Peak Duel Daily", "Peak Duel Endless"
+    // and the top-level "Daily". Which control a selector resolved to therefore
+    // depended on whether a menu happened to be open. `desktop-nav-<id>` names
+    // exactly one, mirroring the drawer's existing `mobile-nav-<id>`.
+    render(<Nav />);
+    const nav = screen.getByRole("navigation", { name: "Main navigation" });
+    for (const link of topLevelLinks) {
+      const control = within(nav).getByTestId(`desktop-nav-${link.id}`);
+      expect(control.tagName, "a native anchor, so Enter activates it").toBe("A");
+      expect(control).toHaveAttribute("href", link.href);
+      expect(control).toHaveAccessibleName(link.label);
+    }
+  });
+
+  it("publishes that its controls are live only after it has hydrated", () => {
+    // The header is server-rendered, so its links are hit-testable from first
+    // paint but do not work until React attaches their handlers -- a click in
+    // that window is captured, preventDefault'ed and replayed late rather than
+    // refused. `data-nav-ready` makes "live now" observable; it is set in an
+    // effect, so it is absent from the server HTML and cannot cause a hydration
+    // mismatch.
+    render(<Nav />);
+    const header = screen.getByRole("banner");
+    expect(header).toHaveAttribute("data-nav-ready", "true");
   });
 
   it("opens the mobile drawer from the hamburger", async () => {
@@ -447,6 +476,27 @@ describe("MobileNavDrawer", () => {
     expect(rankings).toHaveAttribute("href", "/rankings");
     // Not nested inside a collapsed section body.
     expect(rankings.closest(".pk-nav-drawer-section-body")).toBeNull();
+  });
+
+  it("keeps Rankings a direct child of the sheet, so only the open section scrolls", () => {
+    // THE REGRESSION THIS GUARDS. The drawer used to scroll as a whole, so
+    // whether Rankings was visible depended on how long the open section
+    // happened to be -- and adding the Multiplayer group to the Play catalog
+    // pushed it off a 390x844 screen entirely. The stylesheet now makes the ONE
+    // expanded section the flexible, internally scrolling region and everything
+    // else fixed-size; that only holds while Rankings is a sibling of the
+    // sections rather than a descendant of one, which is what is asserted here.
+    // jsdom computes no layout, so the DOM contract is the testable half; the
+    // pixel half lives in `play-routing.spec.ts`.
+    renderDrawer({ pathname: "/arena/run-the-table" });
+    const rankings = screen.getByTestId("mobile-nav-rankings");
+    const sheet = rankings.closest(".pk-nav-drawer-inner");
+    expect(sheet).not.toBeNull();
+    expect(rankings.parentElement).toBe(sheet);
+
+    // And exactly one section is expanded, so exactly one region can scroll.
+    const expanded = sheet!.querySelectorAll('.pk-nav-drawer-section[data-expanded="true"]');
+    expect(expanded).toHaveLength(1);
   });
 
   // Revised during integration. The original assertion was that Play collapses

@@ -37,6 +37,29 @@
  * it after mount instead: identical on the server and on the first client
  * render, so there is no hydration mismatch and no layout shift.
  *
+ * WHY THE HEADER PUBLISHES `data-nav-ready`, AND WHY EVERY TOP-LEVEL LINK HAS
+ * A TEST ID. Two distinct hazards, both of which bit this navbar:
+ *
+ *   1. THE LINKS ARE CLICKABLE BEFORE THEY WORK. The header is server-rendered,
+ *      so every link is in the DOM and hit-testable from first paint — but a
+ *      click that lands before React has hydrated this subtree is CAPTURED by
+ *      React's root listener, `preventDefault`ed, and replayed only once
+ *      hydration completes. It does not fail; it happens late. Measured against
+ *      a deliberately delayed `main-app.js`: a click at +213ms navigated at
+ *      +7.2s. That is invisible on a warm dev server and is exactly what a cold
+ *      CI runner produces. `data-nav-ready` appears in an effect, i.e. once
+ *      this component has hydrated and its links carry their handlers, so
+ *      "these controls are live" is observable rather than assumed.
+ *
+ *   2. `getByRole("link", { name: … })` MATCHES SUBSTRINGS. With the Play panel
+ *      open — and the panel is a descendant of this same landmark — the name
+ *      "Daily" matches four links: "Daily Grid Challenge", "Peak Duel Daily",
+ *      "Peak Duel Endless" (its blurb) and the top-level "Daily". Which one a
+ *      selector resolves to then depends on whether a menu happens to be open.
+ *      `desktop-nav-<id>` names exactly one control, mirroring the drawer's
+ *      existing `mobile-nav-<id>` convention so desktop and mobile are
+ *      addressable the same way.
+ *
  * ROUTES WITHOUT THIS HEADER. `/c/[token]` (a shared challenge) and
  * `/auth/callback` live outside the `(main)` route group and render no header
  * at all. That is deliberate isolation, not an oversight: a challenge link is a
@@ -75,6 +98,11 @@ export function Nav() {
   const search = useLocationSearch(pathname);
   const { user, supabaseEnabled } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Flipped in an effect, so it is absent from the server HTML and from the
+  // first client render — no hydration mismatch — and present exactly once
+  // this component's own hydration has run. See the header note.
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
   // Pulls the account's saved theme preference onto this device once per
   // sign-in (launch-polish IMPLEMENTATION_CONTRACT.md §2). Lives here
   // rather than inside `AccountMenu` because that component's wrapping
@@ -90,7 +118,10 @@ export function Nav() {
   }, [pathname]);
 
   return (
-    <header className="pk-nav-header sticky top-0 z-40">
+    <header
+      className="pk-nav-header sticky top-0 z-40"
+      data-nav-ready={ready ? "true" : undefined}
+    >
       <div className="pk-nav-bar mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
         <Link
           href="/"
@@ -114,6 +145,7 @@ export function Nav() {
                 <li key={link.id}>
                   <Link
                     href={link.href}
+                    data-testid={`desktop-nav-${link.id}`}
                     aria-current={current ? "page" : undefined}
                     className={cn(
                       "pk-nav-link px-3 py-1.5 rounded-md text-sm font-medium transition-colors",

@@ -322,6 +322,17 @@ test.describe("Navbar Play", () => {
     await expect(rankings).toHaveAttribute("href", "/rankings");
     // Visible without scrolling the drawer.
     await expect(rankings).toBeInViewport();
+
+    // AND ON A SHORT PHONE. The drawer used to scroll as a whole, so whether
+    // Rankings cleared the fold was a function of how long the open Play
+    // catalog happened to be -- which is how adding the Multiplayer group
+    // pushed it off screen. Only the expanded section scrolls now, so the
+    // property holds at 360x640 too, and the close control and the account row
+    // stay reachable with it.
+    await page.setViewportSize({ width: 360, height: 640 });
+    await expect(rankings).toBeInViewport();
+    await expect(page.getByTestId("mobile-nav-close")).toBeInViewport();
+    await expect(page.getByTestId("mobile-nav-account")).toBeInViewport();
   });
 
   test("the open Play panel stays inside the viewport at every desktop width", async ({ page }) => {

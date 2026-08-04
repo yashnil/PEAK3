@@ -492,9 +492,28 @@ test.describe("Daily Grid — discoverability", () => {
     // there and the grid is one deliberate click further.
     await skipRules(page);
     await page.goto("/", { waitUntil: "load" });
+
+    // THE HEADER IS SERVER-RENDERED, so its links are hit-testable from first
+    // paint and clickable before React has attached their handlers. A click in
+    // that window is not lost and is not refused -- React's root listener
+    // captures it, calls preventDefault, and REPLAYS it once hydration
+    // finishes, so the navigation simply happens late. Measured with a delayed
+    // `main-app.js`: a click at +213ms navigated at +7.2s, which is precisely
+    // "clicked fine, still on `/` five seconds later". `data-nav-ready` is the
+    // header's own signal that its controls are live (see `nav.tsx`); waiting
+    // for it is an actionability precondition, not a retry or a longer budget.
+    await expect(page.locator("header[data-nav-ready='true']")).toBeAttached();
+
+    // Addressed by test id, not by accessible name: `getByRole("link", { name:
+    // "Daily" })` is a SUBSTRING match, and the Play panel -- a descendant of
+    // this same landmark -- carries "Daily Grid Challenge" and "Peak Duel
+    // Daily". Which control that selector resolves to depended on whether a
+    // menu happened to be open. The accessible name is still asserted, exactly,
+    // right here.
     const daily = page
       .getByRole("navigation", { name: "Main navigation" })
-      .getByRole("link", { name: "Daily" });
+      .getByTestId("desktop-nav-daily");
+    await expect(daily).toHaveAccessibleName("Daily");
     await expect(daily).toHaveAttribute("href", "/daily");
 
     await daily.click();
