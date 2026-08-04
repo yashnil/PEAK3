@@ -685,6 +685,26 @@ class ArenaRepository(Protocol):
         """Every match this subject holds a seat in, newest first."""
         ...
 
+    async def set_bot_policy_version(self, match_id: str, policy_version: str) -> bool:
+        """Pin the bot policy this match's bots were seated under. Returns True
+        iff THIS caller set it.
+
+        FIRST WRITE WINS, and the statement says so rather than the caller:
+        `WHERE bot_policy_version IS NULL`. A match created already carrying a
+        version (the public-queue fill, which knows at creation time) is never
+        overwritten, and two concurrent host fills pin one value rather than
+        racing to replace each other's.
+
+        Exists because a private room is created with no bots and therefore no
+        policy version -- the host's later "fill empty seats" is the first
+        moment there is one to record. Pinning it at seat time rather than
+        reading the current policy at scoring time is the same discipline
+        `bots.bot_seat` applies to `bot_rating`, and for the same reason: a
+        recalibration must not retroactively change what a settled match was
+        played against.
+        """
+        ...
+
     # -- the mutation path --------------------------------------------------
 
     async def apply_command(
@@ -809,6 +829,32 @@ class ArenaRepository(Protocol):
 
     async def cancel_queue_entry(self, owner_sub: str, mode: str) -> bool:
         """Withdraw. Returns True iff an entry was actually cancelled."""
+        ...
+
+    async def collapse_human_preference(
+        self, owner_sub: str, mode: str, now: datetime
+    ) -> Optional[ArenaQueueEntry]:
+        """Bring this subject's OWN human-preference window forward to `now`, so
+        bots may fill immediately. Returns the updated entry, or None when this
+        subject has no waiting entry for this mode.
+
+        THE WINDOW STAYS AN ABSOLUTE INSTANT. `services/arena/matchmaking.py`'s
+        module docstring explains why `human_preference_until` is a stored
+        instant rather than a duration: two readers a millisecond apart must
+        never disagree about whether it has elapsed. "Fill with bots now"
+        therefore WRITES a new instant rather than passing a fudged clock into
+        the matcher -- after this returns, every reader agrees, which is exactly
+        the property that faking `now` at one call site would destroy.
+
+        MONOTONIC, NEVER EXTENDING. The stored value becomes the EARLIER of the
+        existing instant and `now`, so this can only bring the window forward.
+        A double-click is therefore a no-op on the second press rather than a
+        way to push the window out, and the operation is safely repeatable
+        without a separate idempotency record.
+
+        Scoped to `owner_sub` inside the statement rather than checked by the
+        caller: this can only ever collapse the caller's own window.
+        """
         ...
 
     async def list_waiting_entries(

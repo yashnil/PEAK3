@@ -67,6 +67,7 @@ from app.models.arena import (
     ArenaEventsResponse,
     ArenaEventView,
     ArenaMatchView,
+    ArenaModeInfo,
     ArenaReadinessResponse,
     ArenaResultsResponse,
     ArenaResultView,
@@ -80,6 +81,7 @@ from app.models.arena import (
     SubmitCommandResponse,
 )
 from app.repositories.arena_protocols import (
+    ENTRY_PATH_PRIVATE_ROOM,
     ActiveQueueEntryExists,
     ArenaMatch,
     ArenaSeat,
@@ -309,7 +311,13 @@ async def readiness() -> ArenaReadinessResponse:
         arena_enabled=settings.ARENA_ENABLED,
         public_queue_enabled=settings.ARENA_PUBLIC_QUEUE_ENABLED,
         bots_enabled=settings.ARENA_BOTS_ENABLED,
-        modes=list(mode_registry.names()),
+        # Seat count is read from the registry -- the same object the matchmaker
+        # sizes matches from -- so the number the lobby draws and the number the
+        # server actually seats cannot become two different facts.
+        modes=[
+            ArenaModeInfo(id=name, seat_count=mode_registry.get(name).seat_count)
+            for name in mode_registry.names()
+        ],
     )
 
 
@@ -464,6 +472,131 @@ async def queue_status(
         waited_seconds=(now - _utc(entry.joined_at)).total_seconds(),
         still_seeking_humans=entry.prefers_humans_at(now),
     )
+
+
+def _require_bots_enabled() -> None:
+    """Refuse cleanly rather than half-seating.
+
+    Checked BEFORE anything is written, so a disabled-bots deploy cannot leave a
+    room with two of its three seats filled and no way to reach the third.
+    """
+    if not settings.ARENA_BOTS_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail=_error("Bots are not currently enabled.", "bots_disabled"),
+        )
+
+
+@router.post(f"{BASE}/queue/{{mode}}/fill-now", response_model=QueueStatusResponse)
+async def fill_queue_now(
+    mode: str,
+    auth: RequiredAuth,
+    repo: ArenaRepoDep,
+    profile_repo: ProfileRepoDep,
+) -> QueueStatusResponse:
+    """"Fill with bots now" -- the other half of "Keep waiting".
+
+    Waiting already had a route (the poll IS waiting). This is the waiting
+    player saying they would rather start than hold out for the rest of their
+    30-second window.
+
+    ONLY YOUR OWN WINDOW. The subject comes from the verified JWT and is passed
+    straight into a statement that narrows on `owner_sub`; there is no request
+    field naming whose entry to collapse, so this cannot be aimed at another
+    player. A caller with no waiting entry gets `not_in_queue`, not somebody
+    else's match.
+
+    STILL RATED. This is the public queue, so `is_rated(ENTRY_PATH_PUBLIC_QUEUE)`
+    is True exactly as it would have been had the window lapsed on its own --
+    which is the whole point of the matchmaking module's argument that a
+    bot-filled public match stays rated. Waiting 30 seconds versus pressing a
+    button must not change what the match is worth, or the button becomes a way
+    to farm unrated matches out of a rated queue.
+    """
+    _require_access(auth)
+    _require_bots_enabled()
+    mode_impl = _mode_or_404(mode)
+    now = _now()
+
+    name = await _display_name(profile_repo, auth.sub)
+    match = await mm.fill_queue_with_bots_now(
+        repo, mode_impl, auth.sub, {auth.sub: name}, now
+    )
+    if match is not None:
+        return QueueStatusResponse(status="matched", mode=mode, match_id=match.match_id)
+
+    # No waiting entry. Either this is a second press whose first press already
+    # created the match, or the caller was never queued. Resolved exactly the way
+    # `queue_status` resolves a vanished entry rather than with a second
+    # bookkeeping mechanism -- which is also what makes a double-click return
+    # the FIRST match instead of seating a second set of bots.
+    for m in await repo.list_matches_for_sub(auth.sub, limit=5):
+        if m.mode == mode and m.is_live():
+            return QueueStatusResponse(status="matched", mode=mode, match_id=m.match_id)
+    return QueueStatusResponse(status="not_in_queue", mode=mode)
+
+
+@router.post(f"{BASE}/matches/{{match_id}}/fill-bots", response_model=ArenaMatchView)
+async def fill_room_with_bots(
+    match_id: str,
+    auth: RequiredAuth,
+    repo: ArenaRepoDep,
+    profile_repo: ProfileRepoDep,
+) -> ArenaMatchView:
+    """"Fill empty seats with bots" -- the private-room host's explicit choice.
+
+    A private room is still NEVER auto-filled; `create_private_room` says so and
+    that stays true. This is the host deciding out loud that they would rather
+    start than keep waiting for a friend.
+
+    HOST ONLY, AND VERIFIED SERVER-SIDE. `match.created_by` is compared against
+    the JWT subject. There is no host field in the request body to spoof, and a
+    guest who already holds a seat in the room is still refused -- holding a seat
+    is not the same authority as opening the room.
+
+    STILL UNRATED. `rated` is not touched here; it was derived from
+    `private_room` at creation and the `arena_matches_rated_matches_entry_path`
+    CHECK would refuse anything else. No new entry_path is introduced either:
+    a host-filled room is the same private room with its seats resolved, not a
+    fourth way into the arena.
+    """
+    _require_access(auth)
+    _require_bots_enabled()
+    match = await _match_or_404(repo, match_id)
+
+    if match.entry_path != ENTRY_PATH_PRIVATE_ROOM:
+        raise HTTPException(
+            status_code=400,
+            detail=_error(
+                "Only a private room's empty seats can be filled on request.",
+                "not_a_private_room",
+            ),
+        )
+    if match.created_by != auth.sub:
+        # 403 and not 404: the caller may well be a guest who legitimately holds
+        # a seat here, so "this is not yours to do" is the honest answer rather
+        # than pretending the room does not exist.
+        raise HTTPException(
+            status_code=403,
+            detail=_error(
+                "Only the player who opened this room can fill its seats.",
+                "not_room_host",
+            ),
+        )
+
+    mode_impl = _mode_or_404(match.mode)
+    try:
+        match = await mm.fill_private_room_with_bots(
+            repo, mode_impl, match, auth.sub, _now()
+        )
+    except SeatUnavailable as exc:
+        # Also what a double-click gets: the first press consumed the seats.
+        raise HTTPException(
+            status_code=409, detail=_error(str(exc), "no_empty_seats")
+        )
+
+    _, seat = await _seat_or_403(repo, match_id, auth.sub)
+    return await _build_view(repo, mode_impl, match, seat)
 
 
 @router.post(f"{BASE}/queue/{{mode}}/cancel")

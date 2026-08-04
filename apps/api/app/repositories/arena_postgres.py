@@ -390,6 +390,21 @@ class PostgresArenaRepository:
             )
         return [_row_to_match(r) for r in rows]
 
+    async def set_bot_policy_version(self, match_id: str, policy_version: str) -> bool:
+        # `bot_policy_version IS NULL` in the statement, not a read first:
+        # first write wins and every later caller matches zero rows, so two
+        # concurrent host fills cannot overwrite each other's pin.
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE arena_matches
+                   SET bot_policy_version = $2, updated_at = NOW()
+                 WHERE match_id = $1 AND bot_policy_version IS NULL
+                """,
+                match_id, policy_version,
+            )
+        return int(result.rsplit(" ", 1)[-1] or 0) > 0
+
     # -- the mutation path --------------------------------------------------
 
     async def apply_command(
@@ -852,6 +867,29 @@ class PostgresArenaRepository:
                 owner_sub, mode, QUEUE_STATUS_CANCELLED, QUEUE_STATUS_WAITING,
             )
         return int(result.rsplit(" ", 1)[-1] or 0) > 0
+
+    async def collapse_human_preference(
+        self, owner_sub: str, mode: str, now: datetime
+    ) -> Optional[ArenaQueueEntry]:
+        # LEAST(), so the window only ever moves EARLIER. A retry or a
+        # double-click recomputes the same value and the row is unchanged,
+        # which is what makes this safely repeatable without its own
+        # idempotency record -- see the protocol docstring.
+        #
+        # One statement, no read-then-write: the row is never inspected before
+        # being narrowed, so two concurrent presses cannot interleave into a
+        # window that moved backwards.
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"""
+                UPDATE arena_public_queue
+                   SET human_preference_until = LEAST(human_preference_until, $3)
+                 WHERE owner_sub = $1 AND mode = $2 AND status = $4
+             RETURNING {_QUEUE_COLUMNS}
+                """,
+                owner_sub, mode, now, QUEUE_STATUS_WAITING,
+            )
+        return _row_to_entry(row) if row else None
 
     async def list_waiting_entries(
         self,

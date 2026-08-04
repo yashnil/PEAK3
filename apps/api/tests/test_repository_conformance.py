@@ -534,6 +534,76 @@ async def _assert_arena_queue_conforms(repo) -> None:
     ) == 1
     assert await repo.get_queue_entry(sub_c, mode) is None
 
+    # -- explicit bot fill ---------------------------------------------------
+    # `collapse_human_preference` brings the caller's own window forward so
+    # "Fill with bots now" can match immediately. Both backends must agree that
+    # it is scoped to one subject and that it only ever moves the window
+    # EARLIER -- a backend where a second press pushed the window out would let
+    # a double-click extend the wait it was meant to end.
+    sub_d, sub_e = f"user-{uuid.uuid4()}", f"user-{uuid.uuid4()}"
+    d = await repo.enqueue(entry(sub_d))
+    await repo.enqueue(entry(sub_e))
+
+    collapsed = await repo.collapse_human_preference(sub_d, mode, now)
+    assert collapsed is not None
+    assert collapsed.prefers_humans_at(now) is False
+    assert collapsed.owner_sub == sub_d
+
+    # The other player's window is untouched -- one press cannot drag a
+    # different waiting player into a bot match.
+    other = await repo.get_queue_entry(sub_e, mode)
+    assert other is not None
+    assert other.prefers_humans_at(now) is True
+
+    # Monotonic: a later call cannot push the window back out.
+    again = await repo.collapse_human_preference(
+        sub_d, mode, now + timedelta(minutes=5)
+    )
+    assert again is not None
+    assert again.human_preference_until == collapsed.human_preference_until
+    assert d.entry_id  # the entry itself is unchanged in identity
+
+    # A subject with no waiting entry gets None rather than an error.
+    assert await repo.collapse_human_preference(
+        f"user-{uuid.uuid4()}", mode, now
+    ) is None
+
+
+async def _assert_arena_bot_policy_pin_conforms(repo) -> None:
+    """`set_bot_policy_version` is first-write-wins on both backends.
+
+    A private room is created with no bots and therefore no policy version; the
+    host's later "fill empty seats" is the first moment there is one to record.
+    Two concurrent fills must pin ONE value rather than race to overwrite each
+    other, which is why the condition lives in the statement.
+    """
+    match = _arena_match(entry_path="private_room")
+    await repo.create_match(match, _arena_seats(match.match_id, 1))
+    assert (await repo.get_match(match.match_id)).bot_policy_version is None
+
+    assert await repo.set_bot_policy_version(match.match_id, "policy_v1") is True
+    assert (await repo.get_match(match.match_id)).bot_policy_version == "policy_v1"
+
+    # Second write loses and changes nothing.
+    assert await repo.set_bot_policy_version(match.match_id, "policy_v2") is False
+    assert (await repo.get_match(match.match_id)).bot_policy_version == "policy_v1"
+
+    # An unknown match is False, not an error.
+    assert await repo.set_bot_policy_version(str(uuid.uuid4()), "policy_v1") is False
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_bot_policy_pin_conforms():
+    from app.repositories.arena_memory import MemoryArenaRepository
+    await _assert_arena_bot_policy_pin_conforms(MemoryArenaRepository())
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_bot_policy_pin_conforms(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    await _assert_arena_bot_policy_pin_conforms(PostgresArenaRepository(pg_pool))
+
 
 @pytest.mark.asyncio
 async def test_memory_arena_queue_conforms():
