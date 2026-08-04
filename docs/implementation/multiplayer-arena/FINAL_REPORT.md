@@ -436,6 +436,36 @@ individually, 13 RLS probes as the real `anon` role.
 
 ---
 
+## 15b. Where the next session should start
+
+Ordered by what unblocks the most, not by size.
+
+1. **Run the 4-step hosted DevTools check** (§15.4). It is two minutes and it is
+   the only thing separating a designed fix from a shipped one. Everything
+   cause-independent is already written and green.
+2. **Apply branch protection to `main`.** Until then every result in this report
+   is advisory. The command is in §13's discussion; it deliberately excludes the
+   hosted Supabase job, because GitHub can treat a *skipped* job as satisfying a
+   required check — which would recreate the exact false-green this pass removed.
+3. **Make the three new surfaces reachable in e2e, then axe them.** Needs either
+   new flags in `scripts/ci/e2e-tests.sh` or an authenticated fixture. This is
+   the single largest coverage gap: the two new games and the lobby have **zero**
+   accessibility coverage today.
+4. **Audit the light theme.** Every axe run so far has audited dark only. This is
+   cheap once (3) is done and is currently a complete blind spot.
+5. **Write the two tests that gate the rating flags** (§15.2), then the batch
+   profile lookup that closes the N+1 (§15.3) — in that order, because an
+   untested batch method would compound the gap rather than close it.
+6. **Add `<h1>` to `/arena/lobby` and `/arena/twenty-dollar/{id}` gated states.**
+   Found while probing reachability; small, real, and unfixed.
+7. **Real browser zoom at 150% and 200%**, and a tablet project. Neither exists.
+   Note the current "200%" test is a viewport resize, which does not reproduce
+   text reflow or rem scaling — replacing it is worth more than adding to it.
+8. **Restore timers in `apps/web/src/tests/setup.ts`** (§15.9). Latent across all
+   61 files; only vitest's `isolate` is keeping eight fake-timer files apart.
+
+---
+
 ## 16. Commit hashes
 
 ```
