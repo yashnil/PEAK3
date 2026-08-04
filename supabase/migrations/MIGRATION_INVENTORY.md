@@ -40,6 +40,7 @@ migration change rather than hand-editing this file.
 | 33 | `20260803120000_profile_column_privileges` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 34 | `20260803130000_user_settings_theme_preference` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 35 | `20260803140000_revoke_truncate_trigger_identity_tables` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 36 | `20260804100000_arena_foundation` | 7 | 11 | 10 | 3 | 4 | 7 | 7 |
 
 ## Detail per migration
 
@@ -1003,3 +1004,36 @@ migration change rather than hand-editing this file.
 **External table dependencies (not created in this file):** none
 
 **Idempotency:** none detected
+
+### `20260804100000_arena_foundation.sql`
+
+**Tables created:** arena_matches, arena_match_seats, arena_match_commands, arena_match_events, arena_turns, arena_match_results, arena_public_queue
+  - `arena_matches`: match_id, mode, mode_version, model_version, status, state_version, seat_count, entry_path, rated, room_code, seed, bot_policy_version, created_by, turn_deadline_at, current_turn_seq, expires_at, snapshot, created_at, updated_at, completed_at
+  - `arena_match_seats`: match_id, seat_index, occupant_kind, occupant_sub, bot_id, bot_rating, display_name, status, joined_at, last_seen_at
+  - `arena_match_commands`: match_id, idempotency_key, actor_seat_index, actor_sub, command_type, payload, accepted, rejection_code, state_version_before, state_version_after, created_at
+  - `arena_match_events`: id, match_id, seq, event_type, actor_seat_index, payload, visibility, visible_to_seat, state_version_after, created_at
+  - `arena_turns`: match_id, turn_seq, seat_index, phase, opened_at, deadline_at, resolved_at, resolution, resolved_by_key
+  - `arena_match_results`: match_id, seat_index, placement, score, outcome, rated, was_bot, detail, created_at
+  - `arena_public_queue`: entry_id, owner_sub, mode, mode_version, seat_count, status, joined_at, human_preference_until, expires_at, matched_at, cancelled_at, match_id
+
+**Indexes:** arena_matches_room_code_live_uniq, arena_matches_live_expiry_idx, arena_matches_mode_status_idx, arena_match_seats_one_per_sub_uniq, arena_match_seats_sub_idx, arena_match_commands_match_created_idx, arena_match_events_replay_idx, arena_turns_overdue_idx, arena_match_results_created_idx, arena_public_queue_active_uniq, arena_public_queue_waiting_idx
+
+**Constraints:** arena_match_commands_rejection_shape, arena_match_commands_version_monotonic, arena_match_events_seq_uniq, arena_match_events_visibility_shape, arena_match_seats_occupant_shape, arena_matches_rated_matches_entry_path, arena_matches_room_code_requires_private, arena_public_queue_window_within_ttl, arena_turns_deadline_after_open, arena_turns_resolution_shape
+
+**Functions:** arena_match_events_immutable, arena_match_results_immutable, is_arena_seat_holder
+
+**Triggers:** arena_match_events_no_update, arena_match_events_no_delete, arena_match_results_no_update, arena_match_results_no_delete
+
+**RLS enabled on:** arena_match_commands, arena_match_events, arena_match_results, arena_match_seats, arena_matches, arena_public_queue, arena_turns
+
+**Policies:** arena_matches_seat_holder_read, arena_match_seats_self_read, arena_match_events_seat_scoped_read, arena_turns_seat_holder_read, arena_match_results_seat_holder_read, arena_public_queue_owner_read, arena_match_commands_no_client_access
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY; triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER

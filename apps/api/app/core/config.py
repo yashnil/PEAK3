@@ -363,6 +363,76 @@ class Settings(BaseSettings):
     CONTACT_RATE_LIMIT: int = 3
     CONTACT_RATE_LIMIT_WINDOW_SECONDS: float = 600.0
 
+    # ---------------------------------------------------------------------------
+    # Arena — server-authoritative multiplayer foundation
+    #
+    # ITS OWN FLAG NAMESPACE, NOT `RANKED_*`. Reusing the ranked flags would make
+    # the ranked kill-switch ambiguous: `PEAK3_RANKED_ENABLED=false` currently
+    # means exactly one thing -- the Phase 4.0 ranked duel routes are dark -- and
+    # an operator turning it off during an incident must not have to wonder
+    # whether they also just stopped a different subsystem. Ranked's four flags
+    # are untouched by this pass and remain False by default.
+    #
+    # Mirrors the RANKED_*/COURTBUILDER_*/RUN_THE_TABLE_* pattern exactly:
+    # independent capability switches plus a human-facing readiness level whose
+    # consistency is validated at startup.
+    # ---------------------------------------------------------------------------
+
+    # Master switch: arena routes answer at all. /readiness is the one exception
+    # -- it always answers, so the web app can fail closed cleanly rather than
+    # guess why it got a 403 (the same carve-out RUN_THE_TABLE_ENABLED has).
+    ARENA_ENABLED: bool = False
+
+    # Whether the public matchmaking queue accepts joins. Separately switchable
+    # so the queue can be closed -- mid-rating-migration, or during an incident
+    # -- without taking private rooms and practice down with it.
+    ARENA_PUBLIC_QUEUE_ENABLED: bool = False
+
+    # Whether bots may occupy a seat. Off independently of the queue because a
+    # miscalibrated bot is a reason to stop filling seats while still letting
+    # humans play each other. With this off, a public queue entry waits for
+    # humans until its own TTL rather than being bot-filled, and practice is
+    # refused outright -- practice IS a bot match.
+    ARENA_BOTS_ENABLED: bool = False
+
+    # Closed-cohort allowlist of owner_sub values permitted to reach arena
+    # routes while ARENA_ENABLED=True but the release is not yet public. Empty +
+    # enabled = internal engineering only, the same semantics as
+    # RANKED_ALPHA_ALLOWLIST and COURTBUILDER_ALPHA_ALLOWLIST.
+    ARENA_ALPHA_ALLOWLIST: list[str] = []
+
+    # Human-facing readiness classification. Does not itself gate behavior --
+    # the booleans above do -- but is surfaced on /api/v1/arena/readiness and
+    # must be kept consistent with them (validated below).
+    ARENA_READINESS_LEVEL: Literal[
+        "disabled", "internal_dev", "internal_alpha", "closed_alpha", "public_beta"
+    ] = "disabled"
+
+    @model_validator(mode="after")
+    def validate_arena_readiness(self) -> "Settings":
+        level = self.ARENA_READINESS_LEVEL
+        if level == "disabled" and (
+            self.ARENA_ENABLED
+            or self.ARENA_PUBLIC_QUEUE_ENABLED
+            or self.ARENA_BOTS_ENABLED
+        ):
+            raise ValueError(
+                "PEAK3_ARENA_READINESS_LEVEL is 'disabled' but an arena capability "
+                "flag is enabled. Set an appropriate readiness level or disable "
+                "the flag."
+            )
+        if self.ARENA_PUBLIC_QUEUE_ENABLED and not self.ARENA_ENABLED:
+            raise ValueError(
+                "PEAK3_ARENA_PUBLIC_QUEUE_ENABLED is set but PEAK3_ARENA_ENABLED "
+                "is not. The queue creates matches of a mode that would not be "
+                "servable; it cannot be on while the arena is off."
+            )
+        if self.ARENA_BOTS_ENABLED and not self.ARENA_ENABLED:
+            raise ValueError(
+                "PEAK3_ARENA_BOTS_ENABLED is set but PEAK3_ARENA_ENABLED is not."
+            )
+        return self
+
     @model_validator(mode="after")
     def warn_insecure_secret(self) -> "Settings":
         if self.SIGNING_SECRET == "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION":

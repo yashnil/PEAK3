@@ -24,6 +24,7 @@ from app.api.v1 import run_the_table as run_the_table_router
 from app.api.v1 import head_to_head as head_to_head_router
 from app.api.v1 import telemetry as telemetry_router
 from app.api.v1 import contact as contact_router
+from app.api.v1 import arena as arena_router
 from app.core.config import settings
 from app.core.dataset import dataset_store
 from app.core.repository_registry import (
@@ -162,3 +163,10 @@ app.include_router(telemetry_router.router, prefix="/api/v1", tags=["telemetry"]
 # telemetry immediately above, for the same reason -- PEAK3_CONTACT_ENABLED
 # (default OFF) decides live behavior, not whether the route exists.
 app.include_router(contact_router.router, prefix="/api/v1", tags=["contact"])
+# Server-authoritative multiplayer. Same "always mounted, gated by settings"
+# shape as telemetry and contact above, for the same reason -- PEAK3_ARENA_ENABLED
+# (default OFF) decides live behavior, not whether the route exists, so the
+# disabled path is exercised by the test suite rather than being a build that
+# nobody has run. /arena/readiness always answers so the web app can fail
+# closed cleanly instead of guessing why it got a 403.
+app.include_router(arena_router.router, prefix="/api/v1", tags=["arena"])

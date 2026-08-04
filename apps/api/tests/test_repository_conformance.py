@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -322,3 +322,364 @@ async def test_memory_profile_repo_conforms():
 async def test_postgres_profile_repo_conforms(pg_pool):
     from app.repositories.postgres_profile import PostgresProfileRepository
     await _assert_profile_repo_conforms(PostgresProfileRepository(pg_pool))
+
+
+# ---------------------------------------------------------------------------
+# ArenaRepository — the multiplayer foundation
+#
+# The shared assertions below run on BOTH backends. The two-connection
+# concurrency tests that follow them are Postgres-only by nature: they exist to
+# prove the row lock in `_lock_match` serializes two real database sessions,
+# and two asyncio tasks in one process are not two sessions. The in-memory
+# equivalents in test_arena_foundation.py exercise the same logic under one
+# asyncio.Lock and say so in their own docstrings.
+# ---------------------------------------------------------------------------
+
+def _arena_match(seat_count: int = 2, entry_path: str = "public_queue"):
+    from app.repositories.arena_protocols import ArenaMatch
+
+    return ArenaMatch(
+        match_id=str(uuid.uuid4()),
+        mode="conformance_mode",
+        mode_version="conf_v1",
+        model_version="peak3_v1",
+        seat_count=seat_count,
+        entry_path=entry_path,
+        rated=(entry_path == "public_queue"),
+        seed=4242,
+        created_by="user-a",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=2),
+        snapshot={"n": 0},
+    )
+
+
+def _arena_seats(match_id: str, count: int):
+    from app.repositories.arena_protocols import ArenaSeat
+
+    return [
+        ArenaSeat(
+            match_id=match_id, seat_index=i, occupant_kind="human",
+            occupant_sub=f"user-{uuid.uuid4()}", display_name=f"P{i}",
+        )
+        for i in range(count)
+    ]
+
+
+def _bump_reducer(data):
+    """Accepts anything, increments a counter, appends one public and one
+    seat-private event so visibility filtering is exercised on both backends."""
+    from app.repositories.arena_protocols import EventDraft, ReducerOutput
+
+    return ReducerOutput(
+        accepted=True,
+        snapshot={"n": data.match.snapshot.get("n", 0) + 1},
+        events=(
+            EventDraft(event_type="bumped", payload={"by": data.command.actor_seat_index}),
+            EventDraft(
+                event_type="secret", visibility="seat", visible_to_seat=0,
+                payload={"only_for": 0},
+            ),
+        ),
+    )
+
+
+def _reject_reducer(data):
+    from app.repositories.arena_protocols import ReducerOutput
+
+    return ReducerOutput(
+        accepted=False, rejection_code="nope", rejection_message="no"
+    )
+
+
+async def _assert_arena_repo_conforms(repo) -> None:
+    from app.repositories.arena_protocols import (
+        CommandRequest,
+        MATCH_STATUS_EXPIRED,
+        REJECT_STALE_STATE_VERSION,
+        SeatUnavailable,
+    )
+
+    now = datetime.now(timezone.utc)
+    match = _arena_match(seat_count=3)
+    seats = _arena_seats(match.match_id, 2)
+    await repo.create_match(match, seats)
+
+    # Three seats are expressible — the reason this domain is not head-to-head.
+    stored = await repo.get_match(match.match_id)
+    assert stored is not None and stored.seat_count == 3
+    assert len(await repo.get_seats(match.match_id)) == 2
+
+    # One seat per subject.
+    from app.repositories.arena_protocols import ArenaSeat
+
+    with pytest.raises(SeatUnavailable):
+        await repo.add_seat(
+            ArenaSeat(
+                match_id=match.match_id, seat_index=2, occupant_kind="human",
+                occupant_sub=seats[0].occupant_sub,
+            )
+        )
+
+    # A command advances the version by exactly one.
+    def cmd(key, **kw):
+        return CommandRequest(
+            match_id=match.match_id, idempotency_key=key,
+            command_type=kw.pop("command_type", "bump"),
+            actor_sub=seats[0].occupant_sub, actor_seat_index=0,
+            issued_at=now, **kw,
+        )
+
+    first = await repo.apply_command(cmd("conf-key-0001"), _bump_reducer, now)
+    assert first.accepted and not first.replayed
+    assert first.match.state_version == 1
+    assert first.match.snapshot["n"] == 1
+
+    # Replay applies nothing and reports itself.
+    replay = await repo.apply_command(cmd("conf-key-0001"), _bump_reducer, now)
+    assert replay.accepted and replay.replayed
+    assert (await repo.get_match(match.match_id)).state_version == 1
+    assert [e.event_type for e in replay.events] == [e.event_type for e in first.events]
+
+    # A stale expected version is refused.
+    stale = await repo.apply_command(
+        cmd("conf-key-0002", expected_state_version=0), _bump_reducer, now
+    )
+    assert not stale.accepted and stale.rejection_code == REJECT_STALE_STATE_VERSION
+
+    # A rejection is idempotent and consumes no version.
+    r1 = await repo.apply_command(cmd("conf-key-0003"), _reject_reducer, now)
+    r2 = await repo.apply_command(cmd("conf-key-0003"), _reject_reducer, now)
+    assert r1.rejection_code == r2.rejection_code == "nope"
+    assert r2.replayed
+    assert (await repo.get_match(match.match_id)).state_version == 1
+
+    # Visibility filtering happens in the repository, identically on both.
+    seat0 = await repo.list_events(match.match_id, for_seat=0)
+    seat1 = await repo.list_events(match.match_id, for_seat=1)
+    assert any(e.event_type == "secret" for e in seat0)
+    assert not any(e.event_type == "secret" for e in seat1)
+    assert any(e.event_type == "bumped" for e in seat1)
+
+    # Event sequence numbers are dense and ordered.
+    server_view = await repo.list_events(match.match_id, for_seat=None)
+    assert [e.seq for e in server_view] == list(range(len(server_view)))
+
+    # expire_match is first-write-wins.
+    assert await repo.expire_match(match.match_id, now) is True
+    assert await repo.expire_match(match.match_id, now) is False
+    assert (await repo.get_match(match.match_id)).status == MATCH_STATUS_EXPIRED
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_repo_conforms():
+    from app.repositories.arena_memory import MemoryArenaRepository
+    await _assert_arena_repo_conforms(MemoryArenaRepository())
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_repo_conforms(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    await _assert_arena_repo_conforms(PostgresArenaRepository(pg_pool))
+
+
+async def _assert_arena_queue_conforms(repo) -> None:
+    from app.repositories.arena_protocols import (
+        ActiveQueueEntryExists,
+        ArenaQueueEntry,
+    )
+
+    now = datetime.now(timezone.utc)
+    mode = f"qmode_{uuid.uuid4().hex[:8]}"
+    sub_a, sub_b = f"user-{uuid.uuid4()}", f"user-{uuid.uuid4()}"
+
+    def entry(sub, joined=now):
+        return ArenaQueueEntry(
+            entry_id=str(uuid.uuid4()), owner_sub=sub, mode=mode,
+            mode_version="v1", seat_count=2, joined_at=joined,
+            human_preference_until=joined + timedelta(seconds=30),
+            expires_at=joined + timedelta(minutes=10),
+        )
+
+    a = await repo.enqueue(entry(sub_a))
+    with pytest.raises(ActiveQueueEntryExists):
+        await repo.enqueue(entry(sub_a))
+
+    b = await repo.enqueue(entry(sub_b))
+    waiting = await repo.list_waiting_entries(mode, 2, exclude_owner_sub=sub_a)
+    assert [e.owner_sub for e in waiting] == [sub_b]
+
+    # Claiming is all-or-nothing.
+    match = _arena_match()
+    seats = _arena_seats(match.match_id, 2)
+    claimed = await repo.claim_entries_into_match(
+        [a.entry_id, b.entry_id], match, seats, now
+    )
+    assert claimed is not None
+    assert await repo.get_queue_entry(sub_a, mode) is None
+
+    # A second claim of the same entries loses.
+    match2 = _arena_match()
+    assert await repo.claim_entries_into_match(
+        [a.entry_id, b.entry_id], match2, _arena_seats(match2.match_id, 2), now
+    ) is None
+    assert await repo.get_match(match2.match_id) is None
+
+    # Sweeping expires only what is past its TTL.
+    sub_c = f"user-{uuid.uuid4()}"
+    await repo.enqueue(entry(sub_c))
+    assert await repo.expire_stale_queue_entries(mode, now) == 0
+    assert await repo.expire_stale_queue_entries(
+        mode, now + timedelta(minutes=11)
+    ) == 1
+    assert await repo.get_queue_entry(sub_c, mode) is None
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_queue_conforms():
+    from app.repositories.arena_memory import MemoryArenaRepository
+    await _assert_arena_queue_conforms(MemoryArenaRepository())
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_queue_conforms(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    await _assert_arena_queue_conforms(PostgresArenaRepository(pg_pool))
+
+
+# ---------------------------------------------------------------------------
+# TRUE two-connection concurrency. Postgres only, by nature.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_arena_concurrent_commands_on_one_match_serialize(pg_pool):
+    """Two real database sessions, one match, one version.
+
+    Both commands carry DISTINCT idempotency keys (so neither is a replay) and
+    the SAME `expected_state_version`. Without `_lock_match`'s `FOR UPDATE`,
+    both would read version N, both would pass the version check, and both
+    would write N+1 -- one player's move silently overwriting the other's.
+
+    With it, one transaction holds the row until it commits, so the second reads
+    N+1 and is refused as stale. Exactly one accepted, exactly one
+    `stale_state_version`, and the version advanced by exactly one.
+
+    THIS is the test that justifies the blocking lock. Nothing in the in-memory
+    suite can prove it, because two asyncio tasks in one process share one
+    connection-less dict guarded by one asyncio.Lock.
+    """
+    import asyncio as _asyncio
+
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    from app.repositories.arena_protocols import (
+        CommandRequest,
+        REJECT_STALE_STATE_VERSION,
+    )
+
+    repo = PostgresArenaRepository(pg_pool)
+    now = datetime.now(timezone.utc)
+    match = _arena_match()
+    seats = _arena_seats(match.match_id, 2)
+    await repo.create_match(match, seats)
+
+    def cmd(key, seat):
+        return CommandRequest(
+            match_id=match.match_id, idempotency_key=key, command_type="bump",
+            actor_sub=seats[seat].occupant_sub, actor_seat_index=seat,
+            expected_state_version=0, issued_at=now,
+        )
+
+    a, b = await _asyncio.gather(
+        repo.apply_command(cmd("race-key-0001", 0), _bump_reducer, now),
+        repo.apply_command(cmd("race-key-0002", 1), _bump_reducer, now),
+    )
+
+    accepted = [o for o in (a, b) if o.accepted]
+    rejected = [o for o in (a, b) if not o.accepted]
+    assert len(accepted) == 1, "the row lock must serialize concurrent commands"
+    assert len(rejected) == 1
+    assert rejected[0].rejection_code == REJECT_STALE_STATE_VERSION
+    assert (await repo.get_match(match.match_id)).state_version == 1
+    assert (await repo.get_match(match.match_id)).snapshot["n"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_arena_concurrent_identical_keys_apply_once(pg_pool):
+    """The idempotency guarantee across two real sessions: the primary key on
+    (match_id, idempotency_key) plus the row lock mean one apply, one replay."""
+    import asyncio as _asyncio
+
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    from app.repositories.arena_protocols import CommandRequest
+
+    repo = PostgresArenaRepository(pg_pool)
+    now = datetime.now(timezone.utc)
+    match = _arena_match()
+    seats = _arena_seats(match.match_id, 2)
+    await repo.create_match(match, seats)
+
+    def cmd():
+        return CommandRequest(
+            match_id=match.match_id, idempotency_key="dup-key-0001",
+            command_type="bump", actor_sub=seats[0].occupant_sub,
+            actor_seat_index=0, issued_at=now,
+        )
+
+    a, b = await _asyncio.gather(
+        repo.apply_command(cmd(), _bump_reducer, now),
+        repo.apply_command(cmd(), _bump_reducer, now),
+    )
+    assert a.accepted and b.accepted
+    assert sorted([a.replayed, b.replayed]) == [False, True]
+    assert (await repo.get_match(match.match_id)).state_version == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_arena_concurrent_turn_resolution_has_one_winner(pg_pool):
+    """The timeout/action race at the storage layer, across two sessions.
+
+    `UPDATE ... WHERE resolved_at IS NULL` must let exactly one caller through.
+    """
+    import asyncio as _asyncio
+
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    from app.repositories.arena_protocols import (
+        CommandRequest,
+        ReducerOutput,
+        TurnDraft,
+    )
+
+    repo = PostgresArenaRepository(pg_pool)
+    now = datetime.now(timezone.utc)
+    match = _arena_match()
+    await repo.create_match(match, _arena_seats(match.match_id, 2))
+
+    def open_turn(data):
+        return ReducerOutput(
+            accepted=True,
+            open_turn=TurnDraft(
+                phase="play", deadline_at=data.now + timedelta(seconds=30),
+                seat_index=0,
+            ),
+        )
+
+    await repo.apply_command(
+        CommandRequest(
+            match_id=match.match_id, idempotency_key="open-key-0001",
+            command_type="__open__", actor_sub=None, issued_at=now,
+        ),
+        open_turn, now,
+    )
+
+    late = now + timedelta(seconds=31)
+    results = await _asyncio.gather(
+        repo.resolve_overdue_turn(match.match_id, 0, late, "timeout"),
+        repo.resolve_overdue_turn(match.match_id, 0, late, "action"),
+        repo.resolve_overdue_turn(match.match_id, 0, late, "timeout"),
+    )
+    assert sorted(results) == [False, False, True]
+    assert await repo.get_open_turn(match.match_id) is None
