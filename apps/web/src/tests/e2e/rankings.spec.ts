@@ -434,6 +434,31 @@ test.describe("Rankings — row-specific receipts", () => {
   test("the modal stays accessible with the new sections", async ({ page }) => {
     await openFirstRow(page);
     await expect(page.getByTestId("score-explain-receipts")).toBeVisible({ timeout: 15_000 });
+
+    // WAIT FOR THE ENTRANCE TRANSITION TO SETTLE BEFORE AUDITING.
+    //
+    // `toBeVisible` resolves as soon as the element has a box, which is true
+    // part-way through the dialog's opacity ramp. Auditing there measures a
+    // frame nobody looks at: axe read `--text-muted` (#838799) composited at
+    // ~94.5% opacity over #191c23 as #7d8193, scored it 4.41:1 and reported a
+    // serious colour-contrast violation. At rest the same pair is 4.78:1 and
+    // passes AA -- the product was never out of compliance, the audit was
+    // simply early. It surfaced as an intermittent failure because whether the
+    // scan lands mid-ramp depends on machine load.
+    //
+    // Asserting settled opacity is STRICTER than what was here before, not
+    // looser: it audits the state a user actually reads, and a genuine
+    // contrast regression at rest still fails exactly as it did.
+    await expect
+      .poll(
+        async () =>
+          page
+            .getByTestId("score-explain-modal")
+            .evaluate((el) => getComputedStyle(el).opacity),
+        { timeout: 5_000 },
+      )
+      .toBe("1");
+
     const results = await new AxeBuilder({ page })
       .include('[data-testid="score-explain-modal"]')
       .analyze();

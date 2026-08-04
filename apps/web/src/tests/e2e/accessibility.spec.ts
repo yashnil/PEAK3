@@ -5,8 +5,14 @@
  * Requires real FastAPI (port 8000) and Next.js (port 3000) services.
  * Uses @axe-core/playwright for WCAG 2.1 AA checks.
  */
-import { test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+
+import {
+  RUN_THE_TABLE_TOUR_ID,
+  RUN_THE_TABLE_TOUR_VERSION,
+} from "@/components/ui/tour-steps";
+import { TOUR_STORAGE_KEY, TOUR_STORAGE_SCHEMA_VERSION } from "@/lib/tour-state";
 
 // ---------------------------------------------------------------------------
 // Helper: run axe and fail with readable output
@@ -188,6 +194,70 @@ test.describe("accessibility: Challenge page", () => {
     await page.goto("/c/invalid-challenge-token-for-axe-test", { waitUntil: "networkidle" });
     await expectNoViolations(
       new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"])
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RUN THE TABLE — the restart confirmation dialog (rtt_ruleset_v4)
+// ---------------------------------------------------------------------------
+// A modal is the surface most likely to fail an audit and least likely to be
+// caught by a page-level scan, because it does not exist until something is
+// pressed. This drives the real product to the real dialog and runs axe on it
+// with the dialog OPEN.
+//
+// The tour is suppressed the way `run-the-table.spec.ts` does it -- as a
+// returning player's browser would have it -- because the first-run tour's
+// full-screen scrim intercepts pointer events. That is a real, intended
+// first-run experience with its own coverage; it is not what is under test here.
+test.describe("accessibility: RUN THE TABLE restart dialog", () => {
+  test("no critical/serious violations with the confirmation dialog open", async ({
+    page,
+  }) => {
+    await page.goto("/arena/run-the-table", { waitUntil: "domcontentloaded" });
+    await page.evaluate(
+      ({ key, schema, tourId, version }) => {
+        window.localStorage.setItem(
+          key,
+          JSON.stringify({
+            schema_version: schema,
+            tours: {
+              [tourId]: {
+                version,
+                status: "completed",
+                at: "2026-01-01T00:00:00.000Z",
+              },
+            },
+            coachmarks: {},
+          }),
+        );
+      },
+      {
+        key: TOUR_STORAGE_KEY,
+        schema: TOUR_STORAGE_SCHEMA_VERSION,
+        tourId: RUN_THE_TABLE_TOUR_ID,
+        version: RUN_THE_TABLE_TOUR_VERSION,
+      },
+    );
+
+    await page.goto("/arena/run-the-table?start=standard", {
+      waitUntil: "domcontentloaded",
+    });
+    const trigger = page.getByTestId("rtt-start-new-run");
+    await trigger.waitFor({ timeout: 30000 });
+    await trigger.click();
+    await page.getByTestId("rtt-restart-dialog").waitFor({ timeout: 10000 });
+
+    // The dialog's own contract, in a real browser rather than jsdom: it is a
+    // named modal, and focus is inside it on the non-destructive choice.
+    const named = await page
+      .locator("[role=dialog][aria-modal=true]")
+      .getAttribute("aria-label");
+    expect(named).toBe("Start a new run?");
+    await expect(page.getByTestId("rtt-restart-cancel")).toBeFocused();
+
+    await expectNoViolations(
+      new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).exclude("[aria-hidden=true]")
     );
   });
 });
