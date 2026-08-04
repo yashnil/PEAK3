@@ -170,3 +170,34 @@ app.include_router(contact_router.router, prefix="/api/v1", tags=["contact"])
 # nobody has run. /arena/readiness always answers so the web app can fail
 # closed cleanly instead of guessing why it got a 403.
 app.include_router(arena_router.router, prefix="/api/v1", tags=["arena"])
+
+# ---------------------------------------------------------------------------
+# Arena mode registration.
+#
+# WHY THESE IMPORTS EXIST AND MUST NOT BE "CLEANED UP". Each mode registers
+# itself into `app.services.arena.modes.registry` as a module-level side
+# effect of being imported. Nothing else imports them, so without these two
+# lines both modes are fully built, fully tested, and completely unreachable:
+# `/arena/readiness` reports an empty `modes` list, the lobby shows no cards
+# because it renders the intersection of the catalogue with what the server
+# advertises, and every match-creation route 404s on an unknown mode.
+#
+# A linter will read these as unused imports. They are not -- the import IS
+# the registration. That is why they are last, after the router is mounted,
+# and why they are named rather than star-imported.
+#
+# BOTH IMPORTS ARE EAGER ON PURPOSE. Each mode warms its data caches at
+# import, BEFORE registering, so a mode whose files failed to load never
+# advertises itself as serving. Deferring the cost to first use would move it
+# onto the first match-creation request and, worse, into `ArenaMode.reduce`,
+# which runs inside the transaction holding the match's row lock and is
+# forbidden to do I/O (see `MatchReducer`). Measured marginal cost at startup
+# once pandas is loaded (which `perfect_season` already pays): ~0.46s for
+# Three-Man Weave's eligibility index and career-position sets. Paid once, at
+# boot, off the request path.
+#
+# Registration is idempotent: `ModeRegistry.register` only refuses a name held
+# by a *different* object, and each `mode` is a module-level singleton, so a
+# re-import is a `sys.modules` hit and a no-op.
+from app.services.three_man_weave import mode as _three_man_weave_mode  # noqa: E402,F401
+from app.services.twenty_dollar import mode as _twenty_dollar_mode  # noqa: E402,F401
