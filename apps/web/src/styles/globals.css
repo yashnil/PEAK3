@@ -16,9 +16,12 @@
 @import "./rtt-polish.css";
 @import "./spinner.css";
 @import "./rankings.css";
-/* Arena mode partial, following the same one-owner-per-file rule as the
-   workstream partials above. Owned by The $20 Showdown; every rule in it is
-   scoped to a `.td-*` class, so it cannot reach another surface. */
+/* Arena partials, following the same one-owner-per-file rule as the workstream
+   partials above. `arena.css` owns the multiplayer lobby and the chrome both
+   game rooms share (`.ar-*`); `twenty-dollar.css` owns the auction room
+   (`.td-*`). Every rule in each is class-scoped, so neither can reach another
+   surface. */
+@import "./arena.css";
 @import "./twenty-dollar.css";
 
 /* ================================================================

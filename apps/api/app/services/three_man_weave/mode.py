@@ -71,6 +71,7 @@ from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME
 from nba_peak.three_man_weave import draft as D
 from nba_peak.three_man_weave import feasibility as F
 from nba_peak.three_man_weave.autopick import auto_pick
+from nba_peak.three_man_weave.bot import ThreeManWeaveBot
 from nba_peak.three_man_weave.config import (
     ELIGIBILITY_INDEX_VERSION,
     FORMULA_VERSION,
@@ -609,6 +610,9 @@ def _reject(code: str, message: str) -> ReducerOutput:
 #: The single registered instance.
 mode = ThreeManWeaveMode()
 
+#: The mode's own bot policy. Registered beside the mode below.
+bot = ThreeManWeaveBot()
+
 
 def register(registry_obj: Optional[object] = None) -> ThreeManWeaveMode:
     """Register this mode, defaulting to the process-wide registry.
@@ -628,6 +632,22 @@ def register(registry_obj: Optional[object] = None) -> ThreeManWeaveMode:
         registry_obj = default_registry
     registry_obj.register(mode)  # type: ignore[attr-defined]
     return mode
+
+
+def register_bot() -> ThreeManWeaveBot:
+    """Register this mode's drafting policy as the default for its bot seats.
+
+    WITHOUT THIS LINE the foundation falls back to `RandomLegalBot`, which emits
+    an EMPTY payload -- and `tmw_pick` needs a slug and a slot. Every bot seat
+    therefore submitted an invalid command, was rejected, and sat until the
+    45-second clock forfeited its turn to the auto-pick. Registration is the
+    whole fix, and `test_three_man_weave_mode.py` asserts the resolved policy is
+    this object rather than the baseline.
+    """
+    from app.services.arena import bots as bot_service
+
+    bot_service.registry.register(bot, for_modes=(MODE_NAME,))
+    return bot
 
 
 def warm_caches() -> None:
@@ -668,9 +688,13 @@ def warm_caches() -> None:
 # mode that cannot serve a request.
 warm_caches()
 register()
+register_bot()
 
 __all__ = [
     "COMMAND_PICK",
+    "ThreeManWeaveBot",
+    "bot",
+    "register_bot",
     "EVENT_MATCH_SCORED",
     "EVENT_PICK_MADE",
     "EVENT_ROLL_REVEALED",

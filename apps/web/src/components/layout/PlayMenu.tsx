@@ -39,6 +39,7 @@ import {
   BookOpen,
   CalendarDays,
   ChevronDown,
+  Gavel,
   Grid3x3,
   History,
   Infinity as InfinityIcon,
@@ -47,6 +48,7 @@ import {
   Scale,
   Swords,
   Trophy,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -76,6 +78,8 @@ const ICONS: Record<ModeIconKey, LucideIcon> = {
   history: History,
   infinity: InfinityIcon,
   calendar: CalendarDays,
+  users: Users,
+  gavel: Gavel,
 };
 
 function iconFor(key: ModeIconKey): LucideIcon {

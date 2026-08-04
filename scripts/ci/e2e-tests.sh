@@ -33,6 +33,15 @@ export PEAK3_COURTBUILDER_TEAM_SPIN_ENABLED=true
 export PEAK3_COURTBUILDER_READINESS_LEVEL=internal_dev
 export PEAK3_COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=true
 
+# The Arena's multiplayer modes. Ratings and the public leaderboard stay OFF --
+# they are deliberately not part of this release, and the browser suite must not
+# be the thing that quietly turns them on. `closed_alpha` with an EMPTY
+# allowlist is "any signed-in account", which is what the suite's test JWTs are.
+export PEAK3_ARENA_ENABLED=true
+export PEAK3_ARENA_PUBLIC_QUEUE_ENABLED=true
+export PEAK3_ARENA_BOTS_ENABLED=true
+export PEAK3_ARENA_READINESS_LEVEL=closed_alpha
+
 step "Playwright browser tests + axe accessibility"
 cd "$REPO_ROOT/apps/web"
 PLAYWRIGHT_RETRIES="${PLAYWRIGHT_RETRIES:-0}" npx playwright test "$@"

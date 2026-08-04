@@ -124,9 +124,33 @@ describe("nav model structure", () => {
     expect(navGroups().map((g) => g.id)).toEqual([
       "flagship",
       "daily",
+      "multiplayer",
       "competitive",
       "explore",
     ]);
+  });
+
+  it("exposes both multiplayer games in their own group", () => {
+    // The defect this asserts against: Three-Man Weave and The $20 Showdown
+    // were finished, playable and in NO menu at all -- reachable only by
+    // typing /arena/lobby.
+    const group = navGroups().find((g) => g.id === "multiplayer");
+    expect(group).toBeDefined();
+    expect(group?.items.map((i) => i.modeId).sort()).toEqual([
+      "three-man-weave",
+      "twenty-dollar",
+    ]);
+    for (const item of group?.items ?? []) {
+      expect(item.kind).toBe("game");
+      expect(item.href.startsWith("/arena/lobby")).toBe(true);
+    }
+  });
+
+  it("drops the multiplayer group when the arena is dark", () => {
+    const groups = navGroups({ multiplayer: false });
+    expect(groups.map((g) => g.id)).not.toContain("multiplayer");
+    // And the reachability invariant must not then complain about them.
+    expect(navModelIssues({ multiplayer: false })).toEqual([]);
   });
 
   it("ends with 'View all games' → /arena, so ArrowUp lands on the hub", () => {

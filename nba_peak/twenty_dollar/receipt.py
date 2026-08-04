@@ -32,12 +32,20 @@ from nba_peak.twenty_dollar.pool import CandidatePool, get_pool
 
 #: The match-level winner order. `(level_id, label, higher_wins)`.
 #:
-#: Roster total decides. Money left over is the tie-break, and it is deliberate
-#: that it favours the seat who spent LESS for the same result: two identical
-#: rosters are not identically well built if one cost more.
+#: ONE LEVEL, AND ONLY ONE. The roster total -- the sum of five career-best
+#: canonical 1Y PEAK3 scores -- decides the match, and nothing else does.
+#:
+#: v1 carried `budget_remaining` as a second level, on the argument that two
+#: identical rosters are not identically well built if one cost more. That is a
+#: reasonable argument and it is NOT the published rule: unspent money has no
+#: scoring value, so a match decided by it would be decided by something the
+#: rules told both players did not count. Two exactly equal totals are a draw,
+#: which is a real outcome rather than a gap to be filled.
+#:
+#: `budget_remaining` is still reported on every seat's block for the receipt to
+#: show; it simply does not decide anything.
 SETTLEMENT_ORDER: tuple[tuple[str, str, bool], ...] = (
     ("roster_total", "Roster PEAK3 total", True),
-    ("budget_remaining", "Budget remaining", True),
 )
 
 #: Rounded before comparison so IEEE-754 noise in a sum of published two-decimal
@@ -312,10 +320,10 @@ def _counterfactual(state: dict, pool: CandidatePool) -> Optional[dict]:
             continue
         winning_bid = int(record["price"])
         loser_bid = int(record["bids"][loser])
-        # To have won outright the loser needed one dollar more than the price.
-        # Equalling it would only have won with the tie-priority token, which
-        # is a different (and non-repeatable) resource -- so the honest answer
-        # is the outright number.
+        # To have taken the player the loser needed one more raise than they
+        # made: in an ascending auction the winner's price is the last standing
+        # bid, so answering it costs `price + MIN_RAISE`. There is no tie to
+        # exploit -- sequential bidding makes equal top bids unreachable.
         needed = winning_bid + 1
         cost = needed - loser_bid
         if best is None or cost < best["extra_dollars"]:

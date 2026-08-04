@@ -158,6 +158,30 @@ export const arenaLobbyApi = {
       method: "POST",
     });
   },
+
+  /** "Start with bots now" — the waiting player collapsing THEIR OWN window.
+   *  Still rated: the server derives that from the entry path, and pressing a
+   *  button must not change what a match is worth. */
+  fillWithBotsNow(mode: string): Promise<QueueStatus> {
+    return arenaFetch<QueueStatus>(`/queue/${encodeURIComponent(mode)}/fill-now`, {
+      method: "POST",
+    });
+  },
+
+  /** "Fill empty seats with bots" — the private room HOST's explicit choice.
+   *  A private room is never auto-filled; this is the host deciding out loud. */
+  fillRoomWithBots(matchId: string): Promise<ArenaMatchStub> {
+    return arenaFetch<ArenaMatchStub>(
+      `/matches/${encodeURIComponent(matchId)}/fill-bots`,
+      { method: "POST" },
+    );
+  },
+
+  /** Read one match. Used by the lobby only to watch a private room fill --
+   *  the game screens have their own richer clients. */
+  getMatch(matchId: string): Promise<ArenaMatchStub> {
+    return arenaFetch<ArenaMatchStub>(`/matches/${encodeURIComponent(matchId)}`);
+  },
 };
 
 // ---------------------------------------------------------------------------

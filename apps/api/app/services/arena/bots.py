@@ -161,11 +161,41 @@ _FALLBACK_BOT = RandomLegalBot()
 registry = BotRegistry()
 
 
+#: The product's name for the house opponent. USER-FACING, and the only string
+#: any surface may show for a bot seat.
+BOT_DISPLAY_NAME = "PEAK3 Bot"
+
+#: The one difficulty every mode currently ships. Rendered as a chip beside the
+#: name by the surfaces that want it; never part of `display_name` itself,
+#: because a roster panel reading "PEAK3 Bot · Standard 2" is worse than
+#: "PEAK3 Bot 2".
+BOT_DIFFICULTY_LABEL = "Standard"
+
+
+def bot_display_name(seat_index: int, seat_count: int) -> str:
+    """What a bot seat is CALLED.
+
+    NEVER DERIVED FROM `bot_id`. The lobby shipped "PEAK3 bot (random_legal_v1)"
+    because the seat's name was built by interpolating the policy id, so an
+    internal identifier -- one that also happened to name the wrong policy --
+    became the thing players read. The name is authored here, the id stays on
+    `ArenaSeat.bot_id` where results and ratings need it, and there is no
+    format string anywhere that can put the two together again.
+
+    Numbered only when a match seats more than one bot, so a two-seat game says
+    "PEAK3 Bot" rather than "PEAK3 Bot 1".
+    """
+    if seat_count <= 2:
+        return BOT_DISPLAY_NAME
+    return f"{BOT_DISPLAY_NAME} {seat_index}"
+
+
 def bot_seat(
     match_id: str,
     seat_index: int,
     policy: BotPolicy,
     display_name: Optional[str] = None,
+    seat_count: int = 2,
 ) -> ArenaSeat:
     """Build the seat row for a bot.
 
@@ -181,7 +211,7 @@ def bot_seat(
         occupant_kind="bot",
         bot_id=policy.bot_id,
         bot_rating=policy.rating,
-        display_name=display_name or f"PEAK3 bot ({policy.bot_id})",
+        display_name=display_name or bot_display_name(seat_index, seat_count),
     )
 
 
@@ -237,6 +267,14 @@ async def drive_bot_seat(
         )
         return None
 
+    if decision is None:
+        # The policy has no legal move. A real state (a mode that offered a
+        # command it cannot parameterise, a roll with nothing takeable), and
+        # NOT one to sit on: `drive_pending_bots` escalates it to the turn's
+        # own timeout resolution rather than letting the clock spend a full
+        # human turn on a seat that has already decided it cannot act.
+        return None
+
     request = CommandRequest(
         match_id=match.match_id,
         idempotency_key=f"bot:{match.match_id}:{seat.seat_index}:{turn_seq}",
@@ -253,6 +291,80 @@ async def drive_bot_seat(
     return await repo.apply_command(request, reducer, now)
 
 
+#: How long a bot "thinks" before its move lands, in seconds.
+#:
+#: NOT A DIFFICULTY SETTING AND NOT A FULL TURN. Two behaviours were wrong
+#: without it, in opposite directions. With no delay, a bot moved inside the
+#: same request that opened its turn, so a whole lot could resolve between two
+#: frames and the player saw a settled result they never watched happen. With
+#: the human turn timer instead, a three-seat draft against two bots spent 45
+#: seconds per bot pick and took a quarter of an hour of waiting.
+#:
+#: A short delay, enforced against `turn.opened_at`, gives the move somewhere to
+#: be seen: the client polls every couple of seconds, so the board renders the
+#: bot on the clock, then renders its move. No background worker is involved --
+#: the poll that notices the delay has elapsed is the one that drives the bot,
+#: exactly the lazy discipline `clock.enforce` uses.
+BOT_THINK_SECONDS = 1.2
+
+
+def bot_may_act_at(turn, now: datetime) -> bool:
+    """Has this bot's thinking time elapsed?
+
+    Compared against `arena_turns.opened_at`, which is stored, so two pollers
+    racing agree -- and so a client cannot shorten it by polling faster.
+    """
+    from app.repositories.arena_protocols import _utc
+
+    return (now - _utc(turn.opened_at)).total_seconds() >= BOT_THINK_SECONDS
+
+
+async def _resolve_stalled_bot_turn(
+    repo: ArenaRepository,
+    reducer: MatchReducer,
+    match_id: str,
+    turn_seq: int,
+    now: datetime,
+    seat_index: int,
+) -> bool:
+    """Close a bot's turn through the mode's own timeout path. Returns whether
+    anything was applied.
+
+    Reuses `clock.guard_timeout` and `clock.timeout_idempotency_key` rather
+    than inventing a second resolution: the guard refuses a timeout whose turn
+    is no longer the open one, and the derived key makes two concurrent pollers
+    a replay instead of a double resolution. Both properties are exactly what
+    this needs, and duplicating them here is how they drift.
+
+    Imported inside the function because `clock` and `bots` are peers in the
+    foundation package and a module-level import either way would make the
+    ordering matter.
+    """
+    from app.repositories.arena_protocols import COMMAND_TYPE_TIMEOUT
+    from app.services.arena import clock
+
+    logger.warning(
+        "arena: bot seat %d produced no legal move in match %s turn %d; "
+        "resolving the turn now instead of holding the clock",
+        seat_index, match_id, turn_seq,
+    )
+    outcome = await repo.apply_command(
+        CommandRequest(
+            match_id=match_id,
+            idempotency_key=clock.timeout_idempotency_key(match_id, turn_seq),
+            command_type=COMMAND_TYPE_TIMEOUT,
+            payload={"turn_seq": turn_seq, "seat_index": seat_index},
+            actor_sub=None,
+            actor_seat_index=seat_index,
+            expected_state_version=None,
+            issued_at=now,
+        ),
+        clock.guard_timeout(reducer, turn_seq),
+        now,
+    )
+    return bool(outcome.accepted and not outcome.replayed)
+
+
 async def drive_pending_bots(
     repo: ArenaRepository,
     mode: ArenaMode,
@@ -261,9 +373,13 @@ async def drive_pending_bots(
     now: datetime,
     max_steps: int = 12,
 ) -> int:
-    """Advance every bot seat that currently has the turn, until a human is up.
+    """Advance every bot seat whose turn has come AND whose think time elapsed.
 
     Returns how many bot commands were accepted.
+
+    A bot whose think time has not elapsed is left alone and the loop STOPS
+    rather than skipping to another seat: turns are sequential, so nothing
+    behind it can legally move either, and continuing would spin.
 
     BOUNDED BY `max_steps`. A mode whose reducer never advances the turn would
     otherwise spin here forever inside a request. The bound is a guard against a
@@ -282,6 +398,8 @@ async def drive_pending_bots(
             return steps
         turn = await repo.get_open_turn(match_id)
         if turn is None:
+            return steps
+        if not bot_may_act_at(turn, now):
             return steps
         seats = await repo.get_seats(match_id)
         if turn.seat_index is None:
@@ -308,7 +426,25 @@ async def drive_pending_bots(
             repo, mode, reducer, match, seat,
             registry.default_for(match.mode), now, turn.turn_seq,
         )
-        if outcome is None or not outcome.accepted or outcome.replayed:
+        if outcome is None or not outcome.accepted:
+            if outcome is not None and outcome.replayed:
+                return steps  # already moved this turn; nothing further to do.
+            # A BOT MUST NEVER STALL THE MATCH. Its policy produced nothing, or
+            # produced something the reducer refused. Leaving the turn open
+            # would spend a full human-length clock on a seat that has already
+            # failed to act -- eighteen of those is how a Three-Man Weave
+            # practice draft took thirteen minutes. The turn is resolved NOW
+            # through the mode's own timeout path, which every mode already
+            # implements and which produces a defined, deterministic outcome
+            # (Three-Man Weave's auto-pick; the Showdown's pass).
+            resolved = await _resolve_stalled_bot_turn(
+                repo, reducer, match_id, turn.turn_seq, now, seat.seat_index
+            )
+            if not resolved:
+                return steps
+            steps += 1
+            continue
+        if outcome.replayed:
             return steps
         steps += 1
     logger.warning(

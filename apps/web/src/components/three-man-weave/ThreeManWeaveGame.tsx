@@ -22,6 +22,8 @@ import {
   phaseOf,
   turnOrder,
 } from "@/lib/three-man-weave-state";
+import { modeMeta } from "@/lib/arena-modes";
+import HowToPlay from "@/components/arena/HowToPlay";
 import DraftOrderStrip from "./DraftOrderStrip";
 import IdentityLockPanel from "./IdentityLockPanel";
 import PickPanel from "./PickPanel";
@@ -188,8 +190,31 @@ export default function ThreeManWeaveGame({ initialMatch }: { initialMatch: TmwM
       ? "The draft is over."
       : "Waiting for the other seats.";
 
+  const meta = modeMeta("three_man_weave");
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="ar-room" data-testid="tmw-room">
+      {/* Room chrome, so a live draft reads as a PEAK3 surface rather than a
+          bare grid of panels. Round-of-six lives in `RollReveal`, which reads
+          it from the server -- it is deliberately not restated here, where a
+          test could not catch it drifting. */}
+      <header className="ar-room-head">
+        <div className="ar-room-meta">
+          <h1 className="ar-room-title">Three-Man Weave</h1>
+          <span className="ar-badge">{match.rated ? "Rated" : "Unrated"}</span>
+          {match.seats.some((seat) => seat.is_bot) ? (
+            <span className="ar-badge" data-testid="tmw-bot-badge">
+              vs PEAK3 Bot
+            </span>
+          ) : null}
+        </div>
+        <div className="ar-room-tools">
+          {meta ? (
+            <HowToPlay title={meta.name} rules={meta.rules} testId="tmw-rules" />
+          ) : null}
+        </div>
+      </header>
+
       {connection !== "live" && (
         <p
           data-testid="tmw-connection"

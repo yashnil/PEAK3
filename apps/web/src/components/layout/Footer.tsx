@@ -48,6 +48,11 @@ export const FOOTER_COLUMNS: readonly FooterColumn[] = [
       { label: "82-0 Peak Season", href: "/arena/court/daily" },
       { label: "Daily Grid", href: "/daily/grid" },
       { label: "Peak Duel", href: "/play/daily" },
+      // Fits the existing column cleanly: one entry, pointing at the lobby,
+      // which renders its own closed-alpha state rather than 403ing. A
+      // per-game footer row would have been two more links for two games
+      // that share one door.
+      { label: "Multiplayer", href: "/arena/lobby" },
       { label: "Rankings", href: "/rankings" },
     ],
   },

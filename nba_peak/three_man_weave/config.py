@@ -54,6 +54,11 @@ TMW_ADAPTER_VERSION: Final[str] = "tmw_six_player_adapter_v1"
 # be greppable.
 AUTOPICK_VERSION: Final[str] = "tmw_autopick_v1"
 
+#: The bot policy shipped with this mode. Pinned onto a seat so a later
+#: recalibration cannot retroactively change what a settled rated match was
+#: played against -- the same discipline the mode's own version strings use.
+BOT_POLICY_VERSION: Final[str] = "tmw_bot_v1"
+
 # The canonical PEAK3 formula this game speaks. peak3_v1 is the version
 # `cache/processed/scored_1980_2026.parquet` carries and the version
 # `nba_peak.perfect_season.exact_season` reads, which is what makes the
@@ -174,6 +179,7 @@ def stream_rng(seed: int | str, stream: str) -> random.Random:
 
 __all__ = [
     "AUTOPICK_VERSION",
+    "BOT_POLICY_VERSION",
     "BENCH_SLOT_TYPES",
     "DECADES",
     "ELIGIBILITY_INDEX_VERSION",

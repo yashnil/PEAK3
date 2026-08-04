@@ -71,13 +71,22 @@ export interface SubmitCommandResponse {
   match: ArenaMatchView;
 }
 
-export interface ArenaReadiness {
-  readiness_level: string;
-  arena_enabled: boolean;
-  public_queue_enabled: boolean;
-  bots_enabled: boolean;
-  modes: string[];
-}
+/**
+ * `GET /arena/readiness`.
+ *
+ * `modes` IS AN ARRAY OF OBJECTS, not of strings. This file declared
+ * `modes: string[]` while the server has published `[{id, seat_count}]` since
+ * the seat count moved server-side, and TypeScript could not catch the
+ * disagreement because nothing here is generated from the API. The consequence
+ * was silent and total: `readiness.modes.includes("three_man_weave")` compared
+ * a string against objects, returned false on every deployment, and the
+ * Three-Man Weave page rendered "not available on this deployment yet" no
+ * matter what the server said.
+ *
+ * Re-exported from `arena-lobby-api` rather than re-declared, so there is one
+ * shape for one endpoint and the next change cannot make two of them again.
+ */
+export type { ArenaModeInfo, ArenaReadiness } from "@/lib/arena-lobby-api";
 
 export interface ArenaResultView {
   seat_index: number;

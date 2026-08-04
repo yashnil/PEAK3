@@ -2,14 +2,15 @@
 
 import {
   formatDollars,
-  type ResolvedRound,
+  type LotAction,
+  type ResolvedLot,
   type SeatPublic,
   type TwentyDollarPublicState,
 } from "@/lib/twenty-dollar-api";
 import ComponentSilhouette from "./ComponentSilhouette";
 
 /**
- * The board furniture: candidate card, budget meters, rosters, tie token,
+ * The board furniture: candidate card, budget meters, rosters, lot ticker,
  * auction history.
  *
  * Every component here renders SERVER STATE VERBATIM. None of them derives a
@@ -21,41 +22,74 @@ import ComponentSilhouette from "./ComponentSilhouette";
 // ---------------------------------------------------------------------------
 
 /**
- * The card under the hammer.
+ * The card under the hammer — the centre of the room.
  *
  * Shows the name, the season, the team and the positions the player is legal
- * at -- and nothing else, because nothing else is sent. The absence of a score
- * IS the game: you are bidding on what you know about the player.
+ * at, plus the STANDING BID and who holds it. It does not show the PEAK3 score,
+ * because the server does not send one: the absence IS the game.
  *
- * `key` on the outer element is the round index, which restarts the CSS entry
- * animation on every new candidate. That is the "dramatic reveal", done with a
- * keyframe rather than a timer, so `prefers-reduced-motion` can switch it off
- * in CSS without any JavaScript branch.
+ * `key` on the outer element is the lot index, which restarts the CSS entry
+ * animation on every new candidate. That is the arrival moment, done with a
+ * keyframe rather than a timer, so `prefers-reduced-motion` switches it off in
+ * CSS with no JavaScript branch.
  */
 export function CandidateCard({
   publicState,
   fits,
+  seatNames,
+  yourSeat,
+  secondsRemaining,
 }: {
   publicState: TwentyDollarPublicState;
   fits: string[];
+  seatNames: string[];
+  yourSeat: number | null;
+  secondsRemaining: number | null;
 }) {
   const candidate = publicState.candidate;
   if (!candidate) return null;
+  const holder = publicState.high_bidder;
+  const active = publicState.active_seat;
+  const yourTurn = active !== null && active === yourSeat;
+
   return (
     <article
-      key={publicState.round_index}
+      key={publicState.lot_index}
       className="td-candidate td-enter"
       data-testid="td-candidate"
-      aria-live="polite"
+      data-lot={publicState.lot_index}
     >
-      <p className="td-candidate-lot">Lot {publicState.round_index + 1}</p>
+      <header className="td-candidate-head">
+        <p className="td-candidate-lot" data-testid="td-lot-number">
+          Lot {publicState.lot_index + 1}
+        </p>
+        <p
+          className={yourTurn ? "td-turn td-turn-yours" : "td-turn"}
+          data-testid="td-turn-indicator"
+          data-your-turn={yourTurn ? "true" : "false"}
+          aria-live="polite"
+        >
+          {active === null
+            ? "Settling…"
+            : yourTurn
+              ? "Your move"
+              : `${seatNames[active] ?? "Opponent"} to act`}
+          {secondsRemaining !== null && yourTurn ? (
+            <span className="td-turn-clock" data-testid="td-turn-clock">
+              {Math.ceil(secondsRemaining)}s
+            </span>
+          ) : null}
+        </p>
+      </header>
+
       <h2 className="td-candidate-name" data-testid="td-candidate-name">
         {candidate.player_name}
       </h2>
-      <p className="td-candidate-meta">
+      <p className="td-candidate-meta" data-testid="td-candidate-season">
         {candidate.anchor_season}
         {candidate.team ? ` · ${candidate.team}` : ""}
       </p>
+
       <ul className="td-position-list" aria-label="Eligible positions">
         {candidate.positions.map((position) => (
           <li
@@ -69,10 +103,63 @@ export function CandidateCard({
           </li>
         ))}
       </ul>
+
+      <div className="td-standing" data-testid="td-standing-bid">
+        <span className="td-standing-label">Standing bid</span>
+        <span className="td-standing-amount" data-testid="td-standing-amount">
+          {publicState.current_bid > 0 ? formatDollars(publicState.current_bid) : "—"}
+        </span>
+        <span className="td-standing-holder" data-testid="td-standing-holder">
+          {publicState.current_bid > 0
+            ? holder === yourSeat
+              ? "you"
+              : (seatNames[holder ?? -1] ?? "opponent")
+            : "no bid yet"}
+        </span>
+      </div>
+
       <p className="td-candidate-hint">
-        Peak season only. The score is sealed until both bids are in.
+        The PEAK3 score is sealed until this lot sells.
       </p>
     </article>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Live lot ticker
+// ---------------------------------------------------------------------------
+
+/** Every action taken on the LIVE lot, oldest first. Small, and the thing that
+ *  makes an alternating auction legible: you can see the walk-up. */
+export function LotTicker({
+  actions,
+  seatNames,
+  yourSeat,
+}: {
+  actions: LotAction[];
+  seatNames: string[];
+  yourSeat: number | null;
+}) {
+  if (actions.length === 0) return null;
+  return (
+    <ol className="td-ticker" data-testid="td-lot-ticker" aria-label="Bidding so far">
+      {actions.map((action, index) => (
+        <li key={index} className="td-ticker-item">
+          <span className="td-ticker-who">
+            {action.seat_index === yourSeat
+              ? "You"
+              : (seatNames[action.seat_index] ?? `Seat ${action.seat_index}`)}
+          </span>
+          <span className="td-ticker-what">
+            {action.action === "bid"
+              ? formatDollars(action.amount)
+              : action.timed_out
+                ? "timed out"
+                : "passed"}
+          </span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -86,16 +173,37 @@ export function BudgetMeter({
   seat,
   startingBudget = 20,
   label,
+  isYou,
+  isActive,
+  isOpener,
 }: {
   seat: SeatPublic;
   startingBudget?: number;
   label: string;
+  isYou: boolean;
+  isActive: boolean;
+  isOpener: boolean;
 }) {
   const pct = Math.max(0, Math.min(100, (seat.budget / startingBudget) * 100));
   return (
-    <div className="td-budget" data-testid={`td-budget-${seat.seat_index}`}>
+    <div
+      className={isActive ? "td-budget td-budget-active" : "td-budget"}
+      data-testid={`td-budget-${seat.seat_index}`}
+      data-active={isActive ? "true" : "false"}
+    >
       <div className="td-budget-head">
-        <span className="td-budget-name">{label}</span>
+        <span className="td-budget-name">
+          {label}
+          {isOpener ? (
+            <span
+              className="td-opener"
+              data-testid={`td-opener-${seat.seat_index}`}
+              title="Opens the bidding on this lot"
+            >
+              Opens
+            </span>
+          ) : null}
+        </span>
         <span className="td-budget-amount">{formatDollars(seat.budget)}</span>
       </div>
       <div
@@ -104,13 +212,13 @@ export function BudgetMeter({
         aria-valuemin={0}
         aria-valuemax={startingBudget}
         aria-valuenow={seat.budget}
-        aria-label={`${label} budget remaining`}
+        aria-label={`${isYou ? "Your" : `${label}'s`} budget remaining`}
       >
         <div className="td-budget-fill" style={{ width: `${pct}%` }} />
       </div>
       <p className="td-budget-slots">
-        {seat.filled_slots} of 5 slots filled
-        {seat.locked && !seat.roster_full ? " · locked in" : ""}
+        {seat.filled_slots} of 5 filled
+        {seat.roster_full ? " · complete" : seat.in_lot ? "" : " · out of this lot"}
       </p>
     </div>
   );
@@ -137,9 +245,16 @@ export function RosterBoard({
   slots: string[];
   label: string;
 }) {
-  const bySlot = new Map(seat.roster.filter((r) => r.slot).map((r) => [r.slot as string, r]));
+  const bySlot = new Map(
+    seat.roster.filter((r) => r.slot).map((r) => [r.slot as string, r]),
+  );
   return (
-    <section className="td-roster" aria-label={`${label} roster`} data-testid={`td-roster-${seat.seat_index}`}>
+    <section
+      className="td-roster"
+      aria-label={`${label} roster`}
+      data-testid={`td-roster-${seat.seat_index}`}
+    >
+      <h3 className="td-roster-title">{label}</h3>
       <ol className="td-slot-list">
         {slots.map((slot) => {
           const entry = bySlot.get(slot);
@@ -153,13 +268,16 @@ export function RosterBoard({
               {entry ? (
                 <span className="td-slot-body">
                   <span className="td-slot-name">{entry.player_name}</span>
-                  <span className="td-slot-price">
-                    {entry.autofilled ? "auto" : formatDollars(entry.price)}
+                  <span className="td-slot-sub">
+                    {entry.anchor_season} · {entry.prime_score.toFixed(1)}
                   </span>
                 </span>
               ) : (
                 <span className="td-slot-empty">Open</span>
               )}
+              <span className="td-slot-price">
+                {entry ? (entry.autofilled ? "auto" : formatDollars(entry.price)) : ""}
+              </span>
             </li>
           );
         })}
@@ -169,47 +287,17 @@ export function RosterBoard({
 }
 
 // ---------------------------------------------------------------------------
-// Tie priority
-// ---------------------------------------------------------------------------
-
-/** The token, always visible. It is decided from the match seed and published
- *  before the first lot, so it is never a surprise at the moment it matters. */
-export function TiePriorityToken({
-  holderSeat,
-  holderName,
-  youHoldIt,
-}: {
-  holderSeat: number;
-  holderName: string;
-  youHoldIt: boolean;
-}) {
-  return (
-    <div
-      className={youHoldIt ? "td-token td-token-yours" : "td-token"}
-      data-testid="td-tie-token"
-      data-holder={holderSeat}
-    >
-      <span className="td-token-dot" aria-hidden="true" />
-      <span>
-        Tie priority: <strong>{youHoldIt ? "you" : holderName}</strong>
-      </span>
-      <span className="td-token-hint">Wins a level bid, then passes over.</span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // History
 // ---------------------------------------------------------------------------
 
-/** Every settled lot, newest first, with both bids and the full card. After a
- *  round resolves the amounts ARE the result, so they are shown in full. */
+/** Every settled lot, newest first, with the price and the full card. Once a
+ *  lot resolves the amounts ARE the result, so they are shown in full. */
 export function AuctionHistory({
   history,
   seatNames,
   yourSeat,
 }: {
-  history: ResolvedRound[];
+  history: ResolvedLot[];
   seatNames: string[];
   yourSeat: number | null;
 }) {
@@ -219,39 +307,32 @@ export function AuctionHistory({
       <h3 id="td-history-heading" className="td-history-heading">
         Settled lots
       </h3>
-      <ol className="td-history-list">
-        {[...history].reverse().map((round) => {
-          const won = round.winner_seat;
+      {/* `tabIndex={0}` because this list SCROLLS. A scrollable region whose
+          content holds no focusable element is unreachable by keyboard --
+          axe's `scrollable-region-focusable`, and a real defect once the
+          history grows past its max-height. The rows are static text, so the
+          container itself takes focus. */}
+      <ol className="td-history-list" tabIndex={0} aria-labelledby="td-history-heading">
+        {[...history].reverse().map((lot) => {
+          const won = lot.winner_seat;
           return (
             <li
-              key={round.round_index}
+              key={lot.lot_index}
               className="td-history-row"
-              data-testid={`td-history-${round.round_index}`}
+              data-testid={`td-history-${lot.lot_index}`}
             >
               <div className="td-history-main">
-                <span className="td-history-name">{round.candidate.player_name}</span>
+                <span className="td-history-name">{lot.candidate.player_name}</span>
                 <span className="td-history-score">
-                  {round.candidate.prime_score.toFixed(2)}
+                  {lot.candidate.prime_score.toFixed(1)}
                 </span>
-              </div>
-              <div className="td-history-bids">
-                {round.bids.map((bid, index) => (
-                  <span
-                    key={index}
-                    className={index === won ? "td-bid-chip td-bid-chip-won" : "td-bid-chip"}
-                    data-testid={`td-history-bid-${round.round_index}-${index}`}
-                  >
-                    {seatNames[index] ?? `Seat ${index}`}{" "}
-                    {round.timed_out[index] ? "—" : formatDollars(bid)}
-                  </span>
-                ))}
               </div>
               <p className="td-history-verdict">
                 {won === null
                   ? "Unsold — both passed."
-                  : `${won === yourSeat ? "You" : seatNames[won] ?? `Seat ${won}`} won for ${formatDollars(round.price)}${
-                      round.decided_by === "tie_priority" ? " on tie priority" : ""
-                    }.`}
+                  : `${won === yourSeat ? "You" : (seatNames[won] ?? `Seat ${won}`)} ${
+                      lot.decided_by === "autofill" ? "auto-filled" : "won"
+                    } for ${formatDollars(lot.price)}.`}
               </p>
             </li>
           );
@@ -266,49 +347,46 @@ export function AuctionHistory({
 // ---------------------------------------------------------------------------
 
 /**
- * The simultaneous reveal for the round that just settled.
+ * The lot that just settled, revealed in full.
  *
- * This is where the radar appears -- see `ComponentSilhouette`'s docstring for
- * why it cannot appear before the round resolves.
+ * This is where the score, the career-best season and the radar appear -- see
+ * `ComponentSilhouette`'s docstring for why none of it can appear before the
+ * lot resolves.
  */
-export function RoundReveal({
-  round,
+export function LotReveal({
+  lot,
   seatNames,
   yourSeat,
 }: {
-  round: ResolvedRound;
+  lot: ResolvedLot;
   seatNames: string[];
   yourSeat: number | null;
 }) {
-  const won = round.winner_seat;
+  const won = lot.winner_seat;
+  const slot = (lot.slot_options ?? [])[0];
   return (
-    <section className="td-reveal td-enter" data-testid="td-round-reveal" aria-live="polite">
-      <h3 className="td-reveal-name">{round.candidate.player_name}</h3>
+    <section
+      className="td-reveal td-enter"
+      data-testid="td-lot-reveal"
+      aria-live="polite"
+    >
+      <p className="td-reveal-lot">Lot {lot.lot_index + 1} · sold</p>
+      <h3 className="td-reveal-name">{lot.candidate.player_name}</h3>
+      <p className="td-reveal-season" data-testid="td-reveal-season">
+        Career-best season {lot.candidate.anchor_season}
+        {lot.candidate.team ? ` · ${lot.candidate.team}` : ""}
+      </p>
       <p className="td-reveal-score" data-testid="td-reveal-score">
-        {round.candidate.prime_score.toFixed(2)}
+        {lot.candidate.prime_score.toFixed(2)}
         <span className="td-reveal-score-label"> PEAK3</span>
       </p>
-      {round.candidate.component_index ? (
-        <ComponentSilhouette componentIndex={round.candidate.component_index} />
+      {lot.candidate.component_index ? (
+        <ComponentSilhouette componentIndex={lot.candidate.component_index} />
       ) : null}
-      <div className="td-reveal-bids">
-        {round.bids.map((bid, index) => (
-          <span
-            key={index}
-            className={index === won ? "td-bid-chip td-bid-chip-won" : "td-bid-chip"}
-            data-testid={`td-reveal-bid-${index}`}
-          >
-            {index === yourSeat ? "You" : seatNames[index] ?? `Seat ${index}`}{" "}
-            {round.timed_out[index] ? "no bid" : formatDollars(bid)}
-          </span>
-        ))}
-      </div>
-      <p className="td-reveal-verdict">
+      <p className="td-reveal-verdict" data-testid="td-reveal-verdict">
         {won === null
           ? "Nobody bid. The lot leaves the board."
-          : `${won === yourSeat ? "You take" : `${seatNames[won] ?? `Seat ${won}`} takes`} it for ${formatDollars(round.price)}${
-              round.decided_by === "tie_priority" ? ", on tie priority" : ""
-            }.`}
+          : `${won === yourSeat ? "You take" : `${seatNames[won] ?? `Seat ${won}`} takes`} it for ${formatDollars(lot.price)}${slot ? ` at ${slot}` : ""}.`}
       </p>
     </section>
   );

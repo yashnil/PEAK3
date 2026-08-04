@@ -169,6 +169,30 @@ def mode_rng(seed: int, stream: str) -> random.Random:
     return random.Random(f"arena:{seed}:{stream}")
 
 
+def initial_turn_seat(mode: ArenaMode, snapshot: dict) -> Optional[int]:
+    """Which seat the FIRST turn of a match belongs to.
+
+    OPTIONAL PART OF THE CONTRACT, resolved here rather than required of every
+    mode. A mode that opens on seat 0 -- Three-Man Weave, whose snake order
+    starts at A -- needs to say nothing. A mode whose first actor is decided by
+    the seed implements `initial_turn_seat(snapshot)` and returns it.
+
+    This function exists because `matchmaking._open_play` used to hardcode
+    `seat_index=0`. For The $20 Showdown that was wrong half the time: the
+    opening bidder is drawn from the match seed, so the rules could say seat 1
+    must act while the clock belonged to seat 0 -- a seat with no legal move
+    holding a deadline, and an opener with a legal move holding none. Neither
+    player could act, and the turn expired against the wrong person.
+
+    A mode returning None means "no seat in particular", which the foundation
+    stores as a simultaneous turn.
+    """
+    hook = getattr(mode, "initial_turn_seat", None)
+    if hook is None:
+        return 0
+    return hook(snapshot)
+
+
 def turn_deadline(mode: ArenaMode, opened_at) -> TurnDraft:
     """Helper for the common 'open the next turn for this seat' case.
 

@@ -45,6 +45,7 @@ from nba_peak.twenty_dollar.config import (
     COMPONENT_FIELDS,
     MODEL_VERSION,
     POOL_WINDOW,
+    QUALIFIED_POOL_SIZE,
     SLOTS,
 )
 
@@ -156,6 +157,9 @@ class CandidatePool:
         for candidate in self._candidates:
             for variant in slug_variants(candidate.player_slug):
                 self._by_slug.setdefault(variant, candidate)
+        self._qualified: tuple[Candidate, ...] = tuple(
+            c for c in self._candidates if c.rank <= QUALIFIED_POOL_SIZE
+        )
 
     def __len__(self) -> int:
         return len(self._candidates)
@@ -180,6 +184,35 @@ class CandidatePool:
 
     def eligible_for(self, slot: str) -> tuple[Candidate, ...]:
         return tuple(c for c in self._candidates if slot in c.positions)
+
+    @property
+    def qualified(self) -> tuple[Candidate, ...]:
+        """The candidates a match may actually offer: the top
+        `QUALIFIED_POOL_SIZE` by published career-best 1Y rank.
+
+        A VIEW, NOT A SECOND POOL. `get()` still resolves every row in the
+        artifact, because a settled match played under an older, deeper cut
+        must still be able to look its own purchases up. Only the DRAW is
+        narrowed, which is the whole of the change: no score is recomputed and
+        no row is deleted.
+
+        `rank` is the artifact's own ordering, so the cut is on published data
+        rather than on anything derived here.
+        """
+        return self._qualified
+
+    def tier(self, first_rank: int, last_rank: int) -> tuple[Candidate, ...]:
+        """Qualified candidates whose published rank falls in `[first, last]`."""
+        return tuple(
+            c for c in self._qualified if first_rank <= c.rank <= last_rank
+        )
+
+    def is_qualified(self, player_slug: str) -> bool:
+        for variant in slug_variants(player_slug):
+            found = self._by_slug.get(variant)
+            if found is not None:
+                return found.rank <= QUALIFIED_POOL_SIZE
+        return False
 
     def slot_counts(self) -> dict[str, int]:
         return {slot: len(self.eligible_for(slot)) for slot in SLOTS}

@@ -55,6 +55,7 @@ from app.repositories.arena_protocols import (
     SeatUnavailable,
 )
 from app.services.arena import bots as bot_service
+from app.services.arena import modes as mode_seam
 from app.services.arena.modes import ArenaMode
 
 logger = logging.getLogger(__name__)
@@ -170,7 +171,11 @@ async def start_practice(
     )
     seats = [_human_seat(match.match_id, 0, owner_sub, display_name)]
     for index in range(1, mode.seat_count):
-        seats.append(bot_service.bot_seat(match.match_id, index, policy))
+        seats.append(
+            bot_service.bot_seat(
+                match.match_id, index, policy, seat_count=mode.seat_count
+            )
+        )
     return await _create_and_open(repo, mode, match, seats, now)
 
 
@@ -351,7 +356,11 @@ async def _pair(
         if not fill_with_bots:
             return None
         for index in range(len(seats), mode.seat_count):
-            seats.append(bot_service.bot_seat(match.match_id, index, policy))
+            seats.append(
+            bot_service.bot_seat(
+                match.match_id, index, policy, seat_count=mode.seat_count
+            )
+        )
 
     claimed = await repo.claim_entries_into_match(
         [e.entry_id for e in entries[: mode.seat_count]], match, seats, now
@@ -457,7 +466,11 @@ async def fill_private_room_with_bots(
         # does not take it, and the loop moves on to the next empty index.
         # Never both, and never a rollback of the human's join.
         try:
-            await repo.add_seat(bot_service.bot_seat(match.match_id, index, policy))
+            await repo.add_seat(
+                bot_service.bot_seat(
+                    match.match_id, index, policy, seat_count=match.seat_count
+                )
+            )
         except SeatUnavailable:
             logger.info(
                 "arena: seat %d of %s was taken while filling with bots",
@@ -522,6 +535,9 @@ async def _open_play(
                 rejection_message="This match has already started.",
             )
         snapshot = mode.initial_snapshot(data.match.seed, data.seats)
+        # WHICH SEAT OPENS IS THE MODE'S TO SAY, not this function's. See
+        # `modes.initial_turn_seat` for the defect a hardcoded 0 caused.
+        first_seat = mode_seam.initial_turn_seat(mode, snapshot)
         return ReducerOutput(
             accepted=True,
             snapshot=snapshot,
@@ -539,7 +555,7 @@ async def _open_play(
             open_turn=TurnDraft(
                 phase=mode.initial_phase(),
                 deadline_at=data.now + timedelta(seconds=mode.turn_seconds),
-                seat_index=0,
+                seat_index=first_seat,
             ),
         )
 

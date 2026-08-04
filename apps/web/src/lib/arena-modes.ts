@@ -21,6 +21,13 @@
  * than kept alongside. Two sources for one number is how they drift, and the
  * first symptom would have been a lobby advertising three seats for a two-seat
  * game.
+ *
+ * `MATCH PATH` IS THE ROUTE THAT MUST EXIST. `three_man_weave` published
+ * `/arena/three-man-weave/<id>` here while the app only had
+ * `/arena/three-man-weave?match=<id>`, so every created match navigated
+ * straight into a Next.js 404 — matchmaking worked perfectly and the game was
+ * unreachable. `arena-routes.test.ts` now asserts each `matchPath` against the
+ * App Router directory tree, so the two cannot disagree again.
  */
 
 import type { ArenaModeInfo } from "@/lib/arena-lobby-api";
@@ -30,27 +37,57 @@ export interface ArenaModeMeta {
   id: string;
   name: string;
   tagline: string;
+  /** One sentence on what the game IS. Shown on the lobby card. */
   description: string;
+  /** Approximate wall-clock length, for the card's fact row. */
+  duration: string;
+  /** "Multiplayer" / "Auction" — the badge that says what kind of game it is. */
+  kindBadge: string;
   /** Where a live match of this mode is played. */
   matchPath: (matchId: string) => string;
+  /** The rules a "How to play" disclosure lists, shortest first. */
+  rules: readonly string[];
 }
 
 export const ARENA_MODES: readonly ArenaModeMeta[] = [
   {
-    id: "twenty_dollar",
-    name: "The $20 Showdown",
-    tagline: "Two players · sealed bids · $20",
-    description:
-      "One player at a time comes up for auction. You each bid in secret; the higher bid wins and pays. Build a legal PG–C starting five for twenty dollars.",
-    matchPath: (matchId) => `/arena/twenty-dollar/${matchId}`,
-  },
-  {
     id: "three_man_weave",
     name: "Three-Man Weave",
-    tagline: "Three players · snake draft",
+    tagline: "Three drafters · six shared rolls",
     description:
-      "A three-way draft across franchises and decades. Every pick narrows what the next player can take.",
+      "Six rounds, one shared franchise and decade per round, and a snake order that reverses every time. Every name taken is gone for all three rosters.",
+    duration: "10–15 min",
+    kindBadge: "Multiplayer",
     matchPath: (matchId) => `/arena/three-man-weave/${matchId}`,
+    rules: [
+      "Three drafters share one board.",
+      "Six rounds. Each opens a franchise × decade roll that every seat drafts from.",
+      "The order snakes: A-B-C, then C-B-A, and back again.",
+      "Six roster slots each — PG, SG, SF, PF, C and one bench.",
+      "A player drafted by anyone is locked for everyone.",
+      "A pick is scored on that player's best PEAK3 season anywhere in the drafted decade.",
+      "The strongest lineup by PEAK3's own lineup rating wins.",
+    ],
+  },
+  {
+    id: "twenty_dollar",
+    name: "The $20 Showdown",
+    tagline: "Two bidders · $20 each",
+    description:
+      "One player at a time goes on the block. Bids alternate upward a dollar at a time, and the PEAK3 score stays hidden until the hammer falls.",
+    duration: "8–12 min",
+    kindBadge: "Auction",
+    matchPath: (matchId) => `/arena/twenty-dollar/${matchId}`,
+    rules: [
+      "Two bidders, $20 each.",
+      "One candidate is auctioned at a time; the opening bidder alternates every lot.",
+      "With no bid standing you may open at $1 or pass. Once a bid stands, raise by at least $1 or pass.",
+      "Passing removes you from that lot — the last bidder standing wins and pays their bid.",
+      "Fill one player at each of PG, SG, SF, PF and C.",
+      "Keep at least $1 for every slot you still have to fill.",
+      "The player's PEAK3 score is hidden until the lot sells.",
+      "The higher total of five career-best 1Y PEAK3 scores wins. Leftover money counts for nothing.",
+    ],
   },
 ] as const;
 
@@ -83,6 +120,11 @@ export function offerableModes(
   });
 }
 
+/** "3 players" / "2 players", from the server's own seat count. */
+export function seatLabel(seatCount: number): string {
+  return `${seatCount} player${seatCount === 1 ? "" : "s"}`;
+}
+
 // ---------------------------------------------------------------------------
 // Entry paths
 // ---------------------------------------------------------------------------
@@ -92,6 +134,8 @@ export type EntryPathId = "public_queue" | "private_room" | "practice";
 export interface EntryPathMeta {
   id: EntryPathId;
   name: string;
+  /** One short line. NOT a paragraph — the brief is explicit that obvious
+   *  actions must not be explained at length. */
   description: string;
   /**
    * Whether a match started this way counts towards a rating.
@@ -103,36 +147,39 @@ export interface EntryPathMeta {
    * Once a match exists, components read `view.rated` from the server.
    */
   rated: boolean;
-  /** What the player needs to know before choosing. */
-  note: string;
 }
 
 export const ENTRY_PATHS: readonly EntryPathMeta[] = [
   {
     id: "public_queue",
     name: "Public match",
-    description: "Play a stranger. We look for a human first.",
+    description: "Find opponents. Bots fill any empty seat after 30 seconds.",
     rated: true,
-    note:
-      "Rated. We hold out for a human opponent for 30 seconds; after that the remaining seats are filled with bots and the match still counts.",
   },
   {
     id: "private_room",
-    name: "Private game",
-    description: "Play someone you know with a six-character code.",
+    name: "Private room",
+    description: "Share a six-character code.",
     rated: false,
-    note:
-      "Unrated. A private room is never filled automatically — it starts the moment every seat is taken.",
   },
   {
     id: "practice",
     name: "Play bots",
-    description: "Start immediately against the house bot.",
+    description: "Start now against PEAK3 Bot.",
     rated: false,
-    note: "Unrated. Starts straight away.",
   },
 ] as const;
+
+export function entryPath(id: EntryPathId): EntryPathMeta {
+  const found = ENTRY_PATHS.find((p) => p.id === id);
+  if (!found) throw new Error(`unknown arena entry path ${id}`);
+  return found;
+}
 
 /** The window the matchmaker holds out for humans, mirrored from
  *  `matchmaking.HUMAN_PREFERENCE_WINDOW` for display copy only. */
 export const HUMAN_PREFERENCE_SECONDS = 30;
+
+/** What the product calls the house opponent. Mirrors `bots.BOT_DISPLAY_NAME`;
+ *  an implementation id must never reach a screen. */
+export const BOT_DISPLAY_NAME = "PEAK3 Bot";

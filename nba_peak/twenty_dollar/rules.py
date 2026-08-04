@@ -1,17 +1,30 @@
-"""Budget, sealed-bid resolution, and the tie-priority token.
+"""Budget arithmetic and the ascending-auction step rules.
 
 Every rule in this module is integer arithmetic over whole dollars. That is a
-correctness requirement, not a style choice: a sealed-bid auction compared with
-floats would let two bids a player entered as "7" differ by 1e-16 and route to
-the tie-break by accident, and the tie-break consumes a one-shot token. Money
-here is `int` from the request boundary to the receipt.
+correctness requirement, not a style choice: an auction compared with floats
+would let a "$7" raise land a thousandth of a dollar under the standing bid and
+be refused for no reason a player could see. Money here is `int` from the
+request boundary to the receipt.
+
+WHAT LEFT IN v2, AND WHY IT LEFT
+---------------------------------
+v1 was a sealed-bid auction: both seats submitted a hidden amount, the higher
+took the player, and EQUAL amounts were broken by a one-shot `tie_priority`
+token. v2 bids sequentially -- one seat acts, then the other, each seeing the
+standing bid -- so two equal top bids are not reachable: to match the standing
+bid you would have to raise to it, and a raise must clear it by at least
+`MIN_RAISE`. A tie-break for a state that cannot occur is a rule readers have
+to learn and nobody can ever use, so `resolve`, `BID_ORDER`, `BidOutcome`,
+`initial_tie_priority` and `next_tie_priority` are gone rather than kept
+alongside. `state.py` is the only caller of what remains.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Optional
 
 from nba_peak.twenty_dollar.config import (
+    MIN_OPENING_BID,
+    MIN_RAISE,
     MIN_RESERVE_PER_SLOT,
     ROSTER_SIZE,
     STARTING_BUDGET,
@@ -23,7 +36,7 @@ from nba_peak.twenty_dollar.config import (
 
 
 def max_legal_bid(budget: int, filled_slots: int, *, roster_size: int = ROSTER_SIZE) -> int:
-    """The most this seat may bid on the candidate in front of them.
+    """The most this seat may commit to the lot in front of them.
 
     THE RESERVE RULE. Every slot that will still be unfilled AFTER this
     purchase must remain affordable, at `MIN_RESERVE_PER_SLOT` dollars each:
@@ -31,19 +44,19 @@ def max_legal_bid(budget: int, filled_slots: int, *, roster_size: int = ROSTER_S
         slots_open_after = roster_size - filled_slots - 1
         max_bid          = budget - slots_open_after * MIN_RESERVE_PER_SLOT
 
-    Worked, using the brief's own example: a seat holding $11 with 3 empty
-    slots has `filled_slots = 2`, so `slots_open_after = 5 - 2 - 1 = 2` and
-    `max_bid = 11 - 2 = 9`. Spending $9 leaves $2 for 2 slots, which is exactly
-    the floor rather than a dollar under it.
+    Worked, using the brief's own example: a seat holding $20 with five empty
+    slots has `filled_slots = 0`, so `slots_open_after = 5 - 0 - 1 = 4` and
+    `max_bid = 20 - 4 = 16`. Winning at $16 leaves $4 for the four remaining
+    slots, which is exactly the floor rather than a dollar under it.
 
     Why the reserve is enforced on the SERVER and never read from a request:
-    the client's copy of a budget is a display, and a bid of "all of it" that
+    the client's copy of a budget is a display, and a raise of "all of it" that
     happened to arrive after a concurrent state change would otherwise buy a
-    roster that cannot be completed. `state.submit_bid` clamps against this
+    roster that cannot be completed. `state.submit_action` clamps against this
     function; there is no request field that can disagree with it.
 
     Never negative. A seat whose budget has somehow fallen below its own
-    reserve floor can still bid 0 (pass), which is always legal.
+    reserve floor can still pass, which is always legal.
     """
     slots_open_after = max(0, roster_size - filled_slots - 1)
     return max(0, budget - slots_open_after * MIN_RESERVE_PER_SLOT)
@@ -67,180 +80,78 @@ def is_solvent(budget: int, filled_slots: int, *, roster_size: int = ROSTER_SIZE
 
 
 # ---------------------------------------------------------------------------
-# Sealed-bid resolution
+# The ascending step
 # ---------------------------------------------------------------------------
 
-#: The auction order, as a tuple that IS the ordering.
-#:
-#: `resolve` walks this and does nothing else, so there is no second place the
-#: order is written down and no way for a displayed order and an applied order
-#: to drift apart. Copied in shape from
-#: `apps/api/app/services/head_to_head.py:455-472`, whose docstring gives the
-#: full argument.
-#:
-#: `(level_id, label, higher_wins)`.
-BID_ORDER: tuple[tuple[str, str, bool], ...] = (
-    ("bid_amount", "Bid", True),
-    ("tie_priority", "Tie priority", True),
-)
 
+def minimum_bid(current_bid: int) -> int:
+    """The smallest amount the seat on the clock may name.
 
-@dataclass(frozen=True)
-class BidOutcome:
-    """How one candidate's round resolved, in full.
-
-    `levels` reports EVERY level with both values and its verdict, including
-    the ones that did not decide -- marked `not_consulted` rather than omitted,
-    because a receipt that showed a lower level "winning" would imply a rule
-    that does not exist. Same construction as the head-to-head settlement.
+    `MIN_OPENING_BID` when the lot has no live bid, and `current_bid +
+    MIN_RAISE` once it does. Written once here rather than at each call site,
+    because a UI that computed its own floor and a server that computed
+    another is exactly how a "Bid $4" button starts producing `bid_too_low`.
     """
-
-    winner_seat: Optional[int]
-    price: int
-    decided_by: Optional[str]
-    levels: tuple[dict, ...]
-    #: True when the token was actually spent, which is the only thing that
-    #: moves it. A round both seats passed does not consume priority.
-    tie_priority_used: bool
+    if current_bid <= 0:
+        return MIN_OPENING_BID
+    return int(current_bid) + MIN_RAISE
 
 
-def resolve(
-    bids: Sequence[Optional[int]],
-    tie_priority_seat: int,
-) -> BidOutcome:
-    """Decide one sealed-bid round.
+def can_afford_minimum(
+    budget: int, filled_slots: int, current_bid: int, *, roster_size: int = ROSTER_SIZE
+) -> bool:
+    """Is there any legal bid left for this seat on this lot?
 
-    `bids[i]` is seat i's locked amount, or None for a seat that never locked --
-    treated as `TIMEOUT_BID` (a pass) by the caller before it reaches here.
-
-    Rules, in the published order:
-      * Highest bid wins and pays its own bid. This is a first-price auction:
-        the winner pays what they said, the loser pays nothing.
-      * A bid of 0 is a pass. Two passes leave the candidate unsold.
-      * Equal NON-ZERO bids go to the tie-priority holder, who then loses the
-        token. Equal ZERO bids are two passes, not a tie -- no token is spent,
-        because no tie-break happened.
+    False means the ONLY move available is a pass -- which the projection has
+    to be able to say out loud, because a disabled bid button with no reason
+    beside it reads as a broken control rather than as a rule.
     """
-    amounts = [0 if b is None else int(b) for b in bids]
-    top = max(amounts) if amounts else 0
-
-    if top <= 0:
-        levels = (
-            {
-                "level": "bid_amount",
-                "label": "Bid",
-                "higher_wins": True,
-                "values": list(amounts),
-                "verdict": "all_passed",
-            },
-            {
-                "level": "tie_priority",
-                "label": "Tie priority",
-                "higher_wins": True,
-                "values": [int(i == tie_priority_seat) for i in range(len(amounts))],
-                "verdict": "not_consulted",
-            },
-        )
-        return BidOutcome(
-            winner_seat=None,
-            price=0,
-            decided_by=None,
-            levels=levels,
-            tie_priority_used=False,
-        )
-
-    leaders = [i for i, a in enumerate(amounts) if a == top]
-    levels: list[dict] = []
-
-    if len(leaders) == 1:
-        winner = leaders[0]
-        decided_by = "bid_amount"
-        used_token = False
-        levels.append(
-            {
-                "level": "bid_amount",
-                "label": "Bid",
-                "higher_wins": True,
-                "values": list(amounts),
-                "verdict": f"seat_{winner}",
-            }
-        )
-        levels.append(
-            {
-                "level": "tie_priority",
-                "label": "Tie priority",
-                "higher_wins": True,
-                "values": [int(i == tie_priority_seat) for i in range(len(amounts))],
-                "verdict": "not_consulted",
-            }
-        )
-    else:
-        # A genuine tie at a non-zero amount. The token decides and is spent.
-        winner = tie_priority_seat if tie_priority_seat in leaders else leaders[0]
-        decided_by = "tie_priority"
-        used_token = True
-        levels.append(
-            {
-                "level": "bid_amount",
-                "label": "Bid",
-                "higher_wins": True,
-                "values": list(amounts),
-                "verdict": "tied",
-            }
-        )
-        levels.append(
-            {
-                "level": "tie_priority",
-                "label": "Tie priority",
-                "higher_wins": True,
-                "values": [int(i == tie_priority_seat) for i in range(len(amounts))],
-                "verdict": f"seat_{winner}",
-            }
-        )
-
-    return BidOutcome(
-        winner_seat=winner,
-        price=top,
-        decided_by=decided_by,
-        levels=tuple(levels),
-        tie_priority_used=used_token,
+    return minimum_bid(current_bid) <= max_legal_bid(
+        budget, filled_slots, roster_size=roster_size
     )
 
 
-def next_tie_priority(current: int, outcome: BidOutcome, *, seat_count: int = 2) -> int:
-    """Where the token sits after this round.
+def is_whole_dollars(amount: object) -> bool:
+    """Whole-dollar integer, and NOT a bool.
 
-    It transfers ONLY when it was actually used to break a tie. A round decided
-    on bid amount, and a round both seats passed, leave it where it is --
-    otherwise the token would drift on rounds it never influenced and "you hold
-    priority" would stop meaning "you win the next tie".
+    `bool` is a subclass of `int` and `True` would otherwise slip through as a
+    one-dollar bid -- a real defect this check exists to stop, kept from v1
+    where it was found.
     """
-    if not outcome.tie_priority_used:
-        return current
-    return (current + 1) % seat_count
-
-
-def initial_tie_priority(seed: int, *, seat_count: int = 2) -> int:
-    """Who holds the token at tip-off.
-
-    Derived from the match seed through the foundation's own keyed-stream
-    helper shape, so it is reproducible from the persisted seed alone and is
-    NOT hidden randomness: the holder is published in the opening state, before
-    the first candidate is revealed.
-    """
-    import random
-
-    return random.Random(f"arena:{seed}:tie_priority").randrange(seat_count)
+    return isinstance(amount, int) and not isinstance(amount, bool)
 
 
 __all__ = [
+    "MIN_OPENING_BID",
+    "MIN_RAISE",
+    "MIN_RESERVE_PER_SLOT",
+    "STARTING_BUDGET",
+    "can_afford_minimum",
+    "is_solvent",
+    "is_whole_dollars",
+    "max_legal_bid",
+    "minimum_bid",
+    "reserve_floor",
+]
+
+
+#: Kept only so a caller that imported this symbol gets a clear failure rather
+#: than a silent behaviour change. Removed entirely once nothing references it.
+_RETIRED_IN_V2: tuple[str, ...] = (
     "BID_ORDER",
     "BidOutcome",
     "initial_tie_priority",
-    "is_solvent",
-    "max_legal_bid",
     "next_tie_priority",
-    "reserve_floor",
     "resolve",
-    "STARTING_BUDGET",
-]
+)
+
+
+def __getattr__(name: str) -> Optional[object]:  # pragma: no cover - guard rail
+    if name in _RETIRED_IN_V2:
+        raise AttributeError(
+            f"{name!r} was part of the v1 sealed-bid auction and was removed in "
+            f"{'twenty_dollar_v2'!r}. Sequential bidding makes ties unreachable, so "
+            "there is no tie-break and no simultaneous resolution. See "
+            "nba_peak/twenty_dollar/state.py for the ascending state machine."
+        )
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

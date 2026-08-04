@@ -1,28 +1,36 @@
-"""Budget reserve, sealed-bid resolution, and tie-priority alternation."""
+"""Budget arithmetic and the ascending-auction step, rule by rule.
+
+Every test here names the brief rule it covers, because these are the rules a
+player is told and the ones a receipt has to be able to justify.
+"""
 from __future__ import annotations
 
 import pytest
 
 from nba_peak.twenty_dollar import rules
-from nba_peak.twenty_dollar.config import ROSTER_SIZE, STARTING_BUDGET
+from nba_peak.twenty_dollar import state as S
+from nba_peak.twenty_dollar.config import (
+    MIN_OPENING_BID,
+    MIN_RAISE,
+    ROSTER_SIZE,
+    STARTING_BUDGET,
+)
 
 
 class TestReserveRule:
-    def test_the_briefs_worked_example(self):
-        """$11 with 3 empty slots -> max legal bid $9.
+    """Brief rule 11: keep at least $1 for every slot that stays empty."""
 
-        Pinned as a named test because it is the example the rule was specified
-        with; if this number ever moves, the specification moved.
-        """
-        assert rules.max_legal_bid(budget=11, filled_slots=2) == 9
+    def test_the_briefs_worked_example(self):
+        # $20, five empty slots -> the most you may open with is $16, which
+        # leaves $4 for the four slots you still have to fill.
+        assert rules.max_legal_bid(STARTING_BUDGET, 0) == 16
+        assert STARTING_BUDGET - 16 == 4
 
     def test_opening_bid_ceiling(self):
-        # 5 slots open, 4 remain after this purchase, so $4 must stay behind.
-        assert rules.max_legal_bid(STARTING_BUDGET, 0) == STARTING_BUDGET - 4
+        assert rules.max_legal_bid(11, 2) == 9
 
     def test_final_slot_may_spend_everything(self):
-        # Nothing remains to reserve for.
-        assert rules.max_legal_bid(5, ROSTER_SIZE - 1) == 5
+        assert rules.max_legal_bid(7, ROSTER_SIZE - 1) == 7
 
     def test_never_negative(self):
         assert rules.max_legal_bid(0, 0) == 0
@@ -30,94 +38,69 @@ class TestReserveRule:
 
     @pytest.mark.parametrize("filled", range(ROSTER_SIZE))
     def test_spending_the_maximum_leaves_the_roster_affordable(self, filled):
-        """The invariant the whole rule exists for.
-
-        After spending every legal dollar, the seat must still hold at least
-        $1 for each slot it has not filled. Checked at every fill level rather
-        than at one, because an off-by-one in the reserve would only show at
-        one of them.
-        """
         budget = STARTING_BUDGET
-        spend = rules.max_legal_bid(budget, filled)
-        assert rules.is_solvent(budget - spend, filled + 1)
+        top = rules.max_legal_bid(budget, filled)
+        assert rules.is_solvent(budget - top, filled + 1)
+
+    def test_the_reserve_floor_is_the_complement_of_the_ceiling(self):
+        for filled in range(ROSTER_SIZE):
+            assert (
+                rules.max_legal_bid(STARTING_BUDGET, filled)
+                + rules.reserve_floor(filled)
+                == STARTING_BUDGET
+            )
 
 
-class TestBidResolution:
-    def test_highest_bid_wins_and_pays_its_own_bid(self):
-        outcome = rules.resolve([9, 4], tie_priority_seat=1)
-        assert outcome.winner_seat == 0
-        assert outcome.price == 9  # first-price: the winner pays what they said
-        assert outcome.decided_by == "bid_amount"
-        assert outcome.tie_priority_used is False
+class TestMinimumBid:
+    """Brief rules 6 and 8: open at $1, raise by at least $1."""
 
-    def test_loser_pays_nothing(self):
-        outcome = rules.resolve([9, 4], tie_priority_seat=1)
-        # Nothing in the outcome charges the loser; the state machine only ever
-        # debits `outcome.winner_seat`.
-        assert outcome.winner_seat is not None and outcome.price == 9
+    def test_an_empty_lot_opens_at_one_dollar(self):
+        assert rules.minimum_bid(0) == MIN_OPENING_BID
 
-    def test_both_pass_leaves_the_candidate_unsold(self):
-        outcome = rules.resolve([0, 0], tie_priority_seat=0)
-        assert outcome.winner_seat is None
-        assert outcome.price == 0
-        assert outcome.decided_by is None
+    def test_a_live_bid_must_be_cleared_by_the_raise_increment(self):
+        assert rules.minimum_bid(4) == 4 + MIN_RAISE
 
-    def test_a_zero_zero_round_does_not_spend_the_token(self):
-        """Two passes are not a tie.
+    def test_matching_the_standing_bid_is_not_a_raise(self):
+        # Which is exactly why sequential bidding makes a tie unreachable
+        # (brief rule 9) and why there is no tie-break in this ruleset.
+        assert rules.minimum_bid(6) > 6
 
-        The token is a one-shot resource; consuming it on a round where no
-        tie-break happened would silently rob the holder.
-        """
-        outcome = rules.resolve([0, 0], tie_priority_seat=0)
-        assert outcome.tie_priority_used is False
-        assert rules.next_tie_priority(0, outcome) == 0
-
-    def test_equal_nonzero_bids_go_to_the_token_holder(self):
-        outcome = rules.resolve([7, 7], tie_priority_seat=1)
-        assert outcome.winner_seat == 1
-        assert outcome.decided_by == "tie_priority"
-        assert outcome.tie_priority_used is True
-
-    def test_a_missing_bid_is_a_pass_not_a_forfeit(self):
-        outcome = rules.resolve([None, 3], tie_priority_seat=0)
-        assert outcome.winner_seat == 1
-        assert outcome.price == 3
-
-    def test_every_level_is_reported_even_when_not_consulted(self):
-        """House convention: report non-deciding levels, never omit them."""
-        outcome = rules.resolve([9, 4], tie_priority_seat=1)
-        levels = {level["level"]: level for level in outcome.levels}
-        assert set(levels) == {"bid_amount", "tie_priority"}
-        assert levels["tie_priority"]["verdict"] == "not_consulted"
-
-    def test_the_order_tuple_is_the_ordering(self):
-        """`BID_ORDER` and what `resolve` emits cannot drift apart."""
-        outcome = rules.resolve([5, 5], tie_priority_seat=0)
-        assert [level["level"] for level in outcome.levels] == [
-            level_id for level_id, _label, _higher in rules.BID_ORDER
-        ]
+    def test_a_seat_that_cannot_clear_the_standing_bid_has_no_legal_bid(self):
+        # $3 left, one slot open -> ceiling $3, standing bid $3 -> nothing legal.
+        assert not rules.can_afford_minimum(3, ROSTER_SIZE - 1, 3)
+        assert rules.can_afford_minimum(4, ROSTER_SIZE - 1, 3)
 
 
-class TestTiePriority:
-    def test_token_transfers_only_after_it_is_used(self):
-        used = rules.resolve([6, 6], tie_priority_seat=0)
-        assert rules.next_tie_priority(0, used) == 1
+class TestWholeDollars:
+    def test_a_bool_is_not_a_bid(self):
+        # bool subclasses int, and True would otherwise bid one dollar.
+        assert not rules.is_whole_dollars(True)
+        assert not rules.is_whole_dollars(False)
 
-        unused = rules.resolve([6, 2], tie_priority_seat=1)
-        assert rules.next_tie_priority(1, unused) == 1
+    def test_a_float_is_not_a_bid(self):
+        assert not rules.is_whole_dollars(3.0)
+        assert rules.is_whole_dollars(3)
 
-    def test_alternates_across_repeated_ties(self):
-        holder = 0
-        for expected in (1, 0, 1, 0):
-            outcome = rules.resolve([4, 4], tie_priority_seat=holder)
-            assert outcome.winner_seat == holder
-            holder = rules.next_tie_priority(holder, outcome)
-            assert holder == expected
 
-    def test_initial_holder_is_a_pure_function_of_the_seed(self):
-        assert rules.initial_tie_priority(999) == rules.initial_tie_priority(999)
-        assert rules.initial_tie_priority(999) in (0, 1)
+class TestSealedBidRemoval:
+    """The v1 auction is gone, not disabled. Two systems in parallel is the
+    thing the rewrite existed to avoid, so its symbols must not resolve."""
 
-    def test_seeds_do_not_all_favour_one_seat(self):
-        holders = {rules.initial_tie_priority(seed) for seed in range(50)}
-        assert holders == {0, 1}
+    @pytest.mark.parametrize(
+        "name",
+        ["resolve", "BID_ORDER", "BidOutcome", "initial_tie_priority", "next_tie_priority"],
+    )
+    def test_the_v1_symbols_are_gone_with_an_explanation(self, name):
+        with pytest.raises(AttributeError, match="v1 sealed-bid"):
+            getattr(rules, name)
+
+    def test_no_state_carries_a_tie_priority_seat(self):
+        state = S.initial_state(seed=7)
+        assert "tie_priority_seat" not in state
+        public, private, _ = S.project(state, 0)
+        assert "tie_priority_seat" not in public
+        assert "holds_tie_priority" not in private
+
+    def test_a_v1_snapshot_is_refused_rather_than_reinterpreted(self):
+        with pytest.raises(S.RulesetVersionMismatch):
+            S.assert_supported_version({"ruleset_version": "twenty_dollar_v1"})

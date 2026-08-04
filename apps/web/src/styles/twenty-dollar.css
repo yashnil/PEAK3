@@ -11,15 +11,28 @@
  * Durations mirror `lib/motion.ts` (`--pk-dur-reveal` 400ms, `--pk-dur-base`
  * 200ms) rather than inventing new numbers, so a JS-driven transition and a CSS
  * one on the same surface cannot drift apart.
+ *
+ * NO `opacity` ON BODY TEXT. This file used to dim secondary copy with
+ * `opacity: 0.4`-`0.75`, which reads as a styling preference and is in fact a
+ * contrast bug: globals.css states that `--text-muted` and `--text-secondary`
+ * are MEASURED to clear 4.5:1 against the surfaces they sit on, and multiplying
+ * a measured colour by 0.4 discards the measurement. An axe pass over a live
+ * auction found twelve serious violations from exactly that -- every empty
+ * roster slot, the lot label and the status line. Secondary text now picks the
+ * calibrated token instead. `opacity` survives only on DISABLED controls, which
+ * the contrast rule exempts and for which dimming IS the affordance.
  */
 
 .td-game {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  max-width: 60rem;
+  gap: 1rem;
+  /* Wider than the old 60rem single column: the auction room puts both
+     budgets, both rosters and the block on ONE screen, which is the whole
+     point of the three-column table below. */
+  max-width: 78rem;
   margin: 0 auto;
-  padding: 1rem;
+  padding: 1.25rem 1rem 3rem;
 }
 
 .td-header {
@@ -60,7 +73,7 @@
 }
 
 .td-token-hint {
-  opacity: 0.6;
+  color: var(--text-muted);
   font-size: 0.75rem;
 }
 
@@ -103,7 +116,7 @@
 .td-budget-slots {
   margin-top: 0.3rem;
   font-size: 0.78rem;
-  opacity: 0.7;
+  color: var(--text-muted);
 }
 
 /* -- candidate ------------------------------------------------------------- */
@@ -119,7 +132,7 @@
   font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  opacity: 0.6;
+  color: var(--text-muted);
 }
 
 .td-candidate-name {
@@ -129,13 +142,13 @@
 }
 
 .td-candidate-meta {
-  opacity: 0.75;
+  color: var(--text-muted);
 }
 
 .td-candidate-hint {
   margin-top: 0.75rem;
   font-size: 0.78rem;
-  opacity: 0.6;
+  color: var(--text-muted);
 }
 
 .td-position-list {
@@ -152,7 +165,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: 0.4rem;
   font-size: 0.8rem;
-  opacity: 0.55;
+  color: var(--text-muted);
 }
 
 /* A position this seat can actually use. Emphasis only -- legality is the
@@ -177,11 +190,6 @@
   gap: 1rem;
 }
 
-.td-bid-row input[type="range"] {
-  flex: 1;
-  accent-color: var(--peak-accent);
-}
-
 .td-bid-amount {
   min-width: 4.5rem;
   text-align: right;
@@ -194,7 +202,7 @@
 .td-bid-hint {
   margin-top: 0.5rem;
   font-size: 0.8rem;
-  opacity: 0.7;
+  color: var(--text-muted);
 }
 
 .td-bid-actions {
@@ -262,7 +270,7 @@
   width: 2rem;
   font-size: 0.75rem;
   font-weight: 600;
-  opacity: 0.7;
+  color: var(--text-muted);
 }
 
 .td-slot-body {
@@ -274,11 +282,11 @@
 
 .td-slot-price {
   font-variant-numeric: tabular-nums;
-  opacity: 0.7;
+  color: var(--text-muted);
 }
 
 .td-slot-empty {
-  opacity: 0.4;
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
@@ -304,7 +312,7 @@
 
 .td-reveal-score-label {
   font-size: 0.85rem;
-  opacity: 0.6;
+  color: var(--text-muted);
   font-weight: 400;
 }
 
@@ -336,7 +344,7 @@
 
 .td-silhouette-caption {
   font-size: 0.72rem;
-  opacity: 0.55;
+  color: var(--text-muted);
 }
 
 /* -- history --------------------------------------------------------------- */
@@ -369,7 +377,7 @@
 
 .td-history-verdict {
   font-size: 0.8rem;
-  opacity: 0.7;
+  color: var(--text-muted);
 }
 
 /* -- receipt --------------------------------------------------------------- */
@@ -406,7 +414,7 @@
 
 .td-total-meta {
   font-size: 0.78rem;
-  opacity: 0.7;
+  color: var(--text-muted);
 }
 
 /* Wide content scrolls inside its own container so the page body never
@@ -438,11 +446,11 @@
 
 /* Reported, not omitted -- see TwentyDollarReceipt's header. */
 .td-level-muted {
-  opacity: 0.4;
+  color: var(--text-muted);
 }
 
 .td-level-index {
-  opacity: 0.5;
+  color: var(--text-muted);
   margin-right: 0.5rem;
 }
 
@@ -457,7 +465,7 @@
 .td-positional-score {
   display: block;
   font-size: 0.78rem;
-  opacity: 0.7;
+  color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
@@ -480,7 +488,7 @@
 .td-assumption,
 .td-autofill-note {
   font-size: 0.78rem;
-  opacity: 0.65;
+  color: var(--text-muted);
 }
 
 .td-disclosure {
@@ -488,12 +496,12 @@
   padding-top: 0.85rem;
   border-top: 1px solid var(--border-subtle);
   font-size: 0.8rem;
-  opacity: 0.8;
+  color: var(--text-muted);
 }
 
 .td-model-version {
   margin-top: 0.35rem;
-  opacity: 0.65;
+  color: var(--text-muted);
 }
 
 .td-error {
@@ -503,7 +511,7 @@
 .td-waiting {
   text-align: center;
   font-size: 0.9rem;
-  opacity: 0.75;
+  color: var(--text-muted);
 }
 
 /* -- motion ---------------------------------------------------------------- */
@@ -593,7 +601,7 @@
   font-size: 0.7rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  opacity: 0.7;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 
@@ -613,4 +621,426 @@
   font-size: 1.1rem;
   letter-spacing: 0.25em;
   text-transform: uppercase;
+}
+
+
+/* ==========================================================================
+   v2 — the ascending auction room.
+   ==========================================================================
+   The sealed-bid surface was a single scrolling column: candidate, then a
+   slider, then two rosters far below the fold. An alternating auction needs
+   the opposite -- the standing bid, both budgets and both rosters visible at
+   the moment you decide. Hence a three-column table on desktop that collapses
+   to reading order (you, the block, your opponent) on a phone.
+   ========================================================================== */
+
+.td-table {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (min-width: 62rem) {
+  .td-table {
+    grid-template-columns: minmax(0, 15rem) minmax(0, 1.4fr) minmax(0, 15rem);
+  }
+}
+
+.td-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.td-column-centre {
+  order: -1;
+}
+
+@media (min-width: 62rem) {
+  .td-column-centre {
+    order: 0;
+  }
+}
+
+/* -- candidate, v2 --------------------------------------------------------- */
+
+.td-candidate {
+  background: var(--bg-elevated);
+  border-radius: var(--pk-r-lg, 14px);
+  padding: 1.25rem 1.25rem 1.1rem;
+}
+
+.td-candidate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.td-candidate-lot,
+.td-turn {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.td-turn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+}
+
+/* The single strongest signal on the board: it is your move. Colour AND a
+   border change AND the word "Your move", so it survives greyscale. */
+.td-turn-yours {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+  color: var(--peak-accent-text);
+}
+
+.td-turn-clock {
+  font-variant-numeric: tabular-nums;
+}
+
+.td-standing {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.td-standing-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.td-standing-amount {
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent-text);
+}
+
+.td-standing-holder {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+/* -- live lot ticker ------------------------------------------------------- */
+
+.td-ticker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.td-ticker-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--pk-surface-inset, var(--bg-surface));
+  font-size: 0.6875rem;
+}
+
+.td-ticker-who {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.td-ticker-what {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* -- bid controls, v2 ------------------------------------------------------ */
+
+.td-bid {
+  background: var(--bg-elevated);
+  border-radius: var(--pk-r-lg, 14px);
+  padding: 1rem 1.1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.td-bid-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.td-bid-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.td-bid-range {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.td-stepper {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.td-step {
+  flex: 0 0 auto;
+  width: var(--pk-tap-min, 44px);
+  min-height: var(--pk-tap-min, 44px);
+  border: 1px solid var(--border-default, var(--border-subtle));
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--pk-surface-raised, var(--bg-surface));
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.td-step:hover:not(:disabled) {
+  border-color: var(--peak-accent);
+}
+
+.td-step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.td-step:focus-visible,
+.td-chip-btn:focus-visible,
+.td-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.td-bid-amount {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: var(--pk-tap-min, 44px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--pk-surface-inset, var(--bg-surface));
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--peak-accent-text);
+}
+
+.td-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.td-chip-btn {
+  min-height: 2rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--pk-surface-inset, var(--bg-surface));
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.td-chip-btn:hover:not(:disabled) {
+  border-color: var(--peak-accent);
+  color: var(--text-primary);
+}
+
+.td-chip-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* The explanation beside a disabled bid. Never colour alone: it is a full
+   sentence, in the flow, announced as a status. */
+.td-bid-blocked {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  border-left: 2px solid var(--peak-accent);
+  padding-left: 0.6rem;
+}
+
+/* -- rosters, v2 ----------------------------------------------------------- */
+
+.td-roster {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-elevated);
+  padding: 0.85rem;
+}
+
+.td-roster-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.td-slot-sub {
+  display: block;
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.td-budget {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-elevated);
+  padding: 0.75rem 0.85rem;
+}
+
+.td-budget-active {
+  border-color: var(--peak-accent);
+}
+
+.td-opener {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* -- reveal, v2 ------------------------------------------------------------ */
+
+.td-reveal {
+  border: 1px solid var(--peak-accent);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-elevated);
+  padding: 1.1rem;
+  text-align: center;
+}
+
+.td-reveal-lot {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--peak-accent-text);
+}
+
+.td-reveal-season {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.td-reveal-verdict {
+  margin-top: 0.6rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.td-waiting {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+/* -- history, v2 ----------------------------------------------------------- */
+
+.td-history {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-elevated);
+  padding: 0.85rem;
+}
+
+.td-history-heading {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.td-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 22rem;
+  overflow-y: auto;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.td-history-list:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--pk-r-md, 10px);
+}
+
+.td-history-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.td-history-score {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent-text);
+}
+
+.td-history-verdict {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.td-error {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--peak-accent);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--peak-accent-bg);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .td-step,
+  .td-chip-btn,
+  .td-budget-fill {
+    transition: none;
+  }
 }
