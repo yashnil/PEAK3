@@ -64,6 +64,7 @@ import numpy as np
 import pandas as pd
 
 from nba_peak.daily_grid.pool import STAT_TITLE_COLUMNS, GridPool, load_pool
+from nba_peak.franchises import FRANCHISES
 
 CONSTRAINTS_VERSION = "daily_grid_constraints.v2"
 
@@ -108,44 +109,15 @@ class Constraint:
 # Team constraints
 # ---------------------------------------------------------------------------
 
-# Current franchise -> every Basketball-Reference team code that franchise has
-# played under since 1979-80. Real, publicly documented franchise history:
-# relocations and renames only, never a merger of distinct franchises. The
-# 1988-2002 Charlotte Hornets (CHH) are grouped with today's Charlotte
-# Hornets/Bobcats (CHO/CHA) because the current franchise holds that history
-# and records; the 2002+ New Orleans franchise (NOH/NOK/NOP) is its own entry.
-FRANCHISES: dict[str, tuple[str, tuple[str, ...]]] = {
-    "ATL": ("Atlanta Hawks", ("ATL",)),
-    "BOS": ("Boston Celtics", ("BOS",)),
-    "BRK": ("Brooklyn Nets", ("BRK", "NJN")),
-    "CHA": ("Charlotte Hornets", ("CHO", "CHA", "CHH")),
-    "CHI": ("Chicago Bulls", ("CHI",)),
-    "CLE": ("Cleveland Cavaliers", ("CLE",)),
-    "DAL": ("Dallas Mavericks", ("DAL",)),
-    "DEN": ("Denver Nuggets", ("DEN",)),
-    "DET": ("Detroit Pistons", ("DET",)),
-    "GSW": ("Golden State Warriors", ("GSW",)),
-    "HOU": ("Houston Rockets", ("HOU",)),
-    "IND": ("Indiana Pacers", ("IND",)),
-    "LAC": ("Los Angeles Clippers", ("LAC", "SDC")),
-    "LAL": ("Los Angeles Lakers", ("LAL",)),
-    "MEM": ("Memphis Grizzlies", ("MEM", "VAN")),
-    "MIA": ("Miami Heat", ("MIA",)),
-    "MIL": ("Milwaukee Bucks", ("MIL",)),
-    "MIN": ("Minnesota Timberwolves", ("MIN",)),
-    "NOP": ("New Orleans Pelicans", ("NOP", "NOH", "NOK")),
-    "NYK": ("New York Knicks", ("NYK",)),
-    "OKC": ("Oklahoma City Thunder", ("OKC", "SEA")),
-    "ORL": ("Orlando Magic", ("ORL",)),
-    "PHI": ("Philadelphia 76ers", ("PHI",)),
-    "PHO": ("Phoenix Suns", ("PHO",)),
-    "POR": ("Portland Trail Blazers", ("POR",)),
-    "SAC": ("Sacramento Kings", ("SAC", "KCK")),
-    "SAS": ("San Antonio Spurs", ("SAS",)),
-    "TOR": ("Toronto Raptors", ("TOR",)),
-    "UTA": ("Utah Jazz", ("UTA",)),
-    "WAS": ("Washington Wizards", ("WAS", "WSB")),
-}
+# FRANCHISES -- current franchise -> every Basketball-Reference team code that
+# franchise has played under since 1979-80 -- now lives in
+# `nba_peak.franchises`, because more than one game asks "did this player play
+# for franchise F" and no game should have to import another game's package to
+# find out. Imported at the top of this module and re-exported below, so every
+# existing `from nba_peak.daily_grid.constraints import FRANCHISES` keeps
+# working. The table itself and its documented editorial choices (CHH grouped
+# with today's Charlotte franchise; the 2002+ New Orleans franchise separate)
+# moved verbatim -- this was a relocation, not a revision.
 
 
 def _team_constraints() -> list[Constraint]:
