@@ -38,6 +38,11 @@ from app.repositories.memory import (
     MemoryGameRepository,
     MemoryResultSnapshotRepository,
 )
+from app.repositories.leaderboard_memory import MemoryPerfectSeasonLeaderboardRepository
+from app.repositories.leaderboard_protocols import (
+    DuplicateRunSubmission,
+    PerfectSeasonRun,
+)
 from app.repositories.memory_profile import MemoryProfileRepository
 from app.repositories.profile_protocols import HandleTakenError
 from app.repositories.protocols import ChallengeRecord, DailyCompletion, ResultSnapshot
@@ -322,3 +327,183 @@ async def test_memory_profile_repo_conforms():
 async def test_postgres_profile_repo_conforms(pg_pool):
     from app.repositories.postgres_profile import PostgresProfileRepository
     await _assert_profile_repo_conforms(PostgresProfileRepository(pg_pool))
+
+
+# ---------------------------------------------------------------------------
+# PerfectSeasonLeaderboardRepository
+#
+# WHY THIS EXISTS. `PostgresPerfectSeasonLeaderboardRepository` had NO
+# real-database coverage of any kind: every leaderboard test in the suite
+# (18 of them) exercises the in-memory implementation, so the code path that
+# actually runs in production -- the one behind the public 82-0 board -- was
+# asserted about only through its stand-in. That is the gap this closes.
+#
+# It is not hypothetical. A leaderboard write that silently fails, or a row
+# written with `is_public` false, or a `lineup_score` float rejected by
+# asyncpg's NUMERIC codec, would each produce exactly one symptom -- an empty
+# public board after a successful-looking submission -- and every existing
+# test would still pass. (Those three specific hypotheses were checked by hand
+# and are NOT bugs today; this test is what keeps that true.)
+# ---------------------------------------------------------------------------
+
+
+def _leaderboard_run(owner_sub: str, *, game_id: str, wins: int, score: float,
+                     team_respins: int = 0, season_respins: int = 0,
+                     mode: str = "apex_1y") -> PerfectSeasonRun:
+    return PerfectSeasonRun(
+        id="",
+        owner_sub=owner_sub,
+        display_name="conformancehandle",
+        mode=mode,
+        game_id=game_id,
+        seed=7,
+        wins=wins,
+        losses=82 - wins,
+        lineup_score=score,
+        score_status="complete",
+        exact_cards_scored=8,
+        total_cards=8,
+        team_respins_used=team_respins,
+        season_respins_used=season_respins,
+        roster_card_keys=[f"card-{i}" for i in range(8)],
+    )
+
+
+async def _purge_leaderboard_rows(pool, owner_sub: str) -> None:
+    """Delete only this test's own rows.
+
+    Unlike every other table this suite touches, `perfect_season_runs` backs a
+    PUBLIC board, so a leftover conformance row would sit on a developer's
+    local leaderboard permanently. Scoped strictly to the random `owner_sub`
+    this test generated, so it can never reach real data.
+    """
+    await pool.execute(
+        "DELETE FROM perfect_season_run_cards WHERE run_id IN "
+        "(SELECT id FROM perfect_season_runs WHERE owner_sub = $1)",
+        owner_sub,
+    )
+    await pool.execute("DELETE FROM perfect_season_runs WHERE owner_sub = $1", owner_sub)
+
+
+async def _assert_leaderboard_repo_conforms(repo, owner_sub: str) -> None:
+    prefix = uuid.uuid4().hex[:8]
+    # Four runs chosen to exercise EVERY level of the sort key in one pass:
+    # wins desc, then lineup_score desc, then (team+season) respins asc.
+    # `b` ties `a` on wins AND score and differs only by respins; `d` ties on
+    # wins and differs only by score; `c` loses on wins despite the best score.
+    a = _leaderboard_run(owner_sub, game_id=f"{prefix}-a", wins=70, score=70.0)
+    b = _leaderboard_run(owner_sub, game_id=f"{prefix}-b", wins=70, score=70.0,
+                         team_respins=1, season_respins=1)
+    d = _leaderboard_run(owner_sub, game_id=f"{prefix}-d", wins=70, score=60.0)
+    c = _leaderboard_run(owner_sub, game_id=f"{prefix}-c", wins=65, score=90.0)
+
+    saved_a = await repo.submit_run(a)
+    assert saved_a.id, "submit_run must assign an id"
+    # The single most load-bearing default in this file: a run submitted
+    # through the product is public unless its owner later hides it. If this
+    # ever became False the board would be empty while every write "succeeded".
+    assert saved_a.is_public is True
+
+    for run in (b, d, c):
+        await repo.submit_run(run)
+
+    # 1. Round-trip by game_id, including the roster written to the child table.
+    found = await repo.get_run_by_game_id(f"{prefix}-a")
+    assert found is not None
+    assert found.id == saved_a.id
+    assert found.roster_card_keys == [f"card-{i}" for i in range(8)], \
+        "roster card keys must round-trip in slot order"
+
+    # 2. A submitted run is on the public board immediately -- no visibility
+    #    step, no delay, no extra flag to flip.
+    board = await repo.get_leaderboard(mode="apex_1y", limit=500, cursor=None)
+    mine = [r for r in board if r.owner_sub == owner_sub]
+    assert len(mine) == 4, "every submitted run must appear on the public board"
+
+    # 3. The sort contract, asserted on this test's own rows only so it holds
+    #    on a shared local database that already has unrelated runs in it.
+    assert [r.game_id for r in mine] == [f"{prefix}-a", f"{prefix}-b",
+                                         f"{prefix}-d", f"{prefix}-c"], (
+        "expected wins desc, then lineup_score desc, then fewer respins first"
+    )
+
+    # 4. A run that used respins is on the board exactly like one that did not
+    #    (launch-polish IMPLEMENTATION_CONTRACT.md §7 -- respins are normal
+    #    play and were never a reason to exclude a run).
+    respin_run = next(r for r in mine if r.game_id == f"{prefix}-b")
+    assert respin_run.team_respins_used == 1
+    assert respin_run.season_respins_used == 1
+
+    # 5. The mode identifier written is the one the board queries. `mode` is a
+    #    canonical id (apex_1y / prime_3y / foundation_5y), never the
+    #    user-facing word "Standard" -- a write/read mismatch here is
+    #    indistinguishable from an empty board.
+    unfiltered = await repo.get_leaderboard(mode=None, limit=500, cursor=None)
+    assert any(r.id == saved_a.id for r in unfiltered)
+    other_mode = await repo.get_leaderboard(mode="prime_3y", limit=500, cursor=None)
+    assert not any(r.owner_sub == owner_sub for r in other_mode), \
+        "mode must actually filter, not be ignored"
+
+    # 6. One completed game produces exactly one entry, forever.
+    with pytest.raises(DuplicateRunSubmission):
+        await repo.submit_run(
+            _leaderboard_run(owner_sub, game_id=f"{prefix}-a", wins=82, score=99.0)
+        )
+
+    # 7. Personal placement uses the same ordering as the board.
+    placement = await repo.get_personal_placement(owner_sub, "apex_1y")
+    assert placement is not None
+    rank, best = placement
+    assert best.game_id == f"{prefix}-a"
+    assert rank >= 1
+
+    # 8. Hiding a run removes it from the public board but never from the
+    #    owner's own history.
+    hidden = await repo.set_visibility(saved_a.id, owner_sub, False)
+    assert hidden is not None and hidden.is_public is False
+    board_after = await repo.get_leaderboard(mode="apex_1y", limit=500, cursor=None)
+    assert not any(r.id == saved_a.id for r in board_after)
+    own = await repo.list_runs_for_owner(owner_sub)
+    assert any(r.id == saved_a.id for r in own), "hiding must not delete"
+
+    # 9. Visibility is owner-scoped: a stranger holding the run id cannot flip
+    #    it. Possessing an id never grants mutation rights (app/core/ownership.py).
+    assert await repo.set_visibility(saved_a.id, f"stranger-{uuid.uuid4()}", True) is None
+
+    # 10. Guest-claim transfer moves ownership only.
+    moved_to = f"claimed-{uuid.uuid4()}"
+    try:
+        moved = await repo.transfer_owner(owner_sub, moved_to)
+        assert moved == 4
+        assert len(await repo.list_runs_for_owner(owner_sub)) == 0
+        transferred = await repo.list_runs_for_owner(moved_to)
+        assert len(transferred) == 4
+        assert all(r.display_name == "conformancehandle" for r in transferred), \
+            "transfer must not rewrite the submitted display name"
+    finally:
+        # Hand the rows back so the caller's cleanup (which keys on the
+        # original owner_sub) still finds all four.
+        await repo.transfer_owner(moved_to, owner_sub)
+
+
+@pytest.mark.asyncio
+async def test_memory_perfect_season_leaderboard_repo_conforms():
+    await _assert_leaderboard_repo_conforms(
+        MemoryPerfectSeasonLeaderboardRepository(), f"conformance-{uuid.uuid4()}"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_perfect_season_leaderboard_repo_conforms(pg_pool):
+    from app.repositories.leaderboard_postgres import (
+        PostgresPerfectSeasonLeaderboardRepository,
+    )
+
+    owner_sub = f"conformance-{uuid.uuid4()}"
+    try:
+        await _assert_leaderboard_repo_conforms(
+            PostgresPerfectSeasonLeaderboardRepository(pg_pool), owner_sub
+        )
+    finally:
+        await _purge_leaderboard_rows(pg_pool, owner_sub)

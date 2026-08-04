@@ -2292,6 +2292,105 @@ def test_public_leaderboard_read_works_and_is_sorted(leaderboard_client: TestCli
     assert wins == sorted(wins, reverse=True)
 
 
+def test_the_mode_written_is_the_mode_the_board_queries(leaderboard_client: TestClient):
+    """A submitted run is found under the SAME canonical mode identifier it
+    was written with, and is not found under a different one.
+
+    WHY THIS IS ITS OWN TEST. "Standard" is a user-facing word; the stored and
+    queried identifiers are `apex_1y` / `prime_3y` / `foundation_5y`. If a
+    write ever recorded one identifier and the board queried another, the only
+    symptom would be an empty leaderboard after a submission that returned
+    200 -- indistinguishable from "nobody has submitted yet", which is exactly
+    the report this test exists to make impossible.
+    """
+    token = _mint_test_jwt("user-mode-roundtrip")
+    handle = _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=117)
+    game_id = state["game_id"]
+
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    # The canonical id, never the user-facing word.
+    assert resp.json()["mode"] == "apex_1y"
+
+    on_mode = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y").json()
+    assert any(r["display_name"] == handle for r in on_mode["runs"]), \
+        "the run must be on the board under the mode it was written with"
+
+    unfiltered = leaderboard_client.get("/api/v1/perfect-season/leaderboard").json()
+    assert any(r["display_name"] == handle for r in unfiltered["runs"]), \
+        "the run must also be visible with no mode filter at all"
+
+    other = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=prime_3y").json()
+    assert not any(r["display_name"] == handle for r in other["runs"]), \
+        "mode must genuinely filter -- a run must not leak onto another board"
+
+
+def test_a_failed_leaderboard_write_cannot_report_success(
+    leaderboard_client: TestClient, monkeypatch
+):
+    """A write that does not commit must never be answered as a success, and
+    must leave nothing behind that blocks a later retry.
+
+    The failure mode this forbids is the worst version of the bug this pass
+    investigated: the player is told "Submitted to the global leaderboard"
+    while the board stays empty -- so the product's own confirmation is the
+    thing misleading them. Asserted both ways: the response is not a success,
+    AND the run is absent from the board afterwards.
+    """
+    from app.core import dependencies
+
+    token = _mint_test_jwt("user-write-failure")
+    handle = _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=118)
+    game_id = state["game_id"]
+
+    async def _fail_to_write(_run):
+        raise RuntimeError("simulated database failure during INSERT")
+
+    monkeypatch.setattr(
+        dependencies._memory_perfect_season_leaderboard_repo, "submit_run", _fail_to_write
+    )
+
+    reported_success = False
+    try:
+        resp = leaderboard_client.post(
+            f"/api/v1/perfect-season/games/{game_id}/submit",
+            json={"game_id": game_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        # TestClient re-raises server exceptions by default, so reaching here
+        # means a response was produced; only a non-error one is the defect.
+        reported_success = resp.status_code < 400
+    except RuntimeError:
+        # Propagated rather than converted into a response -- still not a
+        # success, which is the only property this test cares about.
+        pass
+
+    assert not reported_success, "a failed write must never be reported as a success"
+
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard").json()
+    assert not any(r["display_name"] == handle for r in board["runs"]), \
+        "a failed write must leave no row on the public board"
+
+    # The failure must be transient, not poisoning: with the write path
+    # working again the same game submits cleanly and produces exactly one
+    # entry, proving the failed attempt left no partial or phantom row.
+    monkeypatch.undo()
+    retry = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert retry.status_code == 200, retry.text
+    after = leaderboard_client.get("/api/v1/perfect-season/leaderboard").json()
+    assert len([r for r in after["runs"] if r["display_name"] == handle]) == 1
+
+
 def test_respin_runs_stay_on_the_board_as_normal_play(leaderboard_client: TestClient):
     """launch-polish IMPLEMENTATION_CONTRACT.md §7: respins are normal
     Standard 82-0 play, not a reason to exclude a run. The 'No-respin runs
