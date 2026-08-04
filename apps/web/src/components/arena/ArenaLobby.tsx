@@ -237,7 +237,7 @@ export default function ArenaLobby() {
                         <span className="td-slot-name">{m.name}</span>
                         <span className="td-positional-score">{m.tagline}</span>
                       </span>
-                      <span className="td-slot-price">{m.seatCountHint}P</span>
+                      <span className="td-slot-price">{m.seatCount}P</span>
                     </span>
                   </button>
                 </li>

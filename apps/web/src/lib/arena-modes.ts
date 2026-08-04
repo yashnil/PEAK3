@@ -7,19 +7,23 @@
  * never an `if` in a component.
  *
  * WHO OWNS WHAT. The SERVER decides which modes exist -- `GET /arena/readiness`
- * returns `modes: string[]` from the live registry, and a mode absent from that
- * list is not offered no matter what this file says. This file supplies only
- * the label, the blurb and where to send a player once a match starts.
+ * returns `modes: [{id, seat_count}]` from the live registry, and a mode absent
+ * from that list is not offered no matter what this file says. This file
+ * supplies only the label, the blurb and where to send a player once a match
+ * starts.
  *
- * *** SEAT COUNT IS THE ONE UNCOMFORTABLE FIELD, AND IT IS DELIBERATE. ***
- * `readiness` does not publish a per-mode seat count today, so a lobby that
- * wants to say "2 players" BEFORE a match exists has nowhere else to read it.
- * It is recorded here as a display hint and it is superseded the instant a
- * match is created: every component that has an `ArenaMatchView` reads
- * `view.seat_count` from the server instead. If the foundation ever adds seat
- * count to `readiness`, delete this field rather than keeping both -- two
- * sources for one number is how they drift.
+ * SEAT COUNT IS THE SERVER'S, AND ONLY THE SERVER'S. This file briefly carried
+ * a `seatCountHint`, because `readiness` published only mode ids and a lobby
+ * that wants to say "2 players" BEFORE a match exists had nowhere else to read
+ * it. That field's own comment said to delete it the moment the server
+ * published a seat count. The server now does -- read from the same registered
+ * mode object the matchmaker sizes matches from -- so the field is gone rather
+ * than kept alongside. Two sources for one number is how they drift, and the
+ * first symptom would have been a lobby advertising three seats for a two-seat
+ * game.
  */
+
+import type { ArenaModeInfo } from "@/lib/arena-lobby-api";
 
 export interface ArenaModeMeta {
   /** Must match the server's registered mode id exactly. */
@@ -27,8 +31,6 @@ export interface ArenaModeMeta {
   name: string;
   tagline: string;
   description: string;
-  /** Display hint only. See the module docstring. */
-  seatCountHint: number;
   /** Where a live match of this mode is played. */
   matchPath: (matchId: string) => string;
 }
@@ -40,7 +42,6 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
     tagline: "Two players · sealed bids · $20",
     description:
       "One player at a time comes up for auction. You each bid in secret; the higher bid wins and pays. Build a legal PG–C starting five for twenty dollars.",
-    seatCountHint: 2,
     matchPath: (matchId) => `/arena/twenty-dollar/${matchId}`,
   },
   {
@@ -49,10 +50,16 @@ export const ARENA_MODES: readonly ArenaModeMeta[] = [
     tagline: "Three players · snake draft",
     description:
       "A three-way draft across franchises and decades. Every pick narrows what the next player can take.",
-    seatCountHint: 3,
     matchPath: (matchId) => `/arena/three-man-weave/${matchId}`,
   },
 ] as const;
+
+/** A catalogued mode the server is currently serving, carrying the server's
+ *  own seat count. There is no client-side default: a mode the server does not
+ *  publish is not offerable, so there is never a seat count to guess. */
+export interface OfferableMode extends ArenaModeMeta {
+  seatCount: number;
+}
 
 export function modeMeta(modeId: string): ArenaModeMeta | undefined {
   return ARENA_MODES.find((m) => m.id === modeId);
@@ -67,8 +74,13 @@ export function modeMeta(modeId: string): ArenaModeMeta | undefined {
  * mode the server registered but this build has no entry for has no route to
  * send anyone to, so it is skipped rather than rendered as a blank card.
  */
-export function offerableModes(serverModes: readonly string[]): ArenaModeMeta[] {
-  return ARENA_MODES.filter((m) => serverModes.includes(m.id));
+export function offerableModes(
+  serverModes: readonly ArenaModeInfo[],
+): OfferableMode[] {
+  return ARENA_MODES.flatMap((m) => {
+    const live = serverModes.find((s) => s.id === m.id);
+    return live ? [{ ...m, seatCount: live.seat_count }] : [];
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -69,8 +69,22 @@ export interface ArenaReadiness {
   arena_enabled: boolean;
   public_queue_enabled: boolean;
   bots_enabled: boolean;
-  /** The registry's live mode ids. A mode absent here cannot be started. */
-  modes: string[];
+  /**
+   * The registry's live modes. A mode absent here cannot be started.
+   *
+   * `seat_count` is read from the registered mode object the matchmaker sizes
+   * matches from, so the number shown in the lobby and the number the server
+   * seats to cannot become two facts. This replaced a client-side
+   * `seatCountHint`; a client copy of a server fact is a copy that drifts, and
+   * its first symptom would be a lobby advertising three seats for a two-seat
+   * game.
+   */
+  modes: ArenaModeInfo[];
+}
+
+export interface ArenaModeInfo {
+  id: string;
+  seat_count: number;
 }
 
 export interface QueueStatus {

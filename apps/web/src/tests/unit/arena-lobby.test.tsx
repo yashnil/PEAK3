@@ -30,7 +30,10 @@ const READY = {
   arena_enabled: true,
   public_queue_enabled: true,
   bots_enabled: true,
-  modes: ["twenty_dollar", "three_man_weave"],
+  modes: [
+    { id: "twenty_dollar", seat_count: 2 },
+    { id: "three_man_weave", seat_count: 3 },
+  ],
 };
 
 function mockFetch(readiness = READY) {
@@ -99,7 +102,7 @@ describe("the lobby is mode-agnostic", () => {
   });
 
   it("offers only what the server registered", async () => {
-    vi.stubGlobal("fetch", mockFetch({ ...READY, modes: ["twenty_dollar"] }));
+    vi.stubGlobal("fetch", mockFetch({ ...READY, modes: [{ id: "twenty_dollar", seat_count: 2 }] }));
     render(<ArenaLobby />);
     expect(await screen.findByTestId("lobby-mode-twenty_dollar")).toBeInTheDocument();
     expect(screen.queryByTestId("lobby-mode-three_man_weave")).toBeNull();
@@ -107,7 +110,10 @@ describe("the lobby is mode-agnostic", () => {
 
   it("skips a registered mode this build has no route for", () => {
     // A blank card that navigates nowhere is worse than an absent one.
-    expect(offerableModes(["twenty_dollar", "some_future_mode"])).toHaveLength(1);
+    expect(offerableModes([
+        { id: "twenty_dollar", seat_count: 2 },
+        { id: "some_future_mode", seat_count: 5 },
+      ])).toHaveLength(1);
   });
 
   it("renders nothing to play when the registry is empty", async () => {
@@ -116,16 +122,28 @@ describe("the lobby is mode-agnostic", () => {
     expect(await screen.findByTestId("lobby-no-modes")).toBeInTheDocument();
   });
 
-  it("carries a seat count and a route for every catalogued mode", () => {
+  it("carries a route for every catalogued mode", () => {
     for (const mode of ARENA_MODES) {
-      expect(mode.seatCountHint).toBeGreaterThanOrEqual(2);
       expect(mode.matchPath("abc")).toContain("abc");
     }
   });
 
-  it("has distinct seat counts, so nothing may hardcode two", () => {
-    const counts = new Set(ARENA_MODES.map((m) => m.seatCountHint));
-    expect(counts.size).toBeGreaterThan(1);
+  // Seat count is no longer catalogued -- it comes from `readiness`, so the
+  // thing worth asserting is that the SERVER's number reaches the card rather
+  // than a client-side default. A mode the server does not publish is not
+  // offerable at all, so there is never a count to guess.
+  it("takes each mode's seat count from the server, not from the catalogue", () => {
+    const offerable = offerableModes([
+      { id: "twenty_dollar", seat_count: 2 },
+      { id: "three_man_weave", seat_count: 3 },
+    ]);
+    expect(offerable.map((m) => m.seatCount)).toEqual([2, 3]);
+    expect(new Set(offerable.map((m) => m.seatCount)).size).toBeGreaterThan(1);
+  });
+
+  it("believes the server over the catalogue if they ever disagree", () => {
+    const [only] = offerableModes([{ id: "twenty_dollar", seat_count: 4 }]);
+    expect(only.seatCount).toBe(4);
   });
 
   it("looks a mode up by id", () => {
