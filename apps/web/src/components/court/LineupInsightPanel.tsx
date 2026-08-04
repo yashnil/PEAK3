@@ -32,11 +32,18 @@ export default function LineupInsightPanel({ result }: { result: SimulationResul
             </div>
             <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-surface)" }}>
               <div
-                className="h-full rounded-full transition-all"
+                // `transition: width` only -- the bar filling in is the
+                // intended animation; `background` is a theme-dependent
+                // token (--peak-accent / --incorrect), and `transition-all`
+                // would cross-fade it on every theme toggle too (the same
+                // class of bug launch-polish IMPLEMENTATION_CONTRACT.md §1
+                // found and fixed elsewhere).
+                className="h-full rounded-full"
                 style={{
+                  transition: "width 300ms ease",
                   width: `${pct}%`,
                   background: value < 0
-                    ? "#ef4444"
+                    ? "var(--incorrect)"
                     : "linear-gradient(90deg, color-mix(in srgb, var(--peak-accent, #f5c842) 70%, transparent), var(--peak-accent, #f5c842))",
                   boxShadow: value >= 70 ? "0 0 8px -1px color-mix(in srgb, var(--peak-accent, #f5c842) 70%, transparent)" : undefined,
                 }}

@@ -161,14 +161,87 @@ export async function getSession(): Promise<AuthUser | null> {
   return userFromSession(session);
 }
 
+// ---------------------------------------------------------------------------
+// Access-token cache (P3-H perf finding — SYNTHESIS_CONTRACT.md §6)
+// ---------------------------------------------------------------------------
+// `PERFORMANCE.md` measured `getAccessToken()` running a real, un-memoized
+// `client.auth.getSession()` call on EVERY single RTT request, read or
+// write — serially awaited before each one, including every action in a
+// ~20-30-call run. This memoizes the resolved token for as long as it is
+// actually still valid, so a burst of requests shares one answer instead of
+// each re-asking the SDK a question whose answer has not changed.
+//
+// NOT a second source of truth: the cache only ever holds what Supabase's
+// own SDK most recently reported, and is dropped the instant it might be
+// wrong (sign-in, sign-out, refresh — via `onAuthStateChange`), not on a
+// timer alone.
+
+/** Refresh a little before the JWT's real `exp`, not exactly at it — the
+ *  margin is what a genuinely serial burst of requests around the expiry
+ *  boundary needs so the LAST one in the burst does not itself race a
+ *  refresh. */
+const ACCESS_TOKEN_SAFETY_MARGIN_MS = 30_000;
+
+let cachedAccessToken: string | null = null;
+/** Epoch ms. `0` means "no cached value" (also true of any expired one). */
+let cachedAccessTokenExpiresAt = 0;
+let pendingAccessTokenFetch: Promise<string | null> | null = null;
+let invalidationListenerInstalled = false;
+
+function cachedTokenIsFresh(): boolean {
+  return cachedAccessTokenExpiresAt > Date.now();
+}
+
+function setAccessTokenCache(session: Session | null): void {
+  if (session?.access_token) {
+    cachedAccessToken = session.access_token;
+    cachedAccessTokenExpiresAt = session.expires_at
+      ? session.expires_at * 1000 - ACCESS_TOKEN_SAFETY_MARGIN_MS
+      : 0;
+  } else {
+    cachedAccessToken = null;
+    cachedAccessTokenExpiresAt = 0;
+  }
+}
+
+/**
+ * Installed lazily, on the first real `getAccessToken()` call, directly on
+ * the Supabase client rather than depending on `AuthProvider` being mounted
+ * (it always is in practice — `app/layout.tsx` — but this cache must be
+ * correct on its own terms, not borrow another module's lifecycle).
+ * Idempotent: a second call is a no-op, so callers never need to track
+ * whether this already ran.
+ */
+function ensureAccessTokenInvalidationListener(client: NonNullable<ReturnType<typeof getSupabaseClient>>): void {
+  if (invalidationListenerInstalled) return;
+  invalidationListenerInstalled = true;
+  client.auth.onAuthStateChange((_event: AuthChangeEvent, session: Session | null) => {
+    setAccessTokenCache(session);
+  });
+}
+
 export async function getAccessToken(): Promise<string | null> {
   if (_testSession) return _testSession.token;
+  if (cachedTokenIsFresh()) return cachedAccessToken;
+  // A burst of concurrent callers (every action's `rttFetch` awaits this
+  // before its own request) shares the SAME in-flight lookup rather than
+  // each starting a separate `getSession()` call.
+  if (pendingAccessTokenFetch) return pendingAccessTokenFetch;
+
   const client = getSupabaseClient();
   if (!client) return null;
-  const {
-    data: { session },
-  } = await client.auth.getSession();
-  return session?.access_token ?? null;
+  ensureAccessTokenInvalidationListener(client);
+
+  pendingAccessTokenFetch = client.auth
+    .getSession()
+    .then(({ data: { session } }: { data: { session: Session | null } }) => {
+      setAccessTokenCache(session);
+      return cachedAccessToken;
+    })
+    .finally(() => {
+      pendingAccessTokenFetch = null;
+    });
+  return pendingAccessTokenFetch;
 }
 
 // ---------------------------------------------------------------------------

@@ -36,7 +36,7 @@ export function DuelCardComponent({
       aria-pressed={selected}
       aria-label={`Select ${card.player_name}, ${card.duration_years}-year peak, ${card.start_season}${card.start_season !== card.end_season ? ` to ${card.end_season}` : ""}`}
       className={cn(
-        "relative w-full rounded-xl border-2 p-6 text-left transition-all duration-200",
+        "relative w-full rounded-xl border-2 p-6 text-left transition-[background-color,border-color,opacity] duration-200",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
         isInteractive && "cursor-pointer",
         // Default state

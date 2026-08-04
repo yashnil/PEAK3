@@ -85,7 +85,7 @@ export default function GridCell({
           <span
             data-testid="grid-cell-season"
             className="text-[clamp(9px,2.3vw,11px)] font-semibold tracking-wide"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             {filled.player_season.season}
           </span>

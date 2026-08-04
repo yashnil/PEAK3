@@ -33,7 +33,7 @@ import type { ReactNode } from "react";
 import { ArrowLeft, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { getRankingExplain } from "@/lib/api";
-import { componentColor, componentLabel } from "@/lib/utils";
+import { componentColor, componentTextColor, componentLabel } from "@/lib/utils";
 import type {
   Methodology,
   RankingBoardId,
@@ -226,7 +226,7 @@ function StatCard({
       <p
         className={
           accent
-            ? "score-number text-2xl font-bold text-[var(--peak-accent)]"
+            ? "score-number text-2xl font-bold text-[var(--peak-accent-text)]"
             : "score-number text-xl font-bold text-[var(--text-primary)]"
         }
       >
@@ -590,9 +590,9 @@ export default function ScoreExplainModal({
     ? (
         [
           ["Regular season", split.regular_season, undefined],
-          ["Postseason", split.postseason, componentColor("postseason_individual_value")],
-          ["Recognition", split.recognition, componentColor("individual_recognition")],
-          ["Team achievement", split.team, componentColor("team_achievement")],
+          ["Postseason", split.postseason, componentTextColor("postseason_individual_value")],
+          ["Recognition", split.recognition, componentTextColor("individual_recognition")],
+          ["Team achievement", split.team, componentTextColor("team_achievement")],
         ] as const
       ).filter(([, value]) => value !== null)
     : [];
@@ -787,7 +787,7 @@ export default function ScoreExplainModal({
                           </span>
                         )}
                         {season.markers.length > 0 && (
-                          <span className="text-[var(--peak-accent)]">
+                          <span className="text-[var(--peak-accent-text)]">
                             {season.markers.join(" · ")}
                           </span>
                         )}
@@ -894,7 +894,7 @@ export default function ScoreExplainModal({
                       data-testid="score-explain-held-back-item"
                       className="flex gap-2 text-xs leading-relaxed text-[var(--text-secondary)]"
                     >
-                      <span aria-hidden="true" style={{ color: "var(--comp-po)" }}>
+                      <span aria-hidden="true" style={{ color: "var(--comp-po-text)" }}>
                         &middot;
                       </span>
                       {reason}
@@ -939,7 +939,7 @@ export default function ScoreExplainModal({
                 {explain?.teammate_adjustment !== null &&
                   explain?.teammate_adjustment !== undefined && (
                     <p className="mt-2 text-[11px] text-[var(--text-muted)]">
-                      <span style={{ color: componentColor("teammate_adjustment") }}>
+                      <span style={{ color: componentTextColor("teammate_adjustment") }}>
                         {componentLabel("teammate_adjustment")}
                       </span>
                       : <span className="score-number">{signed(explain.teammate_adjustment, 3)}</span>{" "}
@@ -1045,7 +1045,7 @@ export default function ScoreExplainModal({
                                 </span>{" "}
                                 {entry.label}
                               </span>
-                              <span className="score-number shrink-0 text-xs font-bold text-[var(--peak-accent)]">
+                              <span className="score-number shrink-0 text-xs font-bold text-[var(--peak-accent-text)]">
                                 {formatScore1(entry.prime_score)}
                                 {comparisonDelta(entry, primeScore) !== null && (
                                   <span className="ml-1.5 font-normal text-[var(--text-muted)]">

@@ -94,7 +94,7 @@ export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, on
       style={{ background: "var(--bg-surface)", border: "1px solid var(--peak-accent-dim)" }}
     >
       {user && leaderboardEnabled && personalBest !== "loading" && (
-        <div data-testid="personal-best-compare" style={{ color: isNewBest ? "var(--peak-accent, #f5c842)" : "var(--text-secondary)" }}>
+        <div data-testid="personal-best-compare" style={{ color: isNewBest ? "var(--peak-accent-text, #f5c842)" : "var(--text-secondary)" }}>
           {personalBest === null ? (
             "This is your first submitted run in this mode — set the bar."
           ) : isNewBest ? (
@@ -132,7 +132,7 @@ export default function PlayAgainPanel({ mode, wins, losses, lineupPeakScore, on
           onClick={onPlayAgain}
           disabled={busy}
           className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0 disabled:opacity-50"
-          style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+          style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
         >
           {busy ? "Starting a new run…" : "Play again"}
         </button>

@@ -1,0 +1,879 @@
+-- Migration 036: Arena multiplayer foundation.
+-- arena_matches, arena_match_seats, arena_match_commands, arena_match_events,
+-- arena_turns, arena_match_results, arena_public_queue
+--
+-- LOCAL MIGRATION ONLY -- not applied to hosted Supabase as part of this pass
+-- (`supabase link` / `supabase db push` were never run), the same discipline as
+-- 20260731090000_run_the_table.sql, 20260801160000_head_to_head.sql and
+-- 20260803110000_contact_submissions.sql.
+--
+--
+-- WHAT THIS IS, AND WHAT IT DELIBERATELY IS NOT
+-- ---------------------------------------------
+-- This is the MODE-AGNOSTIC substrate for server-authoritative multiplayer: a
+-- match, its seats, an append-only event log, an idempotency ledger, turn
+-- deadlines, per-seat results, and a public queue. It encodes no game rules.
+-- There is no draft logic here, no auction logic, no scoring, and no column
+-- whose meaning depends on which mode is being played. Every mode-specific
+-- shape lives inside `arena_matches.snapshot` and `arena_match_events.payload`,
+-- both opaque JSONB that this layer never interprets -- the same call
+-- `run_the_table_runs.snapshot` makes (20260731090000_run_the_table.sql:57-60).
+--
+--
+-- WHY NEW TABLES AND NOT `head_to_head_matches` / `head_to_head_participants`
+-- --------------------------------------------------------------------------
+-- The obvious move is to widen the head-to-head tables, which already have RLS,
+-- a not-self rule and a settled-result column. That was evaluated against the
+-- real DDL (20260801160000_head_to_head.sql) and rejected. In descending order
+-- of how disqualifying each reason is:
+--
+--   1. HEAD-TO-HEAD IS HARD-CAPPED AT TWO SEATS, IN THE SCHEMA.
+--      `head_to_head_participants_role_uniq` is UNIQUE (match_id, role) over
+--      `role TEXT CHECK (role IN ('creator','opponent'))`
+--      (20260801160000_head_to_head.sql:133, :161-162). Two roles exist, so two
+--      rows exist, so a third player is a constraint violation by construction
+--      -- which is exactly the property that migration wanted. A three-seat
+--      mode cannot be expressed in it at all, and relaxing the CHECK would
+--      delete the guarantee head-to-head depends on. This table therefore uses
+--      an explicit integer `seat_index` and carries the arity on the match
+--      (`seat_count`), so a 2-seat and a 3-seat mode share one model without
+--      either weakening the other.
+--
+--   2. HEAD-TO-HEAD IS RUN-THE-TABLE-SHAPED. `seed`, `source_run_type`,
+--      `source_run_date`, `engine_version`, `ruleset_version`,
+--      `card_pool_version` and `fairness` are all NOT NULL (except the two
+--      nullable date/settlement columns) and every one of them means something
+--      specific to RUN THE TABLE. Filling them for an auction would be
+--      inventing data, which CLAUDE.md forbids outright.
+--
+--   3. HEAD-TO-HEAD IS ASYNCHRONOUS AND UNTIMED. It has `expires_at` for the
+--      whole match and nothing per turn, because there are no turns -- both
+--      sides play a solo run and the later submission settles it. There is no
+--      turn, no deadline, no ordering, and no timeout resolution to race
+--      against. All four are the substance of this migration.
+--
+--   4. `head_to_head_participants` HAS NO EVENT LOG AND NO COMMAND LEDGER.
+--      Adding both would be an ALTER on a shipped table to hold columns that
+--      only mean something for a different feature.
+--
+-- What IS reused is that migration's REASONING, and it is reused heavily:
+-- participant-scoped rows, seat uniqueness enforced by an index rather than by
+-- read-then-write, first-write-wins in the UPDATE itself, spoiler-safe RLS that
+-- refuses the opponent's row rather than trusting the application to omit it,
+-- and the five-verb REVOKE.
+--
+--
+-- WHY THE EVENT LOG AND THE SNAPSHOT BOTH EXIST
+-- ----------------------------------------------
+-- `arena_matches.snapshot` is the current state and is what every read serves.
+-- `arena_match_events` is the append-only history that produced it. This is a
+-- duplication, and it is deliberate: the snapshot alone cannot answer "what
+-- actually happened in this match", which is the only way to adjudicate a
+-- disputed result, and the log alone would make the common read a fold over
+-- every row ever written. The ranked schema made the same call -- an immutable
+-- `rating_ledger_entries` plus a derived `queue_ratings` cache
+-- (20260630125800_ranked_rating.sql:78-80) -- and documented the cache as
+-- verifiable against the ledger at any time. Same contract here: the events are
+-- the source of truth, the snapshot is a cache of the fold, and
+-- `state_version` is the sequence number that must agree between them.
+--
+--
+-- WHAT IS NOT STORED
+-- ------------------
+-- Generated content. `arena_matches.seed` is persisted; the board, the deck,
+-- the roll order and anything else derived from it are regenerated by the mode
+-- module on every load, so a second copy can never drift from the first
+-- (20260731090000_run_the_table.sql:14-19 makes this argument in full).
+--
+-- Ratings. `arena_ratings` / `arena_rating_history` are deliberately absent:
+-- they belong to the competition-security pass, and a rating table written by
+-- two teammates in two worktrees is a merge conflict with money in it.
+-- `arena_match_results.rated` records WHETHER a match counts; what it counts
+-- FOR is somebody else's migration.
+
+-- ---------------------------------------------------------------------------
+-- arena_matches: one match, any arity, any mode.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS arena_matches (
+    match_id            UUID PRIMARY KEY,
+
+    -- The mode this match is played under. Deliberately NOT a CHECK IN (...)
+    -- enumeration, which is the house default for closed vocabularies
+    -- (see arena_matches.status below, which IS enumerated).
+    --
+    -- WHY THE EXCEPTION. This layer is mode-agnostic and modes are added by
+    -- other passes in other worktrees. An enumerated CHECK would mean every new
+    -- mode requires a migration to THIS table, owned by whoever owns this file
+    -- -- turning a mode-local change into a cross-team schema change, and
+    -- making the foundation the bottleneck it exists to avoid being. The shape
+    -- is still constrained so a typo or an injected value is rejected: lower
+    -- snake_case, 3-40 chars. The authoritative list of live modes is the set
+    -- of registered mode modules in app/services/arena/, not this column.
+    mode                TEXT NOT NULL CHECK (mode ~ '^[a-z][a-z0-9_]{2,39}$'),
+
+    -- The mode module's own ruleset version, pinned at creation. A match whose
+    -- rules moved underneath it must be refused rather than reinterpreted --
+    -- the same contract run_the_table_runs' three version columns carry
+    -- (20260731090000_run_the_table.sql:21-27).
+    mode_version        TEXT NOT NULL,
+
+    -- The PEAK3 scoring model this match's numbers speak. Pinned per row
+    -- because v1 and v2 disagree for 24 of 1,000 players, so a regeneration
+    -- would otherwise silently rescore a settled match.
+    model_version       TEXT NOT NULL,
+
+    status              TEXT NOT NULL DEFAULT 'forming' CHECK (status IN (
+                            'forming',    -- seats still filling
+                            'active',     -- play in progress
+                            'completed',  -- ran to a result
+                            'abandoned',  -- everyone left / forfeited out
+                            'expired',    -- the match's own clock ran out
+                            'cancelled'   -- torn down before play began
+                        )),
+
+    -- OPTIMISTIC CONCURRENCY. Modelled on the one implementation that already
+    -- exists in this codebase -- CourtBuilder's `state_version`
+    -- (app/models/perfect_season.py:557), bumped in exactly one place
+    -- (services/perfect_season/state.py:210-218) and enforced at :660-664.
+    -- Monotonic: it only ever increments, which is what lets a caller's stale
+    -- value be distinguished from a current one by comparison alone.
+    state_version       INTEGER NOT NULL DEFAULT 0 CHECK (state_version >= 0),
+
+    -- How many seats this match has. The arity lives HERE rather than being
+    -- implied by a role enumeration, which is the whole reason these tables
+    -- exist rather than head-to-head's -- see the header. Bounded at 6 because
+    -- an unbounded seat count is a denial-of-service surface on every fan-out
+    -- read, and no designed mode exceeds 3.
+    seat_count          SMALLINT NOT NULL CHECK (seat_count BETWEEN 2 AND 6),
+
+    entry_path          TEXT NOT NULL CHECK (entry_path IN (
+                            'public_queue',   -- matchmade against strangers
+                            'private_room',   -- joined with a room code
+                            'practice'        -- explicitly against bots
+                        )),
+
+    -- Whether this match counts for rating. Stored rather than derived at read
+    -- time so it can never be recomputed differently after the fact by a policy
+    -- change -- the same reason ranked pins its algorithm version per match.
+    --
+    -- THE POLICY IS A CONSTRAINT, NOT A CONVENTION. Public is rated (including
+    -- a public match that timed out and was filled with bots -- waiting out the
+    -- human-preference window must not be a way to farm unrated practice while
+    -- occupying a real queue slot); private and practice are not. Written as a
+    -- CHECK so application code cannot disagree with it.
+    rated               BOOLEAN NOT NULL,
+    CONSTRAINT arena_matches_rated_matches_entry_path
+        CHECK (rated = (entry_path = 'public_queue')),
+
+    -- The room code for a private match, NULL otherwise. Not a secret in the
+    -- cryptographic sense -- it is short enough to be read aloud -- so it is
+    -- rate-limited and scoped at the route, and possessing one grants exactly
+    -- one thing: the right to seat YOURSELF. Same posture as the head-to-head
+    -- invite (20260801160000_head_to_head.sql:64-72).
+    room_code           TEXT CHECK (room_code IS NULL OR room_code ~ '^[A-Z0-9]{6}$'),
+    CONSTRAINT arena_matches_room_code_requires_private
+        CHECK (room_code IS NULL OR entry_path = 'private_room'),
+
+    -- Everything generated in this match derives from this. BIGINT for the same
+    -- reason run_the_table_runs.seed is: the space is [0, 2^31) today and a
+    -- column that cannot hold a wider one is a migration waiting to happen.
+    seed                BIGINT NOT NULL,
+
+    -- Set when at least one seat is a bot. The version is pinned so a bot
+    -- policy change cannot retroactively alter what a settled match was played
+    -- against, and so a rated match filled with bots can be audited later.
+    bot_policy_version  TEXT,
+
+    created_by          TEXT NOT NULL,
+
+    -- The current turn's deadline, denormalised from arena_turns so the common
+    -- "is anything overdue on this match?" check is one column read rather than
+    -- a join. NULL when no turn is open. arena_turns.deadline_at remains
+    -- authoritative; a disagreement between the two is a corruption signal, the
+    -- same relationship run_the_table_runs.status has with its snapshot.
+    turn_deadline_at    TIMESTAMPTZ,
+    current_turn_seq    INTEGER,
+
+    -- THE MATCH'S OWN CLOCK. Enforced, not decorative. `ranked_matches.deadline`
+    -- is written by matchmaking and never read for enforcement anywhere (six
+    -- sites, none a comparison), so ranked matches never actually expire and
+    -- the 'expired' and 'forfeited' values in that table's status CHECK have
+    -- never been written by any code path. That is the defect this column must
+    -- not repeat: app/services/arena/clock.py compares against it on every
+    -- request that touches a match, and the sweep is covered by a test that
+    -- fails if the comparison is removed.
+    expires_at          TIMESTAMPTZ NOT NULL,
+
+    -- The mode's current state, verbatim from its own serializer. JSONB rather
+    -- than child tables because it is read and written as one whole state per
+    -- command and is never queried field-by-field or joined against -- the same
+    -- call run_the_table_runs.snapshot and perfect_season_saved_runs.roster
+    -- both make.
+    snapshot            JSONB NOT NULL DEFAULT '{}',
+
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at        TIMESTAMPTZ
+);
+
+-- ONE LIVE ROOM CODE AT A TIME. Partial, so the many finished matches that
+-- still carry their historical code do not collide with a new one. Without this
+-- a code could be issued twice and a joiner would land in whichever row the
+-- planner happened to return.
+CREATE UNIQUE INDEX IF NOT EXISTS arena_matches_room_code_live_uniq
+    ON arena_matches (room_code)
+    WHERE room_code IS NOT NULL AND status IN ('forming', 'active');
+
+-- The lazy expiry sweep's query: matches past their clock that nothing has
+-- closed yet. Partial so it never scans the completed majority.
+CREATE INDEX IF NOT EXISTS arena_matches_live_expiry_idx
+    ON arena_matches (expires_at)
+    WHERE status IN ('forming', 'active');
+
+-- Operational triage and the mode-scoped listing.
+CREATE INDEX IF NOT EXISTS arena_matches_mode_status_idx
+    ON arena_matches (mode, status, created_at DESC);
+
+
+-- ---------------------------------------------------------------------------
+-- arena_match_seats: N seats per match, addressed by index rather than by role.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS arena_match_seats (
+    match_id        UUID NOT NULL REFERENCES arena_matches(match_id) ON DELETE CASCADE,
+
+    -- THE GENERALIZATION. head_to_head_participants keys on
+    -- `role IN ('creator','opponent')`, which caps arity at two in the schema
+    -- (20260801160000_head_to_head.sql:133). An integer index caps nothing and
+    -- carries strictly more information: seat order is meaningful for a snake
+    -- draft and irrelevant for a simultaneous auction, and both are expressible.
+    -- Bounded above by the match's own seat_count, which a CHECK cannot
+    -- reference across rows -- enforced in the repository and asserted in the
+    -- conformance suite instead.
+    seat_index      SMALLINT NOT NULL CHECK (seat_index >= 0 AND seat_index < 6),
+
+    occupant_kind   TEXT NOT NULL CHECK (occupant_kind IN ('human', 'bot')),
+
+    -- A Supabase auth.uid() or a signed anon-cookie subject, for a human seat;
+    -- NULL for a bot. TEXT and not a UUID FK for the same reason
+    -- run_the_table_runs.owner_sub is (20260731090000:29-33): an anon subject
+    -- is not an auth.uid() and never will be.
+    occupant_sub    TEXT,
+
+    -- Which bot is in this seat, and what it was calibrated at. Both NULL for a
+    -- human. The rating is stored per seat rather than looked up from the bot
+    -- registry at read time so a recalibration cannot retroactively change what
+    -- a settled rated match was played against.
+    bot_id          TEXT,
+    bot_rating      NUMERIC(8, 4),
+
+    -- Denormalised at seat time. Never the raw subject: showing one player
+    -- another's auth.uid() is a privacy leak dressed as a label, which
+    -- head_to_head.py:204-215 already established with the same fallback.
+    display_name    TEXT NOT NULL DEFAULT 'PEAK3 player',
+
+    status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN (
+                        'active', 'disconnected', 'resigned', 'eliminated', 'finished'
+                    )),
+
+    joined_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Liveness, updated on any authenticated read of the match by this seat.
+    -- Advisory only: nothing forfeits on it. It exists so a mode can show
+    -- "opponent has not been seen in 2 minutes" without inventing a presence
+    -- channel, and so an abandoned public match can be swept.
+    last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- The kind and its columns must agree. Without this a row could claim to be
+    -- a human seat while carrying a bot_id, and every downstream branch that
+    -- switches on occupant_kind would be reading a lie.
+    CONSTRAINT arena_match_seats_occupant_shape CHECK (
+        (occupant_kind = 'human' AND occupant_sub IS NOT NULL AND bot_id IS NULL AND bot_rating IS NULL)
+        OR
+        (occupant_kind = 'bot' AND occupant_sub IS NULL AND bot_id IS NOT NULL)
+    ),
+
+    PRIMARY KEY (match_id, seat_index)
+);
+
+-- ONE SEAT PER PERSON PER MATCH. This is the not-self rule, generalized: the
+-- creator already holds a seat, so their own second join collides here.
+-- head_to_head got this from PRIMARY KEY (match_id, participant_sub)
+-- (20260801160000:155); it cannot be a primary key here because the primary key
+-- must be (match_id, seat_index) for a bot seat to exist at all, so it is a
+-- partial unique index over the non-NULL subjects instead.
+CREATE UNIQUE INDEX IF NOT EXISTS arena_match_seats_one_per_sub_uniq
+    ON arena_match_seats (match_id, occupant_sub)
+    WHERE occupant_sub IS NOT NULL;
+
+-- "Which matches am I in?", newest first -- the history and resume queries.
+CREATE INDEX IF NOT EXISTS arena_match_seats_sub_idx
+    ON arena_match_seats (occupant_sub, joined_at DESC)
+    WHERE occupant_sub IS NOT NULL;
+
+
+-- ---------------------------------------------------------------------------
+-- arena_match_commands: the idempotency ledger.
+-- ---------------------------------------------------------------------------
+-- Every mutation is a command, and every command is recorded here BEFORE its
+-- effect is visible, in the same transaction. A replayed key returns the
+-- recorded outcome instead of re-applying anything.
+--
+-- WHY A LEDGER AND NOT JUST A UNIQUE COLUMN ON THE EFFECT. Ranked put
+-- `idempotency_key` on `ranked_match_submissions` with
+-- UNIQUE (match_id, idempotency_key) (20260630125600:90,:94), which is correct
+-- for a submission because the submission IS the effect. A general command may
+-- be rejected (illegal move, wrong turn, stale version) and a rejection must be
+-- as idempotent as an acceptance -- otherwise a client retrying a network
+-- timeout on an illegal move gets a different answer the second time and cannot
+-- tell whether its first attempt landed. So the ledger records the verdict, not
+-- just the successes.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS arena_match_commands (
+    match_id                UUID NOT NULL REFERENCES arena_matches(match_id) ON DELETE CASCADE,
+
+    -- Client-supplied, per match. Scoped to the match rather than globally
+    -- unique so one client's key space cannot collide with another's.
+    idempotency_key         TEXT NOT NULL CHECK (char_length(idempotency_key) BETWEEN 8 AND 128),
+
+    -- Which seat issued it. NULL for a server-issued command (a timeout
+    -- resolution has no actor), which is exactly why this is nullable and
+    -- `actor_sub` below is too.
+    actor_seat_index        SMALLINT,
+    actor_sub               TEXT,
+
+    command_type            TEXT NOT NULL,
+
+    -- The command's arguments, verbatim as received after validation. Opaque
+    -- here: this layer does not know what a bid or a pick is.
+    payload                 JSONB NOT NULL DEFAULT '{}',
+
+    accepted                BOOLEAN NOT NULL,
+
+    -- NULL on acceptance; a stable machine-readable code on rejection, so a
+    -- replay returns the same refusal rather than a re-derived one.
+    rejection_code          TEXT,
+    CONSTRAINT arena_match_commands_rejection_shape
+        CHECK (accepted = (rejection_code IS NULL)),
+
+    -- The version this command was applied against, and the version it produced.
+    -- Equal when the command was rejected: a rejection changes no state, so it
+    -- must not consume a version, or a rejected retry would invalidate every
+    -- other client's cached version for no reason.
+    state_version_before    INTEGER NOT NULL,
+    state_version_after     INTEGER NOT NULL,
+    CONSTRAINT arena_match_commands_version_monotonic
+        CHECK (state_version_after >= state_version_before),
+
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- THE IDEMPOTENCY GUARANTEE. Requested as UNIQUE (match_id,
+    -- idempotency_key); expressed as the primary key because that is the same
+    -- constraint with one fewer index, and there is no other natural key.
+    PRIMARY KEY (match_id, idempotency_key)
+);
+
+-- Operational: replay a match's command history in order.
+CREATE INDEX IF NOT EXISTS arena_match_commands_match_created_idx
+    ON arena_match_commands (match_id, created_at);
+
+
+-- ---------------------------------------------------------------------------
+-- arena_match_events: the append-only history.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS arena_match_events (
+    id                  BIGSERIAL PRIMARY KEY,
+    match_id            UUID NOT NULL REFERENCES arena_matches(match_id) ON DELETE CASCADE,
+
+    -- Per-match ordering. A BIGSERIAL alone is insufficient: it is global and
+    -- gapped, so it orders events within a match correctly but cannot express
+    -- "this is event 4 of this match" to a client resuming from event 3.
+    seq                 INTEGER NOT NULL CHECK (seq >= 0),
+
+    event_type          TEXT NOT NULL,
+    actor_seat_index    SMALLINT,
+    payload             JSONB NOT NULL DEFAULT '{}',
+
+    -- VISIBILITY IS A COLUMN, NOT AN APPLICATION HABIT.
+    --
+    -- A sealed bid, a dealt-but-unrevealed card and a private roll all have to
+    -- be logged -- an event log that omits them cannot reconstruct the match --
+    -- and all three are spoilers until the mode says otherwise. Filtering them
+    -- in the serializer would put the whole guarantee in whichever `if` a future
+    -- route forgets, which is precisely how head-to-head's first version leaked
+    -- an opponent's run_id through a settled receipt (head_to_head.py:183-201).
+    --
+    -- So visibility is stored with the event and every read path filters on it
+    -- in SQL. 'public' is visible to every seat; 'seat' is visible only to
+    -- `visible_to_seat`; 'server' is visible to no client at all (it exists for
+    -- audit -- e.g. the seed a hidden roll consumed).
+    visibility          TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'seat', 'server')),
+    visible_to_seat     SMALLINT,
+    CONSTRAINT arena_match_events_visibility_shape CHECK (
+        (visibility = 'seat' AND visible_to_seat IS NOT NULL)
+        OR
+        (visibility <> 'seat' AND visible_to_seat IS NULL)
+    ),
+
+    -- The snapshot version this event produced. Lets a client holding version N
+    -- ask for exactly the events that took it past N.
+    state_version_after INTEGER NOT NULL,
+
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT arena_match_events_seq_uniq UNIQUE (match_id, seq)
+);
+
+-- The resume query: "everything after the version I hold", in order.
+CREATE INDEX IF NOT EXISTS arena_match_events_replay_idx
+    ON arena_match_events (match_id, seq);
+
+-- APPEND-ONLY. Corrections are new events, never edits -- the same rule
+-- rating_ledger_entries (20260630125800:44-59) and ranked_match_settlements
+-- (20260630125700:100-119) enforce, and for the same reason: a log that can be
+-- rewritten cannot be evidence of anything.
+CREATE OR REPLACE FUNCTION arena_match_events_immutable() RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'arena_match_events is append-only; % is not permitted (id=%)', TG_OP, OLD.id;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS arena_match_events_no_update ON arena_match_events;
+CREATE TRIGGER arena_match_events_no_update
+    BEFORE UPDATE ON arena_match_events
+    FOR EACH ROW EXECUTE FUNCTION arena_match_events_immutable();
+
+DROP TRIGGER IF EXISTS arena_match_events_no_delete ON arena_match_events;
+CREATE TRIGGER arena_match_events_no_delete
+    BEFORE DELETE ON arena_match_events
+    FOR EACH ROW EXECUTE FUNCTION arena_match_events_immutable();
+
+
+-- ---------------------------------------------------------------------------
+-- arena_turns: the server's clock.
+-- ---------------------------------------------------------------------------
+-- One row per turn. `deadline_at` is set when the turn opens and is the only
+-- thing that decides whether a late action is late -- never a client clock,
+-- never a header, never elapsed time computed from a request timestamp.
+--
+-- THE TIMEOUT-VS-ACTION RACE IS RESOLVED HERE, BY THIS TABLE, AND NOWHERE ELSE.
+-- A turn is resolved exactly once: `resolved_at` goes from NULL to a value
+-- under `WHERE resolved_at IS NULL`, so the action and the timeout sweep race
+-- on one UPDATE and exactly one of them affects a row. The loser observes zero
+-- rows updated and abandons -- it does not retry, and it does not read the row
+-- first to decide, because "is it resolved?" followed by "resolve it" is the
+-- check-then-write race this column exists to remove.
+--
+-- `resolution` records WHICH one won, which is what makes a forfeit auditable
+-- rather than merely observable in the resulting state.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS arena_turns (
+    match_id                UUID NOT NULL REFERENCES arena_matches(match_id) ON DELETE CASCADE,
+    turn_seq                INTEGER NOT NULL CHECK (turn_seq >= 0),
+
+    -- Whose turn it is. NULL for a simultaneous turn (every seat acts at once,
+    -- e.g. a sealed-bid round), which is why this is nullable rather than the
+    -- table being keyed on it.
+    seat_index              SMALLINT,
+
+    -- The mode's own name for what is happening. Opaque here.
+    phase                   TEXT NOT NULL,
+
+    opened_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deadline_at             TIMESTAMPTZ NOT NULL,
+
+    resolved_at             TIMESTAMPTZ,
+    resolution              TEXT CHECK (resolution IN ('action', 'timeout', 'forfeit', 'skipped')),
+    CONSTRAINT arena_turns_resolution_shape
+        CHECK ((resolved_at IS NULL) = (resolution IS NULL)),
+
+    -- The command that resolved it, for audit. NULL for a timeout, which has no
+    -- command.
+    resolved_by_key         TEXT,
+
+    CONSTRAINT arena_turns_deadline_after_open CHECK (deadline_at > opened_at),
+
+    PRIMARY KEY (match_id, turn_seq)
+);
+
+-- The sweep's query: open turns past their deadline. Partial so it never scans
+-- resolved history.
+CREATE INDEX IF NOT EXISTS arena_turns_overdue_idx
+    ON arena_turns (deadline_at)
+    WHERE resolved_at IS NULL;
+
+
+-- ---------------------------------------------------------------------------
+-- arena_match_results: one immutable row per seat, written once at completion.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS arena_match_results (
+    match_id        UUID NOT NULL REFERENCES arena_matches(match_id) ON DELETE CASCADE,
+    seat_index      SMALLINT NOT NULL,
+
+    -- 1 = best. Ties share a placement, so a three-way draw is 1/1/1 and the
+    -- next seat would be 4 -- standard competition ranking, stated here because
+    -- a rating pass will consume this column and must not have to guess.
+    placement       SMALLINT NOT NULL CHECK (placement >= 1),
+
+    -- The mode's own primary comparison value. NUMERIC and not DOUBLE
+    -- PRECISION so a stored result compares exactly on replay, the same reason
+    -- glicko2.py rounds at the persistence boundary (glicko2.py:34-42).
+    score           NUMERIC(12, 4) NOT NULL,
+
+    outcome         TEXT NOT NULL CHECK (outcome IN ('win', 'loss', 'draw')),
+
+    -- Copied from the match at write time rather than joined. A rating pass
+    -- reading this table must not be able to see a different answer than the
+    -- one the match was settled under, even if arena_matches were later
+    -- corrected.
+    rated           BOOLEAN NOT NULL,
+
+    -- Whether this seat was a bot, denormalised for the same reason: a rating
+    -- pass needs it and must not depend on the seat row still existing.
+    was_bot         BOOLEAN NOT NULL,
+
+    -- Mode-specific breakdown (component scores, tiebreak trail). Opaque here.
+    detail          JSONB NOT NULL DEFAULT '{}',
+
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    PRIMARY KEY (match_id, seat_index)
+);
+
+-- IMMUTABLE ONCE WRITTEN. Same rule and same reasoning as
+-- ranked_match_settlements (20260630125700:100-119): a settled result is
+-- evidence, and evidence that can be edited is not evidence. A match settled in
+-- error is corrected by transitioning arena_matches.status and appending an
+-- event, never by rewriting this row.
+CREATE OR REPLACE FUNCTION arena_match_results_immutable() RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'arena_match_results is append-only; % is not permitted (match=%, seat=%)',
+        TG_OP, OLD.match_id, OLD.seat_index;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS arena_match_results_no_update ON arena_match_results;
+CREATE TRIGGER arena_match_results_no_update
+    BEFORE UPDATE ON arena_match_results
+    FOR EACH ROW EXECUTE FUNCTION arena_match_results_immutable();
+
+DROP TRIGGER IF EXISTS arena_match_results_no_delete ON arena_match_results;
+CREATE TRIGGER arena_match_results_no_delete
+    BEFORE DELETE ON arena_match_results
+    FOR EACH ROW EXECUTE FUNCTION arena_match_results_immutable();
+
+-- "My results", newest first.
+CREATE INDEX IF NOT EXISTS arena_match_results_created_idx
+    ON arena_match_results (created_at DESC);
+
+
+-- ---------------------------------------------------------------------------
+-- arena_public_queue: the durable waiting room.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS arena_public_queue (
+    entry_id                UUID PRIMARY KEY,
+    owner_sub               TEXT NOT NULL,
+    mode                    TEXT NOT NULL CHECK (mode ~ '^[a-z][a-z0-9_]{2,39}$'),
+    mode_version            TEXT NOT NULL,
+
+    -- How many seats the match this entry is waiting for will have. Two players
+    -- waiting for differently-sized matches of the same mode must not be paired.
+    seat_count              SMALLINT NOT NULL CHECK (seat_count BETWEEN 2 AND 6),
+
+    status                  TEXT NOT NULL DEFAULT 'waiting' CHECK (status IN (
+                                'waiting', 'matched', 'cancelled', 'expired'
+                            )),
+
+    joined_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- THE 30-SECOND HUMAN-PREFERENCE WINDOW, as a timestamp rather than a
+    -- duration. Stored per entry so the window is decided once, at join, by the
+    -- server -- a duration would have to be re-applied against a clock on every
+    -- check, and two checks a millisecond apart could disagree about whether it
+    -- had elapsed. Before this instant the matchmaker will only pair humans;
+    -- after it, the entry may be filled with bots.
+    human_preference_until  TIMESTAMPTZ NOT NULL,
+
+    -- Swept to 'expired' after this. A queue entry is a row and outlives the
+    -- tab that created it, so without a TTL the queue accumulates ghosts and
+    -- the next genuine joiner is matched against someone who closed their
+    -- browser -- the exact failure ranked's QUEUE_ENTRY_TTL was added to fix
+    -- (services/ranked/matchmaking.py:48-68).
+    expires_at              TIMESTAMPTZ NOT NULL,
+
+    matched_at              TIMESTAMPTZ,
+    cancelled_at            TIMESTAMPTZ,
+    match_id                UUID REFERENCES arena_matches(match_id),
+
+    CONSTRAINT arena_public_queue_window_within_ttl
+        CHECK (human_preference_until <= expires_at)
+);
+
+-- ONE ACTIVE ENTRY PER PLAYER PER MODE. Partial, so a player's finished entries
+-- do not block a new one. Directly modelled on
+-- ranked_queue_entries_active_unique (20260630125600:123-124).
+CREATE UNIQUE INDEX IF NOT EXISTS arena_public_queue_active_uniq
+    ON arena_public_queue (owner_sub, mode)
+    WHERE status = 'waiting';
+
+-- The matchmaker's scan: longest-waiting compatible entries first.
+CREATE INDEX IF NOT EXISTS arena_public_queue_waiting_idx
+    ON arena_public_queue (mode, seat_count, joined_at)
+    WHERE status = 'waiting';
+
+
+-- ---------------------------------------------------------------------------
+-- ROW LEVEL SECURITY
+--
+-- READ THIS BEFORE TREATING THESE POLICIES AS THE ACCESS BOUNDARY FOR THE API.
+-- They are not. 20260801100000_rls_gaps.sql:3-18 records the measured facts:
+-- the API opens one asyncpg pool as the TABLE-OWNING role, never issues
+-- SET ROLE, never sets request.jwt.claims, and no table in this schema carries
+-- FORCE ROW LEVEL SECURITY. A table owner is exempt from its own policies, so
+-- for API traffic every one of these policies is inert and seat scoping is
+-- 100% application code (app/api/v1/arena.py's `_seat_or_403`).
+--
+-- What these policies DO bind is the one caller class that is not the owner: a
+-- PostgREST client holding the Supabase anon/authenticated key that ships in
+-- the browser bundle. That caller is real -- the key is public by design -- so
+-- the policies below are written as if it were hostile, which it may be.
+--
+-- Private by default. No table here has a public read. `snapshot` carries live
+-- game state, `arena_match_events` carries sealed bids and unrevealed cards,
+-- and `arena_matches.seed` regenerates every board in the match. All three are
+-- spoiler material and none of them is anyone's business but the seats'.
+-- ---------------------------------------------------------------------------
+ALTER TABLE arena_matches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE arena_match_seats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE arena_match_commands ENABLE ROW LEVEL SECURITY;
+ALTER TABLE arena_match_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE arena_turns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE arena_match_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE arena_public_queue ENABLE ROW LEVEL SECURITY;
+
+-- ---------------------------------------------------------------------------
+-- Helper: does `p_sub` hold a seat in `p_match_id`?
+--
+-- SECURITY DEFINER so this function's SELECT against arena_match_seats runs as
+-- the function owner and bypasses RLS. Required, not stylistic: a policy on
+-- arena_matches that asks about arena_match_seats, while arena_match_seats has
+-- a policy that asks about arena_matches, closes a mutual-recursion cycle and
+-- PostgreSQL answers
+--
+--     ERROR:  infinite recursion detected in policy for relation ...
+--
+-- That is an observed error in this repository, twice, not a theoretical
+-- objection -- 20260630130000_ranked_rls.sql:44-54 hit it between
+-- ranked_matches and ranked_match_participants, and
+-- 20260801160000_head_to_head.sql:196-218 hit it within a single table. Routing
+-- through a definer function is the standard fix for the first shape; self-only
+-- policies are the fix for the second, and both are used below.
+--
+-- STABLE and `SET search_path = public` for the usual SECURITY DEFINER hygiene:
+-- without the search_path pin, a caller who can create objects in an earlier
+-- schema could shadow `arena_match_seats` and make this function answer true.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION is_arena_seat_holder(p_match_id UUID, p_sub TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM arena_match_seats
+        WHERE match_id = p_match_id AND occupant_sub = p_sub
+    );
+$$;
+
+-- arena_matches -- any seat holder may read the match row.
+DROP POLICY IF EXISTS arena_matches_seat_holder_read ON arena_matches;
+CREATE POLICY arena_matches_seat_holder_read ON arena_matches
+    FOR SELECT USING (is_arena_seat_holder(arena_matches.match_id, auth.uid()::text));
+
+-- arena_match_seats -- SELF-ONLY, and deliberately so, on two counts.
+--
+-- The obvious policy ("you may read a seat row if you hold a seat in that
+-- match") reads arena_match_seats from inside a policy ON arena_match_seats,
+-- which recurses -- see the helper's comment above. It could be routed through
+-- the definer function, but self-only is also the better rule here: another
+-- seat's row carries their bot_rating and their liveness, and in a mode with
+-- hidden information even "which seats are still active" can be a spoiler. The
+-- server serves the other seats through a projection that knows what is safe to
+-- reveal and when; the direct client path is closed. Exactly the call
+-- head_to_head_participants_self_read made (20260801160000:219-222).
+DROP POLICY IF EXISTS arena_match_seats_self_read ON arena_match_seats;
+CREATE POLICY arena_match_seats_self_read ON arena_match_seats
+    FOR SELECT USING (occupant_sub = auth.uid()::text);
+
+-- arena_match_events -- a seat holder may read PUBLIC events of their own
+-- match, plus events addressed to their own seat. Never 'server' events, and
+-- never another seat's private ones.
+--
+-- This is the policy that would leak a sealed bid if it were written as "any
+-- event in a match you are in", which is why `visibility` is a stored column
+-- rather than a serializer concern.
+DROP POLICY IF EXISTS arena_match_events_seat_scoped_read ON arena_match_events;
+CREATE POLICY arena_match_events_seat_scoped_read ON arena_match_events
+    FOR SELECT USING (
+        is_arena_seat_holder(arena_match_events.match_id, auth.uid()::text)
+        AND (
+            visibility = 'public'
+            OR (
+                visibility = 'seat'
+                AND EXISTS (
+                    SELECT 1 FROM arena_match_seats s
+                     WHERE s.match_id = arena_match_events.match_id
+                       AND s.seat_index = arena_match_events.visible_to_seat
+                       AND s.occupant_sub = auth.uid()::text
+                )
+            )
+        )
+    );
+
+-- arena_turns -- readable by any seat holder. A deadline is not a secret; a
+-- player must be able to see their own clock, and hiding the opponent's clock
+-- would make a timeout look like a bug.
+DROP POLICY IF EXISTS arena_turns_seat_holder_read ON arena_turns;
+CREATE POLICY arena_turns_seat_holder_read ON arena_turns
+    FOR SELECT USING (is_arena_seat_holder(arena_turns.match_id, auth.uid()::text));
+
+-- arena_match_results -- readable by any seat holder, and only once the match
+-- is completed. A result row only exists at completion, so the status predicate
+-- is belt-and-braces against a future partial write.
+DROP POLICY IF EXISTS arena_match_results_seat_holder_read ON arena_match_results;
+CREATE POLICY arena_match_results_seat_holder_read ON arena_match_results
+    FOR SELECT USING (
+        is_arena_seat_holder(arena_match_results.match_id, auth.uid()::text)
+        AND EXISTS (
+            SELECT 1 FROM arena_matches m
+             WHERE m.match_id = arena_match_results.match_id
+               AND m.status = 'completed'
+        )
+    );
+
+-- arena_public_queue -- own entries only.
+DROP POLICY IF EXISTS arena_public_queue_owner_read ON arena_public_queue;
+CREATE POLICY arena_public_queue_owner_read ON arena_public_queue
+    FOR SELECT USING (owner_sub = auth.uid()::text);
+
+-- arena_match_commands -- NO CLIENT ACCESS AT ALL.
+--
+-- The command ledger carries every payload every seat ever submitted, including
+-- rejected ones, including sealed bids that were refused for being late. There
+-- is no product surface that needs a client to read it and no way to expose it
+-- partially that is obviously safe, so it is closed outright rather than
+-- narrowed. Same shape and same reasoning as contact_submissions
+-- (20260803110000:105-107) and the ranked server-only tables
+-- (20260630130000:145-159).
+DROP POLICY IF EXISTS arena_match_commands_no_client_access ON arena_match_commands;
+CREATE POLICY arena_match_commands_no_client_access ON arena_match_commands
+    FOR ALL USING (false) WITH CHECK (false);
+
+
+-- ---------------------------------------------------------------------------
+-- REVOKE -- the layer that actually stops a forged move.
+--
+-- WHY BOTH, when the policies above already exist. A SELECT-only policy set
+-- narrows reads; it says nothing about writes, and Postgres's default here is
+-- not "deny". 20260630130100_default_privileges.sql:31-32 runs
+--
+--     ALTER DEFAULT PRIVILEGES IN SCHEMA public
+--         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO anon, authenticated;
+--
+-- so every table created by this migration was granted full CRUD to anon and
+-- authenticated at the moment it was created. Without the revoke below, a
+-- PostgREST client holding the public anon key could UPDATE arena_matches
+-- directly -- set its own snapshot, bump its own state_version, write its own
+-- arena_match_results row with placement 1 -- and no policy in this file would
+-- stop it, because none of them is an INSERT/UPDATE policy at all.
+--
+-- The server recomputes every one of those values from the event log precisely
+-- so they cannot be asserted by a client. A direct write walks around that whole
+-- trust boundary. 20260801140000_owned_results_revoke.sql and
+-- 20260801160000_head_to_head.sql:227-241 make this argument for the result
+-- tables they closed; it is sharper here, because a match in progress has an
+-- opponent who would be robbed rather than merely a record that would be wrong.
+--
+-- SELECT is deliberately left granted (except on arena_match_commands, whose
+-- deny-all policy covers it): the policies above already narrow it to matches
+-- the caller is seated in, and reading one's own match history directly is a
+-- legitimate future client path. This removes only the ability to WRITE.
+--
+-- FIVE VERBS, NOT THREE. TRUNCATE is a write that RLS does not filter at all --
+-- it is table-level, so no policy is consulted -- meaning a role holding it can
+-- erase every match in the system regardless of every policy above. TRIGGER
+-- likewise allows attaching a function to a table one cannot otherwise write.
+-- Both were found still granted on four earlier tables after a migration
+-- revoked only the CRUD three (20260801160000:258-269), which is why they are
+-- named explicitly here rather than assumed absent.
+--
+-- The API is unaffected: it connects as the table-owning role, which is not
+-- subject to these grants (20260801100000_rls_gaps.sql).
+--
+-- Guarded by pg_tables so an environment that has not created a given table yet
+-- cannot break the chain, the same guard 20260801140000 and 20260801160000 use.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+    t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'arena_matches',
+        'arena_match_seats',
+        'arena_match_commands',
+        'arena_match_events',
+        'arena_turns',
+        'arena_match_results',
+        'arena_public_queue'
+    ]
+    LOOP
+        IF EXISTS (
+            SELECT 1 FROM pg_tables
+            WHERE schemaname = 'public' AND tablename = t
+        ) THEN
+            EXECUTE format(
+                'REVOKE INSERT, UPDATE, DELETE, TRUNCATE, TRIGGER ON public.%I '
+                'FROM anon, authenticated',
+                t
+            );
+        END IF;
+    END LOOP;
+END
+$$;
+
+-- arena_match_commands is closed to reads as well -- see its deny-all policy.
+-- Revoked in addition to the policy for the reason 20260803110000:89-101 gives:
+-- relying on a policy alone would leave this table's protection to an absence
+-- (no matching row) rather than a statement, and a revoke fails loudly at the
+-- privilege check while a policy miss reads to a client as an empty result.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_tables
+        WHERE schemaname = 'public' AND tablename = 'arena_match_commands'
+    ) THEN
+        REVOKE SELECT ON public.arena_match_commands FROM anon, authenticated;
+    END IF;
+END
+$$;
+
+
+-- Down (never executed; recorded for review):
+--   GRANT SELECT ON public.arena_match_commands TO anon, authenticated;
+--   GRANT INSERT, UPDATE, DELETE, TRUNCATE, TRIGGER ON
+--     public.arena_matches, public.arena_match_seats, public.arena_match_commands,
+--     public.arena_match_events, public.arena_turns, public.arena_match_results,
+--     public.arena_public_queue TO anon, authenticated;
+--   DROP FUNCTION IF EXISTS is_arena_seat_holder(UUID, TEXT);
+--   DROP TRIGGER IF EXISTS arena_match_results_no_delete ON arena_match_results;
+--   DROP TRIGGER IF EXISTS arena_match_results_no_update ON arena_match_results;
+--   DROP FUNCTION IF EXISTS arena_match_results_immutable();
+--   DROP TRIGGER IF EXISTS arena_match_events_no_delete ON arena_match_events;
+--   DROP TRIGGER IF EXISTS arena_match_events_no_update ON arena_match_events;
+--   DROP FUNCTION IF EXISTS arena_match_events_immutable();
+--   DROP TABLE IF EXISTS arena_public_queue;
+--   DROP TABLE IF EXISTS arena_match_results;
+--   DROP TABLE IF EXISTS arena_turns;
+--   DROP TABLE IF EXISTS arena_match_events;
+--   DROP TABLE IF EXISTS arena_match_commands;
+--   DROP TABLE IF EXISTS arena_match_seats;
+--   DROP TABLE IF EXISTS arena_matches;

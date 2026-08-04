@@ -435,8 +435,17 @@ def test_create_standard_run_anonymously(client: TestClient):
     assert len(state["starters"]) == STARTER_SLOTS
     assert len(state["bench"]) == BENCH_SLOTS
     assert [s["slot_id"] for s in state["starters"]] == list(ROLES)
-    assert all(s["card"] is not None for s in state["starters"])
-    assert all(s["card"] is not None for s in state["bench"])
+    # P1-E regression gate: a freshly created run's opening roster is
+    # concealed to SHAPE ONLY until the player actually reveals it -- no
+    # identity leak from the first frame. `slot_id`/`role`/`is_starter` are
+    # still present (so the roster dock can render its seven empty positions);
+    # `card` is the only thing withheld.
+    assert all(s["card"] is None for s in state["starters"])
+    assert all(s["card"] is None for s in state["bench"])
+    assert all(set(s) == {"slot_id", "role", "is_starter", "card"} for s in state["starters"])
+    assert state["roster_profile_partial"] is True
+    assert state["roster_total"] == 0.0
+    assert all(lane["value"] == 0.0 for lane in state["lane_profile"])
 
     # Three Systems are offered and at most one is held, so a legal choice
     # always exists.
@@ -453,6 +462,12 @@ def test_same_seed_produces_the_same_opening_position(client: TestClient):
     a = _create(client, seed=4242)
     b = _create(client, seed=4242)
     assert a["run_id"] != b["run_id"]
+    # The roster is concealed until revealed (P1-E) -- reveal both before
+    # comparing identities, which is a STRONGER determinism assertion than
+    # comparing the raw payload (it proves the same seed reveals the same
+    # roster in the same order, not merely that it was assigned the same).
+    a = _act(client, a["run_id"], action_type="reveal", count=ROSTER_SIZE)
+    b = _act(client, b["run_id"], action_type="reveal", count=ROSTER_SIZE)
     assert [s["card"]["card_id"] for s in a["starters"]] == [
         s["card"]["card_id"] for s in b["starters"]
     ]
@@ -861,6 +876,10 @@ def test_different_owners_get_distinct_daily_runs_of_the_same_board(client: Test
     with TestClient(app) as a, TestClient(app) as b:
         run_a = _create(a, run_type="daily", date=FIXED_DATE)
         run_b = _create(b, run_type="daily", date=FIXED_DATE)
+        # The roster is concealed until revealed (P1-E) -- reveal both, inside
+        # the `with` block, before comparing identities.
+        run_a = _act(a, run_a["run_id"], action_type="reveal", count=ROSTER_SIZE)
+        run_b = _act(b, run_b["run_id"], action_type="reveal", count=ROSTER_SIZE)
 
     assert run_a["run_id"] != run_b["run_id"], "one run row per player"
     assert run_a["seed"] == run_b["seed"], "but the same board"
@@ -907,8 +926,14 @@ def test_challenge_token_round_trips_to_the_same_seed(client: TestClient):
     assert descriptor.status_code == 200
     assert descriptor.json()["seed"] == origin["seed"]
 
+    origin = _act(client, origin["run_id"], action_type="reveal", count=ROSTER_SIZE)
     with TestClient(app) as recipient:
         replayed = _create(recipient, run_type="challenge", challenge_token=token)
+        # The roster is concealed until revealed (P1-E) -- reveal before
+        # comparing identities, inside the recipient's own `with` block.
+        replayed = _act(
+            recipient, replayed["run_id"], action_type="reveal", count=ROSTER_SIZE
+        )
     assert replayed["seed"] == origin["seed"]
     assert replayed["run_id"] != origin["run_id"]
     assert [s["card"]["card_id"] for s in replayed["starters"]] == [
@@ -1250,6 +1275,73 @@ def test_the_opening_reveal_starts_closed_and_preselects_the_next_card(
     assert reveal["next_slot"]["player_name"]
 
 
+def _find_strings(obj, out: set[str]) -> None:
+    """Every string value anywhere in a nested JSON payload, walked
+    recursively -- used below to prove a real absence, not just an absence
+    from the two fields the fix touched."""
+    if isinstance(obj, dict):
+        for v in obj.values():
+            _find_strings(v, out)
+    elif isinstance(obj, list):
+        for v in obj:
+            _find_strings(v, out)
+    elif isinstance(obj, str):
+        out.add(obj)
+
+
+def test_no_unrevealed_identity_appears_anywhere_in_a_fresh_runs_payload(
+    client: TestClient,
+):
+    """P1-E regression gate (SYNTHESIS_CONTRACT.md §2.1): a freshly created
+    run's ENTIRE serialized payload -- not just `starters`/`bench` -- must
+    contain no name or card id belonging to a starting-roster slot the player
+    has not yet revealed.
+
+    Ground truth comes from the engine directly (`generate_blueprint`), not
+    from the API response under test, so this cannot pass by the payload and
+    the assertion sharing the same bug.
+
+    The one deliberate exception is `reveal.roster.next_slot` -- the SERVER's
+    preselected card for the reveal animation to land on next, which
+    `reveal_public()` already published correctly before this pass and which
+    SYNTHESIS_CONTRACT.md §2.1 explicitly says not to change. Excluding
+    exactly that one field (never `starters`/`bench`, and never any OTHER
+    reveal field) is what makes this a real regression gate rather than a
+    test tuned to whatever the payload happens to do.
+    """
+    import copy
+
+    from nba_peak.run_the_table.cards import get_pool
+    from nba_peak.run_the_table.generation import generate_blueprint
+
+    state = _create(client, seed=30014)
+    seed = state["seed"]
+
+    blueprint = generate_blueprint(seed, run_type="standard", pool=get_pool())
+    pool = get_pool()
+    real_card_ids = list(blueprint.starting_starters) + list(blueprint.starting_bench)
+    real_names = {pool.get(cid).player_name for cid in real_card_ids}
+
+    payload = copy.deepcopy(state)
+    del payload["reveal"]["roster"]["next_slot"]  # the one documented exception
+    strings = set()
+    _find_strings(payload, strings)
+
+    leaked_ids = set(real_card_ids) & strings
+    leaked_names = real_names & strings
+    assert not leaked_ids, f"unrevealed card id(s) leaked into the payload: {leaked_ids}"
+    assert not leaked_names, f"unrevealed player name(s) leaked into the payload: {leaked_names}"
+
+    # And the positive case: after a full reveal, every one of them is
+    # legitimately present -- proving the scan above is a real assertion, not
+    # a vacuous one that would also pass against an empty payload.
+    revealed = _act(client, state["run_id"], action_type="reveal", count=ROSTER_SIZE)
+    revealed_strings = set()
+    _find_strings(revealed, revealed_strings)
+    assert set(real_card_ids) <= revealed_strings
+    assert real_names <= revealed_strings
+
+
 def test_revealing_advances_one_slot_at_a_time(client: TestClient):
     state = _create(client, seed=30011)
     expected = [s["slot_id"] for s in state["reveal"]["roster"]["order"]]
@@ -1470,8 +1562,13 @@ def test_a_refreshed_board_is_the_board_the_engine_will_sell_from(client: TestCl
         client, state["run_id"], action_type="draft_buy",
         card_id=fresh["card_id"], slot_id=fresh["legal_slots"][0],
     )
+    # A just-bought card is revealed regardless of opening-reveal progress
+    # (public.py's per-slot concealment treats a card that no longer matches
+    # the blueprint's original starting card as known to the player); the
+    # OTHER six slots may still be legitimately concealed (`card is None`) at
+    # this point since this walk never issued a `reveal` action.
     assert any(
-        s["card"]["card_id"] == fresh["card_id"]
+        s["card"] and s["card"]["card_id"] == fresh["card_id"]
         for s in bought["starters"] + bought["bench"]
     )
 
@@ -1699,9 +1796,9 @@ def test_scouting_arms_one_capped_lane_preparation_that_reaches_the_battle(
     battle = state["battles"][-1]
     assert battle["lane_bonuses"] == {lane: SCOUT_PREP_LANE_BONUS}
     prepared = next(l for l in battle["lanes"] if l["lane"] == lane)
-    assert prepared["player_prep_bonus"] == SCOUT_PREP_LANE_BONUS
+    assert prepared["perk_adjustment"] == SCOUT_PREP_LANE_BONUS
     assert all(
-        l["player_prep_bonus"] == 0.0 for l in battle["lanes"] if l["lane"] != lane
+        l["perk_adjustment"] == 0.0 for l in battle["lanes"] if l["lane"] != lane
     )
     # Spent on this act's boss whether or not it helped.
     assert state["armed"]["prep"] is None
@@ -1967,6 +2064,58 @@ def test_a_battle_round_trips_its_prep_bonus_and_lane_requirement(client: TestCl
     assert reloaded["battles"][-1]["lanes_to_win"] >= 3
 
 
+def test_battle_receipt_carries_the_full_contract_field_set(client: TestClient):
+    """SYNTHESIS_CONTRACT.md §2.3: every lane must publish
+    `player_lineup_rating`/`boss_lineup_rating`/`pre_perk_rating`/
+    `perk_adjustment`/`bench_adjustment`/`final_rating`/`top_contributor`/
+    `opponent_top_contributor`/`margin`/`winner`, and the four numeric fields
+    must sum with zero client recomputation. `top_contributor`'s
+    `own_lane_index_value` is the contributor's OWN value -- SCORE_RECONCILIATION's
+    whole finding was that it must never silently equal the lineup rating
+    beside it whenever the roster spans more than one player's worth of
+    variation in that lane, which a real drafted battle does."""
+    state = _create(client, seed=30092)
+    while state["status"] != "boss_ready":
+        state = _act(client, state["run_id"], **_next_action(state))
+    state = _act(client, state["run_id"], action_type="resolve_boss")
+
+    battle = state["battles"][-1]
+    assert len(battle["lanes"]) == 5
+    for lane in battle["lanes"]:
+        assert {
+            "player_lineup_rating", "boss_lineup_rating", "pre_perk_rating",
+            "perk_adjustment", "bench_adjustment", "final_rating",
+            "top_contributor", "opponent_top_contributor", "margin", "winner",
+        } <= set(lane)
+
+        assert lane["final_rating"] == lane["player_lineup_rating"]
+        reconciled = round(
+            lane["pre_perk_rating"] + lane["bench_adjustment"] + lane["perk_adjustment"],
+            4,
+        )
+        assert reconciled == lane["final_rating"]
+
+        if lane["top_contributor"] is not None:
+            assert set(lane["top_contributor"]) == {"name", "own_lane_index_value"}
+            assert isinstance(lane["top_contributor"]["own_lane_index_value"], float)
+        if lane["opponent_top_contributor"] is not None:
+            assert set(lane["opponent_top_contributor"]) == {"name", "own_lane_index_value"}
+
+        # The integration-window aliases were retired by task #18 once every
+        # reader had migrated to the contract names above. Asserted as ABSENT
+        # rather than merely unused, so a well-meaning future change cannot
+        # quietly reintroduce a second name for the same number -- which is the
+        # ambiguity SCORE_RECONCILIATION set out to remove. In particular
+        # `player_top_card` carried a full card dict including `prime_score`,
+        # one line from the lineup rating, which is precisely the
+        # individual-owns-a-roster-number misread this overhaul fixed.
+        for retired in (
+            "player_score", "opponent_score", "player_prep_bonus",
+            "player_top_card", "opponent_top_card",
+        ):
+            assert retired not in lane, f"retired alias {retired!r} is back on the wire"
+
+
 # ---------------------------------------------------------------------------
 # v2 retires gracefully — both the saved run and the challenge link (spec §4)
 # ---------------------------------------------------------------------------
@@ -2005,7 +2154,10 @@ def test_a_v2_snapshot_schema_is_409_not_500(client: TestClient):
     1, and it must arrive as the same 409 rather than as a server crash."""
     from app.services.run_the_table.serialization import SNAPSHOT_SCHEMA_VERSION
 
-    assert SNAPSHOT_SCHEMA_VERSION == 2
+    # 3 as of the P1-E/P3-A receipt-breakdown pass (`LaneResult` gained
+    # `pre_perk_rating`/`bench_adjustment`) -- pinned here so a future bump is a
+    # deliberate one-line change, not a silent drift this test stops noticing.
+    assert SNAPSHOT_SCHEMA_VERSION == 3
 
     state = _create(client, seed=30091)
     _stored(state["run_id"]).snapshot["schema_version"] = 1

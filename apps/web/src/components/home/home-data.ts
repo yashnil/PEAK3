@@ -1,7 +1,7 @@
 /**
  * Server-side data the homepage needs, and nothing else.
  *
- * Two things are read here, both from the read-only API, both optional:
+ * Three things are read here, all from the read-only API, all optional:
  *
  *   1. PROVENANCE for `ModelProofStrip`. Every number on that strip is a real
  *      field from `/api/v1/meta` (the generated `data/web/metadata.json`) or
@@ -16,12 +16,18 @@
  *      rather than giant typography. They are the model's own rank order — no
  *      player is hand-picked (CLAUDE.md forbids it).
  *
- * Both fetches are individually guarded: the homepage must render, and its
+ *   3. REAL COMPONENT EXPLANATIONS for `ComponentComparison` (P3-H, the
+ *      interactive comparison SYNTHESIS_CONTRACT.md §7 asks for). Every
+ *      explanation string is the same `/api/v1/methodology` payload
+ *      `/rankings`'s own `ScoreExplainModal` renders — never re-authored
+ *      copy that could drift from the real methodology text.
+ *
+ * Every fetch is individually guarded: the homepage must render, and its
  * launcher must work, with the API completely down.
  */
 
-import { getMetadata, getPeakWindowBoard } from "@/lib/api";
-import type { RankingComponentKey } from "@/types";
+import { getMetadata, getMethodology, getPeakWindowBoard } from "@/lib/api";
+import type { Methodology, RankingComponentKey } from "@/types";
 
 /** One peak window, reduced to exactly what the vignette draws. */
 export interface VignetteWindow {
@@ -60,6 +66,9 @@ export interface HomeModelProof {
 export interface HomeModelData {
   proof: HomeModelProof;
   windows: VignetteWindow[];
+  /** `null` when `/api/v1/methodology` could not be reached — the
+   *  comparison section renders nothing rather than inventing copy. */
+  methodology: Methodology | null;
 }
 
 const EMPTY_PROOF: HomeModelProof = {
@@ -77,13 +86,15 @@ const EMPTY_PROOF: HomeModelProof = {
 const VIGNETTE_COUNT = 3;
 
 export async function loadHomeModelData(): Promise<HomeModelData> {
-  const [metaResult, boardResult] = await Promise.allSettled([
+  const [metaResult, boardResult, methodologyResult] = await Promise.allSettled([
     getMetadata(),
     getPeakWindowBoard("3y", { limit: VIGNETTE_COUNT }),
+    getMethodology(),
   ]);
 
   const meta = metaResult.status === "fulfilled" ? metaResult.value : null;
   const board = boardResult.status === "fulfilled" ? boardResult.value : null;
+  const methodology = methodologyResult.status === "fulfilled" ? methodologyResult.value : null;
 
   const proof: HomeModelProof = {
     ...EMPTY_PROOF,
@@ -110,5 +121,5 @@ export async function loadHomeModelData(): Promise<HomeModelData> {
       components: row.components,
     }));
 
-  return { proof, windows };
+  return { proof, windows, methodology };
 }

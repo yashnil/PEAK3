@@ -84,7 +84,7 @@ export default function NodeChoice({
       <header className="flex flex-col gap-1">
         <span
           className="text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
         >
           Act {act} · Stage {stage} of {stagesPerAct}
         </span>

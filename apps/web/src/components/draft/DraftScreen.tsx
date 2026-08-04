@@ -207,7 +207,7 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
   if (state.phase === "error") {
     return (
       <div className="flex flex-col items-center gap-4 py-16">
-        <p style={{ color: "#ef4444" }}>{state.errorMessage}</p>
+        <p style={{ color: "var(--incorrect)" }}>{state.errorMessage}</p>
         <button
           onClick={() => router.push("/arena")}
           className="text-sm underline"
@@ -264,7 +264,7 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
       {state.errorMessage && (
         <div
           className="text-xs px-3 py-2 rounded-lg"
-          style={{ background: "#ef444420", color: "#ef4444" }}
+          style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}
         >
           {state.errorMessage}
         </div>
@@ -302,7 +302,7 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
               {challengeToken && comparisonError && (
                 <div
                   className="text-xs px-3 py-2 rounded-lg"
-                  style={{ background: "#ef444420", color: "#ef4444" }}
+                  style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}
                 >
                   {comparisonError}
                 </div>
@@ -400,9 +400,16 @@ export default function DraftScreen({ initialGameState, boardDate, challengeToke
             <div
               className="text-xs px-3 py-2 rounded-lg border"
               style={{
-                background: "var(--peak-accent)10",
-                borderColor: "var(--peak-accent)40",
-                color: "var(--peak-accent)",
+                // P3-G2: `"var(--peak-accent)10"`/`"var(--peak-accent)40"`
+                // were pre-existing invalid CSS (appending digits directly
+                // to a var() reference), unrelated to theming -- the browser
+                // silently dropped both `background` and `borderColor`
+                // rather than erroring, so this block rendered with neither
+                // in every theme. Fixed alongside the real light-mode work
+                // since it was found while auditing this exact block.
+                background: "var(--peak-accent-bg)",
+                borderColor: "color-mix(in srgb, var(--peak-accent) 40%, transparent)",
+                color: "var(--peak-accent-text)",
               }}
             >
               Card held. Select from the 2 remaining offers — your held card

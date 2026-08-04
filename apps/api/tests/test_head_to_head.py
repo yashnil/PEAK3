@@ -58,7 +58,7 @@ from app.core.config import settings
 from app.core.security import create_session_token
 from app.main import app
 from app.services import head_to_head as h2h
-from nba_peak.run_the_table.config import TERMINAL_STATUSES
+from nba_peak.run_the_table.config import ROSTER_SIZE, TERMINAL_STATUSES
 from nba_peak.run_the_table.daily import daily_seed, today_utc_date
 
 RTT = "/api/v1/run-the-table"
@@ -445,10 +445,22 @@ def test_both_players_get_identical_roster_nodes_and_bosses(client: TestClient):
     created, creator_run = _create_match(client, creator, seed=777001)
     accepted = _accept(client, opponent, created["invite_token"])
 
+    # The opening roster is concealed until each player reveals it (P1-E) --
+    # reveal both, each under its own account, before comparing card ids.
+    # This is a STRONGER fairness assertion than reading the raw payload
+    # would have been: it proves the same seed reveals the same roster in the
+    # same order for both players, not merely that the same ids were assigned
+    # server-side.
     with _as(opponent):
-        opp_state = client.get(f"{RUNS}/{accepted['you']['run_id']}").json()
+        opp_state = client.post(
+            f"{RUNS}/{accepted['you']['run_id']}/actions",
+            json={"action_type": "reveal", "target": "roster", "count": ROSTER_SIZE},
+        ).json()
     with _as(creator):
-        cre_state = client.get(f"{RUNS}/{creator_run['run_id']}").json()
+        cre_state = client.post(
+            f"{RUNS}/{creator_run['run_id']}/actions",
+            json={"action_type": "reveal", "target": "roster", "count": ROSTER_SIZE},
+        ).json()
 
     def roster(state: dict, key: str) -> list:
         return [

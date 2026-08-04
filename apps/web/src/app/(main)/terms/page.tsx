@@ -28,7 +28,7 @@ export default function TermsPage() {
         </div>
 
         <div className="rounded-lg border border-[var(--peak-accent-dim)] bg-[var(--peak-accent-bg)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-          <strong className="text-[var(--peak-accent)]">Beta draft — pending legal review.</strong>{" "}
+          <strong className="text-[var(--peak-accent-text)]">Beta draft — pending legal review.</strong>{" "}
           This document was written by the engineering team to describe how PEAK3 Arena
           actually behaves today. It has not yet been reviewed by a lawyer and will change
           before a public launch.
@@ -110,7 +110,7 @@ export default function TermsPage() {
           <p className="mt-3">
             If you have found a security problem, please report it rather than exploit it —
             see{" "}
-            <Link href="/contact" className="text-[var(--peak-accent)] underline">
+            <Link href="/contact" className="text-[var(--peak-accent-text)] underline">
               Contact
             </Link>
             .
@@ -123,7 +123,7 @@ export default function TermsPage() {
             processed offline. Team names and marks belong to their respective owners and
             appear here only to identify teams. PEAK3 Arena displays no player photographs
             and no NBA or team logos. See{" "}
-            <Link href="/data-sources" className="text-[var(--peak-accent)] underline">
+            <Link href="/data-sources" className="text-[var(--peak-accent-text)] underline">
               Data Sources
             </Link>{" "}
             for how the dataset is built.
@@ -157,11 +157,11 @@ export default function TermsPage() {
         <Section title="9. Questions">
           <p>
             Questions about these terms, or a request to delete your data, go through the{" "}
-            <Link href="/contact" className="text-[var(--peak-accent)] underline">
+            <Link href="/contact" className="text-[var(--peak-accent-text)] underline">
               contact page
             </Link>
             . See also the{" "}
-            <Link href="/privacy" className="text-[var(--peak-accent)] underline">
+            <Link href="/privacy" className="text-[var(--peak-accent-text)] underline">
               privacy notice
             </Link>
             .

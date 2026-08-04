@@ -45,6 +45,11 @@ function mockState(overrides: Partial<CourtLineupPublicState> = {}): CourtLineup
     team_respins_remaining_total: 3,
     season_respins_used_total: 0,
     season_respins_remaining_total: 3,
+    // LP2-2: optimistic-concurrency counter and Undo availability, both
+    // server-computed -- a fresh game has never had a mutating action, so
+    // there is nothing to undo yet.
+    state_version: 0,
+    undo: { available: false, kind: null, expires_at: null },
     ...overrides,
   };
 }

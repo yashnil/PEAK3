@@ -119,7 +119,7 @@ export default function ShareChallenge({
             Your lineup peak rating:{" "}
             <span
               className="font-bold tabular-nums"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               {(Math.round(lineupPeakRating * 10) / 10).toFixed(1)}
             </span>
@@ -144,13 +144,13 @@ export default function ShareChallenge({
           <div className="flex flex-col gap-2">
             <button
               onClick={handleCopy}
-              className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90 active:scale-[.98]"
+              className="w-full py-2.5 rounded-lg text-sm font-semibold transition-[opacity,transform] hover:opacity-90 active:scale-[.98]"
               style={
                 copyState === "error"
                   ? {
-                      background: "rgba(239,68,68,0.12)",
-                      color: "#ef4444",
-                      border: "1px solid rgba(239,68,68,0.35)",
+                      background: "var(--incorrect-bg)",
+                      color: "var(--incorrect)",
+                      border: "1px solid color-mix(in srgb, var(--incorrect) 35%, transparent)",
                     }
                   : {
                       background: "var(--peak-accent)",
@@ -168,7 +168,7 @@ export default function ShareChallenge({
             {hasNativeShare && (
               <button
                 onClick={handleShare}
-                className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-80"
+                className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
                 style={{
                   background: "var(--bg-surface)",
                   border: "1px solid var(--border-default)",

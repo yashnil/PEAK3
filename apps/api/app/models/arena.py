@@ -1,0 +1,184 @@
+"""Response and request models for the Arena foundation.
+
+MODE-AGNOSTIC BY CONSTRUCTION. `public_state` and `private_state` are opaque
+dicts produced by the mode's own `project`; nothing here declares their shape,
+because the moment this module knew what a bid or a pick looked like the
+foundation would have stopped being mode-agnostic.
+
+WHAT IS DELIBERATELY ABSENT FROM `ArenaMatchView`: the raw snapshot, the seed,
+and any other seat's private state. A route serialising `match.snapshot`
+directly would ship every sealed bid to every client, so the snapshot never
+appears in a response model at all -- it cannot be leaked by a field that does
+not exist. Same reasoning as the head-to-head match view
+(`api/v1/head_to_head.py:183-201`, where returning a stored dict verbatim
+leaked the opponent's run id).
+"""
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from pydantic import BaseModel, Field
+
+
+class ArenaReadinessResponse(BaseModel):
+    """Always answered, even when the arena is off, so the web app can fail
+    closed cleanly rather than guess why it got a 403. Same carve-out RUN THE
+    TABLE's /readiness has."""
+
+    readiness_level: str
+    arena_enabled: bool
+    public_queue_enabled: bool
+    bots_enabled: bool
+    modes: list[str] = Field(default_factory=list)
+
+
+class SeatPublic(BaseModel):
+    """One seat as any other seat may see it.
+
+    Carries NO `occupant_sub`. An `auth.uid()` is an identifier for a person and
+    showing one player another's is a privacy leak dressed as a label -- the
+    rule `head_to_head.py:204-215` already established. `display_name` is the
+    only identity that crosses.
+    """
+
+    seat_index: int
+    display_name: str
+    is_bot: bool
+    status: str
+    # Present only for a bot, and only so a client can say "you are playing a
+    # bot rated 1200" rather than hiding it. A human's rating is not here: it is
+    # the competition-security pass's to publish or not.
+    bot_rating: Optional[float] = None
+
+
+class ArenaMatchView(BaseModel):
+    """One match as ONE seat may see it."""
+
+    match_id: str
+    mode: str
+    mode_version: str
+    model_version: str
+    status: str
+    # The value a client must echo back as `expected_state_version` on its next
+    # command. This is the whole optimistic-concurrency contract from the
+    # client's side.
+    state_version: int
+    seat_count: int
+    entry_path: str
+    rated: bool
+    your_seat_index: Optional[int] = None
+    seats: list[SeatPublic] = Field(default_factory=list)
+    # Mode-owned projections. Opaque here -- see the module docstring.
+    public_state: dict[str, Any] = Field(default_factory=dict)
+    private_state: dict[str, Any] = Field(default_factory=dict)
+    legal_commands: list[str] = Field(default_factory=list)
+    # Whose turn it is, and how long they have. A DURATION rather than an
+    # absolute deadline so a client with a skewed clock still counts down
+    # correctly; the authoritative instant stays on the server, which is the
+    # only place it is ever compared.
+    current_turn_seat_index: Optional[int] = None
+    seconds_remaining: Optional[float] = None
+    # The highest event seq this seat may see, so a client can poll
+    # /events?after_seq=N without guessing.
+    latest_event_seq: int = -1
+    room_code: Optional[str] = None
+
+
+class ArenaEventView(BaseModel):
+    """One event this seat is allowed to see. Already filtered by the
+    repository query, not by the caller."""
+
+    seq: int
+    event_type: str
+    actor_seat_index: Optional[int] = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    state_version_after: int
+    created_at: str
+
+
+class ArenaEventsResponse(BaseModel):
+    match_id: str
+    events: list[ArenaEventView] = Field(default_factory=list)
+    latest_seq: int = -1
+
+
+class ArenaResultView(BaseModel):
+    seat_index: int
+    display_name: str
+    placement: int
+    score: float
+    outcome: str
+    was_bot: bool
+    detail: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArenaResultsResponse(BaseModel):
+    match_id: str
+    mode: str
+    rated: bool
+    results: list[ArenaResultView] = Field(default_factory=list)
+
+
+class CreateMatchRequest(BaseModel):
+    mode: str = Field(..., min_length=3, max_length=40)
+
+
+class JoinRoomRequest(BaseModel):
+    room_code: str = Field(..., min_length=6, max_length=6)
+
+
+class SubmitCommandRequest(BaseModel):
+    """A mutation.
+
+    All four of the contract's required fields are here or derived: the
+    authenticated subject comes from the bearer token (never the body), the
+    server timestamp is stamped by the route (never the body), and these two are
+    the client's half.
+    """
+
+    command_type: str = Field(..., min_length=1, max_length=64)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    # REQUIRED, not optional. An optional idempotency key is a key nobody sends,
+    # and a retry without one double-applies a move. The 8-character floor
+    # matches the column's own CHECK and rules out a client sending "1".
+    idempotency_key: str = Field(..., min_length=8, max_length=128)
+    # REQUIRED for the same reason: a client that may omit it is a client that
+    # never sends it, and the optimistic-concurrency check silently becomes a
+    # no-op for everyone. A caller genuinely willing to clobber can read the
+    # current version first and send that, which is at least explicit.
+    expected_state_version: int = Field(..., ge=0)
+
+
+class SubmitCommandResponse(BaseModel):
+    accepted: bool
+    # True when this key had already been recorded and NOTHING was applied. A
+    # client must not count a replay as a fresh acceptance.
+    replayed: bool
+    rejection_code: Optional[str] = None
+    message: Optional[str] = None
+    match: ArenaMatchView
+
+
+class QueueStatusResponse(BaseModel):
+    status: str  # 'not_in_queue' | 'waiting' | 'matched'
+    mode: str
+    match_id: Optional[str] = None
+    waited_seconds: Optional[float] = None
+    # Whether the matchmaker is still holding out for humans. Surfaced so the UI
+    # can say "looking for players..." and then "adding a bot opponent" honestly,
+    # rather than a spinner that means nothing.
+    still_seeking_humans: Optional[bool] = None
+
+
+class MatchSummary(BaseModel):
+    match_id: str
+    mode: str
+    status: str
+    rated: bool
+    entry_path: str
+    seat_count: int
+    created_at: str
+
+
+class MatchHistoryResponse(BaseModel):
+    matches: list[MatchSummary] = Field(default_factory=list)

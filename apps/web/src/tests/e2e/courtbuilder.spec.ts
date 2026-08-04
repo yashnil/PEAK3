@@ -1298,6 +1298,31 @@ test.describe("CourtBuilder mobile", () => {
     const viewportWidth = await page.evaluate(() => window.innerWidth);
     expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 4);
   });
+
+  // Launch-polish LP2-2. Runs only against the `mobile-chrome` project
+  // (Pixel 5, real touch input -- see playwright.config.ts's `@mobile`
+  // grep), so `.tap()` here is a genuine touch activation, not a mouse
+  // click on a resized desktop viewport.
+  test("@mobile Undo is reachable and activatable by a real tap", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await startCourtBuilder(page);
+    await playOneRound(page);
+
+    const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
+    expect(filledBefore).toBe(1);
+
+    const toast = page.locator('[data-testid="court-action-toast"]');
+    await expect(toast).toBeVisible();
+    const undoBtn = page.locator('[data-testid="court-action-toast-action"]');
+    await expect(undoBtn).toHaveText(/Undo/i);
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/undo") && r.status() === 200),
+      undoBtn.tap(),
+    ]);
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(0);
+    await expect(toast).toHaveCount(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1734,9 +1759,19 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     await targets.first().waitFor({ state: "visible", timeout: 5_000 });
     expect(await targets.count()).toBeGreaterThan(0);
 
+    // Both slots filled by `playOneRound` are the ones this destination
+    // list contains, so the first target is itself occupied -- a genuine
+    // swap of two already-placed cards, which launch-polish §5 gap 1 gates
+    // behind a "Swap A <-> B?" confirmation rather than committing on this
+    // click (a move into an open slot still commits immediately -- see the
+    // Undo-toast test below for that path).
+    await targets.first().click();
+    const confirmBanner = page.locator('[data-testid="swap-confirm-banner"]');
+    await expect(confirmBanner).toBeVisible();
+
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/swap-slots") && r.status() === 200),
-      targets.first().click(),
+      page.locator('[data-testid="swap-confirm-btn"]').click(),
     ]);
 
     // Roster count is conserved -- no duplicate, no lost card, no empty
@@ -1745,6 +1780,84 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     // And the spin ceremony did NOT replay: we are still mid-round, not
     // back in a spinning phase for a new roll.
     await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
+    await expect(confirmBanner).toHaveCount(0);
+
+    // The Undo toast follows the swap it just confirmed. Launch-polish
+    // LP2-2: reversing it now goes through the authoritative
+    // POST .../undo (state.py::action_undo_last_placement), not a second
+    // call to /swap-slots with the arguments reversed -- the server, not
+    // this client, decides what "the last thing" was and whether it is
+    // still valid to reverse.
+    const toast = page.locator('[data-testid="court-action-toast"]');
+    await expect(toast).toBeVisible();
+    await expect(toast).toContainText(/Swapped/i);
+    await expect(page.locator('[data-testid="court-action-toast-action"]')).toHaveText(/Undo/i);
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/undo") && r.status() === 200),
+      page.locator('[data-testid="court-action-toast-action"]').click(),
+    ]);
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(filledBefore);
+    await expect(toast).toHaveCount(0);
+  });
+
+  test("moving a card into an open slot commits immediately, with an Undo toast", async ({ page }) => {
+    await startCourtBuilder(page);
+    await playOneRound(page);
+
+    const moveBtn = page.locator('[data-testid="slot-move-btn"]').first();
+    await moveBtn.waitFor({ state: "visible", timeout: 10_000 });
+    await moveBtn.click();
+
+    // Only one slot is filled, so every destination on offer is open --
+    // nothing is displaced, so this commits on the first click rather than
+    // pausing for confirmation.
+    const targets = page.locator('[data-testid="slot-swap-target"]');
+    await targets.first().waitFor({ state: "visible", timeout: 5_000 });
+    await expect(page.locator('[data-testid="swap-confirm-banner"]')).toHaveCount(0);
+
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/swap-slots") && r.status() === 200),
+      targets.first().click(),
+    ]);
+
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(1);
+    const toast = page.locator('[data-testid="court-action-toast"]');
+    await expect(toast).toBeVisible();
+    await expect(toast).toContainText(/Moved/i);
+    await expect(page.locator('[data-testid="court-action-toast-action"]')).toHaveText(/Undo/i);
+  });
+
+  // Launch-polish LP2-2: the Undo toast is a real `<button>` (ActionToast.tsx),
+  // so keyboard support needs no bespoke handling to verify -- this proves
+  // that promise rather than assuming it. Reverses a plain PLACEMENT (not a
+  // swap): `action_undo_last_placement`'s two branches (_reverse_place /
+  // _reverse_swap) are exercised by different tests here and in the swap
+  // test above, and this is the one that covers the place branch by
+  // keyboard.
+  test("Undo is reachable and activatable by keyboard, not pointer-only", async ({ page }) => {
+    await startCourtBuilder(page);
+    await playOneRound(page);
+
+    const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
+    expect(filledBefore).toBe(1);
+
+    const toast = page.locator('[data-testid="court-action-toast"]');
+    await expect(toast).toBeVisible();
+    const undoBtn = page.locator('[data-testid="court-action-toast-action"]');
+    await expect(undoBtn).toHaveText(/Undo/i);
+
+    await undoBtn.focus();
+    await expect(undoBtn).toBeFocused();
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/undo") && r.status() === 200),
+      page.keyboard.press("Enter"),
+    ]);
+
+    // The placement is genuinely reversed -- not a jump into rearrange mode
+    // (that shortcut is gone; see the comment on `handlePlace` in
+    // CourtBuilder.tsx) -- so the slot empties and the toast itself clears.
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(0);
+    await expect(toast).toHaveCount(0);
   });
 
   test("rearranging can be cancelled with the cancel button and with Escape", async ({ page }) => {
@@ -1765,6 +1878,88 @@ test.describe("Position labels + rearranging (Phase 9B)", () => {
     await expect(page.locator('[data-testid="slot-swap-target"]').first()).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
+  });
+
+  // Launch-polish §5, gap 3: `action_place_card` (state.py) rejects placing
+  // into an occupied slot outright, so a filled slot during an active
+  // placement decision is genuinely illegal -- but it used to render as a
+  // bare, un-styled `<div>` with no signal that a click would do nothing.
+  test("an occupied slot during an active placement is a disabled, explained target -- not a dead click", async ({ page }) => {
+    await startCourtBuilder(page);
+    await playOneRound(page);
+
+    // Round 2: select a candidate so there is a fresh placement decision
+    // pending, with round 1's slot already filled.
+    const candidate = page.locator('[data-testid="candidate-card"]').first();
+    await candidate.waitFor({ state: "visible", timeout: 10_000 });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/select") && r.status() === 200),
+      candidate.click(),
+    ]);
+    await expect(page.locator('[data-testid="placing-banner"]')).toBeVisible();
+
+    const filledBefore = await page.locator('[data-testid="court-slot"][data-filled="true"]').count();
+    expect(filledBefore).toBe(1);
+
+    // The filled slot from round 1 must communicate WHY it can't be a
+    // placement target -- reachable by Tab, announced by a screen reader --
+    // not the inert, unlabeled element a click used to vanish into.
+    //
+    // Deliberately branch-agnostic. PeakCardCourt has two renderings for
+    // this state -- a real `disabled` `<button>` when no rearrange is
+    // possible, and a `role="group"` `aria-disabled` container (wrapping a
+    // still-functional "Move" button, so a real `<button disabled>` never
+    // wraps a live one) when it is -- and `rearrangeAvailable` is true from
+    // the player's SECOND pick onward, which is what this test itself
+    // exercises. So this only ever hits the second, container form here;
+    // asserting the underlying accessible PROPERTIES (disabled state,
+    // accessible name, visible text) rather than a specific tag or the
+    // `disabled` DOM property keeps this test true for the branch it
+    // actually reaches -- and honest about what "the button branch" would
+    // even mean. Playwright's `toBeDisabled()` recognizes `aria-disabled`
+    // for roles that support it (`group` included) exactly as it recognizes
+    // a native `disabled` attribute, so one assertion covers both. Checking
+    // the raw attribute too, not just Playwright's interpretation of it, so
+    // this keeps failing if a future refactor drops the attribute even when
+    // Playwright's own disabled-state logic changes.
+    // `data-blocked` on the court slot, not a separate testid: blocked is a
+    // STATE of a court slot, not a different kind of thing. Overriding the
+    // testid removed these from every `[data-testid="court-slot"]` query while
+    // a placement was pending, which broke `playOneRound`'s filled-count
+    // assertion in a way that read as "one click filled two slots".
+    const blocked = page.locator('[data-testid="court-slot"][data-blocked="true"]');
+    await expect(blocked).toHaveCount(1);
+    await expect(blocked).toHaveAttribute("aria-disabled", "true");
+    await expect(blocked).toBeDisabled();
+    await expect(blocked).toHaveAccessibleName(/already filled by|place your new pick in an open slot/i);
+    await expect(blocked).toContainText(/Full/i);
+
+    // Clicking it does nothing -- no place request, no change in fill count.
+    // Targets the explanatory text specifically, not the card's geometric
+    // centre: in the container branch that centre could plausibly overlap
+    // the still-live "Move" button stacked inside the same card, which
+    // would make this click do something (enter rearrange mode) instead of
+    // proving it does nothing.
+    await blocked.getByText(/Full — place in an open slot/i).click({ force: true });
+    await page.waitForTimeout(300);
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(filledBefore);
+    await expect(page.locator('[data-testid="slot-swap-target"]')).toHaveCount(0);
+
+    // Every genuinely open slot is still a normal, legal placement target.
+    const openSlot = page.locator('button[data-testid="court-slot"][data-filled="false"]').first();
+    await openSlot.waitFor({ state: "visible", timeout: 10_000 });
+    await openSlot.click();
+    await expect(page.locator('[data-testid="court-slot"][data-filled="true"]')).toHaveCount(filledBefore + 1, {
+      timeout: 10_000,
+    });
+
+    // Placing surfaces its own toast with a REAL Undo (LP2-2:
+    // state.py::action_undo_last_placement reverses a placement exactly,
+    // not a fast-path shortcut into rearrange mode).
+    const toast = page.locator('[data-testid="court-action-toast"]');
+    await expect(toast).toBeVisible();
+    await expect(toast).toContainText(/Placed/i);
+    await expect(page.locator('[data-testid="court-action-toast-action"]')).toHaveText(/Undo/i);
   });
 });
 

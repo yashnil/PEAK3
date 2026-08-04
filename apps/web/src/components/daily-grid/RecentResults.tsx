@@ -68,7 +68,7 @@ export default function RecentResults({ entries, emptyMessage, linkToBoards }: P
             <span className="shrink-0 text-right">
               <span
                 className="score-number font-display block text-sm font-bold"
-                style={{ color: "var(--peak-accent)" }}
+                style={{ color: "var(--peak-accent-text)" }}
               >
                 {entry.score}
                 {entry.today_max !== null ? (
@@ -76,7 +76,7 @@ export default function RecentResults({ entries, emptyMessage, linkToBoards }: P
                 ) : null}
               </span>
               {entry.percent_of_max !== null && (
-                <span className="block text-[10px]" style={{ color: "var(--comp-team)" }}>
+                <span className="block text-[10px]" style={{ color: "var(--comp-team-text)" }}>
                   {entry.percent_of_max}%
                 </span>
               )}

@@ -152,6 +152,30 @@ class LaneResult:
     # included in ``player_score``; carried separately so the result screen can
     # say which lane the player's preparation actually moved.
     player_prep_bonus: float = 0.0
+    # v4 receipt breakdown (SYNTHESIS_CONTRACT.md §2.3): ``player_score``
+    # decomposed into three additive, explanation-ready pieces so a receipt
+    # never has to recompute anything client-side.
+    #
+    # ``pre_perk_rating`` -- the lineup rating at the DEFAULT bench weight
+    # (``BENCH_WEIGHT_DEFAULT``), no Scout & Prepare bonus: the roster's
+    # vanilla lane_index weighted mean, before anything the player chose moves
+    # it.
+    #
+    # ``bench_adjustment`` -- the residual ``player_score - player_prep_bonus -
+    # pre_perk_rating``. By construction this isolates exactly and only the
+    # bench-weight effect: whichever bench weight the lane actually used
+    # (Deep Rotation's better-of-two, or a boss rule that fixes the weight for
+    # both teams) versus the default. It is a residual rather than an
+    # independently recomputed value on purpose -- so the three fields are
+    # GUARANTEED to sum to ``player_score`` rather than merely usually
+    # agreeing with it after two separate roundings.
+    #
+    # Both default to 0.0 for a ``LaneResult`` reconstructed from a pre-v4
+    # snapshot dict that predates these fields (``state_from_dict`` bumps
+    # ``SNAPSHOT_SCHEMA_VERSION`` and refuses those outright, so this default
+    # is a dataclass-construction safety net, not a real code path).
+    pre_perk_rating: float = 0.0
+    bench_adjustment: float = 0.0
 
 
 @dataclass

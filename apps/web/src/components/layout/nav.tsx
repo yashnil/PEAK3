@@ -55,6 +55,8 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { isActive, topLevelLinks } from "@/lib/nav-model";
 import { AccountMenu } from "@/components/auth/AccountMenu";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { useAccountThemeSync } from "@/lib/theme";
 import { PlayMenu } from "./PlayMenu";
 import { MobileNavDrawer } from "./MobileNavDrawer";
 
@@ -73,6 +75,14 @@ export function Nav() {
   const search = useLocationSearch(pathname);
   const { user, supabaseEnabled } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Pulls the account's saved theme preference onto this device once per
+  // sign-in (launch-polish IMPLEMENTATION_CONTRACT.md §2). Lives here
+  // rather than inside `AccountMenu` because that component's wrapping
+  // `<nav>` is `hidden sm:flex` -- it never mounts on a narrow viewport,
+  // where `MobileNavDrawer` takes over instead. `Nav()` itself renders on
+  // every viewport, so this is the one guaranteed mount point. A no-op
+  // while signed out.
+  useAccountThemeSync(Boolean(user));
 
   // Arriving somewhere closes the menu that took you there.
   useEffect(() => {
@@ -87,8 +97,8 @@ export function Nav() {
           className="pk-nav-wordmark font-display text-lg font-bold tracking-tight"
           aria-label="PEAK3 Arena home"
         >
-          <span className="text-[var(--peak-accent)]">PEAK</span>
-          <span className="text-[var(--text-secondary)]">3</span>
+          <span className="text-[var(--peak-accent-text)]">PEAK</span>
+          <span className="text-[var(--text-secondary)]">3</span>{" "}
           <span className="ml-1.5 text-xs font-medium text-[var(--text-muted)] tracking-widest uppercase">
             Arena
           </span>
@@ -118,9 +128,20 @@ export function Nav() {
               );
             })}
           </ul>
-          {/* Gating lives inside AccountMenu (it needs `user` anyway), so the
-              anonymous-only deployment still renders no account affordance. */}
-          <AccountMenu pathname={pathname} search={search} />
+          {/* Launch-polish IMPLEMENTATION_CONTRACT.md §10: "make the theme
+              control feel integrated rather than bolted on." It used to sit
+              at its own `ml-2` margin, immediately followed by AccountMenu's
+              own separate `ml-2` -- two independently-spaced items with no
+              signal that they're related, which is exactly what "bolted on"
+              looks like. A shared cluster with a hairline divider from the
+              nav links reads as one intentional "account & display" zone,
+              not an icon that wandered in from somewhere else. */}
+          <div className="ml-2 flex items-center gap-1 border-l border-[var(--border-subtle)] pl-2">
+            <ThemeToggle />
+            {/* Gating lives inside AccountMenu (it needs `user` anyway), so the
+                anonymous-only deployment still renders no account affordance. */}
+            <AccountMenu pathname={pathname} search={search} />
+          </div>
         </nav>
 
         {/* Mobile trigger. No `aria-controls`: the drawer is portalled and only

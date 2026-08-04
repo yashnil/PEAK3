@@ -10,7 +10,7 @@ export default function ChallengeNotFound() {
         </p>
         <a
           href="/arena"
-          className="inline-block mt-2 text-sm underline text-[var(--peak-accent)]"
+          className="inline-block mt-2 text-sm underline text-[var(--peak-accent-text)]"
         >
           Back to Arena
         </a>

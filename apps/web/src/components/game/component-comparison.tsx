@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { cn, componentLabel, componentColor } from "@/lib/utils";
+import { cn, componentLabel, componentColor, componentTextColor } from "@/lib/utils";
 import type { AnswerResponse } from "@/types";
 
 const COMPONENT_KEYS = [
@@ -40,6 +40,7 @@ export function ComponentComparison({ answer }: ComponentComparisonProps) {
         const winnerPct = (comp.winner / max) * 100;
         const loserPct = (comp.loser / max) * 100;
         const color = componentColor(key);
+        const textColor = componentTextColor(key);
         const isDecisive = Math.abs(comp.winner - comp.loser) > 2;
 
         return (
@@ -60,7 +61,7 @@ export function ComponentComparison({ answer }: ComponentComparisonProps) {
               </span>
               <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border-subtle)]">
                 <div
-                  className="h-full rounded-full transition-all duration-500"
+                  className="h-full rounded-full transition-[width] duration-500"
                   style={{
                     width: `${winnerPct}%`,
                     backgroundColor: comp.winner_leads ? color : "var(--text-muted)",
@@ -72,7 +73,7 @@ export function ComponentComparison({ answer }: ComponentComparisonProps) {
             {/* Label */}
             <p
               className="text-[10px] font-medium text-center w-28 leading-tight"
-              style={{ color: isDecisive ? color : "var(--text-muted)" }}
+              style={{ color: isDecisive ? textColor : "var(--text-muted)" }}
             >
               {componentLabel(key)}
             </p>
@@ -81,7 +82,7 @@ export function ComponentComparison({ answer }: ComponentComparisonProps) {
             <div className="flex items-center gap-2">
               <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border-subtle)]">
                 <div
-                  className="h-full rounded-full transition-all duration-500"
+                  className="h-full rounded-full transition-[width] duration-500"
                   style={{
                     width: `${loserPct}%`,
                     backgroundColor: !comp.winner_leads ? color : "var(--text-muted)",

@@ -59,7 +59,7 @@ export default function SystemSelect({ offer, active, act, busy, onSelect }: Pro
       <header className="flex flex-col gap-1">
         <span
           className="text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
         >
           Act {act} · Choose a {PERK_TERM.display}
         </span>
@@ -103,7 +103,7 @@ export default function SystemSelect({ offer, active, act, busy, onSelect }: Pro
                 >
                   {perkAffectsCopy(sys.affects)}
                 </span>
-                <span className="text-sm font-bold" style={{ color: "var(--peak-accent)" }}>
+                <span className="text-sm font-bold" style={{ color: "var(--peak-accent-text)" }}>
                   {sys.name}
                 </span>
                 {/* LAYER 1 — what it does, in the player's words. */}

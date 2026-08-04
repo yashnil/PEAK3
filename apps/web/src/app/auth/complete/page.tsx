@@ -127,7 +127,7 @@ function AuthCompleteContent() {
           type="button"
           onClick={goNext}
           data-testid="auth-complete-continue"
-          className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+          className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
           style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           Continue
@@ -144,7 +144,7 @@ function AuthCompleteContent() {
       footer={
         <>
           Continuing automatically —{" "}
-          <Link href={next} className="underline" style={{ color: "var(--peak-accent)" }}>
+          <Link href={next} className="underline" style={{ color: "var(--peak-accent-text)" }}>
             go now
           </Link>
         </>
@@ -162,7 +162,7 @@ function AuthCompleteContent() {
             </span>
             <span
               className="text-lg font-bold tabular-nums"
-              style={{ color: "var(--peak-accent)" }}
+              style={{ color: "var(--peak-accent-text)" }}
             >
               {line.count}
             </span>
@@ -178,7 +178,7 @@ function AuthCompleteContent() {
         type="button"
         onClick={goNext}
         data-testid="auth-complete-continue"
-        className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+        className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
         style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
       >
         Continue

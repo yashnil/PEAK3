@@ -29,7 +29,7 @@ export default function PrivacyPage() {
         </div>
 
         <div className="rounded-lg border border-[var(--peak-accent-dim)] bg-[var(--peak-accent-bg)] px-4 py-3 text-sm text-[var(--text-secondary)]">
-          <strong className="text-[var(--peak-accent)]">Beta draft — pending legal review.</strong>{" "}
+          <strong className="text-[var(--peak-accent-text)]">Beta draft — pending legal review.</strong>{" "}
           This notice was written by the engineering team from an audit of the code, so it
           describes what the software actually does today. It has not yet been reviewed by a
           lawyer and will change before a public launch.
@@ -235,7 +235,7 @@ export default function PrivacyPage() {
             </strong>{" "}
             Neither feature exists in the product yet. Until they do, deletion is a manual
             request: contact us through the{" "}
-            <Link href="/contact" className="text-[var(--peak-accent)] underline">
+            <Link href="/contact" className="text-[var(--peak-accent-text)] underline">
               contact page
             </Link>{" "}
             with your account handle, and the request will be carried out by hand.
@@ -252,11 +252,11 @@ export default function PrivacyPage() {
           <p>
             This notice will be revised as the product changes and again after legal review.
             The version published here is the current one. Related reading:{" "}
-            <Link href="/terms" className="text-[var(--peak-accent)] underline">
+            <Link href="/terms" className="text-[var(--peak-accent-text)] underline">
               Terms of Use
             </Link>{" "}
             and{" "}
-            <Link href="/data-sources" className="text-[var(--peak-accent)] underline">
+            <Link href="/data-sources" className="text-[var(--peak-accent-text)] underline">
               Data Sources
             </Link>
             .

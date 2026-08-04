@@ -2,8 +2,9 @@
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { BossPublic, LaneProfileEntry } from "@/types/run-the-table";
 import { Coachmark } from "@/components/ui/GuidedTour";
-import { bossBriefing, laneColorVar, type LaneProjection } from "@/lib/run-the-table-state";
+import { bossBriefing, type LaneProjection } from "@/lib/run-the-table-state";
 import { bossRulePlainEffect } from "@/lib/run-the-table-copy";
+import { componentTextColor } from "@/lib/utils";
 import LaneProfile from "./LaneProfile";
 
 /**
@@ -61,7 +62,7 @@ export default function BossPreview({
       <header className="flex flex-col gap-1">
         <span
           className="text-[10px] font-bold uppercase tracking-widest"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
         >
           Act {boss.act} · Boss
         </span>
@@ -102,7 +103,7 @@ export default function BossPreview({
         >
           <span
             className="text-[10px] font-bold uppercase tracking-widest"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Rule in force · {boss.rule.name}
           </span>
@@ -151,17 +152,23 @@ export default function BossPreview({
           {/* Projected strengths — each side's best lane and its roster total,
               side by side. Both numbers are `roster_lane_profile` outputs the
               server already sent. */}
+          {/* Lane names in this sentence use `componentTextColor`
+              (lib/utils.ts, P3-G2) — never the frozen `--comp-*` hex
+              directly, which measures 1.6-2.6:1 as inline TEXT on Arena
+              Day, failing even the 3:1 large-text floor. `componentColor`
+              stays reserved for fills/borders elsewhere (the lane bars,
+              the fingerprint), never prose. */}
           <p className="text-[11px]" style={{ color: "var(--text-secondary)" }} data-testid="rtt-boss-strengths">
             <span style={{ color: "var(--text-muted)" }}>Projected strengths: </span>
             you are strongest in{" "}
-            <span style={{ color: laneColorVar(strongest(playerLanes).token) }}>
+            <span style={{ color: componentTextColor(strongest(playerLanes).lane) }}>
               {strongest(playerLanes).label}
             </span>{" "}
             <span className="score-number">{strongest(playerLanes).value.toFixed(1)}</span>
             {boss.lane_profile && boss.lane_profile.length > 0 && (
               <>
                 , they are strongest in{" "}
-                <span style={{ color: laneColorVar(strongest(boss.lane_profile).token) }}>
+                <span style={{ color: componentTextColor(strongest(boss.lane_profile).lane) }}>
                   {strongest(boss.lane_profile).label}
                 </span>{" "}
                 <span className="score-number">
@@ -256,7 +263,7 @@ export default function BossPreview({
                   </span>
                   <span
                     className="score-number ml-auto text-[11px]"
-                    style={{ color: "var(--peak-accent)" }}
+                    style={{ color: "var(--peak-accent-text)" }}
                   >
                     {card.prime_score.toFixed(1)}
                   </span>
@@ -293,7 +300,7 @@ export default function BossPreview({
           onClick={onResolve}
           disabled={busy}
           className="rtt-tap rounded-lg px-6 text-sm font-bold uppercase tracking-wide disabled:opacity-60"
-          style={{ background: "var(--peak-accent)", color: "#000" }}
+          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           {busy ? "Resolving…" : "Resolve the matchup"}
         </button>
@@ -312,7 +319,10 @@ function strongest(lanes: readonly LaneProfileEntry[]): LaneProfileEntry {
 }
 
 /** One row of the briefing: a label, then the lanes and their gaps. Lane
- *  colour is the frozen `--comp-*` token, never a chosen colour. */
+ *  names render via `componentTextColor` (lib/utils.ts, P3-G2) — the frozen
+ *  `--comp-*` hex is reserved for fills/borders, never prose text (it
+ *  measures 1.6-2.6:1 as text on Arena Day, failing even the 3:1 large-text
+ *  floor); the text-safe sibling keeps each lane's identity colour. */
 function BriefingLine({
   label,
   lanes,
@@ -335,7 +345,7 @@ function BriefingLine({
         lanes.map((l, i) => (
           <span key={l.lane}>
             {i > 0 && ", "}
-            <span style={{ color: laneColorVar(l.token) }}>{l.label}</span>
+            <span style={{ color: componentTextColor(l.lane) }}>{l.label}</span>
             {showMargin && (
               <>
                 {" "}

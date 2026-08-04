@@ -92,4 +92,6 @@ class MemoryProfileRepository:
                 settings.timezone = updates["timezone"]
             if updates.get("reduced_motion") is not None:
                 settings.reduced_motion = updates["reduced_motion"]
+            if updates.get("theme_preference") is not None:
+                settings.theme_preference = updates["theme_preference"]
             return settings

@@ -68,6 +68,8 @@ from app.repositories.head_to_head_memory import MemoryHeadToHeadRepository
 from app.repositories.head_to_head_protocols import HeadToHeadRepository
 from app.repositories.peak_duel_daily_memory import MemoryPeakDuelDailyResultRepository
 from app.repositories.peak_duel_daily_protocols import PeakDuelDailyResultRepository
+from app.repositories.arena_memory import MemoryArenaRepository
+from app.repositories.arena_protocols import ArenaRepository
 
 # ---------------------------------------------------------------------------
 # Singleton in-memory stores (only used when DATABASE_URL is unset in dev)
@@ -98,6 +100,7 @@ _memory_daily_grid_result_repo = MemoryDailyGridResultRepository()
 _memory_run_the_table_run_repo = MemoryRunTheTableRunRepository()
 _memory_head_to_head_repo = MemoryHeadToHeadRepository()
 _memory_peak_duel_daily_result_repo = MemoryPeakDuelDailyResultRepository()
+_memory_arena_repo = MemoryArenaRepository()
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +355,24 @@ def get_peak_duel_daily_result_repo(request: Request) -> PeakDuelDailyResultRepo
     return _memory_peak_duel_daily_result_repo
 
 
+def get_arena_repo(request: Request) -> ArenaRepository:
+    """Return the active ArenaRepository (Postgres or in-memory).
+
+    Same in-memory-fallback discipline as every other repository here, and
+    registered in app.core.repository_registry.REPOSITORY_DOMAINS for the same
+    reason head_to_head is: a match is a record between two or three accounts,
+    and one that only ever lived in a dict would be a match the server forgot on
+    restart -- mid-turn, with a clock running, and with a rated result owed to
+    whoever was winning.
+    """
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.arena_postgres import PostgresArenaRepository
+        return PostgresArenaRepository(pool)
+    _warn_memory_repo("ArenaRepository")
+    return _memory_arena_repo
+
+
 def _warn_memory_repo(name: str) -> None:
     if not settings.DEBUG:
         raise RuntimeError(
@@ -399,3 +420,4 @@ PeakDuelDailyResultRepoDep = Annotated[
     PeakDuelDailyResultRepository, Depends(get_peak_duel_daily_result_repo)
 ]
 HeadToHeadRepoDep = Annotated[HeadToHeadRepository, Depends(get_head_to_head_repo)]
+ArenaRepoDep = Annotated[ArenaRepository, Depends(get_arena_repo)]

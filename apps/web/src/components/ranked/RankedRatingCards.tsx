@@ -44,7 +44,7 @@ export default function RankedRatingCards() {
         <h2 className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
           Ranked rating
         </h2>
-        <Link href="/arena/ranked" className="text-xs" style={{ color: "var(--peak-accent)" }}>
+        <Link href="/arena/ranked" className="text-xs" style={{ color: "var(--peak-accent-text)" }}>
           View queues
         </Link>
       </div>

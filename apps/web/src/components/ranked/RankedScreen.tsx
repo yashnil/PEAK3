@@ -378,7 +378,7 @@ function RankedResultView({
           </div>
         )}
         {settlement.division_change && (
-          <div className="mt-1 text-sm" style={{ color: "var(--peak-accent)" }}>{settlement.division_change}</div>
+          <div className="mt-1 text-sm" style={{ color: "var(--peak-accent-text)" }}>{settlement.division_change}</div>
         )}
       </div>
 

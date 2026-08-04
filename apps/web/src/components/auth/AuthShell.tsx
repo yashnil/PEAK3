@@ -35,7 +35,7 @@ export function AuthShell({ title, subtitle, children, footer, testId }: AuthShe
               className="text-xs font-semibold tracking-[0.2em] uppercase"
               style={{ color: "var(--text-muted)" }}
             >
-              <span style={{ color: "var(--peak-accent)" }}>PEAK</span>3 Arena
+              <span style={{ color: "var(--peak-accent-text)" }}>PEAK</span>3 Arena
             </p>
             <h1 className="mt-2 text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
               {title}

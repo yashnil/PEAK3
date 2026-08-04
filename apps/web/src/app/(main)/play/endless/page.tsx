@@ -51,13 +51,13 @@ export default function EndlessPage() {
           {(progress.endless_high_score > 0 || progress.endless_best_streak > 0) && (
             <div className="grid grid-cols-2 gap-3">
               <div className="card-surface p-3 text-center">
-                <p className="text-lg font-bold score-number text-[var(--peak-accent)]">
+                <p className="text-lg font-bold score-number text-[var(--peak-accent-text)]">
                   {progress.endless_high_score.toLocaleString()}
                 </p>
                 <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Best score</p>
               </div>
               <div className="card-surface p-3 text-center">
-                <p className="text-lg font-bold score-number text-[var(--peak-accent)]">
+                <p className="text-lg font-bold score-number text-[var(--peak-accent-text)]">
                   {progress.endless_best_streak}
                 </p>
                 <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Best streak</p>
@@ -80,7 +80,7 @@ export default function EndlessPage() {
                   className={cn(
                     "rounded-lg border py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
                     years === y
-                      ? "border-[var(--peak-accent)] bg-[var(--peak-accent-bg)] text-[var(--peak-accent)]"
+                      ? "border-[var(--peak-accent)] bg-[var(--peak-accent-bg)] text-[var(--peak-accent-text)]"
                       : "border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-emphasis)]"
                   )}
                 >

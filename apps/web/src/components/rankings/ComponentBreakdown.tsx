@@ -28,7 +28,7 @@ import type {
   RankingComponentValues,
   RankingPercentiles,
 } from "@/types";
-import { cn, componentColor, componentLabel } from "@/lib/utils";
+import { cn, componentColor, componentTextColor, componentLabel } from "@/lib/utils";
 import {
   COMPONENT_ABBR,
   RANKING_COMPONENT_KEYS,
@@ -101,6 +101,7 @@ export default function ComponentBreakdown({
   const percentile = percentiles?.[activeKey] ?? null;
   const share = positiveTotal > 0 ? ((value ?? 0) / positiveTotal) * 100 : null;
   const color = componentColor(activeKey);
+  const textColor = componentTextColor(activeKey);
   const doc = methodology?.components?.find((component) => component.id === activeKey) ?? null;
   const isStrongest = strongest.includes(activeKey);
   const isWeakest = weakest.includes(activeKey);
@@ -203,7 +204,7 @@ export default function ComponentBreakdown({
               ({COMPONENT_ABBR[activeKey]})
             </span>
           </h4>
-          <span className="score-number text-lg font-bold" style={{ color }}>
+          <span className="score-number text-lg font-bold" style={{ color: textColor }}>
             {formatScore2(value)}
           </span>
         </div>
