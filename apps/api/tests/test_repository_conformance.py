@@ -298,8 +298,18 @@ async def _assert_profile_repo_conforms(repo) -> None:
 
     settings_obj = await repo.get_or_create_settings(sub_a)
     assert settings_obj.timezone == "UTC"
+    # launch-polish IMPLEMENTATION_CONTRACT.md §2: never chosen -> None,
+    # both backends, both before and after an unrelated update.
+    assert settings_obj.theme_preference is None
     updated_settings = await repo.update_settings(sub_a, {"timezone": "America/New_York"})
     assert updated_settings.timezone == "America/New_York"
+    assert updated_settings.theme_preference is None
+
+    with_theme = await repo.update_settings(sub_a, {"theme_preference": "dark"})
+    assert with_theme.theme_preference == "dark"
+    assert with_theme.timezone == "America/New_York", "an unrelated update must not reset it"
+    reread = await repo.get_or_create_settings(sub_a)
+    assert reread.theme_preference == "dark"
 
 
 @pytest.mark.asyncio

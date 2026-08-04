@@ -37,7 +37,7 @@ function SignUpContent() {
         <Link
           href="/"
           className="block text-center text-sm underline"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
         >
           Back to PEAK3 Arena
         </Link>

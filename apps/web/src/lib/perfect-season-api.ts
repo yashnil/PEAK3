@@ -217,6 +217,48 @@ export async function swapSlots(
   });
 }
 
+/**
+ * Launch-polish LP2-2: reverse the single most recent placement or swap.
+ *
+ * `expectedStateVersion` is `state.state_version` from the last state this
+ * client received -- never a value this client derives or increments
+ * itself. The server compares it against its own counter and rejects
+ * (`stale_state`) if anything has moved on; a SEPARATE server-side check
+ * rejects (`undo_not_available` / `undo_expired`) even when the caller is
+ * perfectly in sync, if the specific thing it wants undone is no longer the
+ * most recent action or the (server-enforced, reload-independent) window
+ * has closed. This function sends no reversal details of its own -- no
+ * slot, no card, not even "place" vs "swap" -- only the intent to undo and
+ * the caller's belief about the current state; the server decides the rest
+ * from its own stored snapshot. See `idempotencyKey` below for why a
+ * double-click or a retried request cannot double-undo.
+ */
+export async function undoLastPlacement(
+  gameId: string,
+  expectedStateVersion: number,
+  idempotencyKey?: string,
+): Promise<CourtLineupPublicState> {
+  return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/undo`, {
+    method: "POST",
+    body: JSON.stringify(
+      idempotencyKey
+        ? { game_id: gameId, expected_state_version: expectedStateVersion, idempotency_key: idempotencyKey }
+        : { game_id: gameId, expected_state_version: expectedStateVersion },
+    ),
+  });
+}
+
+/**
+ * Derived from state the caller already has, not generated fresh per call --
+ * same reasoning as `respinIdempotencyKey` above. Two clicks of the same
+ * Undo button both read the same `expected_state_version` (the first
+ * response has not landed yet), so both send the same key and the server
+ * recognises the second as a replay instead of undoing twice.
+ */
+export function undoIdempotencyKey(gameId: string, expectedStateVersion: number): string {
+  return `${gameId}:undo:v${expectedStateVersion}`;
+}
+
 export async function completeCourtGame(gameId: string): Promise<CourtLineupPublicState> {
   return apiFetch<CourtLineupPublicState>(`/perfect-season/games/${gameId}/complete`, {
     method: "POST",
@@ -238,13 +280,14 @@ export async function submitRun(gameId: string, accessToken: string): Promise<Pe
 
 export async function getLeaderboard(params: {
   mode?: CourtMode;
-  noRespin?: boolean;
   limit?: number;
   cursor?: string;
 } = {}): Promise<LeaderboardResponse> {
+  // launch-polish IMPLEMENTATION_CONTRACT.md §7: no respin filter -- removed,
+  // not defaulted off. Respins are normal Standard 82-0 play; the API no
+  // longer accepts a no_respin param at all (apps/api/app/api/v1/perfect_season.py).
   const qs = new URLSearchParams();
   if (params.mode) qs.set("mode", params.mode);
-  if (params.noRespin) qs.set("no_respin", "true");
   if (params.limit) qs.set("limit", String(params.limit));
   if (params.cursor) qs.set("cursor", params.cursor);
   const suffix = qs.toString() ? `?${qs.toString()}` : "";

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import Link from "next/link";
-import { CalendarClock, Clock, Crown, Target } from "lucide-react";
+import { CalendarClock, Clock, Crown, Target, X } from "lucide-react";
 import {
   DailyGridArchive,
   DailyGridBoard,
@@ -42,6 +42,14 @@ interface Props {
   /** True once the signed-in player's durable, server-validated copy exists.
    *  Changes one label; never changes a number. */
   officialSaved?: boolean;
+  /** Launch-polish §4: this panel now renders as the CONTENT of a `Dialog`
+   *  (see `CompletionModal.tsx`), which already supplies the surface,
+   *  border and shadow -- so this component no longer draws its own outer
+   *  card, only a close affordance and the initial-focus target the
+   *  Dialog's `initialFocusRef` points at. Both are optional so a future
+   *  non-modal caller (there isn't one today) still renders sensibly. */
+  onClose?: () => void;
+  closeButtonRef?: RefObject<HTMLButtonElement | null>;
 }
 
 /** Colour per square grade. Always paired with a number or a word on screen --
@@ -130,6 +138,8 @@ export default function CompletionPanel({
   archive,
   isArchiveBoard,
   officialSaved,
+  onClose,
+  closeButtonRef,
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
@@ -156,6 +166,15 @@ export default function CompletionPanel({
   // six of them matched buries the three that did not.
   const changed = result ? result.cells.filter((c) => !c.matched_optimal) : [];
   const shown = result ? (showAll ? result.cells : changed) : [];
+  // Launch-polish §4: `result.cells` arrives in FILL order (the order the
+  // player locked squares in -- see filled_list in optimal.py), not board
+  // order. The mini-grid below is a `grid-cols-3` that fills left-to-right,
+  // top-to-bottom, so rendering it straight from `result.cells` silently
+  // scrambled which square each mini-cell actually represented. Sorted here,
+  // once, so mini-cell position N really is board square (row, col) N.
+  const mapCells = result
+    ? [...result.cells].sort((a, b) => a.row - b.row || a.col - b.col)
+    : [];
 
   async function handleShare() {
     try {
@@ -171,22 +190,45 @@ export default function CompletionPanel({
   }
 
   return (
-    <section
-      data-testid="daily-grid-complete"
-      aria-label="Grid complete"
-      className="card-elevated p-4 sm:p-5"
-      style={{ borderColor: "color-mix(in srgb, var(--peak-accent) 40%, var(--border-subtle))" }}
-    >
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--peak-accent)" }}>
-        {board.date}
-        {board.theme ? ` · ${board.theme}` : ""}
-      </p>
-      <h2 data-testid="complete-headline" className="font-display mt-1 text-2xl font-bold sm:text-3xl">
-        {grade ? grade.headline : "Grid complete"}
-      </h2>
-      <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-        {grade ? grade.blurb : `All ${TOTAL_CELLS} squares filled with ${TOTAL_CELLS} different players.`}
-      </p>
+    // Launch-polish §4: no border/background/shadow of its own any more --
+    // `CompletionModal` renders this inside `Dialog`, which already owns the
+    // surface. A second card drawn here would nest one card inside another.
+    <section data-testid="daily-grid-complete" aria-label="Grid complete">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--peak-accent-text)" }}>
+            {board.date}
+            {board.theme ? ` · ${board.theme}` : ""}
+          </p>
+          <h2
+            id="daily-grid-complete-heading"
+            data-testid="complete-headline"
+            className="font-display mt-1 text-2xl font-bold sm:text-3xl"
+          >
+            {grade ? grade.headline : "Grid complete"}
+          </h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            {grade ? grade.blurb : `All ${TOTAL_CELLS} squares filled with ${TOTAL_CELLS} different players.`}
+          </p>
+        </div>
+        {/* Optional: only `CompletionModal` passes this. The board itself
+            stays centred and visible behind the overlay -- this is how a
+            player gets back to it without waiting for the countdown copy at
+            the bottom of a long panel, or reaching for Escape. */}
+        {onClose && (
+          <button
+            ref={closeButtonRef}
+            type="button"
+            data-testid="daily-grid-complete-close"
+            onClick={onClose}
+            aria-label="Close and return to the board"
+            className="shrink-0 rounded-md border p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        )}
+      </div>
 
       <div className="mt-4 flex gap-2">
         <ScoreTile
@@ -230,14 +272,17 @@ export default function CompletionPanel({
       {result && (
         <>
           {/* The recap grid. Three rows of three, laid out like the board so a
-              square's position is enough to find it again. */}
+              square's position is enough to find it again -- `mapCells` is
+              sorted by (row, col) specifically so this `grid-cols-3`'s visual
+              position N really is board square N, not whichever square the
+              player happened to fill Nth. */}
           <div
             data-testid="complete-mini-grid"
             role="group"
-            aria-label="Per-square recap"
+            aria-label="Per-square recap, laid out to match the board"
             className="mt-4 grid grid-cols-3 gap-1.5"
           >
-            {result.cells.map((cell: ResultCell) => {
+            {mapCells.map((cell: ResultCell) => {
               const cellIsBiggestMiss =
                 result.biggest_miss !== null &&
                 result.biggest_miss.row === cell.row &&
@@ -308,7 +353,7 @@ export default function CompletionPanel({
                   <p className="text-[10px] uppercase tracking-[0.1em]" style={{ color: "var(--text-muted)" }}>
                     PEAK3 would have used
                   </p>
-                  <p style={{ color: "var(--comp-team)" }}>
+                  <p style={{ color: "var(--comp-team-text)" }}>
                     {result.biggest_miss.optimal_player_season.label} · {result.biggest_miss.optimal_points} pts
                   </p>
                 </div>
@@ -318,7 +363,7 @@ export default function CompletionPanel({
             <p
               data-testid="complete-perfect"
               className="mt-4 rounded-lg px-3 py-2 text-sm font-semibold"
-              style={{ background: "var(--bg-surface)", color: "var(--comp-team)" }}
+              style={{ background: "var(--bg-surface)", color: "var(--comp-team-text)" }}
             >
               No square left a single point on the board.
             </p>
@@ -339,7 +384,7 @@ export default function CompletionPanel({
                   data-testid="complete-per-cell-toggle"
                   onClick={() => setShowAll((v) => !v)}
                   className="text-[11px] font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                  style={{ color: "var(--peak-accent)" }}
+                  style={{ color: "var(--peak-accent-text)" }}
                 >
                   {showAll ? "Show only what changed" : `Show all ${TOTAL_CELLS} squares`}
                 </button>
@@ -370,9 +415,9 @@ export default function CompletionPanel({
                         — you beat it here ({cell.optimal_points})
                       </span>
                     ) : cell.matched_optimal ? (
-                      <span style={{ color: "var(--comp-team)" }}>— matched</span>
+                      <span style={{ color: "var(--comp-team-text)" }}>— matched</span>
                     ) : (
-                      <span style={{ color: "var(--comp-team)" }}>
+                      <span style={{ color: "var(--comp-team-text)" }}>
                         → {cell.optimal_player_season.label} ({cell.optimal_points})
                       </span>
                     )}
@@ -452,7 +497,7 @@ export default function CompletionPanel({
               <p
                 data-testid="complete-current-streak"
                 className="score-number font-display text-xl font-bold leading-none"
-                style={{ color: "var(--peak-accent)" }}
+                style={{ color: "var(--peak-accent-text)" }}
               >
                 {archive.current_streak}
               </p>
@@ -498,7 +543,7 @@ export default function CompletionPanel({
             className="mt-3 flex flex-wrap items-center gap-1.5 text-xs"
             style={{ color: "var(--text-secondary)" }}
           >
-            <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--peak-accent)" }} />
+            <CalendarClock size={13} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
             {isArchiveBoard ? (
               <>
                 <strong style={{ color: "var(--text-primary)" }}>That was an archive board.</strong>
@@ -506,7 +551,7 @@ export default function CompletionPanel({
                   href="/daily/grid"
                   data-testid="complete-play-today"
                   className="font-semibold underline underline-offset-2"
-                  style={{ color: "var(--peak-accent)" }}
+                  style={{ color: "var(--peak-accent-text)" }}
                 >
                   Play today&rsquo;s grid
                 </Link>
@@ -535,7 +580,7 @@ export default function CompletionPanel({
                 href="/daily/history"
                 data-testid="complete-history-link"
                 className="mt-2 inline-block text-[11px] font-semibold underline-offset-2 hover:underline"
-                style={{ color: "var(--peak-accent)" }}
+                style={{ color: "var(--peak-accent-text)" }}
               >
                 See all {archive.total_completed} grids
               </Link>

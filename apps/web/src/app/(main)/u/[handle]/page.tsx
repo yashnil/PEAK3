@@ -50,7 +50,7 @@ export default async function PublicProfilePage({ params }: Props) {
           className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold"
           style={{
             background: "var(--bg-elevated)",
-            color: "var(--peak-accent)",
+            color: "var(--peak-accent-text)",
             border: "2px solid var(--border-subtle)",
           }}
         >

@@ -21,6 +21,26 @@ function isProductionBuild(): boolean {
   return process.argv.some((a) => a === "build" || a.endsWith("/build"));
 }
 
+/**
+ * A verification build compiles the app to prove it compiles; it never produces
+ * an artifact anyone is served. `scripts/ci/frontend-verify.sh` sets this, and
+ * so does CI, which runs that same script with
+ * `NEXT_PUBLIC_API_URL=http://localhost:8000`.
+ *
+ * Without this escape hatch the guard rejected CI's own build step, so the
+ * required frontend gate could not pass as scripted — the exact pipeline
+ * breakage the guard's own docstring set out to prevent, arriving through the
+ * build path instead of the lint path.
+ *
+ * This does NOT weaken the deploy protection. Vercel and Railway run
+ * `next build` directly and never set this, so a real deploy still gets the
+ * full assertion. The opt-out has to be set deliberately, by a script whose
+ * entire job is verification.
+ */
+function isVerificationOnlyBuild(): boolean {
+  return process.env.PEAK3_BUILD_VERIFY_ONLY === "1";
+}
+
 function assertDeployableEnv() {
   const problems: string[] = [];
   const {
@@ -118,6 +138,17 @@ const nextConfig: NextConfig = {
 };
 
 export default function config(): NextConfig {
-  if (isProductionBuild()) assertDeployableEnv();
+  if (isProductionBuild()) {
+    if (isVerificationOnlyBuild()) {
+      // Loud on purpose: if this ever appears in a deploy log, the deploy is
+      // running a script it should not be.
+      console.warn(
+        "[next.config] PEAK3_BUILD_VERIFY_ONLY=1 — deployability assertions " +
+          "skipped. This build must not be served to anyone.",
+      );
+    } else {
+      assertDeployableEnv();
+    }
+  }
   return nextConfig;
 }

@@ -90,7 +90,7 @@ export default function ProgressPage() {
       </div>
 
       {error && (
-        <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "#ef444420", color: "#ef4444" }}>
+        <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
           {error}
         </p>
       )}
@@ -213,7 +213,7 @@ function StatCard({ label, value }: { label: string; value: number }) {
       className="rounded-lg border p-3 text-center"
       style={{ background: "var(--bg-surface)", borderColor: "var(--border-subtle)" }}
     >
-      <div className="text-xl font-bold tabular-nums" style={{ color: "var(--peak-accent)" }}>
+      <div className="text-xl font-bold tabular-nums" style={{ color: "var(--peak-accent-text)" }}>
         {value}
       </div>
       <div className="text-xs" style={{ color: "var(--text-muted)" }}>

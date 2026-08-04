@@ -8,11 +8,13 @@ interface Props {
   onDismiss: () => void;
 }
 
+// Theme-aware — see `--achievement-*` in globals.css for why these are not
+// literal hex (P3-G2: measured contrast failure as text on Arena Day).
 const CATEGORY_COLORS: Record<string, string> = {
-  onboarding:   "#60a5fa",
-  challenge:    "#fb923c",
-  construction: "#a78bfa",
-  habit:        "#34d399",
+  onboarding:   "var(--achievement-onboarding)",
+  challenge:    "var(--achievement-challenge)",
+  construction: "var(--achievement-construction)",
+  habit:        "var(--achievement-habit)",
 };
 
 export function AchievementUnlock({ achievementKeys, allAchievements, onDismiss }: Props) {
@@ -59,7 +61,7 @@ export function AchievementUnlock({ achievementKeys, allAchievements, onDismiss 
       >
         <p
           className="text-xs font-semibold tracking-widest uppercase text-center"
-          style={{ color: "var(--peak-accent)" }}
+          style={{ color: "var(--peak-accent-text)" }}
           aria-live="assertive"
         >
           Achievement Unlocked
@@ -71,7 +73,10 @@ export function AchievementUnlock({ achievementKeys, allAchievements, onDismiss 
             <div key={a.key} className="flex items-center gap-3">
               <div
                 className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
-                style={{ background: color + "20", color }}
+                // `color-mix`, not a hex-alpha suffix -- `color` is now a
+                // `var(--achievement-*)` reference (P3-G2), and appending a
+                // hex pair to a var() reference is invalid CSS.
+                style={{ background: `color-mix(in srgb, ${color} 20%, transparent)`, color }}
                 aria-hidden="true"
               >
                 ✓

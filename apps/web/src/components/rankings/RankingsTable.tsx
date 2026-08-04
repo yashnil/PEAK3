@@ -21,7 +21,7 @@
  */
 
 import type { RankingRow } from "@/types";
-import { cn, componentColor, componentLabel } from "@/lib/utils";
+import { cn, componentColor, componentTextColor, componentLabel } from "@/lib/utils";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import {
   RANKING_COLUMNS,
@@ -70,11 +70,30 @@ export default function RankingsTable({
   const columnCount = columns.length + (resorted ? 1 : 0) + 3;
 
   return (
-    <div className="overflow-x-auto">
+    // `--bg-surface-data` (§3 palette direction: "a subtle cool neutral for
+    // data-dense regions") turns the table into its own distinct panel,
+    // differentiated from the surrounding page by hue rather than by
+    // stacking yet another lightness step onto an already-compressed ladder.
+    <div
+      className="overflow-x-auto rounded-xl border"
+      style={{ background: "var(--bg-surface-data)", borderColor: "var(--border-default)" }}
+    >
       <table className="w-full text-sm" data-testid="rankings-table">
         <caption className="sr-only">{caption}</caption>
         <thead>
-          <tr className="border-b border-[var(--border-subtle)] text-left">
+          {/* Launch-polish IMPLEMENTATION_CONTRACT.md §3 correctness bug:
+              this row used to share `--border-subtle` (1.37:1 against
+              --bg-surface in Arena Day, under the WCAG 1.4.11 3:1 UI floor)
+              with every data row below, so the header was structurally
+              indistinguishable from a row of data. `--divider-strong` (a
+              data-dense-region-specific token, not a general border
+              darkening) fixes the contrast; the background band is what
+              actually anchors the header as a header, not just a heavier
+              line. */}
+          <tr
+            className="border-b-2 border-[var(--divider-strong)] text-left"
+            style={{ background: "var(--bg-elevated)" }}
+          >
             {resorted && (
               <th scope="col" className={cn(HEADER_CLASS, "w-10")} data-testid="rankings-position-header">
                 <span title="Position in the current sort">#</span>
@@ -111,7 +130,7 @@ export default function RankingsTable({
                   full={column.full}
                   align="right"
                   color={
-                    column.key === "total" ? undefined : componentColor(column.key as string)
+                    column.key === "total" ? undefined : componentTextColor(column.key as string)
                   }
                   className={column.cellClass}
                 />
@@ -123,7 +142,7 @@ export default function RankingsTable({
             <tr
               key={row.row_id}
               onClick={() => onOpenRow(row)}
-              className="group border-b border-[var(--border-subtle)] cursor-pointer transition-colors hover:bg-[var(--bg-surface)]"
+              className="group border-b border-[var(--divider-strong)] cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
               data-testid="rankings-row"
             >
               {resorted && (
@@ -156,7 +175,7 @@ export default function RankingsTable({
                         onOpenRow(row);
                       }}
                       aria-label={`Explain the PEAK3 score for ${row.player_name}, ${row.label}`}
-                      className="block max-w-full truncate rounded text-left font-medium text-[var(--text-primary)] transition-colors group-hover:text-[var(--peak-accent)] hover:text-[var(--peak-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                      className="block max-w-full truncate rounded text-left font-medium text-[var(--text-primary)] transition-colors group-hover:text-[var(--peak-accent-text)] hover:text-[var(--peak-accent-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                     >
                       {row.player_name}
                     </button>
@@ -173,7 +192,7 @@ export default function RankingsTable({
               <td className="hidden px-3 py-2.5 text-xs text-[var(--text-secondary)] md:table-cell">
                 {row.team ?? "—"}
               </td>
-              <td className="px-3 py-2.5 text-right score-number font-bold text-[var(--peak-accent)]">
+              <td className="px-3 py-2.5 text-right score-number font-bold text-[var(--peak-accent-text)]">
                 {formatScore1(row.prime_score)}
               </td>
               {showComponents &&
@@ -188,7 +207,7 @@ export default function RankingsTable({
                       "hidden px-3 py-2.5 text-right score-number text-xs lg:table-cell",
                       sortKey === key ? "font-bold" : ""
                     )}
-                    style={{ color: componentColor(key) }}
+                    style={{ color: componentTextColor(key) }}
                   >
                     {formatScore1(row.components?.[key])}
                   </td>

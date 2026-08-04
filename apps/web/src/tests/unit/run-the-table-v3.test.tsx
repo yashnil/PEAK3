@@ -11,7 +11,7 @@
  * prove there is no client-side randomness anywhere in the reel.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -60,7 +60,6 @@ vi.mock("@/lib/a11y", async () => {
 });
 
 import RunTheTableGame from "@/components/run-the-table/RunTheTableGame";
-import RevealReel from "@/components/run-the-table/RevealReel";
 import CreditSinks from "@/components/run-the-table/CreditSinks";
 import ScoutPrepare from "@/components/run-the-table/ScoutPrepare";
 import { runActions } from "@/lib/run-the-table-api";
@@ -133,7 +132,7 @@ function rosterTrack(revealed: number): RevealTrack {
   };
 }
 
-function bossTrack(revealed: number): BossRevealTrack {
+function bossTrack(revealed: number, over: Partial<BossRevealTrack> = {}): BossRevealTrack {
   return {
     ...rosterTrack(revealed),
     act: 1,
@@ -143,6 +142,7 @@ function bossTrack(revealed: number): BossRevealTrack {
     rule: { id: "the_wall", name: "The Wall", summary: "A lane is only taken by 1.50 points." },
     source: "curated",
     deterministic: true,
+    ...over,
   };
 }
 
@@ -439,118 +439,13 @@ describe("reveal gating", () => {
 });
 
 // ---------------------------------------------------------------------------
-// RevealReel
+// RevealSequenceSurface + useRevealSequence — see
+// `run-the-table-reveal.test.tsx` for the dedicated hook-level and
+// component-level coverage (superseded `RevealReel`, deleted with this pass:
+// PRODUCT_EXPERIENCE_CONTRACT.md §2 replaced its manual, one-card-per-click
+// UX with a single-action batched reveal, so its old assertions describe a
+// UX that no longer exists).
 // ---------------------------------------------------------------------------
-
-describe("RevealReel", () => {
-  function renderReel(track: RevealTrack, onReveal = vi.fn()) {
-    render(
-      <RevealReel track={track} kind="roster" title="Meet your roster" busy={false} onReveal={onReveal} />,
-    );
-    return onReveal;
-  }
-
-  it("shows the seven published slots in order, with nothing revealed yet", () => {
-    renderReel(rosterTrack(0));
-    for (const label of SLOT_LABELS) expect(screen.getByText(label)).toBeInTheDocument();
-    expect(screen.getByTestId("rtt-reveal-progress-roster")).toHaveTextContent("0 of 7 revealed");
-    // No card anywhere: an unrevealed slot must not leak its player.
-    expect(screen.queryByText("Player 0")).not.toBeInTheDocument();
-  });
-
-  it("renders the card the SERVER preselected — there is no client RNG", () => {
-    renderReel(rosterTrack(2));
-    expect(screen.getByText("Player 0")).toBeInTheDocument();
-    expect(screen.getByText("Player 1")).toBeInTheDocument();
-    expect(screen.queryByText("Player 2")).not.toBeInTheDocument();
-    expect(screen.getByTestId("rtt-reveal-slot-lead_creator")).toHaveAttribute(
-      "data-revealed",
-      "true",
-    );
-    expect(screen.getByTestId("rtt-reveal-slot-wing_forward")).toHaveAttribute(
-      "data-revealed",
-      "false",
-    );
-  });
-
-  it("offers skip-all only AFTER the first reveal, and never once complete", () => {
-    const { unmount } = render(
-      <RevealReel track={rosterTrack(0)} kind="roster" title="t" busy={false} onReveal={vi.fn()} />,
-    );
-    expect(screen.queryByTestId("rtt-reveal-skip-roster")).not.toBeInTheDocument();
-    expect(screen.getByTestId("rtt-reveal-next-roster")).toBeInTheDocument();
-    unmount();
-
-    render(
-      <RevealReel track={rosterTrack(1)} kind="roster" title="t" busy={false} onReveal={vi.fn()} />,
-    );
-    expect(screen.getByTestId("rtt-reveal-skip-roster")).toHaveTextContent("Skip all (6)");
-  });
-
-  it("hides both controls once the reveal is complete", () => {
-    renderReel(rosterTrack(7));
-    expect(screen.queryByTestId("rtt-reveal-next-roster")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("rtt-reveal-skip-roster")).not.toBeInTheDocument();
-  });
-
-  it("asks for one card on next, and everything left on skip-all", async () => {
-    const onReveal = renderReel(rosterTrack(3));
-    await userEvent.click(screen.getByTestId("rtt-reveal-next-roster"));
-    expect(onReveal).toHaveBeenLastCalledWith(1);
-    await userEvent.click(screen.getByTestId("rtt-reveal-skip-roster"));
-    expect(onReveal).toHaveBeenLastCalledWith(4);
-  });
-
-  /**
-   * The reel is the surface most likely to read as "a team being generated live
-   * by a model". It is not, and it says so on both variants.
-   */
-  it("labels itself as seed and rule generated, on both reveals", () => {
-    const { unmount } = render(
-      <RevealReel track={rosterTrack(1)} kind="roster" title="t" busy={false} onReveal={vi.fn()} />,
-    );
-    expect(screen.getByTestId("rtt-reveal-source-roster")).toHaveTextContent(
-      /seed and rule generated/i,
-    );
-    unmount();
-    render(
-      <RevealReel track={bossTrack(1)} kind="boss" title="The Wall" busy={false} onReveal={vi.fn()} />,
-    );
-    expect(screen.getByTestId("rtt-reveal-source-boss")).toHaveTextContent(
-      /not a team being built live/i,
-    );
-  });
-
-  /**
-   * REDUCED MOTION REVEALS INSTANTLY. Asserted on what the player can actually
-   * observe — the revealed card is in the document on first paint, with the
-   * same content either way — rather than on a transition config, which would
-   * be a test of the animation library.
-   */
-  it("renders the same revealed cards under reduced motion", () => {
-    reducedMotion = true;
-    const { unmount, container } = render(
-      <RevealReel track={rosterTrack(3)} kind="roster" title="t" busy={false} onReveal={vi.fn()} />,
-    );
-    const reduced = container.textContent;
-    expect(screen.getByText("Player 2")).toBeInTheDocument();
-    unmount();
-
-    reducedMotion = false;
-    const full = render(
-      <RevealReel track={rosterTrack(3)} kind="roster" title="t" busy={false} onReveal={vi.fn()} />,
-    );
-    expect(full.container.textContent).toBe(reduced);
-  });
-
-  it("disables both controls while a round trip is in flight", () => {
-    render(
-      <RevealReel track={rosterTrack(2)} kind="roster" title="t" busy onReveal={vi.fn()} />,
-    );
-    expect(screen.getByTestId("rtt-reveal-next-roster")).toBeDisabled();
-    expect(screen.getByTestId("rtt-reveal-skip-roster")).toBeDisabled();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // CreditSinks
@@ -790,43 +685,59 @@ describe("RunTheTableGame — v3 flow", () => {
     expect(screen.queryByTestId("rtt-system-select")).not.toBeInTheDocument();
   });
 
-  it("posts a reveal action and shows the server's next card", async () => {
+  // SYNTHESIS_CONTRACT.md §2.2: the opening reveal is now ONE user action →
+  // ONE POST → the server's full, already-authoritative response; the client
+  // then paces its own presentation of that response. These three tests
+  // replace the old one-card-per-click assertions.
+
+  it("fires ONE batched reveal action for the whole roster — nothing shown before the press", async () => {
     await startAt(runState());
+    expect(screen.getByTestId("rtt-reveal-start-roster")).toBeInTheDocument();
+    expect(screen.queryByText(/Player \d/)).not.toBeInTheDocument();
+
     mockPostAction.mockResolvedValue(
-      runState({ action_count: 1, reveal: { roster: rosterTrack(1), boss: null } }),
+      runState({ action_count: 1, reveal: { roster: rosterTrack(7), boss: null } }),
     );
-    await userEvent.click(screen.getByTestId("rtt-reveal-next-roster"));
+    await userEvent.click(screen.getByTestId("rtt-reveal-start-roster"));
 
     await waitFor(() =>
       expect(mockPostAction).toHaveBeenCalledWith(
         "run-v3",
-        { action_type: "reveal", target: "roster", count: 1 },
-        expect.any(String),
-      ),
-    );
-    expect(await screen.findByText("Player 0")).toBeInTheDocument();
-  });
-
-  it("skips the rest of the reveal in ONE call", async () => {
-    await startAt(runState({ action_count: 1, reveal: { roster: rosterTrack(2), boss: null } }));
-    mockPostAction.mockResolvedValue(
-      runState({ action_count: 2, reveal: { roster: rosterTrack(7), boss: null } }),
-    );
-    await userEvent.click(screen.getByTestId("rtt-reveal-skip-roster"));
-
-    await waitFor(() =>
-      expect(mockPostAction).toHaveBeenCalledWith(
-        "run-v3",
-        { action_type: "reveal", target: "roster", count: 5 },
+        { action_type: "reveal", target: "roster", count: 7 },
         expect.any(String),
       ),
     );
     expect(mockPostAction).toHaveBeenCalledTimes(1);
-    // And the perk choice is what the completed reveal hands over to.
-    expect(await screen.findByTestId("rtt-system-select")).toBeInTheDocument();
   });
 
-  it("resumes a half-finished reveal after a reload rather than restarting it", async () => {
+  it("skip all lands on all 7 slots fully resolved and HOLDS — 'skip the animation' is not 'skip the information'", async () => {
+    // The lead's ruling: jumping straight to system_select under-delivered —
+    // the player must see the roster they were promised before the screen
+    // changes. Skip-all now only ever advances the local sequence to
+    // `complete`; only an explicit "Continue" press dismisses the surface.
+    await startAt(runState());
+    mockPostAction.mockResolvedValue(
+      runState({ action_count: 1, reveal: { roster: rosterTrack(7), boss: null } }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-reveal-start-roster"));
+    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-roster"));
+
+    // Skip-all is client-side choreography over the SAME response — never a
+    // second POST.
+    expect(mockPostAction).toHaveBeenCalledTimes(1);
+    // Held: every card fully resolved, still on the reveal surface.
+    expect(await screen.findByText("Player 0")).toBeInTheDocument();
+    expect(screen.getByText("Player 6")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-opening-reveal")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-system-select")).not.toBeInTheDocument();
+
+    // The explicit continue is what actually leaves the screen.
+    await userEvent.click(screen.getByTestId("rtt-reveal-continue-roster"));
+    expect(await screen.findByTestId("rtt-system-select")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-opening-reveal")).not.toBeInTheDocument();
+  });
+
+  it("resume before the reveal has ever been started shows the single-action cover, never a mid-reveal state", async () => {
     window.localStorage.setItem(
       "peak3.run-the-table.active",
       JSON.stringify({
@@ -834,18 +745,56 @@ describe("RunTheTableGame — v3 flow", () => {
         run_date: null, updated_at: "2026-08-01T00:00:00Z",
       }),
     );
-    mockGetRun.mockResolvedValue(
-      runState({ action_count: 3, reveal: { roster: rosterTrack(3), boss: null } }),
-    );
+    mockGetRun.mockResolvedValue(runState({ reveal: { roster: rosterTrack(0), boss: null } }));
     render(<RunTheTableGame />);
 
     await screen.findByTestId("rtt-opening-reveal");
-    expect(screen.getByTestId("rtt-reveal-progress-roster")).toHaveTextContent("3 of 7 revealed");
-    expect(screen.getByText("Player 2")).toBeInTheDocument();
-    expect(screen.queryByText("Player 3")).not.toBeInTheDocument();
+    expect(screen.getByTestId("rtt-reveal-start-roster")).toBeInTheDocument();
+    expect(screen.queryByText(/Player \d/)).not.toBeInTheDocument();
   });
 
-  it("puts a boss reveal in front of the boss briefing", async () => {
+  it("resume of an already-fully-revealed roster skips straight past the reveal — it never replays", async () => {
+    window.localStorage.setItem(
+      "peak3.run-the-table.active",
+      JSON.stringify({
+        schema_version: 1, run_id: "run-v3", seed: 4242, run_type: "standard",
+        run_date: null, updated_at: "2026-08-01T00:00:00Z",
+      }),
+    );
+    mockGetRun.mockResolvedValue(runState({ reveal: { roster: rosterTrack(7), boss: null } }));
+    render(<RunTheTableGame />);
+
+    await screen.findByTestId("rtt-system-select");
+    expect(screen.queryByTestId("rtt-opening-reveal")).not.toBeInTheDocument();
+  });
+
+  it("puts the boss INTRO in front of everything — name, win condition, countdown, a live skip", async () => {
+    await startAt(
+      runState({
+        status: "boss_ready",
+        act: 1,
+        lanes_to_win: 3,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(0) },
+        next_boss: {
+          boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+          act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+        },
+      }),
+    );
+    expect(screen.getByTestId("rtt-boss-intro")).toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-boss-reveal")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-boss-preview")).not.toBeInTheDocument();
+    expect(screen.getByText("The Wall")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-boss-intro-win-condition")).toHaveTextContent(
+      "Win 3 of the five lanes",
+    );
+    // The skip control is interactive from the first frame, not merely
+    // present-but-disabled (VERIFICATION_PLAN.md §2 item 6).
+    const skip = screen.getByTestId("rtt-boss-intro-skip");
+    expect(skip).toBeEnabled();
+  });
+
+  it("boss intro skip lands on the paired lineup reveal — one press, no countdown wait", async () => {
     await startAt(
       runState({
         status: "boss_ready",
@@ -857,11 +806,126 @@ describe("RunTheTableGame — v3 flow", () => {
         },
       }),
     );
+    await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
     expect(screen.getByTestId("rtt-boss-reveal")).toBeInTheDocument();
-    expect(screen.queryByTestId("rtt-boss-preview")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("rtt-boss-intro")).not.toBeInTheDocument();
     expect(screen.getByTestId("rtt-reveal-source-boss")).toHaveTextContent(
       /seed and rule generated/i,
     );
+  });
+
+  it("pairs the player's already-known card beside the boss's card as each slot resolves", async () => {
+    const myStarters = SLOT_IDS.slice(0, 5).map((slot_id, i) => ({
+      slot_id,
+      role: slot_id as never,
+      is_starter: true,
+      card: {
+        card_id: `mine-${i}`, player_name: `Mine ${i}`, player_slug: `mine-${i}`,
+        start_season: "1988-89", end_season: "1990-91", anchor_season: "1989-90",
+        window_label: "1988-89–1990-91", prime_score: 70 + i, overall_percentile: 50,
+        eligible_roles: [], primary_role: slot_id as never,
+        lane_index: { statistical_impact: 1, traditional_production: 1, individual_recognition: 1, postseason_individual_value: 1, team_achievement: 1 },
+        lane_percentiles: { statistical_impact: 1, traditional_production: 1, individual_recognition: 1, postseason_individual_value: 1, team_achievement: 1 },
+        base_cost: 10, cost: 10, cost_modifiers: [], refund_value: 5,
+      },
+    }));
+    await startAt(
+      runState({
+        status: "boss_ready",
+        act: 1,
+        starters: myStarters,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(0) },
+        next_boss: {
+          boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+          act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+        },
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready", act: 1, starters: myStarters,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-reveal-start-boss"));
+    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-boss"));
+    const paired = await screen.findAllByTestId("rtt-reveal-paired-card");
+    expect(paired.length).toBeGreaterThan(0);
+    expect(screen.getByText("Mine 0")).toBeInTheDocument();
+  });
+
+  // P5-F4 (product-director, HIGH severity): the SECOND boss reveal in a run
+  // used to inherit `started`/`complete`/`skippedRef` from the FIRST boss's
+  // already-finished sequence — `bossSequence` is ONE `useRevealSequence`
+  // call reused for the entire session, `RunTheTableGame` never remounts
+  // between bosses, and nothing reset it. It rendered fully `complete` with
+  // no start button at all — every boss after the first was unreachable as
+  // a cinematic. Fixed by `useRevealSequence`'s `resetKey` (keyed on
+  // `boss_id`). This test is the requested regression: it must fail on the
+  // old behaviour and pass on the fix, by reaching a SECOND boss reveal and
+  // asserting it demands the same start/skip/continue flow as the first.
+  it("resets the boss reveal for the SECOND boss in a run — it does not inherit the first boss's completed state", async () => {
+    const bossOne = {
+      boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+      act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+      starters: [], bench: [], lane_profile: [], roster_total: 60,
+    };
+    const bossTwo = {
+      ...bossOne, boss_id: "strength-in-numbers", name: "Strength in Numbers", act: 2,
+    };
+
+    await startAt(
+      runState({
+        status: "boss_ready", act: 1,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(0) },
+        next_boss: bossOne,
+      }),
+    );
+    // Boss 1: intro, then a reveal that genuinely has to be started.
+    expect(screen.getByTestId("rtt-boss-intro")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
+    expect(await screen.findByTestId("rtt-boss-reveal")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-reveal-start-boss")).toBeInTheDocument();
+
+    // Play it through to fully resolved, then dismiss it — mirrors the skip
+    // + continue flow every other boss-reveal test in this file uses.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready", act: 1,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
+        next_boss: bossOne,
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-reveal-start-boss"));
+    await userEvent.click(await screen.findByTestId("rtt-reveal-skip-boss"));
+    await userEvent.click(await screen.findByTestId("rtt-reveal-continue-boss"));
+    expect(await screen.findByTestId("rtt-boss-preview")).toBeInTheDocument();
+
+    // Resolve boss 1 and land straight on boss 2's fresh, UNREVEALED track —
+    // the exact transition P5-F4 broke.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "boss_ready", act: 2,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(0, { act: 2, boss_id: "strength-in-numbers", name: "Strength in Numbers" }) },
+        next_boss: bossTwo,
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-resolve-boss"));
+
+    // Boss 2's intro must appear again (a fresh `bossIntroDone` for the new
+    // `boss_id`) ...
+    expect(await screen.findByTestId("rtt-boss-intro")).toBeInTheDocument();
+    expect(screen.getByText("Strength in Numbers")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("rtt-boss-intro-skip"));
+
+    // ... and the THIS IS THE REGRESSION: boss 2's reveal must demand a
+    // press, exactly like boss 1's did — not render pre-completed with no
+    // start control, which is what the un-reset hook instance produced.
+    const reveal2 = await screen.findByTestId("rtt-boss-reveal");
+    expect(within(reveal2).getByTestId("rtt-reveal-start-boss")).toBeInTheDocument();
+    expect(within(reveal2).queryByTestId("rtt-reveal-continue-boss")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Player \d/)).not.toBeInTheDocument();
   });
 
   it("hands over to the briefing once the boss lineup is fully revealed", async () => {
@@ -878,8 +942,42 @@ describe("RunTheTableGame — v3 flow", () => {
         },
       }),
     );
+    expect(screen.queryByTestId("rtt-boss-intro")).not.toBeInTheDocument();
     expect(screen.queryByTestId("rtt-boss-reveal")).not.toBeInTheDocument();
     expect(screen.getByTestId("rtt-boss-preview")).toBeInTheDocument();
+  });
+
+  // P5-F5 (platform): the battle screen's HUD objective rendered the raw
+  // snake_case `boss_id` ("Boss battle — the_wall") instead of the boss's
+  // display name. `action_resolve_boss` never increments `state.act` (only
+  // `action_advance` does, after this screen — nba_peak/run_the_table/
+  // state.py:546-564), so `next_boss` is still, correctly, the boss this
+  // battle was fought against at this exact status.
+  it("names the boss in the battle HUD objective, never the raw id", async () => {
+    await startAt(
+      runState({
+        status: "boss_resolved",
+        act: 1,
+        reveal: { roster: rosterTrack(7), boss: bossTrack(7) },
+        next_boss: {
+          boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+          act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+          starters: [], bench: [], lane_profile: [], roster_total: 60,
+        },
+        battles: [
+          {
+            boss_id: "the-wall", act: 1, outcome: "win", decided_by: "lanes",
+            player_lanes_won: 3, opponent_lanes_won: 2, ties: 0, summed_margin: 4.2,
+            player_roster_total: 61.2, opponent_roster_total: 59.9, bench_weight: 0.35,
+            rule_id: "the_wall", credits_awarded: 12, lives_after: 3, lanes: [],
+          },
+        ],
+      }),
+    );
+    const objective = await screen.findByTestId("rtt-hud-objective");
+    expect(objective).toHaveTextContent("Boss battle — The Wall");
+    expect(objective.textContent).not.toContain("the-wall");
+    expect(objective.textContent).not.toContain("the_wall");
   });
 
   it("renders a market node's priced controls and posts the refresh", async () => {
@@ -969,6 +1067,64 @@ describe("RunTheTableGame — v3 flow", () => {
         expect.any(String),
       ),
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // Scout & Prepare payoff (brief §E / P3-E2): "scout information must
+  // visibly matter later — pin the discovered vulnerability into the HUD."
+  // ---------------------------------------------------------------------
+
+  it("pins the scouted weakness into the HUD, keeps it through the next node, and clears it once a different boss is ahead", async () => {
+    const theWall = {
+      boss_id: "the-wall", name: "The Wall", tagline: "Nothing gets through.",
+      act: 1, rule: null, source: "curated", revealed: true, deterministic: true,
+    };
+    // The report is on the wire the instant `film_room` is active — no POST
+    // required to SEE it (§'Scouting is free'). So the pin appears before
+    // the player has clicked anything on this node at all.
+    await startAt(
+      runState({
+        status: "node_active",
+        reveal: { roster: rosterTrack(7), boss: null },
+        active_node: scoutNode(),
+        next_boss: theWall,
+      }),
+    );
+    const pin = await screen.findByTestId("rtt-hud-scout-pin");
+    expect(pin).toHaveTextContent("The Wall");
+    expect(pin).toHaveTextContent("Team Result");
+
+    // Leaving the node (any action posts and replaces the whole state) —
+    // `next_boss` is still the same boss this report was about, so the pin
+    // must survive into the Draft Room two nodes later, not just the node
+    // scouting happened on.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "node_active",
+        reveal: { roster: rosterTrack(7), boss: null },
+        active_node: { node_id: "n2", node_type: "draft_room", title: "Open tryouts", summary: "", offers: [], can_pass: true },
+        next_boss: theWall,
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-scout-prepare-traditional_production"));
+    expect(await screen.findByTestId("rtt-draft-room")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-hud-scout-pin")).toHaveTextContent("The Wall");
+
+    // Now the boss ahead changes (a new act's Draft Room) — the SAME local
+    // `scoutIntel` is still sitting in state (scouting only clears on a new
+    // run), but it is no longer about the boss the player is about to face,
+    // so the pin must disappear rather than misreport a stale opponent.
+    mockPostAction.mockResolvedValue(
+      runState({
+        status: "node_active",
+        reveal: { roster: rosterTrack(7), boss: null },
+        active_node: { node_id: "n3", node_type: "draft_room", title: "Open tryouts", summary: "", offers: [], can_pass: true },
+        next_boss: { ...theWall, boss_id: "the-standard", name: "The Standard" },
+      }),
+    );
+    await userEvent.click(screen.getByTestId("rtt-draft-pass"));
+    await waitFor(() => expect(mockPostAction).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId("rtt-hud-scout-pin")).not.toBeInTheDocument();
   });
 
   it("draws all five acts on the map without dropping a row", async () => {

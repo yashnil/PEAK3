@@ -16,7 +16,7 @@ export function XpProgress({ level, compact = false }: Props) {
       <div className="flex items-baseline gap-1">
         <span
           className="font-bold tabular-nums"
-          style={{ color: "var(--peak-accent)", fontSize: compact ? "0.875rem" : "1rem" }}
+          style={{ color: "var(--peak-accent-text)", fontSize: compact ? "0.875rem" : "1rem" }}
         >
           Lv {level.current_level}
         </span>
@@ -40,7 +40,7 @@ export function XpProgress({ level, compact = false }: Props) {
         }}
       >
         <div
-          className="h-full rounded-full transition-all duration-500"
+          className="h-full rounded-full transition-[width] duration-500"
           style={{
             width: `${pct}%`,
             background: "var(--peak-accent)",

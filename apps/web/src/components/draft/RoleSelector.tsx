@@ -1,12 +1,14 @@
 "use client";
 import { DraftCard, DraftRole, ROLE_LABELS, DRAFT_ROLES } from "@/types/draft";
 
+// Theme-aware `--accent-*` tokens (P3-G2) -- see the identical comment in
+// DraftCard.tsx, which owns the canonical explanation of this mapping.
 const ROLE_COLORS: Record<DraftRole, string> = {
-  lead_creator: "#f472b6",
-  guard_wing: "#60a5fa",
-  wing_forward: "#a78bfa",
-  forward_big: "#fb923c",
-  anchor: "#34d399",
+  lead_creator: "var(--accent-pink)",
+  guard_wing: "var(--accent-blue)",
+  wing_forward: "var(--accent-violet)",
+  forward_big: "var(--accent-orange)",
+  anchor: "var(--accent-emerald)",
 };
 
 interface Props {
@@ -77,7 +79,7 @@ export default function RoleSelector({
               disabled={!eligible}
               onClick={() => eligible && onSelect(role)}
               className={[
-                "flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-all",
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-[background-color,border-color,opacity]",
                 "border",
                 !isOpen
                   ? "opacity-25 cursor-not-allowed"
@@ -89,7 +91,7 @@ export default function RoleSelector({
                   : "border-transparent hover:border-[var(--border-default)]",
               ].join(" ")}
               style={{
-                background: isSelected ? `${color}15` : "var(--bg-surface)",
+                background: isSelected ? `color-mix(in srgb, ${color} 15%, transparent)` : "var(--bg-surface)",
                 borderColor: isSelected ? color : "var(--border-subtle)",
               }}
             >
@@ -130,7 +132,7 @@ export default function RoleSelector({
         data-testid="lock-in"
         onClick={onConfirm}
         disabled={!selectedRole || submitting}
-        className="py-2 rounded-lg text-sm font-semibold transition-all"
+        className="py-2 rounded-lg text-sm font-semibold transition-colors"
         style={{
           background: selectedRole && !submitting ? "var(--peak-accent)" : "var(--border-default)",
           color: selectedRole && !submitting ? "var(--text-inverse)" : "var(--text-muted)",

@@ -105,7 +105,7 @@ export function Footer() {
                     <li key={item.href}>
                       <Link
                         href={item.href}
-                        className="text-sm text-[var(--text-muted)] hover:text-[var(--peak-accent)] focus-visible:text-[var(--peak-accent)] transition-colors"
+                        className="text-sm text-[var(--text-muted)] hover:text-[var(--peak-accent-text)] focus-visible:text-[var(--peak-accent-text)] transition-colors"
                       >
                         {item.label}
                       </Link>

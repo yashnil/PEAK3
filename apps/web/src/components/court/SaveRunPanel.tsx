@@ -31,8 +31,8 @@ const COMPARISON_COPY: Record<RunComparison, { label: string; tone: "gold" | "gr
 };
 
 const TONE_COLORS: Record<"gold" | "green" | "muted", string> = {
-  gold: "var(--peak-accent, #f5c842)",
-  green: "#34d399",
+  gold: "var(--peak-accent-text, #f5c842)",
+  green: "var(--accent-emerald)",
   muted: "var(--text-secondary)",
 };
 
@@ -146,7 +146,7 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
           <Link
             href={signInHref}
             className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
-            style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+            style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
           >
             Sign in
           </Link>
@@ -164,7 +164,7 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
             <Link
               href="/arena/court/history"
               className="text-xs font-semibold uppercase tracking-wide shrink-0"
-              style={{ color: "var(--peak-accent, #f5c842)" }}
+              style={{ color: "var(--peak-accent-text, #f5c842)" }}
             >
               View history →
             </Link>
@@ -188,7 +188,7 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
               onClick={handleSave}
               disabled={phase === "saving"}
               className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0 disabled:opacity-50"
-              style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+              style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
             >
               {phase === "saving" ? "Saving…" : "Save run"}
             </button>
@@ -197,7 +197,7 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
             <span
               role="alert"
               className="text-xs flex items-center gap-2 flex-wrap"
-              style={{ color: "#ef4444" }}
+              style={{ color: "var(--incorrect)" }}
               data-testid="save-run-error"
             >
               {errorMessage}
@@ -205,7 +205,7 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
                 <Link
                   href={signInHref}
                   className="font-semibold underline shrink-0"
-                  style={{ color: "var(--peak-accent, #f5c842)" }}
+                  style={{ color: "var(--peak-accent-text, #f5c842)" }}
                   data-testid="save-run-error-signin"
                 >
                   Sign in again
@@ -215,7 +215,7 @@ export default function SaveRunPanel({ gameId, wins, savable, readOnly = false }
                   type="button"
                   onClick={handleSave}
                   className="font-semibold underline shrink-0"
-                  style={{ color: "var(--peak-accent, #f5c842)" }}
+                  style={{ color: "var(--peak-accent-text, #f5c842)" }}
                   data-testid="save-run-error-retry"
                 >
                   Try again

@@ -1,10 +1,11 @@
 """PostgreSQL ProfileRepository implementation using asyncpg.
 
 Production implementation. Requires DATABASE_URL. The `profiles` table's
-partial unique index on lower(handle) (see supabase/migrations) is the
-source of truth for handle uniqueness — this class catches the resulting
-UniqueViolationError and raises HandleTakenError rather than racing a
-check-then-insert against it.
+partial unique index on `normalized_handle` (a generated `lower(handle)`
+column — see supabase/migrations/20260803100000_profile_handle_contract.sql)
+is the source of truth for handle uniqueness — this class catches the
+resulting UniqueViolationError and raises HandleTakenError rather than racing
+a check-then-insert against it.
 """
 from __future__ import annotations
 
@@ -47,6 +48,7 @@ def _row_to_settings(row) -> UserSettings:
         profile_id=str(row["profile_id"]),
         timezone=row["timezone"],
         reduced_motion=row["reduced_motion"],
+        theme_preference=row["theme_preference"],
     )
 
 
@@ -105,10 +107,14 @@ class PostgresProfileRepository:
         return _row_to_profile(row)
 
     async def get_profile_by_handle(self, handle: str) -> Profile | None:
+        # Queries the materialized `normalized_handle` column (see
+        # supabase/migrations/20260803100000_profile_handle_contract.sql)
+        # rather than `lower(handle)` inline -- same invariant, but now
+        # served by a plain btree index instead of a functional one.
         normalized = handle.strip().lower()
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT * FROM profiles WHERE lower(handle) = $1", normalized
+                "SELECT * FROM profiles WHERE normalized_handle = $1", normalized
             )
         return _row_to_profile(row) if row is not None else None
 
@@ -140,6 +146,10 @@ class PostgresProfileRepository:
         if updates.get("reduced_motion") is not None:
             fields.append(f"reduced_motion = ${idx}")
             values.append(updates["reduced_motion"])
+            idx += 1
+        if updates.get("theme_preference") is not None:
+            fields.append(f"theme_preference = ${idx}")
+            values.append(updates["theme_preference"])
             idx += 1
 
         if not fields:

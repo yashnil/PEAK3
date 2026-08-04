@@ -44,5 +44,11 @@ export type { SkeletonProps } from "./Skeleton";
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 
+export { ErrorState } from "./ErrorState";
+export type { ErrorStateProps } from "./ErrorState";
+
 export { LiveRegion } from "./LiveRegion";
 export type { LiveRegionProps, LiveRegionPoliteness } from "./LiveRegion";
+
+export { ThemeToggle } from "./ThemeToggle";
+export type { ThemeToggleProps } from "./ThemeToggle";

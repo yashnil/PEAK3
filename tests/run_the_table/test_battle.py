@@ -585,6 +585,107 @@ class TestLanePreparation:
         assert result.outcome == "win"
 
 
+class TestReceiptBreakdown:
+    """SYNTHESIS_CONTRACT.md §2.3: every lane's ``player_score`` decomposes
+    into ``pre_perk_rating + bench_adjustment + player_prep_bonus`` -- exactly,
+    not approximately, because ``bench_adjustment`` is defined as the residual
+    rather than independently recomputed. A receipt built from these three
+    fields must never show numbers that fail to add up.
+    """
+
+    def _reconciles(self, result):
+        for lane in result.lanes:
+            total = round(
+                lane.pre_perk_rating + lane.bench_adjustment + lane.player_prep_bonus,
+                4,
+            )
+            assert total == lane.player_score, (
+                lane.lane, total, lane.player_score, lane.pre_perk_rating,
+                lane.bench_adjustment, lane.player_prep_bonus,
+            )
+
+    def test_vanilla_battle_reconciles(self):
+        mine = _side("m", _flat())
+        theirs = _side("o", _flat())
+        pool = make_pool(mine + theirs)
+        boss = _opponent([c.peak_window_id for c in theirs])
+        result = resolve_battle(
+            pool, [c.peak_window_id for c in mine], [], boss, (),
+            lives_before=3, comeback_credits=0,
+        )
+        self._reconciles(result)
+        # No perk, no rule, no bonus: nothing to isolate.
+        for lane in result.lanes:
+            assert lane.bench_adjustment == 0.0
+            assert lane.pre_perk_rating == lane.player_score
+
+    def test_deep_rotation_reconciles_and_the_adjustment_is_the_perks_effect(self):
+        starters = [make_card(f"s{i}", 40.0, slug=f"s{i}") for i in range(5)]
+        bench = [make_card("b0", 90.0, slug="b0"), make_card("b1", 90.0, slug="b1")]
+        theirs = _side("o", _flat())
+        pool = make_pool(starters + bench + theirs)
+        s = [c.peak_window_id for c in starters]
+        b = [c.peak_window_id for c in bench]
+        boss = _opponent([c.peak_window_id for c in theirs])
+        result = resolve_battle(
+            pool, s, b, boss, ("deep_rotation",), lives_before=3, comeback_credits=0,
+        )
+        self._reconciles(result)
+        for lane in result.lanes:
+            # A stronger bench under Deep Rotation can only ever help --
+            # `bench_adjustment` isolates exactly that lift.
+            assert lane.bench_adjustment > 0.0
+            assert lane.player_prep_bonus == 0.0
+
+    def test_boss_fixed_bench_weight_reconciles_even_when_it_hurts(self):
+        # `top_heavy` fixes the bench weight low for BOTH teams -- a player
+        # whose bench out-scores their starters is hurt by it, and the
+        # breakdown must show that as a negative `bench_adjustment` rather
+        # than silently absorbing it into `pre_perk_rating`.
+        starters = [make_card(f"s{i}", 40.0, slug=f"s{i}") for i in range(5)]
+        bench = [make_card("b0", 90.0, slug="b0"), make_card("b1", 90.0, slug="b1")]
+        theirs = _side("o", _flat())
+        pool = make_pool(starters + bench + theirs)
+        s = [c.peak_window_id for c in starters]
+        b = [c.peak_window_id for c in bench]
+        boss = _opponent([c.peak_window_id for c in theirs], rule_id="top_heavy")
+        result = resolve_battle(
+            pool, s, b, boss, (), lives_before=3, comeback_credits=0,
+        )
+        self._reconciles(result)
+        for lane in result.lanes:
+            assert lane.bench_adjustment < 0.0
+
+    def test_prep_bonus_reconciles_and_is_isolated_from_bench_adjustment(self):
+        mine = _side("m", _flat())
+        theirs = _side("o", _flat())
+        pool = make_pool(mine + theirs)
+        boss = _opponent([c.peak_window_id for c in theirs])
+        result = resolve_battle(
+            pool, [c.peak_window_id for c in mine], [], boss, (),
+            lives_before=3, comeback_credits=0, lane_bonuses={TP: 2.5},
+        )
+        self._reconciles(result)
+        for lane in result.lanes:
+            if lane.lane == TP:
+                assert lane.player_prep_bonus == 2.5
+            assert lane.bench_adjustment == 0.0
+
+    def test_deep_rotation_and_prep_bonus_together_still_reconcile(self):
+        starters = [make_card(f"s{i}", 40.0, slug=f"s{i}") for i in range(5)]
+        bench = [make_card("b0", 90.0, slug="b0"), make_card("b1", 90.0, slug="b1")]
+        theirs = _side("o", _flat())
+        pool = make_pool(starters + bench + theirs)
+        s = [c.peak_window_id for c in starters]
+        b = [c.peak_window_id for c in bench]
+        boss = _opponent([c.peak_window_id for c in theirs])
+        result = resolve_battle(
+            pool, s, b, boss, ("deep_rotation",), lives_before=3, comeback_credits=0,
+            lane_bonuses={SI: 2.5},
+        )
+        self._reconciles(result)
+
+
 class TestRaisedLaneBar:
     """`the_long_series` (v3 Final Boss): four of five lanes to win outright,
     for both teams, and everything short of that falls to the summed margin."""

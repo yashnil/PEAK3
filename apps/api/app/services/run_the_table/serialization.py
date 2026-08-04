@@ -26,7 +26,15 @@ from nba_peak.run_the_table.state import VersionMismatch
 # of those to "nothing armed, nothing spent, nothing revealed" — a run that
 # never happened. The bump refuses it instead, which is the same answer the
 # ruleset gate gives and is reported through the same 409.
-SNAPSHOT_SCHEMA_VERSION = 2
+#
+# 2 -> 3 for the receipt-breakdown fields (SYNTHESIS_CONTRACT.md §2.3):
+# `LaneResult` gained `pre_perk_rating` and `bench_adjustment`, the residual
+# decomposition of `player_score` a receipt needs to explain a lane's rating
+# without the client recomputing anything. Same reasoning as the 1->2 bump: a
+# v2 snapshot loaded under this schema would silently default both new fields
+# to 0.0 — a receipt claiming "no bench effect, no baseline" for a battle that
+# may have had either — so the bump refuses it instead of guessing.
+SNAPSHOT_SCHEMA_VERSION = 3
 
 
 class SnapshotSchemaMismatch(VersionMismatch):
@@ -71,6 +79,12 @@ def _lane_to_dict(l: LaneResult) -> dict:
         # Persisted because the result screen states which lane the preparation
         # actually moved, and a re-read must be able to say the same thing.
         "player_prep_bonus": l.player_prep_bonus,
+        # v4 (schema 3): the receipt breakdown. Both already folded into
+        # `player_score`; persisted so a re-read reconstructs the same
+        # explanation rather than one recomputed from a roster that may have
+        # since changed.
+        "pre_perk_rating": l.pre_perk_rating,
+        "bench_adjustment": l.bench_adjustment,
     }
 
 
