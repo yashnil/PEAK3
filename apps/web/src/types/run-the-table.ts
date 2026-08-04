@@ -224,6 +224,11 @@ export interface BossPublic {
    * outright rather than implying otherwise.
    */
   deterministic?: boolean;
+  /** v4: whether this act's LINEUP has been generated yet. False before the
+   *  act begins -- a boss is built against the roster that will face it, so
+   *  until then there is no five to reveal and none to scout. Distinct from
+   *  `revealed`, which asks whether an EXISTING lineup is being shown. */
+  locked?: boolean;
   /** This boss's win condition. A boss rule may raise it above the default
    *  (`BOSS_LANES_TO_WIN`), for both sides. */
   lanes_to_win?: number;

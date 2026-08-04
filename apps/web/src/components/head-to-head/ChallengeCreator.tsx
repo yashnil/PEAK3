@@ -106,8 +106,9 @@ export default function ChallengeCreator() {
     <div>
       <p className="text-sm opacity-80">
         Challenge someone to your current board. They get the same starting roster,
-        the same perk offers, the same node map and the same bosses — and neither of
-        you sees the other&apos;s result until you have both finished.
+        the same perk offers, the same node map and the same five bosses — each one
+        scaled to the team you build — and neither of you sees the other&apos;s
+        result until you have both finished.
       </p>
       {user ? (
         <button

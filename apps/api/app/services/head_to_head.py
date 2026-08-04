@@ -260,6 +260,29 @@ def fairness_digest(blueprint: RunBlueprint) -> dict:
     than hashed away, so a support question ("did we really give them the same
     bosses?") is answerable from the row, and the `digest` is what the code
     actually compares.
+
+    WHAT IS PINNED, WHAT IS NOT, AND WHY THE GAP IS NOT A HOLE
+    ----------------------------------------------------------
+    PINNED: the seed (the match row's own column), the ruleset version, the
+    starting starters and bench, both System offers in order, the five boss
+    identities with their rules, and `node_structure_signature` -- which covers
+    the whole node graph AND every offer-generation input (draft offer ids,
+    trade incoming ids, reserve candidate ids), and therefore every market
+    refresh derived from them. That is the entire SHAPE of the run.
+
+    NOT PINNED under v4: the boss LINEUPS. They cannot be, because they do not
+    exist at blueprint time -- each is generated when its act begins, against
+    the roster that will actually face it.
+
+    THIS IS NOT A FAIRNESS REGRESSION, AND SOMEBODY WILL EVENTUALLY READ IT AS
+    ONE. It is symmetric, and arguably fairer than what it replaces. Under v3
+    both players faced one fixed lineup, which could happen to suit one
+    player's roster and not the other's -- identical opponents, unequal
+    difficulty. Under v4 each player faces bosses calibrated to the roster they
+    actually built, so what is equalised is the DIFFICULTY RELATIONSHIP rather
+    than the opponent. Both players still start from the same roster, so their
+    act-1 opponents are identical; the slates diverge only to the extent the
+    players themselves diverged, which is the thing a match is measuring.
     """
     body = {
         # `generation.generate_blueprint` builds `metadata` as
