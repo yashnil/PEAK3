@@ -16,6 +16,10 @@
 @import "./rtt-polish.css";
 @import "./spinner.css";
 @import "./rankings.css";
+/* Arena mode partial, following the same one-owner-per-file rule as the
+   workstream partials above. Owned by The $20 Showdown; every rule in it is
+   scoped to a `.td-*` class, so it cannot reach another surface. */
+@import "./twenty-dollar.css";
 
 /* ================================================================
    PEAK3 Arena Design Tokens

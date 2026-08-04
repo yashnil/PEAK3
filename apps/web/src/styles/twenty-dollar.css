@@ -1,0 +1,616 @@
+/*
+ * The $20 Showdown.
+ *
+ * MOTION IS CSS-FIRST, matching the house approach: the two animated moments
+ * (a candidate arriving, a card landing in a slot) are keyframes on a class,
+ * never a JavaScript timer. That is what lets `prefers-reduced-motion` switch
+ * them off completely at the bottom of this file with no branch in any
+ * component -- the reduced-motion path is not a second implementation, it is
+ * the same markup with the animation removed.
+ *
+ * Durations mirror `lib/motion.ts` (`--pk-dur-reveal` 400ms, `--pk-dur-base`
+ * 200ms) rather than inventing new numbers, so a JS-driven transition and a CSS
+ * one on the same surface cannot drift apart.
+ */
+
+.td-game {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.td-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.td-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* -- tie priority ---------------------------------------------------------- */
+
+.td-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.td-token-yours {
+  border-color: var(--peak-accent);
+}
+
+.td-token-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--peak-accent);
+}
+
+.td-token-hint {
+  opacity: 0.6;
+  font-size: 0.75rem;
+}
+
+/* -- budgets --------------------------------------------------------------- */
+
+.td-budgets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem;
+}
+
+.td-budget-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.35rem;
+}
+
+.td-budget-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--peak-accent);
+}
+
+.td-budget-track {
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.td-budget-fill {
+  height: 100%;
+  background: var(--peak-accent);
+  /* The only transition on the meter. Width is a percentage of the server's
+     own budget number; nothing here recomputes it. */
+  transition: width var(--pk-dur-base, 200ms) ease;
+}
+
+.td-budget-slots {
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  opacity: 0.7;
+}
+
+/* -- candidate ------------------------------------------------------------- */
+
+.td-candidate {
+  text-align: center;
+  padding: 1.5rem 1rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+}
+
+.td-candidate-lot {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+}
+
+.td-candidate-name {
+  font-size: clamp(1.5rem, 5vw, 2.25rem);
+  font-weight: 600;
+  margin: 0.25rem 0;
+}
+
+.td-candidate-meta {
+  opacity: 0.75;
+}
+
+.td-candidate-hint {
+  margin-top: 0.75rem;
+  font-size: 0.78rem;
+  opacity: 0.6;
+}
+
+.td-position-list {
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+  list-style: none;
+  padding: 0;
+}
+
+.td-position {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.4rem;
+  font-size: 0.8rem;
+  opacity: 0.55;
+}
+
+/* A position this seat can actually use. Emphasis only -- legality is the
+   server's answer, carried in `private_state.candidate_fits`. */
+.td-position-open {
+  opacity: 1;
+  border-color: var(--peak-accent);
+  color: var(--peak-accent);
+}
+
+/* -- bidding --------------------------------------------------------------- */
+
+.td-bid {
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.td-bid-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.td-bid-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--peak-accent);
+}
+
+.td-bid-amount {
+  min-width: 4.5rem;
+  text-align: right;
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent);
+}
+
+.td-bid-hint {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.td-bid-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.td-bid-locked {
+  text-align: center;
+}
+
+.td-bid-locked-amount {
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--peak-accent);
+}
+
+.td-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.td-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.td-btn-primary {
+  border-color: var(--peak-accent);
+  color: var(--peak-accent);
+}
+
+/* -- rosters --------------------------------------------------------------- */
+
+.td-rosters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: 1rem;
+}
+
+.td-slot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.td-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  min-height: 2.75rem;
+}
+
+.td-slot-tag {
+  width: 2rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.td-slot-body {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.td-slot-price {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.td-slot-empty {
+  opacity: 0.4;
+  font-size: 0.85rem;
+}
+
+.td-slot-filled {
+  border-color: var(--peak-accent);
+}
+
+/* -- reveal ---------------------------------------------------------------- */
+
+.td-reveal {
+  text-align: center;
+  padding: 1.25rem;
+  border: 1px solid var(--peak-accent);
+  border-radius: 0.75rem;
+}
+
+.td-reveal-score {
+  font-size: 2.5rem;
+  font-weight: 600;
+  color: var(--peak-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.td-reveal-score-label {
+  font-size: 0.85rem;
+  opacity: 0.6;
+  font-weight: 400;
+}
+
+.td-reveal-bids,
+.td-history-bids {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.75rem 0;
+}
+
+.td-bid-chip {
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.td-bid-chip-won {
+  border-color: var(--peak-accent);
+  color: var(--peak-accent);
+}
+
+.td-silhouette {
+  margin: 0.75rem auto;
+}
+
+.td-silhouette-caption {
+  font-size: 0.72rem;
+  opacity: 0.55;
+}
+
+/* -- history --------------------------------------------------------------- */
+
+.td-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.td-history-row {
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.75rem;
+}
+
+.td-history-main {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 500;
+}
+
+.td-history-score {
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent);
+}
+
+.td-history-verdict {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+/* -- receipt --------------------------------------------------------------- */
+
+.td-receipt {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 1.25rem;
+}
+
+.td-receipt-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.td-total {
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.td-total-won {
+  border-color: var(--peak-accent);
+}
+
+.td-total-score {
+  font-size: 1.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.td-total-meta {
+  font-size: 0.78rem;
+  opacity: 0.7;
+}
+
+/* Wide content scrolls inside its own container so the page body never
+   scrolls horizontally on a phone. */
+.td-table-scroll {
+  overflow-x: auto;
+}
+
+.td-levels,
+.td-positional {
+  width: 100%;
+  min-width: 22rem;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.td-levels th,
+.td-levels td,
+.td-positional th,
+.td-positional td {
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.td-level-decided {
+  font-weight: 600;
+}
+
+/* Reported, not omitted -- see TwentyDollarReceipt's header. */
+.td-level-muted {
+  opacity: 0.4;
+}
+
+.td-level-index {
+  opacity: 0.5;
+  margin-right: 0.5rem;
+}
+
+.td-positional-won {
+  color: var(--peak-accent);
+}
+
+.td-positional-name {
+  display: block;
+}
+
+.td-positional-score {
+  display: block;
+  font-size: 0.78rem;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.td-highlights {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.td-counterfactual {
+  border-left: 2px solid var(--peak-accent);
+  padding-left: 0.85rem;
+  margin: 1rem 0;
+}
+
+.td-assumption,
+.td-autofill-note {
+  font-size: 0.78rem;
+  opacity: 0.65;
+}
+
+.td-disclosure {
+  margin-top: 1.25rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.td-model-version {
+  margin-top: 0.35rem;
+  opacity: 0.65;
+}
+
+.td-error {
+  color: var(--danger, #f87171);
+}
+
+.td-waiting {
+  text-align: center;
+  font-size: 0.9rem;
+  opacity: 0.75;
+}
+
+/* -- motion ---------------------------------------------------------------- */
+
+@keyframes td-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes td-land {
+  from {
+    opacity: 0.4;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The dramatic candidate reveal. Keyed on round index in the component, so a
+   new lot restarts it. */
+.td-enter {
+  animation: td-enter var(--pk-dur-reveal, 400ms) var(--pk-ease-out, ease-out) both;
+}
+
+/* The card flight into a roster slot. */
+.td-land {
+  animation: td-land var(--pk-dur-base, 200ms) var(--pk-ease-out, ease-out) both;
+}
+
+/*
+ * REDUCED MOTION. Everything above is decoration: no layout, no meaning, no
+ * information is carried by the animation, so removing it entirely leaves a
+ * complete game rather than a degraded one. The budget meter's width
+ * transition goes too -- an animated bar is the same information arriving
+ * slower.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .td-enter,
+  .td-land {
+    animation: none;
+  }
+
+  .td-budget-fill {
+    transition: none;
+  }
+}
+
+/* -- lobby ----------------------------------------------------------------- */
+
+/* The lobby reuses the mode's slot/card furniture rather than introducing a
+   parallel set, so a second mode plugging in inherits the look for free. */
+
+.td-mode-card {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.td-mode-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.td-mode-card:hover:not(:disabled) {
+  border-color: var(--peak-accent);
+}
+
+/* Rated state, shown on the button a player is about to press. Never a
+   tooltip and never a later screen -- a match that did not count must not be
+   a discovery made afterwards. */
+.td-rated {
+  align-self: center;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.td-rated-on {
+  border-color: var(--peak-accent);
+  color: var(--peak-accent);
+  opacity: 1;
+}
+
+.td-code-input {
+  flex: 1;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  font-size: 1.1rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+}
