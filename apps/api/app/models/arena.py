@@ -20,6 +20,21 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
+class ArenaModeInfo(BaseModel):
+    """One registered mode, and the seat count that follows from it.
+
+    Exists so seat count has exactly ONE publisher. The lobby carried a
+    display-only `seatCountHint` whose own comment said to delete it the moment
+    the server published this -- and a client-side copy of a server fact is a
+    copy that drifts, whose first symptom would be a lobby showing three seats
+    for a two-seat mode. `ArenaMode.seat_count` already knew the number; it
+    simply was not on the wire.
+    """
+
+    id: str
+    seat_count: int
+
+
 class ArenaReadinessResponse(BaseModel):
     """Always answered, even when the arena is off, so the web app can fail
     closed cleanly rather than guess why it got a 403. Same carve-out RUN THE
@@ -29,7 +44,12 @@ class ArenaReadinessResponse(BaseModel):
     arena_enabled: bool
     public_queue_enabled: bool
     bots_enabled: bool
-    modes: list[str] = Field(default_factory=list)
+    #: Widened from `list[str]`. Additive in shape but NOT wire-compatible --
+    #: each element is now an object. Called out because a client reading
+    #: `modes[i]` as a string breaks loudly rather than subtly, which is the
+    #: preferable failure and the reason this is not smuggled in as a parallel
+    #: field that would leave two lists to keep in step.
+    modes: list[ArenaModeInfo] = Field(default_factory=list)
 
 
 class SeatPublic(BaseModel):

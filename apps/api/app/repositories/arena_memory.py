@@ -230,6 +230,15 @@ class MemoryArenaRepository:
         rows.sort(key=lambda m: m.created_at, reverse=True)
         return [_clone_match(m) for m in rows[:limit]]
 
+    async def set_bot_policy_version(self, match_id: str, policy_version: str) -> bool:
+        async with self._lock_for(match_id):
+            match = self._matches.get(match_id)
+            # First write wins -- see the protocol docstring.
+            if match is None or match.bot_policy_version is not None:
+                return False
+            match.bot_policy_version = policy_version
+            return True
+
     # -- the mutation path --------------------------------------------------
 
     async def apply_command(
@@ -551,6 +560,24 @@ class MemoryArenaRepository:
                     e.status = QUEUE_STATUS_CANCELLED
                     return True
             return False
+
+    async def collapse_human_preference(
+        self, owner_sub: str, mode: str, now: datetime
+    ) -> Optional[ArenaQueueEntry]:
+        async with self._queue_lock:
+            for e in self._queue.values():
+                if (
+                    e.owner_sub == owner_sub
+                    and e.mode == mode
+                    and e.status == QUEUE_STATUS_WAITING
+                ):
+                    # min(), so the window only ever moves EARLIER -- see the
+                    # protocol docstring. A second press changes nothing.
+                    e.human_preference_until = min(
+                        _utc(e.human_preference_until), _utc(now)
+                    )
+                    return _clone_entry(e)
+            return None
 
     async def list_waiting_entries(
         self,
