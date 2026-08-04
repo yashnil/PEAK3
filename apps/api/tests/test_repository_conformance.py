@@ -610,6 +610,106 @@ async def test_postgres_arena_bot_policy_pin_conforms(pg_pool):
     await _assert_arena_bot_policy_pin_conforms(PostgresArenaRepository(pg_pool))
 
 
+async def _assert_arena_rating_conforms(repo, match_ids: list[str]) -> None:
+    """The rating ledger's guarantees, identical on both backends.
+
+    The one that matters most is idempotency: a settlement replayed -- by a
+    retry, a redeploy mid-settle, or the lazy `_advance` path calling it on
+    every read -- must write nothing the second time. A backend where it wrote
+    twice would double a rating change, which is the single class of bug in a
+    rating system that players notice and never accept.
+    """
+    from app.repositories.arena_rating_protocols import ArenaRatingHistoryEntry
+
+    mode = f"rmode_{uuid.uuid4().hex[:8]}"
+    sub_a, sub_b = f"user-{uuid.uuid4()}", f"user-{uuid.uuid4()}"
+    # Real match ids supplied by the caller: `arena_rating_history.match_id` is
+    # a FOREIGN KEY into arena_matches on Postgres, so a random UUID is rejected
+    # there while the memory backend would happily accept it. The conformance
+    # suite exists to surface exactly that kind of divergence, and did.
+    match_id, second = match_ids[0], match_ids[1]
+
+    def entry(sub, match, *, pre=1500.0, post=1560.0, placement=1, bot=False):
+        return ArenaRatingHistoryEntry(
+            owner_sub=sub, mode=mode, match_id=match,
+            pre_rating=pre, pre_rd=350.0, pre_volatility=0.06,
+            post_rating=post, post_rd=290.0, post_volatility=0.06,
+            unbounded_post_rating=post, bound_applied=False,
+            placement=placement, had_bot_opponent=bot,
+            bot_policy_version="policy_v1" if bot else None,
+            algorithm_version="test_v1",
+            opponents=[{"opponent_seat": 1, "score": 1.0, "was_bot": bot}],
+        )
+
+    # Nothing yet -- absent, not defaulted. The caller owns the starting rating.
+    assert await repo.get_ratings_for_subs([sub_a], mode) == {}
+
+    written = await repo.record_match_rating(
+        [entry(sub_a, match_id, post=1560.0),
+         entry(sub_b, match_id, post=1440.0, placement=2)]
+    )
+    assert written == 2
+
+    ratings = await repo.get_ratings_for_subs([sub_a, sub_b], mode)
+    assert ratings[sub_a].rating == pytest.approx(1560.0)
+    assert ratings[sub_a].rated_matches == 1
+    assert ratings[sub_b].rating == pytest.approx(1440.0)
+
+    # THE REPLAY. Same match, same players -- nothing written, and critically
+    # the rating does NOT advance a second time.
+    assert await repo.record_match_rating(
+        [entry(sub_a, match_id, post=9999.0),
+         entry(sub_b, match_id, post=1.0, placement=2)]
+    ) == 0
+    replayed = await repo.get_ratings_for_subs([sub_a, sub_b], mode)
+    assert replayed[sub_a].rating == pytest.approx(1560.0)
+    assert replayed[sub_a].rated_matches == 1, "a replay must not count a match twice"
+
+    # A different match does advance.
+    assert await repo.record_match_rating([entry(sub_a, second, pre=1560.0, post=1600.0)]) == 1
+    after = await repo.get_ratings_for_subs([sub_a], mode)
+    assert after[sub_a].rating == pytest.approx(1600.0)
+    assert after[sub_a].rated_matches == 2
+
+    # Leaderboard order: rating desc, then matches desc, then sub -- total, so
+    # paging cannot repeat or skip.
+    board = await repo.get_leaderboard_page(mode, limit=10)
+    assert [r.owner_sub for r in board] == [sub_a, sub_b]
+    assert board[0].rated_matches == 2
+
+    # History is newest-first and carries the pairwise decomposition.
+    history = await repo.list_history(sub_a, mode)
+    assert len(history) == 2
+    assert history[0].match_id == second
+    assert history[0].opponents and history[0].opponents[0]["score"] == 1.0
+
+    # An empty batch is a no-op, not an error.
+    assert await repo.record_match_rating([]) == 0
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_rating_conforms():
+    from app.repositories.arena_rating_memory import MemoryArenaRatingRepository
+    await _assert_arena_rating_conforms(
+        MemoryArenaRatingRepository(), [str(uuid.uuid4()), str(uuid.uuid4())]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_rating_conforms(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    from app.repositories.arena_rating_postgres import PostgresArenaRatingRepository
+
+    arena = PostgresArenaRepository(pg_pool)
+    ids = []
+    for _ in range(2):
+        match = _arena_match()
+        await arena.create_match(match, _arena_seats(match.match_id, 2))
+        ids.append(match.match_id)
+    await _assert_arena_rating_conforms(PostgresArenaRatingRepository(pg_pool), ids)
+
+
 @pytest.mark.asyncio
 async def test_memory_arena_queue_conforms():
     from app.repositories.arena_memory import MemoryArenaRepository

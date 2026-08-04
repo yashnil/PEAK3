@@ -70,6 +70,8 @@ from app.repositories.peak_duel_daily_memory import MemoryPeakDuelDailyResultRep
 from app.repositories.peak_duel_daily_protocols import PeakDuelDailyResultRepository
 from app.repositories.arena_memory import MemoryArenaRepository
 from app.repositories.arena_protocols import ArenaRepository
+from app.repositories.arena_rating_memory import MemoryArenaRatingRepository
+from app.repositories.arena_rating_protocols import ArenaRatingRepository
 
 # ---------------------------------------------------------------------------
 # Singleton in-memory stores (only used when DATABASE_URL is unset in dev)
@@ -101,6 +103,7 @@ _memory_run_the_table_run_repo = MemoryRunTheTableRunRepository()
 _memory_head_to_head_repo = MemoryHeadToHeadRepository()
 _memory_peak_duel_daily_result_repo = MemoryPeakDuelDailyResultRepository()
 _memory_arena_repo = MemoryArenaRepository()
+_memory_arena_rating_repo = MemoryArenaRatingRepository()
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +376,22 @@ def get_arena_repo(request: Request) -> ArenaRepository:
     return _memory_arena_repo
 
 
+def get_arena_rating_repo(request: Request) -> ArenaRatingRepository:
+    """Return the active ArenaRatingRepository (Postgres or in-memory).
+
+    Registered in REPOSITORY_DOMAINS for the sharpest version of the reason the
+    arena repo is: a match lost to a restart can be replayed from its results,
+    but a rating that silently reverted is a number the player watched go up and
+    then go back down with nothing to point at.
+    """
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from app.repositories.arena_rating_postgres import PostgresArenaRatingRepository
+        return PostgresArenaRatingRepository(pool)
+    _warn_memory_repo("ArenaRatingRepository")
+    return _memory_arena_rating_repo
+
+
 def _warn_memory_repo(name: str) -> None:
     if not settings.DEBUG:
         raise RuntimeError(
@@ -421,3 +440,4 @@ PeakDuelDailyResultRepoDep = Annotated[
 ]
 HeadToHeadRepoDep = Annotated[HeadToHeadRepository, Depends(get_head_to_head_repo)]
 ArenaRepoDep = Annotated[ArenaRepository, Depends(get_arena_repo)]
+ArenaRatingRepoDep = Annotated[ArenaRatingRepository, Depends(get_arena_rating_repo)]

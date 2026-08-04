@@ -39,8 +39,9 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
+from app.repositories.arena_rating_protocols import ArenaPlayerStats
 from app.repositories.arena_protocols import (
     LIVE_MATCH_STATUSES,
     MATCH_STATUS_COMPLETED,
@@ -790,6 +791,111 @@ class PostgresArenaRepository:
         return [_row_to_event(r) for r in rows]
 
     # -- results ------------------------------------------------------------
+
+    async def get_player_stats(
+        self,
+        mode: str,
+        owner_subs: Sequence[str],
+        detail_keys: Sequence[str] = (),
+    ) -> dict[str, ArenaPlayerStats]:
+        if not owner_subs:
+            return {}
+        # One pass. `r.rated` is the settlement-time copy, so this can never
+        # include a private-room or practice result even if arena_matches were
+        # later corrected -- the same reason the column is denormalised at all.
+        #
+        # `matches_with_bots` is a per-MATCH property (did this match contain
+        # any bot at all), so it is computed with a window over the match rather
+        # than from the player's own seat, whose was_bot is always false here.
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                WITH mine AS (
+                    SELECT r.match_id, r.seat_index, r.placement, r.outcome,
+                           r.score, r.detail, s.occupant_sub, m.seat_count,
+                           EXISTS (
+                               SELECT 1 FROM arena_match_results br
+                                WHERE br.match_id = r.match_id AND br.was_bot
+                           ) AS any_bot
+                      FROM arena_match_results r
+                      JOIN arena_match_seats s
+                        ON s.match_id = r.match_id AND s.seat_index = r.seat_index
+                      JOIN arena_matches m ON m.match_id = r.match_id
+                     WHERE r.rated
+                       AND NOT r.was_bot
+                       AND m.mode = $1
+                       AND s.occupant_sub = ANY($2::text[])
+                )
+                SELECT occupant_sub,
+                       COUNT(*)                                        AS rated_matches,
+                       COUNT(*) FILTER (WHERE outcome = 'win')         AS wins,
+                       COUNT(*) FILTER (WHERE outcome = 'loss')        AS losses,
+                       COUNT(*) FILTER (WHERE outcome = 'draw')        AS draws,
+                       COUNT(*) FILTER (
+                           WHERE placement <= GREATEST(1, seat_count / 2)
+                       )                                               AS podiums,
+                       SUM(placement)                                  AS placement_sum,
+                       AVG(score)                                      AS score_avg,
+                       MAX(score)                                      AS score_best,
+                       COUNT(*) FILTER (WHERE any_bot)                 AS with_bots,
+                       COUNT(*) FILTER (WHERE NOT any_bot)             AS all_human
+                  FROM mine
+                 GROUP BY occupant_sub
+                """,
+                mode, list(owner_subs),
+            )
+
+            stats = {sub: ArenaPlayerStats(owner_sub=sub) for sub in owner_subs}
+            for row in rows:
+                sub = row["occupant_sub"]
+                stats[sub] = ArenaPlayerStats(
+                    owner_sub=sub,
+                    rated_matches=row["rated_matches"],
+                    wins=row["wins"],
+                    losses=row["losses"],
+                    draws=row["draws"],
+                    podiums=row["podiums"],
+                    placement_sum=int(row["placement_sum"] or 0),
+                    score_avg=round(float(row["score_avg"]), 4) if row["score_avg"] is not None else None,
+                    score_best=round(float(row["score_best"]), 4) if row["score_best"] is not None else None,
+                    matches_with_bots=row["with_bots"],
+                    matches_all_human=row["all_human"],
+                )
+
+            for key in detail_keys:
+                # A separate narrow query per key rather than dynamic SQL built
+                # from `key`: the key names a JSONB field and is chosen by the
+                # route, but it is still passed as a PARAMETER and never
+                # interpolated into the statement.
+                #
+                # `jsonb_typeof(...) = 'number'` is what makes an absent or
+                # non-numeric value skipped rather than coerced -- a missing
+                # measurement is missing, not zero.
+                drows = await conn.fetch(
+                    """
+                    SELECT s.occupant_sub,
+                           AVG((r.detail ->> $3)::numeric) AS avg_value,
+                           MAX((r.detail ->> $3)::numeric) AS max_value
+                      FROM arena_match_results r
+                      JOIN arena_match_seats s
+                        ON s.match_id = r.match_id AND s.seat_index = r.seat_index
+                      JOIN arena_matches m ON m.match_id = r.match_id
+                     WHERE r.rated
+                       AND NOT r.was_bot
+                       AND m.mode = $1
+                       AND s.occupant_sub = ANY($2::text[])
+                       AND jsonb_typeof(r.detail -> $3) = 'number'
+                     GROUP BY s.occupant_sub
+                    """,
+                    mode, list(owner_subs), key,
+                )
+                for row in drows:
+                    st = stats[row["occupant_sub"]]
+                    if row["avg_value"] is not None:
+                        st.detail_averages[key] = round(float(row["avg_value"]), 4)
+                    if row["max_value"] is not None:
+                        st.detail_bests[key] = round(float(row["max_value"]), 4)
+        return stats
 
     async def get_results(self, match_id: str) -> list[ArenaResult]:
         async with self._pool.acquire() as conn:

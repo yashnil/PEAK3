@@ -118,6 +118,17 @@ class PostgresProfileRepository:
             )
         return _row_to_profile(row) if row is not None else None
 
+    async def get_profile_by_auth_sub(self, auth_sub: str) -> Profile | None:
+        # A plain SELECT, deliberately not `get_or_create_profile`: the arena
+        # leaderboard resolves a handle per listed player, and doing that
+        # through the upsert would INSERT a row for every subject read from a
+        # public unauthenticated endpoint.
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM profiles WHERE auth_sub = $1", auth_sub
+            )
+        return _row_to_profile(row) if row is not None else None
+
     async def get_or_create_settings(self, auth_sub: str) -> UserSettings:
         profile = await self.get_or_create_profile(auth_sub)
         async with self._pool.acquire() as conn:

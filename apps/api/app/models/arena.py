@@ -20,6 +20,55 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
+class ArenaLeaderboardEntry(BaseModel):
+    """One public leaderboard row.
+
+    WHAT IS DELIBERATELY ABSENT: `owner_sub`. It is a Supabase `auth.uid()` --
+    the same value withheld from `profiles` for anon/authenticated by
+    20260803120000 -- and a leaderboard row carrying one would be a privacy leak
+    dressed as an identifier. `handle` is the only identity that crosses, the
+    same rule `SeatPublic` follows. There is no email, no auth provider and no
+    Google name anywhere in this model, and none in the query that fills it.
+
+    MATCH COMPOSITION IS ON THE ROW, not a detail view. `matches_with_bots` and
+    `matches_all_human` are what let a reader tell a bot-filled rated win from
+    an all-human one; a board that reported only the rating would be claiming an
+    achievement the player did not necessarily earn against people.
+    """
+
+    rank: int
+    handle: str
+    rating: float
+    rd: float
+    rated_matches: int
+    #: True while the rating is still converging. A rating built from two
+    #: matches is not a measurement, and the board says so rather than ranking
+    #: it silently beside one built from two hundred.
+    provisional: bool
+    wins: int
+    losses: int
+    draws: int
+    matches_with_bots: int
+    matches_all_human: int
+    average_placement: Optional[float] = None
+    podium_rate: Optional[float] = None
+    #: The mode's own primary comparison value, averaged and best-ever:
+    #: Three-Man Weave's lineup rating, the $20 Showdown's roster PEAK3.
+    average_score: Optional[float] = None
+    best_score: Optional[float] = None
+    #: Mode-specific extras keyed by their `detail` name -- `lineup_peak_score`
+    #: for the Weave, `budget_remaining` / `peak3_per_dollar` for the Showdown.
+    #: A dict rather than named fields so a third mode needs no model change.
+    averages: dict[str, float] = Field(default_factory=dict)
+    bests: dict[str, float] = Field(default_factory=dict)
+
+
+class ArenaLeaderboardResponse(BaseModel):
+    leaderboard_enabled: bool
+    mode: str
+    entries: list[ArenaLeaderboardEntry] = Field(default_factory=list)
+
+
 class ArenaModeInfo(BaseModel):
     """One registered mode, and the seat count that follows from it.
 

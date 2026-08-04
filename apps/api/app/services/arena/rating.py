@@ -334,6 +334,96 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+async def settle_match_rating(
+    arena_repo,
+    rating_repo,
+    match,
+    now: Optional[datetime] = None,
+) -> int:
+    """Record the rating changes for a completed rated match. Returns rows written.
+
+    LAZY AND IDEMPOTENT, because there is no background worker in this
+    application. This is called from the same `_advance` path that runs the
+    clock and drives bots, so it fires on the next request that touches the
+    match -- and it is therefore called many times for one match. The unique
+    index `arena_rating_history_one_per_player_match_idx` is what makes every
+    call after the first write nothing; there is deliberately no "already
+    rated?" read to decide, because that check-then-write is the race two
+    concurrent requests both win.
+
+    Returns 0, not an error, for a match that is not finished, not rated, or
+    already rated. Only the first of those three is a state that will change.
+    """
+    from app.repositories.arena_protocols import MATCH_STATUS_COMPLETED
+    from app.repositories.arena_rating_protocols import ArenaRatingHistoryEntry
+
+    if match.status != MATCH_STATUS_COMPLETED or not match.rated:
+        return 0
+
+    results = await arena_repo.get_results(match.match_id)
+    if not results:
+        return 0
+    seats = {s.seat_index: s for s in await arena_repo.get_seats(match.match_id)}
+
+    rows: list[dict] = []
+    for result in results:
+        seat = seats.get(result.seat_index)
+        row = {
+            "seat_index": result.seat_index,
+            "placement": result.placement,
+            "rated": result.rated,
+            "was_bot": result.was_bot,
+        }
+        if result.was_bot:
+            # The calibrated rating pinned at seat time. Read from the seat,
+            # never recomputed -- the whole point of pinning it.
+            row["bot_rating"] = seat.bot_rating if seat else None
+            if row["bot_rating"] is None:
+                # A bot seat with no pinned rating cannot be rated against
+                # without inventing a number, and inventing one would silently
+                # decide what a rated match was worth. Skip the whole match.
+                return 0
+        else:
+            if seat is None or not seat.occupant_sub:
+                return 0
+            row["owner_sub"] = seat.occupant_sub
+        rows.append(row)
+
+    humans = [r["owner_sub"] for r in rows if not r["was_bot"]]
+    if not humans:
+        return 0
+
+    current = await rating_repo.get_ratings_for_subs(humans, match.mode)
+    as_glicko = {
+        sub: Glicko2Rating(rating=r.rating, rd=r.rd, volatility=r.volatility)
+        for sub, r in current.items()
+    }
+
+    outcomes = rate_match_results(rows, as_glicko)
+    entries = [
+        ArenaRatingHistoryEntry(
+            owner_sub=o.owner_sub,
+            mode=match.mode,
+            match_id=match.match_id,
+            pre_rating=o.pre.rating,
+            pre_rd=o.pre.rd,
+            pre_volatility=o.pre.volatility,
+            post_rating=o.post.rating,
+            post_rd=o.post.rd,
+            post_volatility=o.post.volatility,
+            unbounded_post_rating=o.unbounded_post_rating,
+            bound_applied=o.bound_applied,
+            placement=o.placement,
+            opponents=[op.as_dict() for op in o.opponents],
+            had_bot_opponent=o.had_bot_opponent,
+            bot_policy_version=match.bot_policy_version,
+            algorithm_version=ARENA_RATING_ALGORITHM_VERSION,
+        )
+        for o in outcomes
+    ]
+    return await rating_repo.record_match_rating(entries, now or _now())
+
+
 __all__ = [
     "ARENA_RATING_ALGORITHM_VERSION",
     "BOT_OPPONENT_RD",

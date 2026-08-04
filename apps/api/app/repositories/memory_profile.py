@@ -74,6 +74,13 @@ class MemoryProfileRepository:
                     return profile
         return None
 
+    async def get_profile_by_auth_sub(self, auth_sub: str) -> Profile | None:
+        with self._lock:
+            for profile in self._profiles.values():
+                if profile.auth_sub == auth_sub:
+                    return profile
+        return None
+
     async def get_or_create_settings(self, auth_sub: str) -> UserSettings:
         with self._lock:
             settings = self._settings.get(auth_sub)

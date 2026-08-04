@@ -57,7 +57,9 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Optional, Protocol, Sequence, runtime_checkable
+
+from app.repositories.arena_rating_protocols import ArenaPlayerStats
 
 # ---------------------------------------------------------------------------
 # Vocabulary. Mirrors the CHECK constraints in
@@ -812,6 +814,37 @@ class ArenaRepository(Protocol):
     async def get_results(self, match_id: str) -> list[ArenaResult]:
         """Every seat's final result, ordered by placement then seat index.
         Empty until the match completes."""
+        ...
+
+    async def get_player_stats(
+        self,
+        mode: str,
+        owner_subs: Sequence[str],
+        detail_keys: Sequence[str] = (),
+    ) -> dict[str, "ArenaPlayerStats"]:
+        """Aggregates over these players' RATED results in one mode.
+
+        LIVES HERE, NOT ON THE RATING REPOSITORY, because it is an aggregate
+        over `arena_match_results` joined to `arena_match_seats` -- this
+        repository's own tables. A rating repository reaching into them is how
+        two repositories end up jointly owning one table.
+
+        DERIVED, NEVER MATERIALISED. There is no statistics table to fall out of
+        step with the results it summarises; the migration
+        (20260804140000_arena_ratings.sql) explains the choice and adds the
+        partial index that makes it cheap.
+
+        `detail_keys` names numeric keys to average and max out of the result
+        `detail` JSONB, so this method stays mode-agnostic: Three-Man Weave asks
+        for `lineup_peak_score`, the $20 Showdown asks for `budget_remaining`
+        and `peak3_per_dollar`, and a third mode needs no change here. A key
+        that is absent or non-numeric is skipped rather than defaulted -- a
+        missing measurement is missing, not zero.
+
+        ONLY RATED RESULTS COUNT, mirroring the rating pass: private-room and
+        practice matches are excluded, so a leaderboard statistic can never
+        describe a match that did not affect a rating.
+        """
         ...
 
     # -- public queue -------------------------------------------------------
