@@ -102,6 +102,26 @@ class CreateRunRequest(BaseModel):
     )
 
 
+class RestartRunRequest(BaseModel):
+    """Abandon this run and start a fresh one.
+
+    `expected_action_count` is optimistic concurrency, not decoration: the
+    client sends the `action_count` it last rendered, and a mismatch means the
+    run advanced in another tab between the confirmation dialog opening and the
+    player confirming. Refusing there is what stops a stale confirmation from
+    discarding progress the player never saw. Optional, so a client that has
+    genuinely just loaded the run can restart without inventing one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_action_count: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="the action_count the client last rendered; refuses on drift",
+    )
+
+
 class RunActionRequest(BaseModel):
     """One action against a run.
 

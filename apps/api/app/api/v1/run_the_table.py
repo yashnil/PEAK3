@@ -7,6 +7,7 @@ Routes:
   POST /api/v1/run-the-table/runs                 - create (standard | daily | challenge)
   GET  /api/v1/run-the-table/runs/{run_id}        - resume
   POST /api/v1/run-the-table/runs/{run_id}/actions- apply one action (idempotent by key)
+  POST /api/v1/run-the-table/runs/{run_id}/restart- abandon it and start a new one
   POST /api/v1/run-the-table/runs/{run_id}/challenge - mint an /arena/run-the-table?c={token} link
   GET  /api/v1/run-the-table/challenges/{token}   - spoiler-safe descriptor
 
@@ -60,6 +61,7 @@ if str(_repo_root) not in sys.path:
 from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, resolve_owner_sub, verify_anon_subject
 from app.core.config import settings
 from app.core.dependencies import RunTheTableRunRepoDep
+from app.core.ownership import assert_owns, existing_owner_sub
 from app.core.security import create_session_token, verify_session_token
 from app.models.run_the_table import (
     CardPoolStatus,
@@ -67,6 +69,7 @@ from app.models.run_the_table import (
     ChallengeLinkResponse,
     CreateRunRequest,
     DailyDescriptorResponse,
+    RestartRunRequest,
     RulesetMetaResponse,
     RunActionRequest,
     RunStateResponse,
@@ -425,6 +428,71 @@ async def get_run(
     owner_sub = _owner(auth, response, peak3_anon)
     _stored, state, blueprint = await _load(repo, run_id, owner_sub, pool)
     return _state_response(state, blueprint, pool)
+
+
+# ---------------------------------------------------------------------------
+# Restart (abandon + start a new run)
+# ---------------------------------------------------------------------------
+
+@router.post("/run-the-table/runs/{run_id}/restart", response_model=RunStateResponse)
+async def restart_run(
+    run_id: str,
+    body: RestartRunRequest,
+    auth: OptionalAuth,
+    repo: RunTheTableRunRepoDep,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
+) -> RunStateResponse:
+    """Abandon an unfinished run server-side and return the NEW run.
+
+    OWNERSHIP USES `existing_owner_sub` + `assert_owns`, NOT `resolve_owner_sub`.
+    This is a mutation route. `resolve_owner_sub` MINTS an anonymous subject and
+    sets a 30-day cookie when the caller has none -- correct on a creation path,
+    actively harmful here, because it would hand a caller with no credential a
+    fresh identity and then compare that against the victim's row. A caller with
+    no credential cannot own anything (`app/core/ownership.py`). Consequently
+    this route takes no `Response`: it never sets a cookie.
+
+    Abandoning is a STATUS TRANSITION, never a mutation of run identity. The
+    repository's UPDATE never touches run_id, owner_sub, seed, run_type or
+    run_date (migration 20260731090000 header), so a run still cannot be
+    re-pointed at a different seed.
+
+    A CONCLUDED run (complete or failed) is NOT relabelled -- the player earned
+    that result and its receipt -- it simply gets a new run alongside it. A
+    DAILY refuses outright; see `runs.DailyNotRestartable`.
+    """
+    _require_enabled()
+    pool = _pool()
+    caller = existing_owner_sub(auth, peak3_anon, settings.SIGNING_SECRET)
+
+    stored = await repo.get_run(run_id)
+    if stored is None:
+        raise HTTPException(
+            status_code=404, detail=error_detail("No such run.", "run_not_found")
+        )
+    assert_owns(
+        stored.owner_sub,
+        caller,
+        code="run_not_owned",
+        message="This run belongs to a different player.",
+    )
+
+    try:
+        _new_stored, new_state, new_blueprint, _created = await run_service.restart_run(
+            repo, run_id, caller, pool, body.expected_action_count
+        )
+    except run_service.DailyNotRestartable as exc:
+        raise HTTPException(
+            status_code=409, detail=error_detail(str(exc), "daily_not_restartable")
+        )
+    except run_service.RestartStateConflict as exc:
+        raise HTTPException(
+            status_code=409, detail=error_detail(str(exc), "restart_state_conflict")
+        )
+    except Exception as exc:
+        _raise_for_engine_error(exc)
+
+    return _state_response(new_state, new_blueprint, pool)
 
 
 # ---------------------------------------------------------------------------
