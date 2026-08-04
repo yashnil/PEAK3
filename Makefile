@@ -5,6 +5,7 @@
         build-dataset build-card-profiles build-game-data \
         api web dev \
         test test-model test-api test-api-integration test-lineup test-web test-card-profiles \
+        test-integration-local validate-migrations \
         test-e2e test-accessibility \
         test-board-generation validate-board-generation-full \
         build lint typecheck verify-frontend \
@@ -55,6 +56,8 @@ help:
 	@echo "  make test-card-profiles         Card profile builder invariants"
 	@echo "  make test-api                   FastAPI unit tests (in-memory repositories)"
 	@echo "  make test-api-integration       FastAPI Postgres/Supabase tests (needs a test project)"
+	@echo "  make test-integration-local     Same suite against a local 'supabase start' stack (no secrets)"
+	@echo "  make validate-migrations        Migration chain checks + inventory drift"
 	@echo "  make test-web                   Frontend unit tests (vitest)"
 	@echo "  make test-board-generation      Quick board smoke check (25 seeds × 3 modes)"
 	@echo "  make validate-board-generation-full  Full 3000-board corpus"
@@ -149,6 +152,15 @@ test-api:
 test-api-integration:
 	@PYTHON=$(PYTHON) $(CI_SCRIPTS)/api-integration-tests.sh
 
+# The same 95 tests as test-api-integration, but provisioned against a local
+# `supabase start` stack instead of requiring hosted test-project secrets —
+# which is why this one is runnable on a laptop and in CI without any secret.
+# It delegates to api-integration-tests.sh above rather than restating the
+# suite. Non-destructive by default: `supabase db reset` is opt-in via
+# PEAK3_CI_SUPABASE_RESET=1, which CI sets and this target does not.
+test-integration-local:
+	@PYTHON=$(PYTHON) $(CI_SCRIPTS)/supabase-local-integration.sh
+
 test-web:
 	@echo "Running frontend unit tests..."
 	@cd apps/web && $(NPM) run test
@@ -191,6 +203,13 @@ verify-frontend:
 	@$(CI_SCRIPTS)/frontend-verify.sh
 
 # ── Verification ──────────────────────────────────────────────────────────────
+
+# Exactly what the CI "Migration chain validation + inventory drift" job runs:
+# the static cross-file checks, then a regeneration of
+# supabase/migrations/MIGRATION_INVENTORY.{json,md} that fails if the committed
+# copies have drifted from the migration files.
+validate-migrations:
+	@PYTHON=$(PYTHON) $(CI_SCRIPTS)/migration-validate.sh
 
 verify-game-data:
 	@echo "Verifying generated game data exists..."

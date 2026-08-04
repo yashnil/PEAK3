@@ -506,6 +506,54 @@ def _source_commit() -> str:
         return "unknown"
 
 
+# The two fields that change on every run regardless of whether the profile
+# data did: a wall-clock stamp and the commit that happened to be checked out.
+VOLATILE_METADATA_KEYS = ("generated_at", "source_commit")
+
+
+def _write_metadata_stably(path: Path, meta: dict) -> None:
+    """Write `meta` -- but leave the file alone when only the volatile stamps
+    would change.
+
+    WHY THIS EXISTS. `data/game/profiles/profile_metadata.v3.json` is a
+    COMMITTED artefact, and `generated_at` (`datetime.now`) plus
+    `source_commit` differ on every single run whether or not one profile
+    changed. This script is called by `scripts/ci/build-web-data.sh`, which is
+    run by three CI jobs AND by `make build-game-data` -- so regenerating on a
+    clean tree produced a two-line diff with every other byte identical. That
+    makes `git status` and `git diff --check` unusable as release checks, which
+    is the actual cost: a real accidental edit would be indistinguishable from
+    this permanent, meaningless one.
+
+    Rewriting byte-identical content under a new timestamp is not a
+    regeneration. The stamps that are KEPT record when this content was
+    genuinely produced and from which commit, which is the more truthful
+    reading of both fields, not merely the more convenient one.
+
+    CI is unaffected: a fresh checkout either has no such file or has one whose
+    content differs, and both take the write path below.
+    """
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text())
+        except (OSError, ValueError):
+            existing = None
+        if isinstance(existing, dict):
+            def _without_stamps(d: dict) -> dict:
+                return {k: v for k, v in d.items() if k not in VOLATILE_METADATA_KEYS}
+
+            if _without_stamps(existing) == _without_stamps(meta):
+                print(
+                    f"Metadata unchanged → {path} "
+                    f"(kept existing {', '.join(VOLATILE_METADATA_KEYS)})"
+                )
+                return
+
+    with path.open("w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"Wrote metadata → {path}")
+
+
 def main() -> int:
     if not WINDOWS_PATH.exists():
         print(f"ERROR: {WINDOWS_PATH} not found. Run `python scripts/build_web_dataset.py` first.")
@@ -603,9 +651,7 @@ def main() -> int:
         "role_path_usage": stats["role_path_usage"],
     }
     meta_path = OUT_DIR / f"profile_metadata.{PROFILE_VERSION}.json"
-    with meta_path.open("w") as f:
-        json.dump(meta, f, indent=2)
-    print(f"Wrote metadata → {meta_path}")
+    _write_metadata_stably(meta_path, meta)
 
     coverage_path = OUT_DIR / f"profile_coverage.{PROFILE_VERSION}.json"
     with coverage_path.open("w") as f:
