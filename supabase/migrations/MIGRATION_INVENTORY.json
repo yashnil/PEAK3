@@ -2233,5 +2233,101 @@
       "policies: DROP POLICY IF EXISTS guard before CREATE POLICY",
       "triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER"
     ]
+  },
+  {
+    "filename": "20260804140000_arena_ratings.sql",
+    "identifier": "20260804140000_arena_ratings",
+    "tables_created": {
+      "arena_ratings": [
+        "owner_sub",
+        "mode",
+        "rating",
+        "rd",
+        "volatility",
+        "rated_matches",
+        "algorithm_version",
+        "last_rated_match_at",
+        "created_at",
+        "updated_at"
+      ],
+      "arena_rating_history": [
+        "id",
+        "owner_sub",
+        "mode",
+        "match_id",
+        "pre_rating",
+        "pre_rd",
+        "pre_volatility",
+        "post_rating",
+        "post_rd",
+        "post_volatility",
+        "unbounded_post_rating",
+        "bound_applied",
+        "placement",
+        "opponents",
+        "had_bot_opponent",
+        "bot_policy_version",
+        "algorithm_version",
+        "created_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "arena_ratings_leaderboard_idx",
+        "table": "arena_ratings"
+      },
+      {
+        "name": "arena_rating_history_one_per_player_match_idx",
+        "table": "arena_rating_history"
+      },
+      {
+        "name": "arena_rating_history_owner_idx",
+        "table": "arena_rating_history"
+      },
+      {
+        "name": "arena_match_results_rated_idx",
+        "table": "arena_match_results"
+      }
+    ],
+    "constraints": [],
+    "functions": [
+      "arena_rating_history_immutable"
+    ],
+    "triggers": [
+      {
+        "name": "arena_rating_history_no_update",
+        "table": "arena_rating_history"
+      },
+      {
+        "name": "arena_rating_history_no_delete",
+        "table": "arena_rating_history"
+      }
+    ],
+    "rls_enabled_on": [
+      "arena_rating_history",
+      "arena_ratings"
+    ],
+    "policies": [
+      {
+        "name": "arena_ratings_public_read",
+        "table": "arena_ratings"
+      },
+      {
+        "name": "arena_rating_history_owner_read",
+        "table": "arena_rating_history"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [
+      "arena_matches"
+    ],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY",
+      "triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER"
+    ]
   }
 ]

@@ -41,6 +41,7 @@ migration change rather than hand-editing this file.
 | 34 | `20260803130000_user_settings_theme_preference` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 35 | `20260803140000_revoke_truncate_trigger_identity_tables` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 36 | `20260804100000_arena_foundation` | 7 | 11 | 10 | 3 | 4 | 7 | 7 |
+| 37 | `20260804140000_arena_ratings` | 2 | 4 | 0 | 1 | 2 | 2 | 2 |
 
 ## Detail per migration
 
@@ -1035,5 +1036,33 @@ migration change rather than hand-editing this file.
 **Extensions declared:** none
 
 **External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY; triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER
+
+### `20260804140000_arena_ratings.sql`
+
+**Tables created:** arena_ratings, arena_rating_history
+  - `arena_ratings`: owner_sub, mode, rating, rd, volatility, rated_matches, algorithm_version, last_rated_match_at, created_at, updated_at
+  - `arena_rating_history`: id, owner_sub, mode, match_id, pre_rating, pre_rd, pre_volatility, post_rating, post_rd, post_volatility, unbounded_post_rating, bound_applied, placement, opponents, had_bot_opponent, bot_policy_version, algorithm_version, created_at
+
+**Indexes:** arena_ratings_leaderboard_idx, arena_rating_history_one_per_player_match_idx, arena_rating_history_owner_idx, arena_match_results_rated_idx
+
+**Constraints:** none
+
+**Functions:** arena_rating_history_immutable
+
+**Triggers:** arena_rating_history_no_update, arena_rating_history_no_delete
+
+**RLS enabled on:** arena_rating_history, arena_ratings
+
+**Policies:** arena_ratings_public_read, arena_rating_history_owner_read
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** arena_matches
 
 **Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY; triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER

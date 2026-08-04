@@ -401,6 +401,27 @@ class Settings(BaseSettings):
     # RANKED_ALPHA_ALLOWLIST and COURTBUILDER_ALPHA_ALLOWLIST.
     ARENA_ALPHA_ALLOWLIST: list[str] = []
 
+    # Whether a settled rated match updates public ratings.
+    #
+    # ITS OWN FLAG, NOT RANKED_*. Reusing the ranked namespace would make the
+    # ranked kill-switch ambiguous: "is ranked off?" must have one answer, and
+    # a shared flag would mean turning ranked off also silently stopped arena
+    # ratings (or worse, that turning arena ratings on turned part of ranked
+    # on). Two products, two switches.
+    #
+    # Independent of ARENA_PUBLIC_QUEUE_ENABLED on purpose: a miscalibrated
+    # rating pass is a reason to stop WRITING ratings while still letting people
+    # play. With this off, matches still settle and still record `rated` -- the
+    # rating pass simply does not run, so the backlog can be replayed from
+    # `arena_match_results` once the cause is fixed.
+    ARENA_RATINGS_ENABLED: bool = False
+
+    # Whether the public rating leaderboards return rows. Separate from writing
+    # them, so a rating population can be built and inspected before it is shown
+    # to anyone -- the same read/write split RANKED_PUBLIC_LEADERBOARD_ENABLED
+    # keeps for the same reason.
+    ARENA_LEADERBOARD_ENABLED: bool = False
+
     # Human-facing readiness classification. Does not itself gate behavior --
     # the booleans above do -- but is surfaced on /api/v1/arena/readiness and
     # must be kept consistent with them (validated below).
@@ -430,6 +451,29 @@ class Settings(BaseSettings):
         if self.ARENA_BOTS_ENABLED and not self.ARENA_ENABLED:
             raise ValueError(
                 "PEAK3_ARENA_BOTS_ENABLED is set but PEAK3_ARENA_ENABLED is not."
+            )
+        if self.ARENA_RATINGS_ENABLED and not self.ARENA_ENABLED:
+            raise ValueError(
+                "PEAK3_ARENA_RATINGS_ENABLED is set but PEAK3_ARENA_ENABLED is "
+                "not. Only a public-queue match is rated, and the arena being "
+                "off means no such match can be created -- so this combination "
+                "can only mean one of the two was set by mistake."
+            )
+        if self.ARENA_LEADERBOARD_ENABLED and not self.ARENA_RATINGS_ENABLED:
+            # Refused rather than tolerated: a leaderboard reading a rating
+            # table nothing is writing shows a frozen board that looks live,
+            # which is worse than an obviously-disabled one.
+            raise ValueError(
+                "PEAK3_ARENA_LEADERBOARD_ENABLED is set but "
+                "PEAK3_ARENA_RATINGS_ENABLED is not. The board would serve "
+                "ratings that are no longer being updated."
+            )
+        if self.ARENA_READINESS_LEVEL == "disabled" and (
+            self.ARENA_RATINGS_ENABLED or self.ARENA_LEADERBOARD_ENABLED
+        ):
+            raise ValueError(
+                "PEAK3_ARENA_READINESS_LEVEL is 'disabled' but an arena rating "
+                "capability flag is enabled."
             )
         return self
 
