@@ -687,6 +687,127 @@ async def _assert_arena_rating_conforms(repo, match_ids: list[str]) -> None:
     assert await repo.record_match_rating([]) == 0
 
 
+async def _assert_arena_player_stats_conforms(repo) -> None:
+    """Leaderboard statistics, identical on both backends.
+
+    WRITTEN BECAUSE THE TWO IMPLEMENTATIONS ARE GENUINELY DIFFERENT -- one is a
+    Python loop over dicts, the other a SQL aggregate with a correlated EXISTS
+    for the bot-composition flag and a separate JSONB pass per detail key.
+    Nothing about "these compute the same thing" is obvious from reading them,
+    and a leaderboard that disagrees with the match history it was derived from
+    is the failure this prevents.
+
+    The properties that matter and are easy to get wrong in exactly one backend:
+    only RATED results count; the player's own bot flag is irrelevant (what
+    matters is whether the MATCH contained a bot); and a detail key that is
+    absent or non-numeric is skipped rather than counted as zero.
+    """
+    from app.repositories.arena_protocols import ArenaResult, ReducerOutput, ResultDraft
+
+    mode = "conformance_mode"
+    sub = f"user-{uuid.uuid4()}"
+    other = f"user-{uuid.uuid4()}"
+
+    async def finish(*, rated: bool, placement: int, outcome: str, score: float,
+                     detail: dict, with_bot: bool):
+        from app.repositories.arena_protocols import (
+            MATCH_STATUS_COMPLETED, ArenaSeat, CommandRequest,
+        )
+        match = _arena_match(seat_count=2,
+                             entry_path="public_queue" if rated else "private_room")
+        seats = [
+            ArenaSeat(match_id=match.match_id, seat_index=0, occupant_kind="human",
+                      occupant_sub=sub, display_name="P0"),
+            ArenaSeat(match_id=match.match_id, seat_index=1,
+                      occupant_kind="bot" if with_bot else "human",
+                      occupant_sub=None if with_bot else other,
+                      bot_id="b1" if with_bot else None,
+                      bot_rating=1500.0 if with_bot else None,
+                      display_name="P1"),
+        ]
+        await repo.create_match(match, seats)
+
+        def _complete(data):
+            return ReducerOutput(
+                accepted=True,
+                status=MATCH_STATUS_COMPLETED,
+                results=(
+                    ResultDraft(seat_index=0, placement=placement, score=score,
+                                outcome=outcome, detail=detail),
+                    ResultDraft(seat_index=1, placement=3 - placement,
+                                score=score - 1, outcome="loss", detail={}),
+                ),
+            )
+
+        await repo.apply_command(
+            CommandRequest(
+                # >= 8 chars: arena_match_commands CHECK. The memory backend does not
+                # enforce that length rule, so a short key passes there and fails
+                # on Postgres -- found by this test on its first run.
+                match_id=match.match_id, idempotency_key=f"finish-{match.match_id[:8]}",
+                command_type="__finish__", actor_sub=None,
+                expected_state_version=None,
+                issued_at=datetime.now(timezone.utc),
+            ),
+            _complete, datetime.now(timezone.utc),
+        )
+        return match.match_id
+
+    # Two rated wins (one against a bot), one rated loss, one UNRATED win that
+    # must not be counted at all.
+    await finish(rated=True, placement=1, outcome="win", score=100.0,
+                 detail={"lineup_peak_score": 80.0}, with_bot=False)
+    await finish(rated=True, placement=1, outcome="win", score=90.0,
+                 detail={"lineup_peak_score": 70.0}, with_bot=True)
+    await finish(rated=True, placement=2, outcome="loss", score=50.0,
+                 detail={"lineup_peak_score": 40.0}, with_bot=False)
+    await finish(rated=False, placement=1, outcome="win", score=999.0,
+                 detail={"lineup_peak_score": 999.0}, with_bot=False)
+
+    stats = await repo.get_player_stats(mode, [sub], ("lineup_peak_score",))
+    st = stats[sub]
+
+    assert st.rated_matches == 3, "the unrated match must not be counted"
+    assert st.wins == 2
+    assert st.losses == 1
+    assert st.draws == 0
+    # seat_count 2 -> top half is first place only.
+    assert st.podiums == 2
+    assert st.average_placement == pytest.approx((1 + 1 + 2) / 3, abs=0.001)
+
+    assert st.score_avg == pytest.approx(80.0, abs=0.01)   # (100+90+50)/3
+    assert st.score_best == pytest.approx(100.0, abs=0.01)
+    assert st.detail_averages["lineup_peak_score"] == pytest.approx(
+        (80.0 + 70.0 + 40.0) / 3, abs=0.01
+    )
+    assert st.detail_bests["lineup_peak_score"] == pytest.approx(80.0, abs=0.01)
+
+    # Composition: one of the three rated matches contained a bot. This is a
+    # per-MATCH property, not the player's own was_bot -- which is always false
+    # for a human seat and would give 0/3 if confused for it.
+    assert st.matches_with_bots == 1
+    assert st.matches_all_human == 2
+
+    # A subject with no matches is present and zeroed, not missing -- the route
+    # indexes into this dict per leaderboard row.
+    empty = await repo.get_player_stats(mode, [f"user-{uuid.uuid4()}"], ())
+    assert len(empty) == 1
+    assert next(iter(empty.values())).rated_matches == 0
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_player_stats_conforms():
+    from app.repositories.arena_memory import MemoryArenaRepository
+    await _assert_arena_player_stats_conforms(MemoryArenaRepository())
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_player_stats_conforms(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    await _assert_arena_player_stats_conforms(PostgresArenaRepository(pg_pool))
+
+
 @pytest.mark.asyncio
 async def test_memory_arena_rating_conforms():
     from app.repositories.arena_rating_memory import MemoryArenaRatingRepository
