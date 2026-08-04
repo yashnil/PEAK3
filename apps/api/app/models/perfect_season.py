@@ -83,6 +83,29 @@ class CompleteGameRequest(BaseModel):
     game_id: str
 
 
+class UndoRequest(BaseModel):
+    """launch-polish IMPLEMENTATION_CONTRACT.md §5. No reversal details of
+    any kind -- not a slot, not a card, not "place" vs "swap". The client
+    sends its intent (undo the last thing) and its belief about the
+    current state (expected_state_version, from the last
+    PublicCourtStateResponse it received); the server decides, from ITS
+    OWN stored `undo_snapshot`, what that means and whether it is still
+    valid. This is the same asymmetry `PlaceCardRequest`/`SwapSlotsRequest`
+    already have (a slot_type or two slot_types, never a card) taken one
+    step further: here the client does not even name what it wants undone,
+    only that it wants the last thing undone.
+    """
+    game_id: str
+    expected_state_version: int = Field(
+        ..., description="The state_version from the last state this client received."
+    )
+    # Same bound and same reasoning as RespinRequest.idempotency_key: a
+    # stable, client-derived key (e.g. from game_id + the state_version
+    # being undone) so a double-click or a retried request replays the
+    # prior result instead of double-undoing.
+    idempotency_key: Optional[str] = Field(None, max_length=128)
+
+
 class SubmitRunRequest(BaseModel):
     """Phase 6G Part E: the ONLY client-controlled input to a leaderboard
     submission is which completed game to submit -- every scored/roster
@@ -460,6 +483,20 @@ class RunEligibilityPublic(BaseModel):
     savable: bool
 
 
+class UndoAvailabilityPublic(BaseModel):
+    """launch-polish IMPLEMENTATION_CONTRACT.md §5. Computed the same way
+    `action_undo_last_placement` itself validates
+    (app/services/perfect_season/state.py::_undo_availability_public), so
+    this can never claim Undo is available when the action would actually
+    reject it. No slot identity is exposed -- the client sends only the
+    intent to undo (POST .../undo with no body beyond game_id/
+    expected_state_version/idempotency_key), never a reconstructed
+    reversal of its own."""
+    available: bool
+    kind: Optional[str] = None  # "place" | "swap" | None
+    expires_at: Optional[str] = None
+
+
 class PublicCourtStateResponse(BaseModel):
     game_id: str
     status: str
@@ -514,6 +551,11 @@ class PublicCourtStateResponse(BaseModel):
     # app/services/perfect_season/state.py::compute_eligibility, the single
     # source of truth the /submit route enforces too.
     eligibility: Optional[RunEligibilityPublic] = None
+    # launch-polish IMPLEMENTATION_CONTRACT.md §5: optimistic-concurrency
+    # counter, echoed back as `expected_state_version` on an undo request.
+    # See state.py::_touch for the one place it changes.
+    state_version: int = 0
+    undo: UndoAvailabilityPublic = UndoAvailabilityPublic(available=False)
 
 
 class SharedCourtResultResponse(BaseModel):

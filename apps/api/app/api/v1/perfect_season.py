@@ -67,6 +67,7 @@ from app.models.perfect_season import (
     SharedCourtResultResponse,
     SubmitRunRequest,
     SwapSlotsRequest,
+    UndoRequest,
 )
 from app.repositories.leaderboard_protocols import DuplicateRunSubmission, PerfectSeasonRun
 from app.repositories.saved_run_protocols import PersonalBests, SavedRun
@@ -475,6 +476,53 @@ async def swap_slots(
     return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
 
 
+@router.post("/perfect-season/games/{game_id}/undo", response_model=PublicCourtStateResponse)
+async def undo_last_placement(
+    game_id: str,
+    body: UndoRequest,
+    court_repo: CourtLineupRepoDep,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(default=None, alias=ANON_COOKIE_NAME),
+) -> PublicCourtStateResponse:
+    """launch-polish IMPLEMENTATION_CONTRACT.md §5: authoritative Undo for
+    the single most recent placement or swap.
+
+    Ownership is checked the same way every other mutating CourtBuilder
+    route checks it -- `_load_owned_lineup`, before the state machine is
+    ever called, same as /place and /swap-slots above.
+
+    Everything else -- whether there is something to undo, whether the
+    caller's `expected_state_version` is current, whether the window has
+    expired, and reversing the actual placement or swap -- is decided
+    entirely by `action_undo_last_placement`
+    (app/services/perfect_season/state.py). This route sends it nothing
+    the client does not already have (game_id, expected_state_version,
+    idempotency_key) and never reconstructs or second-guesses the roster
+    itself.
+
+    Same error shape as every other action here: a CourtError from the
+    state machine becomes a 400 named by its own code (`stale_state`,
+    `undo_not_available`, `undo_expired`) -- not a 409, to stay consistent
+    with how every other rejection in this router is surfaced (ValueError
+    -> 400 + code), even though "stale state" is conceptually a conflict.
+    """
+    _require_courtbuilder_enabled()
+    if body.game_id != game_id:
+        raise HTTPException(status_code=400, detail="game_id in body must match URL")
+
+    game_state = await _load_owned_lineup(game_id, court_repo, auth, peak3_anon)
+
+    try:
+        new_state = state_machine.action_undo_last_placement(
+            game_state, body.expected_state_version, body.idempotency_key
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=_error_detail(exc))
+
+    await court_repo.save_lineup(new_state)
+    return PublicCourtStateResponse(**state_machine.get_public_state(new_state, include_asset_urls=settings.ENABLE_EXTERNAL_ASSET_URLS))
+
+
 @router.post("/perfect-season/games/{game_id}/complete", response_model=PublicCourtStateResponse)
 async def complete_game(
     game_id: str,
@@ -601,21 +649,33 @@ async def submit_run(
     ) if team_year_board else len(game_state.slots)
 
     profile = await profile_repo.get_or_create_profile(auth.sub)
-    # SCORE_RECONCILIATION.md gap #4: the fallback used to be
-    # `auth.email.split("@")[0]` -- publishing the account email's local part
-    # on the GLOBAL leaderboard for anyone who had never explicitly set a
-    # display name, with no consent gate. `profile.display_name` being set at
-    # all already IS the explicit opt-in (it is only ever set through the
-    # account's own profile-editing route, never derived here); the
-    # non-consented default is now unconditionally the neutral
-    # `Player-XXXXXX` handle already used for the no-email case, never
-    # anything derived from the account's email.
-    display_name = profile.display_name or f"Player-{auth.sub[-6:]}"
+    # launch-polish IMPLEMENTATION_CONTRACT.md §8: "Leaderboards display only
+    # the public handle" -- not `display_name` (a free-text field that was
+    # never validated for uniqueness, reservation, or impersonation) and
+    # never anything derived from the account's email or Google name.
+    #
+    # This supersedes SCORE_RECONCILIATION.md gap #4's fix, which replaced an
+    # email-derived fallback with a neutral `Player-XXXXXX` default. That was
+    # correct as far as it went, but a *silent, always-succeeding* fallback
+    # is also how "require a valid handle before public leaderboard
+    # submission" (§8) would quietly never be enforced -- every submission
+    # would succeed either way, just with a different string attached. A
+    # handle is now REQUIRED, not defaulted: a signed-in account with no
+    # handle set gets a stable, actionable rejection instead of an
+    # auto-generated public identity it never chose.
+    if not profile.handle:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_code": "handle_required",
+                "message": "Set a public handle before submitting to the leaderboard.",
+            },
+        )
 
     run = PerfectSeasonRun(
         id="",
         owner_sub=auth.sub,
-        display_name=display_name,
+        display_name=profile.handle,
         mode=game_state.mode,
         game_id=game_id,
         seed=game_state.board.seed,
@@ -678,7 +738,6 @@ async def set_run_visibility(
 async def get_leaderboard(
     leaderboard_repo: PerfectSeasonLeaderboardRepoDep,
     mode: Optional[str] = Query(None, description="Filter by mode (apex_1y/prime_3y/foundation_5y)"),
-    no_respin: bool = Query(False, description="Only include runs with zero respins used"),
     limit: int = Query(50, ge=1, le=100),
     cursor: Optional[str] = Query(None),
     daily: bool = Query(
@@ -701,8 +760,15 @@ async def get_leaderboard(
     # "official application day" boundary is defined (`nba_peak/daily_key.py`)
     # -- every daily mode in this codebase reads it from there rather than
     # re-deriving a UTC or fixed-offset boundary of its own.
+    # launch-polish IMPLEMENTATION_CONTRACT.md §7: no respin filter -- a
+    # `no_respin` query param used to exist here and has been REMOVED, not
+    # merely defaulted off. Respins are normal Standard 82-0 play; excluding
+    # a run for using one hid legitimate runs from the public board. Respin
+    # counts remain a tie-break dimension inside get_leaderboard's own sort
+    # and are still returned per-row as metadata
+    # (PerfectSeasonRunPublic.team_respins_used/season_respins_used).
     since = day_start_utc(parse_daily_key(daily_key())) if daily else None
-    runs = await leaderboard_repo.get_leaderboard(mode, no_respin, limit, cursor, since)
+    runs = await leaderboard_repo.get_leaderboard(mode, limit, cursor, since)
     # SCORE_RECONCILIATION.md gap #1: `next_cursor` was computed nowhere, ever
     # -- the repo-side encoder existed (leaderboard_postgres.py `_encode_cursor`
     # / leaderboard_memory.py's exported `encode_leaderboard_cursor`) but no

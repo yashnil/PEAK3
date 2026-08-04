@@ -32,6 +32,18 @@ import {
  * link, or arrived from search. It therefore has to answer "what is this?"
  * before it asks "which mode?" — one sentence, four steps, four node types, and
  * a tour they can take without starting anything.
+ *
+ * LAUNCH-POLISH LP2-3. "Today's run" used to render unconditionally, co-equal
+ * with "Start a run", on every visit to this gate — including a bare visit
+ * with no `?mode=daily`, which made it a THIRD public entry point into daily
+ * play with nothing distinguishing it from Standard for a visitor who had no
+ * reason yet to care (see `docs/implementation/launch-polish/
+ * RTT_DAILY_EVIDENCE.md`). It now renders only when `preferredMode==="daily"`
+ * — i.e. only for someone who actually arrived via a preserved
+ * `?mode=daily` link (an old bookmark, a forwarded URL). The route, the
+ * button and the start flow underneath are otherwise untouched: an existing
+ * link still works exactly as it always has, it is simply no longer offered
+ * to a visitor who did not already ask for it.
  */
 interface Props {
   readiness: RunReadiness | null;
@@ -364,27 +376,24 @@ export default function RunStartGate({
           >
             {busy ? "Starting…" : "Start a run"}
           </button>
-          <button
-            type="button"
-            data-testid="rtt-start-daily"
-            onClick={() => onStart("daily")}
-            disabled={busy || disabled || dailyDisabled}
-            className="rtt-tap rounded-lg px-6 text-sm font-semibold uppercase tracking-wide disabled:opacity-60"
-            style={
-              dailyFirst
-                ? { background: "var(--peak-accent)", color: "var(--text-inverse)" }
-                : {
-                    background: "var(--bg-surface)",
-                    color: "var(--text-primary)",
-                    border: "1px solid var(--border-emphasis)",
-                  }
-            }
-          >
-            Today&apos;s run
-          </button>
+          {/* LP2-3: only offered to a visitor who arrived asking for it —
+              see the file docstring. `dailyFirst` already excludes the case
+              where a challenge link outranks it. */}
+          {dailyFirst && (
+            <button
+              type="button"
+              data-testid="rtt-start-daily"
+              onClick={() => onStart("daily")}
+              disabled={busy || disabled || dailyDisabled}
+              className="rtt-tap rounded-lg px-6 text-sm font-semibold uppercase tracking-wide disabled:opacity-60"
+              style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+            >
+              Today&apos;s run
+            </button>
+          )}
         </div>
 
-        {daily && (
+        {dailyFirst && daily && (
           <p className="text-xs" style={{ color: "var(--text-muted)" }} data-testid="rtt-daily-note">
             Today&apos;s run is {daily.date} (UTC), seed{" "}
             <span className="score-number">{daily.seed}</span> — everyone gets the same acts, the

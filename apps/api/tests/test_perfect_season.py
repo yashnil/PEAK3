@@ -2126,6 +2126,41 @@ def _mint_test_jwt(sub: str, email: str = "test@example.com", is_anonymous: bool
     return _jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
 
 
+def _sub_from_token(token: str) -> str:
+    import jwt as _jwt
+
+    payload = _jwt.decode(token, TEST_JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+    return payload["sub"]
+
+
+def _ensure_handle(client: TestClient, token: str) -> str:
+    """PUTs a valid, deterministic public handle for this token's account and
+    returns it. launch-polish IMPLEMENTATION_CONTRACT.md §8 makes a real
+    handle mandatory for leaderboard submission (superseding the old
+    email-derived-fallback / Player-XXXXXX-default behavior), so every test
+    helper that submits a run has to set one up first -- the same
+    prerequisite a real player's onboarding flow enforces.
+
+    Derived from a hash of the sub rather than the sub text itself: several
+    test subs in this file are hyphenated and/or longer than the new 20-char
+    handle limit ("user-visibility-owner" alone is 22 chars), and a naive
+    sanitize-and-truncate risks two different subs colliding on the same
+    truncated handle. A content hash sidesteps both problems and needs no
+    per-test-name adjustment as this file grows.
+    """
+    import hashlib
+
+    sub = _sub_from_token(token)
+    handle = "u" + hashlib.sha256(sub.encode()).hexdigest()[:15]
+    resp = client.put(
+        "/api/v1/profiles/me",
+        json={"handle": handle},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    return handle
+
+
 def _play_full_scored_game_as(client: TestClient, token: str, seed: int) -> dict:
     """Like _play_full_game, but always picks a fully-scored candidate each
     round (never a team_year_roster_only/exact_season_unscored one) so the
@@ -2187,6 +2222,7 @@ def test_unauthenticated_submit_returns_401(leaderboard_client: TestClient):
 
 def test_authenticated_submit_succeeds_and_recomputes_from_server_state(leaderboard_client: TestClient):
     token = _mint_test_jwt("user-abc")
+    _ensure_handle(leaderboard_client, token)
     state = _play_full_scored_game_as(leaderboard_client, token, seed=102)
     game_id = state["game_id"]
 
@@ -2239,6 +2275,7 @@ def test_anonymous_session_cannot_submit(leaderboard_client: TestClient):
 def test_public_leaderboard_read_works_and_is_sorted(leaderboard_client: TestClient):
     for i, seed in enumerate([201, 202, 203]):
         token = _mint_test_jwt(f"user-{i}")
+        _ensure_handle(leaderboard_client, token)
         state = _play_full_scored_game_as(leaderboard_client, token, seed=seed)
         leaderboard_client.post(
             f"/api/v1/perfect-season/games/{state['game_id']}/submit",
@@ -2255,18 +2292,27 @@ def test_public_leaderboard_read_works_and_is_sorted(leaderboard_client: TestCli
     assert wins == sorted(wins, reverse=True)
 
 
-def test_no_respin_filter_excludes_runs_with_respins(leaderboard_client: TestClient):
+def test_respin_runs_stay_on_the_board_as_normal_play(leaderboard_client: TestClient):
+    """launch-polish IMPLEMENTATION_CONTRACT.md §7: respins are normal
+    Standard 82-0 play, not a reason to exclude a run. The 'No-respin runs
+    only' filter (and its `?no_respin=true` query param) is REMOVED, not
+    merely defaulted off -- a run that used a respin appears on the public
+    board exactly like one that didn't, with the respin count still present
+    as displayable metadata rather than a gate on visibility."""
     # Run A: no respins.
     token_a = _mint_test_jwt("user-a")
+    _ensure_handle(leaderboard_client, token_a)
     state_a = _play_full_scored_game_as(leaderboard_client, token_a, seed=301)
-    leaderboard_client.post(
+    resp_a = leaderboard_client.post(
         f"/api/v1/perfect-season/games/{state_a['game_id']}/submit",
         json={"game_id": state_a["game_id"]},
         headers={"Authorization": f"Bearer {token_a}"},
     )
+    run_a_id = resp_a.json()["id"]
 
     # Run B: uses a respin on round 1 before playing it out.
     token_b = _mint_test_jwt("user-b")
+    _ensure_handle(leaderboard_client, token_b)
     leaderboard_client.headers["Authorization"] = f"Bearer {token_b}"
     state_b = _create(leaderboard_client, mode="apex_1y", seed=302)
     game_id_b = state_b["game_id"]
@@ -2286,13 +2332,232 @@ def test_no_respin_filter_excludes_runs_with_respins(leaderboard_client: TestCli
         headers={"Authorization": f"Bearer {token_b}"},
     )
     del leaderboard_client.headers["Authorization"]
-    assert resp.json()["team_respins_used"] == 1
+    assert resp.status_code == 200, resp.text
+    run_b = resp.json()
+    run_b_id = run_b["id"]
+    assert run_b["team_respins_used"] == 1
 
-    resp = leaderboard_client.get("/api/v1/perfect-season/leaderboard?no_respin=true")
-    data = resp.json()
-    game_ids_with_respins = [r for r in data["runs"] if r["team_respins_used"] > 0 or r["season_respins_used"] > 0]
-    assert game_ids_with_respins == []
-    assert any(r["display_name"] for r in data["runs"])  # at least run A is present
+    # No `no_respin` param exists anymore -- the plain board is the only
+    # board, and both runs are on it.
+    data = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()
+    board_ids = {r["id"] for r in data["runs"]}
+    assert run_a_id in board_ids, "the no-respin run must be on the board"
+    assert run_b_id in board_ids, "the respin run must ALSO be on the board -- respins are normal play"
+
+    # The respin run's own row still carries its respin count as metadata.
+    run_b_row = next(r for r in data["runs"] if r["id"] == run_b_id)
+    assert run_b_row["team_respins_used"] == 1
+
+    # A stray `no_respin` query param is simply ignored (FastAPI drops
+    # unknown query params rather than erroring), not silently reinterpreted
+    # as a filter -- confirms the parameter's removal didn't leave a
+    # half-working shadow of the old behavior.
+    ignored = leaderboard_client.get(
+        "/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100&no_respin=true"
+    ).json()
+    assert {r["id"] for r in ignored["runs"]} == board_ids
+
+
+# ---------------------------------------------------------------------------
+# launch-polish IMPLEMENTATION_CONTRACT.md §7's explicit regression list.
+# Several of these overlap in mechanism with tests elsewhere in this file
+# (idempotent submission is one server-side property; "refresh", "retry
+# after timeout", and "same run twice" are all the same request replayed --
+# the server cannot distinguish WHY a client sent the same game_id twice).
+# That overlap is intentional, not redundancy: each test below is named for
+# the specific real-world story the brief called out, so a regression in
+# that property is caught under the name someone would actually search for,
+# regardless of which of these bodies they think to run.
+# ---------------------------------------------------------------------------
+
+def test_the_same_completed_run_submitted_twice_produces_one_entry(leaderboard_client: TestClient):
+    token = _mint_test_jwt("user-8item-same-run-twice")
+    _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=1301)
+    game_id = state["game_id"]
+
+    first = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    second = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json()["id"] == second.json()["id"], "two submissions of the same game must be the same entry"
+
+    mine = leaderboard_client.get(
+        "/api/v1/perfect-season/me/runs", headers={"Authorization": f"Bearer {token}"}
+    ).json()["runs"]
+    assert len([r for r in mine if r["id"] == first.json()["id"]]) == 1
+
+
+def test_two_distinct_completed_runs_produce_two_entries(leaderboard_client: TestClient):
+    token = _mint_test_jwt("user-8item-two-runs")
+    _ensure_handle(leaderboard_client, token)
+    run1 = _submit(leaderboard_client, token, seed=1302)
+    run2 = _submit(leaderboard_client, token, seed=1303)
+    assert run1["id"] != run2["id"]
+
+    mine = leaderboard_client.get(
+        "/api/v1/perfect-season/me/runs", headers={"Authorization": f"Bearer {token}"}
+    ).json()["runs"]
+    mine_ids = {r["id"] for r in mine}
+    assert {run1["id"], run2["id"]} <= mine_ids
+
+
+def test_anonymous_submission_is_rejected(leaderboard_client: TestClient):
+    state = _play_full_game(leaderboard_client, seed=1304)
+    game_id = state["game_id"]
+    token = _mint_test_jwt("user-8item-anon", is_anonymous=True)
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"]["error_code"] == "sign_in_required"
+
+
+def test_incomplete_score_submission_is_rejected(leaderboard_client: TestClient):
+    """A roster with at least one unscored card is never eligible for the
+    global leaderboard (Part E) -- `_play_full_game_as(..., prefer_scored=False)`
+    deliberately picks an unscored candidate whenever the board offers one,
+    to make this deterministic rather than depending on which team-seasons a
+    given seed happens to roll."""
+    token = _mint_test_jwt("user-8item-incomplete")
+    _ensure_handle(leaderboard_client, token)
+    state = _play_full_game_as(leaderboard_client, token, seed=1305, prefer_scored=False)
+    game_id = state["game_id"]
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    if state.get("lineup_score_status") == "complete" or state.get("score_status") == "complete":
+        pytest.skip("this seed's board did not offer an unscored candidate in any round")
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "incomplete_score_not_eligible"
+
+
+def test_user_b_cannot_mutate_user_as_submitted_entry(leaderboard_client: TestClient):
+    """The only mutation surface a submitted run has at all is the
+    visibility toggle (SCORE_RECONCILIATION.md gap #3) -- everything else is
+    an immutable record. Proves user B's own credentials cannot flip user
+    A's run, and that the failure reads identically to a nonexistent run
+    (404, never 403), so it cannot be used to probe which run ids are real."""
+    token_a = _mint_test_jwt("user-8item-mutate-a")
+    _ensure_handle(leaderboard_client, token_a)
+    run_a = _submit(leaderboard_client, token_a, seed=1306)
+
+    token_b = _mint_test_jwt("user-8item-mutate-b")
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/runs/{run_a['id']}/visibility",
+        json={"is_public": False},
+        headers={"Authorization": f"Bearer {token_b}"},
+    )
+    assert resp.status_code == 404
+
+    # Untouched: still on the public board, still public.
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()["runs"]
+    assert any(r["id"] == run_a["id"] for r in board)
+
+
+def test_pagination_across_the_whole_board_has_no_duplicate_entries(leaderboard_client: TestClient):
+    token = _mint_test_jwt("user-8item-pagination")
+    _ensure_handle(leaderboard_client, token)
+    submitted_ids = {
+        _submit(leaderboard_client, token, seed=seed)["id"] for seed in (1307, 1308, 1309)
+    }
+
+    seen: set[str] = set()
+    cursor = None
+    guard = 0
+    while True:
+        guard += 1
+        assert guard < 50, "pagination did not terminate"
+        url = "/api/v1/perfect-season/leaderboard?limit=2"
+        if cursor:
+            url += f"&cursor={cursor}"
+        page = leaderboard_client.get(url).json()
+        ids = {r["id"] for r in page["runs"]}
+        assert not (ids & seen), "a later page repeated a row from an earlier page"
+        seen |= ids
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+    assert submitted_ids <= seen
+
+
+def test_a_page_refresh_replaying_the_same_submit_request_does_not_resubmit(leaderboard_client: TestClient):
+    """The exact browser-refresh story: a player submits, the page reloads
+    (or the submit button is somehow triggered again with the same game
+    already completed and submitted), and the client fires the identical
+    POST again. Must return the SAME record, not a second row."""
+    token = _mint_test_jwt("user-8item-refresh")
+    _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=1310)
+    game_id = state["game_id"]
+
+    original = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+
+    # Simulates the page reload: a brand new request, same game_id, same
+    # account, no client-side memory of the first submission at all.
+    replay = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    assert replay["id"] == original["id"]
+
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()["runs"]
+    assert sum(1 for r in board if r["id"] == original["id"]) == 1
+
+
+def test_retrying_after_a_client_side_timeout_is_idempotent(leaderboard_client: TestClient):
+    """The other common real-world duplicate-submission trigger: the
+    request actually succeeded server-side, but the client never saw the
+    response (a timeout, a dropped connection) and retries assuming it
+    failed. Indistinguishable from a refresh at the HTTP layer -- proven
+    separately anyway, since this is exactly the failure mode `game_id
+    UNIQUE` plus the check-then-insert in submit_run exists to make safe."""
+    token = _mint_test_jwt("user-8item-timeout-retry")
+    _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=1311)
+    game_id = state["game_id"]
+
+    # The "request whose response never arrived" -- from the server's point
+    # of view this looks identical to any other successful submit.
+    first = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+
+    # The client, having given up on the first response, retries.
+    retry_1 = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    # And a second retry, in case the first retry ALSO looked like it timed
+    # out -- still must not create a third row.
+    retry_2 = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{game_id}/submit",
+        json={"game_id": game_id},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+
+    assert first["id"] == retry_1["id"] == retry_2["id"]
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard?mode=apex_1y&limit=100").json()["runs"]
+    assert sum(1 for r in board if r["id"] == first["id"]) == 1
 
 
 def test_me_runs_requires_auth_and_returns_own_runs(leaderboard_client: TestClient):
@@ -2300,6 +2565,7 @@ def test_me_runs_requires_auth_and_returns_own_runs(leaderboard_client: TestClie
     assert resp.status_code == 401
 
     token = _mint_test_jwt("user-me")
+    _ensure_handle(leaderboard_client, token)
     state = _play_full_scored_game_as(leaderboard_client, token, seed=401)
     leaderboard_client.post(
         f"/api/v1/perfect-season/games/{state['game_id']}/submit",
@@ -2314,6 +2580,7 @@ def test_me_runs_requires_auth_and_returns_own_runs(leaderboard_client: TestClie
 
 def test_duplicate_submission_is_idempotent_not_duplicated(leaderboard_client: TestClient):
     token = _mint_test_jwt("user-dup")
+    _ensure_handle(leaderboard_client, token)
     state = _play_full_scored_game_as(leaderboard_client, token, seed=501)
     game_id = state["game_id"]
     resp1 = leaderboard_client.post(
@@ -2362,6 +2629,7 @@ def test_rls_migration_has_expected_policies():
 # ---------------------------------------------------------------------------
 
 def _submit(client: TestClient, token: str, seed: int) -> dict:
+    _ensure_handle(client, token)
     state = _play_full_scored_game_as(client, token, seed=seed)
     resp = client.post(
         f"/api/v1/perfect-season/games/{state['game_id']}/submit",
@@ -2519,18 +2787,52 @@ def test_cannot_hide_someone_elses_run_and_the_failure_does_not_confirm_ownershi
     assert any(r["id"] == run["id"] for r in board)
 
 
-def test_display_name_never_falls_back_to_the_account_email(leaderboard_client: TestClient):
-    """Gap #4: the fallback used to be `auth.email.split('@')[0]` -- every
+def test_display_name_is_the_public_handle_never_derived_from_email(leaderboard_client: TestClient):
+    """Gap #4's original fallback was `auth.email.split('@')[0]` -- every
     caller in this file mints a token carrying `test@example.com` (the
     default), so under the old code every submitted run in this whole test
-    module would have published the handle "test". It must now be the
-    neutral `Player-XXXXXX` form instead, unconditionally, unless the
-    account's profile has an explicitly-set display name."""
+    module would have published the handle "test". That was first fixed by
+    defaulting to a neutral `Player-XXXXXX` form. launch-polish
+    IMPLEMENTATION_CONTRACT.md §8 goes further: "Leaderboards display only
+    the public handle" -- not a free-text display_name, and not any
+    auto-generated default either, since a handle is now REQUIRED (see
+    test_submit_without_a_handle_is_rejected below) rather than defaulted.
+    `display_name` on a submitted run is the account's chosen handle, full
+    stop -- never anything derived from the account's email or Google name,
+    and never a value the account did not itself choose."""
     sub = "user-email-fallback"
     token = _mint_test_jwt(sub, email="definitely-not-public@example.com")
-    run = _submit(leaderboard_client, token, seed=901)
-    assert run["display_name"] == f"Player-{sub[-6:]}"
+    handle = _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=901)
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{state['game_id']}/submit",
+        json={"game_id": state["game_id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    run = resp.json()
+    assert run["display_name"] == handle
     assert "definitely-not-public" not in run["display_name"]
+    assert run["display_name"] != "test", (
+        "this is the exact contamination signature from "
+        "docs/implementation/launch-polish/IDENTITY_AUDIT.md §1 -- every "
+        "test JWT in this file defaults to test@example.com"
+    )
+
+
+def test_submit_without_a_handle_is_rejected(leaderboard_client: TestClient):
+    """The other half of the same contract: a signed-in account with no
+    handle set gets a stable, actionable rejection -- never a silent
+    auto-generated public identity it never chose."""
+    token = _mint_test_jwt("user-no-handle-yet")
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=902)
+    resp = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{state['game_id']}/submit",
+        json={"game_id": state["game_id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "handle_required"
 
 
 def test_daily_leaderboard_uses_the_official_application_day_boundary(
@@ -5416,3 +5718,346 @@ def test_respin_idempotency_survives_a_state_serialization_round_trip():
     spin_after = ps_state.find_spin(revived.board, revived.current_round)
     assert revived.team_respins_used == 1
     assert (spin_after.team_id, spin_after.era_label) == landed
+
+
+# ---------------------------------------------------------------------------
+# Authoritative Undo (launch-polish IMPLEMENTATION_CONTRACT.md §5).
+# ---------------------------------------------------------------------------
+
+def _swap(client: TestClient, game_id: str, slot_a: str, slot_b: str) -> dict:
+    resp = client.post(
+        f"/api/v1/perfect-season/games/{game_id}/swap-slots",
+        json={"game_id": game_id, "slot_a": slot_a, "slot_b": slot_b},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _undo(
+    client: TestClient,
+    game_id: str,
+    expected_state_version: int,
+    idempotency_key: str | None = None,
+):
+    body: dict = {"game_id": game_id, "expected_state_version": expected_state_version}
+    if idempotency_key is not None:
+        body["idempotency_key"] = idempotency_key
+    return client.post(f"/api/v1/perfect-season/games/{game_id}/undo", json=body)
+
+
+def _slot_identity(slot: dict) -> str | None:
+    """Whichever card-identity key is set on a filled slot -- `peak_window_id`
+    for the legacy engine, `exact_player_season_key` for team_year mode
+    (COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED defaults True, so plain
+    `client`-fixture tests exercise team_year by default). Never both."""
+    return slot.get("peak_window_id") or slot.get("exact_player_season_key")
+
+
+def test_undo_is_unavailable_before_anything_has_been_placed(client: TestClient):
+    state = _create(client, mode="apex_1y", seed=601)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    assert state["undo"] == {"available": False, "kind": None, "expires_at": None}
+
+    resp = _undo(client, game_id, state["state_version"])
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "undo_not_available"
+
+
+def test_undo_reverses_a_placement_into_an_empty_slot(client: TestClient):
+    """Undo the most recent EMPTY-SLOT placement: the slot empties again,
+    the round/status roll back, and the exact same card becomes the
+    pending selection again -- proven behaviorally by placing it into a
+    DIFFERENT slot afterward and confirming that succeeds, not just by
+    inspecting the response shape."""
+    state = _create(client, mode="apex_1y", seed=602)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    round_before = state["current_round"]
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+
+    placed = _place(client, game_id, "PG")
+    assert placed["undo"] == {
+        "available": True, "kind": "place", "expires_at": placed["undo"]["expires_at"],
+    }
+    assert placed["undo"]["expires_at"] is not None
+    pg_slot = next(s for s in placed["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is True
+    placed_identity = _slot_identity(pg_slot)
+    assert placed_identity is not None
+
+    undone = _undo(client, game_id, placed["state_version"]).json()
+    pg_slot = next(s for s in undone["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is False, "the slot must be empty again"
+    # Not just "empty" by the filled flag -- the fit fields must not hold a
+    # stale value for a card that is no longer there (raised explicitly
+    # during review: an undo can look right on "is a player there?" and
+    # still leave a wrong fit badge behind).
+    assert pg_slot["role_fit"] is None
+    assert pg_slot["role_fit_severity"] is None
+    assert undone["current_round"] == round_before, "the round must roll back"
+    assert undone["undo"]["available"] is False, "consumed -- cannot be undone twice"
+
+    # The same card is available again -- placeable into a DIFFERENT slot.
+    replaced = _place(client, game_id, "SG")
+    sg_slot = next(s for s in replaced["slots"] if s["slot_type"] == "SG")
+    assert sg_slot["filled"] is True
+    assert _slot_identity(sg_slot) == placed_identity
+
+
+def test_undo_reverses_a_swap_restoring_both_displaced_players(client: TestClient):
+    """The 'replacement restoring the displaced player' requirement: swap
+    two ALREADY-OCCUPIED slots, undo, and confirm each player is back in
+    their original slot -- not just that the slots are filled.
+
+    Also asserts role_fit/role_fit_severity, not just card identity --
+    raised explicitly during review: action_swap_slots RECOMPUTES fit for
+    both slots on every swap (_recompute_slot_fit), so reversing a swap by
+    re-running the same swap logic must independently reproduce the exact
+    PRE-swap fit values, not just move the right card back. A snapshot
+    that only remembered cards (not fit) could put the right player in the
+    right slot while silently leaving a stale or wrong fit badge -- this
+    proves that did not happen, rather than assuming _recompute_slot_fit
+    is deterministic."""
+    state = _create(client, mode="apex_1y", seed=603)
+    game_id = state["game_id"]
+    for slot_type in ("PG", "SG"):
+        state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+        candidate = state["current_spin"]["candidates"][0]
+        _select(client, game_id, candidate["player_slug"])
+        state = _place(client, game_id, slot_type)
+
+    pg_slot_before = next(s for s in state["slots"] if s["slot_type"] == "PG")
+    sg_slot_before = next(s for s in state["slots"] if s["slot_type"] == "SG")
+    pg_before = _slot_identity(pg_slot_before)
+    sg_before = _slot_identity(sg_slot_before)
+    assert pg_before and sg_before and pg_before != sg_before
+    pg_fit_before = (pg_slot_before["role_fit"], pg_slot_before["role_fit_severity"])
+    sg_fit_before = (sg_slot_before["role_fit"], sg_slot_before["role_fit_severity"])
+
+    swapped = _swap(client, game_id, "PG", "SG")
+    assert swapped["undo"]["kind"] == "swap"
+    pg_slot_after_swap = next(s for s in swapped["slots"] if s["slot_type"] == "PG")
+    sg_slot_after_swap = next(s for s in swapped["slots"] if s["slot_type"] == "SG")
+    assert _slot_identity(pg_slot_after_swap) == sg_before, "PG must now hold what was in SG"
+    assert _slot_identity(sg_slot_after_swap) == pg_before, "SG must now hold what was in PG"
+
+    undone = _undo(client, game_id, swapped["state_version"]).json()
+    pg_slot_final = next(s for s in undone["slots"] if s["slot_type"] == "PG")
+    sg_slot_final = next(s for s in undone["slots"] if s["slot_type"] == "SG")
+    assert _slot_identity(pg_slot_final) == pg_before, "the displaced PG player must be restored"
+    assert _slot_identity(sg_slot_final) == sg_before, "the displaced SG player must be restored"
+    assert (pg_slot_final["role_fit"], pg_slot_final["role_fit_severity"]) == pg_fit_before, (
+        "PG's fit badge must match what it was before the swap, not the swapped-in fit"
+    )
+    assert (sg_slot_final["role_fit"], sg_slot_final["role_fit_severity"]) == sg_fit_before, (
+        "SG's fit badge must match what it was before the swap, not the swapped-in fit"
+    )
+
+
+def test_undo_rejects_a_stale_expected_state_version(client: TestClient):
+    """'Reject stale undo SAFELY -- no partial mutation': send a version
+    that does not match, and confirm the roster is completely untouched
+    afterward, not partially reversed."""
+    state = _create(client, mode="apex_1y", seed=604)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+
+    resp = _undo(client, game_id, placed["state_version"] - 1)
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "stale_state"
+
+    unchanged = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    assert unchanged["state_version"] == placed["state_version"], "no partial mutation"
+    pg_slot = next(s for s in unchanged["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is True, "the placement must still stand"
+
+
+def test_undo_is_no_longer_available_once_another_action_has_happened(client: TestClient):
+    """Nothing explicitly 'clears' undo_snapshot on a select/place -- the
+    state_version comparison alone makes it unavailable once anything else
+    has happened, which this proves for the 'select a new candidate'
+    case specifically (not just 'a second placement', which overwrites
+    the snapshot outright)."""
+    state = _create(client, mode="apex_1y", seed=605)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+    version_after_place = placed["state_version"]
+
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    next_candidate = state["current_spin"]["candidates"][0]
+    selected = _select(client, game_id, next_candidate["player_slug"])
+    assert selected["undo"]["available"] is False
+
+    resp = _undo(client, game_id, version_after_place)
+    # The client's OWN belief (version_after_place) is now stale too, since
+    # selecting bumped state_version -- this hits stale_state before it
+    # would even get to ask "is there anything to undo".
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "stale_state"
+
+    # And an up-to-date caller gets the more specific answer.
+    resp2 = _undo(client, game_id, selected["state_version"])
+    assert resp2.status_code == 400
+    assert resp2.json()["detail"]["error_code"] == "undo_not_available"
+
+
+def test_undo_expires_after_the_server_enforced_window(client: TestClient):
+    """The bound is server-side and time-based (state.py::UNDO_WINDOW_SECONDS),
+    not a client affordance -- proven by directly backdating the stored
+    snapshot's expiry (same technique
+    test_daily_leaderboard_uses_the_official_application_day_boundary uses
+    for created_at) rather than waiting 15 real seconds."""
+    from datetime import datetime, timedelta, timezone as _tz
+
+    from app.core.dependencies import _memory_court_lineup_repo
+
+    state = _create(client, mode="apex_1y", seed=606)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+
+    stored = _memory_court_lineup_repo._lineups[game_id]
+    assert stored.undo_snapshot is not None
+    stored.undo_snapshot.expires_at = (datetime.now(_tz.utc) - timedelta(seconds=1)).isoformat()
+
+    # The public state itself must already report it as unavailable...
+    refetched = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    assert refetched["undo"]["available"] is False
+
+    # ...and the action itself must refuse it, not just the display flag.
+    resp = _undo(client, game_id, placed["state_version"])
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["error_code"] == "undo_expired"
+
+    pg_slot = client.get(f"/api/v1/perfect-season/games/{game_id}").json()["slots"]
+    assert next(s for s in pg_slot if s["slot_type"] == "PG")["filled"] is True, (
+        "an expired undo must leave the placement standing"
+    )
+
+
+def test_undo_survives_a_reload_within_the_window(client: TestClient):
+    """Explicit design decision: the bound is wall-clock time from the
+    action, not tied to a browser session or a reload -- a re-fetch of the
+    same server-side game (simulating a page reload) within the window
+    must not by itself invalidate Undo."""
+    state = _create(client, mode="apex_1y", seed=607)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+
+    # Simulates a reload: a brand-new GET, no client-side memory carried
+    # over except what the server itself would give a fresh page load.
+    reloaded = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    assert reloaded["undo"]["available"] is True
+    assert reloaded["state_version"] == placed["state_version"]
+
+    undone = _undo(client, game_id, reloaded["state_version"]).json()
+    pg_slot = next(s for s in undone["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is False
+
+
+def test_undo_duplicate_request_is_idempotent_not_a_double_undo(client: TestClient):
+    state = _create(client, mode="apex_1y", seed=608)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+
+    first = _undo(client, game_id, placed["state_version"], idempotency_key="undo-k-1")
+    assert first.status_code == 200
+    second = _undo(client, game_id, placed["state_version"], idempotency_key="undo-k-1")
+    assert second.status_code == 200
+    assert second.json() == first.json(), "a replayed undo must return the identical result"
+
+    # Placing again (a THIRD action) must succeed normally -- proves the
+    # slot was only ever emptied once, not "double-undone" into some
+    # inconsistent state.
+    replaced = _place(client, game_id, "PG")
+    assert next(s for s in replaced["slots"] if s["slot_type"] == "PG")["filled"] is True
+
+
+def test_undo_denies_a_signed_in_stranger(leaderboard_client: TestClient):
+    """Cross-user denial: the owner's game, undone by someone else's
+    credentials, must be refused exactly like every other mutating
+    CourtBuilder route refuses a non-owner (403), and the placement must
+    survive untouched.
+
+    Uses `leaderboard_client` rather than the plain `client` fixture purely
+    because it already configures `settings.SUPABASE_JWT_SECRET` so
+    `_mint_test_jwt` tokens actually verify -- unrelated to the
+    leaderboard feature itself."""
+    client = leaderboard_client
+    owner_token = _mint_test_jwt("user-undo-owner")
+    stranger_token = _mint_test_jwt("user-undo-stranger")
+
+    client.headers["Authorization"] = f"Bearer {owner_token}"
+    state = _create(client, mode="apex_1y", seed=609)
+    game_id = state["game_id"]
+    state = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    candidate = state["current_spin"]["candidates"][0]
+    _select(client, game_id, candidate["player_slug"])
+    placed = _place(client, game_id, "PG")
+    del client.headers["Authorization"]
+
+    client.headers["Authorization"] = f"Bearer {stranger_token}"
+    resp = _undo(client, game_id, placed["state_version"])
+    del client.headers["Authorization"]
+    assert resp.status_code == 403
+
+    client.headers["Authorization"] = f"Bearer {owner_token}"
+    unchanged = client.get(f"/api/v1/perfect-season/games/{game_id}").json()
+    del client.headers["Authorization"]
+    pg_slot = next(s for s in unchanged["slots"] if s["slot_type"] == "PG")
+    assert pg_slot["filled"] is True, "a stranger's rejected undo must not touch the owner's roster"
+
+
+def test_undo_state_survives_a_serialization_round_trip():
+    """Same discipline as test_respin_idempotency_survives_a_state_serialization_round_trip:
+    the Postgres path stores state as JSON, so state_version/undo_snapshot/
+    last_undo_key must all round-trip through court_state_to_dict/
+    court_state_from_dict or a durable deployment would silently lose Undo
+    on every reload."""
+    from app.services.perfect_season.serialization import (
+        court_state_from_dict,
+        court_state_to_dict,
+    )
+
+    state = ps_state.create_perfect_season_game(
+        mode="apex_1y", seed=610, team_spin_enabled=True, team_year_enabled=False,
+    )
+    spin = ps_state.find_spin(state.board, state.current_round)
+    ps_state.action_select_player(state, spin.candidate_player_slugs[0])
+    ps_state.action_place_card(state, "PG")
+
+    # select (1) then place (2) -- both mutating actions bump state_version.
+    assert state.state_version == 2
+    assert state.undo_snapshot is not None
+    assert state.undo_snapshot.kind == "place"
+
+    revived = court_state_from_dict(court_state_to_dict(state))
+    assert revived.state_version == 2
+    assert revived.undo_snapshot is not None
+    assert revived.undo_snapshot.kind == "place"
+    assert revived.undo_snapshot.slot_type == "PG"
+    assert revived.undo_snapshot.state_version_after == 2
+
+    # And the revived snapshot actually undoes correctly, not just
+    # round-trips its own fields.
+    ps_state.action_undo_last_placement(revived, expected_state_version=2)
+    pg_slot = next(s for s in revived.slots if s.slot_type == "PG")
+    assert pg_slot.peak_window_id is None
+    assert revived.state_version == 3
+    assert revived.undo_snapshot is None

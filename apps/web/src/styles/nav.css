@@ -80,7 +80,18 @@
   height: 2px;
   transform: translateX(-50%);
   border-radius: var(--pk-r-pill);
-  background: var(--peak-accent);
+  /* Launch-polish IMPLEMENTATION_CONTRACT.md §10: the "ONE gold signal"
+     comment above is still correct in spirit, but the frozen
+     `--peak-accent` hex measures 1.29:1 against Arena Day's `--bg-page` --
+     the underline was functionally invisible in light mode, on top of the
+     background tint's own separately-measured weakness (§3's audit). This
+     is the same class of bug SYNTHESIS_CONTRACT.md §5.2/§5.3 already fixed
+     for --peak-accent used as text: an indicator that has to be READ (an
+     active-state signal, not a subtle wash) needs the text-safe sibling,
+     not the frozen fill value. `--peak-accent-text` is identical to
+     `--peak-accent` in Arena Night (12.4:1, no change there) and clears
+     5.28:1 in Arena Day. */
+  background: var(--peak-accent-text);
 }
 
 .pk-nav-link:focus-visible,

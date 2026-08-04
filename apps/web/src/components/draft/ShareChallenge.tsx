@@ -144,7 +144,7 @@ export default function ShareChallenge({
           <div className="flex flex-col gap-2">
             <button
               onClick={handleCopy}
-              className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90 active:scale-[.98]"
+              className="w-full py-2.5 rounded-lg text-sm font-semibold transition-[opacity,transform] hover:opacity-90 active:scale-[.98]"
               style={
                 copyState === "error"
                   ? {
@@ -168,7 +168,7 @@ export default function ShareChallenge({
             {hasNativeShare && (
               <button
                 onClick={handleShare}
-                className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-80"
+                className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-80"
                 style={{
                   background: "var(--bg-surface)",
                   border: "1px solid var(--border-default)",

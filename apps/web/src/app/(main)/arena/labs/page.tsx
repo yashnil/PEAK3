@@ -66,14 +66,14 @@ function ModeCard({ mode }: { mode: DraftMode }) {
       <div className="flex flex-col gap-2">
         <Link
           href={`/arena/daily/${mode}`}
-          className="block text-center py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+          className="block text-center py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
           style={{ background: color, color: "var(--text-inverse)" }}
         >
           Daily Draft
         </Link>
         <Link
           href={`/arena/practice/${mode}`}
-          className="block text-center py-2 rounded-lg text-sm font-medium transition-all"
+          className="block text-center py-2 rounded-lg text-sm font-medium transition-colors"
           style={{
             background: "var(--bg-surface)",
             color: "var(--text-secondary)",

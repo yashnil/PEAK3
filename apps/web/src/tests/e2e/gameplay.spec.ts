@@ -87,39 +87,44 @@ test.describe("Arena landing", () => {
   // overflow -- is unchanged.
   // -------------------------------------------------------------------------
 
-  test("homepage primary CTA opens a launcher instead of a second start button", async ({
+  test("homepage primary CTA goes straight into a run, not into a menu", async ({
     page,
   }) => {
+    // Launch-polish §I. This assertion is the inverse of what it used to be.
+    // The CTA WAS a disclosure button, back when the launcher offered several
+    // starting choices. With one meaningful public mode, a click whose only
+    // result is a list to click again buys nothing, so it is now a plain link
+    // straight into a standard run.
+    //
+    // Note this test previously pinned `aria-haspopup="menu"` and an absent
+    // href -- i.e. the mechanism, not the promise -- which is exactly why it
+    // went stale the moment the mechanism changed. It now asserts the property
+    // a player is actually owed: one click, and you are in the game.
     await page.goto("/", { waitUntil: "domcontentloaded" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
     await expect(cta).toBeVisible();
     await expect(cta).toContainText(/Play Run the Table/i);
-    await expect(cta).toHaveAttribute("aria-haspopup", "menu");
-    await expect(cta).toHaveAttribute("aria-expanded", "false");
-    // The old funnel: a bare anchor into the mode.
-    await expect(cta).not.toHaveAttribute("href", /.*/);
-
+    await expect(cta).toHaveAttribute("href", "/arena/run-the-table?start=standard");
+    // No intermediate menu exists to open.
     await expect(page.locator('[data-testid="home-launcher-menu"]')).toHaveCount(0);
-    await cta.click();
-    await expect(page.locator('[data-testid="home-launcher-menu"]')).toBeVisible();
-    await expect(cta).toHaveAttribute("aria-expanded", "true");
   });
 
-  test("every launcher option points at the route it promises", async ({ page }) => {
+  // LP2-3 removed the homepage's "Today's shared run" secondary link.
+  // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md` found nothing a
+  // player could point to that daily delivers over Standard, and the one
+  // signal the backend computes specifically for it (`already_played`) was
+  // never read by this frontend at all. The next test below --
+  // "a shared ?mode=daily link never spends the daily attempt on
+  // navigation" -- is what still guards the correctness property the old
+  // version of THIS test used to pin (no URL may spend the day's attempt);
+  // it does so by visiting the preserved route directly, independent of
+  // whether anything on the homepage links to it.
+  test("the homepage no longer offers a daily shared-run link", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await page.locator('[data-testid="home-primary-cta"]').click();
-
-    await expect(page.locator('[data-testid="home-launcher-standard"]')).toHaveAttribute(
-      "href",
-      "/arena/run-the-table?start=standard",
-    );
-    // Deliberately NOT `?start=daily`: the daily is one shared board and one
-    // attempt per UTC day, so a URL that spends it on navigation would burn the
-    // attempt of everyone the link reaches. It lands on the gate instead.
-    await expect(page.locator('[data-testid="home-launcher-daily"]')).toHaveAttribute(
-      "href",
-      "/arena/run-the-table?mode=daily",
-    );
+    await expect(page.locator('[data-testid="home-launcher-daily"]')).toHaveCount(0);
+    // "Start New Run" is deliberately absent with no run in progress: it only
+    // earns a place once there is something to prefer it over.
+    await expect(page.locator('[data-testid="home-launcher-standard"]')).toHaveCount(0);
   });
 
   test("a shared ?mode=daily link never spends the daily attempt on navigation", async ({
@@ -148,48 +153,56 @@ test.describe("Arena landing", () => {
     // Fresh context => empty localStorage. Offering "resume" with nothing to
     // resume is a dead end, so it must not be rendered at all.
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await page.locator('[data-testid="home-primary-cta"]').click();
-    await expect(page.locator('[data-testid="home-launcher-menu"]')).toBeVisible();
+    // No menu to open any more (launch-polish §I) -- the resume affordance is
+    // either rendered inline or it is not. The property is unchanged: nothing
+    // offers to resume a run that does not exist. Also asserted here: with no
+    // saved run the primary CTA still reads as a fresh start, not "Continue".
     await expect(page.locator('[data-testid="home-launcher-resume"]')).toHaveCount(0);
     await expect(page.locator('[data-testid="home-resume-notice"]')).toHaveCount(0);
+    await expect(page.locator('[data-testid="home-primary-cta"]')).toContainText(
+      /Play Run the Table/i,
+    );
   });
 
-  test("the launcher opens by keyboard and Escape restores focus to the CTA", async ({ page }) => {
-    // `networkidle`, not `domcontentloaded` -- this test's subject is the
-    // keyboard interaction (ArrowDown opens the menu, focus moves onto the
-    // first item, Escape restores it), not hydration speed. `focus()` is a
-    // plain DOM call and succeeds before React hydrates, but the ArrowDown
-    // keydown handler is React-attached; pressed in that window it is a
-    // real keypress with no listener yet, silently lost. Measured before
-    // this change: `next dev` (what this suite runs against) takes
-    // 300-410ms after `domcontentloaded` to attach; a real production
-    // build takes 18-44ms -- see PERFORMANCE.md's "Client hydration window
-    // (P6-f/P6-h investigation)". Same fix and same reasoning as
-    // play-routing.spec.ts's viewport test; the two failures were the
-    // identical race on two unrelated controls, not two separate bugs.
+  test("a keyboard user reaches the run without a pointer", async ({ page }) => {
+    // This test used to drive the launcher MENU's roving-focus behaviour
+    // (ArrowDown opens, focus lands on the first item, Escape restores). That
+    // menu is gone (launch-polish §I) and with it the whole apparatus -- which
+    // is the point: plain links get correct keyboard semantics for free, so
+    // there is no custom keyboard contract left to regress.
+    //
+    // What still has to hold, and is what this now asserts: a keyboard-only
+    // player can reach the primary run and activating it with Enter actually
+    // starts one. That is the promise; the menu was only ever one
+    // implementation of it. (This test used to also check a second, daily
+    // link here -- LP2-3 removed it from the homepage; see
+    // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md`.)
+    //
+    // `networkidle`, not `domcontentloaded`: `focus()` is a plain DOM call that
+    // succeeds pre-hydration, but activation is React-attached, so a keypress
+    // in that window is a real event with no listener yet, silently lost.
+    // Measured: `next dev` (what this suite runs) takes 300-410ms to attach; a
+    // production build takes 18-44ms. See PERFORMANCE.md's "Client hydration
+    // window (P6-f/P6-h investigation)".
     await page.goto("/", { waitUntil: "networkidle" });
     const cta = page.locator('[data-testid="home-primary-cta"]');
+
     await cta.focus();
-    await page.keyboard.press("ArrowDown");
-
-    const menu = page.locator('[data-testid="home-launcher-menu"]');
-    await expect(menu).toBeVisible();
-    await expect(page.locator('[data-testid="home-launcher-standard"]')).toBeFocused();
-
-    await page.keyboard.press("ArrowDown");
-    await expect(page.locator('[data-testid="home-launcher-daily"]')).toBeFocused();
-
-    await page.keyboard.press("Escape");
-    await expect(menu).toHaveCount(0);
     await expect(cta).toBeFocused();
+
+    await Promise.all([
+      page.waitForURL("**/arena/run-the-table**"),
+      page.keyboard.press("Enter"),
+    ]);
+    await expect(page.locator('[data-testid="rtt-start-gate"]')).toBeVisible({ timeout: 20_000 });
   });
 
   test("choosing a standard run lands on RUN THE TABLE, never the 82-0 board", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    await page.locator('[data-testid="home-primary-cta"]').click();
+    // One click, not two: the CTA IS the standard run now (launch-polish §I).
     await Promise.all([
       page.waitForURL("**/arena/run-the-table**"),
-      page.locator('[data-testid="home-launcher-standard"]').click(),
+      page.locator('[data-testid="home-primary-cta"]').click(),
     ]);
     // The CTA must not drop the player into the previous flagship's board:
     // neither the 82-0 court nor its start gate belongs on this route.

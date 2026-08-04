@@ -1,0 +1,60 @@
+-- Migration: close the residual TRUNCATE/TRIGGER grant on the three
+-- identity tables 20260801170000_revoke_truncate_and_trigger.sql missed
+-- (launch-polish IMPLEMENTATION_CONTRACT.md §4/§5 re-verification).
+--
+-- LOCAL MIGRATION ONLY -- not applied to hosted Supabase as part of this
+-- pass, same discipline as every other file added in this phase.
+--
+-- WHAT WAS FOUND. Re-checking `profiles`' grants directly (rather than
+-- trusting 20260801170000's stated coverage) while closing the auth_sub
+-- column-exposure gap in 20260803120000_profile_column_privileges.sql
+-- surfaced that `profiles` still held TRUNCATE/TRIGGER for
+-- anon/authenticated -- that migration's table list simply never included
+-- it. Fixed there. The same direct check against `user_settings`,
+-- `anonymous_subjects` and `ownership_claims` -- the other three tables
+-- 20260630124900_rls.sql enabled RLS on in the same original commit as
+-- `profiles` -- found the identical gap on all three:
+--
+--     table_name           grantee         TRUNCATE   TRIGGER
+--     user_settings         anon            yes        yes
+--     user_settings         authenticated   yes        yes
+--     anonymous_subjects    anon            yes        yes
+--     anonymous_subjects    authenticated   yes        yes
+--     ownership_claims      anon            yes        yes
+--     ownership_claims      authenticated   yes        yes
+--
+-- (Verified with:
+--   SELECT table_name, grantee, privilege_type FROM information_schema.role_table_grants
+--   WHERE table_name IN ('user_settings','anonymous_subjects','ownership_claims')
+--   AND grantee IN ('anon','authenticated');
+-- -- see docs/implementation/launch-polish/ for the full before/after this
+-- migration's own commit message quotes.)
+--
+-- WHY THIS MATTERS EVEN THOUGH THE ROW POLICIES ON THESE THREE ARE ALREADY
+-- STRICT (anonymous_subjects and the deny-all shape, user_settings scoped
+-- to the owner via profiles, ownership_claims scoped to real_user_sub):
+-- TRUNCATE is a TABLE-level operation. Row Level Security constrains which
+-- ROWS a statement may touch; TRUNCATE removes every row in one operation
+-- regardless of any row policy, so a role holding it could erase an entire
+-- table's history (every anonymous-to-real ownership claim, every guest
+-- subject record, every account's timezone/theme preference) even though
+-- every SELECT/INSERT/UPDATE/DELETE on those same tables is correctly
+-- scoped. TRIGGER has no legitimate client use here either -- it would let
+-- a role attach a trigger function to a table it does not own.
+--
+-- SCOPE, DELIBERATELY NARROW: TRUNCATE and TRIGGER only. This migration
+-- does not touch SELECT/INSERT/UPDATE/DELETE on these three tables --
+-- those privileges and the row policies that scope them are unrelated to
+-- this finding and are not this migration's concern.
+--
+-- The API is unaffected: it connects as the table-owning role via asyncpg,
+-- which is not subject to these grants.
+
+REVOKE TRUNCATE, TRIGGER ON user_settings FROM anon, authenticated;
+REVOKE TRUNCATE, TRIGGER ON anonymous_subjects FROM anon, authenticated;
+REVOKE TRUNCATE, TRIGGER ON ownership_claims FROM anon, authenticated;
+
+-- Down:
+-- GRANT TRUNCATE, TRIGGER ON user_settings TO anon, authenticated;
+-- GRANT TRUNCATE, TRIGGER ON anonymous_subjects TO anon, authenticated;
+-- GRANT TRUNCATE, TRIGGER ON ownership_claims TO anon, authenticated;

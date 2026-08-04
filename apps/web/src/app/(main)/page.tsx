@@ -67,9 +67,15 @@ const GROUP_LABEL_CLASS = "text-[11px] font-bold uppercase tracking-[0.18em]";
  *    top-ranked peak windows with their real component contributions: the hero
  *    is now a piece of the game rather than a poster about it.
  *
- * 2. `home-primary-cta` is a menu button, not a link. It used to say "Start a
- *    Run" and land on a page whose first control also said "Start a run". See
- *    `HeroLauncher` for why the second gate could not simply be deleted.
+ * 2. `home-primary-cta` is a plain link, not a menu button. It WAS a menu
+ *    button, back when the launcher offered several starting choices. With one
+ *    meaningful public mode, a click whose only result is a list to click again
+ *    buys nothing, so it now goes straight to a standard run — or reads
+ *    "Continue Run" when one is in progress, with "Start New Run" appearing
+ *    only once there is something to prefer it over. The daily keeps its own
+ *    `?mode=daily` route into the start gate rather than `?start=daily`,
+ *    because a bare link or bookmark must never silently spend the day's one
+ *    attempt.
  *
  * 3. The mode cards are grouped (flagship / daily / full season / competitive)
  *    instead of listed, and the groups use different surface tiers so the page

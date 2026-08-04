@@ -25,7 +25,7 @@ export default function DraftToolbar({ gameState, onHold, onReframe, disabled }:
             : "Save a card for the next round"
         }
         className={[
-          "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+          "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
           "border border-transparent",
           hold_used || !hold_available || disabled
             ? "opacity-40 cursor-not-allowed"
@@ -57,7 +57,7 @@ export default function DraftToolbar({ gameState, onHold, onReframe, disabled }:
             : "Replace this round's offers with alternates"
         }
         className={[
-          "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all",
+          "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors",
           "border border-transparent",
           reframe_used || !reframe_available || disabled
             ? "opacity-40 cursor-not-allowed"

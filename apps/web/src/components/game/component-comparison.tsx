@@ -61,7 +61,7 @@ export function ComponentComparison({ answer }: ComponentComparisonProps) {
               </span>
               <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border-subtle)]">
                 <div
-                  className="h-full rounded-full transition-all duration-500"
+                  className="h-full rounded-full transition-[width] duration-500"
                   style={{
                     width: `${winnerPct}%`,
                     backgroundColor: comp.winner_leads ? color : "var(--text-muted)",
@@ -82,7 +82,7 @@ export function ComponentComparison({ answer }: ComponentComparisonProps) {
             <div className="flex items-center gap-2">
               <div className="h-1.5 w-16 overflow-hidden rounded-full bg-[var(--border-subtle)]">
                 <div
-                  className="h-full rounded-full transition-all duration-500"
+                  className="h-full rounded-full transition-[width] duration-500"
                   style={{
                     width: `${loserPct}%`,
                     backgroundColor: !comp.winner_leads ? color : "var(--text-muted)",

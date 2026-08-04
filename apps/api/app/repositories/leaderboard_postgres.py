@@ -118,7 +118,6 @@ class PostgresPerfectSeasonLeaderboardRepository:
     async def get_leaderboard(
         self,
         mode: Optional[str],
-        no_respin_only: bool,
         limit: int,
         cursor: Optional[str],
         since: Optional[datetime] = None,
@@ -128,8 +127,11 @@ class PostgresPerfectSeasonLeaderboardRepository:
         if mode:
             params.append(mode)
             conditions.append(f"mode = ${len(params)}")
-        if no_respin_only:
-            conditions.append("team_respins_used = 0 AND season_respins_used = 0")
+        # No respin filter here on purpose -- launch-polish
+        # IMPLEMENTATION_CONTRACT.md §7: respins are normal Standard 82-0
+        # play. `(team_respins_used + season_respins_used)` stays in the
+        # ORDER BY tie-break below and on the row itself as displayable
+        # metadata; it is never a WHERE condition that excludes a run.
         if since is not None:
             # The daily board: identical query, filtered to the current
             # application day. `since` is the router's already-resolved

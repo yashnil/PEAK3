@@ -79,7 +79,7 @@ export default function RoleSelector({
               disabled={!eligible}
               onClick={() => eligible && onSelect(role)}
               className={[
-                "flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-all",
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-left transition-[background-color,border-color,opacity]",
                 "border",
                 !isOpen
                   ? "opacity-25 cursor-not-allowed"
@@ -132,7 +132,7 @@ export default function RoleSelector({
         data-testid="lock-in"
         onClick={onConfirm}
         disabled={!selectedRole || submitting}
-        className="py-2 rounded-lg text-sm font-semibold transition-all"
+        className="py-2 rounded-lg text-sm font-semibold transition-colors"
         style={{
           background: selectedRole && !submitting ? "var(--peak-accent)" : "var(--border-default)",
           color: selectedRole && !submitting ? "var(--text-inverse)" : "var(--text-muted)",

@@ -41,6 +41,11 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
   const [leaderboardEnabled, setLeaderboardEnabled] = useState<boolean | null>(null);
   const [phase, setPhase] = useState<SubmitPhase>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Launch-polish: the server's `error_code`, when the failure carries one --
+  // `handle_required` specifically needs a route OUT (see below), not just an
+  // explanation. `PerfectSeasonAPIError.code` is already parsed from the
+  // wire's `error_code` field (see parseErrorDetail in perfect-season-api.ts).
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [submittedRun, setSubmittedRun] = useState<PerfectSeasonRunPublic | null>(null);
   const [rank, setRank] = useState<number | null>(null);
 
@@ -53,6 +58,7 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
   async function handleSubmit() {
     setPhase("submitting");
     setErrorMessage(null);
+    setErrorCode(null);
     try {
       const token = await getAccessToken();
       if (!token) {
@@ -75,7 +81,12 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
       }
     } catch (e) {
       setPhase("error");
-      setErrorMessage(e instanceof PerfectSeasonAPIError ? e.message : "Could not submit -- please try again.");
+      if (e instanceof PerfectSeasonAPIError) {
+        setErrorMessage(e.message);
+        setErrorCode(e.code ?? null);
+      } else {
+        setErrorMessage("Could not submit -- please try again.");
+      }
     }
   }
 
@@ -147,8 +158,30 @@ export default function LeaderboardSubmitPanel({ gameId, mode, lineupScoreStatus
             </button>
           </div>
           {phase === "error" && errorMessage && (
-            <span role="alert" className="text-xs" style={{ color: "var(--incorrect)" }} data-testid="leaderboard-submit-error">
+            <span
+              role="alert"
+              className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs"
+              style={{ color: "var(--incorrect)" }}
+              data-testid="leaderboard-submit-error"
+            >
               {errorMessage}
+              {/* The server now requires a public handle before a leaderboard
+                  submission (identity-community's handle work) -- and the
+                  onboarding prompt that would normally set one deliberately
+                  never blocks gameplay, so a player can reach this exact
+                  refusal having never seen it. A generic error message would
+                  leave them to guess that "handle" means the profile page;
+                  this is the one click that closes that gap. */}
+              {errorCode === "handle_required" && (
+                <a
+                  href="/profile"
+                  data-testid="leaderboard-submit-handle-link"
+                  className="font-semibold underline underline-offset-2"
+                  style={{ color: "var(--peak-accent-text, #f5c842)" }}
+                >
+                  Set up your public handle
+                </a>
+              )}
             </span>
           )}
         </div>

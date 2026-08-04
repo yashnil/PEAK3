@@ -52,7 +52,6 @@ class MemoryPerfectSeasonLeaderboardRepository:
     async def get_leaderboard(
         self,
         mode: Optional[str],
-        no_respin_only: bool,
         limit: int,
         cursor: Optional[str],
         since: Optional[datetime] = None,
@@ -60,8 +59,11 @@ class MemoryPerfectSeasonLeaderboardRepository:
         rows = [r for r in self._runs.values() if r.is_public]
         if mode:
             rows = [r for r in rows if r.mode == mode]
-        if no_respin_only:
-            rows = [r for r in rows if r.team_respins_used == 0 and r.season_respins_used == 0]
+        # No respin filter here on purpose -- launch-polish
+        # IMPLEMENTATION_CONTRACT.md §7: respins are normal Standard 82-0
+        # play. Respin counts stay in the tie-break sort key (_sort_key
+        # above) and on the row itself as metadata; they are never a reason
+        # a run is excluded from the board.
         if since is not None:
             # The daily board: identical query, filtered to the current
             # application day. `since` is the caller's (router's) already-

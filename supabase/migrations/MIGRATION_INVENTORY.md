@@ -35,6 +35,11 @@ migration change rather than hand-editing this file.
 | 28 | `20260801160000_head_to_head` | 2 | 4 | 0 | 0 | 0 | 2 | 2 |
 | 29 | `20260801170000_revoke_truncate_and_trigger` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | 30 | `20260803090000_perfect_season_daily_leaderboard_index` | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| 31 | `20260803100000_profile_handle_contract` | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| 32 | `20260803110000_contact_submissions` | 1 | 2 | 0 | 0 | 0 | 1 | 1 |
+| 33 | `20260803120000_profile_column_privileges` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 34 | `20260803130000_user_settings_theme_preference` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 35 | `20260803140000_revoke_truncate_trigger_identity_tables` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 ## Detail per migration
 
@@ -867,3 +872,134 @@ migration change rather than hand-editing this file.
 **External table dependencies (not created in this file):** none
 
 **Idempotency:** indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS
+
+### `20260803100000_profile_handle_contract.sql`
+
+**Tables created:** none
+
+**Indexes:** profiles_normalized_handle_unique_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS
+
+### `20260803110000_contact_submissions.sql`
+
+**Tables created:** contact_submissions
+  - `contact_submissions`: id, subject_hash, subject_kind, category, relevant_area, subject, message, reply_email, status, created_at
+
+**Indexes:** contact_submissions_created_idx, contact_submissions_status_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** contact_submissions
+
+**Policies:** contact_submissions_no_client_access
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260803120000_profile_column_privileges.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260803130000_user_settings_theme_preference.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260803140000_revoke_truncate_trigger_identity_tables.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected

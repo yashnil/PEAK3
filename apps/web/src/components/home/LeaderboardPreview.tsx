@@ -127,9 +127,32 @@ export default function LeaderboardPreview() {
               82-0 · All-Time
             </p>
             {topRuns === null ? (
-              <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
-                Loading…
-              </p>
+              // Launch-polish IMPLEMENTATION_CONTRACT.md §10: "make the
+              // leaderboard preview read as live." The data already IS
+              // live (a real fetch against the same endpoint the
+              // leaderboard hub uses, per the banner above) -- static
+              // "Loading…" text reads as an inert placeholder, no
+              // different from a number that will never change. A row
+              // skeleton signals "real content incoming," which a fixed
+              // string can't. No fake numbers are shown at any point.
+              <div className="mt-3 flex flex-col gap-2">
+                <span className="sr-only" role="status">
+                  Loading leaderboard…
+                </span>
+                <div aria-hidden="true" className="flex flex-col gap-2">
+                  {/* Staggered animation-delay, not opacity -- the pulse
+                      keyframes below already own `opacity` for the whole
+                      cycle, so a static inline opacity would just be
+                      silently overridden the instant the animation starts. */}
+                  {[0, 1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="pk-skeleton-row h-4 rounded"
+                      style={{ animationDelay: `${i * 0.15}s` }}
+                    />
+                  ))}
+                </div>
+              </div>
             ) : topRuns.length === 0 ? (
               <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
                 No runs submitted yet.

@@ -33,6 +33,15 @@ interface Props {
   onSwapTarget?: () => void;
   /** The slot whose card is currently being moved (for the target's label). */
   movingFromSlotLabel?: string | null;
+  /** Launch-polish §5, gap 3. True for a FILLED slot while a fresh selection
+   * is waiting to be placed (`phase === "placing"`) -- `action_place_card`
+   * (state.py) rejects placing into an occupied slot outright, so this is a
+   * genuinely illegal destination, not an oversight. It used to render as a
+   * plain, un-styled `<div>`: clicking it did literally nothing, with no
+   * signal that it was even a destination candidate at all. Now it renders
+   * as a real, visibly disabled control that says why, and points at the
+   * actual way to free the slot (rearrange after placing). */
+  blockedDuringPlacement?: boolean;
 }
 
 function fitTooltip(
@@ -96,6 +105,7 @@ export default function PeakCardCourt({
   onMove,
   onSwapTarget,
   movingFromSlotLabel,
+  blockedDuringPlacement,
 }: Props) {
   const [logoFailed, setLogoFailed] = useState(false);
   const isBench = (BENCH_SLOT_TYPES as string[]).includes(slot.slot_type);
@@ -230,15 +240,36 @@ export default function PeakCardCourt({
                 allowed, and only when this card ISN'T the one being moved
                 (see onSwapTarget's branch below). */}
             {onMove && (
+              // Launch-polish LP2-1: a 32px VISIBLE button was rejected --
+              // the project's 44px minimum applies to the INTERACTIVE HIT
+              // AREA, not the paint, and 32px is 32px regardless of how the
+              // deviation was justified last round. This card is only
+              // `min-h-[72px]` and already carries a name, a team/season
+              // line and a fit badge, so growing the PILL itself to 44px
+              // tall would visually dominate it the way the original
+              // rejection was worried about -- so the outer `<button>` (the
+              // real hit target: it's what `getBoundingClientRect()`,
+              // keyboard focus and screen readers all act on) is sized to
+              // the full 44x44 floor via `minWidth`/`minHeight`, and the
+              // small pill that actually paints is a separate, `aria-hidden`
+              // inner `<span>` centered inside it. The card is free to grow
+              // by the few extra invisible pixels this needs; nothing new
+              // is drawn.
               <button
                 type="button"
                 data-testid="slot-move-btn"
                 onClick={onMove}
-                className="mt-1 text-[9px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5"
-                style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+                className="mt-1.5 -mb-1 flex items-center justify-center"
+                style={{ minWidth: 44, minHeight: 44 }}
                 aria-label={`Move ${slot.player_name ?? "player"} out of ${SLOT_LABELS[slot.slot_type]}`}
               >
-                Move
+                <span
+                  aria-hidden="true"
+                  className="rounded px-3 py-2 text-[10px] font-semibold uppercase tracking-wide"
+                  style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+                >
+                  Move
+                </span>
               </button>
             )}
           </div>
@@ -294,7 +325,11 @@ export default function PeakCardCourt({
     "data-testid": "court-slot",
     "data-slot-type": slot.slot_type,
     "data-filled": slot.filled ? "true" : "false",
-    className: `rounded-xl px-2.5 py-2.5 flex flex-col items-start justify-center gap-1 min-h-[72px] w-full transition-all ${isPendingTarget ? "court-slot-drop-target" : ""} ${slot.filled ? "roster-board-slot-card-filled" : "roster-board-slot-card-open"}`,
+    // `transition-colors`, not `transition-all` (launch-polish §13): the only
+    // things that actually change here are `border`/background, both
+    // colour-bearing, whether from this component's own inline `style` swap
+    // or from the `roster-board-slot-card-*` class swap below.
+    className: `rounded-xl px-2.5 py-2.5 flex flex-col items-start justify-center gap-1 min-h-[72px] w-full transition-colors ${isPendingTarget ? "court-slot-drop-target" : ""} ${slot.filled ? "roster-board-slot-card-filled" : "roster-board-slot-card-open"}`,
     style: {
       // Phase 8C: empty slots get a dashed border -- reads as an active
       // draft target waiting for a card, not an inert disabled box.
@@ -343,6 +378,89 @@ export default function PeakCardCourt({
         style={{ ...sharedProps.style, cursor: "pointer" }}
       >
         {content}
+      </button>
+    );
+  }
+
+  // Launch-polish §5, gap 3 (the sharpest gap in the audit): a filled slot
+  // during the "placing" step used to fall all the way through to the plain
+  // `<div>` below -- not a `<button>`, not `disabled`, no styling
+  // distinguishing it from an idle roster card, and no accessible name
+  // saying why a click did nothing. It genuinely IS illegal (`action_place_card`
+  // in state.py rejects placing into an occupied slot), so the fix is not to
+  // make it clickable as a PLACEMENT target -- it is to say so.
+  if (blockedDuringPlacement) {
+    const reason = `${SLOT_LABELS[slot.slot_type]} is already filled by ${
+      slot.player_name ?? "a player"
+    }. Place your new pick in an open slot instead.`;
+    const fullNote = (
+      <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+        Full — place in an open slot
+      </span>
+    );
+    // `action_swap_slots` allows rearranging even mid-placement (state.py's
+    // own docstring: "including with a selection pending"), so `onMove` is
+    // live on this same card THE MOMENT ANY SLOT HAS A CARD IN IT --
+    // `rearrangeAvailable` only requires `filledSlotCount >= 1`, which this
+    // very slot being filled already satisfies. That makes this branch, not
+    // the disabled `<button>` below, the one a player actually sees from
+    // their second pick onward -- confirmed live (courtbuilder.spec.ts's
+    // "not a dead click" case), not just reasoned about; an earlier source
+    // read of this function (LEAD_82_0_VERIFICATION.md) assumed the button
+    // branch was the common case without checking which one actually
+    // renders. A `<button disabled>` wrapping a real, clickable "Move"
+    // button would still be invalid, inert HTML, so this stays a plain
+    // container rather than a nested interactive control -- but it now
+    // carries the same `aria-disabled` + accessible name as the button
+    // branch, via `role="group"` (which is what makes `aria-label` on a
+    // non-form element reach the accessibility tree at all), so a screen
+    // reader gets the explanation regardless of which branch rendered. The
+    // inner Move `<button>` computes its own accessible name independently
+    // of this wrapper's `aria-label` -- an ancestor's label never overrides
+    // a descendant control's own name -- so it keeps working exactly as
+    // before.
+    if (onMove) {
+      return (
+        <div
+          {...sharedProps}
+          // `data-blocked`, NOT a `data-testid` override. `sharedProps` sets
+          // `data-testid="court-slot"`, and overriding it here removed these
+          // slots from every `[data-testid="court-slot"]` query for as long as
+          // a placement was pending -- including `playOneRound`'s
+          // filled-count assertion, which then read 0 filled slots before the
+          // click and 2 after (the placement plus the slot that had been
+          // invisible), failing as "one click filled two slots". A blocked
+          // slot is still a court slot; blocked is a STATE, not a different
+          // identity.
+          data-blocked="true"
+          role="group"
+          aria-disabled="true"
+          aria-label={reason}
+          style={{ ...sharedProps.style, opacity: 0.85 }}
+        >
+          {content}
+          {fullNote}
+        </div>
+      );
+    }
+    return (
+      <button
+        {...sharedProps}
+        type="button"
+        disabled
+        // Same reasoning as the container branch above: a state attribute,
+        // never a testid override, so the slot stays countable as a court slot.
+        data-blocked="true"
+        aria-disabled="true"
+        aria-label={reason}
+        style={{
+          ...sharedProps.style,
+          cursor: "not-allowed",
+          opacity: 0.55,
+        }}
+      >
+        {content}
+        {fullNote}
       </button>
     );
   }
