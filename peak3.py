@@ -3478,7 +3478,84 @@ def processed_paths(start: int, end: int) -> Dict[str, Path]:
     }
 
 
+# How close a re-scored frame must be to the cached one to count as "the same
+# data, do not rewrite".
+#
+# THIS IS NOT A ROUNDING OF SCORES; it decides only whether a cache file is
+# rewritten. Every caller of `get_scored` receives the freshly computed frame
+# either way, so no consumer sees a different number because of this constant.
+#
+# WHY IT CANNOT BE AN EXACT COMPARISON. The scoring pipeline is not
+# bit-deterministic: re-scoring identical inputs reproduces every value to
+# within float64 ULP noise (summation order), not to the last bit. Measured on
+# the committed cache: 8,498 of 2,011,504 cells differ, max |delta| 2.84e-14,
+# across stat_total / prime_score / team_score and their raw counterparts. An
+# exact `.equals()` never matches, so the guard would never fire.
+#
+# 1e-9 sits ~5 orders of magnitude above that measured noise floor and far
+# below any change a score can undergo and still be the same score
+# (`prime_score` is a 0-100 display value). A real recalibration moves values
+# by vastly more than this and is written normally.
+_CACHE_EQUIVALENT_ATOL = 1e-9
+
+
+def _parquet_already_holds(df: pd.DataFrame, path: Path) -> bool:
+    """True when `path` already holds this frame to within `_CACHE_EQUIVALENT_ATOL`.
+
+    Read-back-and-compare rather than a byte comparison: parquet serialisation
+    is not deterministic either, so an identical frame re-serialises to a
+    different byte length run to run -- which is half of the problem this
+    guards against.
+
+    Shape, column order and dtypes must match EXACTLY; only float values are
+    given the tolerance above, and `rtol=0` keeps that tolerance absolute so it
+    cannot widen for large values.
+    """
+    if not path.exists():
+        return False
+    try:
+        existing = pd.read_parquet(path)
+    except Exception:
+        return False
+    if existing.shape != df.shape or list(existing.columns) != list(df.columns):
+        return False
+    try:
+        pd.testing.assert_frame_equal(
+            existing, df,
+            check_exact=False, rtol=0, atol=_CACHE_EQUIVALENT_ATOL,
+            check_dtype=True,
+        )
+    except (AssertionError, TypeError, ValueError):
+        return False
+    return True
+
+
 def save_parquet(df: pd.DataFrame, path: Path):
+    """Write `df` to `path`, but never rewrite a file whose contents did not
+    change.
+
+    WHY THE NO-OP GUARD. `cache/processed/scored_1980_2026.parquet` is
+    COMMITTED canonical model data. `get_scored` re-scores whenever a context
+    file's mtime is newer than that cache -- and after any fresh checkout,
+    which file is "newer" is decided by the sub-second order git happened to
+    write them in. The re-score then wrote a byte-for-byte different parquet
+    holding the SAME data to within float64 ULP noise (5,315,449 -> 5,315,337
+    bytes; max cell delta 2.84e-14), so an ordinary `pytest tests/` run left
+    the tree dirty. That makes `git status` and `git diff --check` useless as
+    release checks, which is the real cost: a genuine accidental edit to
+    canonical data would look exactly like this permanent, meaningless one.
+
+    Nothing about scoring changes here. The re-score still runs and still takes
+    effect whenever it produces different values -- only the redundant WRITE is
+    skipped.
+
+    The mtime IS still refreshed when the write is skipped, so the cache counts
+    as fresh next run and the re-score does not repeat every time. `touch()`
+    alters no content, and git tracks content, not mtime.
+    """
+    if _parquet_already_holds(df, path):
+        path.touch()
+        return
     try:
         df.to_parquet(path, index=False)
     except Exception:  # pyarrow missing -> CSV fallback
@@ -3557,6 +3634,16 @@ def get_scored(args) -> Tuple[pd.DataFrame, Dict[str, bool]]:
 
     # Invalidate the scored cache if enriched context (or manual overrides) are
     # newer than it, so enrichment takes effect without a manual --rebuild.
+    #
+    # The stale cache is NOT deleted here, only marked. Deleting it threw away
+    # the one thing `save_parquet` needs to tell "the re-score produced new
+    # values" from "the re-score produced the same values it already had" --
+    # and the second case is overwhelmingly the common one, since this
+    # invalidation fires on nothing more than checkout mtime ordering. The
+    # re-score below is unchanged and still authoritative; skipping the
+    # rewrite of an identical file is what keeps a committed artefact from
+    # being dirtied by a plain test run.
+    stale_scored = False
     def _newer(a: Path, b: Path) -> bool:
         return a.exists() and b.exists() and a.stat().st_mtime > b.stat().st_mtime
     if paths["scored"].exists():
@@ -3565,11 +3652,11 @@ def get_scored(args) -> Tuple[pd.DataFrame, Dict[str, bool]]:
             if _newer(src, paths["scored"]):
                 if args.debug:
                     print(f"[debug] {src.name} newer than scored cache; re-scoring")
-                paths["scored"].unlink()
+                stale_scored = True
                 break
 
     # Fast path: cached scored data, no rebuild requested.
-    scored = None if (args.rebuild or refresh) else load_parquet(paths["scored"])
+    scored = None if (args.rebuild or refresh or stale_scored) else load_parquet(paths["scored"])
     # We always merge optional files (cheap) to refresh confidence flags.
     _, flags = merge_optional(pd.DataFrame({"player": [], "season_end": []}),
                               debug=args.debug)
