@@ -10,6 +10,8 @@ import {
   respinTeam,
   selectPlayer,
   swapSlots,
+  undoIdempotencyKey,
+  undoLastPlacement,
   PerfectSeasonAPIError,
 } from "@/lib/perfect-season-api";
 import { uiPhaseFromStatus } from "@/lib/court-state";
@@ -95,8 +97,13 @@ export default function CourtBuilder({
   // open slot (nothing displaced) still executes on the first click, backed
   // by the Undo toast below instead of a confirmation step.
   const [pendingSwapConfirm, setPendingSwapConfirm] = useState<{ from: SlotType; to: SlotType } | null>(null);
-  // Launch-polish §5, gap 2: the one-line, auto-dismissing receipt for the
-  // last placement or swap, with a single reversing/redirecting action.
+  // Launch-polish LP2-2: the one-line, auto-dismissing receipt for the last
+  // placement or swap, with a single REAL reversing action (see
+  // `performUndo` below). The toast's own visible duration is not a
+  // separate client-invented timer -- it is derived from the SAME
+  // `undo.expires_at` the server enforces server-side (state.py's
+  // UNDO_WINDOW_SECONDS), so the affordance disappears exactly when the
+  // server would start rejecting it, never later.
   const [actionToast, setActionToast] = useState<{
     message: string;
     actionLabel: string;
@@ -107,11 +114,18 @@ export default function CourtBuilder({
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     setActionToast(null);
   }, []);
-  const showToast = useCallback((message: string, actionLabel: string, onAction: () => void) => {
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
-    setActionToast({ message, actionLabel, onAction });
-    toastTimerRef.current = window.setTimeout(() => setActionToast(null), 8000);
-  }, []);
+  const showToast = useCallback(
+    (message: string, actionLabel: string, onAction: () => void, expiresAt?: string | null) => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      setActionToast({ message, actionLabel, onAction });
+      // Falls back to 8s only if the server ever omits `expires_at` (it
+      // does not, for a successful place/swap) -- defensive, not the
+      // normal path.
+      const durationMs = expiresAt ? Math.max(0, new Date(expiresAt).getTime() - Date.now()) : 8000;
+      toastTimerRef.current = window.setTimeout(() => setActionToast(null), durationMs);
+    },
+    [],
+  );
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
@@ -190,22 +204,57 @@ export default function CourtBuilder({
     if (next) setState(next);
   }
 
+  // Launch-polish LP2-2: the ONE place a real Undo is ever requested from.
+  //
+  // Takes `gameId`/`expectedVersion` as PARAMETERS, captured by the caller
+  // from the server response that made the toast appear (`next.game_id`,
+  // `next.state_version`) -- deliberately NOT read from the component's own
+  // `state` at call time. `showToast`'s `onAction` closure is created
+  // inside `handlePlace`/`performSwap` during the render that just called
+  // `setState(next)`; React state updates are async, so `state` in THAT
+  // closure is still last render's value until the next render actually
+  // happens. Reading `state.state_version` here instead of `next.state_version`
+  // would send the version from BEFORE the placement/swap that produced the
+  // very toast the user is clicking -- an `expected_state_version` that is
+  // stale by exactly one, on every single click, for no reason a player
+  // could ever explain. Capturing the exact value the server already
+  // returned sidesteps the whole class of bug.
+  const performUndo = useCallback(
+    async (gameId: string, expectedVersion: number) => {
+      const key = undoIdempotencyKey(gameId, expectedVersion);
+      const next = await withBusy(() => undoLastPlacement(gameId, expectedVersion, key));
+      // Dismissed either way. A rejection here is always one of three
+      // server-authoritative, already-player-legible reasons (surfaced
+      // through the ordinary `error` banner by `withBusy` itself, same as
+      // any other action): the window expired, an intervening action
+      // superseded it, or the caller fell out of sync -- re-showing the
+      // same Undo button would just fail again the same way.
+      dismissToast();
+      if (next) setState(next);
+    },
+    [dismissToast],
+  );
+
   async function handlePlace(slotType: SlotType) {
     const next = await withBusy(() => placeCard(state.game_id, slotType));
     if (next) {
       setState(next);
-      // Launch-polish §5, gap 2. There is no backend action that removes a
-      // placed card (`action_place_card` in state.py has no inverse -- see
-      // the comment on `performSwap` below for the same limit on swaps), so
-      // this is honestly labeled "Move", not "Undo": it jumps straight into
-      // rearrange mode with the just-placed card preselected as the source,
-      // which is the fastest real correction path that exists today, rather
-      // than claiming a full reversal the API cannot actually perform.
+      // Launch-polish LP2-2: a REAL Undo now exists
+      // (state.py::action_undo_last_placement), so the toast offers exactly
+      // that -- not the old "Move" shortcut into rearrange mode, which was
+      // an honest label for a real limitation that no longer exists.
+      // `next.undo` is computed by the server the same way the undo action
+      // itself validates, so this can never offer an Undo the endpoint
+      // would actually refuse.
       const placed = next.slots.find((s) => s.slot_type === slotType);
-      if (placed?.player_name) {
-        showToast(`Placed ${placed.player_name} in ${SLOT_LABELS[slotType]}.`, "Move", () => {
-          setMovingSlot(slotType);
-        });
+      if (placed?.player_name && next.undo.available) {
+        const { game_id: gameId, state_version: expectedVersion, undo } = next;
+        showToast(
+          `Placed ${placed.player_name} in ${SLOT_LABELS[slotType]}.`,
+          "Undo",
+          () => void performUndo(gameId, expectedVersion),
+          undo.expires_at,
+        );
       }
     }
   }
@@ -252,37 +301,37 @@ export default function CourtBuilder({
    * slots' role_fit, so the roster count and every card's data are preserved
    * by construction (see state.py::action_swap_slots).
    *
-   * Launch-polish §5, gap 2: `action_swap_slots` is its own exact inverse --
-   * calling it a second time with the same two slot types puts both cards
-   * back exactly where they started, including their recomputed role_fit.
-   * That symmetry is what makes a REAL "Undo" (not the honestly-weaker
-   * "Move" shortcut `handlePlace` above has to settle for) possible here:
-   * `opts.silent` is set on exactly that reversing call, so undoing an undo
-   * -- or a toast surviving long enough to fire twice -- can never chain
-   * into a second toast.
+   * Launch-polish LP2-2: the toast's Undo now goes through the same
+   * authoritative `performUndo` `handlePlace` uses -- not a second call to
+   * `swapSlots` with the arguments reversed. The old client-side trick
+   * (re-swap the same two slots) happened to also be correct here, since a
+   * swap is its own inverse, but it had no server-enforced window, no
+   * protection against an intervening action superseding it, and no
+   * idempotency guard beyond `busy`. `action_undo_last_placement` gives all
+   * three for free and unifies place/swap behind one endpoint, so there is
+   * no reason left to keep the bespoke path.
    */
   const performSwap = useCallback(
-    async (from: SlotType, to: SlotType, opts?: { silent?: boolean }) => {
+    async (from: SlotType, to: SlotType) => {
       // Captured BEFORE the request, not read off `next` afterward -- once
       // the swap lands, "from" holds whoever USED to be in "to". The toast
-      // and the Undo closure both need to know who was where beforehand.
+      // needs to know who was where beforehand.
       const beforeFrom = state.slots.find((s) => s.slot_type === from);
       const beforeTo = state.slots.find((s) => s.slot_type === to);
       const next = await withBusy(() => swapSlots(state.game_id, from, to));
       if (!next) return next;
       setState(next);
-      if (!opts?.silent) {
+      if (next.undo.available) {
         const wasSwap = !!beforeFrom?.filled && !!beforeTo?.filled;
         const message = wasSwap
           ? `Swapped ${beforeFrom?.player_name ?? SLOT_LABELS[from]} and ${beforeTo?.player_name ?? SLOT_LABELS[to]}.`
           : `Moved ${beforeFrom?.player_name ?? "the card"} to ${SLOT_LABELS[to]}.`;
-        showToast(message, "Undo", () => {
-          void performSwap(to, from, { silent: true });
-        });
+        const { game_id: gameId, state_version: expectedVersion, undo } = next;
+        showToast(message, "Undo", () => void performUndo(gameId, expectedVersion), undo.expires_at);
       }
       return next;
     },
-    [state.game_id, state.slots, showToast],
+    [state.game_id, state.slots, showToast, performUndo],
   );
 
   /** The click on a swap-target slot. Only the higher-stakes case --
