@@ -43,6 +43,7 @@ from typing import Any, Optional, Sequence
 
 from app.repositories.arena_rating_protocols import ArenaPlayerStats
 from app.repositories.arena_protocols import (
+    InvalidIdempotencyKey,
     LIVE_MATCH_STATUSES,
     MATCH_STATUS_COMPLETED,
     MATCH_STATUS_EXPIRED,
@@ -681,18 +682,38 @@ class PostgresArenaRepository:
         version_before: int,
         version_after: int,
     ) -> None:
-        await conn.execute(
-            """
-            INSERT INTO arena_match_commands
-                (match_id, idempotency_key, actor_seat_index, actor_sub,
-                 command_type, payload, accepted, rejection_code,
-                 state_version_before, state_version_after, created_at)
-            VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,NOW())
-            """,
-            request.match_id, request.idempotency_key, request.actor_seat_index,
-            request.actor_sub, request.command_type, json.dumps(request.payload),
-            accepted, rejection_code, version_before, version_after,
-        )
+        try:
+            await conn.execute(
+                """
+                INSERT INTO arena_match_commands
+                    (match_id, idempotency_key, actor_seat_index, actor_sub,
+                     command_type, payload, accepted, rejection_code,
+                     state_version_before, state_version_after, created_at)
+                VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,NOW())
+                """,
+                request.match_id, request.idempotency_key, request.actor_seat_index,
+                request.actor_sub, request.command_type, json.dumps(request.payload),
+                accepted, rejection_code, version_before, version_after,
+            )
+        except asyncpg.CheckViolationError as exc:
+            # The key-length CHECK, surfaced as a DOMAIN exception rather than a
+            # driver one. Without this the two backends fail differently for the
+            # same bad input -- `InvalidIdempotencyKey` in memory, an
+            # `asyncpg.CheckViolationError` here -- and a caller could not catch
+            # the Postgres case without importing asyncpg, which is exactly the
+            # leak `head_to_head_postgres.py:234-235` converts for
+            # UniqueViolationError. A route turns the domain exception into a
+            # 400 (malformed request); the driver exception would have become a
+            # 500 (server fault).
+            #
+            # Nothing reaches this today: `SubmitCommandRequest.idempotency_key`
+            # is `Field(..., min_length=8, max_length=128)` (models/arena.py:213),
+            # so a short key from a real client is a 422 at the boundary. This
+            # closes the SERVER-issued and internal paths, which have no such
+            # guard.
+            if "idempotency_key" in str(exc):
+                raise InvalidIdempotencyKey(str(exc)) from exc
+            raise
 
     # -- turns and the clock ------------------------------------------------
 
