@@ -320,7 +320,37 @@ worse than no test, because it is green.**
 | API unit | 1289 | **1504** |
 | API integration (real Postgres) | 95 | **96+** |
 | Frontend vitest | 1397 / 56 files | **1538 / 61 files** |
-| Playwright | 351 / 12 files | **352 / 12 files** |
+| Playwright + axe | 351 / 12 files | **352 / 12 files, 0 retries, 0 flaky** |
+
+Zero retries is verified at source, not inferred: `scripts/ci/e2e-tests.sh`
+exports `PLAYWRIGHT_RETRIES=0` and `playwright.config.ts:17` reads it.
+
+Every raw e2e run, in order, including the ones that failed:
+
+| Run | Exit | Result | Note |
+| --- | --- | --- | --- |
+| 1 | 0 | 351 passed, 0 failed | baseline, all six streams merged, before any spec edit |
+| 2 | 1 | 351 passed, **1 failed** | rankings axe contrast — diagnosed below |
+| 3 | 1 | 328 passed, 24 failed | **INVALID** — `ERR_CONNECTION_REFUSED`; two concurrent e2e runs collided on ports 3000/8000 |
+| 4 | 127 | — | bad path, not a test result |
+| 5 | 0 | **352 passed, 0 failed** | final |
+
+**Run 1 is the load-bearing result**: the pre-existing matrix passed clean with
+all six streams merged, before any spec was touched. Nothing this pass shipped —
+the v4 ruleset bump, the new boss copy, the `locked` flag, the restart control —
+broke a single existing spec, and no spec was changed to make that true.
+
+**The one real failure (run 2) was a spec bug, and the fix is stricter.**
+`rankings.spec.ts:434` reported a serious contrast violation at 4.41:1 against a
+4.5:1 requirement, `#7d8193` on `#191c23`. But `--text-muted` is `#838799`, not
+`#7d8193`; solving for alpha gives ~0.945 uniformly across all three channels —
+axe scanned the token **composited at 94.5% opacity**, i.e. mid-way through the
+dialog's entrance ramp. At rest the same pair computes **4.78:1 and passes AA**.
+`toBeVisible` resolves as soon as an element has a box, which is true part-way
+through a fade, so whether the scan landed mid-ramp depended on machine load.
+The spec now polls until computed opacity is exactly `1` before auditing — it
+audits the state a user actually reads, and a genuine contrast regression at
+rest still fails exactly as before.
 
 Also: 21 RTT hard invariants over 16,000 runs, 37 arena schema invariants probed
 individually, 13 RLS probes as the real `anon` role.
@@ -347,15 +377,48 @@ individually, 13 RLS probes as the real `anon` role.
    was ever written. Three candidates remain and cannot be distinguished without
    hosted evidence: saved instead of submitted, `handle_required`, or an
    ineligible roster. The fix is designed and deliberately unimplemented.
-5. **Browser acceptance matrix largely unverified** — tablet, screen reader,
-   150%/200% zoom, dark/light themes. Unit tests assert structure; nobody has
-   seen these surfaces in a browser.
-6. **`main` has no branch protection**, so every result here is advisory.
-7. **Memory/Postgres divergence recorded, not closed**: the memory rating
+5. **AXE COVERAGE FOR ALL THREE NEW SURFACES IS ZERO.** Each was probed rather
+   than assumed, and none is reachable in the e2e environment:
+
+   | Surface | Probe result |
+   | --- | --- |
+   | `/arena/lobby` | HTTP 200, renders `lobby-disabled` — "The Arena is not open yet." Flag-gated OFF in the e2e env. |
+   | `/arena/three-man-weave` | HTTP 200, renders `tmw-start-gate` + `tmw-unavailable`. Marketing copy only; the board never mounts. |
+   | `/arena/twenty-dollar/{id}` | HTTP 200, renders `td-error` — requires auth. |
+
+   Reaching them needs either new flags in `scripts/ci/e2e-tests.sh` or an
+   authenticated fixture; neither was added. **The 14 passing axe tests cover
+   pre-existing surfaces plus the RTT restart dialog — not the two new games or
+   the lobby.** Incidental finding while probing: `/arena/lobby` and
+   `/arena/twenty-dollar` render **no `<h1>`** in their gated states.
+
+6. **Browser acceptance matrix — covered versus assumed**, evidence-based:
+
+   | Item | State |
+   | --- | --- |
+   | Desktop | ✅ chromium project, all 352 |
+   | Mobile | ⚠️ `mobile-chrome` (Pixel 5) runs only `@mobile`-tagged tests — **28 across 11 files**; everything else is desktop-only |
+   | Keyboard | ✅ 7 of 12 spec files drive real key presses |
+   | Refresh / resume | ✅ 6 files use `page.reload` |
+   | Signed-out rejection | ✅ 4 spec files |
+   | Handle onboarding | ✅ 4 spec files |
+   | Reduced motion | ⚠️ two spec files only |
+   | ARIA naming | ✅ via axe on 14 surfaces |
+   | **Tablet** | ❌ **no Playwright project exists** between Pixel 5 and desktop |
+   | **150% zoom** | ❌ not tested anywhere |
+   | **200% zoom** | ❌ one approximation only — a 720×450 viewport as a proxy. That is a viewport resize, **not browser zoom**: it does not reproduce text reflow or rem scaling |
+   | **Screen reader** | ❌ no AT driven. axe checks names/roles **exist**; nobody verifies what NVDA/VoiceOver announces |
+   | **Dark / light themes** | ❌ every axe run audited **one theme (dark)**. Light theme is **entirely unaudited** |
+   | **Reconnect** | ❌ reload is covered; genuine network-drop/reconnect is not |
+
+   The three largest honest gaps: **light theme is unaudited by axe, real zoom is
+   untested, and no screen reader has been run.**
+7. **`main` has no branch protection**, so every result here is advisory.
+8. **Memory/Postgres divergence recorded, not closed**: the memory rating
    repository does not reproduce the `arena_rating_history.match_id` foreign
    key. Closing it would require a rating repository to depend on a match
    repository, inverting the separation that justified splitting them.
-8. **`apps/web/src/tests/setup.ts` has no timer restoration** while eight files
+9. **`apps/web/src/tests/setup.ts` has no timer restoration** while eight files
    call `vi.useFakeTimers()`. A latent hazard across all 61 files.
 
 **Two bugs found that were not in scope, both real and both fixed:**
