@@ -27,6 +27,7 @@ import {
   getRun,
   getRunReadiness,
   postRunAction,
+  restartRun,
   runActions,
 } from "@/lib/run-the-table-api";
 import {
@@ -64,6 +65,7 @@ import DraftRoom from "./DraftRoom";
 import TradeDesk from "./TradeDesk";
 import ChoiceNode from "./ChoiceNode";
 import RunHUD from "./RunHUD";
+import RestartRunControl from "./RestartRunControl";
 import BossIntro from "./BossIntro";
 import BossPreview from "./BossPreview";
 import BattleReveal from "./BattleReveal";
@@ -676,6 +678,33 @@ export default function RunTheTableGame({
     trackRunTheTable({ type: "rtt_run_started", run_type: next.run_type, seed: next.seed });
   }
 
+  /**
+   * Abandon the run in progress SERVER-SIDE and switch to its successor.
+   *
+   * Deliberately not `clearActiveRun()` + `handleStart()`. Clearing the local
+   * pointer would leave the old run live on the server -- resumable from any
+   * other tab, and countable by anything that reads runs -- which is the exact
+   * defect this flow exists to close. `commit` then repoints local storage at
+   * whatever the server returned, so a refresh mid-flow lands on the new run
+   * and can never resurrect the abandoned one.
+   *
+   * Throws on failure so the dialog can stay open and say so; the run in
+   * progress is untouched in that case.
+   */
+  const handleRestart = useCallback(async () => {
+    if (!state) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const next = await restartRun(state.run_id, state.action_count);
+      commit(next);
+      setLiveMessage("New run started. The previous run was abandoned.");
+      announceStarted(next);
+    } finally {
+      setBusy(false);
+    }
+  }, [state, commit]);
+
   const handleStart = useCallback(
     async (runType: RunType) => {
       setResumeNotice(null);
@@ -1202,7 +1231,24 @@ export default function RunTheTableGame({
           progress and the current objective, always visible above the
           three-zone grid. Spans the full shell width via `.rtt-hud`'s
           `grid-column: 1 / -1` (rtt-polish.css). */}
-      <RunHUD state={state} objective={objective} scoutIntel={activeScoutIntel} />
+      <RunHUD
+        state={state}
+        objective={objective}
+        scoutIntel={activeScoutIntel}
+        restartControl={
+          /* Only while the run is still live. A concluded run already offers
+             "Run it back" on the result screen, which creates a new run WITHOUT
+             abandoning anything -- a finished run is a result the player earned
+             and must never be relabelled. */
+          !isTerminal(state.status) ? (
+            <RestartRunControl
+              canRestart={state.can_restart !== false}
+              busy={busy}
+              onConfirm={handleRestart}
+            />
+          ) : null
+        }
+      />
 
       {/* Zone 1 — the ladder. Desktop only; a phone gets the progress strip
           inside the decision column instead (DOM order: strip, surface,

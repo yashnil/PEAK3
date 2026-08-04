@@ -850,6 +850,16 @@ export interface RunPublicState {
   /** v3: the published price list, for a run-level rules panel. */
   credit_sinks?: CreditSink[];
   action_count: number;
+  /** v4 restart surface. `abandoned` and `concluded` are different questions:
+   *  an abandoned run is over but was never PLAYED to a conclusion, so it has
+   *  no receipt and earns nothing. `can_restart` is a rules fact the server
+   *  owns -- a daily is a single attempt and offers no restart at all. */
+  abandoned?: boolean;
+  abandoned_at?: string | null;
+  successor_run_id?: string | null;
+  concluded?: boolean;
+  can_restart?: boolean;
+  restart_blocked_reason?: string | null;
   receipt: RunReceipt | null;
   versions: RunVersions;
   created_at: string;

@@ -22,6 +22,7 @@ const mockGetRun = vi.fn();
 const mockCreateRun = vi.fn();
 const mockPostAction = vi.fn();
 const mockGetChallenge = vi.fn();
+const mockRestartRun = vi.fn();
 
 vi.mock("@/lib/run-the-table-api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/run-the-table-api")>(
@@ -36,6 +37,7 @@ vi.mock("@/lib/run-the-table-api", async () => {
     createRun: (...a: unknown[]) => mockCreateRun(...a),
     postRunAction: (...a: unknown[]) => mockPostAction(...a),
     createChallenge: vi.fn(),
+    restartRun: (...a: unknown[]) => mockRestartRun(...a),
     getChallenge: (...a: unknown[]) => mockGetChallenge(...a),
   };
 });
@@ -61,6 +63,7 @@ vi.mock("@/lib/a11y", async () => {
 
 import RunTheTableGame from "@/components/run-the-table/RunTheTableGame";
 import CreditSinks from "@/components/run-the-table/CreditSinks";
+import RestartRunControl from "@/components/run-the-table/RestartRunControl";
 import ScoutPrepare from "@/components/run-the-table/ScoutPrepare";
 import { runActions } from "@/lib/run-the-table-api";
 import {
@@ -68,6 +71,7 @@ import {
   needsOpeningReveal,
   skipAllCount,
 } from "@/lib/run-the-table-state";
+import { RUN_THE_TABLE_STORAGE_KEY } from "@/types/run-the-table";
 import type {
   ActiveNode,
   BossRevealTrack,
@@ -1244,5 +1248,218 @@ describe("RunTray — armed effects", () => {
     };
     await mount(armedState({ reserved_card: spent }));
     expect(screen.queryByTestId("rtt-armed")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Start New Run / abandon (v4)
+// ---------------------------------------------------------------------------
+
+describe("Start New Run — the abandon flow", () => {
+  function liveRun(over: Partial<RunPublicState> = {}): RunPublicState {
+    // A run in progress: past the opening reveal, mid-act, not terminal.
+    return runState({
+      status: "node_select",
+      act: 2,
+      stage: 1,
+      action_count: 7,
+      can_restart: true,
+      abandoned: false,
+      concluded: false,
+      reveal: { roster: rosterTrack(7), boss: null },
+      stage_options: [
+        { node_id: "a2s1o0", node_type: "draft_room", title: "Draft Room", summary: "s" },
+        { node_id: "a2s1o1", node_type: "rest_bank", title: "Rest / Bank", summary: "s" },
+      ],
+      ...over,
+    });
+  }
+
+  async function openRun(state: RunPublicState) {
+    mockGetRun.mockResolvedValue(state);
+    window.localStorage.setItem(
+      RUN_THE_TABLE_STORAGE_KEY,
+      JSON.stringify({
+        schema_version: 1,
+        run_id: state.run_id,
+        seed: state.seed,
+        run_type: state.run_type,
+        run_date: state.date,
+        updated_at: "2026-08-01T00:00:00.000Z",
+      }),
+    );
+    render(<RunTheTableGame />);
+    await screen.findByTestId("rtt-hud");
+  }
+
+  it("offers Start New Run as a secondary control while a run is unfinished", async () => {
+    await openRun(liveRun());
+    const trigger = await screen.findByTestId("rtt-start-new-run");
+    expect(trigger).toBeInTheDocument();
+    // SECONDARY: transparent, bordered, muted — never the filled accent the
+    // primary actions in this app use.
+    expect(trigger.style.background).toBe("transparent");
+    // And no dialog until it is pressed: reading a run never risks ending it.
+    expect(screen.queryByTestId("rtt-restart-dialog")).not.toBeInTheDocument();
+  });
+
+  it("does not offer it for a daily run, which is a single attempt", () => {
+    // Driven through the control directly rather than through a resumed daily
+    // pointer: what is under test is that `can_restart: false` renders NOTHING,
+    // and routing it through the daily-freshness plumbing would make this a
+    // test of that instead. The server half (409 `daily_not_restartable`) is
+    // covered in `apps/api/tests/test_run_the_table.py`.
+    render(
+      <RestartRunControl canRestart={false} busy={false} onConfirm={async () => {}} />,
+    );
+    expect(screen.queryByTestId("rtt-start-new-run")).not.toBeInTheDocument();
+  });
+
+  it("does not offer it once the run is over — a result is never abandoned", async () => {
+    await openRun(liveRun({ status: "complete", concluded: true }));
+    expect(screen.queryByTestId("rtt-start-new-run")).not.toBeInTheDocument();
+  });
+
+  it("explains that the run will be abandoned and cannot be resumed", async () => {
+    const user = userEvent.setup();
+    await openRun(liveRun());
+    await user.click(screen.getByTestId("rtt-start-new-run"));
+
+    const dialog = await screen.findByTestId("rtt-restart-dialog");
+    expect(dialog).toHaveAttribute("role", "dialog");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    // An accessible NAME, not just visible text.
+    expect(dialog).toHaveAccessibleName("Start a new run?");
+    const body = screen.getByTestId("rtt-restart-dialog-body");
+    expect(body.textContent).toMatch(/abandoned/i);
+    expect(body.textContent).toMatch(/cannot be resumed/i);
+    expect(dialog).toHaveAttribute("aria-describedby", body.id);
+  });
+
+  it("focuses the non-destructive choice, so a keyboard lands on Cancel", async () => {
+    const user = userEvent.setup();
+    await openRun(liveRun());
+    await user.click(screen.getByTestId("rtt-start-new-run"));
+    await screen.findByTestId("rtt-restart-dialog");
+    await waitFor(() =>
+      expect(screen.getByTestId("rtt-restart-cancel")).toHaveFocus(),
+    );
+  });
+
+  it("cancels without calling the server, and the run is untouched", async () => {
+    const user = userEvent.setup();
+    await openRun(liveRun());
+    await user.click(screen.getByTestId("rtt-start-new-run"));
+    await screen.findByTestId("rtt-restart-dialog");
+
+    await user.click(screen.getByTestId("rtt-restart-cancel"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("rtt-restart-dialog")).not.toBeInTheDocument(),
+    );
+    expect(mockRestartRun).not.toHaveBeenCalled();
+    expect(screen.getByTestId("rtt-hud")).toBeInTheDocument();
+  });
+
+  it("cancels on Escape", async () => {
+    const user = userEvent.setup();
+    await openRun(liveRun());
+    await user.click(screen.getByTestId("rtt-start-new-run"));
+    await screen.findByTestId("rtt-restart-dialog");
+    // Focus moves in on the next animation frame; pressing Escape before that
+    // would be testing the race, not the behaviour.
+    await waitFor(() =>
+      expect(screen.getByTestId("rtt-restart-cancel")).toHaveFocus(),
+    );
+
+    await user.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByTestId("rtt-restart-dialog")).not.toBeInTheDocument(),
+    );
+    expect(mockRestartRun).not.toHaveBeenCalled();
+  });
+
+  it("restarts SERVER-SIDE on confirm, sending the expected action count", async () => {
+    const user = userEvent.setup();
+    const live = liveRun();
+    const successor = runState({ run_id: "run-new", action_count: 0, status: "system_select" });
+    mockRestartRun.mockResolvedValue(successor);
+    await openRun(live);
+
+    await user.click(screen.getByTestId("rtt-start-new-run"));
+    await user.click(await screen.findByTestId("rtt-restart-confirm"));
+
+    await waitFor(() => expect(mockRestartRun).toHaveBeenCalledTimes(1));
+    // The run id AND the optimistic-concurrency token the dialog was opened
+    // against — not a bare call, or a stale confirm could discard progress.
+    expect(mockRestartRun).toHaveBeenCalledWith(live.run_id, live.action_count);
+  });
+
+  it("never clears local state instead of calling the server", async () => {
+    const user = userEvent.setup();
+    const live = liveRun();
+    mockRestartRun.mockResolvedValue(runState({ run_id: "run-new", action_count: 0 }));
+    await openRun(live);
+
+    await user.click(screen.getByTestId("rtt-start-new-run"));
+    await user.click(await screen.findByTestId("rtt-restart-confirm"));
+    await waitFor(() => expect(mockRestartRun).toHaveBeenCalled());
+
+    // The stored pointer must now name the SUCCESSOR, not be empty. An empty
+    // pointer would mean the client had "restarted" by forgetting, leaving the
+    // old run live on the server.
+    const stored = JSON.parse(
+      window.localStorage.getItem(RUN_THE_TABLE_STORAGE_KEY) ?? "{}",
+    );
+    expect(stored.run_id).toBe("run-new");
+  });
+
+  it("keeps the dialog open and says so when the server refuses", async () => {
+    const user = userEvent.setup();
+    mockRestartRun.mockRejectedValue(new Error("This run has moved on."));
+    await openRun(liveRun());
+
+    await user.click(screen.getByTestId("rtt-start-new-run"));
+    await user.click(await screen.findByTestId("rtt-restart-confirm"));
+
+    const err = await screen.findByTestId("rtt-restart-error");
+    expect(err).toHaveTextContent("This run has moved on.");
+    expect(screen.getByTestId("rtt-restart-dialog")).toBeInTheDocument();
+  });
+
+  it("is reachable and operable by keyboard alone", async () => {
+    const user = userEvent.setup();
+    mockRestartRun.mockResolvedValue(runState({ run_id: "run-new" }));
+    await openRun(liveRun());
+
+    const trigger = screen.getByTestId("rtt-start-new-run");
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+    await user.keyboard("{Enter}");
+    await screen.findByTestId("rtt-restart-dialog");
+    await waitFor(() =>
+      expect(screen.getByTestId("rtt-restart-cancel")).toHaveFocus(),
+    );
+
+    // Both choices are focusable native buttons, so a keyboard can reach and
+    // operate them. The focus TRAP is the shared `Dialog`'s and has its own
+    // coverage in `ui-primitives`; what this asserts is that THIS dialog put
+    // real buttons in it rather than click-only divs.
+    const confirm = screen.getByTestId("rtt-restart-confirm");
+    expect(confirm.tagName).toBe("BUTTON");
+    expect(screen.getByTestId("rtt-restart-cancel").tagName).toBe("BUTTON");
+    confirm.focus();
+    expect(confirm).toHaveFocus();
+    await user.click(confirm);
+    await waitFor(() => expect(mockRestartRun).toHaveBeenCalledTimes(1));
+  });
+
+  it("returns focus to the trigger when the dialog closes", async () => {
+    const user = userEvent.setup();
+    await openRun(liveRun());
+    const trigger = screen.getByTestId("rtt-start-new-run");
+    await user.click(trigger);
+    await screen.findByTestId("rtt-restart-dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 });
