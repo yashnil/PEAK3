@@ -361,6 +361,48 @@ class ArenaRepositoryError(RuntimeError):
     """Base class for arena repository invariant violations."""
 
 
+#: Bounds on an idempotency key, mirrored from the schema.
+#:
+#: `arena_match_commands.idempotency_key` carries
+#: `CHECK (char_length(idempotency_key) BETWEEN 8 AND 128)`
+#: (20260804100000_arena_foundation.sql:335). Postgres enforced it and the
+#: memory backend did not, so a key shorter than 8 characters passed the whole
+#: unit suite and raised CheckViolationError only against a real database --
+#: found by `test_repository_conformance.py`, which exists for exactly this.
+#:
+#: These constants are the schema's numbers restated ONCE so both backends read
+#: the same source. A lower bound at all is deliberate: a one-character key is
+#: almost always a placeholder rather than a real client-generated token, and a
+#: placeholder that collides silently replays somebody else's verdict.
+IDEMPOTENCY_KEY_MIN_LENGTH = 8
+IDEMPOTENCY_KEY_MAX_LENGTH = 128
+
+
+class InvalidIdempotencyKey(ArenaRepositoryError):
+    """The key is outside the length the schema accepts.
+
+    Raised by BOTH backends, so a caller cannot pass a key that works in tests
+    and fails in production. Distinct from a generic ValueError so a route can
+    answer 400 rather than 500 -- this is a malformed request, not a server
+    fault.
+    """
+
+
+def validate_idempotency_key(key: str) -> None:
+    """Raise `InvalidIdempotencyKey` unless `key` satisfies the schema's CHECK.
+
+    Called by the memory backend to reproduce a constraint Postgres applies for
+    free. The Postgres path does not call it: letting the database be the one
+    that enforces its own constraint keeps a single source of truth there, and
+    the conformance suite asserts both surfaces raise.
+    """
+    if not (IDEMPOTENCY_KEY_MIN_LENGTH <= len(key) <= IDEMPOTENCY_KEY_MAX_LENGTH):
+        raise InvalidIdempotencyKey(
+            f"idempotency_key must be {IDEMPOTENCY_KEY_MIN_LENGTH}..."
+            f"{IDEMPOTENCY_KEY_MAX_LENGTH} characters, got {len(key)}"
+        )
+
+
 class MatchNotFound(ArenaRepositoryError):
     """No such match. Distinguished from 'not your match' so a route can answer
     404 and 403 separately -- the same split `RunTheTableRunRepository.get_run`

@@ -248,6 +248,15 @@ class MemoryArenaRepository:
         reducer: MatchReducer,
         now: datetime,
     ) -> CommandOutcome:
+        # Reproduce the schema's key-length CHECK. Postgres enforces it and this
+        # backend did not, so a short key passed every unit test and failed only
+        # against a real database. Validated BEFORE the lock and before the
+        # idempotency lookup, because a key the database would reject must never
+        # become a recorded verdict that a later replay would return.
+        from app.repositories.arena_protocols import validate_idempotency_key
+
+        validate_idempotency_key(request.idempotency_key)
+
         async with self._lock_for(request.match_id):
             match = self._matches.get(request.match_id)
             if match is None:

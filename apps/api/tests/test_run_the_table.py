@@ -834,9 +834,9 @@ def test_idempotent_boss_resolution_does_not_double_resolve(client: TestClient):
         state = _act(client, state["run_id"], **_next_action(state))
 
     first = _act(client, state["run_id"],
-                 action_type="resolve_boss", idempotency_key="boss-1")
+                 action_type="resolve_boss", idempotency_key="boss-1-idem-key")
     second = _act(client, state["run_id"],
-                  action_type="resolve_boss", idempotency_key="boss-1")
+                  action_type="resolve_boss", idempotency_key="boss-1-idem-key")
     assert len(second["battles"]) == len(first["battles"]) == 1
     assert second["lives"] == first["lives"]
     assert second["credits"] == first["credits"]
@@ -1487,8 +1487,8 @@ def test_reveal_rejects_an_unknown_target(client: TestClient):
 
 def test_reveal_is_idempotent_by_key(client: TestClient):
     state = _create(client, seed=30017)
-    first = _act(client, state["run_id"], action_type="reveal", idempotency_key="r1")
-    second = _act(client, state["run_id"], action_type="reveal", idempotency_key="r1")
+    first = _act(client, state["run_id"], action_type="reveal", idempotency_key="r1-idem-key")
+    second = _act(client, state["run_id"], action_type="reveal", idempotency_key="r1-idem-key")
     assert second["reveal"]["roster"]["revealed"] == first["reveal"]["roster"]["revealed"] == 1
     assert second["action_count"] == first["action_count"]
 

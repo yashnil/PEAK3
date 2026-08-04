@@ -77,7 +77,7 @@ def cmd(seat, command_type, payload=None, key="k") -> CommandRequest:
 
 
 TIMEOUT_CMD = CommandRequest(
-    match_id="m1", idempotency_key="t", command_type=COMMAND_TYPE_TIMEOUT,
+    match_id="m1", idempotency_key="t-idem-key", command_type=COMMAND_TYPE_TIMEOUT,
     payload={}, actor_sub=None, actor_seat_index=None,
     expected_state_version=None, issued_at=NOW,
 )
@@ -230,7 +230,7 @@ class TestBidding:
         out = reduce(
             make_match(),
             CommandRequest(
-                match_id="m1", idempotency_key="k", command_type="bid",
+                match_id="m1", idempotency_key="k-idem-key", command_type="bid",
                 payload={"amount": 1}, actor_sub="stranger", actor_seat_index=None,
                 expected_state_version=0, issued_at=NOW,
             ),
