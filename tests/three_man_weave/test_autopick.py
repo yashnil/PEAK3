@@ -73,7 +73,9 @@ def test_auto_pick_takes_the_best_available_by_scoring_card(index, opened_state)
     not by a separate heuristic that could disagree with the result."""
     pick = auto_pick(opened_state, index)
     assert pick.player_slug == "michael-jordan"
-    expected = index.scoring_card("michael-jordan", "1990s").prime_score
+    expected = index.scoring_card(
+        "michael-jordan", opened_state.current_roll.franchise_id, "1990s"
+    ).prime_score
     assert pick.scoring_score == pytest.approx(expected)
 
 

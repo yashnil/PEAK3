@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import health, leaderboards, meta, methodology, peaks, players, game
 from app.api.v1 import seasons
+from app.api.v1 import nba_facts as nba_facts_router
 from app.api.v1 import draft
 from app.api.v1 import auth as auth_router
 from app.api.v1 import profiles as profiles_router
@@ -137,6 +138,10 @@ app.include_router(leaderboards.router, prefix="/api/v1", tags=["leaderboards"])
 app.include_router(peaks.router, prefix="/api/v1", tags=["peaks"])
 app.include_router(seasons.router, prefix="/api/v1", tags=["seasons"])
 app.include_router(meta.router, prefix="/api/v1", tags=["meta"])
+# NBA Fact of the Day. Read-only and precomputed -- general basketball trivia,
+# never a PEAK3 insight; see `nba_peak/nba_facts.py` for why the two are kept
+# apart.
+app.include_router(nba_facts_router.router, prefix="/api/v1", tags=["nba-facts"])
 app.include_router(methodology.router, prefix="/api/v1", tags=["methodology"])
 app.include_router(players.router, prefix="/api/v1", tags=["players"])
 app.include_router(game.router, prefix="/api/v1", tags=["game"])

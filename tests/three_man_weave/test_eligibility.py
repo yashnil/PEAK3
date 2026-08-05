@@ -106,15 +106,89 @@ def test_kawhi_leonard_is_eligible_for_raptors_2010s(index):
     assert evidence[0].team_code == "TOR"
 
 
-def test_kawhi_scoring_card_is_his_best_2010s_season_anywhere(index):
-    """Drafted on Toronto's evidence, scored on San Antonio's season -- the
-    scoring card is decade-wide, never franchise-restricted."""
-    card = index.scoring_card("kawhi-leonard", "2010s")
+def test_kawhi_scoring_card_is_his_best_TORONTO_2010s_season(index):
+    """Drafted on Toronto's evidence, scored on a TORONTO season.
+
+    His best 2010s season anywhere is 2016-17 San Antonio (87.84) and the
+    ruleset deliberately does not use it: a card must belong to the rolled
+    franchise as well as the rolled decade.
+    """
+    card = index.scoring_card("kawhi-leonard", "TOR", "2010s")
     assert card is not None
-    assert card.season == "2016-17"
-    assert card.team_code == "SAS"
-    assert card.prime_score == pytest.approx(87.839, abs=1e-3)
+    assert card.season == "2018-19"
+    assert card.team_code == "TOR"
+    assert card.resolve_team_id == "TOR"
+    assert card.franchise_id == "TOR"
     assert card.decade == "2010s"
+
+    spurs = index.scoring_card("kawhi-leonard", "SAS", "2010s")
+    assert spurs is not None
+    assert spurs.season == "2016-17"
+    assert spurs.prime_score == pytest.approx(87.839, abs=1e-3)
+    # The Spurs season is genuinely better, and is genuinely not available on
+    # a Raptors roll. That is the rule, asserted rather than assumed.
+    assert spurs.prime_score > card.prime_score
+
+
+def test_a_cleveland_2010s_wade_is_never_scored_on_a_miami_season(index):
+    """The exact cross-franchise failure this ruleset was written to close.
+
+    Wade's best 2010s season is 2010-11 Miami (76.5). He also has a real
+    2017-18 Cavaliers stint. A Cleveland roll must produce the Cleveland card,
+    even though it is the far weaker one -- and must never quietly hand over
+    Miami's.
+    """
+    assert index.is_eligible("dwyane-wade", "CLE", "2010s")
+
+    cleveland = index.scoring_card("dwyane-wade", "CLE", "2010s")
+    assert cleveland is not None
+    assert cleveland.franchise_id == "CLE"
+    assert cleveland.season == "2017-18"
+    assert cleveland.resolve_team_id == "CLE"
+    assert franchise_for_team_code(cleveland.resolve_team_id) == "CLE"
+    # 2017-18 was a traded season, so PEAK3's only number for it is the
+    # whole-season aggregate. Real, complete, and labelled as such.
+    assert cleveland.is_multi_team_season
+    assert cleveland.score_source == "exact_season_aggregate"
+
+    miami = index.scoring_card("dwyane-wade", "MIA", "2010s")
+    assert miami is not None
+    assert miami.season == "2010-11"
+    assert miami.resolve_team_id == "MIA"
+    assert cleveland.prime_score < miami.prime_score
+    assert cleveland.season != miami.season
+
+
+def test_no_scoring_card_anywhere_names_another_franchise(index):
+    """The invariant behind the Wade case, over the whole index.
+
+    Every card's `resolve_team_id` must map back to the franchise it was
+    filed under. A single violation is a cross-franchise card.
+    """
+    for (slug, franchise_id, decade), card in index._scoring.items():
+        assert card.franchise_id == franchise_id
+        assert card.decade == decade
+        assert card.player_slug == slug
+        assert franchise_for_team_code(card.resolve_team_id) == franchise_id, (
+            f"{slug} {franchise_id} {decade}: card resolves to "
+            f"{card.resolve_team_id}, which is not {franchise_id}"
+        )
+
+
+def test_a_traded_card_never_borrows_the_other_stints_team(index):
+    """A traded season's card resolves to the ROLLED franchise's own code.
+
+    The fallback rule in the brief: use the team-specific franchise stint when
+    the data supports it, and never present another team's card as this
+    franchise's. For a traded season the score is only available at aggregate
+    grain, but the TEAM is not -- so the team is the rolled one.
+    """
+    multi = [card for card in index._scoring.values() if card.is_multi_team_season]
+    assert multi, "expected some franchise-decade bests to be traded seasons"
+    for card in multi:
+        assert card.team_code in MULTI_TEAM_CODES  # where the SCORE is recorded
+        assert card.resolve_team_id not in MULTI_TEAM_CODES  # who they played for
+        assert franchise_for_team_code(card.resolve_team_id) == card.franchise_id
 
 
 def test_isaiah_thomas_is_eligible_for_celtics_2010s(index):
@@ -166,49 +240,61 @@ def test_grizzlies_2000s_include_vancouver_era_players(index):
 # ---------------------------------------------------------------------------
 # Scoring cards
 # ---------------------------------------------------------------------------
-def test_every_eligible_identity_has_a_scoring_card_in_that_decade(index):
-    """Eligibility requires something to score -- an identity with no scored
-    season in a decade is excluded from it at index-build time rather than
-    being offered and then reported as 0.0."""
+def test_every_eligible_identity_has_a_scoring_card_for_that_roll(index):
+    """Eligibility requires something to score FOR THAT FRANCHISE -- an
+    identity with no scored franchise-decade season is excluded at index-build
+    time rather than being offered and then scored on someone else's team."""
     for franchise_id, decade in index.rolls():
         for slug in index.eligible_slugs(franchise_id, decade):
-            assert index.scoring_card(slug, decade) is not None
+            assert index.scoring_card(slug, franchise_id, decade) is not None
 
 
-def test_scoring_card_is_the_decade_maximum(index):
-    """LeBron's 2010s card is his best 2010s season, not his best overall
-    (which is 2008-09, a 2000s season)."""
-    twenty_tens = index.scoring_card("lebron-james", "2010s")
-    two_thousands = index.scoring_card("lebron-james", "2000s")
-    assert twenty_tens.season == "2012-13"
-    assert two_thousands.season == "2008-09"
-    assert two_thousands.prime_score > twenty_tens.prime_score
+def test_scoring_card_is_the_franchise_decade_maximum(index):
+    """LeBron's Cleveland-2010s card is his best CAVALIERS season of the
+    2010s, and his Miami-2010s card is his best HEAT season of the same
+    decade. Neither is his best 2010s season outright unless that season
+    happens to belong to the franchise being asked about."""
+    cleveland = index.scoring_card("lebron-james", "CLE", "2010s")
+    miami = index.scoring_card("lebron-james", "MIA", "2010s")
+    assert cleveland.season.startswith("201")
+    assert cleveland.resolve_team_id == "CLE"
+    assert miami.season == "2012-13"
+    assert miami.resolve_team_id == "MIA"
+    # Different franchises, different seasons, both inside the decade.
+    assert cleveland.season != miami.season
+    assert cleveland.decade == miami.decade == "2010s"
 
 
 def test_scoring_card_carries_the_formula_version_it_speaks(index):
     """peak3_v1, matching the evaluator. The rankings surfaces serve peak3_v2
     and the two disagree; a card must say which it is."""
-    card = index.scoring_card("michael-jordan", "1990s")
+    card = index.scoring_card("michael-jordan", "CHI", "1990s")
     assert card.formula_version == "peak3_v1"
     assert card.prime_score == pytest.approx(97.533, abs=1e-3)
 
 
-def test_traded_scoring_cards_resolve_to_a_real_single_team(index):
-    """A scoring card that lands on a traded season must still name one real
-    team, because `resolve_player_season_card` rejects aggregate codes."""
-    multi = [card for card in index._scoring.values() if card.is_multi_team_season]
-    assert multi, "expected some decade-best seasons to be traded seasons"
-    for card in multi:
-        assert card.team_code in MULTI_TEAM_CODES
-        assert franchise_for_team_code(card.resolve_team_id) is not None
-        assert card.score_source == "exact_season_aggregate"
-
-
 def test_untraded_scoring_cards_report_a_single_team_stint(index):
-    card = index.scoring_card("michael-jordan", "1990s")
+    card = index.scoring_card("michael-jordan", "CHI", "1990s")
     assert not card.is_multi_team_season
     assert card.score_source == "exact_team_stint"
-    assert card.resolve_team_id == card.team_code
+    assert card.resolve_team_id == card.team_code == "CHI"
+
+
+def test_every_scoring_card_resolves_to_a_real_scored_player_season(index):
+    """The invariant `evaluation` relies on, checked over the whole index.
+
+    A card that did not resolve, or resolved to an unscored season, would
+    reach the evaluator and force it to report an unscoreable roster. The
+    ruleset change narrowed eligibility precisely so this stays true.
+    """
+    from nba_peak.perfect_season.exact_season import resolve_player_season_card
+
+    for (slug, franchise_id, decade), card in index._scoring.items():
+        resolved = resolve_player_season_card(
+            card.player_slug, card.resolve_team_id, card.season
+        )
+        assert resolved is not None, f"{slug} {franchise_id} {decade} does not resolve"
+        assert resolved.score_status == "exact_season_scored"
 
 
 # ---------------------------------------------------------------------------

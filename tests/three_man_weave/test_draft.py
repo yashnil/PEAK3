@@ -276,7 +276,10 @@ def test_every_placement_in_a_completed_match_is_legal(completed_match):
 def test_every_pick_records_the_roll_it_came_from(completed_match, index):
     for pick in completed_match.picks:
         assert index.is_eligible(pick.player_slug, pick.franchise_id, pick.decade)
-        assert index.scoring_card(pick.player_slug, pick.decade) is not None
+        card = index.scoring_card(pick.player_slug, pick.franchise_id, pick.decade)
+        assert card is not None
+        # The card belongs to the roll, not merely to the decade.
+        assert card.franchise_id == pick.franchise_id
 
 
 def test_a_match_is_reproducible_from_its_seed(index, match_driver):

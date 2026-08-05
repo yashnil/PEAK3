@@ -30,8 +30,13 @@ concurrent picks could both pass.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
+from nba_peak.three_man_weave.arrangement import (
+    CandidateFit,
+    fits_for_candidates,
+    validate_arrangement,
+)
 from nba_peak.three_man_weave.config import (
     PARTICIPANT_COUNT,
     ROUNDS,
@@ -218,11 +223,37 @@ def legal_picks(state: DraftState, seat_index: Optional[int] = None) -> dict[str
     return out
 
 
+def candidate_fits(state: DraftState, seat_index: Optional[int] = None) -> dict[str, CandidateFit]:
+    """THE FULL ELIGIBLE POOL for the current roll, each classified for a seat.
+
+    Every undrafted identity the roll made eligible appears, in the roll's own
+    sorted order -- including the ones this seat cannot use. That is the
+    difference from `legal_picks`, which returns only what fits an already-open
+    slot, and it is the point: a drafter needs to see that the roll offered
+    someone good and that their own roster shape is why they cannot take them.
+
+    The identity lock is applied here rather than left to the caller, so a
+    player already taken by ANY seat is absent rather than merely marked.
+    """
+    if state.current_roll is None:
+        return {}
+    seat = state.current_seat if seat_index is None else seat_index
+    if seat is None:
+        return {}
+    drafted = state.drafted_identities()
+    assignment = state.roster(seat).assignment()
+    return fits_for_candidates(
+        assignment,
+        [slug for slug in state.current_roll.eligible_slugs if slug not in drafted],
+    )
+
+
 def apply_pick(
     state: DraftState,
     player_slug: str,
-    slot_type: str,
+    slot_type: Optional[str] = None,
     seat_index: Optional[int] = None,
+    placements: Optional[Mapping[str, str]] = None,
 ) -> DraftState:
     """Commit one selection and advance the turn. Returns a NEW state.
 
@@ -230,6 +261,27 @@ def apply_pick(
     current seat's turn, a roll is revealed, the identity is on that roll,
     the identity is not already taken by anyone, and the slot is open and
     legal for them.
+
+    DRAFTING AND REARRANGING ARE ONE OPERATION
+    -------------------------------------------
+    `placements` is an optional COMPLETE final assignment (slot -> player) for
+    this seat's roster, including the incoming player. When supplied, the pick
+    and whatever repositioning it requires are validated together and applied
+    together: a drafter whose SF and PF are both filled can take another small
+    forward by moving the current SF to the bench in the same command.
+
+    Atomic on purpose. Two commands -- draft, then reposition -- would leave a
+    window in which the roster is legal but not the one the player chose, and
+    a timeout, a disconnect or a concurrent action landing in that window
+    would commit half a decision. Here the caller either gets the whole
+    arrangement or gets a rejection and no change at all; there is no
+    intermediate state to be caught in, which is the same guarantee
+    `positions.apply_reposition` makes for a bare swap.
+
+    `slot_type` may be omitted when `placements` is given -- the slot the
+    incoming player lands on is read from the arrangement. When both are
+    given they must agree, so a client cannot describe two different moves in
+    one payload.
     """
     if state.is_complete:
         raise DraftError("match_complete", "The match is already complete")
@@ -255,6 +307,16 @@ def apply_pick(
         )
 
     roster = state.roster(seat)
+
+    if placements is not None:
+        return _apply_pick_with_arrangement(
+            state, roster, seat, player_slug, slot_type, placements
+        )
+
+    if slot_type is None:
+        raise DraftError(
+            "bad_payload", "a pick needs either a slot_type or a full arrangement"
+        )
     if slot_type not in SLOT_TYPES:
         raise DraftError("unknown_slot", f"'{slot_type}' is not a roster slot")
     if roster.slots.get(slot_type) is not None:
@@ -300,6 +362,129 @@ def apply_pick(
         turn_index=advanced,
         current_roll=state.current_roll if keep_roll else None,
     )
+
+
+def _advance_after_pick(state: DraftState, seat: int, new_roster: Roster, pick: DraftPick) -> DraftState:
+    """Swap in the new roster, record the pick and move the clock on.
+
+    Shared by the plain and the rearranging pick paths so the two cannot drift
+    apart on turn advancement or roll clearing -- the parts that have nothing
+    to do with arrangement and must behave identically either way.
+    """
+    rosters = tuple(
+        new_roster if existing.seat_index == seat else existing for existing in state.rosters
+    )
+    advanced = state.turn_index + 1
+    assert state.current_roll is not None  # callers check
+    next_round = None if advanced >= len(state.order) else state.order[advanced][0]
+    keep_roll = next_round == state.current_roll.round_number
+
+    # Every pick this seat holds is rewritten from the new roster, because a
+    # rearrangement changes the `slot_type` recorded on picks made in earlier
+    # rounds. A pick row that disagreed with the slot holding it would make the
+    # receipt and the board tell two different stories about the same player.
+    by_key = {(p.seat_index, p.player_slug): p for p in new_roster.picks()}
+    picks = tuple(by_key.get((p.seat_index, p.player_slug), p) for p in state.picks)
+
+    return replace(
+        state,
+        rosters=rosters,
+        picks=picks + (by_key[(seat, pick.player_slug)],),
+        turn_index=advanced,
+        current_roll=state.current_roll if keep_roll else None,
+    )
+
+
+def _apply_pick_with_arrangement(
+    state: DraftState,
+    roster: Roster,
+    seat: int,
+    player_slug: str,
+    slot_type: Optional[str],
+    placements: Mapping[str, str],
+) -> DraftState:
+    """The atomic draft-plus-rearrange path. Validated as one final roster."""
+    assert state.current_roll is not None  # caller checks
+
+    try:
+        produced = validate_arrangement(roster.assignment(), placements, incoming=player_slug)
+    except IllegalPlacement as exc:
+        raise DraftError(exc.code, exc.message) from exc
+
+    landed = next(slot for slot, slug in produced.items() if slug == player_slug)
+    if slot_type is not None and slot_type != landed:
+        raise DraftError(
+            "arrangement_mismatch",
+            f"the arrangement puts '{player_slug}' at {landed}, "
+            f"but the command asked for {slot_type}",
+        )
+
+    existing_by_slug = {p.player_slug: p for p in roster.picks()}
+    new_slots: dict[str, Optional[DraftPick]] = {slot: None for slot in SLOT_TYPES}
+    incoming: Optional[DraftPick] = None
+    for slot, slug in produced.items():
+        if slug is None:
+            continue
+        if slug == player_slug:
+            incoming = DraftPick(
+                seat_index=seat,
+                round_number=state.current_roll.round_number,
+                slot_type=slot,
+                player_slug=player_slug,
+                franchise_id=state.current_roll.franchise_id,
+                decade=state.current_roll.decade,
+            )
+            new_slots[slot] = incoming
+        else:
+            # A moved pick keeps its own round, franchise and decade -- those
+            # are facts about when and how it was drafted and a rearrangement
+            # does not change them. Only the slot moves.
+            new_slots[slot] = replace(existing_by_slug[slug], slot_type=slot)
+
+    assert incoming is not None  # validate_arrangement guarantees it
+    return _advance_after_pick(
+        state, seat, Roster(seat_index=seat, slots=new_slots), incoming
+    )
+
+
+def rearrange(
+    state: DraftState, seat_index: int, placements: Mapping[str, str]
+) -> DraftState:
+    """Reposition a seat's existing roster. Does NOT consume a turn.
+
+    A standalone move, available to a seat on its own roster whenever the
+    match is live, because tidying your own lineup is not an action against
+    anybody: it takes no player off the board, changes no other seat's
+    options, and cannot be used to stall (the seat on the clock still has the
+    same deadline). The pick-time path above exists in addition, for the case
+    where the rearrangement is what makes a pick legal.
+
+    `placements` must account for exactly the players already on the roster --
+    no additions, no drops -- and produce a legal assignment. Anything else
+    raises `DraftError` and nothing is written.
+    """
+    if state.is_complete:
+        raise DraftError("match_complete", "The match is already complete")
+    roster = state.roster(seat_index)
+    try:
+        produced = validate_arrangement(roster.assignment(), placements, incoming=None)
+    except IllegalPlacement as exc:
+        raise DraftError(exc.code, exc.message) from exc
+
+    existing_by_slug = {p.player_slug: p for p in roster.picks()}
+    new_slots: dict[str, Optional[DraftPick]] = {slot: None for slot in SLOT_TYPES}
+    for slot, slug in produced.items():
+        if slug is not None:
+            new_slots[slot] = replace(existing_by_slug[slug], slot_type=slot)
+    new_roster = Roster(seat_index=seat_index, slots=new_slots)
+
+    rosters = tuple(
+        new_roster if existing.seat_index == seat_index else existing
+        for existing in state.rosters
+    )
+    by_key = {(p.seat_index, p.player_slug): p for p in new_roster.picks()}
+    picks = tuple(by_key.get((p.seat_index, p.player_slug), p) for p in state.picks)
+    return replace(state, rosters=rosters, picks=picks)
 
 
 def reposition(
@@ -351,9 +536,11 @@ __all__ = [
     "DraftState",
     "IllegalPlacement",
     "apply_pick",
+    "candidate_fits",
     "create_match",
     "legal_picks",
     "legal_slots_for_pick",
+    "rearrange",
     "reposition",
     "rosters_for_feasibility",
     "set_roll",

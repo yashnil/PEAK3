@@ -157,10 +157,15 @@ export default function BidControls({
           type="button"
           className="td-btn"
           data-testid="td-pass"
-          disabled={busy || !privateState.is_your_turn}
+          /* PASSING IS NOT ALWAYS AVAILABLE. `can_pass` is the server's own
+             verdict: a seat out of market skips, facing a candidate it can
+             legally use with nothing bid, must open. Deriving that here would
+             be a second copy of the rule that could disagree with the first. */
+          disabled={busy || !privateState.is_your_turn || !privateState.can_pass}
+          data-costs-skip={privateState.pass_consumes_skip ? "true" : "false"}
           onClick={() => onSubmit("pass", 0)}
         >
-          Pass
+          {privateState.pass_consumes_skip ? "Skip (−1)" : "Pass"}
         </button>
       </div>
 
@@ -172,9 +177,17 @@ export default function BidControls({
         </p>
       ) : (
         <p className="td-bid-hint" data-testid="td-bid-hint">
-          {opening
-            ? `Opening bid is ${formatDollars(min)}. Passing costs nothing.`
-            : `Beat ${formatDollars(publicState.current_bid)} by at least $1, or pass and let it go.`}
+          {/* THE SKIP RULE IS EXPLAINED BEFORE IT BITES, not after. A player
+              who learns it by finding "Pass" greyed out has been taught it
+              badly, and this is the one rule in the mode that changes the
+              whole strategy. */}
+          {!privateState.can_pass
+            ? `No market skips left — this player fits your roster and nobody has bid, so you must open at ${formatDollars(min)}.`
+            : privateState.pass_consumes_skip
+              ? `Skipping costs one of your ${privateState.market_skips} remaining market skips. Opening bid is ${formatDollars(min)}.`
+              : opening
+                ? `Opening bid is ${formatDollars(min)}. Passing costs nothing here.`
+                : `Beat ${formatDollars(publicState.current_bid)} by at least $1, or pass — conceding a live auction is free.`}
         </p>
       )}
     </section>

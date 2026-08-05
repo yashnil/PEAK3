@@ -146,7 +146,13 @@ test.describe("both games are reachable through normal navigation", () => {
     await page.waitForURL(/\/arena\/lobby/);
     await expectNotAGeneric404(page);
     await expect(page.getByTestId("lobby-twenty_dollar-public_queue")).toBeVisible();
-    await expect(page.getByTestId("lobby-twenty_dollar-private_room")).toBeVisible();
+    // The entry path is still `private_room` in storage; the LABEL is what
+    // changed, because "Private room" described the mechanism rather than the
+    // reason anyone would use it.
+    const withFriends = page.getByTestId("lobby-twenty_dollar-private_room");
+    await expect(withFriends).toBeVisible();
+    await expect(withFriends).toContainText("Play With Friends");
+    await expect(page.getByTestId("lobby-mode-grid")).not.toContainText("Private room");
     await expect(page.getByTestId("lobby-twenty_dollar-practice")).toBeVisible();
   });
 });
@@ -233,7 +239,9 @@ test.describe("Three-Man Weave", () => {
     }
   });
 
-  test("a human pick is accepted and the bots take their turns", async ({ browser }) => {
+  test("the spinner resolves, then the pick overlay opens on the human's turn", async ({
+    browser,
+  }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
@@ -243,30 +251,98 @@ test.describe("Three-Man Weave", () => {
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
 
-      // Seat 0 opens the snake, so the first pick is ours. Picking is two
-      // steps by design: choose the identity, then choose the slot, because a
-      // multi-position player has a real choice to make.
-      const candidate = page
-        .getByTestId("tmw-candidates")
-        .locator('button[data-blocked="false"]')
-        .first();
-      await candidate.waitFor({ timeout: 20_000 });
-      await candidate.click();
-      await page.getByTestId("tmw-slot-choices").waitFor({ timeout: 10_000 });
-      await page.getByTestId("tmw-slot-choices").locator("button").first().click();
+      // THE SPINNER IS AN EVENT, and it resolves to the server's own answer.
+      // `data-final-value` carries that answer from the first frame, so this
+      // asserts the reel cannot land anywhere else without racing it.
+      const roll = page.getByTestId("tmw-roll");
+      await expect(roll).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId("tmw-roll-franchise")).toHaveAttribute(
+        "data-final-value",
+        /.+/,
+      );
+      await expect(roll).toHaveAttribute("data-revealed", "true", { timeout: 15_000 });
 
-      // A pick that landed shows up in the shared identity-lock feed, and the
-      // bots must move without waiting out a 45-second clock each.
+      // All three rosters are on screen, and no bot is a numbered placeholder.
+      await expect(page.getByTestId("tmw-courts")).toBeVisible();
+      for (const seat of [0, 1, 2]) {
+        await expect(
+          page.getByTestId(`tmw-seat-court-${seat}`).first(),
+        ).toBeVisible();
+      }
+      await expect(page.getByTestId("tmw-room")).not.toContainText(/PEAK3 Bot \d/);
+
+      // The human's seat is drawn from the match seed, so the first turn may
+      // belong to a bot. Wait for the overlay rather than assuming seat A.
+      const overlay = page.getByTestId("tmw-pick-overlay");
+      await overlay.waitFor({ timeout: 45_000 });
+
+      // NO SCORE BEFORE A PICK. Every candidate row carries a name, an
+      // eligibility line, positions and a fit verdict -- and nothing that
+      // could be read as a valuation.
+      const list = page.getByTestId("tmw-candidate-list");
+      await expect(list).toBeVisible();
+      await expect(page.getByTestId("tmw-pool-count")).toContainText(/Showing \d+ of \d+/);
+
+      // Search narrows the view, and clearing it restores the whole pool.
+      const firstName = (
+        await list.locator("button").first().locator(".tmw-candidate-name").innerText()
+      ).trim();
+      const before = await list.locator("button").count();
+      await page.getByTestId("tmw-pick-search").fill(firstName.split(" ").pop() ?? firstName);
+      await expect.poll(async () => list.locator("button").count()).toBeLessThanOrEqual(before);
+      await page.getByTestId("tmw-pick-search").fill("");
+      await expect.poll(async () => list.locator("button").count()).toBe(before);
+
+      // Draft, and the score is revealed the instant the pick lands.
+      const candidate = list.locator('button:not([disabled])').first();
+      await candidate.click();
+      await page.getByTestId("tmw-confirm-pick").click();
+
       await expect(page.getByTestId("tmw-identity-lock")).toContainText(/\S/, {
         timeout: 20_000,
       });
       await expect
         .poll(
           async () =>
-            (await page.getByTestId("tmw-identity-lock").locator("li").count()) >= 3,
-          { timeout: 30_000, message: "the bots never took their turns" },
+            (await page.getByTestId("tmw-identity-lock").locator("li").count()) >= 2,
+          { timeout: 40_000, message: "the bots never took their turns" },
         )
         .toBe(true);
+
+      // The drafted card now shows its franchise-specific season and score --
+      // the reveal the pre-pick list withheld.
+      await expect
+        .poll(
+          async () => {
+            const cells = page.locator('[data-testid^="tmw-slot-season-"]');
+            const count = await cells.count();
+            for (let index = 0; index < count; index += 1) {
+              const text = await cells.nth(index).innerText();
+              if (/\d{4}-\d{2}/.test(text)) return true;
+            }
+            return false;
+          },
+          { timeout: 20_000, message: "no drafted card revealed its scoring season" },
+        )
+        .toBe(true);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("the draft room has no serious accessibility violations", async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await signInAs(context, page, uniqueSub("tmw-a11y"));
+      await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+      await page.getByTestId("lobby-three_man_weave-practice").click();
+      await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true", {
+        timeout: 15_000,
+      });
+      await axeClean(page, "the Three-Man Weave draft room");
     } finally {
       await context.close();
     }
@@ -300,6 +376,15 @@ test.describe("The $20 Showdown", () => {
       expect(await page.locator('input[type="range"]').count()).toBe(0);
       await expect(page.getByTestId("td-bid-plus")).toBeVisible();
       await expect(page.getByTestId("td-bid-max")).toBeVisible();
+
+      // THE SKIP ECONOMY IS ON SCREEN, for both seats, before it bites. A rule
+      // you discover by finding a control greyed out has been taught badly.
+      await expect(page.getByTestId("td-skips-0")).toContainText(/skips? left/);
+      await expect(page.getByTestId("td-skips-1")).toContainText(/skips? left/);
+      await expect(page.getByTestId("td-market-phase")).toHaveAttribute(
+        "data-phase",
+        "standard",
+      );
 
       // The score is concealed while the lot is live.
       await expect(page.getByTestId("td-candidate")).toContainText(/sealed until/i);
@@ -365,14 +450,22 @@ test.describe("The $20 Showdown", () => {
       await page.waitForURL(/\/arena\/twenty-dollar\/[0-9a-f-]{36}/, { timeout: 20_000 });
       await expect(page.getByTestId("td-game")).toBeVisible({ timeout: 20_000 });
 
-      // Pass on several lots. The bot must buy at least one of them.
-      for (let i = 0; i < 8; i += 1) {
+      // Decline every lot the rules allow. Once the five market skips are
+      // spent, passing on a candidate that fits is no longer legal and the
+      // only move is to open at the minimum -- so the loop follows the rule
+      // rather than clicking a disabled control. Either way the BOT must act
+      // on its own read of the board.
+      for (let i = 0; i < 12; i += 1) {
         const pass = page.getByTestId("td-pass");
-        if (!(await pass.isEnabled().catch(() => false))) {
+        const bid = page.getByTestId("td-submit-bid");
+        if (await pass.isEnabled().catch(() => false)) {
+          await pass.click().catch(() => undefined);
+        } else if (await bid.isEnabled().catch(() => false)) {
+          await bid.click().catch(() => undefined);
+        } else {
           await page.waitForTimeout(1200);
           continue;
         }
-        await pass.click().catch(() => undefined);
         await page.waitForTimeout(600);
         const botSpent = await page.getByTestId("td-budget-1").innerText();
         if (!botSpent.includes("$20")) break;
@@ -452,12 +545,33 @@ test.describe("The $20 Showdown", () => {
 
       await page.goto(`/arena/twenty-dollar/${matchId}`, { waitUntil: "domcontentloaded" });
       await expect(page.getByTestId("td-game")).toBeVisible({ timeout: 20_000 });
-      // The receipt, with its settlement and its five-of-six disclosure.
+
+      // THE RESULT REPLACES THE AUCTION. The auction board is gone, not frozen
+      // above the receipt -- which is what made the winner the last thing on
+      // the page.
+      const result = page.getByTestId("td-result");
+      await expect(result).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId("td-table")).toHaveCount(0);
+      await expect(page.getByTestId("td-bid-controls")).toHaveCount(0);
+
+      // The winner, both totals and both rosters are in the FIRST viewport:
+      // no downward scroll is needed to learn who won.
+      await expect(page.getByTestId("td-result-headline")).toBeInViewport();
+      await expect(page.getByTestId("td-result-total-0")).toBeVisible();
+      await expect(page.getByTestId("td-result-total-1")).toBeVisible();
+      await expect(page.getByTestId("td-result-money-0")).toContainText(/spent/);
+      await expect(page.getByTestId("td-result-facts")).toBeVisible();
+      await expect(page.getByTestId("td-play-again")).toBeVisible();
+      await expect(page.getByTestId("td-back-to-arena")).toHaveAttribute("href", "/arena");
+
+      // "One bid away" is retired: its arithmetic moved a card between rosters
+      // and left one side with six players and the other with four.
+      await expect(result).not.toContainText(/one bid away/i);
+
+      // The itemised receipt is still there, one disclosure below.
+      await page.getByTestId("td-result-detail-toggle").click();
       await expect(page.getByTestId("td-level-roster_total")).toBeVisible({ timeout: 20_000 });
       await expect(page.getByTestId("td-component-disclosure")).toBeVisible();
-      // Both rosters are full and every bought player now shows their score.
-      await expect(page.getByTestId("td-slot-0-C")).not.toContainText("Open");
-      await expect(page.getByTestId("td-slot-1-C")).not.toContainText("Open");
 
       await axeClean(page, "the finished $20 Showdown result");
     } finally {
@@ -495,5 +609,36 @@ test.describe("@mobile multiplayer on a phone", () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow, "the lobby scrolls horizontally on a phone").toBeLessThanOrEqual(1);
+  });
+});
+
+test.describe("@mobile the draft board on a phone", () => {
+  test("offers every roster as a tab rather than three crushed columns", async ({
+    browser,
+  }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await signInAs(context, page, uniqueSub("tmw-mobile"));
+      await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+      await page.getByTestId("lobby-three_man_weave-practice").click();
+      await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+      await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
+
+      // Three tabs, every roster one tap away, and the active one readable.
+      for (const seat of [0, 1, 2]) {
+        await expect(page.getByTestId(`tmw-roster-tab-${seat}`)).toBeVisible();
+      }
+      await page.getByTestId("tmw-roster-tab-2").click();
+      await expect(page.getByTestId("tmw-seat-court-2").last()).toBeVisible();
+
+      // And no horizontal scroll trap.
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow, "the draft room scrolls horizontally on a phone").toBeLessThanOrEqual(1);
+    } finally {
+      await context.close();
+    }
   });
 });

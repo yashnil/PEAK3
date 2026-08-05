@@ -1,11 +1,12 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type {
   ArenaResultView,
   TmwMatchView,
   TmwSlotType,
 } from "@/types/three-man-weave";
-import { TMW_COMMAND_PICK } from "@/types/three-man-weave";
+import { TMW_COMMAND_PICK, TMW_COMMAND_REARRANGE } from "@/types/three-man-weave";
 import {
   ArenaAPIError,
   commandIdempotencyKey,
@@ -13,6 +14,7 @@ import {
   getMatchResults,
   submitCommand,
 } from "@/lib/arena-api";
+import type { TmwCandidate } from "@/lib/three-man-weave-state";
 import {
   candidatesForSeat,
   canPick,
@@ -26,10 +28,12 @@ import { modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
 import DraftOrderStrip from "./DraftOrderStrip";
 import IdentityLockPanel from "./IdentityLockPanel";
-import PickPanel from "./PickPanel";
+import MoveDialog from "./MoveDialog";
+import PickOverlay from "./PickOverlay";
 import PodiumReceipt from "./PodiumReceipt";
-import RollReveal from "./RollReveal";
+import RosterBoard from "./RosterBoard";
 import SeatCourt from "./SeatCourt";
+import WeaveSpinner from "./WeaveSpinner";
 
 /** How often to re-read the match while it is someone else's turn. */
 const POLL_MS = 2000;
@@ -39,38 +43,49 @@ const POLL_MS = 2000;
  *
  * SERVER-AUTHORITATIVE, exactly like `CourtBuilder` and `RunTheTableGame`:
  * every action POSTs and this component replaces its whole match object with
- * the response. Nothing here decides legality, scores a roster, ranks a seat
- * or advances a turn — it renders what the server projected for THIS seat and
- * sends back commands. Local `useState` only; no Redux, no Zustand.
+ * the response. Nothing here decides legality, scores a roster, ranks a seat or
+ * advances a turn -- it renders what the server projected for THIS seat and
+ * sends back commands.
+ *
+ * THE LAYOUT IS THE PRODUCT DECISION. The three rosters are the page; the
+ * spinner sits above them and the pick overlay above that. The previous
+ * arrangement put a candidate list first and pushed all three courts below the
+ * fold, so the thing you were choosing FOR was the thing you had to scroll
+ * past. Here the board never moves and never disappears, including while the
+ * overlay is open.
+ *
+ * THE OVERLAY OPENS ONLY AFTER THE SPINNER LANDS. `revealedRoll` gates it, so a
+ * player is never asked to choose from a roll they have not been shown -- which
+ * is also why the reveal callback and not the animation drives it.
  *
  * WHY POLLING RATHER THAN A SOCKET. The foundation exposes the match and its
  * event log over plain HTTP and stamps `seconds_remaining` as a DURATION so a
- * client with a skewed clock still counts down correctly. Polling that is a
- * few lines and degrades gracefully; a socket would be a second transport to
- * keep in sync with the same authoritative state. If a live channel arrives
- * later it replaces `refresh()` and nothing else.
- *
- * RECONNECT IS A FIRST-CLASS STATE, not an error. A failed poll is not a
- * refused move — the match may be perfectly healthy while this browser cannot
- * reach it — so consecutive failures escalate "live" -> "reconnecting" ->
- * "offline" and the surface says so, while the last known good projection
- * stays on screen. There is nothing to lose by staying rendered: the server
- * holds the truth and the next successful poll replaces it wholesale.
+ * client with a skewed clock still counts down correctly. Polling that is a few
+ * lines and degrades gracefully.
  *
  * TIMEOUTS ARE THE SERVER'S. This component never resolves one. It shows the
- * countdown the server sent, and when a turn expires the server's clock sweep
- * commits the deterministic auto-pick; the next poll simply shows a board
- * where that seat has picked. A client that raced the sweep would be a client
- * that could forfeit someone else's turn.
+ * countdown the server sent; when a turn expires the server's sweep commits the
+ * deterministic auto-pick and the next poll simply shows a board where that
+ * seat has picked.
  */
-export default function ThreeManWeaveGame({ initialMatch }: { initialMatch: TmwMatchView }) {
+export default function ThreeManWeaveGame({
+  initialMatch,
+}: {
+  initialMatch: TmwMatchView;
+}) {
+  const router = useRouter();
   const [match, setMatch] = useState<TmwMatchView>(initialMatch);
   const [results, setResults] = useState<ArenaResultView[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [rejection, setRejection] = useState<string | null>(null);
   const [failures, setFailures] = useState(0);
   const [justPicked, setJustPicked] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState<number | null>(initialMatch.seconds_remaining);
+  const [countdown, setCountdown] = useState<number | null>(
+    initialMatch.seconds_remaining,
+  );
+  const [revealedRoll, setRevealedRoll] = useState<string | null>(null);
+  const [moveSlot, setMoveSlot] = useState<TmwSlotType | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
 
   // Guards a poll landing while a command is in flight from overwriting the
   // newer state the command already returned.
@@ -78,6 +93,7 @@ export default function ThreeManWeaveGame({ initialMatch }: { initialMatch: TmwM
 
   const phase = phaseOf(match);
   const complete = phase === "complete";
+  const state = match.public_state;
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
@@ -94,17 +110,15 @@ export default function ThreeManWeaveGame({ initialMatch }: { initialMatch: TmwM
     }
   }, [match.match_id]);
 
-  // Poll while the match is live. Stops dead once it completes — a finished
-  // match has nothing left to change.
   useEffect(() => {
     if (complete) return;
     const timer = window.setInterval(refresh, POLL_MS);
     return () => window.clearInterval(timer);
   }, [complete, refresh]);
 
-  // Local countdown between polls, purely so the number moves every second.
-  // It is re-seeded from the server on every refresh and is never used to
-  // decide anything — the authoritative deadline lives on the server.
+  // Local countdown between polls, purely so the number moves every second. It
+  // is re-seeded from the server on every refresh and is never used to decide
+  // anything -- the authoritative deadline lives on the server.
   useEffect(() => {
     if (complete || countdown === null) return;
     const timer = window.setInterval(() => {
@@ -121,92 +135,124 @@ export default function ThreeManWeaveGame({ initialMatch }: { initialMatch: TmwM
         if (!cancelled) setResults(response.results);
       })
       .catch(() => {
-        /* the podium simply waits for the next attempt */
+        /* the result screen simply waits for the next attempt */
       });
     return () => {
       cancelled = true;
     };
   }, [complete, results, match.match_id]);
 
-  const pick = useCallback(
-    async (playerSlug: string, slotType: TmwSlotType) => {
-      if (match.your_seat_index === null) return;
-      setBusy(true);
-      setRejection(null);
+  const send = useCallback(
+    async (commandType: string, payload: Record<string, unknown>) => {
+      if (match.your_seat_index === null) return null;
       inFlight.current = true;
-      const payload = { player_slug: playerSlug, slot_type: slotType };
       try {
         const response = await submitCommand(
           match.match_id,
-          TMW_COMMAND_PICK,
+          commandType,
           payload,
           match.state_version,
           // Derived from the action rather than random, so a retry after a
-          // dropped response is recognised as a replay instead of drafting
-          // twice.
+          // dropped response is recognised as a replay instead of acting twice.
           commandIdempotencyKey(
             match.match_id,
             match.your_seat_index,
             match.state_version,
-            TMW_COMMAND_PICK,
+            commandType,
             payload,
           ),
         );
         setMatch(response.match as TmwMatchView);
         setCountdown(response.match.seconds_remaining);
         setFailures(0);
-        if (response.accepted || response.replayed) {
-          setJustPicked(playerSlug);
-        } else {
-          setRejection(response.message ?? "That pick was refused.");
-        }
-      } catch (error) {
-        const message =
-          error instanceof ArenaAPIError
-            ? error.code === "network_error"
-              ? "Could not reach the server — your pick was not sent."
-              : error.detail
-            : "Something went wrong.";
-        setRejection(message);
-        setFailures((count) => count + 1);
+        return response;
       } finally {
         inFlight.current = false;
-        setBusy(false);
       }
     },
     [match.match_id, match.state_version, match.your_seat_index],
   );
 
-  const state = match.public_state;
+  const pick = useCallback(
+    async (candidate: TmwCandidate, slotType: TmwSlotType) => {
+      setBusy(true);
+      setRejection(null);
+      const payload: Record<string, unknown> = {
+        player_slug: candidate.player_slug,
+        slot_type: slotType,
+      };
+      // THE SERVER'S OWN PLAN, ECHOED BACK. When a pick needs a rearrangement
+      // the arrangement committed is the one the projection said was legal --
+      // never a client re-derivation, which could differ and would then be
+      // refused at the exact moment a player expected a pick to land.
+      if (candidate.fit.plan) payload.placements = candidate.fit.plan;
+      try {
+        const response = await send(TMW_COMMAND_PICK, payload);
+        if (!response) return;
+        if (response.accepted || response.replayed) {
+          setJustPicked(candidate.player_slug);
+        } else {
+          setRejection(response.message ?? "That pick was refused.");
+        }
+      } catch (error) {
+        setRejection(describe(error, "your pick was not sent"));
+        setFailures((count) => count + 1);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [send],
+  );
+
+  const rearrange = useCallback(
+    async (placements: Record<string, string>) => {
+      setBusy(true);
+      setMoveError(null);
+      try {
+        const response = await send(TMW_COMMAND_REARRANGE, { placements });
+        if (!response) return;
+        if (response.accepted || response.replayed) {
+          setMoveSlot(null);
+        } else {
+          setMoveError(response.message ?? "That move was refused.");
+        }
+      } catch (error) {
+        setMoveError(describe(error, "the move was not sent"));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [send],
+  );
+
   const connection = connectionState(failures);
   const yourTurn = isYourTurn(match);
-  const candidates = candidatesForSeat(match);
-
-  const disabledReason = yourTurn
-    ? canPick(match)
-      ? null
-      : "No legal pick for your roster on this roll."
-    : complete
-      ? "The draft is over."
-      : "Waiting for the other seats.";
+  const candidates = useMemo(() => candidatesForSeat(match), [match]);
+  const yourRoster =
+    state.rosters.find((roster) => roster.seat_index === match.your_seat_index) ??
+    null;
+  const rollRevealed =
+    !!state.current_roll && revealedRoll === state.current_roll.roll_id;
+  const overlayOpen = yourTurn && !complete && rollRevealed && canPick(match);
+  const picksMade = state.rosters.reduce(
+    (total, roster) => total + Object.values(roster.slots).filter(Boolean).length,
+    0,
+  );
 
   const meta = modeMeta("three_man_weave");
+  const hasBots = match.seats.some((seat) => seat.is_bot);
 
   return (
-    <div className="ar-room" data-testid="tmw-room">
-      {/* Room chrome, so a live draft reads as a PEAK3 surface rather than a
-          bare grid of panels. Round-of-six lives in `RollReveal`, which reads
-          it from the server -- it is deliberately not restated here, where a
-          test could not catch it drifting. */}
+    <div className="ar-room tmw-room" data-testid="tmw-room">
       <header className="ar-room-head">
         <div className="ar-room-meta">
           <h1 className="ar-room-title">Three-Man Weave</h1>
           <span className="ar-badge">{match.rated ? "Rated" : "Unrated"}</span>
-          {match.seats.some((seat) => seat.is_bot) ? (
+          {hasBots && (
             <span className="ar-badge" data-testid="tmw-bot-badge">
-              vs PEAK3 Bot
+              vs bots
             </span>
-          ) : null}
+          )}
         </div>
         <div className="ar-room-tools">
           {meta ? (
@@ -220,8 +266,7 @@ export default function ThreeManWeaveGame({ initialMatch }: { initialMatch: TmwM
           data-testid="tmw-connection"
           data-connection={connection}
           role="status"
-          className="rounded border px-3 py-2 text-xs"
-          style={{ borderColor: "var(--border-subtle)", color: "var(--text-secondary)" }}
+          className="ar-notice"
         >
           {connection === "reconnecting"
             ? "Reconnecting… the board below is the last state we confirmed."
@@ -230,12 +275,7 @@ export default function ThreeManWeaveGame({ initialMatch }: { initialMatch: TmwM
       )}
 
       {rejection && (
-        <p
-          data-testid="tmw-rejection"
-          role="alert"
-          className="rounded border px-3 py-2 text-xs"
-          style={{ borderColor: "var(--border-default)", color: "var(--text-primary)" }}
-        >
+        <p data-testid="tmw-rejection" role="alert" className="ar-notice">
           {rejection}
         </p>
       )}
@@ -245,9 +285,19 @@ export default function ThreeManWeaveGame({ initialMatch }: { initialMatch: TmwM
           results={results}
           rosters={state.rosters}
           yourSeatIndex={match.your_seat_index}
+          onPlayAgain={() => router.push("/arena/three-man-weave")}
         />
       ) : (
         <>
+          <WeaveSpinner
+            roll={state.current_roll}
+            roundNumber={state.current_round}
+            totalRounds={state.total_rounds}
+            onRevealComplete={() =>
+              setRevealedRoll(state.current_roll?.roll_id ?? null)
+            }
+          />
+
           <DraftOrderStrip
             order={turnOrder(state, match.seat_count)}
             seats={match.seats}
@@ -255,38 +305,81 @@ export default function ThreeManWeaveGame({ initialMatch }: { initialMatch: TmwM
             secondsRemaining={countdown}
           />
 
-          <RollReveal
-            roll={state.current_roll}
-            roundNumber={state.current_round}
-            totalRounds={state.total_rounds}
+          <RosterBoard
+            state={state}
+            seats={match.seats}
+            yourSeatIndex={match.your_seat_index}
+            currentTurnSeatIndex={match.current_turn_seat_index}
+            justPickedSlug={justPicked}
+            secondsRemaining={countdown}
+            onMoveRequest={(slot) => {
+              setMoveError(null);
+              setMoveSlot(slot);
+            }}
           />
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-            <PickPanel
-              candidates={candidates}
-              busy={busy}
-              disabledReason={disabledReason}
-              onPick={pick}
-            />
-            <IdentityLockPanel entries={identityLock(state)} seats={match.seats} />
-          </div>
+          <IdentityLockPanel entries={identityLock(state)} seats={match.seats} />
+
+          <PickOverlay
+            open={overlayOpen}
+            roll={state.current_roll}
+            roundNumber={state.current_round}
+            pickNumber={picksMade + 1}
+            totalRounds={state.total_rounds}
+            candidates={candidates}
+            roster={yourRoster}
+            seats={match.seats}
+            yourSeatIndex={match.your_seat_index}
+            secondsRemaining={countdown}
+            busy={busy}
+            onPick={pick}
+            // A turn you must resolve has no cancel, so closing simply returns
+            // to the board -- the overlay reopens on the next render because
+            // `overlayOpen` is derived from the server's own turn state, and
+            // that is the correct behaviour: the clock is still running.
+            onClose={() => setRejection(null)}
+          />
+
+          <MoveDialog
+            open={moveSlot !== null}
+            roster={yourRoster}
+            fromSlot={moveSlot}
+            busy={busy}
+            error={moveError}
+            onCommit={rearrange}
+            onClose={() => {
+              setMoveSlot(null);
+              setMoveError(null);
+            }}
+          />
         </>
       )}
 
-      {/* All three rosters, always — a draft is open information, and reading
-          what your opponents still need is the whole strategy. */}
-      <div className="grid gap-3 md:grid-cols-3" data-testid="tmw-courts">
-        {state.rosters.map((roster) => (
-          <SeatCourt
-            key={roster.seat_index}
-            roster={roster}
-            seat={match.seats.find((seat) => seat.seat_index === roster.seat_index)}
-            isYou={roster.seat_index === match.your_seat_index}
-            isOnTurn={!complete && match.current_turn_seat_index === roster.seat_index}
-            justPickedSlug={justPicked}
-          />
-        ))}
-      </div>
+      {/* The final board, kept below the receipt so a completed match still
+          shows every roster it produced. */}
+      {complete && results && (
+        <div className="tmw-board-grid" data-testid="tmw-final-courts">
+          {state.rosters.map((roster) => (
+            <SeatCourt
+              key={roster.seat_index}
+              roster={roster}
+              seat={match.seats.find((seat) => seat.seat_index === roster.seat_index)}
+              isYou={roster.seat_index === match.your_seat_index}
+              isOnTurn={false}
+              justPickedSlug={null}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+function describe(error: unknown, action: string): string {
+  if (error instanceof ArenaAPIError) {
+    return error.code === "network_error"
+      ? `Could not reach the server — ${action}.`
+      : error.detail;
+  }
+  return "Something went wrong.";
 }

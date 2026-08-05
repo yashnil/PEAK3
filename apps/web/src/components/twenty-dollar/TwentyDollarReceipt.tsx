@@ -249,19 +249,15 @@ export default function TwentyDollarReceipt({
       </ul>
 
       {/* Counterfactual */}
-      {receipt.counterfactual ? (
-        <aside className="td-counterfactual" data-testid="td-counterfactual">
-          <h3 className="td-receipt-subheading">One bid away</h3>
-          <p>
-            {formatDollars(receipt.counterfactual.needed_bid)} on{" "}
-            {receipt.counterfactual.player_name} instead of{" "}
-            {formatDollars(receipt.counterfactual.your_bid)} —{" "}
-            {formatDollars(receipt.counterfactual.extra_dollars)} more — and the totals
-            become {receipt.counterfactual.new_totals.map((t) => t.toFixed(2)).join(" to ")}.
-          </p>
-          <p className="td-assumption">{receipt.counterfactual.assumption}</p>
-        </aside>
-      ) : null}
+      {/* "ONE BID AWAY" IS GONE, and deliberately not replaced with a hedged
+          version. It reported the final totals that would have followed from
+          one extra dollar on one lot, computed by moving a card from the
+          winner's roster to the loser's -- which leaves six cards on one side
+          and four on the other, because each seat buys exactly five and the
+          loser would not then have bought the player they actually bought for
+          that slot. The dollar figure was right and the scoreboard was not.
+          `most_decisive` above says where the match turned, from what actually
+          happened. See `receipt.py::_one_bid_away`. */}
 
       {/* Autofill, when it happened */}
       {receipt.autofilled ? (

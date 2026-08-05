@@ -558,3 +558,120 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/* ---------------------------------------------------------------------------
+   NBA Fact of the Day.
+
+   Sits between the hero and the game catalogue. Compact by design: one
+   paragraph and two controls, so it reads as a reason to come back rather than
+   as a section competing with the games below it.
+   --------------------------------------------------------------------------- */
+
+.fotd {
+  padding: 0 1rem;
+}
+
+.fotd-inner {
+  margin-inline: auto;
+  max-width: 64rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--peak-accent);
+  border-radius: 0.6rem;
+  background: var(--bg-elevated);
+}
+
+.fotd-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.fotd-title {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--peak-accent-text);
+}
+
+.fotd-tags {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.fotd-tag {
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  border: 1px solid var(--border-subtle);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.fotd-text {
+  font-size: clamp(0.9rem, 2.2vw, 1.05rem);
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.fotd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.fotd-source,
+.fotd-link {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+
+.fotd-source:hover,
+.fotd-link:hover,
+.fotd-source:focus-visible,
+.fotd-link:focus-visible {
+  color: var(--peak-accent-text);
+}
+
+.fotd-evidence {
+  width: 100%;
+  margin-top: 0.4rem;
+  border-collapse: collapse;
+  font-size: 0.6875rem;
+}
+
+.fotd-evidence caption {
+  text-align: left;
+  padding-bottom: 0.25rem;
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.fotd-evidence th,
+.fotd-evidence td {
+  padding: 0.2rem 0.35rem;
+  border-bottom: 1px solid var(--divider-strong);
+  text-align: left;
+  color: var(--text-secondary);
+}
+
+.fotd-evidence thead th {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.fotd-provenance {
+  margin-top: 0.3rem;
+  font-size: 0.5625rem;
+  color: var(--text-muted);
+}

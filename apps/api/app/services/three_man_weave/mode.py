@@ -71,7 +71,7 @@ from nba_peak.perfect_season.exact_season import TEAM_ID_TO_NAME
 from nba_peak.three_man_weave import draft as D
 from nba_peak.three_man_weave import feasibility as F
 from nba_peak.three_man_weave.autopick import auto_pick
-from nba_peak.three_man_weave.bot import ThreeManWeaveBot
+from nba_peak.three_man_weave.bot import ThreeManWeaveBot, archetype_names
 from nba_peak.three_man_weave.config import (
     ELIGIBILITY_INDEX_VERSION,
     FORMULA_VERSION,
@@ -79,10 +79,18 @@ from nba_peak.three_man_weave.config import (
     ROUNDS,
     RULESET_VERSION,
     SLOT_TYPES,
+    bot_think_seconds,
+    human_seat_index,
     stream_rng,
 )
 from nba_peak.three_man_weave.eligibility import get_index
-from nba_peak.three_man_weave.evaluation import EvaluationError, evaluate_roster, placements
+from nba_peak.three_man_weave.evaluation import (
+    EvaluationError,
+    current_edges,
+    evaluate_roster,
+    placements,
+)
+from nba_peak.three_man_weave.positions import canonical_positions
 
 MODE_NAME = "three_man_weave"
 
@@ -93,14 +101,19 @@ TURN_SECONDS = 45.0
 PHASE_PICK = "pick"
 
 COMMAND_PICK = "tmw_pick"
+#: Repositioning your OWN roster. Does not consume a turn -- see
+#: `draft.rearrange` for why that is a rule rather than a convenience.
+COMMAND_REARRANGE = "tmw_rearrange"
 
 EVENT_ROLL_REVEALED = "tmw_roll_revealed"
 EVENT_PICK_MADE = "tmw_pick_made"
+EVENT_REARRANGED = "tmw_rearranged"
 EVENT_MATCH_SCORED = "tmw_match_scored"
 
 # Rejection codes. Machine-readable so a route answers without string-matching.
 REJECT_UNKNOWN_COMMAND = "unknown_command"
 REJECT_NOT_YOUR_TURN = "not_your_turn"
+REJECT_NOT_YOUR_ROSTER = "not_your_roster"
 REJECT_NO_ROLL = "no_roll"
 REJECT_MATCH_COMPLETE = "match_complete"
 REJECT_BAD_PAYLOAD = "bad_payload"
@@ -132,6 +145,36 @@ class ThreeManWeaveMode:
 
     def initial_phase(self) -> str:
         return PHASE_PICK
+
+    # -- optional foundation hooks ----------------------------------------
+    def human_seat_index(self, seed: int) -> int:
+        """Which seat a solo human takes against bots. Seeded, not always 0.
+
+        An optional `ArenaMode` hook: the foundation calls it when it exists
+        and seats the human at 0 otherwise, so a two-seat mode is unaffected
+        by this mode's need. See `config.human_seat_index` for why the fixed
+        seat was a real problem rather than a cosmetic one.
+        """
+        return human_seat_index(seed, PARTICIPANT_COUNT)
+
+    def bot_think_seconds(self, seed: int, seat_index: int, turn_seq: int) -> float:
+        """How long a bot seat appears to deliberate. Seeded, 1-5 seconds.
+
+        Presentation only, and the foundation enforces it against the turn's
+        stored `opened_at`. Never the human turn clock: three seats at 45
+        seconds each turned a six-round draft into a quarter of an hour of
+        watching nothing happen.
+        """
+        return bot_think_seconds(seed, seat_index, turn_seq)
+
+    def bot_display_names(self, seed: int, count: int) -> tuple[str, ...]:
+        """Distinct, human-facing names for this match's bot seats.
+
+        Archetypes rather than "PEAK3 Bot 1" and "PEAK3 Bot 2", which read as
+        placeholders in a mode whose whole surface is otherwise full of real
+        people's names. Never a real player's name -- see `bot.py`.
+        """
+        return archetype_names(seed, count)
 
     # -- opening state ----------------------------------------------------
     def initial_snapshot(self, seed: int, seats: tuple[ArenaSeat, ...]) -> dict:
@@ -177,6 +220,8 @@ class ThreeManWeaveMode:
             return self._reduce_timeout(data, state)
         if command.command_type == COMMAND_PICK:
             return self._reduce_pick(data, state)
+        if command.command_type == COMMAND_REARRANGE:
+            return self._reduce_rearrange(data, state)
         return _reject(
             REJECT_UNKNOWN_COMMAND, f"{command.command_type!r} is not a Three-Man Weave command"
         )
@@ -193,12 +238,89 @@ class ThreeManWeaveMode:
         payload = command.payload or {}
         player_slug = payload.get("player_slug")
         slot_type = payload.get("slot_type")
-        if not isinstance(player_slug, str) or not isinstance(slot_type, str):
+        placements_payload = payload.get("placements")
+
+        if not isinstance(player_slug, str):
+            return _reject(REJECT_BAD_PAYLOAD, "payload requires a string 'player_slug'")
+        if slot_type is not None and not isinstance(slot_type, str):
+            return _reject(REJECT_BAD_PAYLOAD, "'slot_type' must be a string when given")
+        if placements_payload is not None:
+            if not isinstance(placements_payload, dict) or not all(
+                isinstance(key, str) and isinstance(value, str)
+                for key, value in placements_payload.items()
+            ):
+                return _reject(
+                    REJECT_BAD_PAYLOAD,
+                    "'placements' must map slot names to player slugs",
+                )
+        if slot_type is None and placements_payload is None:
             return _reject(
-                REJECT_BAD_PAYLOAD, "payload requires string 'player_slug' and 'slot_type'"
+                REJECT_BAD_PAYLOAD,
+                "payload requires 'slot_type', a full 'placements' arrangement, or both",
             )
 
-        return self._commit(data, state, seat_index, player_slug, slot_type, timed_out=False)
+        return self._commit(
+            data,
+            state,
+            seat_index,
+            player_slug,
+            slot_type,
+            timed_out=False,
+            placements=placements_payload,
+        )
+
+    def _reduce_rearrange(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
+        """Reposition a seat's own roster. NEVER resolves or opens a turn.
+
+        Returning `resolve_turn=None, open_turn=None` leaves the open turn
+        exactly as it was (`arena_memory.apply_command` only touches a turn
+        when a reducer asks it to), so a seat tidying its lineup while another
+        seat is on the clock cannot shorten, extend or steal that clock. The
+        state version still advances, which is what makes a concurrent stale
+        pick fail its `expected_state_version` check rather than landing on a
+        roster that has moved underneath it.
+        """
+        command = data.command
+        seat_index = command.actor_seat_index
+        if seat_index is None or not (0 <= seat_index < len(state.rosters)):
+            return _reject(REJECT_NOT_YOUR_ROSTER, "That seat is not in this match")
+
+        payload = command.payload or {}
+        placements_payload = payload.get("placements")
+        if not isinstance(placements_payload, dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in placements_payload.items()
+        ):
+            return _reject(
+                REJECT_BAD_PAYLOAD, "'placements' must map slot names to player slugs"
+            )
+
+        try:
+            new_state = D.rearrange(state, seat_index, placements_payload)
+        except D.DraftError as exc:
+            return _reject(exc.code, exc.message)
+
+        return ReducerOutput(
+            accepted=True,
+            snapshot=self._to_snapshot(new_state),
+            events=(
+                EventDraft(
+                    event_type=EVENT_REARRANGED,
+                    actor_seat_index=seat_index,
+                    visibility=VISIBILITY_PUBLIC,
+                    payload={
+                        "seat_index": seat_index,
+                        "assignment": {
+                            slot: (pick.player_slug if pick else None)
+                            for slot, pick in new_state.roster(seat_index).slots.items()
+                        },
+                    },
+                ),
+            ),
+            resolve_turn=None,
+            open_turn=None,
+            status=None,
+        )
 
     def _reduce_timeout(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
         """Resolve an expired turn with the deterministic auto-pick.
@@ -229,15 +351,29 @@ class ThreeManWeaveMode:
         state: D.DraftState,
         seat_index: int,
         player_slug: str,
-        slot_type: str,
+        slot_type: Optional[str],
         timed_out: bool,
+        placements: Optional[dict] = None,
     ) -> ReducerOutput:
-        """Apply one validated selection and advance the match."""
+        """Apply one validated selection and advance the match.
+
+        The pick and any rearrangement it needs are ONE call into
+        `D.apply_pick`, which validates the resulting roster as a whole. There
+        is no ordering in which a caller could commit the draft and lose the
+        repositioning, because there is only one commit.
+        """
         try:
-            state = D.apply_pick(state, player_slug, slot_type, seat_index=seat_index)
+            state = D.apply_pick(
+                state,
+                player_slug,
+                slot_type,
+                seat_index=seat_index,
+                placements=placements,
+            )
         except D.DraftError as exc:
             return _reject(exc.code, exc.message)
 
+        committed = state.picks[-1]
         events: list[EventDraft] = [
             EventDraft(
                 event_type=EVENT_PICK_MADE,
@@ -245,10 +381,14 @@ class ThreeManWeaveMode:
                 visibility=VISIBILITY_PUBLIC,
                 payload={
                     "player_slug": player_slug,
-                    "slot_type": slot_type,
-                    "round_number": state.picks[-1].round_number,
-                    "franchise_id": state.picks[-1].franchise_id,
-                    "decade": state.picks[-1].decade,
+                    # The slot the pick ACTUALLY landed on. With an arrangement
+                    # in the payload that can differ from what the client
+                    # nominated, and the event has to record what happened.
+                    "slot_type": committed.slot_type,
+                    "rearranged": bool(placements),
+                    "round_number": committed.round_number,
+                    "franchise_id": committed.franchise_id,
+                    "decade": committed.decade,
                     "resolution": TURN_RESOLUTION_TIMEOUT if timed_out else TURN_RESOLUTION_ACTION,
                 },
             )
@@ -359,13 +499,16 @@ class ThreeManWeaveMode:
                     outcome=outcome,
                     detail={
                         "score_status": evaluation.score_status,
-                        "lineup_peak_score": evaluation.lineup_peak_score,
-                        "wins": evaluation.wins,
-                        "losses": evaluation.losses,
-                        "expected_wins": evaluation.expected_wins,
+                        # The comparator, named for what it is. NO PROJECTED
+                        # RECORD is carried: the 82-0 record projection is
+                        # calibrated for eight cards and this roster has six,
+                        # so a "68-14" here would be a claim this mode cannot
+                        # stand behind. See evaluation.py's module docstring.
+                        "lineup_score": evaluation.lineup_score,
+                        "mean_season_score": evaluation.mean_season_score,
                         "fit_components": evaluation.fit_components,
                         "best_pick": evaluation.best_pick,
-                        "structural_weakness": evaluation.structural_weakness,
+                        "decisive_pick": evaluation.decisive_pick,
                         "tmw_adapter_version": evaluation.tmw_adapter_version,
                         "lineup_model_version": evaluation.lineup_model_version,
                         "simulator_version": evaluation.simulator_version,
@@ -437,16 +580,26 @@ class ThreeManWeaveMode:
             "rosters": [self._roster_public(roster) for roster in state.rosters],
             "drafted_identities": sorted(drafted),
             "used_roll_ids": list(state.used_roll_ids),
+            # ORDINAL ONLY, and marked live. See `_current_edge`.
+            "current_edge": self._current_edge(state),
             "current_roll": (
                 {
                     **current_roll.as_dict(),
-                    # The candidate list carries display data for BOTH facts
-                    # the surface must show separately: what makes the player
-                    # eligible for this roll, and which season they would be
-                    # scored on. Already filtered by the identity lock, so a
-                    # taken player is absent rather than merely marked.
+                    # THE FULL ELIGIBLE POOL, in the roll's own sorted order --
+                    # never narrowed to whichever players suit the asking
+                    # seat's open slots, and never ordered by a score. Already
+                    # filtered by the identity lock, so a taken player is
+                    # absent rather than merely marked.
+                    #
+                    # NO SCORING CARD CROSSES HERE. Until a pick is confirmed a
+                    # candidate is a name, an eligibility record and a set of
+                    # positions; the season and the number are published the
+                    # instant they are drafted (`_pick_public`). Hiding them is
+                    # the mode's product rule, and the reason the list can be
+                    # ordered by anything at all -- an order by score would put
+                    # the number back whether or not it was printed.
                     "candidates": [
-                        self._player_public(
+                        self._candidate_public(
                             slug, current_roll.franchise_id, current_roll.decade
                         )
                         for slug in current_roll.eligible_slugs
@@ -468,33 +621,91 @@ class ThreeManWeaveMode:
         if 0 <= seat_index < len(state.rosters):
             roster = state.roster(seat_index)
             private_state["open_slots"] = list(roster.open_slots())
+            private_state["assignment"] = {
+                slot: (pick.player_slug if pick else None)
+                for slot, pick in roster.slots.items()
+            }
+            # Repositioning your own roster is legal whenever the match is
+            # live, on or off the clock -- it takes nothing from anybody.
+            if not state.is_complete and roster.picks():
+                legal_commands = (COMMAND_REARRANGE,)
+
             if state.current_seat == seat_index and current_roll is not None:
+                fits = D.candidate_fits(state, seat_index)
+                private_state["candidate_fits"] = {
+                    slug: fit.as_dict() for slug, fit in sorted(fits.items())
+                }
+                # `legal_picks` is retained beside the fits: it is the strict
+                # "fits an open slot right now" answer, and a surface that only
+                # wants the simple case should not have to interpret a plan.
                 options = D.legal_picks(state, seat_index)
                 private_state["legal_picks"] = {
                     slug: list(slots) for slug, slots in sorted(options.items())
                 }
-                if options:
-                    legal_commands = (COMMAND_PICK,)
+                if any(fit.selectable for fit in fits.values()):
+                    legal_commands = (COMMAND_PICK,) + legal_commands
 
         return public_state, private_state, legal_commands
 
+    # -- the live edge -----------------------------------------------------
+    def _current_edge(self, state: D.DraftState) -> dict:
+        """An ORDINAL, temporary reading of who is ahead. No totals.
+
+        Publishing partial totals would be publishing a number that is not
+        comparable to the final one -- an unfinished roster scores an empty
+        bench as zero rather than as absent -- and players would reasonably
+        read the two as the same scale. So only the band crosses, and it is
+        flagged `is_live` so a surface has to say it is provisional.
+
+        Computed at EQUAL DEPTH across seats (see `evaluation.current_edges`),
+        so a seat is never shown as "Leading" for the sole reason that the
+        snake has just given it an extra pick.
+        """
+        if state.is_complete:
+            return {"is_live": False, "compared_after_picks": 0, "seats": {}}
+        picks_by_seat = {
+            roster.seat_index: list(roster.picks()) for roster in state.rosters
+        }
+        depth = min((len(picks) for picks in picks_by_seat.values()), default=0)
+        bands = current_edges(picks_by_seat, get_index(), state.match_seed)
+        return {
+            "is_live": True,
+            "compared_after_picks": depth,
+            "seats": {str(seat): band for seat, band in sorted(bands.items())},
+        }
+
     # -- display enrichment ------------------------------------------------
     #
-    # WHY SCORES ARE VISIBLE DURING THE DRAFT, unlike CourtBuilder's deferred
-    # reveal. CourtBuilder hides a card's score until the run is locked because
-    # guessing which peak is better IS its game. Three-Man Weave's game is
-    # drafting well under a constraint -- you are choosing between real players
-    # whose value you are supposed to weigh. Hiding the number would not add
-    # suspense, it would make the choice arbitrary. The temporal boundary
-    # (future rolls) is the only hidden information here.
+    # WHY SCORES ARE HIDDEN UNTIL A PICK IS CONFIRMED.
+    #
+    # An earlier ruleset published every candidate's exact PEAK3 score during
+    # the draft, on the argument that a draft is open information. It is -- but
+    # the score is not information about the BOARD, it is the answer to the
+    # question the board is asking. With it visible, the list sorted itself
+    # into a leaderboard and the whole game was "take the top row", which is
+    # also why the surface used to sort by it. Nothing about the era, the
+    # franchise or the roster shape mattered.
+    #
+    # So a candidate is a name, an eligibility record and a set of positions
+    # until they are drafted, and the exact season and score are published the
+    # moment they are -- on the pick, in the feed, and on the final receipt.
+    # The reveal is not delayed indefinitely and nothing is ever withheld from
+    # one seat and shown to another: the boundary is temporal, exactly like the
+    # one on future rolls.
 
-    def _scoring_card_public(self, player_slug: str, decade: str) -> Optional[dict]:
-        card = get_index().scoring_card(player_slug, decade)
+    def _scoring_card_public(
+        self, player_slug: str, franchise_id: str, decade: str
+    ) -> Optional[dict]:
+        card = get_index().scoring_card(player_slug, franchise_id, decade)
         if card is None:
             return None
         return {
             "season": card.season,
-            "team_id": card.team_code if not card.is_multi_team_season else card.resolve_team_id,
+            # ALWAYS the rolled franchise's own code, aggregate or not. The
+            # aggregate token is a fact about where the SCORE is recorded, not
+            # about who the player suited up for, and printing it as the team
+            # is how a card ends up labelled "2TM".
+            "team_id": card.resolve_team_id,
             "team_name": TEAM_ID_TO_NAME.get(card.resolve_team_id, card.resolve_team_id),
             "prime_score": round(card.prime_score, 1),
             # Surfaced, never hidden: about 5% of scoring cards land on a
@@ -530,13 +741,37 @@ class ThreeManWeaveMode:
             ],
         }
 
-    def _player_public(self, player_slug: str, franchise_id: str, decade: str) -> dict:
+    def _candidate_public(self, player_slug: str, franchise_id: str, decade: str) -> dict:
+        """An UNDRAFTED candidate: everything except what they are worth.
+
+        Deliberately a different function from `_player_public` rather than the
+        same one with a flag. A flag is a thing a caller can forget to pass;
+        two functions mean the pre-pick payload has no code path that can reach
+        a scoring card at all.
+        """
         index = get_index()
         return {
             "player_slug": player_slug,
             "player_name": index.player_name(player_slug) or player_slug,
             "eligibility": self._eligibility_public(player_slug, franchise_id, decade),
-            "scoring_card": self._scoring_card_public(player_slug, decade),
+            # The positions they may legally start at -- a rule of the game and
+            # the thing a drafter reasons about, carrying no valuation.
+            "positions": sorted(canonical_positions(player_slug)),
+        }
+
+    def _player_public(self, player_slug: str, franchise_id: str, decade: str) -> dict:
+        """A DRAFTED player: the full card, score included.
+
+        Only ever reached from `_pick_public`, i.e. only for a selection that
+        has already been committed.
+        """
+        index = get_index()
+        return {
+            "player_slug": player_slug,
+            "player_name": index.player_name(player_slug) or player_slug,
+            "eligibility": self._eligibility_public(player_slug, franchise_id, decade),
+            "positions": sorted(canonical_positions(player_slug)),
+            "scoring_card": self._scoring_card_public(player_slug, franchise_id, decade),
         }
 
     def _pick_public(self, pick) -> dict:

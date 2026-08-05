@@ -1,36 +1,48 @@
 "use client";
-import type { ArenaSeatPublic, TmwPick, TmwRoster, TmwSlotType } from "@/types/three-man-weave";
+import type {
+  ArenaSeatPublic,
+  TmwEdgeBand,
+  TmwPick,
+  TmwRoster,
+  TmwSlotType,
+} from "@/types/three-man-weave";
 import { TMW_SLOT_LABELS, TMW_STARTER_SLOTS } from "@/types/three-man-weave";
-import { benchSlots, filledCount, hasTradedEvidence } from "@/lib/three-man-weave-state";
+import {
+  TMW_EDGE_LABELS,
+  benchSlots,
+  filledCount,
+  slotAbbrev,
+} from "@/lib/three-man-weave-state";
+import SeatClock from "./SeatClock";
 
 /**
  * One participant's roster court. Rendered for ALL THREE seats, always.
  *
- * Every roster is public the whole way through — a draft is open information,
- * and reading what your opponents still need is the entire strategy. A surface
- * that showed only your own board would hide the game rather than the hidden
- * information (which is future rolls, and lives nowhere in this file).
+ * Every roster is public the whole way through -- a draft is open information,
+ * and reading what your opponents still need is the entire strategy. These
+ * three panels are the CENTRE of the screen rather than a footer below the
+ * candidate list, which is what the previous layout made them: a player had to
+ * scroll past the thing they were choosing from to see the thing they were
+ * choosing for.
  *
  * REUSES CourtBuilder's court, not a new one. The `.court-panel-wrapper` /
- * `.roster-board*` classes in `globals.css` are the shipped visual system:
- * PG at the point, SG and SF on the wings, PF and C inside, with the paint,
- * arc and rim drawn behind. Its own docstring makes the case — a flat row of
- * five equal cards reads as a form, a court reads as a lineup.
+ * `.roster-board*` classes in `globals.css` are the shipped visual system: PG
+ * at the point, SG and SF on the wings, PF and C inside, with the paint, arc
+ * and rim drawn behind. The CSS is reused rather than the `CourtLayout`
+ * component itself, deliberately: `CourtLayout` is typed against
+ * `CourtSlotPublic` from `@/types/perfect-season`, so importing it would mean
+ * either casting a Three-Man Weave pick into another game's shape or editing a
+ * component the 82-0 surface depends on.
  *
- * The CSS is reused rather than the `CourtLayout` component itself, and that
- * is deliberate: `CourtLayout` is typed against `CourtSlotPublic` from
- * `@/types/perfect-season`. Importing it would either mean casting a
- * Three-Man Weave pick into another game's shape (a lie about the domain) or
- * editing a component the 82-0 surface depends on. Sharing the stylesheet
- * gets the identical geometry with neither risk — and the wrapper already
- * carries a `container-name: court-panel` query that collapses to a single
- * column under 380px, which is exactly what three side-by-side courts need.
+ * WHAT THE HEADER CARRIES, and why each part earns its space: the participant
+ * name, the seat LETTER (the snake is positional -- seat A opens, seat C takes
+ * the turn at every round boundary -- so which seat you are is a rule and not a
+ * label), whether the occupant is a person or a bot, the roster count, this
+ * seat's own clock, and the ordinal edge band.
  *
- * Cells are compact by necessity: three courts abreast leaves each one narrow.
- * The full labelled ELIGIBLE THROUGH / SCORING CARD block therefore lives
- * where it carries the most weight — `PickPanel` at the moment of choosing and
- * `PodiumReceipt` at the moment of explaining — while each cell here still
- * names the scoring SEASON, which is the part that would otherwise look wrong.
+ * NO EXACT TOTAL APPEARS HERE MID-DRAFT. The edge band is an ordinal reading of
+ * an unfinished roster and is marked live; a partial total would be a number on
+ * a different scale from the final one that players would reasonably compare.
  */
 export default function SeatCourt({
   roster,
@@ -38,62 +50,86 @@ export default function SeatCourt({
   isYou,
   isOnTurn,
   justPickedSlug,
+  edge,
+  secondsRemaining,
+  onMoveRequest,
 }: {
   roster: TmwRoster;
   seat: ArenaSeatPublic | undefined;
   isYou: boolean;
   isOnTurn: boolean;
   justPickedSlug?: string | null;
+  edge?: TmwEdgeBand | null;
+  /** Only meaningful for the seat on the clock; null otherwise. */
+  secondsRemaining?: number | null;
+  /** Opens the rearrangement control for one placed player. Absent for a seat
+   * that is not yours, because you may only move your own roster. */
+  onMoveRequest?: (slot: TmwSlotType) => void;
 }) {
   const name = seat?.display_name ?? `Seat ${roster.seat_index + 1}`;
   const filled = filledCount(roster);
+  const seatLetter = String.fromCharCode(65 + roster.seat_index);
 
   return (
     <section
       data-testid={`tmw-seat-court-${roster.seat_index}`}
       data-on-turn={isOnTurn ? "true" : "false"}
+      data-is-you={isYou ? "true" : "false"}
+      data-edge={edge ?? "none"}
       aria-labelledby={`tmw-seat-heading-${roster.seat_index}`}
-      className="flex min-w-0 flex-col gap-2"
+      className="tmw-seat"
     >
-      <header className="flex items-baseline justify-between gap-2 px-0.5">
-        <h3
-          id={`tmw-seat-heading-${roster.seat_index}`}
-          className="min-w-0 truncate text-sm font-bold"
-          style={{ color: isOnTurn ? "var(--peak-accent-text)" : "var(--text-primary)" }}
-        >
-          {name}
-          {isYou && (
-            <span
-              className="ml-1.5 text-[9px] font-bold uppercase tracking-widest"
-              style={{ color: "var(--peak-accent-text)" }}
-            >
-              you
+      <header className="tmw-seat-head">
+        <div className="tmw-seat-identity">
+          <span className="tmw-seat-letter" aria-hidden="true">
+            {seatLetter}
+          </span>
+          <h3 id={`tmw-seat-heading-${roster.seat_index}`} className="tmw-seat-name">
+            {name}
+            <span className="sr-only">
+              {`, seat ${roster.seat_index + 1} of 3, ${
+                seat?.is_bot ? "bot" : "human"
+              }${isYou ? ", you" : ""}`}
             </span>
-          )}
-          {seat?.is_bot && (
-            <span
-              className="ml-1.5 text-[9px] font-bold uppercase tracking-widest"
-              style={{ color: "var(--text-muted)" }}
-            >
-              bot
-            </span>
-          )}
-        </h3>
-        <span
-          data-testid={`tmw-seat-progress-${roster.seat_index}`}
-          className="shrink-0 text-[10px] tabular-nums"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {filled}/6
-        </span>
+          </h3>
+          <span className="tmw-seat-kind" aria-hidden="true">
+            {isYou ? "You" : seat?.is_bot ? "Bot" : "Human"}
+          </span>
+        </div>
+
+        <div className="tmw-seat-meters">
+          <SeatClock
+            seatIndex={roster.seat_index}
+            isOnTurn={isOnTurn}
+            isBot={!!seat?.is_bot}
+            secondsRemaining={secondsRemaining ?? null}
+          />
+          <span
+            data-testid={`tmw-seat-progress-${roster.seat_index}`}
+            className="tmw-seat-count"
+          >
+            <span aria-hidden="true">{filled}/6</span>
+            <span className="sr-only">{`${filled} of 6 slots filled`}</span>
+          </span>
+        </div>
       </header>
+
+      {edge && (
+        <p
+          data-testid={`tmw-seat-edge-${roster.seat_index}`}
+          data-band={edge}
+          className="tmw-seat-edge"
+        >
+          {TMW_EDGE_LABELS[edge]}
+        </p>
+      )}
 
       <div
         className="court-panel-wrapper"
         style={{
           // The turn spotlight is a ring on the court itself, layered over the
-          // wrapper's own border so a seat that is both yours and on-turn
-          // still reads as on-turn first.
+          // wrapper's own border so a seat that is both yours and on-turn still
+          // reads as on-turn first.
           boxShadow: isOnTurn ? "inset 0 0 0 2px var(--peak-accent)" : undefined,
         }}
       >
@@ -112,6 +148,7 @@ export default function SeatCourt({
                   slotType={slotType}
                   pick={roster.slots[slotType] ?? null}
                   highlight={roster.slots[slotType]?.player_slug === justPickedSlug}
+                  onMoveRequest={onMoveRequest}
                 />
               </div>
             ))}
@@ -126,6 +163,7 @@ export default function SeatCourt({
                 slotType={slotType}
                 pick={pick}
                 highlight={pick?.player_slug === justPickedSlug}
+                onMoveRequest={onMoveRequest}
               />
             ))}
           </div>
@@ -139,66 +177,71 @@ function SlotCard({
   slotType,
   pick,
   highlight,
+  onMoveRequest,
 }: {
   slotType: TmwSlotType;
   pick: TmwPick | null;
   highlight: boolean;
+  onMoveRequest?: (slot: TmwSlotType) => void;
 }) {
-  const label = slotType === "bench_1" ? "BN" : slotType;
-  return (
-    <div
-      data-testid={`tmw-slot-${slotType}`}
-      data-filled={pick ? "true" : "false"}
-      data-just-picked={highlight ? "true" : "false"}
-      className="flex min-w-0 flex-col gap-0.5 rounded-md px-2 py-1.5"
-      style={{
-        // Opaque, so the decorative court markings show only through the gaps
-        // between cards — the same layering the stylesheet's own comment
-        // describes.
-        background: highlight ? "var(--peak-accent-bg)" : "var(--bg-elevated)",
-        border: `1px solid ${highlight ? "var(--peak-accent)" : "var(--border-subtle)"}`,
-        // The pick "animation" is a one-shot highlight rather than a movement.
-        // A colour change is not motion, so it survives `prefers-reduced-motion`
-        // untouched, and it cannot leave a card stranded mid-flight if a poll
-        // lands while it is showing.
-      }}
-    >
-      <span
-        className="text-[9px] font-bold uppercase tracking-wider"
-        style={{ color: "var(--text-muted)" }}
-      >
-        <span aria-hidden="true">{label}</span>
+  const movable = !!pick && !!onMoveRequest;
+  const body = (
+    <>
+      <span className="tmw-slot-tag">
+        <span aria-hidden="true">{slotAbbrev(slotType)}</span>
         <span className="sr-only">{TMW_SLOT_LABELS[slotType]}</span>
       </span>
       {pick ? (
         <>
-          <span
-            className="truncate text-[11px] font-semibold leading-tight"
-            style={{ color: "var(--text-primary)" }}
-          >
-            {pick.player_name}
-          </span>
-          <span
-            data-testid={`tmw-slot-season-${slotType}`}
-            className="flex items-baseline justify-between gap-1 text-[9px] tabular-nums"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {/* The scoring SEASON, on the card. Without it a 2000s-roll Shaq
-                showing 2000-01 rather than his better 1999-00 looks wrong. */}
-            <span className="truncate">
-              {pick.scoring_card?.season ?? "—"}
-              {hasTradedEvidence(pick) && <span className="ml-1">·via trade</span>}
+          <span className="tmw-slot-name">{pick.player_name}</span>
+          <span data-testid={`tmw-slot-season-${slotType}`} className="tmw-slot-meta">
+            {/* THE SCORING SEASON AND ITS TEAM. Both, always: without them a
+                2000s-roll Shaq showing 2000-01 rather than his better 1999-00
+                looks like a bug. There is no "via trade" chip -- the team and
+                the season already say where the card comes from, and the chip
+                appeared beside most stars, which made it noise rather than
+                disclosure. The traded-SCORE note survives, on the receipt,
+                because that one is a claim about the number. */}
+            <span className="tmw-slot-season">
+              {pick.scoring_card
+                ? `${pick.scoring_card.season} ${pick.scoring_card.team_id}`
+                : "—"}
             </span>
-            <span className="shrink-0 font-bold" style={{ color: "var(--peak-accent-text)" }}>
+            <span className="tmw-slot-score">
               {pick.scoring_card ? pick.scoring_card.prime_score.toFixed(1) : "—"}
             </span>
           </span>
         </>
       ) : (
-        <span className="text-[10px] italic" style={{ color: "var(--text-muted)" }}>
-          Open
-        </span>
+        <span className="tmw-slot-open">Open</span>
       )}
+    </>
+  );
+
+  if (movable && pick) {
+    return (
+      <button
+        type="button"
+        data-testid={`tmw-slot-${slotType}`}
+        data-filled="true"
+        data-just-picked={highlight ? "true" : "false"}
+        className="tmw-slot tmw-slot--movable"
+        onClick={() => onMoveRequest?.(slotType)}
+        aria-label={`Move ${pick.player_name} out of ${TMW_SLOT_LABELS[slotType]}`}
+      >
+        {body}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      data-testid={`tmw-slot-${slotType}`}
+      data-filled={pick ? "true" : "false"}
+      data-just-picked={highlight ? "true" : "false"}
+      className="tmw-slot"
+    >
+      {body}
     </div>
   );
 }

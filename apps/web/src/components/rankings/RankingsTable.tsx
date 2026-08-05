@@ -39,6 +39,12 @@ const HEADER_CLASS =
 export interface RankingsTableProps {
   /** Already sorted by the caller, so the row order here IS the display order. */
   rows: readonly RankingRow[];
+  /** The row the detail panel is showing, marked as the active option. */
+  selectedRowId?: string | null;
+  /** Selecting a row updates the detail panel WITHOUT opening the modal.
+   * Two different actions on one row: select to compare, open to read the
+   * full derivation. */
+  onSelectRow?: (row: RankingRow) => void;
   sortKey: RankingSortKey;
   sortDirection: SortDirection;
   onSort: (key: RankingSortKey) => void;
@@ -54,6 +60,8 @@ export interface RankingsTableProps {
 
 export default function RankingsTable({
   rows,
+  selectedRowId = null,
+  onSelectRow,
   sortKey,
   sortDirection,
   onSort,
@@ -141,9 +149,21 @@ export default function RankingsTable({
           {rows.map((row, index) => (
             <tr
               key={row.row_id}
-              onClick={() => onOpenRow(row)}
-              className="group border-b border-[var(--divider-strong)] cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
+              // ROW CLICK SELECTS; the player-name button explains. Two
+              // different questions -- "show me this shape" and "show me the
+              // derivation" -- that used to share one action, so comparing
+              // twenty rows meant opening and closing twenty dialogs.
+              //
+              // THE ROW ITSELF IS NOT A BUTTON, deliberately. It contains one
+              // (the player name opens the modal), and a control inside a
+              // control is `nested-interactive`: a screen reader announces the
+              // row as a button and then cannot reach the button inside it.
+              // The pointer affordance stays on the row; the KEYBOARD path is
+              // the real select control in the rank cell below.
+              onClick={() => (onSelectRow ? onSelectRow(row) : onOpenRow(row))}
+              className="rankings-row group border-b border-[var(--divider-strong)] cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
               data-testid="rankings-row"
+              data-selected={row.row_id === selectedRowId ? "true" : "false"}
             >
               {resorted && (
                 <td className="px-3 py-2.5 score-number text-[var(--text-primary)] font-semibold">
@@ -151,7 +171,27 @@ export default function RankingsTable({
                 </td>
               )}
               <td className="px-3 py-2.5">
-                {resorted ? (
+                {/* THE KEYBOARD PATH TO SELECTION. A pointer user clicks the
+                    row; everyone else needs a real control, and the rank cell
+                    is where it belongs -- it is the row's own identifier, so
+                    "select rank 4" is a sentence rather than a widget bolted
+                    on. Rendered as a button only when selection is offered, so
+                    a board without a detail panel keeps a plain rank. */}
+                {onSelectRow ? (
+                  <button
+                    type="button"
+                    aria-pressed={row.row_id === selectedRowId}
+                    aria-label={`Show the component profile for ${row.player_name}, ${row.label}`}
+                    data-testid={`rankings-select-${row.rank}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelectRow(row);
+                    }}
+                    className="score-number rounded px-1 font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--peak-accent-text)] aria-pressed:text-[var(--peak-accent-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  >
+                    {resorted ? `#${row.rank}` : row.rank}
+                  </button>
+                ) : resorted ? (
                   <span
                     className="inline-flex items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 py-0.5 score-number text-[11px] text-[var(--text-secondary)]"
                     title="This row's rank in the board's own PEAK ordering"

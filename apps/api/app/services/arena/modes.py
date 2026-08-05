@@ -104,6 +104,44 @@ class ArenaMode(Protocol):
         """
         ...
 
+    # -- OPTIONAL HOOKS ----------------------------------------------------
+    #
+    # Everything above is required. The three below are not part of the
+    # Protocol's structural contract and are read with `getattr` by the
+    # functions that want them (`human_seat_for`, `bot_seat_names`,
+    # `bot_think_seconds_for`), so a mode that does not care about seating,
+    # bot naming or bot pacing simply does not define them and gets the
+    # foundation's defaults. Making them required would force every mode --
+    # including a future two-seat one where seat order is meaningless -- to
+    # write a method whose only job is to return the default.
+    #
+    #   def human_seat_index(self, seed: int) -> int
+    #       Which seat a solo human occupies against bots. Default 0.
+    #
+    #   def bot_display_names(self, seed: int, count: int) -> tuple[str, ...]
+    #       Distinct human-facing names for this match's bot seats. Default is
+    #       `bots.bot_display_name` ("PEAK3 Bot", numbered past two seats).
+    #
+    #   def bot_think_seconds(self, seed: int, seat_index: int, turn_seq: int) -> float
+    #       How long a bot appears to deliberate. Default `BOT_THINK_SECONDS`.
+
+
+def human_seat_for(mode: ArenaMode, seed: int) -> int:
+    """Which seat a solo human takes in a bot-filled match of `mode`.
+
+    Clamped into range here rather than trusted, so a mode returning a seat
+    that does not exist produces the first seat instead of an IndexError deep
+    inside match creation.
+    """
+    hook = getattr(mode, "human_seat_index", None)
+    if hook is None:
+        return 0
+    try:
+        index = int(hook(seed))
+    except Exception:  # pragma: no cover - a broken hook must not block play
+        return 0
+    return index if 0 <= index < mode.seat_count else 0
+
 
 class ModeNotRegistered(KeyError):
     """No mode module is registered under that name.

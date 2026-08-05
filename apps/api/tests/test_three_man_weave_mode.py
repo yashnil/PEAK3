@@ -319,11 +319,13 @@ def test_the_snapshot_itself_contains_no_future_roll(opening):
     assert len(opening["used_roll_ids"]) == 1
 
 
-def test_candidates_carry_eligibility_and_scoring_card_as_two_separate_facts(opening):
-    """The surface must show them as two labelled facts, so the payload must
-    not collapse them into one. Shaq drafted on a 2000s roll is scored on
-    2000-01 rather than his better 1999-00 -- which reads as a bug unless both
-    facts are visible and distinguishable."""
+def test_a_candidate_carries_eligibility_and_positions_but_no_score(opening):
+    """The pre-pick payload: who they are, why they are legal, where they play.
+
+    NOT what they are worth. The exact score is the answer to the question the
+    draft asks, and publishing it turned the candidate list into a leaderboard
+    with one correct row.
+    """
     public, _private, _legal = mode.project(_match(opening), _seats(), 0)
     candidate = public["current_roll"]["candidates"][0]
 
@@ -333,24 +335,92 @@ def test_candidates_carry_eligibility_and_scoring_card_as_two_separate_facts(ope
     assert eligibility["decade"] == public["current_roll"]["decade"]
     assert eligibility["seasons"], "eligibility must name the seasons that prove it"
     assert all("season" in entry and "via" in entry for entry in eligibility["seasons"])
+    assert candidate["positions"], "a drafter reasons about position, so it is published"
 
-    card = candidate["scoring_card"]
-    assert card["season"] and card["team_name"] and card["prime_score"] > 0
-    assert card["formula_version"] == "peak3_v1"
-    # Two distinct claims, kept as two objects.
+    assert "scoring_card" not in candidate
     assert "prime_score" not in eligibility
-    assert "franchise_display_name" not in card
 
 
-def test_a_traded_scoring_card_is_labelled_rather_than_hidden(opening):
-    """About 5% of scoring cards land on a traded season whose score exists
-    only at whole-season aggregate grain. Labelled, never presented as though
-    it were a single-team number."""
-    public, _private, _legal = mode.project(_match(opening), _seats(), 0)
+def test_no_undrafted_candidate_leaks_a_score_through_any_field(opening):
+    """The boundary, asserted over the whole payload rather than one key.
+
+    A future field carrying a number that correlates with the score would
+    reopen the hole without touching `scoring_card`, so the check is on the
+    serialised candidate, recursively.
+    """
+    public, private, _legal = mode.project(_match(opening), _seats(), 0)
+    banned = {"prime_score", "scoring_card", "score", "rank", "prime_index"}
+
+    def walk(node, path="candidate"):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                assert key not in banned, f"{path}.{key} leaks a valuation"
+                walk(value, f"{path}.{key}")
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, path)
+
     for candidate in public["current_roll"]["candidates"]:
-        card = candidate["scoring_card"]
-        assert card["score_source"] in ("exact_team_stint", "exact_season_aggregate")
-        assert card["is_multi_team_season"] == (card["score_source"] == "exact_season_aggregate")
+        walk(candidate)
+    for fit in (private.get("candidate_fits") or {}).values():
+        walk(fit, "fit")
+
+
+def test_the_candidate_list_is_the_whole_eligible_pool_in_roll_order(opening):
+    """Every undrafted eligible identity, in the roll's own sorted order.
+
+    Two properties at once: nothing is filtered out for not suiting the asking
+    seat's open slots, and the order carries no valuation. Sorted order is
+    checked directly because "not sorted by score" is unfalsifiable on its own.
+    """
+    match = _match(opening)
+    roll = opening["current_roll"]
+    for seat_index in range(PARTICIPANT_COUNT):
+        public, _private, _legal = mode.project(match, _seats(), seat_index)
+        slugs = [c["player_slug"] for c in public["current_roll"]["candidates"]]
+        assert slugs == sorted(roll["eligible_slugs"]), (
+            "the pool must not vary by seat, and must not be score-ordered"
+        )
+
+
+def test_every_candidate_is_classified_for_the_seat_on_the_clock(opening):
+    """Three states, and every candidate has exactly one of them."""
+    from nba_peak.three_man_weave.arrangement import (
+        FITS_AFTER_REARRANGEMENT,
+        FITS_NOW,
+        NO_LEGAL_ARRANGEMENT,
+    )
+
+    seat = opening["current_seat"]
+    public, private, _legal = mode.project(_match(opening), _seats(), seat)
+    fits = private["candidate_fits"]
+    slugs = {c["player_slug"] for c in public["current_roll"]["candidates"]}
+    assert set(fits) == slugs, "every candidate is classified, none is dropped"
+    for slug, fit in fits.items():
+        assert fit["state"] in (FITS_NOW, FITS_AFTER_REARRANGEMENT, NO_LEGAL_ARRANGEMENT)
+        if fit["state"] == NO_LEGAL_ARRANGEMENT:
+            assert fit["reason"], f"{slug} is disabled without an explanation"
+    # An empty roster accepts everyone with a position, so round one is all
+    # "fits now" -- asserted so the classifier is not silently returning the
+    # same answer for everything.
+    assert all(fit["state"] == FITS_NOW for fit in fits.values())
+
+
+def test_a_placed_pick_reveals_the_traded_card_label(opening):
+    """About 5% of scoring cards land on a traded season whose score exists
+    only at whole-season aggregate grain. Labelled after the pick, never
+    presented as though it were a single-team number."""
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    out = _reduce(
+        opening, _command(COMMAND_PICK, {"player_slug": slug, "slot_type": slot}, seat_index=seat)
+    )
+    public, _private, _legal = mode.project(_match(out.snapshot), _seats(), 0)
+    card = public["rosters"][seat]["slots"][slot]["scoring_card"]
+    assert card["score_source"] in ("exact_team_stint", "exact_season_aggregate")
+    assert card["is_multi_team_season"] == (card["score_source"] == "exact_season_aggregate")
+    # The team named is the ROLLED franchise's, aggregate or not.
+    assert card["team_id"] not in {"2TM", "3TM", "4TM", "5TM", "TOT"}
 
 
 def test_candidates_exclude_already_drafted_identities(opening):
@@ -570,7 +640,8 @@ def test_settling_an_unscoreable_roster_fails_loudly_instead_of_writing_a_zero(m
         return dataclasses.replace(
             real_evaluate(roster, index, board_seed),
             ranking_score=None,
-            lineup_peak_score=None,
+            lineup_score=None,
+            mean_season_score=None,
             score_status="incomplete",
         )
 
@@ -642,13 +713,39 @@ def test_result_outcomes_are_within_the_columns_check_vocabulary():
         assert all(r.outcome == "draw" for r in winners)
 
 
-def test_result_score_is_the_ranking_score_and_carries_its_status():
+def test_result_score_is_the_lineup_quality_index_and_carries_its_status():
     _snapshot, outputs = _play_to_completion()
     for result in outputs[-1].results:
         assert result.detail["score_status"] == "complete"
-        assert result.score == pytest.approx(result.detail["lineup_peak_score"], abs=1e-4)
+        assert result.score == pytest.approx(result.detail["lineup_score"], abs=1e-4)
         assert result.detail["formula_version"] == "peak3_v1"
         assert result.detail["tmw_adapter_version"]
+
+
+def test_no_result_detail_carries_a_projected_record():
+    """Part of the ruleset. The 82-0 record projection is calibrated for eight
+    cards; this mode plays six, so no record is reported at all rather than one
+    that reads as a claim the mode cannot stand behind."""
+    _snapshot, outputs = _play_to_completion()
+    for result in outputs[-1].results:
+        for banned in ("wins", "losses", "expected_wins", "is_perfect_season"):
+            assert banned not in result.detail, f"{banned} leaked into a settled result"
+        # And the receipt still explains itself, from measured components.
+        assert result.detail["fit_components"]
+        assert result.detail["decisive_pick"]["lineup_quality_drop"] > 0
+
+
+def test_the_comparator_is_not_the_mean_of_the_drafted_seasons():
+    """`mean_season_score` is reported for reading and is NOT the score.
+
+    Over a full match at least one seat must differ between the two, or the
+    comparator change has not actually taken effect.
+    """
+    _snapshot, outputs = _play_to_completion()
+    results = outputs[-1].results
+    assert any(
+        abs(r.score - r.detail["mean_season_score"]) > 1e-6 for r in results
+    ), "every seat's lineup score equalled its mean -- the comparator is still the mean"
 
 
 def test_completion_emits_a_public_scored_event():
@@ -683,3 +780,257 @@ def test_bot_seats_are_recorded_but_change_no_rule():
         seats=_seats(bot_indexes=(2,)),
     )
     assert out.accepted
+
+
+# ---------------------------------------------------------------------------
+# Rearrangement: on the board, and atomically with a pick
+# ---------------------------------------------------------------------------
+
+
+def _fill_seat(snapshot, seat_index, count):
+    """Play the draft until `seat_index` holds `count` picks. Returns the state."""
+    state = snapshot
+    guard = 0
+    while guard < ROUNDS * PARTICIPANT_COUNT:
+        guard += 1
+        roster = state["rosters"][seat_index]
+        if sum(1 for slot in roster["slots"].values() if slot) >= count:
+            return state
+        seat = state["current_seat"]
+        slug, slot = _first_legal_pick(state, seat)
+        out = _reduce(
+            state,
+            _command(COMMAND_PICK, {"player_slug": slug, "slot_type": slot},
+                     seat_index=seat, key=f"fill{guard}"),
+        )
+        assert out.accepted, out.rejection_message
+        state = out.snapshot
+    raise AssertionError("could not fill the seat")
+
+
+def test_a_seat_may_rearrange_its_own_roster_without_consuming_a_turn(opening):
+    """Tidying your own lineup takes nothing from anybody: no player leaves the
+    board, no other seat's options change, and the clock does not move."""
+    from app.services.three_man_weave.mode import COMMAND_REARRANGE
+
+    state = _fill_seat(opening, 0, 2)
+    roster = state["rosters"][0]["slots"]
+    placed = {slot: pick["player_slug"] for slot, pick in roster.items() if pick}
+    assert len(placed) == 2
+
+    # A no-op arrangement is still a legal arrangement, and the cheapest way to
+    # assert the command's turn behaviour without needing a legal swap.
+    out = _reduce(
+        state,
+        _command(COMMAND_REARRANGE, {"placements": placed}, seat_index=0, key="rearr"),
+    )
+    assert out.accepted, out.rejection_message
+    # NEITHER resolves nor opens a turn -- the open turn is left exactly as it
+    # was, so a seat cannot shorten or steal another seat's clock.
+    assert out.resolve_turn is None
+    assert out.open_turn is None
+    assert out.status is None
+
+
+def test_a_rearrangement_that_drops_a_player_is_refused(opening):
+    from app.services.three_man_weave.mode import COMMAND_REARRANGE
+
+    state = _fill_seat(opening, 0, 2)
+    roster = state["rosters"][0]["slots"]
+    placed = {slot: pick["player_slug"] for slot, pick in roster.items() if pick}
+    partial = dict(list(placed.items())[:1])
+
+    out = _reduce(
+        state,
+        _command(COMMAND_REARRANGE, {"placements": partial}, seat_index=0, key="drop"),
+    )
+    assert not out.accepted
+    assert out.rejection_code == "roster_mismatch"
+
+
+def test_a_rearrangement_cannot_smuggle_in_an_undrafted_identity(opening):
+    from app.services.three_man_weave.mode import COMMAND_REARRANGE
+
+    state = _fill_seat(opening, 0, 2)
+    roster = state["rosters"][0]["slots"]
+    placed = {slot: pick["player_slug"] for slot, pick in roster.items() if pick}
+    smuggled = dict(placed)
+    empty = next(slot for slot, pick in roster.items() if not pick)
+    smuggled[empty] = "michael-jordan"
+
+    out = _reduce(
+        state,
+        _command(COMMAND_REARRANGE, {"placements": smuggled}, seat_index=0, key="smuggle"),
+    )
+    assert not out.accepted
+    assert out.rejection_code == "roster_mismatch"
+
+
+def test_a_pick_and_its_rearrangement_commit_as_one_command(opening):
+    """The atomicity guarantee, asserted rather than argued.
+
+    A candidate who fits only after a rearrangement is drafted with the plan in
+    the same payload. There is no ordering in which the draft lands and the
+    repositioning does not.
+    """
+    from nba_peak.three_man_weave import draft as D
+    from nba_peak.three_man_weave.arrangement import FITS_AFTER_REARRANGEMENT
+
+    state = opening
+    # Play until some seat has a candidate that needs a rearrangement. Round
+    # one is always "fits now" for everyone (empty rosters), so this walks.
+    for turn in range(ROUNDS * PARTICIPANT_COUNT):
+        seat = state["current_seat"]
+        if seat is None:
+            break
+        draft_state = D.DraftState.from_dict(state)
+        fits = D.candidate_fits(draft_state, seat)
+        needy = [
+            (slug, fit)
+            for slug, fit in sorted(fits.items())
+            if fit.state == FITS_AFTER_REARRANGEMENT
+        ]
+        if needy:
+            slug, fit = needy[0]
+            before = {
+                s: (p["player_slug"] if p else None)
+                for s, p in state["rosters"][seat]["slots"].items()
+            }
+            out = _reduce(
+                state,
+                _command(
+                    COMMAND_PICK,
+                    {"player_slug": slug, "placements": fit.plan},
+                    seat_index=seat,
+                    key="atomic",
+                ),
+            )
+            assert out.accepted, out.rejection_message
+            after = {
+                s: (p["player_slug"] if p else None)
+                for s, p in out.snapshot["rosters"][seat]["slots"].items()
+            }
+            # The new player is placed AND at least one existing player moved,
+            # in one command.
+            assert slug in after.values()
+            assert after != {**before, **{k: v for k, v in after.items() if v == slug}}
+            moved = [s for s in before if before[s] and before[s] != after[s]]
+            assert moved, "the arrangement claimed a move that did not happen"
+            return
+
+        slug, slot = _first_legal_pick(state, seat)
+        out = _reduce(
+            state,
+            _command(COMMAND_PICK, {"player_slug": slug, "slot_type": slot},
+                     seat_index=seat, key=f"walk{turn}"),
+        )
+        assert out.accepted
+        state = out.snapshot
+    pytest.skip("no rearrangement-only candidate arose in this seeded match")
+
+
+def test_a_pick_whose_arrangement_disagrees_with_its_slot_is_refused(opening):
+    from nba_peak.three_man_weave import draft as D
+
+    seat = opening["current_seat"]
+    draft_state = D.DraftState.from_dict(opening)
+    fits = D.candidate_fits(draft_state, seat)
+    slug = sorted(fits)[0]
+    landing = fits[slug].direct_slots[0]
+    other = next(s for s in ("PG", "SG", "SF", "PF", "C", "bench_1") if s != landing)
+
+    out = _reduce(
+        opening,
+        _command(
+            COMMAND_PICK,
+            {"player_slug": slug, "slot_type": other, "placements": {landing: slug}},
+            seat_index=seat,
+        ),
+    )
+    assert not out.accepted
+    assert out.rejection_code == "arrangement_mismatch"
+
+
+# ---------------------------------------------------------------------------
+# The live edge
+# ---------------------------------------------------------------------------
+
+
+def test_the_live_edge_is_ordinal_and_never_a_total(opening):
+    state = _fill_seat(opening, 0, 1)
+    public, _private, _legal = mode.project(_match(state), _seats(), 0)
+    edge = public["current_edge"]
+    assert edge["is_live"] is True
+    assert set(edge["seats"]) == {"0", "1", "2"}
+    for band in edge["seats"].values():
+        assert band in ("leading", "close_behind", "needs_a_response", "level")
+    # No number of any kind crosses. A partial total is not on the same scale
+    # as the final one and a player shown both would compare them.
+    assert not any(isinstance(value, (int, float)) for value in edge["seats"].values())
+
+
+def test_the_live_edge_compares_seats_at_equal_depth(opening):
+    """Mid-round the snake has given one seat an extra pick. Ranking on whole
+    rosters would show it "Leading" for having picked more recently."""
+    state = _fill_seat(opening, 0, 1)
+    public, _private, _legal = mode.project(_match(state), _seats(), 0)
+    depth = public["current_edge"]["compared_after_picks"]
+    filled = [
+        sum(1 for slot in roster["slots"].values() if slot)
+        for roster in state["rosters"]
+    ]
+    assert depth == min(filled)
+
+
+def test_no_edge_is_published_once_the_match_is_over():
+    snapshot, _outputs = _play_to_completion()
+    public, _private, _legal = mode.project(_match(snapshot), _seats(), 0)
+    assert public["current_edge"]["is_live"] is False
+
+
+# ---------------------------------------------------------------------------
+# Bot pacing and naming
+# ---------------------------------------------------------------------------
+
+
+def test_bot_think_time_is_seeded_inside_the_published_window():
+    from nba_peak.three_man_weave.config import (
+        BOT_THINK_SECONDS_MAX,
+        BOT_THINK_SECONDS_MIN,
+        bot_think_seconds,
+    )
+
+    seen = set()
+    for seed in range(40):
+        for seat in range(PARTICIPANT_COUNT):
+            for turn in range(3):
+                value = bot_think_seconds(seed, seat, turn)
+                assert BOT_THINK_SECONDS_MIN <= value <= BOT_THINK_SECONDS_MAX
+                seen.add(value)
+    # Variable rather than a constant dressed up as a range.
+    assert len(seen) > 20
+    # And deterministic.
+    assert bot_think_seconds(7, 1, 2) == bot_think_seconds(7, 1, 2)
+
+
+def test_bot_names_are_distinct_thematic_archetypes():
+    from nba_peak.three_man_weave.bot import BOT_ARCHETYPE_NAMES, archetype_names
+
+    for seed in range(50):
+        names = archetype_names(seed, 2)
+        assert len(set(names)) == 2, names
+        for name in names:
+            assert name in BOT_ARCHETYPE_NAMES
+            assert "PEAK3" not in name
+            assert not any(char.isdigit() for char in name)
+    # Seeded, so a replayed match seats the same opponents.
+    assert archetype_names(11, 2) == archetype_names(11, 2)
+    assert len({archetype_names(s, 2) for s in range(30)}) > 5
+
+
+def test_the_human_seat_is_drawn_from_the_seed():
+    from nba_peak.three_man_weave.config import human_seat_index
+
+    seen = {human_seat_index(seed) for seed in range(60)}
+    assert seen == {0, 1, 2}, f"the human only ever sat at {sorted(seen)}"
+    assert human_seat_index(4242) == human_seat_index(4242)

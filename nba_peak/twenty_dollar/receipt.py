@@ -152,7 +152,10 @@ def build(state: dict, pool: Optional[CandidatePool] = None) -> dict:
         "best_bargain": _best_bargain(per_seat),
         "biggest_overpay": _biggest_overpay(per_seat),
         "most_decisive": _most_decisive(state, pool),
-        "counterfactual": _counterfactual(state, pool),
+        # ALWAYS None. See `_one_bid_away` for why the panel was
+        # retired rather than repaired; the key is retained so an older
+        # client renders nothing instead of crashing on a missing field.
+        "counterfactual": _one_bid_away(state, pool),
         "autofilled": bool(state.get("autofilled", False)),
         "rounds_played": len(history),
         "component_disclosure": component_disclosure(),
@@ -277,77 +280,41 @@ def _most_decisive(state: dict, pool: CandidatePool) -> Optional[dict]:
     return best
 
 
-def _counterfactual(state: dict, pool: CandidatePool) -> Optional[dict]:
-    """One alternate bid that would have flipped the match.
+def _one_bid_away(state: dict, pool: CandidatePool) -> None:
+    """RETIRED. Always None, and the name is kept so the absence is greppable.
 
-    Searches the losing seat's own resolved rounds for the CHEAPEST single bid
-    increase that would have taken a player from the winner. Reports the
-    resulting totals honestly:
+    WHY "ONE BID AWAY" WAS REMOVED RATHER THAN FIXED.
+    -------------------------------------------------
+    The panel claimed: raise your bid on this one lot by $N and the final
+    totals become A to B. The dollar figure was right. The totals were not, and
+    could not be made right, for a reason that is structural rather than a bug
+    in the arithmetic.
 
-      * The swing is exact for the roster totals -- moving one card between two
-        rosters is a subtraction and an addition of published numbers.
-      * It assumes every other round played out identically, which is a
-        simplification and is labelled as one. A real auction would have
-        diverged; this is "the smallest thing you could have done differently",
-        not a simulation.
+    Moving a card from the winner's roster to the loser's is not a swap that
+    leaves two legal rosters. Each seat buys exactly five players. If the loser
+    had won that lot they would NOT then have bought the player they actually
+    bought for that slot -- so their real roster is six cards under the
+    counterfactual, and the winner's is four. The published "new totals"
+    summed a six-card roster against a four-card one and presented the result
+    as the score the match would have ended on.
 
-    Returns None when the match was a draw, when no single bid change is
-    enough, or when the loser could not have afforded the raise under the
-    reserve rule -- and in that last case the constraint is reported rather
-    than the suggestion, so the receipt never advises an illegal bid.
+    Nor can it be repaired by also removing the loser's actual purchase for
+    that slot: the winner, having lost the lot, would have spent that money
+    somewhere -- on a candidate from a later lot the loser also wanted, at a
+    price neither seat's real bidding tells us. Every fix requires simulating
+    an auction that did not happen, and a simulated auction reported beside
+    real prices is a fabricated result in a receipt whose whole job is that
+    every number in it can be checked.
+
+    The receipt now reports what is TRUE about the auction that did happen: the
+    decisive lot (`most_decisive`), the exact final margin, and the per-slot
+    comparison. Those are facts, and a player who wants to know where the match
+    turned is better served by the lot that actually turned it.
+
+    Kept as a function returning None rather than deleted outright so a reader
+    who goes looking for the panel finds this explanation instead of nothing.
     """
-    if state["phase"] != "complete":
-        return None
-    totals = [
-        sum(pool.get(e["player_slug"]).prime_score for e in seat["roster"])
-        for seat in state["seats"]
-    ]
-    if len(totals) != 2 or _round(totals[0]) == _round(totals[1]):
-        return None
-    loser = 0 if totals[0] < totals[1] else 1
-    winner = 1 - loser
-    deficit = totals[winner] - totals[loser]
-
-    best: Optional[dict] = None
-    for record in state["history"]:
-        if record["winner_seat"] != winner or record.get("decided_by") == "autofill":
-            continue
-        card = record["candidate"]
-        score = float(card["prime_score"])
-        # Taking this card moves it across: the loser gains it, the winner
-        # loses it, so the margin moves by twice its score.
-        if 2 * score <= deficit:
-            continue
-        winning_bid = int(record["price"])
-        loser_bid = int(record["bids"][loser])
-        # To have taken the player the loser needed one more raise than they
-        # made: in an ascending auction the winner's price is the last standing
-        # bid, so answering it costs `price + MIN_RAISE`. There is no tie to
-        # exploit -- sequential bidding makes equal top bids unreachable.
-        needed = winning_bid + 1
-        cost = needed - loser_bid
-        if best is None or cost < best["extra_dollars"]:
-            best = {
-                "round_index": record["round_index"],
-                "player_slug": card["player_slug"],
-                "player_name": card["player_name"],
-                "prime_score": card["prime_score"],
-                "your_bid": loser_bid,
-                "winning_bid": winning_bid,
-                "needed_bid": needed,
-                "extra_dollars": cost,
-                "loser_seat": loser,
-                "new_totals": [
-                    _round(totals[0] + (score if loser == 0 else -score)),
-                    _round(totals[1] + (score if loser == 1 else -score)),
-                ],
-                "assumption": (
-                    "Assumes every other auction resolved exactly as it did. A real "
-                    "match would have diverged from this point; this is the smallest "
-                    "single change that flips the result, not a simulation."
-                ),
-            }
-    return best
+    return None
 
 
 def _settlement(per_seat: list[dict]) -> dict:

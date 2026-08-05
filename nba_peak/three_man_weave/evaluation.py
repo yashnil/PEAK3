@@ -23,15 +23,38 @@ The evaluator is N-agnostic -- it slices `cards[:5]` as starters and
 starters + one bench) is therefore a contract, enforced here: this module
 refuses to evaluate a roster that is not exactly `config.SLOT_TYPES`.
 
-WHY `lineup_peak_score` AND NOT `wins`
---------------------------------------
-`wins` saturates. It is capped at 82, `positional_fit` clamps at 100 (five
-correctly-placed starters is exactly +50 over the base of 50), and the
-generational win floor is 81 -- so two genuinely different elite rosters both
-report 82-0 and tie. Measured on real cards: an all-time roster and a
-merely-excellent one separate cleanly on `lineup_peak_score` (89.1 vs 59.6)
-while both can pin `wins`. `ranking_score` below is therefore
-`lineup_peak_score`, and `wins` is presentation.
+WHAT DECIDES THE MATCH: `lineup_quality`, AND WHY NOT THE OTHER TWO
+--------------------------------------------------------------------
+The comparator is `SimulationResult.lineup_quality` -- the weighted fit
+combination the 82-0 model builds its record projection from, before the win
+floor, the 82-win cap and the seeded noise. It is the model's own judgement of
+lineup quality, published by the evaluator rather than recomputed here.
+
+  * NOT `wins`, and not `expected_wins`. Both saturate: the cap is 82 and the
+    generational floor is 81, so two genuinely different elite rosters tie on
+    both, and `wins` additionally carries seeded noise that would let the same
+    roster win or lose the same match on the board seed.
+
+  * NOT `lineup_peak_score`. That field is a RAW MEAN of the six cards' season
+    scores. It was the comparator in v1 of this adapter and it was the wrong
+    one: a mean knows nothing about bench strength, positional fit, creation
+    or scoring coverage or postseason pedigree, so it scored a roster with a
+    centre at point guard exactly as highly as the same six men placed
+    correctly. Ranking a DRAFT -- a game whose entire strategy is roster
+    construction -- on a number blind to roster construction made the position
+    rules decorative. It is retained on the receipt as a labelled secondary
+    figure ("mean season PEAK3"), because it is true and readable, but it does
+    not decide anything.
+
+NO PROJECTED RECORD IS REPORTED
+-------------------------------
+`wins`/`losses`/`expected_wins` are deliberately NOT carried out of this
+module. The 82-0 record projection is calibrated and presented for an
+eight-card CourtBuilder roster; running it over six cards produces a number
+whose relationship to that model is not something this adapter can vouch for,
+and a "68-14 projected" line beside a result reads as a claim whether or not
+it is labelled. The lineup-quality index it is derived FROM is reported
+instead, named as an index.
 
 UNSCORED CARDS: PREVENTED AT THE SOURCE, SURFACED AT THE BOUNDARY
 ------------------------------------------------------------------
@@ -137,22 +160,21 @@ class RosterEvaluation:
 
     # The comparator. None when the roster is not fully scored -- never 0.0.
     ranking_score: Optional[float]
-    lineup_peak_score: Optional[float]
+    #: The evaluator's lineup-quality index. Identical to `ranking_score` when
+    #: the roster is scoreable; named separately so a receipt can say what the
+    #: number IS rather than only what it is used for.
+    lineup_score: Optional[float]
+    #: The mean of the six cards' season scores. SECONDARY AND LABELLED -- see
+    #: the module docstring for why it is not the comparator.
+    mean_season_score: Optional[float]
     score_status: str
     unscored_slots: tuple[str, ...]
 
     fit_components: dict[str, float]
-    wins: int
-    losses: int
-    expected_wins: float
-    expected_wins_low: float
-    expected_wins_high: float
-    is_perfect_season: bool
-    decisive_factors: tuple[str, ...]
     best_pick: Optional[str]
-    structural_weakness: Optional[str]
-    structural_weakness_detail: Optional[str]
-    weakness_framing: Optional[str]
+    #: The pick whose removal costs this roster the most lineup quality --
+    #: computed by leave-one-out over the same evaluator, not asserted.
+    decisive_pick: Optional[dict]
     experimental_notice: str
     cards: tuple[EvaluatedCard, ...]
 
@@ -163,21 +185,13 @@ class RosterEvaluation:
             "simulator_version": self.simulator_version,
             "formula_version": self.formula_version,
             "ranking_score": self.ranking_score,
-            "lineup_peak_score": self.lineup_peak_score,
+            "lineup_score": self.lineup_score,
+            "mean_season_score": self.mean_season_score,
             "score_status": self.score_status,
             "unscored_slots": list(self.unscored_slots),
             "fit_components": dict(self.fit_components),
-            "wins": self.wins,
-            "losses": self.losses,
-            "expected_wins": self.expected_wins,
-            "expected_wins_low": self.expected_wins_low,
-            "expected_wins_high": self.expected_wins_high,
-            "is_perfect_season": self.is_perfect_season,
-            "decisive_factors": list(self.decisive_factors),
             "best_pick": self.best_pick,
-            "structural_weakness": self.structural_weakness,
-            "structural_weakness_detail": self.structural_weakness_detail,
-            "weakness_framing": self.weakness_framing,
+            "decisive_pick": dict(self.decisive_pick) if self.decisive_pick else None,
             "experimental_notice": self.experimental_notice,
             "cards": [card.as_dict() for card in self.cards],
         }
@@ -190,16 +204,23 @@ def resolve_scoring_season_card(
     """The exact `PlayerSeasonCard` a pick is scored on.
 
     Two lookups, both from committed data: the eligibility index says WHICH
-    season (the identity's best of the drafted decade), and
-    `exact_season.resolve_player_season_card` produces the real card for it.
-    Never a career-peak substitute -- that substitution is the exact bug
-    `exact_season` was written to prevent.
+    season (the identity's best FOR THE DRAFTED FRANCHISE in the drafted
+    decade), and `exact_season.resolve_player_season_card` produces the real
+    card for it. Never a career-peak substitute -- that substitution is the
+    exact bug `exact_season` was written to prevent -- and, since the ruleset
+    correction, never another franchise's season either.
+
+    THE FRANCHISE IS PASSED, NOT INFERRED. `pick.franchise_id` is the roll the
+    player was taken on, so the card that comes back is the one the pick
+    claimed to be. A lookup by decade alone is what let a Cleveland x 2010s
+    Wade be scored on 2010-11 Miami.
     """
-    scoring = index.scoring_card(pick.player_slug, pick.decade)
+    scoring = index.scoring_card(pick.player_slug, pick.franchise_id, pick.decade)
     if scoring is None:
         raise EvaluationError(
             "no_scoring_card",
-            f"'{pick.player_slug}' has no scored season in the {pick.decade}",
+            f"'{pick.player_slug}' has no scored season for "
+            f"{pick.franchise_id} in the {pick.decade}",
         )
     card = resolve_player_season_card(
         scoring.player_slug, scoring.resolve_team_id, scoring.season
@@ -283,32 +304,159 @@ def evaluate_roster(
     # `simulate_exact_season` returns 0.0, not None, for an incomplete roster.
     # Pass None through instead so a caller cannot mistake "we could not score
     # this" for "this roster scored zero".
-    lineup_peak_score = result.lineup_peak_score if complete else None
+    lineup_score = round(result.lineup_quality, 2) if complete else None
+    mean_season = result.lineup_peak_score if complete else None
 
     return RosterEvaluation(
         tmw_adapter_version=TMW_ADAPTER_VERSION,
         lineup_model_version=result.lineup_model_version,
         simulator_version=result.simulator_version,
         formula_version=FORMULA_VERSION,
-        ranking_score=lineup_peak_score,
-        lineup_peak_score=lineup_peak_score,
+        ranking_score=lineup_score,
+        lineup_score=lineup_score,
+        mean_season_score=mean_season,
         score_status=SCORE_STATUS_COMPLETE if complete else SCORE_STATUS_INCOMPLETE,
         unscored_slots=unscored,
         fit_components=result.fit_components.as_dict(),
-        wins=result.wins,
-        losses=result.losses,
-        expected_wins=result.expected_wins,
-        expected_wins_low=result.expected_wins_low,
-        expected_wins_high=result.expected_wins_high,
-        is_perfect_season=result.is_perfect_season,
-        decisive_factors=tuple(result.decisive_factors),
         best_pick=result.best_pick,
-        structural_weakness=result.structural_weakness,
-        structural_weakness_detail=result.structural_weakness_detail,
-        weakness_framing=result.weakness_framing,
+        decisive_pick=(
+            _decisive_pick(picks, cards, board_seed) if complete else None
+        ),
         experimental_notice=result.experimental_notice,
         cards=evaluated_cards,
     )
+
+
+def _decisive_pick(
+    picks: Sequence[DraftPick],
+    cards: Sequence[PlayerSeasonCard],
+    board_seed: int,
+) -> Optional[dict]:
+    """The pick this roster could least afford to lose, by leave-one-out.
+
+    COMPUTED, NOT ASSERTED. For each slot, the same evaluator is re-run over
+    the other five cards and the drop in `lineup_quality` is recorded; the
+    largest drop wins. That makes "decisive" a measured marginal contribution
+    against the model that decided the match, rather than "whoever scored
+    highest" (which `best_pick` already reports and which is a different
+    claim -- the best card and the load-bearing one are often not the same
+    player, because fit and scarcity are part of the index and not part of a
+    season score).
+
+    Six extra evaluator calls, run once when a match settles. Never on a poll.
+    """
+    if len(cards) != len(SLOT_TYPES):  # pragma: no cover - caller guarantees
+        return None
+
+    full = simulate_exact_season(list(cards), board_seed, list(SLOT_TYPES)).lineup_quality
+
+    best: Optional[dict] = None
+    for index_ in range(len(cards)):
+        remaining_cards = [c for i, c in enumerate(cards) if i != index_]
+        remaining_slots = [s for i, s in enumerate(SLOT_TYPES) if i != index_]
+        without = simulate_exact_season(
+            remaining_cards, board_seed, remaining_slots
+        ).lineup_quality
+        drop = round(full - without, 2)
+        if best is None or drop > best["lineup_quality_drop"]:
+            best = {
+                "slot_type": SLOT_TYPES[index_],
+                "player_slug": cards[index_].player_slug,
+                "player_name": cards[index_].player_name,
+                "season": cards[index_].season,
+                "team_id": cards[index_].team_id,
+                "round_number": picks[index_].round_number,
+                "lineup_quality_drop": drop,
+            }
+    return best
+
+
+# ---------------------------------------------------------------------------
+# The live edge: an ORDINAL reading of an unfinished draft
+# ---------------------------------------------------------------------------
+
+EDGE_LEADING = "leading"
+EDGE_CLOSE_BEHIND = "close_behind"
+EDGE_NEEDS_RESPONSE = "needs_a_response"
+EDGE_LEVEL = "level"
+
+#: How far behind the leader still counts as "close behind", in lineup-quality
+#: index points. Chosen against the same scale the final score uses, so the
+#: band means the same thing at every depth.
+EDGE_CLOSE_MARGIN = 2.5
+
+
+def partial_lineup_score(
+    picks: Sequence[DraftPick],
+    index: EligibilityIndex,
+    board_seed: int,
+) -> Optional[float]:
+    """The lineup-quality index of an UNFINISHED roster.
+
+    The same evaluator, over the cards a seat actually holds. Cards are ordered
+    by canonical slot so the bench slot -- which the evaluator identifies
+    POSITIONALLY as everything after the fifth card -- stays the bench.
+
+    NOT COMPARABLE TO A FINAL SCORE, and not published as a number anywhere.
+    An unfinished roster scores an empty bench as 0.0 rather than as absent
+    (`simulation._avg([]) == 0.0`), so the value is systematically depressed
+    while slots are open. It is used only to ORDER seats against each other at
+    equal depth, which that bias does not affect because it applies equally.
+    """
+    placed = [pick for pick in picks if pick is not None]
+    if not placed:
+        return None
+    ordered = sorted(placed, key=lambda pick: SLOT_TYPES.index(pick.slot_type))
+    cards = [resolve_scoring_season_card(pick, index) for pick in ordered]
+    result = simulate_exact_season(
+        cards, board_seed, [pick.slot_type for pick in ordered]
+    )
+    return round(result.lineup_quality, 3)
+
+
+def current_edges(
+    rosters_picks: Mapping[int, Sequence[DraftPick]],
+    index: EligibilityIndex,
+    board_seed: int,
+) -> dict[int, str]:
+    """seat_index -> one of the four ordinal edge bands. No numbers.
+
+    COMPARED AT EQUAL DEPTH. Every seat is scored on its first `k` picks,
+    where `k` is the smallest roster in the match. Mid-round, the snake has
+    given one or two seats an extra pick; ranking on whole rosters would show
+    a seat "Leading" purely for having picked more recently, which is a
+    statement about turn order rather than about roster quality.
+
+    Returns `EDGE_LEVEL` for everyone when no seat has picked yet, or when
+    every seat's partial score is identical.
+    """
+    depth = min((len(list(picks)) for picks in rosters_picks.values()), default=0)
+    if depth <= 0:
+        return {seat: EDGE_LEVEL for seat in rosters_picks}
+
+    scores: dict[int, float] = {}
+    for seat_index, picks in rosters_picks.items():
+        # Chronological order, so "first k picks" means the first k the seat
+        # actually made rather than the first k slots it happens to occupy.
+        chronological = sorted(picks, key=lambda pick: (pick.round_number, pick.slot_type))
+        value = partial_lineup_score(chronological[:depth], index, board_seed)
+        if value is None:  # pragma: no cover - depth >= 1 guarantees a pick
+            return {seat: EDGE_LEVEL for seat in rosters_picks}
+        scores[seat_index] = value
+
+    leader = max(scores.values())
+    if all(abs(value - leader) < 1e-9 for value in scores.values()):
+        return {seat: EDGE_LEVEL for seat in scores}
+
+    out: dict[int, str] = {}
+    for seat_index, value in scores.items():
+        if abs(value - leader) < 1e-9:
+            out[seat_index] = EDGE_LEADING
+        elif leader - value <= EDGE_CLOSE_MARGIN:
+            out[seat_index] = EDGE_CLOSE_BEHIND
+        else:
+            out[seat_index] = EDGE_NEEDS_RESPONSE
+    return out
 
 
 def rank_rosters(
@@ -406,6 +554,11 @@ def is_tied(evaluations: Sequence[tuple[int, RosterEvaluation]]) -> bool:
 
 
 __all__ = [
+    "EDGE_CLOSE_BEHIND",
+    "EDGE_CLOSE_MARGIN",
+    "EDGE_LEADING",
+    "EDGE_LEVEL",
+    "EDGE_NEEDS_RESPONSE",
     "OUTCOME_DRAW",
     "OUTCOME_LOSS",
     "OUTCOME_WIN",
@@ -414,8 +567,10 @@ __all__ = [
     "EvaluatedCard",
     "EvaluationError",
     "RosterEvaluation",
+    "current_edges",
     "evaluate_roster",
     "is_tied",
+    "partial_lineup_score",
     "placements",
     "rank_rosters",
     "resolve_scoring_season_card",

@@ -26,7 +26,15 @@ MODE_ID: Final[str] = "twenty_dollar"
 #: the token has no job and no longer exists. The version bump is what stops an
 #: in-flight v1 snapshot being reinterpreted under rules it was not played
 #: under; `state.assert_supported_version` refuses it rather than guessing.
-RULESET_VERSION: Final[str] = "twenty_dollar_v2"
+#:
+#: v3 CLOSED THE PASS EXPLOIT AND BOUNDED THE MARKET. In v2 a participant could
+#: pass on an unbid candidate forever at no cost, so the dominant strategy was
+#: to let the opponent fill their roster and then skip until five elite players
+#: happened along and buy each for $1. v3 gives every seat FIVE market-skip
+#: tokens, ends the standard market at 24 lots, and runs a bounded Closeout
+#: Market after it. An in-flight v2 snapshot has no skip counters and no market
+#: phase, so it is refused rather than reinterpreted.
+RULESET_VERSION: Final[str] = "twenty_dollar_v3"
 
 #: Which PEAK3 scoring model the board speaks.
 #:
@@ -51,7 +59,10 @@ MODEL_VERSION: Final[str] = "peak3_v1"
 #: The bot policy shipped with this mode. Pinned onto a seat so a later
 #: recalibration cannot retroactively change what a settled rated match was
 #: played against.
-BOT_POLICY_VERSION: Final[str] = "twenty_dollar_bot_v2"
+#: v3 values a candidate by MARGINAL ROSTER IMPROVEMENT rather than by an
+#: undifferentiated fair share, so a redundant or modest player is discounted
+#: and a scarce upgrade earns a premium. See `bot.py`.
+BOT_POLICY_VERSION: Final[str] = "twenty_dollar_bot_v3"
 
 #: What the product calls the house opponent. USER-FACING, and the only string
 #: any surface may show. `bot_id` / `policy_version` are implementation labels
@@ -121,18 +132,62 @@ TIMEOUT_IS_PASS: Final[bool] = True
 # Termination
 # ---------------------------------------------------------------------------
 
-#: Hard ceiling on candidates offered before the remaining slots are filled
-#: deterministically. This is what makes termination a proof rather than a
-#: hope: two participants who both pass forever would otherwise walk the pool.
+#: How many lots the STANDARD market runs for.
 #:
-#: Generous relative to the 10 acquisitions a full match needs, so reaching it
-#: means both seats were genuinely refusing to buy rather than that the cap was
-#: tight.
-MAX_ROUNDS: Final[int] = 60
+#: Ten acquisitions fill both rosters, so 24 lots is well over double what a
+#: decisive match needs -- long enough that reaching the end means both seats
+#: genuinely declined a lot of players, short enough that a match is a session
+#: rather than an evening. Candidate generation in this phase is INDEPENDENT of
+#: either roster's missing positions (see `state._available_candidates`).
+STANDARD_MARKET_LOTS: Final[int] = 24
 
-#: Alias kept for readability at the call sites that talk about lots rather
-#: than rounds. One lot is one candidate put up for auction.
-MAX_LOTS: Final[int] = MAX_ROUNDS
+#: The hard ceiling on total lots, standard plus closeout.
+#:
+#: This is what makes termination a PROOF rather than a hope. Reaching it
+#: auto-fills whatever remains, so no sequence of passes can walk the pool, and
+#: the calibration suite asserts no seeded match ever gets here.
+HARD_MAX_LOTS: Final[int] = 36
+
+#: Kept under its old names so a caller that talks about "rounds" still reads.
+#: One lot is one candidate put up for auction.
+MAX_ROUNDS: Final[int] = HARD_MAX_LOTS
+MAX_LOTS: Final[int] = HARD_MAX_LOTS
+
+#: The two market phases. Named rather than inferred from `lot_index`, because
+#: the UI must be able to say which one it is in and a test must be able to
+#: assert on it.
+MARKET_STANDARD: Final[str] = "standard"
+MARKET_CLOSEOUT: Final[str] = "closeout"
+
+
+# ---------------------------------------------------------------------------
+# The skip economy
+# ---------------------------------------------------------------------------
+
+#: How many VOLUNTARY passes on an unbid, legally-fitting candidate a seat gets
+#: for the whole match.
+#:
+#: THE EXPLOIT THIS CLOSES. Without a cost, passing on an unbid candidate is
+#: free and unlimited, so the optimal line is: never open, let the opponent
+#: spend, and keep skipping until five elite players appear -- each of which
+#: you then take for $1 because nobody is left to bid. That is not a
+#: judgement, it is a wait, and it beat every honest strategy.
+#:
+#: Five is deliberately generous relative to the five slots a roster needs: a
+#: player can decline one candidate per slot they still have to fill and still
+#: never be forced. Running out means you declined more players than you have
+#: roster spots, which is the behaviour the cost is aimed at.
+MARKET_SKIPS_PER_SEAT: Final[int] = 5
+
+#: Skips do NOT replenish, in either market phase. Stated as a constant so the
+#: rule is greppable rather than an absence of code.
+MARKET_SKIPS_REPLENISH: Final[bool] = False
+
+#: Within how many closeout lots an incomplete roster is GUARANTEED at least
+#: one legally fitting candidate. See `state._closeout_priority_seat`: the
+#: guarantee is met by redrawing for the seat that has waited longest, never by
+#: making every closeout candidate match a missing position.
+CLOSEOUT_FIT_GUARANTEE_LOTS: Final[int] = 3
 
 #: What an auto-filled slot costs its owner. One dollar, which the reserve rule
 #: guarantees is always available: a seat with `k` unfilled slots is holding at

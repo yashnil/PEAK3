@@ -16,7 +16,11 @@ import HeroVignette from "@/components/home/HeroVignette";
 import ModelProofStrip from "@/components/home/ModelProofStrip";
 import ComponentComparison from "@/components/home/ComponentComparison";
 import LeaderboardPreview from "@/components/home/LeaderboardPreview";
-import { loadHomeModelData } from "@/components/home/home-data";
+import NbaFactOfTheDay from "@/components/home/NbaFactOfTheDay";
+import {
+  loadHomeModelData,
+  loadNbaFactOfTheDay,
+} from "@/components/home/home-data";
 import MultiplayerSection, {
   MultiplayerLobbyLink,
 } from "@/components/arena/MultiplayerSection";
@@ -105,7 +109,7 @@ const GROUP_LABEL_CLASS = "text-[11px] font-bold uppercase tracking-[0.18em]";
  * that was already rendered on the server.
  */
 export default async function HomePage() {
-  const [readinessResult, modelData, arenaCatalogue] = await Promise.all([
+  const [readinessResult, modelData, arenaCatalogue, nbaFact] = await Promise.all([
     getCourtBuilderReadiness().then(
       (r) => r.courtbuilder_enabled,
       () => false,
@@ -114,6 +118,8 @@ export default async function HomePage() {
     // Fail-closed inside the helper, so this cannot reject and cannot take the
     // homepage down when the Arena is unreachable.
     getArenaCatalogue(),
+    // Fail-closed too: no fact means no panel, never a broken homepage.
+    loadNbaFactOfTheDay(),
   ]);
   const courtBuilderEnabled = readinessResult;
 
@@ -201,6 +207,12 @@ export default async function HomePage() {
           information architecture (every mode really does need a link) —
           only recessed a tier below the arena-styled hero above it.
           --------------------------------------------------------------- */}
+      {/* BETWEEN THE HERO AND THE CATALOGUE, which is the placement the panel
+          earns: it is a reason to come back tomorrow, so it belongs where a
+          returning visitor's eye already lands, and it is one short paragraph,
+          so it does not push the games below the fold. */}
+      <NbaFactOfTheDay fact={nbaFact} />
+
       <section
         className="px-4 pt-14 pb-14 border-t"
         style={{ borderColor: "var(--pk-surface-quiet-border, var(--border-subtle))" }}

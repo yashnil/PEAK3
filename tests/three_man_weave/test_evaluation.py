@@ -93,30 +93,80 @@ def test_each_card_is_the_best_season_of_its_DRAFTED_decade(index, all_time_rost
 
 
 def test_the_same_identity_scores_differently_in_different_decades(index):
-    """The scoring card is a function of (identity, decade), which is why a
-    DraftPick has to carry the decade it was taken on."""
+    """The scoring card is a function of (identity, franchise, decade), which
+    is why a DraftPick has to carry both the roll's franchise and its decade."""
     two_thousands = resolve_scoring_season_card(
         _pick("SF", "lebron-james", "CLE", "2000s"), index
     )
     twenty_tens = resolve_scoring_season_card(
-        _pick("SF", "lebron-james", "CLE", "2010s"), index
+        _pick("SF", "lebron-james", "MIA", "2010s"), index
     )
     assert two_thousands.season == "2008-09"
+    assert two_thousands.team_id == "CLE"
     assert twenty_tens.season == "2012-13"
+    assert twenty_tens.team_id == "MIA"
     assert two_thousands.season_score != twenty_tens.season_score
 
 
-def test_drafted_franchise_is_provenance_and_never_changes_the_score(index):
-    """Kawhi off a Raptors roll and off a Spurs roll score identically --
-    the franchise is eligibility evidence, not a scoring input."""
+def test_the_drafted_franchise_decides_the_scoring_season(index):
+    """Kawhi off a Raptors roll and off a Spurs roll score DIFFERENTLY.
+
+    This is the reversal the ruleset correction made. The franchise is no
+    longer provenance-only: it constrains which season may be used, so the
+    card a Raptors roll produces is a Raptors season even though his best
+    2010s season is a Spurs one.
+    """
     via_toronto = resolve_scoring_season_card(
         _pick("SF", "kawhi-leonard", "TOR", "2010s"), index
     )
     via_san_antonio = resolve_scoring_season_card(
         _pick("SF", "kawhi-leonard", "SAS", "2010s"), index
     )
-    assert via_toronto.exact_player_season_key == via_san_antonio.exact_player_season_key
-    assert via_toronto.season == "2016-17"
+    assert via_toronto.team_id == "TOR"
+    assert via_toronto.season == "2018-19"
+    assert via_san_antonio.team_id == "SAS"
+    assert via_san_antonio.season == "2016-17"
+    assert via_toronto.exact_player_season_key != via_san_antonio.exact_player_season_key
+
+
+def test_a_cleveland_wade_card_is_a_cleveland_card(index):
+    """The named regression. Cleveland x 2010s Wade must not resolve to Miami."""
+    card = resolve_scoring_season_card(
+        _pick("SG", "dwyane-wade", "CLE", "2010s"), index
+    )
+    assert card.team_id == "CLE"
+    assert card.season == "2017-18"
+    assert card.score_status == "exact_season_scored"
+
+    miami = resolve_scoring_season_card(_pick("SG", "dwyane-wade", "MIA", "2010s"), index)
+    assert miami.team_id == "MIA"
+    assert miami.season == "2010-11"
+    assert card.season_score < miami.season_score
+
+
+def test_no_evaluated_card_reports_a_team_outside_its_drafted_franchise(index):
+    """Whole-roster form of the same invariant, through `evaluate_roster`.
+
+    `EvaluatedCard` carries both the franchise it was drafted on and the team
+    the season belongs to, so a cross-franchise card is detectable on the
+    receipt rather than only in the index.
+    """
+    from nba_peak.franchises import franchise_for_team_code
+
+    roster = {
+        "PG": _pick("PG", "magic-johnson", "LAL", "1980s"),
+        "SG": _pick("SG", "michael-jordan", "CHI", "1990s"),
+        "SF": _pick("SF", "kawhi-leonard", "TOR", "2010s"),
+        "PF": _pick("PF", "tim-duncan", "SAS", "2000s"),
+        "C": _pick("C", "shaquille-o-neal", "LAL", "2000s"),
+        "bench_1": _pick("bench_1", "dwyane-wade", "CLE", "2010s"),
+    }
+    evaluation = evaluate_roster(roster, index, board_seed=7)
+    for card in evaluation.cards:
+        assert franchise_for_team_code(card.team_id) == card.drafted_franchise_id, (
+            f"{card.player_slug} drafted on {card.drafted_franchise_id} "
+            f"but scored on {card.team_id} {card.season}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -196,36 +246,130 @@ def test_unscored_cards_report_none_rather_than_a_zero_score(index, all_time_ros
 
     result = evaluate_roster(all_time_roster, index, board_seed=7)
     assert result.score_status == SCORE_STATUS_INCOMPLETE
-    assert result.lineup_peak_score is None
+    assert result.lineup_score is None
+    assert result.mean_season_score is None
     assert result.ranking_score is None
     assert result.unscored_slots == ("bench_1",)
-    # The record is still produced -- an unscored bench player degrades the
-    # score's availability, never the ability to play or show the run.
-    assert result.wins > 0
+    # And nothing else is fabricated in its place: an unscoreable roster gets
+    # no decisive pick either, because there is no lineup quality to attribute.
+    assert result.decisive_pick is None
 
 
 def test_a_fully_scored_roster_reports_complete(index, all_time_roster):
     result = evaluate_roster(all_time_roster, index, board_seed=7)
     assert result.score_status == SCORE_STATUS_COMPLETE
     assert result.unscored_slots == ()
-    assert result.ranking_score == result.lineup_peak_score
+    assert result.ranking_score == result.lineup_score
     assert result.ranking_score > 0
+
+
+def test_no_evaluation_carries_a_projected_record(index, all_time_roster):
+    """Part of the ruleset, not a presentation choice.
+
+    The 82-0 record projection is calibrated for an eight-card roster; this
+    adapter runs six. The record is therefore not carried out of the module at
+    all, so no surface downstream can render one by accident.
+    """
+    result = evaluate_roster(all_time_roster, index, board_seed=7)
+    payload = result.as_dict()
+    for banned in ("wins", "losses", "expected_wins", "expected_wins_low",
+                   "expected_wins_high", "is_perfect_season"):
+        assert banned not in payload, f"{banned} leaked into the TMW receipt"
+    for banned in ("structural_weakness", "weakness_framing", "decisive_factors"):
+        assert banned not in payload, f"{banned} is unvalidated prose for six cards"
+
+
+def test_the_comparator_is_the_lineup_quality_index_not_the_mean(index, all_time_roster):
+    """The v1 defect, asserted against.
+
+    `mean_season_score` is the raw mean of the six card scores and is still
+    reported for reading; `ranking_score` must not be it, because a mean is
+    blind to the roster construction the draft is about.
+    """
+    from nba_peak.perfect_season.exact_season import resolve_player_season_card
+    from nba_peak.perfect_season.simulation import simulate_exact_season
+
+    result = evaluate_roster(all_time_roster, index, board_seed=7)
+    cards = [
+        resolve_scoring_season_card(all_time_roster[slot], index) for slot in SLOT_TYPES
+    ]
+    authoritative = simulate_exact_season(cards, 7, list(SLOT_TYPES))
+
+    assert result.ranking_score == pytest.approx(round(authoritative.lineup_quality, 2))
+    assert result.mean_season_score == pytest.approx(authoritative.lineup_peak_score)
+    assert result.ranking_score != pytest.approx(result.mean_season_score)
+    assert resolve_player_season_card is not None  # the import is the point
+
+
+def test_roster_construction_moves_the_comparator_but_not_the_mean(index, all_time_roster):
+    """The concrete consequence of the comparator change.
+
+    Benching the better small forward and starting the weaker one is a LEGAL
+    rearrangement of the SAME six seasons, so the mean is identical to the
+    decimal. The lineup is genuinely worse, and the comparator has to say so.
+    Under v1 -- which ranked on that mean -- the two rosters tied exactly,
+    which is what made the position rules decorative.
+    """
+    # Magic Johnson to SG and Michael Jordan to PG. Both placements are legal
+    # under hard position legality (each has the other's slot in their
+    # canonical set) and both are off their listed position, which is exactly
+    # what `positional_fit` exists to price. The six SEASONS are untouched.
+    swapped = dict(all_time_roster)
+    swapped["PG"] = dataclasses.replace(all_time_roster["SG"], slot_type="PG")
+    swapped["SG"] = dataclasses.replace(all_time_roster["PG"], slot_type="SG")
+
+    straight = evaluate_roster(all_time_roster, index, board_seed=7)
+    crossed = evaluate_roster(swapped, index, board_seed=7)
+
+    # The mean cannot tell these two rosters apart. At all. That is the defect.
+    assert crossed.mean_season_score == pytest.approx(straight.mean_season_score)
+    # The comparator can, and prices the worse arrangement lower.
+    assert straight.fit_components["positional_fit"] == 100.0
+    assert crossed.fit_components["positional_fit"] < 100.0
+    assert crossed.ranking_score < straight.ranking_score
+
+
+def test_the_decisive_pick_is_a_measured_leave_one_out_drop(index, all_time_roster):
+    result = evaluate_roster(all_time_roster, index, board_seed=7)
+    decisive = result.decisive_pick
+    assert decisive is not None
+    assert decisive["slot_type"] in SLOT_TYPES
+    assert decisive["lineup_quality_drop"] > 0
+
+    # It really is the largest drop, recomputed independently.
+    from nba_peak.perfect_season.simulation import simulate_exact_season
+
+    cards = [
+        resolve_scoring_season_card(all_time_roster[slot], index) for slot in SLOT_TYPES
+    ]
+    full = simulate_exact_season(cards, 7, list(SLOT_TYPES)).lineup_quality
+    drops = {}
+    for i, slot in enumerate(SLOT_TYPES):
+        rest = [c for j, c in enumerate(cards) if j != i]
+        rest_slots = [s for j, s in enumerate(SLOT_TYPES) if j != i]
+        drops[slot] = full - simulate_exact_season(rest, 7, rest_slots).lineup_quality
+    assert decisive["slot_type"] == max(drops, key=drops.get)
 
 
 def test_a_traded_season_card_is_scored_not_treated_as_unscored(index):
     """An aggregate-grain score is a real score. It is labelled, not refused.
 
-    The franchise on the pick is deliberately arbitrary here -- it is
-    eligibility provenance and never reaches the scoring lookup, which is
-    exactly the property being relied on."""
+    The pick is built from the card's OWN franchise, because the franchise is
+    now a scoring input rather than provenance: asking for that identity on
+    some other franchise is a different question with a different answer (and
+    often no answer at all).
+    """
     multi = [card for card in index._scoring.values() if card.is_multi_team_season]
     sample = multi[0]
     card = resolve_scoring_season_card(
-        _pick("bench_1", sample.player_slug, "LAL", sample.decade), index
+        _pick("bench_1", sample.player_slug, sample.franchise_id, sample.decade), index
     )
     assert card.score_status == "exact_season_scored"
     assert card.score_source == "exact_season_aggregate"
     assert card.season_score == pytest.approx(sample.prime_score)
+    # The resolved card names the ROLLED franchise's team, never the other
+    # stint's, even though the score is the whole season's.
+    assert card.team_id == sample.resolve_team_id
 
 
 # ---------------------------------------------------------------------------
@@ -238,21 +382,13 @@ def _evaluation(score, status=SCORE_STATUS_COMPLETE) -> RosterEvaluation:
         simulator_version="y",
         formula_version="peak3_v1",
         ranking_score=score,
-        lineup_peak_score=score,
+        lineup_score=score,
+        mean_season_score=score,
         score_status=status,
         unscored_slots=(),
         fit_components={},
-        wins=0,
-        losses=0,
-        expected_wins=0.0,
-        expected_wins_low=0.0,
-        expected_wins_high=0.0,
-        is_perfect_season=False,
-        decisive_factors=(),
         best_pick=None,
-        structural_weakness=None,
-        structural_weakness_detail=None,
-        weakness_framing=None,
+        decisive_pick=None,
         experimental_notice="",
         cards=(),
     )

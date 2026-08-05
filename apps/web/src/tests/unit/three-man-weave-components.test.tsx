@@ -1,50 +1,47 @@
 /**
- * THREE-MAN WEAVE — frontend unit tests.
+ * Three-Man Weave component tests.
  *
- * WHAT THESE ARE FOR. Legality, scoring, placement and the identity lock all
- * live on the server and are tested there (`tests/three_man_weave/`,
- * `apps/api/tests/test_three_man_weave_mode.py`). What can go wrong HERE is
- * different, and it is what these cover:
- *
- *  * the ranking basis being NAMED where the winner is declared, rather than
- *    hidden in a tooltip -- a player whose 71-11 lost to a 64-18 must be able
- *    to read why without hunting;
- *  * the 82-game record staying visually SUBORDINATE and never becoming the
- *    headline;
- *  * an unscoreable roster rendering as a real state rather than a blank or a
- *    zero;
- *  * eligibility and the scoring card rendering as two separate labelled
- *    facts, which is what stops a 2000s Shaq scored on 2000-01 from reading
- *    as a bug;
- *  * a mid-season trade being disclosed in both directions;
- *  * the API client sending a bearer token, a required idempotency key and the
- *    expected state version -- a client that omitted any of them would be a
- *    double-apply waiting to happen.
+ * WHAT IS ASSERTED HERE IS PRODUCT RULES, NOT RENDERING. Each block below
+ * corresponds to a rule the mode would be wrong without: that a candidate
+ * carries no score, that a disabled candidate says why, that all three rosters
+ * are on screen at once, that the result declares its basis and publishes no
+ * projected record. A test that only checked "the component rendered" would
+ * pass for every version of these components including the broken ones.
  */
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import PickProvenance from "@/components/three-man-weave/PickProvenance";
 import SeatCourt from "@/components/three-man-weave/SeatCourt";
+import RosterBoard from "@/components/three-man-weave/RosterBoard";
 import PodiumReceipt from "@/components/three-man-weave/PodiumReceipt";
-import PickPanel from "@/components/three-man-weave/PickPanel";
+import PickOverlay from "@/components/three-man-weave/PickOverlay";
+import MoveDialog from "@/components/three-man-weave/MoveDialog";
 import IdentityLockPanel from "@/components/three-man-weave/IdentityLockPanel";
 import DraftOrderStrip from "@/components/three-man-weave/DraftOrderStrip";
-import RollReveal from "@/components/three-man-weave/RollReveal";
+import WeaveSpinner from "@/components/three-man-weave/WeaveSpinner";
 import type { TmwCandidate } from "@/lib/three-man-weave-state";
-import type { ArenaResultView, TmwPick, TmwPlayer, TmwRoster } from "@/types/three-man-weave";
+import type {
+  ArenaResultView,
+  ArenaSeatPublic,
+  TmwPick,
+  TmwPublicState,
+  TmwRoll,
+  TmwRoster,
+} from "@/types/three-man-weave";
 
-const getAccessToken = vi.fn();
-vi.mock("@/lib/auth", () => ({
-  getAccessToken: (...args: unknown[]) => getAccessToken(...args),
-}));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
-function player(overrides: Partial<TmwPlayer> = {}): TmwPlayer {
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+function pick(overrides: Partial<TmwPick> = {}): TmwPick {
   return {
     player_slug: "kawhi-leonard",
     player_name: "Kawhi Leonard",
+    positions: ["SF", "PF"],
     eligibility: {
       franchise_id: "TOR",
       franchise_display_name: "Toronto Raptors",
@@ -54,25 +51,14 @@ function player(overrides: Partial<TmwPlayer> = {}): TmwPlayer {
       ],
     },
     scoring_card: {
-      season: "2016-17",
-      team_id: "SAS",
-      team_name: "San Antonio Spurs",
-      prime_score: 87.8,
+      season: "2018-19",
+      team_id: "TOR",
+      team_name: "Toronto Raptors",
+      prime_score: 84.0,
       score_source: "exact_team_stint",
       is_multi_team_season: false,
       formula_version: "peak3_v1",
     },
-    ...overrides,
-  };
-}
-
-function candidate(overrides: Partial<TmwCandidate> = {}): TmwCandidate {
-  return { ...player(), legalSlots: ["SF", "PF"], ...overrides };
-}
-
-function pick(overrides: Partial<TmwPick> = {}): TmwPick {
-  return {
-    ...player(),
     seat_index: 0,
     round_number: 1,
     slot_type: "SF",
@@ -90,22 +76,105 @@ function roster(seatIndex: number, slots: Record<string, TmwPick | null> = {}): 
   };
 }
 
+const SEATS: ArenaSeatPublic[] = [
+  { seat_index: 0, display_name: "You", is_bot: false, status: "active", bot_rating: null },
+  { seat_index: 1, display_name: "Floor General", is_bot: true, status: "active", bot_rating: 1100 },
+  { seat_index: 2, display_name: "Board Man", is_bot: true, status: "active", bot_rating: 1100 },
+];
+
+const ROLL: TmwRoll = {
+  round_number: 1,
+  roll_id: "tor-2010s",
+  franchise_id: "TOR",
+  franchise_display_name: "Toronto Raptors",
+  decade: "2010s",
+  eligible_slugs: ["kawhi-leonard", "kyle-lowry"],
+  candidates: [
+    {
+      player_slug: "kawhi-leonard",
+      player_name: "Kawhi Leonard",
+      positions: ["SF", "PF"],
+      eligibility: {
+        franchise_id: "TOR",
+        franchise_display_name: "Toronto Raptors",
+        decade: "2010s",
+        seasons: [
+          { season: "2018-19", team_code: "TOR", games_played: 60, via: "direct_team_season" },
+        ],
+      },
+    },
+    {
+      player_slug: "kyle-lowry",
+      player_name: "Kyle Lowry",
+      positions: ["PG"],
+      eligibility: {
+        franchise_id: "TOR",
+        franchise_display_name: "Toronto Raptors",
+        decade: "2010s",
+        seasons: [
+          { season: "2015-16", team_code: "TOR", games_played: 77, via: "direct_team_season" },
+        ],
+      },
+    },
+  ],
+};
+
+function candidate(
+  slug: string,
+  overrides: Partial<TmwCandidate> = {},
+): TmwCandidate {
+  const base = ROLL.candidates.find((entry) => entry.player_slug === slug)!;
+  return {
+    ...base,
+    fit: {
+      player_slug: slug,
+      state: "fits_now",
+      direct_slots: ["SF"],
+      plan: null,
+      moves: [],
+      reason: null,
+    },
+    selectable: true,
+    ...overrides,
+  };
+}
+
+function publicState(overrides: Partial<TmwPublicState> = {}): TmwPublicState {
+  return {
+    mode_version: "tmw_ruleset_v2",
+    formula_version: "peak3_v1",
+    slot_types: ["PG", "SG", "SF", "PF", "C", "bench_1"],
+    total_rounds: 6,
+    current_round: 1,
+    current_seat: 0,
+    is_complete: false,
+    rosters: [roster(0), roster(1), roster(2)],
+    drafted_identities: [],
+    used_roll_ids: ["tor-2010s"],
+    current_roll: ROLL,
+    current_edge: {
+      is_live: true,
+      compared_after_picks: 1,
+      seats: { "0": "leading", "1": "close_behind", "2": "needs_a_response" },
+    },
+    ...overrides,
+  };
+}
+
 function result(overrides: Partial<ArenaResultView> = {}): ArenaResultView {
   return {
     seat_index: 0,
     display_name: "You",
     placement: 1,
-    score: 64.4,
+    score: 72.4,
     outcome: "win",
     was_bot: false,
     detail: {
       score_status: "complete",
-      lineup_peak_score: 64.4,
-      wins: 64,
-      losses: 18,
-      expected_wins: 64.2,
+      lineup_score: 72.4,
+      mean_season_score: 81.9,
       fit_components: {
-        talent_core: 66,
+        talent_core: 70,
         bench_strength: 55,
         positional_fit: 100,
         creation_coverage: 80,
@@ -114,8 +183,16 @@ function result(overrides: Partial<ArenaResultView> = {}): ArenaResultView {
         team_context_depth: 80,
       },
       best_pick: "Kawhi Leonard",
-      structural_weakness: "thin bench depth",
-      tmw_adapter_version: "tmw_six_player_adapter_v1",
+      decisive_pick: {
+        slot_type: "SF",
+        player_slug: "kawhi-leonard",
+        player_name: "Kawhi Leonard",
+        season: "2018-19",
+        team_id: "TOR",
+        round_number: 1,
+        lineup_quality_drop: 4.12,
+      },
+      tmw_adapter_version: "tmw_six_player_adapter_v2",
       lineup_model_version: "perfect_season_lineup_fit_v2",
       simulator_version: "perfect_season_simulator_v1",
       formula_version: "peak3_v1",
@@ -124,461 +201,473 @@ function result(overrides: Partial<ArenaResultView> = {}): ArenaResultView {
   };
 }
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  getAccessToken.mockResolvedValue("tok");
-});
-
 // ---------------------------------------------------------------------------
-// Provenance
+// The roster board
 // ---------------------------------------------------------------------------
-describe("PickProvenance", () => {
-  it("shows eligibility and the scoring card as two labelled facts", () => {
-    render(<PickProvenance player={player()} />);
-    expect(screen.getByText("Eligible through")).toBeInTheDocument();
-    expect(screen.getByTestId("tmw-eligible-through")).toHaveTextContent("Toronto Raptors · 2018-19");
-    expect(screen.getByText("Scoring card")).toBeInTheDocument();
-    expect(screen.getByTestId("tmw-scoring-card")).toHaveTextContent(
-      "2016-17 San Antonio Spurs · 1Y PEAK3 87.8",
-    );
-  });
 
-  it("keeps the two seasons distinguishable — the whole point of the block", () => {
-    // Eligible through a Toronto season, scored on a San Antonio one. If these
-    // ever merged, a 2000s Shaq scored on 2000-01 would read as a bug.
-    render(<PickProvenance player={player()} />);
-    const eligible = screen.getByTestId("tmw-eligible-through").textContent ?? "";
-    const scoring = screen.getByTestId("tmw-scoring-card").textContent ?? "";
-    expect(eligible).toContain("2018-19");
-    expect(eligible).not.toContain("2016-17");
-    expect(scoring).toContain("2016-17");
-    expect(scoring).not.toContain("Toronto");
-  });
-
-  it("discloses a mid-season trade on the eligibility side", () => {
+describe("RosterBoard", () => {
+  it("renders all three rosters at once, not one at a time", () => {
     render(
-      <PickProvenance
-        player={player({
-          eligibility: {
-            ...player().eligibility,
-            seasons: [
-              { season: "2014-15", team_code: "BOS", games_played: 21, via: "traded_team_stint" },
-            ],
-          },
-        })}
-      />,
-    );
-    expect(screen.getByTestId("tmw-traded-eligibility")).toBeInTheDocument();
-  });
-
-  it("labels an aggregate-grain score rather than passing it off as one team's", () => {
-    render(
-      <PickProvenance
-        player={player({
-          scoring_card: {
-            ...player().scoring_card!,
-            score_source: "exact_season_aggregate",
-            is_multi_team_season: true,
-          },
-        })}
-      />,
-    );
-    expect(screen.getByTestId("tmw-score-source-note")).toHaveTextContent(/full season/i);
-  });
-
-  it("says so plainly when a player has no scored season in the decade", () => {
-    render(<PickProvenance player={player({ scoring_card: null })} />);
-    expect(screen.getByTestId("tmw-scoring-card")).toHaveTextContent("No scored season");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The podium: the binding product rules
-// ---------------------------------------------------------------------------
-describe("PodiumReceipt", () => {
-  const rosters = [roster(0, { SF: pick() }), roster(1), roster(2)];
-
-  it("names the ranking basis where the winner is declared", () => {
-    render(<PodiumReceipt results={[result()]} rosters={rosters} yourSeatIndex={0} />);
-    const basis = screen.getByTestId("tmw-ranking-basis");
-    expect(basis).toHaveTextContent(/PEAK3 lineup score/i);
-    // Not a tooltip: it is real, visible text next to the headline.
-    expect(basis.tagName.toLowerCase()).toBe("p");
-    expect(basis).not.toHaveAttribute("title");
-  });
-
-  it("leads with the score and keeps the record subordinate", () => {
-    render(<PodiumReceipt results={[result()]} rosters={rosters} yourSeatIndex={0} />);
-    expect(screen.getByTestId("tmw-outcome")).toHaveTextContent("You wins");
-    expect(screen.getByTestId("tmw-score-0")).toHaveTextContent("64.4");
-    const record = screen.getByTestId("tmw-record-0");
-    expect(record).toHaveTextContent("64-18 projected");
-    // The record must not be the headline anywhere on the podium.
-    expect(screen.getByTestId("tmw-outcome").textContent).not.toContain("64-18");
-  });
-
-  it("shows the better PEAK3 score winning even when the record is worse", () => {
-    // The exact case that would otherwise look broken: 64-18 beats 71-11.
-    render(
-      <PodiumReceipt
-        results={[
-          result({ seat_index: 0, placement: 1, score: 64.4 }),
-          result({
-            seat_index: 1,
-            display_name: "Bee",
-            placement: 2,
-            score: 63.9,
-            outcome: "loss",
-            detail: { ...result().detail, lineup_peak_score: 63.9, wins: 71, losses: 11 },
-          }),
-        ]}
-        rosters={rosters}
+      <RosterBoard
+        state={publicState()}
+        seats={SEATS}
         yourSeatIndex={0}
+        currentTurnSeatIndex={0}
+        secondsRemaining={30}
       />,
     );
-    expect(screen.getByTestId("tmw-outcome")).toHaveTextContent("You wins");
-    expect(screen.getByTestId("tmw-record-1")).toHaveTextContent("71-11 projected");
-    expect(screen.getByTestId("tmw-ranking-basis")).toHaveTextContent(/mean PEAK3 score/i);
+    // Desktop grid AND the mobile tab panel both mount, so the visible seat
+    // court appears twice for the active tab. What matters is that no seat is
+    // missing.
+    for (const index of [0, 1, 2]) {
+      expect(screen.getAllByTestId(`tmw-seat-court-${index}`).length).toBeGreaterThan(0);
+    }
   });
 
-  it("renders an unscoreable roster as a real state, never a zero", () => {
+  it("offers every roster as a tab on mobile, with its own count", () => {
     render(
-      <PodiumReceipt
-        results={[
-          result({ seat_index: 0, placement: 1, score: 70 }),
-          result({
-            seat_index: 1,
-            display_name: "Bee",
-            placement: 2,
-            score: 0,
-            outcome: "loss",
-            detail: { ...result().detail, score_status: "incomplete", lineup_peak_score: null },
-          }),
-        ]}
-        rosters={rosters}
+      <RosterBoard
+        state={publicState()}
+        seats={SEATS}
         yourSeatIndex={0}
+        currentTurnSeatIndex={0}
+        secondsRemaining={30}
       />,
     );
-    const cell = screen.getByTestId("tmw-score-1");
-    expect(cell).toHaveTextContent("Not ranked");
-    expect(cell.textContent).not.toMatch(/^0/);
-    expect(screen.getByTestId("tmw-unrankable-note")).toHaveTextContent(/could not be fully scored/i);
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs).toHaveLength(3);
+    expect(tabs[1]).toHaveTextContent("Floor General");
   });
 
-  it("marks a shared placement as a tie rather than implying an order", () => {
+  it("marks the live edge as provisional rather than presenting a total", () => {
     render(
-      <PodiumReceipt
-        results={[
-          result({ seat_index: 0, placement: 1, outcome: "draw" }),
-          result({ seat_index: 1, display_name: "Bee", placement: 1, outcome: "draw" }),
-          result({ seat_index: 2, display_name: "Cee", placement: 3, outcome: "loss" }),
-        ]}
-        rosters={rosters}
+      <RosterBoard
+        state={publicState()}
+        seats={SEATS}
         yourSeatIndex={0}
+        currentTurnSeatIndex={0}
+        secondsRemaining={30}
       />,
     );
-    expect(screen.getByTestId("tmw-tied-0")).toBeInTheDocument();
-    expect(screen.getByTestId("tmw-tied-1")).toBeInTheDocument();
-    expect(screen.queryByTestId("tmw-tied-2")).not.toBeInTheDocument();
-    expect(screen.getByTestId("tmw-outcome")).toHaveTextContent("draw for first");
-  });
-
-  it("renders all three rosters in the receipt", () => {
-    render(
-      <PodiumReceipt
-        results={[
-          result({ seat_index: 0 }),
-          result({ seat_index: 1, display_name: "Bee", placement: 2, outcome: "loss" }),
-          result({ seat_index: 2, display_name: "Cee", placement: 3, outcome: "loss" }),
-        ]}
-        rosters={rosters}
-        yourSeatIndex={0}
-      />,
+    expect(screen.getByTestId("tmw-edge-qualifier")).toHaveTextContent(
+      /Live · compared after 1 pick each/,
     );
-    expect(screen.getByTestId("tmw-receipt-0")).toBeInTheDocument();
-    expect(screen.getByTestId("tmw-receipt-1")).toBeInTheDocument();
-    expect(screen.getByTestId("tmw-receipt-2")).toBeInTheDocument();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Picking
-// ---------------------------------------------------------------------------
-describe("PickPanel", () => {
-  it("is a two-step choose-player-then-choose-slot flow with no drag", async () => {
-    const onPick = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <PickPanel candidates={[candidate()]} busy={false} disabledReason={null} onPick={onPick} />,
-    );
-
-    // No slot buttons until a player is chosen -- there is no half-completed
-    // drop state to be in.
-    expect(screen.queryByTestId("tmw-slot-choices")).not.toBeInTheDocument();
-
-    await user.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
-    expect(screen.getByTestId("tmw-slot-choices")).toBeInTheDocument();
-
-    await user.click(screen.getByTestId("tmw-place-SF"));
-    expect(onPick).toHaveBeenCalledWith("kawhi-leonard", "SF");
-  });
-
-  it("offers only the slots the server says this seat may use", async () => {
-    const user = userEvent.setup();
-    render(
-      <PickPanel
-        candidates={[candidate({ legalSlots: ["C"] })]}
-        busy={false}
-        disabledReason={null}
-        onPick={vi.fn()}
-      />,
-    );
-    await user.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
-    expect(screen.getByTestId("tmw-place-C")).toBeInTheDocument();
-    expect(screen.queryByTestId("tmw-place-PG")).not.toBeInTheDocument();
-  });
-
-  it("shows an illegal candidate rather than hiding them, and explains why", async () => {
-    const onPick = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <PickPanel
-        candidates={[candidate({ legalSlots: [] })]}
-        busy={false}
-        disabledReason={null}
-        onPick={onPick}
-      />,
-    );
-    const button = screen.getByTestId("tmw-candidate-kawhi-leonard");
-    expect(button).toBeInTheDocument();
-    expect(screen.getByTestId("tmw-blocked-kawhi-leonard")).toHaveTextContent(/no open slot/i);
-    // aria-disabled, not disabled: it must stay reachable by keyboard, or a
-    // keyboard user can never reach the card that explains the grey state.
-    expect(button).toHaveAttribute("aria-disabled", "true");
-    expect(button).not.toBeDisabled();
-    await user.click(button);
-    expect(screen.queryByTestId("tmw-slot-choices")).not.toBeInTheDocument();
-  });
-
-  it("shows a waiting state instead of controls when it is not your turn", () => {
-    render(
-      <PickPanel
-        candidates={[candidate()]}
-        busy={false}
-        disabledReason="Waiting for the other seats."
-        onPick={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("tmw-pick-panel")).toHaveAttribute("data-state", "waiting");
-    expect(screen.queryByTestId("tmw-candidates")).not.toBeInTheDocument();
-  });
-
-  it("lets a selection be cancelled without picking", async () => {
-    const onPick = vi.fn();
-    const user = userEvent.setup();
-    render(
-      <PickPanel candidates={[candidate()]} busy={false} disabledReason={null} onPick={onPick} />,
-    );
-    await user.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
-    await user.click(screen.getByTestId("tmw-cancel-selection"));
-    expect(screen.queryByTestId("tmw-slot-choices")).not.toBeInTheDocument();
-    expect(onPick).not.toHaveBeenCalled();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The lock, the order, the reveal
-// ---------------------------------------------------------------------------
-describe("IdentityLockPanel", () => {
-  const seats = [
-    { seat_index: 0, display_name: "You", is_bot: false, status: "active", bot_rating: null },
-    { seat_index: 1, display_name: "Bee", is_bot: false, status: "active", bot_rating: null },
-    { seat_index: 2, display_name: "Cee", is_bot: true, status: "active", bot_rating: 1200 },
-  ];
-
-  it("states the rule and lists who took each name", () => {
-    render(
-      <IdentityLockPanel
-        entries={[
-          {
-            playerSlug: "lebron-james",
-            playerName: "LeBron James",
-            seatIndex: 1,
-            roundNumber: 2,
-            franchiseDisplayName: "Cleveland Cavaliers",
-            decade: "2000s",
-          },
-        ]}
-        seats={seats}
-      />,
-    );
-    expect(screen.getByTestId("tmw-identity-lock")).toHaveTextContent(
-      /gone for every seat, in every franchise and decade/i,
-    );
-    expect(screen.getByTestId("tmw-lock-lebron-james")).toHaveTextContent("LeBron James");
-    expect(screen.getByTestId("tmw-lock-lebron-james")).toHaveTextContent("Bee");
-  });
-
-  it("says nobody is drafted rather than rendering an empty box", () => {
-    render(<IdentityLockPanel entries={[]} seats={seats} />);
-    expect(screen.getByTestId("tmw-identity-lock")).toHaveTextContent(/nobody drafted yet/i);
+    expect(screen.getAllByTestId("tmw-seat-edge-0")[0]).toHaveTextContent("Leading");
   });
 });
 
 describe("SeatCourt", () => {
-  const seat = {
-    seat_index: 0,
-    display_name: "You",
-    is_bot: false,
-    status: "active",
-    bot_rating: null,
-  };
+  it("names the seat, its occupant kind and its progress", () => {
+    render(
+      <SeatCourt
+        roster={roster(1, { SF: pick({ seat_index: 1 }) })}
+        seat={SEATS[1]}
+        isYou={false}
+        isOnTurn
+        edge="close_behind"
+        secondsRemaining={4}
+      />,
+    );
+    const panel = screen.getByTestId("tmw-seat-court-1");
+    expect(within(panel).getByRole("heading")).toHaveTextContent("Floor General");
+    expect(within(panel).getByTestId("tmw-seat-progress-1")).toHaveTextContent("1/6");
+    // A BOT SEAT SHOWS "THINKING", not a 45-second human countdown -- its move
+    // lands on a short seeded delay.
+    expect(within(panel).getByTestId("tmw-seat-thinking-1")).toBeInTheDocument();
+  });
 
-  it("renders every slot, filled or open, on the shared court geometry", () => {
+  it("shows a live countdown for a human seat on the clock", () => {
+    render(
+      <SeatCourt
+        roster={roster(0)}
+        seat={SEATS[0]}
+        isYou
+        isOnTurn
+        secondsRemaining={7}
+      />,
+    );
+    const clock = screen.getByTestId("tmw-seat-clock-0");
+    expect(clock).toHaveAttribute("data-state", "live");
+    expect(clock).toHaveAttribute("data-urgent", "true");
+    expect(clock).toHaveTextContent("7");
+  });
+
+  it("shows the scoring season and score on a drafted card, and no trade chip", () => {
     render(
       <SeatCourt
         roster={roster(0, { SF: pick() })}
-        seat={seat}
+        seat={SEATS[0]}
         isYou
         isOnTurn={false}
-        justPickedSlug={null}
       />,
     );
-    for (const slotType of ["PG", "SG", "SF", "PF", "C", "bench_1"]) {
-      expect(screen.getByTestId(`tmw-slot-${slotType}`)).toBeInTheDocument();
-    }
-    expect(screen.getByTestId("tmw-slot-SF")).toHaveAttribute("data-filled", "true");
-    expect(screen.getByTestId("tmw-slot-PG")).toHaveAttribute("data-filled", "false");
-    expect(screen.getByTestId("tmw-seat-progress-0")).toHaveTextContent("1/6");
+    const cell = screen.getByTestId("tmw-slot-season-SF");
+    expect(cell).toHaveTextContent("2018-19 TOR");
+    expect(cell).toHaveTextContent("84.0");
+    // "via trade" appeared beside most stars and told a reader nothing they
+    // could act on; the team and season already say where the card comes from.
+    expect(cell).not.toHaveTextContent(/via trade/i);
   });
 
-  it("names the scoring season on the card", () => {
-    // Without it, a 2000s-roll Shaq showing 2000-01 rather than his better
-    // 1999-00 looks like a bug.
-    render(
-      <SeatCourt
-        roster={roster(0, { SF: pick() })}
-        seat={seat}
-        isYou
-        isOnTurn={false}
-        justPickedSlug={null}
-      />,
-    );
-    expect(screen.getByTestId("tmw-slot-season-SF")).toHaveTextContent("2016-17");
-    expect(screen.getByTestId("tmw-slot-season-SF")).toHaveTextContent("87.8");
-  });
-
-  it("marks the seat on turn so the spotlight is unambiguous", () => {
+  it("only offers a move control for your own roster", () => {
+    const onMove = vi.fn();
     const { rerender } = render(
-      <SeatCourt roster={roster(0)} seat={seat} isYou isOnTurn={false} justPickedSlug={null} />,
-    );
-    expect(screen.getByTestId("tmw-seat-court-0")).toHaveAttribute("data-on-turn", "false");
-    rerender(
-      <SeatCourt roster={roster(0)} seat={seat} isYou isOnTurn justPickedSlug={null} />,
-    );
-    expect(screen.getByTestId("tmw-seat-court-0")).toHaveAttribute("data-on-turn", "true");
-  });
-
-  it("highlights the pick just made without moving anything", () => {
-    render(
       <SeatCourt
         roster={roster(0, { SF: pick() })}
-        seat={seat}
+        seat={SEATS[0]}
         isYou
         isOnTurn={false}
-        justPickedSlug="kawhi-leonard"
+        onMoveRequest={onMove}
       />,
     );
-    expect(screen.getByTestId("tmw-slot-SF")).toHaveAttribute("data-just-picked", "true");
-    expect(screen.getByTestId("tmw-slot-PG")).toHaveAttribute("data-just-picked", "false");
-  });
+    expect(screen.getByTestId("tmw-slot-SF").tagName).toBe("BUTTON");
 
-  it("labels a bot seat rather than passing it off as a person", () => {
-    render(
+    rerender(
       <SeatCourt
-        roster={roster(2)}
-        seat={{ ...seat, seat_index: 2, display_name: "Cee", is_bot: true }}
+        roster={roster(1, { SF: pick({ seat_index: 1 }) })}
+        seat={SEATS[1]}
         isYou={false}
         isOnTurn={false}
-        justPickedSlug={null}
       />,
     );
-    expect(screen.getByTestId("tmw-seat-court-2")).toHaveTextContent("bot");
+    expect(screen.getByTestId("tmw-slot-SF").tagName).not.toBe("BUTTON");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The pick overlay
+// ---------------------------------------------------------------------------
+
+describe("PickOverlay", () => {
+  function renderOverlay(overrides: Partial<React.ComponentProps<typeof PickOverlay>> = {}) {
+    const onPick = vi.fn();
+    render(
+      <PickOverlay
+        open
+        roll={ROLL}
+        roundNumber={1}
+        pickNumber={1}
+        totalRounds={6}
+        candidates={[candidate("kawhi-leonard"), candidate("kyle-lowry", {
+          fit: {
+            player_slug: "kyle-lowry",
+            state: "fits_now",
+            direct_slots: ["PG"],
+            plan: null,
+            moves: [],
+            reason: null,
+          },
+        })]}
+        roster={roster(0)}
+        seats={SEATS}
+        yourSeatIndex={0}
+        secondsRemaining={40}
+        busy={false}
+        onPick={onPick}
+        onClose={vi.fn()}
+        {...overrides}
+      />,
+    );
+    return { onPick };
+  }
+
+  it("shows no score for any candidate", () => {
+    renderOverlay();
+    const list = screen.getByTestId("tmw-candidate-list");
+    // The card Kawhi would be scored on is 84.0. It must not be anywhere in
+    // the pre-pick list, in any form.
+    expect(list.textContent).not.toMatch(/84/);
+    expect(screen.getByTestId("tmw-candidate-kawhi-leonard")).toHaveTextContent(
+      "Toronto Raptors · 2018-19",
+    );
+  });
+
+  it("states how many of the pool a filter is hiding", async () => {
+    renderOverlay();
+    expect(screen.getByTestId("tmw-pool-count")).toHaveTextContent(
+      "Showing 2 of 2 eligible",
+    );
+    await userEvent.click(screen.getByTestId("tmw-filter-PG"));
+    expect(screen.getByTestId("tmw-pool-count")).toHaveTextContent("1 hidden by filters");
+  });
+
+  it("searches by name and keeps the whole pool one clear away", async () => {
+    renderOverlay();
+    await userEvent.type(screen.getByTestId("tmw-pick-search"), "lowry");
+    expect(screen.queryByTestId("tmw-candidate-kawhi-leonard")).toBeNull();
+    await userEvent.clear(screen.getByTestId("tmw-pick-search"));
+    expect(screen.getByTestId("tmw-candidate-kawhi-leonard")).toBeInTheDocument();
+  });
+
+  it("disables a candidate with no legal arrangement and says why", () => {
+    renderOverlay({
+      candidates: [
+        candidate("kawhi-leonard", {
+          selectable: false,
+          fit: {
+            player_slug: "kawhi-leonard",
+            state: "no_legal_arrangement",
+            direct_slots: [],
+            plan: null,
+            moves: [],
+            reason: "Every slot they could play is filled.",
+          },
+        }),
+      ],
+    });
+    const button = screen.getByTestId("tmw-candidate-kawhi-leonard");
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent("No legal arrangement");
+    expect(button).toHaveTextContent("Every slot they could play is filled.");
+  });
+
+  it("explains a rearrangement and commits it with the pick", async () => {
+    const { onPick } = renderOverlay({
+      roster: roster(0, { SF: pick({ player_slug: "larry-bird", player_name: "Larry Bird" }) }),
+      candidates: [
+        candidate("kawhi-leonard", {
+          fit: {
+            player_slug: "kawhi-leonard",
+            state: "fits_after_rearrangement",
+            direct_slots: [],
+            plan: { SF: "kawhi-leonard", bench_1: "larry-bird" },
+            moves: [{ player_slug: "larry-bird", from_slot: "SF", to_slot: "bench_1" }],
+            reason: null,
+          },
+        }),
+      ],
+    });
+    await userEvent.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
+    expect(screen.getByTestId("tmw-rearrange-note")).toHaveTextContent(
+      /Larry Bird moves Small forward → Bench/,
+    );
+    await userEvent.click(screen.getByTestId("tmw-confirm-pick"));
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ player_slug: "kawhi-leonard" }),
+      "SF",
+    );
+  });
+
+  it("shows the clock inside the overlay, not only on the board", () => {
+    renderOverlay();
+    expect(screen.getByTestId("tmw-overlay-clock")).toHaveTextContent("40");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rearranging from the board
+// ---------------------------------------------------------------------------
+
+describe("MoveDialog", () => {
+  it("offers only slots the player can legally occupy, and swaps atomically", async () => {
+    const onCommit = vi.fn();
+    render(
+      <MoveDialog
+        open
+        roster={roster(0, {
+          SF: pick(),
+          PF: pick({ player_slug: "larry-bird", player_name: "Larry Bird", slot_type: "PF" }),
+        })}
+        fromSlot="SF"
+        busy={false}
+        error={null}
+        onCommit={onCommit}
+        onClose={vi.fn()}
+      />,
+    );
+    // Kawhi plays SF and PF. PG/SG/C are not offered; the bench always is.
+    expect(screen.getByTestId("tmw-move-to-PF")).toBeInTheDocument();
+    expect(screen.getByTestId("tmw-move-to-bench_1")).toBeInTheDocument();
+    expect(screen.queryByTestId("tmw-move-to-PG")).toBeNull();
+
+    await userEvent.click(screen.getByTestId("tmw-move-to-PF"));
+    await userEvent.click(screen.getByTestId("tmw-move-confirm"));
+    // A COMPLETE final arrangement, with the displaced player relocated -- the
+    // only shape the server accepts, and the reason no half-move can exist.
+    expect(onCommit).toHaveBeenCalledWith({
+      SF: "larry-bird",
+      PF: "kawhi-leonard",
+    });
+  });
+
+  it("is entirely keyboard operable", async () => {
+    const onCommit = vi.fn();
+    render(
+      <MoveDialog
+        open
+        roster={roster(0, { SF: pick() })}
+        fromSlot="SF"
+        busy={false}
+        error={null}
+        onCommit={onCommit}
+        onClose={vi.fn()}
+      />,
+    );
+    screen.getByTestId("tmw-move-to-bench_1").focus();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getByTestId("tmw-move-to-bench_1")).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The result
+// ---------------------------------------------------------------------------
+
+describe("PodiumReceipt", () => {
+  it("names the basis and never calls it an average", () => {
+    render(
+      <PodiumReceipt
+        results={[result()]}
+        rosters={[roster(0, { SF: pick() })]}
+        yourSeatIndex={0}
+        onPlayAgain={vi.fn()}
+      />,
+    );
+    const basis = screen.getByTestId("tmw-ranking-basis");
+    expect(basis).toHaveTextContent(/lineup-quality index/i);
+    expect(basis).toHaveTextContent(/Not an average/i);
+  });
+
+  it("publishes no projected record anywhere", () => {
+    render(
+      <PodiumReceipt
+        results={[result()]}
+        rosters={[roster(0, { SF: pick() })]}
+        yourSeatIndex={0}
+        onPlayAgain={vi.fn()}
+      />,
+    );
+    const panel = screen.getByTestId("tmw-podium");
+    expect(panel.textContent).not.toMatch(/\b\d{2}-\d{2}\s*projected/i);
+    expect(panel.textContent).not.toMatch(/projected record/i);
+  });
+
+  it("reports the decisive pick as a measured drop, not an opinion", () => {
+    render(
+      <PodiumReceipt
+        results={[result()]}
+        rosters={[roster(0, { SF: pick() })]}
+        yourSeatIndex={0}
+        onPlayAgain={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("tmw-decisive-0")).toHaveTextContent(
+      /removing them costs 4.12 lineup score/,
+    );
+  });
+
+  it("celebrates a win and offers both exits", async () => {
+    const onPlayAgain = vi.fn();
+    render(
+      <PodiumReceipt
+        results={[result()]}
+        rosters={[roster(0, { SF: pick() })]}
+        yourSeatIndex={0}
+        onPlayAgain={onPlayAgain}
+      />,
+    );
+    expect(screen.getByTestId("tmw-celebration")).toHaveAttribute("data-active", "true");
+    expect(screen.getByTestId("tmw-back-to-arena")).toHaveAttribute("href", "/arena");
+    await userEvent.click(screen.getByTestId("tmw-play-again"));
+    expect(onPlayAgain).toHaveBeenCalled();
+  });
+
+  it("does not celebrate a loss, and does not punish it either", () => {
+    render(
+      <PodiumReceipt
+        results={[result({ placement: 3, outcome: "loss" })]}
+        rosters={[roster(0, { SF: pick() })]}
+        yourSeatIndex={0}
+        onPlayAgain={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("tmw-celebration")).toHaveAttribute("data-active", "false");
+    expect(screen.getByTestId("tmw-your-placement")).toHaveTextContent("3rd place");
+  });
+
+  it("shows an unscoreable roster as a real state, never as zero", () => {
+    render(
+      <PodiumReceipt
+        results={[
+          result({
+            score: 0,
+            detail: { ...result().detail, score_status: "incomplete", lineup_score: null },
+          }),
+        ]}
+        rosters={[roster(0)]}
+        yourSeatIndex={0}
+        onPlayAgain={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("tmw-result-0")).toHaveTextContent("Not ranked");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Chrome
+// ---------------------------------------------------------------------------
+
+describe("WeaveSpinner", () => {
+  it("carries the server's answer from the first frame", () => {
+    render(<WeaveSpinner roll={ROLL} roundNumber={1} totalRounds={6} />);
+    // The reel cannot resolve to anything else: the value is decided before
+    // the animation starts and is exposed as data from t=0.
+    expect(screen.getByTestId("tmw-roll-franchise")).toHaveAttribute(
+      "data-final-value",
+      "Toronto Raptors",
+    );
+    expect(screen.getByTestId("tmw-roll-decade")).toHaveAttribute(
+      "data-final-value",
+      "2010s",
+    );
+  });
+
+  it("says it is rolling when there is no roll yet", () => {
+    render(<WeaveSpinner roll={null} roundNumber={null} totalRounds={6} />);
+    expect(screen.getByTestId("tmw-roll-rolling")).toBeInTheDocument();
+  });
+});
+
+describe("IdentityLockPanel", () => {
+  it("lists who is off the board and to whom", () => {
+    render(
+      <IdentityLockPanel
+        entries={[
+          {
+            playerSlug: "kawhi-leonard",
+            playerName: "Kawhi Leonard",
+            seatIndex: 1,
+            roundNumber: 1,
+            franchiseDisplayName: "Toronto Raptors",
+            decade: "2010s",
+          },
+        ]}
+        seats={SEATS}
+      />,
+    );
+    expect(screen.getByTestId("tmw-lock-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("tmw-identity-lock")).toHaveTextContent("Floor General");
   });
 });
 
 describe("DraftOrderStrip", () => {
-  const seats = [
-    { seat_index: 0, display_name: "You", is_bot: false, status: "active", bot_rating: null },
-    { seat_index: 1, display_name: "Bee", is_bot: false, status: "active", bot_rating: null },
-    { seat_index: 2, display_name: "Cee", is_bot: true, status: "active", bot_rating: 1200 },
-  ];
-  const order = [
-    { roundNumber: 1, seatIndex: 0, done: true, active: false },
-    { roundNumber: 1, seatIndex: 1, done: false, active: true },
-    { roundNumber: 1, seatIndex: 2, done: false, active: false },
-  ];
-
-  it("spotlights whose turn it is by name", () => {
-    render(
-      <DraftOrderStrip order={order} seats={seats} yourSeatIndex={0} secondsRemaining={31.4} />,
-    );
-    expect(screen.getByTestId("tmw-turn-spotlight")).toHaveTextContent("Bee is picking");
-    expect(screen.getByTestId("tmw-turn-clock")).toHaveTextContent("32s");
-  });
-
-  it("says 'Your pick' when the turn is yours", () => {
+  it("shows the full published snake, upcoming turns included", () => {
     render(
       <DraftOrderStrip
-        order={[{ roundNumber: 1, seatIndex: 0, done: false, active: true }]}
-        seats={seats}
+        order={[
+          { roundNumber: 1, seatIndex: 0, done: true, active: false },
+          { roundNumber: 1, seatIndex: 1, done: false, active: true },
+          { roundNumber: 1, seatIndex: 2, done: false, active: false },
+        ]}
+        seats={SEATS}
         yourSeatIndex={0}
-        secondsRemaining={null}
+        secondsRemaining={20}
       />,
     );
-    expect(screen.getByTestId("tmw-turn-spotlight")).toHaveTextContent("Your pick");
-    expect(screen.queryByTestId("tmw-turn-clock")).not.toBeInTheDocument();
-  });
-
-  it("marks done, active and upcoming turns distinctly", () => {
-    render(
-      <DraftOrderStrip order={order} seats={seats} yourSeatIndex={0} secondsRemaining={null} />,
-    );
-    expect(screen.getByTestId("tmw-order-1-0")).toHaveAttribute("data-done", "true");
-    expect(screen.getByTestId("tmw-order-1-1")).toHaveAttribute("data-active", "true");
-    expect(screen.getByTestId("tmw-order-1-2")).toHaveAttribute("data-active", "false");
-  });
-});
-
-describe("RollReveal", () => {
-  const roll = {
-    round_number: 3,
-    roll_id: "tor-2010s",
-    franchise_id: "TOR",
-    franchise_display_name: "Toronto Raptors",
-    decade: "2010s",
-    eligible_slugs: ["kawhi-leonard"],
-    candidates: [player()],
-  };
-
-  it("shows the franchise and the decade as the shared constraint", () => {
-    render(<RollReveal roll={roll} roundNumber={3} totalRounds={6} />);
-    expect(screen.getByTestId("tmw-roll-franchise")).toHaveTextContent("Toronto Raptors");
-    expect(screen.getByTestId("tmw-roll-decade")).toHaveTextContent("2010s");
-    expect(screen.getByTestId("tmw-roll")).toHaveTextContent("Round 3 of 6");
-  });
-
-  it("is fully legible with no roll animation state — reduced motion loses nothing", () => {
-    // Both halves are in the DOM with their real text immediately; only
-    // opacity is animated, so a reduced-motion user reads the same thing.
-    render(<RollReveal roll={roll} roundNumber={3} totalRounds={6} />);
-    const section = screen.getByTestId("tmw-roll");
-    expect(within(section).getByText("Toronto Raptors")).toBeInTheDocument();
-    expect(within(section).getByText("2010s")).toBeInTheDocument();
-  });
-
-  it("shows a rolling state rather than an empty frame between rounds", () => {
-    render(<RollReveal roll={null} roundNumber={null} totalRounds={6} />);
-    expect(screen.getByTestId("tmw-roll-rolling")).toHaveTextContent(/rolling/i);
+    expect(screen.getByTestId("tmw-order-1-2")).toHaveAttribute("data-done", "false");
+    expect(screen.getByTestId("tmw-turn-spotlight")).toHaveTextContent("Floor General");
   });
 });

@@ -115,9 +115,13 @@ def auto_pick(
     match_seed = state.match_seed if seed is None else seed
     rng = stream_rng(match_seed, f"autopick:{state.turn_index}")
     decade = state.current_roll.decade
+    franchise_id = state.current_roll.franchise_id
 
     def score_of(slug: str) -> float:
-        card = index.scoring_card(slug, decade)
+        # The card for THIS roll's franchise and decade -- the same card the
+        # roster will actually be graded on. Ranking on a decade-wide best
+        # would rank a candidate on a season they will never be scored for.
+        card = index.scoring_card(slug, franchise_id, decade)
         return card.prime_score if card is not None else float("-inf")
 
     # One RNG draw per candidate, consumed in sorted order so the sequence

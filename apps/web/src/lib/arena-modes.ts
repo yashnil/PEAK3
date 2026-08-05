@@ -158,7 +158,11 @@ export const ENTRY_PATHS: readonly EntryPathMeta[] = [
   },
   {
     id: "private_room",
-    name: "Private room",
+    // USER-FACING NAME, and deliberately not the id. "Private room" described
+    // the mechanism (a room, with a code) rather than the reason anyone would
+    // use it. The id stays `private_room` because it is a stored value on
+    // `arena_matches.entry_path`; only the label moved.
+    name: "Play With Friends",
     description: "Share a six-character code.",
     rated: false,
   },

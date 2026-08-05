@@ -28,7 +28,19 @@ Strategy = Callable[[dict, int, object, random.Random], "tuple[str, int]"]
 
 
 def always_pass(state, seat_index, pool, rng):
-    return S.COMMAND_PASS, 0
+    """Decline everything that CAN be declined.
+
+    Not "always pass" any more, because a pass is no longer always legal: a
+    seat out of market skips facing a candidate it could use, with nothing
+    bid, must open. That is the rule the skip economy exists to create, so the
+    driver honours it rather than submitting a command the server refuses --
+    the resulting line (skip five times, then open at the minimum forever) IS
+    the maximally passive strategy under v3, and is what the termination tests
+    want to exercise.
+    """
+    if S.COMMAND_PASS in S.legal_commands(state, seat_index, pool):
+        return S.COMMAND_PASS, 0
+    return S.COMMAND_BID, rules.minimum_bid(state["current_bid"])
 
 
 def always_min_raise(state, seat_index, pool, rng):
@@ -42,7 +54,9 @@ def always_min_raise(state, seat_index, pool, rng):
 
 def random_legal(state, seat_index, pool, rng):
     commands = S.legal_commands(state, seat_index, pool)
-    if S.COMMAND_BID not in commands or rng.random() < 0.35:
+    if S.COMMAND_BID not in commands:
+        return S.COMMAND_PASS, 0
+    if rng.random() < 0.35 and S.COMMAND_PASS in commands:
         return S.COMMAND_PASS, 0
     seat = state["seats"][seat_index]
     floor = rules.minimum_bid(state["current_bid"])
@@ -52,11 +66,26 @@ def random_legal(state, seat_index, pool, rng):
     return S.COMMAND_BID, rng.randint(floor, ceiling)
 
 
-def bot_strategy(bot: Optional[TwentyDollarBot] = None) -> Strategy:
+def bot_strategy(
+    bot: Optional[TwentyDollarBot] = None, *, with_tier: bool = True
+) -> Strategy:
+    """Drive a seat with the shipped policy, exactly as the server drives it.
+
+    `with_tier` mirrors what `app/services/twenty_dollar/mode.py::project` does
+    for a BOT seat and only for a bot seat: it adds the coarse draw-tier label
+    to the private projection. Reproducing it here matters -- without it these
+    tests would be calibrating a bot that values every candidate identically,
+    which is not the bot that ships.
+
+    Pass `with_tier=False` to assert the opposite property: that a policy
+    handed a human seat's projection still plays legally, just blindly.
+    """
     policy = bot or TwentyDollarBot()
 
     def play(state, seat_index, pool, rng):
         public, private, _ = S.project(state, seat_index, pool)
+        if with_tier:
+            private = {**private, "candidate_tier": state.get("current_candidate_tier")}
         command, payload = policy.decide(public, private, rng)
         return command, int(payload.get("amount", 0))
 

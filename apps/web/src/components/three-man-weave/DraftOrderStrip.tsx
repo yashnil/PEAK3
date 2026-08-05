@@ -34,7 +34,16 @@ export default function DraftOrderStrip({
   }
 
   return (
-    <section data-testid="tmw-draft-order" aria-labelledby="tmw-order-heading" className="flex flex-col gap-2">
+    // `min-w-0` is load-bearing, not tidying. This section is a flex item, and
+    // a flex item's default `min-width: auto` lets it grow to its content --
+    // so the eighteen-turn strip below pushed the whole document sideways on a
+    // 390px phone even though the list itself scrolls. The list clips only if
+    // its ancestors agree to be narrower than it.
+    <section
+      data-testid="tmw-draft-order"
+      aria-labelledby="tmw-order-heading"
+      className="flex min-w-0 max-w-full flex-col gap-2"
+    >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h2
           id="tmw-order-heading"
@@ -64,7 +73,18 @@ export default function DraftOrderStrip({
         )}
       </div>
 
-      <ol className="flex gap-1 overflow-x-auto pb-1" data-testid="tmw-order-list">
+      {/* `relative` is the fix for a real mobile overflow, and the reason is
+          not obvious: each turn chip carries an `.sr-only` label, and the
+          house `.sr-only` is `position: absolute`. An absolutely-positioned
+          descendant is clipped by its CONTAINING BLOCK, not by the nearest
+          scroll container -- so with no positioned ancestor here, the
+          off-screen labels of the later rounds escaped this list entirely and
+          stretched the document 160px sideways on a 390px phone. Making the
+          scroll container the containing block brings them back inside it. */}
+      <ol
+        className="relative flex min-w-0 max-w-full gap-1 overflow-x-auto pb-1"
+        data-testid="tmw-order-list"
+      >
         {rounds.map((roundNumber) => (
           <li key={roundNumber} className="flex shrink-0 items-center gap-1">
             <span

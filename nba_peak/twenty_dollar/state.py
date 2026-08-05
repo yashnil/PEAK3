@@ -50,7 +50,11 @@ from typing import Optional
 from nba_peak.twenty_dollar import feasibility, rules
 from nba_peak.twenty_dollar.config import (
     AUTOFILL_PRICE,
-    MAX_LOTS,
+    CLOSEOUT_FIT_GUARANTEE_LOTS,
+    HARD_MAX_LOTS,
+    MARKET_CLOSEOUT,
+    MARKET_SKIPS_PER_SEAT,
+    MARKET_STANDARD,
     MIN_OPENING_BID,
     MODEL_VERSION,
     POOL_TIERS,
@@ -59,6 +63,7 @@ from nba_peak.twenty_dollar.config import (
     RULESET_VERSION,
     SEAT_COUNT,
     SLOTS,
+    STANDARD_MARKET_LOTS,
     STARTING_BUDGET,
 )
 from nba_peak.twenty_dollar.pool import Candidate, CandidatePool, get_pool
@@ -93,6 +98,9 @@ REJECT_BID_OVER_MAX = "bid_over_max"
 REJECT_CANDIDATE_UNFIT = "candidate_unfit"
 REJECT_ALREADY_PASSED = "already_passed"
 REJECT_VERSION_MISMATCH = "ruleset_version_mismatch"
+#: You are out of market skips and this candidate legally fits you with no
+#: standing bid. Opening at $1 is the only move.
+REJECT_NO_MARKET_SKIPS = "no_market_skips"
 
 
 class RulesetVersionMismatch(ValueError):
@@ -155,9 +163,20 @@ def initial_state(seed: int, seat_count: int = SEAT_COUNT) -> dict:
         "seed": int(seed),
         "phase": PHASE_AUCTION,
         "lot_index": 0,
-        "max_lots": MAX_LOTS,
+        "max_lots": HARD_MAX_LOTS,
+        "standard_market_lots": STANDARD_MARKET_LOTS,
+        "market_phase": MARKET_STANDARD,
+        # Consecutive CLOSEOUT lots each seat has been offered without a
+        # legally fitting candidate. Drives the feasibility guarantee; zero
+        # and unused during the standard market.
+        "closeout_dry_lots": [0] * seat_count,
         "seats": [
-            {"budget": STARTING_BUDGET, "roster": []} for _ in range(seat_count)
+            {
+                "budget": STARTING_BUDGET,
+                "roster": [],
+                "market_skips": MARKET_SKIPS_PER_SEAT,
+            }
+            for _ in range(seat_count)
         ],
         "offered": [],
         "history": [],
@@ -228,6 +247,69 @@ def _supply(state: dict, pool: CandidatePool) -> feasibility.PositionSupply:
     )
 
 
+def market_skips(state: dict, seat_index: int) -> int:
+    """How many voluntary skips this seat has left.
+
+    Defaulted rather than assumed present so a snapshot written before the
+    counters existed reads as a full allowance instead of crashing -- though
+    `assert_supported_version` refuses such a snapshot first, so this is a
+    second line rather than the policy.
+    """
+    return int(state["seats"][seat_index].get("market_skips", MARKET_SKIPS_PER_SEAT))
+
+
+def pass_consumes_skip(
+    state: dict, seat_index: int, pool: Optional[CandidatePool] = None
+) -> bool:
+    """Would passing right now spend one of this seat's market skips?
+
+    THE THREE CONDITIONS, ALL REQUIRED. A skip is the price of declining a
+    player you could have had, so it is charged only when all three hold:
+
+      1. NO STANDING BID. Passing after someone has bid is ordinary auction
+         concession -- you were outbid, not uninterested -- and costs nothing.
+         Charging for it would make every contested lot a tax on the loser.
+      2. THE CANDIDATE LEGALLY FITS YOU, now or after the rearrangement
+         `feasibility` allows. Declining someone you could not have bought is
+         not a decision, so it is free (and is usually an automatic pass the
+         seat never even saw).
+      3. YOUR ROSTER IS INCOMPLETE. A finished seat has nothing to decline.
+
+    Published as its own function, and projected, so the UI can warn BEFORE
+    the click rather than reporting the charge afterwards.
+    """
+    if state["phase"] != PHASE_AUCTION:
+        return False
+    if state.get("high_bidder") is not None or int(state.get("current_bid") or 0) > 0:
+        return False
+    seat = state["seats"][seat_index]
+    if _roster_full(seat):
+        return False
+    slug = state.get("current_candidate")
+    if not slug:
+        return False
+    pool = pool or warm_pool()
+    return can_seat_acquire(state, seat_index, pool.get(slug), pool)
+
+
+def may_pass(
+    state: dict, seat_index: int, pool: Optional[CandidatePool] = None
+) -> bool:
+    """Is passing a legal move for this seat right now?
+
+    False in exactly one situation: the pass would consume a skip and the seat
+    has none left. At that point the seat must open at `MIN_OPENING_BID` -- a
+    dollar, which the reserve rule guarantees they are holding.
+
+    This is what makes the skip economy a RULE rather than a scoreboard. An
+    unlimited-pass auction has a dominant waiting strategy; a bounded one makes
+    every skip a decision with a cost.
+    """
+    if not pass_consumes_skip(state, seat_index, pool):
+        return True
+    return market_skips(state, seat_index) > 0
+
+
 def can_seat_acquire(
     state: dict,
     seat_index: int,
@@ -273,39 +355,94 @@ def _lot_stream(seed: int, lot_index: int) -> random.Random:
     return random.Random(f"arena:{seed}:candidate:{lot_index}")
 
 
-def _eligible_candidates(state: dict, pool: CandidatePool) -> list[Candidate]:
-    """Qualified players worth putting up this lot.
+def _available_candidates(state: dict, pool: CandidatePool) -> list[Candidate]:
+    """Every qualified player still on the board, in canonical pool order.
 
-    Filtered to those AT LEAST ONE seat could legally win. A candidate no one
-    can acquire is not a decision, it is a wasted lot -- and a board that kept
-    offering them is how a pass-loop starts. This is also where "candidate
-    generation must account for BOTH participants' unresolved positions" is
-    enforced: eligibility is asked per seat and the union is offered.
+    THE STANDARD MARKET DRAWS FROM THIS AND NOTHING NARROWER, which is a
+    deliberate reversal. An earlier ruleset filtered each lot to candidates at
+    least one seat could legally win, on the reasoning that an unwinnable lot
+    is a wasted one. The effect in play was worse than the waste: as rosters
+    filled, the board visibly converged on whatever position each participant
+    was missing, so the last few lots served the answer instead of asking a
+    question. A player with only PG open saw only point guards.
+
+    So a lot is now a draw from the market, not a delivery. A candidate neither
+    seat can use simply goes unsold -- both seats auto-pass at no cost to their
+    skips -- and the lot counter still advances, which is what keeps
+    termination provable without narrowing the pool.
     """
     gone = _taken_slugs(state) | set(state["offered"])
-    supply = _supply(state, pool)
-    seats = range(len(state["seats"]))
+    return [c for c in pool.qualified if c.player_slug not in gone]
 
-    # Eligibility depends on a candidate's POSITION SET, not their identity,
-    # and five slots admit at most 31 non-empty sets. So the question is asked
-    # once per distinct set and reused, instead of once per player -- about 31
-    # feasibility calls per seat per lot instead of 500. The answers are
-    # identical by construction: nothing `can_seat_acquire` reads varies across
-    # candidates sharing a position set.
+
+def _fits_seat(
+    state: dict,
+    seat_index: int,
+    candidates: list[Candidate],
+    pool: CandidatePool,
+) -> list[Candidate]:
+    """Those candidates this seat could legally win.
+
+    Asked once per distinct POSITION SET rather than once per player: five
+    slots admit at most 31 non-empty sets, so this is about 31 feasibility
+    calls instead of 500. The answers are identical by construction -- nothing
+    `can_seat_acquire` reads varies across candidates sharing a position set.
+    """
+    supply = _supply(state, pool)
     verdict: dict[frozenset[str], bool] = {}
     out: list[Candidate] = []
-    for candidate in pool.qualified:
-        if candidate.player_slug in gone:
-            continue
+    for candidate in candidates:
         cached = verdict.get(candidate.positions)
         if cached is None:
-            cached = any(
-                can_seat_acquire(state, i, candidate, pool, supply) for i in seats
-            )
+            cached = can_seat_acquire(state, seat_index, candidate, pool, supply)
             verdict[candidate.positions] = cached
         if cached:
             out.append(candidate)
     return out
+
+
+def _incomplete_seats(state: dict) -> list[int]:
+    return [i for i, seat in enumerate(state["seats"]) if not _roster_full(seat)]
+
+
+def _closeout_priority_seats(state: dict) -> list[int]:
+    """Which incomplete seats, if any, this closeout lot must try to serve.
+
+    THE FEASIBILITY GUARANTEE, AND WHY IT IS A ROTATION RATHER THAN A FILTER.
+    The closeout market exists because a roster is still incomplete after the
+    standard market, so it has to converge -- but "make every remaining
+    candidate fit the missing position" would turn the endgame into a vending
+    machine, which is the failure this rule is written to avoid as much as the
+    stall it is written to prevent. So the market keeps drawing freely, and the
+    draw is only overridden once a seat has been offered
+    `CLOSEOUT_FIT_GUARANTEE_LOTS - 1` consecutive lots it could not use. Two
+    misses in a row are normal; a third is not allowed to happen.
+
+    Returned as a LIST, longest-waiting first, so the caller can prefer a
+    candidate who serves every waiting seat at once. That preference is what
+    keeps the bound tight: with two seats waiting and one candidate to offer,
+    a candidate fitting both resets both.
+
+    THE ONE CASE THE BOUND SLIPS, stated rather than hidden: if two seats are
+    both waiting and NO single available candidate fits both, one of them must
+    wait one further lot -- there is one lot and two mutually exclusive needs,
+    so no draw can satisfy both. That seat is then the unique longest-waiting
+    and is served next, so the worst case is
+    `CLOSEOUT_FIT_GUARANTEE_LOTS` consecutive unusable lots rather than the
+    usual `CLOSEOUT_FIT_GUARANTEE_LOTS - 1`. The tests assert the worst case,
+    not the usual one.
+    """
+    if state.get("market_phase") != MARKET_CLOSEOUT:
+        return []
+    dry = state.get("closeout_dry_lots") or [0] * len(state["seats"])
+    waiting = sorted(
+        (
+            (-dry[index], index)
+            for index in _incomplete_seats(state)
+            if dry[index] >= CLOSEOUT_FIT_GUARANTEE_LOTS - 1
+        )
+    )
+    return [index for _rank, index in waiting]
 
 
 def _draw_candidate(
@@ -349,16 +486,21 @@ def _draw_candidate(
 def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> None:
     """Put the next candidate up, or end the match.
 
-    Termination is decided here and it is decided three ways, in order:
+    Termination is decided here and it is decided four ways, in order:
 
       1. Both rosters full -> the match is over, normally.
-      2. `MAX_LOTS` reached -> auto-fill the remaining slots. This is the case
-         that makes termination a proof rather than a hope: two seats that pass
-         forever cannot walk the pool.
-      3. No eligible candidate remains -> auto-fill as well. Reaching this
-         against the qualified 500 would require a pathological board; it is
-         implemented rather than asserted-impossible because "cannot happen" is
-         not a termination proof.
+      2. `HARD_MAX_LOTS` reached -> auto-fill the remaining slots. This is the
+         case that makes termination a proof rather than a hope: two seats that
+         pass forever cannot walk the pool. The skip economy and the closeout
+         market together mean this should be unreachable, which is exactly why
+         it is implemented and asserted against over a thousand seeds.
+      3. The standard market has run its 24 lots with a roster still
+         incomplete -> switch to the CLOSEOUT MARKET, which keeps drawing but
+         guarantees each incomplete roster a usable candidate on a bounded
+         schedule.
+      4. No candidate remains at all -> auto-fill. Reaching this against the
+         qualified 500 would require a pathological board; implemented rather
+         than asserted-impossible because "cannot happen" is not a proof.
     """
     if all(_roster_full(s) for s in state["seats"]):
         _complete(state)
@@ -367,16 +509,58 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
         _autofill(state, pool, reason="max_lots")
         return
 
-    eligible = _eligible_candidates(state, pool)
-    if not eligible:
+    # The standard market is over the moment its lot budget is spent and
+    # somebody still has a slot open. Recomputed from `lot_index` rather than
+    # latched, so a rehydrated snapshot cannot disagree with its own history.
+    if state["lot_index"] >= int(
+        state.get("standard_market_lots", STANDARD_MARKET_LOTS)
+    ):
+        state["market_phase"] = MARKET_CLOSEOUT
+
+    available = _available_candidates(state, pool)
+    if not available:
         _autofill(state, pool, reason="pool_exhausted")
         return
 
     rng = _lot_stream(state["seed"], state["lot_index"])
-    chosen, tier_label = _draw_candidate(eligible, rng)
+    # THE DRAW IS FREE FIRST, GUARANTEED SECOND. Even in the closeout market
+    # the market draws from the whole board; only if that draw misses the seat
+    # that has waited longest is it redrawn among candidates that seat can
+    # actually use. A closeout lot is therefore usually still a real market
+    # lot, and non-fitting candidates keep appearing.
+    chosen, tier_label = _draw_candidate(available, rng)
+    priority = _closeout_priority_seats(state)
+    if priority and not any(
+        can_seat_acquire(state, index, chosen, pool) for index in priority
+    ):
+        # Prefer a candidate who serves EVERY waiting seat, and fall back to
+        # the longest-waiting one alone. The fallback is the only path by which
+        # a seat waits a third lot; see `_closeout_priority_seats`.
+        fitting = _fits_seat(state, priority[0], available, pool)
+        for index in priority[1:]:
+            both = _fits_seat(state, index, fitting, pool)
+            if both:
+                fitting = both
+        if fitting:
+            chosen, tier_label = _draw_candidate(fitting, rng)
+
     state["current_candidate"] = chosen.player_slug
     state["current_candidate_tier"] = tier_label
     state["offered"].append(chosen.player_slug)
+
+    # Update every incomplete seat's dry counter against the candidate that is
+    # ACTUALLY going up, so the guarantee is measured on what was offered
+    # rather than on what was intended.
+    if state.get("market_phase") == MARKET_CLOSEOUT:
+        dry = list(state.get("closeout_dry_lots") or [0] * len(state["seats"]))
+        for index in range(len(state["seats"])):
+            if _roster_full(state["seats"][index]):
+                dry[index] = 0
+            elif can_seat_acquire(state, index, chosen, pool):
+                dry[index] = 0
+            else:
+                dry[index] += 1
+        state["closeout_dry_lots"] = dry
 
     if not first:
         state["opening_seat"] = state["next_opening_seat"]
@@ -395,10 +579,12 @@ def _advance_lot(state: dict, pool: CandidatePool, *, first: bool = False) -> No
     ]
     state["active_seat"] = _next_actor(state, state["opening_seat"])
     if state["active_seat"] is None:
-        # Nobody can act on a candidate `_eligible_candidates` said somebody
-        # could. Unreachable, and resolved as unsold rather than left with no
-        # open turn -- a match with no active seat is a match that hangs.
-        _resolve_lot(state, pool)
+        # NOBODY CAN USE THIS CANDIDATE, which is now a normal outcome rather
+        # than an impossible one: the market draws without regard to either
+        # roster's needs. The lot resolves unsold, no skip is charged to
+        # anyone, and the counter advances -- so a run of unusable candidates
+        # walks the match toward its bounds rather than hanging it.
+        _resolve_lot(state, pool, decided_by=DECIDED_BY_UNSOLD)
 
 
 def _next_actor(state: dict, start: int) -> Optional[int]:
@@ -442,10 +628,20 @@ def legal_commands(
     seat = state["seats"][seat_index]
     if _roster_full(seat):
         return ()
-    if rules.can_afford_minimum(seat["budget"], _filled(seat), state["current_bid"]):
+    can_bid = rules.can_afford_minimum(
+        seat["budget"], _filled(seat), state["current_bid"]
+    )
+    # PASSING IS NOT ALWAYS AVAILABLE. A seat out of market skips, facing a
+    # candidate it can legally use with nothing bid, must open. That is the
+    # rule that removes the waiting strategy; see `may_pass`.
+    can_pass = may_pass(state, seat_index, pool)
+    if can_bid and can_pass:
         return (COMMAND_BID, COMMAND_PASS)
+    if can_bid:
+        return (COMMAND_BID,)
     # Out of legal money for this lot. Passing is still a real move and is
-    # still offered, so the seat is never left with nothing to submit.
+    # still offered, so the seat is never left with nothing to submit -- an
+    # unaffordable lot is not something a skip should be spent on either.
     return (COMMAND_PASS,)
 
 
@@ -483,6 +679,13 @@ def submit_action(
         return state, REJECT_ROSTER_FULL, "Your roster is already complete."
 
     if command == COMMAND_PASS:
+        if not may_pass(state, seat_index, pool):
+            return (
+                state,
+                REJECT_NO_MARKET_SKIPS,
+                "You are out of market skips. This player fits your roster and "
+                f"nobody has bid, so you must open at ${MIN_OPENING_BID}.",
+            )
         _apply_pass(state, seat_index, pool, timed_out=False)
         return state, None, None
 
@@ -564,6 +767,18 @@ def _apply_bid(state: dict, seat_index: int, value: int, pool: CandidatePool) ->
 def _apply_pass(
     state: dict, seat_index: int, pool: CandidatePool, *, timed_out: bool
 ) -> None:
+    # CHARGED BEFORE THE PASS IS APPLIED, because `pass_consumes_skip` reads
+    # the live lot -- once `passed` is set and the lot may resolve, the
+    # conditions it tests have already moved.
+    #
+    # A TIMEOUT IS NOT A VOLUNTARY SKIP. An expired clock is a lost connection
+    # or a distracted player, and charging it would make latency part of the
+    # strategy -- the same reason a timeout has never been a forfeit here.
+    charged = not timed_out and pass_consumes_skip(state, seat_index, pool)
+    if charged:
+        seat = state["seats"][seat_index]
+        seat["market_skips"] = max(0, int(seat.get("market_skips", 0)) - 1)
+
     state["passed"][seat_index] = True
     state["lot_actions"].append(
         {
@@ -571,6 +786,10 @@ def _apply_pass(
             "action": COMMAND_PASS,
             "amount": 0,
             "timed_out": bool(timed_out),
+            # Recorded on the action so a receipt can say which passes cost
+            # something rather than inferring it from a counter that has since
+            # changed.
+            "consumed_skip": bool(charged),
         }
     )
     if timed_out:
@@ -837,6 +1056,11 @@ def project(
                 "roster_full": _roster_full(seat),
                 "in_lot": not state["passed"][index],
                 "lot_bid": int(state["lot_bids"][index]) if state["lot_bids"] else 0,
+                # PUBLIC FOR BOTH SEATS. How many skips your opponent has left
+                # is a real strategic fact -- it tells you whether they can
+                # still afford to wait you out -- and hiding it would make the
+                # rule invisible rather than tactical.
+                "market_skips": market_skips(state, index),
                 "roster": [
                     {
                         "player_slug": entry["player_slug"],
@@ -860,6 +1084,11 @@ def project(
         "phase": state["phase"],
         "lot_index": state["lot_index"],
         "max_lots": state["max_lots"],
+        "standard_market_lots": int(
+            state.get("standard_market_lots", STANDARD_MARKET_LOTS)
+        ),
+        "market_phase": state.get("market_phase", MARKET_STANDARD),
+        "market_skips_per_seat": MARKET_SKIPS_PER_SEAT,
         # Kept under their v1 names as well so a surface that reads either
         # spelling renders. One number, published twice, never recomputed.
         "round_index": state["lot_index"],
@@ -901,6 +1130,12 @@ def project(
             can_seat_acquire(state, seat_index, candidate, pool) if candidate else False
         ),
         "bid_blocked_reason": _bid_blocked_reason(state, seat_index, candidate, pool),
+        "market_skips": market_skips(state, seat_index),
+        # WOULD PASSING COST ME A SKIP? Published so the control can warn
+        # before the click instead of reporting the charge afterwards, and so
+        # a player can tell an ordinary concession (free) from a genuine skip.
+        "pass_consumes_skip": pass_consumes_skip(state, seat_index, pool),
+        "can_pass": may_pass(state, seat_index, pool),
     }
 
     return public, private, legal_commands(state, seat_index, pool)

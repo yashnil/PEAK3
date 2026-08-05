@@ -109,7 +109,7 @@ class TestContract:
 
     def test_identity(self):
         assert td_mode.mode == "twenty_dollar"
-        assert td_mode.mode_version == "twenty_dollar_v2"
+        assert td_mode.mode_version == "twenty_dollar_v3"
         assert td_mode.seat_count == 2
         assert td_mode.turn_seconds > 0
         assert td_mode.initial_phase() == "auction"

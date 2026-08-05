@@ -12,7 +12,12 @@ import {
   pickFeed,
   podium,
   rankingBasisLabel,
-  recordLine,
+  edgeBandFor,
+  edgeQualifier,
+  fitLabel,
+  landingSlot,
+  rearrangementSummary,
+  searchCandidates,
   scoreDisplay,
   scoreSourceNote,
   scoringCardLine,
@@ -20,6 +25,8 @@ import {
 } from "@/lib/three-man-weave-state";
 import type {
   ArenaResultView,
+  TmwCandidateFit,
+  TmwCandidatePublic,
   TmwMatchView,
   TmwPick,
   TmwPlayer,
@@ -27,10 +34,12 @@ import type {
   TmwRoster,
 } from "@/types/three-man-weave";
 
-function player(overrides: Partial<TmwPlayer> = {}): TmwPlayer {
+/** An UNDRAFTED candidate: no scoring card exists on this payload at all. */
+function candidate(overrides: Partial<TmwCandidatePublic> = {}): TmwCandidatePublic {
   return {
     player_slug: "kawhi-leonard",
     player_name: "Kawhi Leonard",
+    positions: ["SF", "PF"],
     eligibility: {
       franchise_id: "TOR",
       franchise_display_name: "Toronto Raptors",
@@ -39,15 +48,36 @@ function player(overrides: Partial<TmwPlayer> = {}): TmwPlayer {
         { season: "2018-19", team_code: "TOR", games_played: 60, via: "direct_team_season" },
       ],
     },
+    ...overrides,
+  };
+}
+
+/** A DRAFTED player: the candidate payload plus the card they are scored on.
+ * The card belongs to the ROLLED franchise, which is the ruleset correction. */
+function player(overrides: Partial<TmwPlayer> = {}): TmwPlayer {
+  return {
+    ...candidate(),
     scoring_card: {
-      season: "2016-17",
-      team_id: "SAS",
-      team_name: "San Antonio Spurs",
-      prime_score: 87.8,
+      season: "2018-19",
+      team_id: "TOR",
+      team_name: "Toronto Raptors",
+      prime_score: 84.0,
       score_source: "exact_team_stint",
       is_multi_team_season: false,
       formula_version: "peak3_v1",
     },
+    ...overrides,
+  };
+}
+
+function fit(overrides: Partial<TmwCandidateFit> = {}): TmwCandidateFit {
+  return {
+    player_slug: "kawhi-leonard",
+    state: "fits_now",
+    direct_slots: ["SF"],
+    plan: null,
+    moves: [],
+    reason: null,
     ...overrides,
   };
 }
@@ -74,7 +104,7 @@ function roster(seatIndex: number, slots: Partial<Record<string, TmwPick | null>
 
 function publicState(overrides: Partial<TmwPublicState> = {}): TmwPublicState {
   return {
-    mode_version: "tmw_ruleset_v1",
+    mode_version: "tmw_ruleset_v2",
     formula_version: "peak3_v1",
     slot_types: ["PG", "SG", "SF", "PF", "C", "bench_1"],
     total_rounds: 6,
@@ -91,7 +121,7 @@ function publicState(overrides: Partial<TmwPublicState> = {}): TmwPublicState {
       franchise_display_name: "Toronto Raptors",
       decade: "2010s",
       eligible_slugs: ["kawhi-leonard"],
-      candidates: [player()],
+      candidates: [candidate()],
     },
     ...overrides,
   };
@@ -101,7 +131,7 @@ function matchView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
   return {
     match_id: "m1",
     mode: "three_man_weave",
-    mode_version: "tmw_ruleset_v1",
+    mode_version: "tmw_ruleset_v2",
     model_version: "peak3_v1",
     status: "active",
     state_version: 3,
@@ -135,10 +165,8 @@ function result(overrides: Partial<ArenaResultView> = {}): ArenaResultView {
     was_bot: false,
     detail: {
       score_status: "complete",
-      lineup_peak_score: 72.4,
-      wins: 64,
-      losses: 18,
-      expected_wins: 64.2,
+      lineup_score: 72.4,
+      mean_season_score: 81.9,
       fit_components: {
         talent_core: 70,
         bench_strength: 55,
@@ -149,8 +177,16 @@ function result(overrides: Partial<ArenaResultView> = {}): ArenaResultView {
         team_context_depth: 80,
       },
       best_pick: "Kawhi Leonard",
-      structural_weakness: "thin bench depth",
-      tmw_adapter_version: "tmw_six_player_adapter_v1",
+      decisive_pick: {
+        slot_type: "SF",
+        player_slug: "kawhi-leonard",
+        player_name: "Kawhi Leonard",
+        season: "2018-19",
+        team_id: "TOR",
+        round_number: 1,
+        lineup_quality_drop: 4.12,
+      },
+      tmw_adapter_version: "tmw_six_player_adapter_v2",
       lineup_model_version: "perfect_season_lineup_fit_v2",
       simulator_version: "perfect_season_simulator_v1",
       formula_version: "peak3_v1",
@@ -167,9 +203,10 @@ describe("eligibility vs scoring card", () => {
     expect(eligibilityLine(player())).toBe("Toronto Raptors · 2018-19");
   });
 
-  it("describes the scoring card by a different season entirely", () => {
-    // The whole point: eligible through Toronto, scored on San Antonio.
-    expect(scoringCardLine(player())).toBe("2016-17 San Antonio Spurs · 1Y PEAK3 87.8");
+  it("describes the scoring card by the ROLLED franchise's own season", () => {
+    // The ruleset correction, as an assertion. Kawhi's best 2010s season is
+    // 2016-17 San Antonio; a Raptors roll must not reach for it.
+    expect(scoringCardLine(player())).toBe("2018-19 Toronto Raptors · 1Y PEAK3 84.0");
   });
 
   it("spans multiple eligibility seasons rather than naming only the first", () => {
@@ -225,7 +262,10 @@ describe("traded disclosure", () => {
 describe("ranking basis", () => {
   it("names the basis in a sentence a surface can print verbatim", () => {
     expect(rankingBasisLabel()).toContain(RANKING_BASIS_LABEL);
-    expect(rankingBasisLabel()).toMatch(/mean PEAK3 score/i);
+    // It must NOT describe itself as a mean -- that is what it used to be,
+    // and what it must never be mistaken for again.
+    expect(rankingBasisLabel()).not.toMatch(/mean PEAK3 score/i);
+    expect(rankingBasisLabel()).toMatch(/lineup-quality index/i);
   });
 
   it("renders a real score as the deciding number", () => {
@@ -251,9 +291,12 @@ describe("ranking basis", () => {
     expect(scoreDisplay(0, "incomplete").kind).toBe("unrankable");
   });
 
-  it("marks the record as projected so it cannot read as the headline", () => {
-    expect(recordLine(64, 18)).toBe("64-18 projected");
-    expect(recordLine(null, 18)).toBeNull();
+  it("exports no way to render a projected record at all", async () => {
+    // The 82-0 record projection is calibrated for an eight-card roster and
+    // this mode plays six, so the helper was removed rather than hedged. A
+    // component cannot print "64-18 projected" because nothing formats one.
+    const stateLib = await import("@/lib/three-man-weave-state");
+    expect("recordLine" in stateLib).toBe(false);
   });
 });
 
@@ -286,17 +329,29 @@ describe("podium", () => {
     expect(outcomeHeadline(rows)).toBe("A three-way draw");
   });
 
-  it("carries the record as a subordinate line, not the score", () => {
+  it("reports the lineup score and the mean SEPARATELY, and no record", () => {
     const [row] = podium([result()]);
     expect(row.score.text).toBe("72.4");
-    expect(row.record).toBe("64-18 projected");
+    // The mean is carried for reading and is visibly not the basis.
+    expect(row.meanSeasonScore).toBe(81.9);
+    expect(row.meanSeasonScore).not.toBe(row.score.kind === "scored" ? row.score.value : null);
+    // NO PROJECTED RECORD EXISTS on the row at all -- there is no field a
+    // component could render one from.
+    expect("record" in row).toBe(false);
+  });
+
+  it("names the basis without calling it an average", () => {
+    const label = rankingBasisLabel();
+    expect(label).toContain(RANKING_BASIS_LABEL);
+    expect(label).toContain("lineup-quality index");
+    expect(label).toContain("Not an average");
   });
 
   it("gives an unscoreable roster a real state on the podium", () => {
     const [row] = podium([
       result({
         score: 0,
-        detail: { ...result().detail, score_status: "incomplete", lineup_peak_score: null },
+        detail: { ...result().detail, score_status: "incomplete", lineup_score: null },
       }),
     ]);
     expect(row.score.kind).toBe("unrankable");
@@ -351,50 +406,136 @@ describe("phase", () => {
 });
 
 describe("candidates", () => {
-  it("annotates each candidate with THIS seat's legal slots", () => {
+  it("annotates each candidate with THIS seat's fit verdict", () => {
     const match = matchView({
-      private_state: { seat_index: 0, legal_picks: { "kawhi-leonard": ["SF", "PF"] } },
+      private_state: {
+        seat_index: 0,
+        candidate_fits: { "kawhi-leonard": fit({ direct_slots: ["SF", "PF"] }) },
+      },
     });
-    expect(candidatesForSeat(match)[0].legalSlots).toEqual(["SF", "PF"]);
+    const [entry] = candidatesForSeat(match);
+    expect(entry.fit.direct_slots).toEqual(["SF", "PF"]);
+    expect(entry.selectable).toBe(true);
+    expect(fitLabel(entry)).toBe("Fits now");
   });
 
-  it("keeps an illegal candidate visible rather than hiding it", () => {
+  it("carries NO scoring card for an undrafted candidate", () => {
+    // The product rule, enforced by the payload rather than by remembering:
+    // there is no field on a candidate a component could read a score from.
+    const [entry] = candidatesForSeat(matchView());
+    expect("scoring_card" in entry).toBe(false);
+  });
+
+  it("keeps an unusable candidate visible, disabled, with a reason", () => {
     // A player must be able to see that a strong name was on the board and
     // that their own roster shape is why they could not take them.
-    const match = matchView({ private_state: { seat_index: 0, legal_picks: {} } });
+    const match = matchView({
+      private_state: {
+        seat_index: 0,
+        candidate_fits: {
+          "kawhi-leonard": fit({
+            state: "no_legal_arrangement",
+            direct_slots: [],
+            reason: "Every slot they could play is filled.",
+          }),
+        },
+      },
+    });
     const candidates = candidatesForSeat(match);
     expect(candidates).toHaveLength(1);
-    expect(candidates[0].legalSlots).toEqual([]);
+    expect(candidates[0].selectable).toBe(false);
+    expect(fitLabel(candidates[0])).toBe("No legal arrangement");
+    expect(candidates[0].fit.reason).toBeTruthy();
   });
 
-  it("sorts legal candidates ahead of illegal ones, then by scoring card", () => {
-    const strongIllegal = player({
+  it("preserves the server's order and never re-sorts by anything", () => {
+    // The list used to be sorted by `prime_score`, which made the number
+    // visible whether or not it was printed: the right pick was the top row.
+    const shaq = candidate({
       player_slug: "shaquille-o-neal",
       player_name: "Shaquille O'Neal",
-      scoring_card: { ...player().scoring_card!, prime_score: 93.6 },
+      positions: ["C"],
     });
-    const weakLegal = player({
+    const stockton = candidate({
       player_slug: "john-stockton",
       player_name: "John Stockton",
-      scoring_card: { ...player().scoring_card!, prime_score: 60.1 },
+      positions: ["PG"],
     });
     const match = matchView({
       public_state: publicState({
         current_roll: {
           ...publicState().current_roll!,
-          candidates: [strongIllegal, weakLegal, player()],
+          candidates: [shaq, stockton, candidate()],
         },
       }),
       private_state: {
         seat_index: 0,
-        legal_picks: { "john-stockton": ["PG"], "kawhi-leonard": ["SF"] },
+        candidate_fits: {
+          "john-stockton": fit({ player_slug: "john-stockton", direct_slots: ["PG"] }),
+          "kawhi-leonard": fit(),
+          "shaquille-o-neal": fit({
+            player_slug: "shaquille-o-neal",
+            state: "no_legal_arrangement",
+            direct_slots: [],
+            reason: "no room",
+          }),
+        },
       },
     });
     expect(candidatesForSeat(match).map((c) => c.player_slug)).toEqual([
+      "shaquille-o-neal",
+      "john-stockton",
+      "kawhi-leonard",
+    ]);
+  });
+
+  it("reorders on search by relevance, and by nothing else", () => {
+    const stockton = candidate({
+      player_slug: "john-stockton",
+      player_name: "John Stockton",
+    });
+    const match = matchView({
+      public_state: publicState({
+        current_roll: {
+          ...publicState().current_roll!,
+          candidates: [candidate(), stockton],
+        },
+      }),
+      private_state: { seat_index: 0, candidate_fits: {} },
+    });
+    const all = candidatesForSeat(match);
+    expect(searchCandidates(all, "stock").map((c) => c.player_slug)).toEqual([
+      "john-stockton",
+    ]);
+    expect(searchCandidates(all, "").map((c) => c.player_slug)).toEqual([
       "kawhi-leonard",
       "john-stockton",
-      "shaquille-o-neal",
     ]);
+  });
+
+  it("reports where a rearrangement would land a candidate, and what moves", () => {
+    const match = matchView({
+      private_state: {
+        seat_index: 0,
+        candidate_fits: {
+          "kawhi-leonard": fit({
+            state: "fits_after_rearrangement",
+            direct_slots: [],
+            plan: { SF: "kawhi-leonard", bench_1: "larry-bird" },
+            moves: [
+              { player_slug: "larry-bird", from_slot: "SF", to_slot: "bench_1" },
+            ],
+          }),
+        },
+      },
+    });
+    const [entry] = candidatesForSeat(match);
+    expect(landingSlot(entry)).toBe("SF");
+    expect(
+      rearrangementSummary(entry, (slug) =>
+        slug === "larry-bird" ? "Larry Bird" : slug,
+      ),
+    ).toBe("Larry Bird moves Small forward → Bench");
   });
 
   it("is empty when no roll is on the board", () => {
@@ -450,5 +591,33 @@ describe("connection", () => {
     expect(connectionState(1)).toBe("reconnecting");
     expect(connectionState(2)).toBe("reconnecting");
     expect(connectionState(3)).toBe("offline");
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// The live edge
+// ---------------------------------------------------------------------------
+describe("the current edge", () => {
+  it("reports an ordinal band and never a total", () => {
+    const state = publicState({
+      current_edge: {
+        is_live: true,
+        compared_after_picks: 2,
+        seats: { "0": "leading", "1": "close_behind", "2": "needs_a_response" },
+      },
+    });
+    expect(edgeBandFor(state, 0)).toBe("leading");
+    expect(edgeBandFor(state, 2)).toBe("needs_a_response");
+    expect(edgeQualifier(state)).toBe("Live · compared after 2 picks each");
+  });
+
+  it("says nothing at all once the draft is over", () => {
+    const state = publicState({
+      is_complete: true,
+      current_edge: { is_live: false, compared_after_picks: 0, seats: {} },
+    });
+    expect(edgeBandFor(state, 0)).toBeNull();
+    expect(edgeQualifier(state)).toBeNull();
   });
 });

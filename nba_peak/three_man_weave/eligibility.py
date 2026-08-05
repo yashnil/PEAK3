@@ -1,22 +1,39 @@
 """Franchise x decade eligibility, and the scoring card that eligibility earns.
 
-TWO SEPARATE CONCEPTS, DELIBERATELY NOT COLLAPSED
--------------------------------------------------
+TWO SEPARATE CONCEPTS, BOTH BOUND TO THE ROLLED FRANCHISE AND DECADE
+--------------------------------------------------------------------
 1. ELIGIBILITY EVIDENCE -- "did this player appear for franchise F during
    decade D?" Tenure length is irrelevant: one real season for the Raptors in
    the 2010s makes Kawhi Leonard a legal Raptors x 2010s pick, exactly as a
    nine-year run would. Eligibility is a membership fact.
 
-2. SCORING CARD -- "what is this player's highest single-season PEAK3 score
-   ANYWHERE IN THE NBA during that decade?" This is NOT franchise-restricted.
-   Kawhi is drafted off a Raptors x 2010s roll on the evidence of 2018-19
-   Toronto, but the card that goes into the lineup is 2016-17 San Antonio
-   (87.84), because that is his best season of the decade.
+2. SCORING CARD -- "what is this player's best single-season PEAK3 score
+   FOR THAT FRANCHISE, IN THAT DECADE?" The card is franchise-restricted, and
+   that restriction is the rule rather than a refinement of one.
 
-Keeping them separate is what makes the game interesting -- the roll tells you
-who you MAY take, the scoring card tells you what they are WORTH -- and it is
-also what keeps the data honest, because the two questions have different
-right answers from different tables.
+WHY THE CARD IS FRANCHISE-RESTRICTED (this changed, deliberately)
+------------------------------------------------------------------
+An earlier ruleset scored a pick on their best season ANYWHERE in the decade.
+It produced a class of results that read as a bug however carefully they were
+labelled: a Cleveland x 2010s Dwyane Wade was drafted on the evidence of his
+real 2017-18 Cavaliers stint and then scored on 2010-11 MIAMI (76.5), because
+that was his best season of the decade. The drafted card said Cleveland and
+the number came from Miami. Whatever the surface printed beside it, the roster
+that went into the evaluator was not the one the roll described.
+
+So both questions now share the same two constraints. A card must belong to
+the ROLLED franchise and the ROLLED decade:
+
+  * Cleveland x 2010s Wade scores on 2017-18 CLE, not 2010-11 MIA.
+  * Atlanta x 1990s Dominique Wilkins scores on an Atlanta season of the 1990s.
+  * Sacramento x 2020s Tyrese Haliburton scores on a Sacramento season, never
+    on a later Indiana one.
+
+The eligibility SEASON and the scoring SEASON may still differ -- a player with
+six Hawks seasons in the 1990s is scored on the best of them -- but both are
+now Hawks seasons of the 1990s. Nothing is fabricated to make this work: a
+franchise-decade with no scored season for a player simply makes that player
+ineligible there (see "unscored identities" below).
 
 SOURCES (all committed, no network access at any point)
 --------------------------------------------------------
@@ -40,36 +57,42 @@ Traded seasons are USED FOR ELIGIBILITY and are ALLOWED as scoring cards.
 Daily Grid refuses traded stints outright (nba_peak/daily_grid/pool.py:41-51),
 and it is right to: a grid cell shows a PEAK3 score next to a team badge, and
 a traded season's score exists only at whole-season aggregate grain, so the
-number would not correspond to the team shown. That specific hazard does not
-exist here, for two independent reasons:
+number would not correspond to the team shown. That hazard is handled here
+rather than avoided, because refusing stints outright would tell a player that
+someone who demonstrably suited up for the Cavaliers did not:
 
-  * For ELIGIBILITY we use a stint only as a membership fact -- "Player X
-    really did suit up for franchise F that season." No score is attached to
-    that claim, so there is nothing to misattribute. Refusing stints would
-    instead be the dishonest choice: it would tell a player that someone who
-    demonstrably played for the Raptors did not.
+  * The STINT is what establishes the franchise, so a traded season's card
+    resolves to the ROLLED FRANCHISE'S OWN team code -- Wade's 2017-18 card on
+    a Cleveland roll resolves to CLE. The card never carries another team's
+    code, which is the specific failure this ruleset exists to close.
 
-  * For the SCORING CARD the season is explicitly decade-wide and carries its
-    own season label and team, never the drafted franchise's badge. A traded
-    season's aggregate score is the correct and complete answer to "what did
-    this player score that season" -- the aggregate IS the season. It is
-    surfaced as `score_source="exact_season_aggregate"` so the boundary can
-    label it rather than silently presenting it as a single-team number.
+  * The SCORE for such a season exists only at whole-season aggregate grain,
+    because PEAK3 computes one `prime_score` per player-season and not a
+    fractional per-stint one. That number is real and complete -- the
+    aggregate IS the season -- but it is not a Cleveland-only figure, so it is
+    surfaced as `score_source="exact_season_aggregate"` and the surface labels
+    it rather than presenting it as a single-team number.
 
-When a traded season is chosen as the scoring card, it must still resolve to
-ONE real team for `exact_season.resolve_player_season_card` (which rejects
-aggregate codes outright). We pick the stint the player actually played the
-most games for, ties broken by team code so the choice is deterministic and
-reproducible rather than dependent on file ordering.
+Order of preference is therefore: a real single-team scored row for the rolled
+franchise beats a traded season's aggregate, because the first is unambiguous.
+An aggregate is used only when the franchise's own seasons offer nothing
+better, and never in place of a different franchise's card. Nothing is
+invented: if neither exists for a franchise-decade, the player is not eligible
+there at all.
 
 UNSCORED IDENTITIES
 -------------------
-An identity with no scored season in a decade has NO scoring card for that
-decade and is therefore NOT eligible in it, however many games they played.
-This is prevention at the source rather than a fabricated number downstream:
-a player with nothing to score has nothing to draft. `evaluation` still
-handles an unscored card defensively if one ever reaches it, and surfaces the
-status instead of presenting 0.0 as a real result.
+An identity with no scored season FOR THAT FRANCHISE IN THAT DECADE has NO
+scoring card there and is therefore NOT eligible there, however many games
+they played. This is prevention at the source rather than a fabricated number
+downstream: a player with nothing to score has nothing to draft. `evaluation`
+still handles an unscored card defensively if one ever reaches it, and
+surfaces the status instead of presenting 0.0 as a real result.
+
+The rule bites in exactly the place it should. A ten-game cameo that never
+cleared the model's minutes threshold no longer makes someone drafted off that
+franchise and then scored on a different team's MVP season; it makes them
+ineligible for that roll, which is the honest answer.
 """
 from __future__ import annotations
 
@@ -152,16 +175,23 @@ class Appearance:
 @dataclass(frozen=True)
 class ScoringCard:
     """The season a drafted identity is actually SCORED on: their best PEAK3
-    season anywhere in the NBA during the drafted decade.
+    season FOR THE ROLLED FRANCHISE, IN THE ROLLED DECADE.
+
+    `franchise_id` is carried on the card rather than left to the caller to
+    remember, because it is the constraint the card was chosen under. A card
+    that could be read without knowing which franchise produced it is exactly
+    the shape that let a Miami season be presented on a Cleveland roll.
 
     `resolve_team_id` is the single real team code to hand
-    `exact_season.resolve_player_season_card`. It differs from `team_code`
-    only for a traded season, where `team_code` is the aggregate token and
-    `resolve_team_id` is the stint the player played the most games for.
+    `exact_season.resolve_player_season_card`, and it always belongs to
+    `franchise_id`. It differs from `team_code` only for a traded season, where
+    `team_code` is the aggregate token the SCORE is recorded under while
+    `resolve_team_id` is the rolled franchise's own code.
     """
 
     player_slug: str
     player_name: str
+    franchise_id: str
     season: str
     season_start: int
     decade: str
@@ -181,6 +211,7 @@ class ScoringCard:
         return {
             "player_slug": self.player_slug,
             "player_name": self.player_name,
+            "franchise_id": self.franchise_id,
             "season": self.season,
             "decade": self.decade,
             "team_code": self.team_code,
@@ -207,8 +238,10 @@ class EligibilityIndex:
     _by_roll: dict[tuple[str, str], frozenset[str]]
     # (player_slug, franchise_id, decade) -> the seasons that prove it.
     _evidence: dict[tuple[str, str, str], tuple[Appearance, ...]]
-    # (player_slug, decade) -> best PEAK3 season of that decade.
-    _scoring: dict[tuple[str, str], ScoringCard]
+    # (player_slug, franchise_id, decade) -> best PEAK3 season FOR that
+    # franchise in that decade. Keyed on the same triple as `_evidence`,
+    # because the card answers a question about the same three things.
+    _scoring: dict[tuple[str, str, str], ScoringCard]
     _names: dict[str, str]
 
     # -- eligibility -------------------------------------------------------
@@ -228,11 +261,20 @@ class EligibilityIndex:
         return self._evidence.get((player_slug, franchise_id, decade), ())
 
     # -- scoring -----------------------------------------------------------
-    def scoring_card(self, player_slug: str, decade: str) -> Optional[ScoringCard]:
-        """This identity's best PEAK3 season of the decade, anywhere in the
-        NBA. None when they have no scored season in it -- which, by
-        construction, also means they are not eligible in it."""
-        return self._scoring.get((player_slug, decade))
+    def scoring_card(
+        self, player_slug: str, franchise_id: str, decade: str
+    ) -> Optional[ScoringCard]:
+        """This identity's best PEAK3 season FOR this franchise in this decade.
+
+        None when they have no scored season for that franchise-decade --
+        which, by construction, also means they are not eligible for that roll.
+
+        The `franchise_id` argument is REQUIRED and has no default on purpose.
+        A defaulted or optional franchise would let a caller silently ask the
+        decade-wide question this ruleset no longer answers, which is how a
+        Miami card ended up on a Cleveland roll.
+        """
+        return self._scoring.get((player_slug, franchise_id, decade))
 
     def player_name(self, player_slug: str) -> Optional[str]:
         return self._names.get(player_slug)
@@ -275,23 +317,48 @@ def _load_traded_stints(path: Path | None = None) -> dict[str, list[dict]]:
         return {}
 
 
-def _best_stint_team(stints: list[dict]) -> Optional[str]:
-    """The team the player played the most games for that season.
+def _scores_by_player_season(
+    identity_slugs: set[str],
+    scored_path: Path | None = None,
+) -> dict[tuple[str, str], dict[str, float]]:
+    """(player_slug, season) -> {team_code: prime_score} straight off PEAK3.
 
-    Ties are broken by team code, so the choice is deterministic and
-    reproducible instead of depending on the order rows happen to appear in
-    the file. Returns None if no stint carries a usable team code.
+    Nested by team code rather than flattened to one number per season,
+    because a season can be recorded under a real team code, under a
+    multi-team aggregate token, or (in principle) both, and which one applies
+    depends on the franchise being asked about. Collapsing them here would
+    throw away exactly the distinction `_build_scoring_cards` needs.
+
+    No score is computed, adjusted or approximated -- these are numbers PEAK3
+    already produced, read from the committed scored table.
     """
-    best_games: float = -1.0
-    best_team: Optional[str] = None
-    for stint in stints:
-        team = str(stint.get("team_id") or "").strip().upper()
-        if not team or team in MULTI_TEAM_CODES:
-            continue
-        games = float(stint.get("games") or 0.0)
-        if best_team is None or games > best_games or (games == best_games and team < best_team):
-            best_games, best_team = games, team
-    return best_team
+    import pandas as pd  # local import: keeps `import nba_peak...` cheap
+
+    load_path = scored_path or SCORED_PATH
+    if not load_path.exists():
+        raise FileNotFoundError(f"{load_path} missing -- broken checkout.")
+
+    frame = pd.read_parquet(
+        load_path, columns=["player", "team", "season", "season_start", "prime_score"]
+    )
+    frame = frame.assign(player_slug=frame["player"].map(slug))
+    frame = frame[
+        frame["player_slug"].isin(identity_slugs)
+        & (frame["season_start"] >= MIN_SEASON_START)
+        & frame["prime_score"].notna()
+    ]
+
+    out: dict[tuple[str, str], dict[str, float]] = {}
+    for record in frame.itertuples(index=False):
+        key = (record.player_slug, record.season)
+        team_code = str(record.team).strip().upper()
+        bucket = out.setdefault(key, {})
+        score = float(record.prime_score)
+        # `max` rather than overwrite: a duplicated row must not make the
+        # answer depend on file order.
+        if score > bucket.get(team_code, float("-inf")):
+            bucket[team_code] = score
+    return out
 
 
 def _build_appearances(
@@ -368,82 +435,90 @@ def _build_appearances(
 
 
 def _build_scoring_cards(
-    identity_slugs: set[str],
+    appearances: list[Appearance],
     names: dict[str, str],
-    traded_stints_path: Path | None = None,
     scored_path: Path | None = None,
-) -> dict[tuple[str, str], ScoringCard]:
-    """(player_slug, decade) -> best PEAK3 season of that decade.
+) -> dict[tuple[str, str, str], ScoringCard]:
+    """(player_slug, franchise_id, decade) -> best PEAK3 season for that roll.
 
-    Reads `prime_score` straight off the official scored table. No score is
-    computed, adjusted or approximated here -- this is `idxmax` over numbers
-    PEAK3 already produced.
+    DRIVEN BY THE APPEARANCES, NOT BY THE SCORED TABLE. That inversion is the
+    whole correction. The old form asked the scored table for a player's best
+    season of a decade and then attached whatever franchise came back, which
+    is how a Miami row became a Cleveland card. This form starts from a real
+    (player, franchise, season) membership fact and asks the scored table only
+    what THAT season scored, so a card cannot name a franchise the player did
+    not play for that year.
+
+    Candidate order within a franchise-decade, best first:
+
+      1. A real single-team scored row for the appearance's own team code --
+         unambiguous, `score_source == "exact_team_stint"`.
+      2. The season's multi-team aggregate, for a traded season where PEAK3
+         only ever computed one whole-season number. Real and complete, but
+         not a single-team figure, so it is marked
+         `is_multi_team_season=True` and resolves to the ROLLED franchise's
+         team code rather than to any other stint.
+
+    A tie between two seasons is broken by the earlier season, so the choice
+    is a rule rather than an artifact of row order. A single-team row always
+    beats an aggregate of equal value, because the first is the more precise
+    claim about the same thing.
     """
-    import pandas as pd  # local import: keeps `import nba_peak...` cheap
+    scores = _scores_by_player_season(set(names), scored_path)
 
-    load_path = scored_path or SCORED_PATH
-    if not load_path.exists():
-        raise FileNotFoundError(f"{load_path} missing -- broken checkout.")
+    #: (slug, franchise, decade) -> (sort key, card). The sort key orders on
+    #: score first, then prefers an unambiguous single-team row, then the
+    #: earlier season.
+    best: dict[tuple[str, str, str], tuple[tuple, ScoringCard]] = {}
 
-    frame = pd.read_parquet(
-        load_path, columns=["player", "team", "season", "season_start", "prime_score"]
-    )
-    frame = frame.assign(player_slug=frame["player"].map(slug))
-    frame = frame[
-        frame["player_slug"].isin(identity_slugs)
-        & (frame["season_start"] >= MIN_SEASON_START)
-        & frame["prime_score"].notna()
-    ]
-    if frame.empty:
-        return {}
+    for appearance in appearances:
+        bucket = scores.get((appearance.player_slug, appearance.season))
+        if not bucket:
+            continue
 
-    frame = frame.assign(decade=frame["season_start"].map(lambda y: decade_label(int(y))))
-    frame = frame[frame["decade"].notna()]
-    if frame.empty:
-        return {}
-
-    stints_by_key = _load_traded_stints(traded_stints_path)
-
-    # Sort so `drop_duplicates(keep="first")` picks the highest score, with
-    # season as a deterministic tie-break -- `idxmax` alone would resolve an
-    # exact tie by row order, which is file layout, not a rule.
-    frame = frame.sort_values(
-        ["player_slug", "decade", "prime_score", "season"], ascending=[True, True, False, True]
-    )
-    best = frame.drop_duplicates(subset=["player_slug", "decade"], keep="first")
-
-    out: dict[tuple[str, str], ScoringCard] = {}
-    for record in best.itertuples(index=False):
-        team_code = str(record.team).strip().upper()
-        is_multi = team_code in MULTI_TEAM_CODES
-        if is_multi:
-            resolve_team = _best_stint_team(
-                stints_by_key.get(f"{record.player_slug}|{record.season}", [])
-            )
-            # A traded season we cannot pin to any real team cannot be turned
-            # into a PlayerSeasonCard, so it cannot be a scoring card. Skipped
-            # rather than resolved to the aggregate token, which
-            # `resolve_player_season_card` would reject anyway.
-            if resolve_team is None:
-                continue
+        direct = bucket.get(appearance.team_code)
+        if direct is not None:
+            score, is_multi, recorded_team = direct, False, appearance.team_code
         else:
-            resolve_team = team_code
-            if franchise_for_team_code(resolve_team) is None:
+            aggregate = [
+                (value, code)
+                for code, value in bucket.items()
+                if code in MULTI_TEAM_CODES
+            ]
+            if not aggregate:
+                # A scored row exists for this player-season but under some
+                # other team code and with no aggregate: that score belongs to
+                # a different team, so it is not this franchise's to use.
                 continue
+            score, recorded_team = max(aggregate)
+            is_multi = True
 
-        out[(record.player_slug, record.decade)] = ScoringCard(
-            player_slug=record.player_slug,
-            player_name=names.get(record.player_slug, record.player),
-            season=record.season,
-            season_start=int(record.season_start),
-            decade=record.decade,
-            team_code=team_code,
-            resolve_team_id=resolve_team,
-            prime_score=float(record.prime_score),
-            is_multi_team_season=is_multi,
-            formula_version=FORMULA_VERSION,
+        key = (appearance.player_slug, appearance.franchise_id, appearance.decade)
+        rank = (-float(score), 1 if is_multi else 0, appearance.season)
+        existing = best.get(key)
+        if existing is not None and existing[0] <= rank:
+            continue
+
+        best[key] = (
+            rank,
+            ScoringCard(
+                player_slug=appearance.player_slug,
+                player_name=names.get(appearance.player_slug, appearance.player_name),
+                franchise_id=appearance.franchise_id,
+                season=appearance.season,
+                season_start=appearance.season_start,
+                decade=appearance.decade,
+                team_code=recorded_team,
+                # ALWAYS the rolled franchise's own code. This is the line
+                # that makes a Cleveland card resolve to CLE.
+                resolve_team_id=appearance.team_code,
+                prime_score=float(score),
+                is_multi_team_season=is_multi,
+                formula_version=FORMULA_VERSION,
+            ),
         )
-    return out
+
+    return {key: card for key, (_rank, card) in best.items()}
 
 
 def build_index(
@@ -463,19 +538,21 @@ def build_index(
         names.setdefault(appearance.player_slug, appearance.player_name)
 
     scoring = _build_scoring_cards(
-        identity_slugs=set(names),
+        appearances=appearances,
         names=names,
-        traded_stints_path=traded_stints_path,
         scored_path=scored_path,
     )
 
     by_roll: dict[tuple[str, str], set[str]] = {}
     evidence: dict[tuple[str, str, str], list[Appearance]] = {}
     for appearance in appearances:
-        # Eligibility requires a scoring card in the SAME decade -- an
-        # identity with nothing to score in that decade has nothing to draft.
-        # See the module docstring's "unscored identities" note.
-        if (appearance.player_slug, appearance.decade) not in scoring:
+        # Eligibility requires a scoring card for the SAME franchise and the
+        # SAME decade -- an identity with nothing to score there has nothing
+        # to draft there. See the module docstring's "unscored identities"
+        # note; this is the exact condition that stops a roll offering someone
+        # who could only be scored on another team's season.
+        key = (appearance.player_slug, appearance.franchise_id, appearance.decade)
+        if key not in scoring:
             continue
         roll = (appearance.franchise_id, appearance.decade)
         by_roll.setdefault(roll, set()).add(appearance.player_slug)

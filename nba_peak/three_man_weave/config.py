@@ -27,14 +27,21 @@ ENGINE_VERSION: Final[str] = "three_man_weave_v1"
 # roster shape, draft order, the identity lock's grain, or the position
 # legality model. A stored match built under a different ruleset is not
 # replayable and the platform layer must refuse it rather than reinterpret it.
-RULESET_VERSION: Final[str] = "tmw_ruleset_v1"
+#
+# v2: THE SCORING CARD IS FRANCHISE-RESTRICTED. v1 scored a pick on their best
+# season anywhere in the drafted decade, so a Cleveland x 2010s Dwyane Wade was
+# scored on 2010-11 Miami. v2 requires the card to belong to the rolled
+# franchise as well as the rolled decade, which also narrows who is eligible
+# for a roll at all. An in-flight v1 snapshot is refused rather than replayed
+# under rules its players never agreed to.
+RULESET_VERSION: Final[str] = "tmw_ruleset_v2"
 
 # Bumped whenever the franchise x decade eligibility index changes in a way
 # that could change WHO is eligible for a given roll: a different source file,
 # a different franchise-continuity table, a changed traded-player policy, or a
 # changed decade bucketing rule. Stamped onto every index so a cached one can
 # be invalidated without inspecting its contents.
-ELIGIBILITY_INDEX_VERSION: Final[str] = "tmw_eligibility_index_v1"
+ELIGIBILITY_INDEX_VERSION: Final[str] = "tmw_eligibility_index_v2"
 
 # Bumped whenever hard position legality changes. Deliberately separate from
 # ELIGIBILITY_INDEX_VERSION: the two answer different questions ("may this
@@ -46,7 +53,12 @@ POSITION_LEGALITY_VERSION: Final[str] = "tmw_position_legality_v1"
 # ALONGSIDE the untouched perfect_season versions (never replacing them -- a
 # reader must be able to tell which evaluator produced the numbers and which
 # adapter shaped the roster that went in). See evaluation.py.
-TMW_ADAPTER_VERSION: Final[str] = "tmw_six_player_adapter_v1"
+#
+# v2 changed the COMPARATOR: v1 ranked on `lineup_peak_score`, which is a raw
+# mean of the six card scores and therefore blind to the roster construction a
+# draft is about. v2 ranks on `SimulationResult.lineup_quality` -- the model's
+# own weighted fit index -- and reports no projected record at all.
+TMW_ADAPTER_VERSION: Final[str] = "tmw_six_player_adapter_v2"
 
 # Bumped whenever the deterministic timeout auto-pick changes its choice for
 # an unchanged (state, seed). Separate constant because a change here silently
@@ -57,7 +69,32 @@ AUTOPICK_VERSION: Final[str] = "tmw_autopick_v1"
 #: The bot policy shipped with this mode. Pinned onto a seat so a later
 #: recalibration cannot retroactively change what a settled rated match was
 #: played against -- the same discipline the mode's own version strings use.
-BOT_POLICY_VERSION: Final[str] = "tmw_bot_v1"
+#: v2 replaced "always take the highest-scoring legal candidate" with a
+#: probabilistic draw over five weighted factors. See `bot.py`.
+BOT_POLICY_VERSION: Final[str] = "tmw_bot_v2"
+
+#: How long a bot seat appears to "think" before its pick lands, in seconds.
+#: A seeded draw inside this window, per (match, seat, turn) -- long enough to
+#: watch, short enough that three seats do not turn six rounds into a wait.
+BOT_THINK_SECONDS_MIN: Final[float] = 1.0
+BOT_THINK_SECONDS_MAX: Final[float] = 5.0
+
+
+def bot_think_seconds(seed: int | str, seat_index: int, turn_seq: int) -> float:
+    """How long THIS bot takes on THIS turn. Deterministic, never a sleep.
+
+    Presentation only, and enforced against the turn's stored `opened_at` by
+    the platform's bot driver -- so two clients polling at different rates
+    agree on when the move lands, and a fast poller cannot hurry a bot along.
+
+    Keyed by turn as well as seat so successive picks feel variable rather
+    than metronomic, and derived from the match seed so a replay of the same
+    match produces the same rhythm.
+    """
+    draw = stream_rng(seed, f"bot-think:{seat_index}:{turn_seq}").random()
+    return round(
+        BOT_THINK_SECONDS_MIN + draw * (BOT_THINK_SECONDS_MAX - BOT_THINK_SECONDS_MIN), 2
+    )
 
 # The canonical PEAK3 formula this game speaks. peak3_v1 is the version
 # `cache/processed/scored_1980_2026.parquet` carries and the version
@@ -177,9 +214,28 @@ def stream_rng(seed: int | str, stream: str) -> random.Random:
     return random.Random(f"tmw:{seed}:{stream}")
 
 
+def human_seat_index(seed: int | str, seat_count: int = PARTICIPANT_COUNT) -> int:
+    """Which seat the human takes in a practice match, from the seed alone.
+
+    THE HUMAN DOES NOT ALWAYS DRAFT FIRST. Seat A opens every round-1 snake and
+    seat C gets the turn at every round boundary, so a human permanently seated
+    at A played a different game from the one the snake describes -- and never
+    experienced the back-to-back C pick that is the order's whole texture.
+
+    A pure function of the seed, so a match replays into the same seats, and
+    published before the first roll resolves so the assignment is something a
+    player is told rather than something they infer.
+    """
+    return stream_rng(seed, "human-seat").randrange(max(1, seat_count))
+
+
 __all__ = [
     "AUTOPICK_VERSION",
     "BOT_POLICY_VERSION",
+    "BOT_THINK_SECONDS_MAX",
+    "BOT_THINK_SECONDS_MIN",
+    "bot_think_seconds",
+    "human_seat_index",
     "BENCH_SLOT_TYPES",
     "DECADES",
     "ELIGIBILITY_INDEX_VERSION",

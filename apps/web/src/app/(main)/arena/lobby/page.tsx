@@ -6,7 +6,7 @@ import ArenaLobby from "@/components/arena/ArenaLobby";
 export const metadata: Metadata = {
   title: "Multiplayer · PEAK3 Arena",
   description:
-    "Three-Man Weave and The $20 Showdown. Play a public match, open a private room, or start immediately against PEAK3 Bot.",
+    "Three-Man Weave and The $20 Showdown. Play a public match, play with friends on a shared code, or start immediately against bots.",
 };
 
 /**

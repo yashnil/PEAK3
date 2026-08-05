@@ -22,7 +22,12 @@ from nba_peak.twenty_dollar.config import (
     STARTING_BUDGET,
 )
 
-from .conftest import assert_terminal_state_is_legal, bot_strategy, play_match
+from .conftest import (
+    always_pass,
+    assert_terminal_state_is_legal,
+    bot_strategy,
+    play_match,
+)
 
 
 class TestReceipt:
@@ -92,13 +97,32 @@ class TestReceipt:
         state = S.initial_state(seed=1)
         assert receipt.build(state, pool)["settlement"] is None
 
-    def test_the_counterfactual_is_labelled_as_an_assumption(self, finished, pool):
-        counterfactual = receipt.build(finished, pool)["counterfactual"]
-        if counterfactual is not None:
-            assert "assumption" in counterfactual
-            assert counterfactual["needed_bid"] > counterfactual["winning_bid"]
-            loser = counterfactual["loser_seat"]
-            assert counterfactual["new_totals"][loser] > counterfactual["new_totals"][1 - loser]
+    def test_no_counterfactual_is_published(self, finished, pool):
+        """"One bid away" is retired, and its absence is asserted.
+
+        The panel reported final totals computed by moving one card from the
+        winner's roster to the loser's. That leaves the loser with six cards
+        and the winner with four -- each seat buys exactly five, so the loser
+        would not then have bought the player they actually bought for that
+        slot -- and the published totals summed a six-card roster against a
+        four-card one. Every repair requires simulating an auction that did not
+        happen, which is a fabricated result standing beside real prices.
+
+        The key is retained and always null so an older client renders nothing
+        rather than crashing on a missing field.
+        """
+        built = receipt.build(finished, pool)
+        assert "counterfactual" in built
+        assert built["counterfactual"] is None
+
+    def test_the_receipt_still_explains_where_the_match_turned(self, finished, pool):
+        """What replaced it is a fact about the auction that happened."""
+        built = receipt.build(finished, pool)
+        decisive = built["most_decisive"]
+        if decisive is not None:
+            assert decisive["price"] >= 0
+            assert decisive["winner_seat"] in (0, 1)
+        assert built["positional"], "the per-slot comparison must survive"
 
     def test_the_most_decisive_auction_names_a_real_lot(self, finished, pool):
         decisive = receipt.build(finished, pool)["most_decisive"]
@@ -125,7 +149,11 @@ class TestBotPlaysARealAuction:
         state = play_match(
             101,
             pool,
-            seat_strategies={0: lambda *a: (S.COMMAND_PASS, 0), 1: bot_strategy()},
+            # Seat 0 declines everything the rules let it decline. Once its
+            # market skips are gone it must open at $1, which is the rule
+            # rather than a change of heart -- the point of the test is what
+            # the BOT does, and it must not mirror the human either way.
+            seat_strategies={0: always_pass, 1: bot_strategy()},
         )
         bought_by_bot = [
             r for r in state["history"]

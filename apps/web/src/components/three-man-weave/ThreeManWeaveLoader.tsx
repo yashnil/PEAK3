@@ -161,7 +161,7 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
             <h2 className="ar-panel-title">Start a draft</h2>
             <p className="ar-panel-body">
               Practice starts immediately against two PEAK3 Bots. For a public match
-              or a private room, use the multiplayer lobby.
+              or a match with friends, use the multiplayer lobby.
             </p>
             <div className="ar-panel-actions">
               <button
@@ -174,7 +174,7 @@ export default function ThreeManWeaveLoader({ matchId }: { matchId?: string }) {
                 {busy ? "Starting…" : "Play bots"}
               </button>
               <Link className="ar-btn" href="/arena/lobby?game=three_man_weave">
-                Public match or private room
+                Public match or Play With Friends
               </Link>
             </div>
           </>

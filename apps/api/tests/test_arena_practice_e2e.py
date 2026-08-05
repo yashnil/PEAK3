@@ -138,9 +138,31 @@ def test_three_man_weave_practice_seats_one_human_and_two_bots():
         "/api/v1/arena/matches/practice", json={"mode": TMW}
     ).json()
     assert view["seat_count"] == 3
-    assert [s["is_bot"] for s in view["seats"]] == [False, True, True]
+    assert [s["seat_index"] for s in view["seats"]] == [0, 1, 2]
+    assert sum(1 for s in view["seats"] if s["is_bot"]) == 2
+    assert sum(1 for s in view["seats"] if not s["is_bot"]) == 1
     assert view["rated"] is False
     assert view["status"] == "active"
+
+
+def test_the_weave_seats_the_human_at_every_seat_across_matches():
+    """The human must not always draft first.
+
+    Seat A opens every round-1 snake and seat C takes the back-to-back turn at
+    each round boundary, so a player permanently at A never sees the order the
+    mode is built around. Drawn from the match seed, so a given match still
+    replays into the same seats.
+    """
+    client = _client_as("user-a")
+    seen = set()
+    for _ in range(40):
+        view = client.post(
+            "/api/v1/arena/matches/practice", json={"mode": TMW}
+        ).json()
+        human = next(s for s in view["seats"] if not s["is_bot"])
+        seen.add(human["seat_index"])
+        assert view["your_seat_index"] == human["seat_index"]
+    assert seen == {0, 1, 2}, f"the human only ever sat at {sorted(seen)}"
 
 
 def test_twenty_dollar_practice_seats_one_human_and_one_bot():
@@ -156,13 +178,18 @@ def test_twenty_dollar_practice_seats_one_human_and_one_bot():
 def test_no_seat_name_leaks_an_implementation_label(mode):
     client = _client_as("user-a")
     view = client.post("/api/v1/arena/matches/practice", json={"mode": mode}).json()
+    bot_names = []
     for seat in view["seats"]:
         name = seat["display_name"]
         assert "_v1" not in name and "_v2" not in name
         assert "random_legal" not in name
         assert "(" not in name
         if seat["is_bot"]:
-            assert name.startswith("PEAK3 Bot")
+            bot_names.append(name)
+            # Never a numbered placeholder. A two-seat mode says "PEAK3 Bot";
+            # a mode that names its own bots supplies real archetypes.
+            assert not any(name == f"PEAK3 Bot {n}" for n in range(10)), name
+    assert len(set(bot_names)) == len(bot_names), f"duplicate bot names: {bot_names}"
 
 
 def test_the_showdowns_first_turn_belongs_to_the_seed_drawn_opener():

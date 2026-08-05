@@ -57,6 +57,7 @@ function seat(index: number, overrides = {}) {
     roster: [],
     assignment: {},
     open_slots: ["PG", "SG", "SF", "PF", "C"],
+    market_skips: 5,
     ...overrides,
   };
 }
@@ -65,13 +66,16 @@ function publicState(
   overrides: Partial<TwentyDollarPublicState> = {},
 ): TwentyDollarPublicState {
   return {
-    ruleset_version: "twenty_dollar_v2",
+    ruleset_version: "twenty_dollar_v3",
     model_version: "peak3_v1",
     phase: "auction",
     lot_index: 0,
-    max_lots: 60,
+    max_lots: 36,
+    standard_market_lots: 24,
+    market_phase: "standard",
+    market_skips_per_seat: 5,
     round_index: 0,
-    max_rounds: 60,
+    max_rounds: 36,
     seats: [seat(0), seat(1)],
     slots: ["PG", "SG", "SF", "PF", "C"],
     autofilled: false,
@@ -108,6 +112,9 @@ function privateState(
     your_lot_bid: 0,
     in_lot: true,
     candidate_fits: ["PG"],
+    market_skips: 5,
+    pass_consumes_skip: true,
+    can_pass: true,
     can_acquire_candidate: true,
     bid_blocked_reason: null,
     ...overrides,
@@ -725,10 +732,13 @@ describe("receipt", () => {
     expect(screen.getByTestId("td-decisive")).toHaveTextContent("Clint Capela");
   });
 
-  it("labels the counterfactual as an assumption rather than a simulation", () => {
-    const counterfactual = screen.getByTestId("td-counterfactual");
-    expect(counterfactual).toHaveTextContent("$3");
-    expect(counterfactual).toHaveTextContent(/assumes every other auction/i);
+  it("renders no 'One bid away' panel, even when the payload carries one", () => {
+    // The panel reported final totals computed by moving one card from the
+    // winner's roster to the loser's, which leaves six cards on one side and
+    // four on the other. The receipt fixture below still includes the legacy
+    // key, and the component must ignore it rather than render it.
+    expect(screen.queryByTestId("td-counterfactual")).toBeNull();
+    expect(screen.getByTestId("td-receipt").textContent).not.toMatch(/one bid away/i);
   });
 
   it("shows the positional comparison per slot", () => {

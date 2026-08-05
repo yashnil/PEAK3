@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import {
   newIdempotencyKey,
@@ -21,6 +22,7 @@ import {
   RosterBoard,
 } from "./AuctionBoard";
 import BidControls from "./BidControls";
+import ShowdownResult from "./ShowdownResult";
 import TwentyDollarReceipt, {
   buildShowdownShareText,
   type TwentyDollarReceiptData,
@@ -64,6 +66,7 @@ import TwentyDollarReceipt, {
 const POLL_MS = 2000;
 
 export default function TwentyDollarGame({ matchId }: { matchId: string }) {
+  const router = useRouter();
   const [view, setView] = useState<TwentyDollarMatchView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadFailure, setLoadFailure] = useState<TwentyDollarAPIError | null>(null);
@@ -220,8 +223,22 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
       <header className="ar-room-head">
         <div className="ar-room-meta">
           <h1 className="ar-room-title">The $20 Showdown</h1>
-          <span className="ar-badge">
+          <span className="ar-badge" data-testid="td-lot-badge">
             Lot {Math.min(publicState.lot_index + 1, publicState.max_lots)}
+          </span>
+          {/* THE MARKET PHASE IS NAMED. A player whose roster is still short
+              after the standard market needs to know the board has changed
+              its rules -- it now guarantees them a usable candidate on a
+              bounded schedule -- rather than noticing the lot numbers went
+              past 24. */}
+          <span
+            className="ar-badge"
+            data-testid="td-market-phase"
+            data-phase={publicState.market_phase}
+          >
+            {publicState.market_phase === "closeout"
+              ? "Closeout market"
+              : `Standard market · ${publicState.standard_market_lots} lots`}
           </span>
           <span className="ar-badge">{view.rated ? "Rated" : "Unrated"}</span>
         </div>
@@ -238,88 +255,22 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
         </p>
       ) : null}
 
-      {/* Both budgets, both roster panels, and the block in the middle. The
-          desktop layout puts the whole game on one screen; below the grid
-          breakpoint the columns stack in reading order (you, the block, your
-          opponent). */}
-      <div className="td-table">
-        <div className="td-column">
-          {publicState.seats.map((seat) => (
-            <BudgetMeter
-              key={seat.seat_index}
-              seat={seat}
-              isYou={seat.seat_index === yourSeat}
-              isActive={publicState.active_seat === seat.seat_index}
-              isOpener={publicState.opening_seat === seat.seat_index}
-              label={
-                seat.seat_index === yourSeat
-                  ? "You"
-                  : (seatNames[seat.seat_index] ?? "Opponent")
-              }
-            />
-          ))}
-          <RosterBoard
-            seat={publicState.seats[yourSeat ?? 0]}
-            slots={publicState.slots}
-            label="Your five"
-          />
-        </div>
-
-        <div className="td-column td-column-centre">
-          {!complete ? (
-            <>
-              <CandidateCard
-                publicState={publicState}
-                fits={privateState.candidate_fits}
-                seatNames={seatNames}
-                yourSeat={yourSeat}
-                secondsRemaining={countdown}
-              />
-              <LotTicker
-                actions={publicState.lot_actions}
-                seatNames={seatNames}
-                yourSeat={yourSeat}
-              />
-              <p className="td-waiting" data-testid="td-waiting" aria-live="polite">
-                {waitingLabel(publicState, yourSeat, seatNames)}
-              </p>
-              <BidControls
-                publicState={publicState}
-                privateState={privateState}
-                seatNames={seatNames}
-                busy={busy}
-                onSubmit={submit}
-              />
-            </>
-          ) : null}
-
-          {lastLot ? (
-            <LotReveal lot={lastLot} seatNames={seatNames} yourSeat={yourSeat} />
-          ) : null}
-        </div>
-
-        <div className="td-column">
-          {publicState.seats
-            .filter((seat) => seat.seat_index !== yourSeat)
-            .map((seat) => (
-              <RosterBoard
-                key={seat.seat_index}
-                seat={seat}
-                slots={publicState.slots}
-                label={`${seatNames[seat.seat_index] ?? "Opponent"}'s five`}
-              />
-            ))}
-          <AuctionHistory
-            history={publicState.history}
+      {complete && receipt ? (
+        /* THE RESULT REPLACES THE AUCTION. Appending it below a frozen board
+           meant the winner was the last thing on the page, after two budget
+           meters, two roster panels and the lot history. */
+        <ShowdownResult
+          receipt={receipt}
+          publicState={publicState}
+          seatNames={seatNames}
+          yourSeat={yourSeat}
+          onPlayAgain={() => router.push("/arena")}
+        >
+          <TwentyDollarReceipt
+            receipt={receipt}
             seatNames={seatNames}
             yourSeat={yourSeat}
           />
-        </div>
-      </div>
-
-      {complete && receipt ? (
-        <>
-          <TwentyDollarReceipt receipt={receipt} seatNames={seatNames} yourSeat={yourSeat} />
           <button
             type="button"
             className="td-btn"
@@ -332,8 +283,83 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
           >
             {copied ? "Copied" : "Copy result"}
           </button>
-        </>
-      ) : null}
+        </ShowdownResult>
+      ) : (
+        /* Both budgets, both roster panels, and the block in the middle. The
+           desktop layout puts the whole game on one screen; below the grid
+           breakpoint the columns stack in reading order (you, the block, your
+           opponent). */
+        <div className="td-table">
+          <div className="td-column">
+            {publicState.seats.map((seat) => (
+              <BudgetMeter
+                key={seat.seat_index}
+                seat={seat}
+                skipAllowance={publicState.market_skips_per_seat}
+                isYou={seat.seat_index === yourSeat}
+                isActive={publicState.active_seat === seat.seat_index}
+                isOpener={publicState.opening_seat === seat.seat_index}
+                label={
+                  seat.seat_index === yourSeat
+                    ? "You"
+                    : (seatNames[seat.seat_index] ?? "Opponent")
+                }
+              />
+            ))}
+            <RosterBoard
+              seat={publicState.seats[yourSeat ?? 0]}
+              slots={publicState.slots}
+              label="Your five"
+            />
+          </div>
+
+          <div className="td-column td-column-centre">
+            <CandidateCard
+              publicState={publicState}
+              fits={privateState.candidate_fits}
+              seatNames={seatNames}
+              yourSeat={yourSeat}
+              secondsRemaining={countdown}
+            />
+            <LotTicker
+              actions={publicState.lot_actions}
+              seatNames={seatNames}
+              yourSeat={yourSeat}
+            />
+            <p className="td-waiting" data-testid="td-waiting" aria-live="polite">
+              {waitingLabel(publicState, yourSeat, seatNames)}
+            </p>
+            <BidControls
+              publicState={publicState}
+              privateState={privateState}
+              seatNames={seatNames}
+              busy={busy}
+              onSubmit={submit}
+            />
+            {lastLot ? (
+              <LotReveal lot={lastLot} seatNames={seatNames} yourSeat={yourSeat} />
+            ) : null}
+          </div>
+
+          <div className="td-column">
+            {publicState.seats
+              .filter((seat) => seat.seat_index !== yourSeat)
+              .map((seat) => (
+                <RosterBoard
+                  key={seat.seat_index}
+                  seat={seat}
+                  slots={publicState.slots}
+                  label={`${seatNames[seat.seat_index] ?? "Opponent"}'s five`}
+                />
+              ))}
+            <AuctionHistory
+              history={publicState.history}
+              seatNames={seatNames}
+              yourSeat={yourSeat}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

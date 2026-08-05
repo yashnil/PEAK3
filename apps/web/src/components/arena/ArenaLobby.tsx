@@ -462,7 +462,7 @@ function GameCard({
         })}
       </div>
 
-      {/* ONE compact create/join interaction, opened from the Private room
+      {/* ONE compact create/join interaction, opened from the Play With Friends
           button rather than living permanently on the card. */}
       {joinOpen ? (
         <div className="ar-private" data-testid={`lobby-${mode.id}-private`}>
@@ -611,7 +611,7 @@ function RoomPanel({
   return (
     <section className="ar-panel" aria-live="polite" data-testid="lobby-room">
       <span className="ar-badge">{mode.kindBadge}</span>
-      <h2 className="ar-panel-title">{mode.name} · private room</h2>
+      <h2 className="ar-panel-title">{mode.name} · Play With Friends</h2>
 
       <p className="ar-room-code" data-testid="lobby-room-code">
         {room.room_code ?? "······"}

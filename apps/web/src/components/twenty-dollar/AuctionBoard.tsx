@@ -155,7 +155,9 @@ export function LotTicker({
               ? formatDollars(action.amount)
               : action.timed_out
                 ? "timed out"
-                : "passed"}
+                : action.consumed_skip
+                  ? "skipped · −1"
+                  : "passed"}
           </span>
         </li>
       ))}
@@ -172,6 +174,7 @@ export function LotTicker({
 export function BudgetMeter({
   seat,
   startingBudget = 20,
+  skipAllowance = 5,
   label,
   isYou,
   isActive,
@@ -179,6 +182,7 @@ export function BudgetMeter({
 }: {
   seat: SeatPublic;
   startingBudget?: number;
+  skipAllowance?: number;
   label: string;
   isYou: boolean;
   isActive: boolean;
@@ -219,6 +223,24 @@ export function BudgetMeter({
       <p className="td-budget-slots">
         {seat.filled_slots} of 5 filled
         {seat.roster_full ? " · complete" : seat.in_lot ? "" : " · out of this lot"}
+      </p>
+      {/* MARKET SKIPS, FOR BOTH SEATS. The economy only works as a decision if
+          a player can see it running down -- theirs and their opponent's. A
+          rule you discover by having a control disabled is a rule you have
+          been taught badly. */}
+      <p
+        className="td-budget-skips"
+        data-testid={`td-skips-${seat.seat_index}`}
+        data-remaining={seat.market_skips}
+      >
+        <span className="td-skip-pips" aria-hidden="true">
+          {Array.from({ length: skipAllowance }, (_, index) => (
+            <i key={index} data-spent={index >= seat.market_skips ? "true" : "false"} />
+          ))}
+        </span>
+        <span className="td-skip-count">
+          {seat.market_skips} skip{seat.market_skips === 1 ? "" : "s"} left
+        </span>
       </p>
     </div>
   );

@@ -140,6 +140,10 @@ export interface SeatPublic {
   roster: RosterEntry[];
   assignment: Record<string, string>;
   open_slots: string[];
+  /** PUBLIC FOR BOTH SEATS. Whether your opponent can still afford to wait you
+   * out is a real strategic fact; hiding it would make the rule invisible
+   * rather than tactical. */
+  market_skips: number;
 }
 
 /** One action inside a live or settled lot. */
@@ -148,6 +152,10 @@ export interface LotAction {
   action: "bid" | "pass";
   amount: number;
   timed_out?: boolean;
+  /** Did this pass spend a market skip? Recorded on the action so a receipt
+   * can say which passes cost something rather than inferring it from a
+   * counter that has since changed. */
+  consumed_skip?: boolean;
 }
 
 /** A lot that has already resolved. Everything is revealed at this point --
@@ -180,6 +188,14 @@ export interface TwentyDollarPublicState {
   phase: "auction" | "complete";
   lot_index: number;
   max_lots: number;
+  /** Where the STANDARD market ends. Past it the board is in closeout. */
+  standard_market_lots: number;
+  /** "standard" | "closeout". Named rather than inferred from `lot_index`,
+   * because the surface has to say which one it is in. */
+  market_phase: "standard" | "closeout";
+  /** The published per-seat allowance, so the UI states the rule rather than
+   * only its consequence. */
+  market_skips_per_seat: number;
   round_index: number;
   max_rounds: number;
   seats: SeatPublic[];
@@ -233,6 +249,15 @@ export interface TwentyDollarPrivateState {
   candidate_fits: string[];
   can_acquire_candidate: boolean;
   bid_blocked_reason: BidBlockedReason | null;
+  /** How many voluntary skips this seat has left. */
+  market_skips: number;
+  /** Would passing RIGHT NOW spend one? Published so the control can warn
+   * before the click instead of reporting the charge afterwards, and so an
+   * ordinary concession (free) is visibly different from a real skip. */
+  pass_consumes_skip: boolean;
+  /** False in exactly one situation: the pass would cost a skip and there are
+   * none left, so the only legal move is to open at the minimum. */
+  can_pass: boolean;
 }
 
 export interface ArenaSeatMeta {

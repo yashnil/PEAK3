@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from app.repositories.arena_protocols import (
     ArenaMatch,
@@ -173,7 +173,7 @@ BOT_DIFFICULTY_LABEL = "Standard"
 
 
 def bot_display_name(seat_index: int, seat_count: int) -> str:
-    """What a bot seat is CALLED.
+    """What a bot seat is CALLED, when its mode has no opinion.
 
     NEVER DERIVED FROM `bot_id`. The lobby shipped "PEAK3 bot (random_legal_v1)"
     because the seat's name was built by interpolating the policy id, so an
@@ -188,6 +188,40 @@ def bot_display_name(seat_index: int, seat_count: int) -> str:
     if seat_count <= 2:
         return BOT_DISPLAY_NAME
     return f"{BOT_DISPLAY_NAME} {seat_index}"
+
+
+def bot_seat_names(mode, seed: int, seat_indexes: Sequence[int]) -> dict[int, str]:
+    """seat_index -> display name, for every bot seat in one match.
+
+    A MODE MAY NAME ITS OWN BOTS. In a two-seat auction "PEAK3 Bot" is exactly
+    right: there is one opponent and nothing to disambiguate. In a three-seat
+    draft, "PEAK3 Bot 1" and "PEAK3 Bot 2" sit in a pick feed next to Michael
+    Jordan and Larry Bird and read as unfinished work, so Three-Man Weave
+    supplies seeded basketball archetypes instead.
+
+    Named for the WHOLE MATCH AT ONCE rather than seat by seat, because
+    distinctness is the requirement -- two seats drawing independently could
+    both land on the same archetype, and a per-seat hook could not notice.
+
+    Falls back to `bot_display_name` if the mode has no hook, if the hook
+    fails, or if it returns too few names: a bot with no name is a bug the
+    player sees, so the default is always available.
+    """
+    default = {
+        index: bot_display_name(index, getattr(mode, "seat_count", len(seat_indexes)))
+        for index in seat_indexes
+    }
+    hook = getattr(mode, "bot_display_names", None)
+    if hook is None or not seat_indexes:
+        return default
+    try:
+        names = tuple(hook(seed, len(seat_indexes)))
+    except Exception:  # pragma: no cover - a broken hook must not block play
+        logger.exception("arena: bot naming hook failed for mode %r", getattr(mode, "mode", "?"))
+        return default
+    if len(names) < len(seat_indexes) or len(set(names)) != len(names):
+        return default
+    return {index: names[position] for position, index in enumerate(sorted(seat_indexes))}
 
 
 def bot_seat(
@@ -308,7 +342,27 @@ async def drive_bot_seat(
 BOT_THINK_SECONDS = 1.2
 
 
-def bot_may_act_at(turn, now: datetime) -> bool:
+def bot_think_seconds_for(mode, match, turn) -> float:
+    """How long THIS bot takes on THIS turn.
+
+    A mode may vary it -- Three-Man Weave draws 1-5 seconds per (seat, turn)
+    from the match seed, so three bot seats do not all move on the same
+    metronome, which is what made a draft feel like a script rather than a
+    room. Deterministic from stored state, so every poller computes the same
+    answer and a fast client cannot hurry a bot along.
+    """
+    hook = getattr(mode, "bot_think_seconds", None)
+    if hook is None or turn is None or turn.seat_index is None:
+        return BOT_THINK_SECONDS
+    try:
+        seconds = float(hook(match.seed, turn.seat_index, turn.turn_seq))
+    except Exception:  # pragma: no cover - a broken hook must not wedge a turn
+        return BOT_THINK_SECONDS
+    # Clamped so a mode cannot accidentally park a bot past the human clock.
+    return max(0.0, min(seconds, 10.0))
+
+
+def bot_may_act_at(turn, now: datetime, think_seconds: float = BOT_THINK_SECONDS) -> bool:
     """Has this bot's thinking time elapsed?
 
     Compared against `arena_turns.opened_at`, which is stored, so two pollers
@@ -316,7 +370,7 @@ def bot_may_act_at(turn, now: datetime) -> bool:
     """
     from app.repositories.arena_protocols import _utc
 
-    return (now - _utc(turn.opened_at)).total_seconds() >= BOT_THINK_SECONDS
+    return (now - _utc(turn.opened_at)).total_seconds() >= think_seconds
 
 
 async def _resolve_stalled_bot_turn(
@@ -399,7 +453,7 @@ async def drive_pending_bots(
         turn = await repo.get_open_turn(match_id)
         if turn is None:
             return steps
-        if not bot_may_act_at(turn, now):
+        if not bot_may_act_at(turn, now, bot_think_seconds_for(mode, match, turn)):
             return steps
         seats = await repo.get_seats(match_id)
         if turn.seat_index is None:

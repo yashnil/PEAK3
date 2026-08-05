@@ -1192,6 +1192,11 @@ def simulate_exact_season(cards: list[PlayerSeasonCard], board_seed: int, slot_t
         is_perfect_season=(wins >= 82),
         experimental_notice=EXACT_SEASON_SIMULATOR_NOTICE,
         lineup_peak_score=lineup_peak_score,
+        # The weighted fit combination this projection is built from, before
+        # the floor, the cap and the noise. Surfaced for callers that must
+        # RANK rosters rather than project a record -- see the field's own
+        # comment in schemas.py. `base` is unchanged by publishing it.
+        lineup_quality=round(base, 3),
         best_pick=_best_pick_exact(cards),
         structural_weakness=weakness_text,
         structural_weakness_detail=weakness_detail,

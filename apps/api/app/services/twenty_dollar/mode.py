@@ -349,6 +349,25 @@ class TwentyDollarMode:
         # Display names are the foundation's to know, not the rules package's.
         public["seat_names"] = [seat.display_name for seat in seats]
         public["seat_is_bot"] = [seat.is_bot for seat in seats]
+
+        # A COARSE TIER, FOR BOT SEATS ONLY.
+        #
+        # A human bidder brings knowledge the projection cannot carry -- they
+        # know roughly where a candidate sits among all-time peaks. A bot has
+        # none, so without some proxy it either bids the same for everyone or
+        # has to be given the hidden score, and the second of those would make
+        # the auction unwinnable rather than merely hard.
+        #
+        # What crosses is the three-band draw label (`1-100` / `101-250` /
+        # `251-500`) the lot was already drawn from. It cannot rank two players
+        # inside a band, so between two top-100 peaks the bot is guessing
+        # exactly as a casual human would; and it is added HERE, at the
+        # foundation boundary where seat occupancy is known, rather than in
+        # `state.project`, so the rules package has no code path that could
+        # give it to a person.
+        seat = next((s for s in seats if s.seat_index == seat_index), None)
+        if seat is not None and seat.is_bot:
+            private["candidate_tier"] = snapshot.get("current_candidate_tier")
         if match.status == MATCH_STATUS_COMPLETED:
             # The receipt is built from the same settled snapshot the results
             # rows came from, so the two cannot disagree.

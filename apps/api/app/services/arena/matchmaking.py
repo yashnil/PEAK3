@@ -56,7 +56,7 @@ from app.repositories.arena_protocols import (
 )
 from app.services.arena import bots as bot_service
 from app.services.arena import modes as mode_seam
-from app.services.arena.modes import ArenaMode
+from app.services.arena.modes import ArenaMode, human_seat_for
 
 logger = logging.getLogger(__name__)
 
@@ -169,13 +169,28 @@ async def start_practice(
         mode, ENTRY_PATH_PRACTICE, owner_sub, _new_seed(), now,
         bot_policy_version=policy.policy_version,
     )
-    seats = [_human_seat(match.match_id, 0, owner_sub, display_name)]
-    for index in range(1, mode.seat_count):
+
+    # WHICH SEAT THE HUMAN GETS IS THE MODE'S CALL, from the match seed.
+    # Hard-coding seat 0 meant a Three-Man Weave player always opened the
+    # snake and never once experienced the back-to-back turn at a round
+    # boundary that the order is built around. Two-seat modes have no such
+    # hook and are unaffected.
+    human_index = human_seat_for(mode, match.seed)
+    bot_indexes = [index for index in range(mode.seat_count) if index != human_index]
+    names = bot_service.bot_seat_names(mode, match.seed, bot_indexes)
+
+    seats = [_human_seat(match.match_id, human_index, owner_sub, display_name)]
+    for index in bot_indexes:
         seats.append(
             bot_service.bot_seat(
-                match.match_id, index, policy, seat_count=mode.seat_count
+                match.match_id,
+                index,
+                policy,
+                display_name=names.get(index),
+                seat_count=mode.seat_count,
             )
         )
+    seats.sort(key=lambda seat: seat.seat_index)
     return await _create_and_open(repo, mode, match, seats, now)
 
 
@@ -355,12 +370,18 @@ async def _pair(
     if len(seats) < mode.seat_count:
         if not fill_with_bots:
             return None
-        for index in range(len(seats), mode.seat_count):
+        bot_indexes = list(range(len(seats), mode.seat_count))
+        names = bot_service.bot_seat_names(mode, match.seed, bot_indexes)
+        for index in bot_indexes:
             seats.append(
-            bot_service.bot_seat(
-                match.match_id, index, policy, seat_count=mode.seat_count
+                bot_service.bot_seat(
+                    match.match_id,
+                    index,
+                    policy,
+                    display_name=names.get(index),
+                    seat_count=mode.seat_count,
+                )
             )
-        )
 
     claimed = await repo.claim_entries_into_match(
         [e.entry_id for e in entries[: mode.seat_count]], match, seats, now
