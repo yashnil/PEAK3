@@ -56,6 +56,12 @@ EXPECTED_TABLES = (
     "daily_grid_results",                                    # 20260730190000
     "run_the_table_runs",                                    # 20260731090000
     "peak_duel_daily_results",                               # 20260801110000
+    # Arena multiplayer foundation                             20260804100000
+    "arena_matches", "arena_match_seats", "arena_match_commands",
+    "arena_match_events", "arena_turns", "arena_match_results",
+    "arena_public_queue",
+    # Arena public ratings                                      20260804140000
+    "arena_ratings", "arena_rating_history",
 )
 
 # Tables whose rows are owned by one player and must never be world-readable.
@@ -67,6 +73,22 @@ RLS_REQUIRED_TABLES = (
     "board_snapshots", "lineup_model_versions", "ruleset_versions", "card_pool_versions",
     "perfect_season_runs", "perfect_season_saved_runs", "daily_grid_results",
     "run_the_table_runs", "peak_duel_daily_results",
+    # Every arena table is seat-scoped or server-only; none is world-readable.
+    # `arena_matches.snapshot` is live game state, `arena_match_events` carries
+    # sealed bids and unrevealed cards, and `arena_matches.seed` regenerates
+    # every board in the match -- all three are spoiler material even to a
+    # spectator, let alone an opponent.
+    "arena_matches", "arena_match_seats", "arena_match_commands",
+    "arena_match_events", "arena_turns", "arena_match_results",
+    "arena_public_queue",
+    # `arena_ratings` is world-READABLE by design -- it is a public
+    # leaderboard -- but RLS is still required on it, because the protection
+    # that matters there is COLUMN-level: `owner_sub` is a Supabase auth.uid()
+    # and is withheld from anon/authenticated by an explicit column GRANT, the
+    # same treatment `profiles.auth_sub` gets. RLS being enabled is what makes
+    # the write policies below it meaningful.
+    # `arena_rating_history` is a player's own ledger and is self-only.
+    "arena_ratings", "arena_rating_history",
 )
 
 

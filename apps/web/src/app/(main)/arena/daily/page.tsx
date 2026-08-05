@@ -59,13 +59,13 @@ export default function DailyHubPage() {
           rather than the (now-fixed) homepage/nav routing. */}
       <Link
         href="/arena/court/practice/apex_1y"
-        className="mb-6 flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm transition-all hover:opacity-90"
+        className="mb-6 flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm transition-opacity hover:opacity-90"
         style={{ background: "var(--bg-elevated)", borderColor: "var(--peak-accent, #f5c842)" }}
       >
         <span style={{ color: "var(--text-primary)" }}>
-          <strong style={{ color: "var(--peak-accent, #f5c842)" }}>New:</strong> build a roster and chase an 82-0 season in 82-0 Peak Season.
+          <strong style={{ color: "var(--peak-accent-text, #f5c842)" }}>New:</strong> build a roster and chase an 82-0 season in 82-0 Peak Season.
         </span>
-        <span className="font-semibold shrink-0" style={{ color: "var(--peak-accent, #f5c842)" }}>
+        <span className="font-semibold shrink-0" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
           Try it →
         </span>
       </Link>
@@ -128,7 +128,7 @@ export default function DailyHubPage() {
                   <div>
                     <span
                       className="text-2xl font-bold score-number"
-                      style={{ color: "var(--peak-accent)" }}
+                      style={{ color: "var(--peak-accent-text)" }}
                     >
                       {completion.lineup_peak_rating.toFixed(1)}
                     </span>
@@ -141,7 +141,7 @@ export default function DailyHubPage() {
                   </div>
                   <Link
                     href={`/arena/daily/${mode}`}
-                    className="block text-center py-2 rounded-lg text-sm font-medium border transition-all hover:bg-[var(--bg-surface)]"
+                    className="block text-center py-2 rounded-lg text-sm font-medium border transition-colors hover:bg-[var(--bg-surface)]"
                     style={{
                       borderColor: "var(--border-default)",
                       color: "var(--text-primary)",
@@ -153,7 +153,7 @@ export default function DailyHubPage() {
               ) : (
                 <Link
                   href={`/arena/daily/${mode}`}
-                  className="block text-center py-2.5 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+                  className="block text-center py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
                   style={{
                     background: "var(--peak-accent)",
                     color: "var(--text-inverse)",
@@ -189,7 +189,7 @@ export default function DailyHubPage() {
       <Link
         href="/arena"
         className="text-sm underline"
-        style={{ color: "var(--peak-accent)" }}
+        style={{ color: "var(--peak-accent-text)" }}
       >
         ← Back to Arena
       </Link>

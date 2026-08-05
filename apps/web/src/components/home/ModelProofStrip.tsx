@@ -145,7 +145,7 @@ export default function ModelProofStrip({
             href={methodologyHref}
             data-testid="home-methodology-link"
             className="arena-inline-link"
-            style={{ color: "var(--peak-accent)" }}
+            style={{ color: "var(--peak-accent-text)" }}
           >
             Read the methodology
             <ArrowRight size={13} aria-hidden="true" />

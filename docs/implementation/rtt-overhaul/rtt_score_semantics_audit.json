@@ -1,0 +1,2279 @@
+{
+  "audit": "rtt_score_semantics_reconciliation",
+  "generated_by": "scripts/audit_rtt_score_semantics.py",
+  "duration_years": 3,
+  "canonical_csv_path": "leaderboards/top_250_3_year_prime.csv",
+  "canonical_csv_sha256": "83bf92bf6f20c97ff3702cda0e3fc79a0926f8556745fb4cef2802e6fa831b71",
+  "seeds_audited": [
+    11,
+    42,
+    2026
+  ],
+  "resolve_bosses_is_seed_independent": true,
+  "boss_slate": [
+    "the_wall",
+    "strength_in_numbers",
+    "the_ceiling",
+    "the_standard",
+    "the_long_series"
+  ],
+  "per_seed_results": [
+    {
+      "seed": 11,
+      "starting_starters": [
+        "karl-anthony-towns-3yr-201819",
+        "brad-daugherty-3yr-199192",
+        "carmelo-anthony-3yr-201213",
+        "tony-parker-3yr-201213",
+        "horace-grant-3yr-199192"
+      ],
+      "starting_bench": [
+        "kyrie-irving-3yr-201819",
+        "pau-gasol-3yr-200809"
+      ],
+      "battles": [
+        {
+          "act": 1,
+          "boss_id": "the_wall",
+          "boss_name": "The Wall",
+          "rule_id": "the_wall",
+          "player_bench_weight_candidates": [
+            0.35
+          ],
+          "player_bench_weight_reported": 0.35,
+          "opponent_bench_weight": 0.35,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 23.7783,
+              "displayed_opponent_score": 25.007,
+              "recomputed_player_score_from_lane_index": 23.7783,
+              "recomputed_opponent_score_from_lane_index": 25.007,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "tie",
+              "margin": -1.2287,
+              "top_contributor": {
+                "card_id": "karl-anthony-towns-3yr-201819",
+                "player_name": "Karl-Anthony Towns",
+                "own_lane_index_value_in_this_lane": 35.6787,
+                "own_prime_score": 63.77,
+                "own_canonical_raw_component_value": 21.8123,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 39.4687,
+              "displayed_opponent_score": 34.0851,
+              "recomputed_player_score_from_lane_index": 39.4687,
+              "recomputed_opponent_score_from_lane_index": 34.0851,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 5.3836,
+              "top_contributor": {
+                "card_id": "karl-anthony-towns-3yr-201819",
+                "player_name": "Karl-Anthony Towns",
+                "own_lane_index_value_in_this_lane": 62.0665,
+                "own_prime_score": 63.77,
+                "own_canonical_raw_component_value": 10.6444,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 13.7469,
+              "displayed_opponent_score": 10.2634,
+              "recomputed_player_score_from_lane_index": 13.7469,
+              "recomputed_opponent_score_from_lane_index": 10.2634,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 3.4835,
+              "top_contributor": {
+                "card_id": "tony-parker-3yr-201213",
+                "player_name": "Tony Parker",
+                "own_lane_index_value_in_this_lane": 23.844,
+                "own_prime_score": 58.61,
+                "own_canonical_raw_component_value": 4.1897,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 15.1098,
+              "displayed_opponent_score": 18.8647,
+              "recomputed_player_score_from_lane_index": 15.1098,
+              "recomputed_opponent_score_from_lane_index": 18.8647,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -3.7549,
+              "top_contributor": {
+                "card_id": "pau-gasol-3yr-200809",
+                "player_name": "Pau Gasol",
+                "own_lane_index_value_in_this_lane": 35.4622,
+                "own_prime_score": 64.78,
+                "own_canonical_raw_component_value": 3.1717,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 26.6511,
+              "displayed_opponent_score": 16.3495,
+              "recomputed_player_score_from_lane_index": 26.6511,
+              "recomputed_opponent_score_from_lane_index": 16.3495,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 10.3016,
+              "top_contributor": {
+                "card_id": "tony-parker-3yr-201213",
+                "player_name": "Tony Parker",
+                "own_lane_index_value_in_this_lane": 62.32,
+                "own_prime_score": 58.61,
+                "own_canonical_raw_component_value": 1.8696,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 23.5929,
+          "displayed_opponent_roster_total": 22.5993,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": 14.1851,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.35,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "win",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 2,
+          "boss_id": "strength_in_numbers",
+          "boss_name": "Strength in Numbers",
+          "rule_id": "strength_in_numbers",
+          "player_bench_weight_candidates": [
+            0.65
+          ],
+          "player_bench_weight_reported": 0.65,
+          "opponent_bench_weight": 0.65,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 24.6301,
+              "displayed_opponent_score": 28.0563,
+              "recomputed_player_score_from_lane_index": 24.6301,
+              "recomputed_opponent_score_from_lane_index": 28.0563,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -3.4262,
+              "top_contributor": {
+                "card_id": "karl-anthony-towns-3yr-201819",
+                "player_name": "Karl-Anthony Towns",
+                "own_lane_index_value_in_this_lane": 35.6787,
+                "own_prime_score": 63.77,
+                "own_canonical_raw_component_value": 21.8123,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 39.3235,
+              "displayed_opponent_score": 36.451,
+              "recomputed_player_score_from_lane_index": 39.3235,
+              "recomputed_opponent_score_from_lane_index": 36.451,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 2.8725,
+              "top_contributor": {
+                "card_id": "karl-anthony-towns-3yr-201819",
+                "player_name": "Karl-Anthony Towns",
+                "own_lane_index_value_in_this_lane": 62.0665,
+                "own_prime_score": 63.77,
+                "own_canonical_raw_component_value": 10.6444,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 13.6228,
+              "displayed_opponent_score": 15.0043,
+              "recomputed_player_score_from_lane_index": 13.6228,
+              "recomputed_opponent_score_from_lane_index": 15.0043,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -1.3815,
+              "top_contributor": {
+                "card_id": "tony-parker-3yr-201213",
+                "player_name": "Tony Parker",
+                "own_lane_index_value_in_this_lane": 23.844,
+                "own_prime_score": 58.61,
+                "own_canonical_raw_component_value": 4.1897,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 15.7326,
+              "displayed_opponent_score": 30.426,
+              "recomputed_player_score_from_lane_index": 15.7326,
+              "recomputed_opponent_score_from_lane_index": 30.426,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -14.6934,
+              "top_contributor": {
+                "card_id": "pau-gasol-3yr-200809",
+                "player_name": "Pau Gasol",
+                "own_lane_index_value_in_this_lane": 35.4622,
+                "own_prime_score": 64.78,
+                "own_canonical_raw_component_value": 3.1717,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 27.4723,
+              "displayed_opponent_score": 36.4249,
+              "recomputed_player_score_from_lane_index": 27.4723,
+              "recomputed_opponent_score_from_lane_index": 36.4249,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -8.9526,
+              "top_contributor": {
+                "card_id": "tony-parker-3yr-201213",
+                "player_name": "Tony Parker",
+                "own_lane_index_value_in_this_lane": 62.32,
+                "own_prime_score": 58.61,
+                "own_canonical_raw_component_value": 1.8696,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 23.998,
+          "displayed_opponent_roster_total": 27.8864,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -25.5812,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.65,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 3,
+          "boss_id": "the_ceiling",
+          "boss_name": "The Ceiling",
+          "rule_id": "top_heavy",
+          "player_bench_weight_candidates": [
+            0.15
+          ],
+          "player_bench_weight_reported": 0.15,
+          "opponent_bench_weight": 0.15,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 23.1032,
+              "displayed_opponent_score": 35.6155,
+              "recomputed_player_score_from_lane_index": 23.1032,
+              "recomputed_opponent_score_from_lane_index": 35.6155,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -12.5123,
+              "top_contributor": {
+                "card_id": "karl-anthony-towns-3yr-201819",
+                "player_name": "Karl-Anthony Towns",
+                "own_lane_index_value_in_this_lane": 35.6787,
+                "own_prime_score": 63.77,
+                "own_canonical_raw_component_value": 21.8123,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 39.5837,
+              "displayed_opponent_score": 40.4771,
+              "recomputed_player_score_from_lane_index": 39.5837,
+              "recomputed_opponent_score_from_lane_index": 40.4771,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -0.8934,
+              "top_contributor": {
+                "card_id": "karl-anthony-towns-3yr-201819",
+                "player_name": "Karl-Anthony Towns",
+                "own_lane_index_value_in_this_lane": 62.0665,
+                "own_prime_score": 63.77,
+                "own_canonical_raw_component_value": 10.6444,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 13.8452,
+              "displayed_opponent_score": 38.3455,
+              "recomputed_player_score_from_lane_index": 13.8452,
+              "recomputed_opponent_score_from_lane_index": 38.3455,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -24.5003,
+              "top_contributor": {
+                "card_id": "tony-parker-3yr-201213",
+                "player_name": "Tony Parker",
+                "own_lane_index_value_in_this_lane": 23.844,
+                "own_prime_score": 58.61,
+                "own_canonical_raw_component_value": 4.1897,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 14.6162,
+              "displayed_opponent_score": 22.6948,
+              "recomputed_player_score_from_lane_index": 14.6162,
+              "recomputed_opponent_score_from_lane_index": 22.6948,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -8.0786,
+              "top_contributor": {
+                "card_id": "pau-gasol-3yr-200809",
+                "player_name": "Pau Gasol",
+                "own_lane_index_value_in_this_lane": 35.4622,
+                "own_prime_score": 64.78,
+                "own_canonical_raw_component_value": 3.1717,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 26.0004,
+              "displayed_opponent_score": 35.3679,
+              "recomputed_player_score_from_lane_index": 26.0004,
+              "recomputed_opponent_score_from_lane_index": 35.3679,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -9.3675,
+              "top_contributor": {
+                "card_id": "tony-parker-3yr-201213",
+                "player_name": "Tony Parker",
+                "own_lane_index_value_in_this_lane": 62.32,
+                "own_prime_score": 58.61,
+                "own_canonical_raw_component_value": 1.8696,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 23.2718,
+          "displayed_opponent_roster_total": 34.8493,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -55.3521,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.15,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 4,
+          "boss_id": "the_standard",
+          "boss_name": "The Standard",
+          "rule_id": "the_standard",
+          "player_bench_weight_candidates": [
+            0.35
+          ],
+          "player_bench_weight_reported": 0.35,
+          "opponent_bench_weight": 0.35,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 23.7783,
+              "displayed_opponent_score": 41.9348,
+              "recomputed_player_score_from_lane_index": 23.7783,
+              "recomputed_opponent_score_from_lane_index": 41.9348,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -18.1565,
+              "top_contributor": {
+                "card_id": "karl-anthony-towns-3yr-201819",
+                "player_name": "Karl-Anthony Towns",
+                "own_lane_index_value_in_this_lane": 35.6787,
+                "own_prime_score": 63.77,
+                "own_canonical_raw_component_value": 21.8123,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 39.4687,
+              "displayed_opponent_score": 43.2848,
+              "recomputed_player_score_from_lane_index": 39.4687,
+              "recomputed_opponent_score_from_lane_index": 43.2848,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "tie",
+              "margin": -3.8161,
+              "top_contributor": {
+                "card_id": "karl-anthony-towns-3yr-201819",
+                "player_name": "Karl-Anthony Towns",
+                "own_lane_index_value_in_this_lane": 62.0665,
+                "own_prime_score": 63.77,
+                "own_canonical_raw_component_value": 10.6444,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 13.7469,
+              "displayed_opponent_score": 47.9255,
+              "recomputed_player_score_from_lane_index": 13.7469,
+              "recomputed_opponent_score_from_lane_index": 47.9255,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -34.1786,
+              "top_contributor": {
+                "card_id": "tony-parker-3yr-201213",
+                "player_name": "Tony Parker",
+                "own_lane_index_value_in_this_lane": 23.844,
+                "own_prime_score": 58.61,
+                "own_canonical_raw_component_value": 4.1897,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 15.1098,
+              "displayed_opponent_score": 29.3236,
+              "recomputed_player_score_from_lane_index": 15.1098,
+              "recomputed_opponent_score_from_lane_index": 29.3236,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -14.2138,
+              "top_contributor": {
+                "card_id": "pau-gasol-3yr-200809",
+                "player_name": "Pau Gasol",
+                "own_lane_index_value_in_this_lane": 35.4622,
+                "own_prime_score": 64.78,
+                "own_canonical_raw_component_value": 3.1717,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 26.6511,
+              "displayed_opponent_score": 35.2895,
+              "recomputed_player_score_from_lane_index": 26.6511,
+              "recomputed_opponent_score_from_lane_index": 35.2895,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -8.6384,
+              "top_contributor": {
+                "card_id": "tony-parker-3yr-201213",
+                "player_name": "Tony Parker",
+                "own_lane_index_value_in_this_lane": 62.32,
+                "own_prime_score": 58.61,
+                "own_canonical_raw_component_value": 1.8696,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 23.5929,
+          "displayed_opponent_roster_total": 40.9471,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -79.0034,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.35,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 5,
+          "boss_id": "the_long_series",
+          "boss_name": "The Long Series",
+          "rule_id": "the_long_series",
+          "player_bench_weight_candidates": [
+            0.35
+          ],
+          "player_bench_weight_reported": 0.35,
+          "opponent_bench_weight": 0.35,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 23.7783,
+              "displayed_opponent_score": 50.0313,
+              "recomputed_player_score_from_lane_index": 23.7783,
+              "recomputed_opponent_score_from_lane_index": 50.0313,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -26.253,
+              "top_contributor": {
+                "card_id": "karl-anthony-towns-3yr-201819",
+                "player_name": "Karl-Anthony Towns",
+                "own_lane_index_value_in_this_lane": 35.6787,
+                "own_prime_score": 63.77,
+                "own_canonical_raw_component_value": 21.8123,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 39.4687,
+              "displayed_opponent_score": 49.6992,
+              "recomputed_player_score_from_lane_index": 39.4687,
+              "recomputed_opponent_score_from_lane_index": 49.6992,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -10.2305,
+              "top_contributor": {
+                "card_id": "karl-anthony-towns-3yr-201819",
+                "player_name": "Karl-Anthony Towns",
+                "own_lane_index_value_in_this_lane": 62.0665,
+                "own_prime_score": 63.77,
+                "own_canonical_raw_component_value": 10.6444,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 13.7469,
+              "displayed_opponent_score": 52.5285,
+              "recomputed_player_score_from_lane_index": 13.7469,
+              "recomputed_opponent_score_from_lane_index": 52.5285,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -38.7816,
+              "top_contributor": {
+                "card_id": "tony-parker-3yr-201213",
+                "player_name": "Tony Parker",
+                "own_lane_index_value_in_this_lane": 23.844,
+                "own_prime_score": 58.61,
+                "own_canonical_raw_component_value": 4.1897,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 15.1098,
+              "displayed_opponent_score": 31.6817,
+              "recomputed_player_score_from_lane_index": 15.1098,
+              "recomputed_opponent_score_from_lane_index": 31.6817,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -16.5719,
+              "top_contributor": {
+                "card_id": "pau-gasol-3yr-200809",
+                "player_name": "Pau Gasol",
+                "own_lane_index_value_in_this_lane": 35.4622,
+                "own_prime_score": 64.78,
+                "own_canonical_raw_component_value": 3.1717,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 26.6511,
+              "displayed_opponent_score": 34.4457,
+              "recomputed_player_score_from_lane_index": 26.6511,
+              "recomputed_opponent_score_from_lane_index": 34.4457,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -7.7946,
+              "top_contributor": {
+                "card_id": "tony-parker-3yr-201213",
+                "player_name": "Tony Parker",
+                "own_lane_index_value_in_this_lane": 62.32,
+                "own_prime_score": 58.61,
+                "own_canonical_raw_component_value": 1.8696,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 23.5929,
+          "displayed_opponent_roster_total": 46.6905,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -99.6316,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.35,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        }
+      ]
+    },
+    {
+      "seed": 42,
+      "starting_starters": [
+        "kyrie-irving-3yr-201819",
+        "trae-young-3yr-202122",
+        "horace-grant-3yr-199192",
+        "clint-capela-3yr-201718",
+        "dikembe-mutombo-3yr-199697"
+      ],
+      "starting_bench": [
+        "chris-webber-3yr-200001",
+        "ben-wallace-3yr-200203"
+      ],
+      "battles": [
+        {
+          "act": 1,
+          "boss_id": "the_wall",
+          "boss_name": "The Wall",
+          "rule_id": "the_wall",
+          "player_bench_weight_candidates": [
+            0.35
+          ],
+          "player_bench_weight_reported": 0.35,
+          "opponent_bench_weight": 0.35,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 20.8393,
+              "displayed_opponent_score": 25.007,
+              "recomputed_player_score_from_lane_index": 20.8393,
+              "recomputed_opponent_score_from_lane_index": 25.007,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -4.1677,
+              "top_contributor": {
+                "card_id": "kyrie-irving-3yr-201819",
+                "player_name": "Kyrie Irving",
+                "own_lane_index_value_in_this_lane": 33.602,
+                "own_prime_score": 62.45,
+                "own_canonical_raw_component_value": 21.324,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 30.4607,
+              "displayed_opponent_score": 34.0851,
+              "recomputed_player_score_from_lane_index": 30.4607,
+              "recomputed_opponent_score_from_lane_index": 34.0851,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -3.6244,
+              "top_contributor": {
+                "card_id": "trae-young-3yr-202122",
+                "player_name": "Trae Young",
+                "own_lane_index_value_in_this_lane": 46.3804,
+                "own_prime_score": 58.45,
+                "own_canonical_raw_component_value": 8.8817,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 16.7235,
+              "displayed_opponent_score": 10.2634,
+              "recomputed_player_score_from_lane_index": 16.7235,
+              "recomputed_opponent_score_from_lane_index": 10.2634,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 6.4601,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 64.8267,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 11.3909,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 17.1358,
+              "displayed_opponent_score": 18.8647,
+              "recomputed_player_score_from_lane_index": 17.1358,
+              "recomputed_opponent_score_from_lane_index": 18.8647,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -1.7289,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 23.7737,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 1.6812,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 19.3007,
+              "displayed_opponent_score": 16.3495,
+              "recomputed_player_score_from_lane_index": 19.3007,
+              "recomputed_opponent_score_from_lane_index": 16.3495,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 2.9512,
+              "top_contributor": {
+                "card_id": "horace-grant-3yr-199192",
+                "player_name": "Horace Grant",
+                "own_lane_index_value_in_this_lane": 29.4667,
+                "own_prime_score": 56.93,
+                "own_canonical_raw_component_value": 0.884,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 21.3238,
+          "displayed_opponent_roster_total": 22.5993,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -0.1097,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.35,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 2,
+          "boss_id": "strength_in_numbers",
+          "boss_name": "Strength in Numbers",
+          "rule_id": "strength_in_numbers",
+          "player_bench_weight_candidates": [
+            0.65
+          ],
+          "player_bench_weight_reported": 0.65,
+          "opponent_bench_weight": 0.65,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 21.0442,
+              "displayed_opponent_score": 28.0563,
+              "recomputed_player_score_from_lane_index": 21.0442,
+              "recomputed_opponent_score_from_lane_index": 28.0563,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -7.0121,
+              "top_contributor": {
+                "card_id": "kyrie-irving-3yr-201819",
+                "player_name": "Kyrie Irving",
+                "own_lane_index_value_in_this_lane": 33.602,
+                "own_prime_score": 62.45,
+                "own_canonical_raw_component_value": 21.324,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 28.9822,
+              "displayed_opponent_score": 36.451,
+              "recomputed_player_score_from_lane_index": 28.9822,
+              "recomputed_opponent_score_from_lane_index": 36.451,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -7.4688,
+              "top_contributor": {
+                "card_id": "trae-young-3yr-202122",
+                "player_name": "Trae Young",
+                "own_lane_index_value_in_this_lane": 46.3804,
+                "own_prime_score": 58.45,
+                "own_canonical_raw_component_value": 8.8817,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 19.705,
+              "displayed_opponent_score": 15.0043,
+              "recomputed_player_score_from_lane_index": 19.705,
+              "recomputed_opponent_score_from_lane_index": 15.0043,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 4.7007,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 64.8267,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 11.3909,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 17.1334,
+              "displayed_opponent_score": 30.426,
+              "recomputed_player_score_from_lane_index": 17.1334,
+              "recomputed_opponent_score_from_lane_index": 30.426,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -13.2926,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 23.7737,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 1.6812,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 19.6803,
+              "displayed_opponent_score": 36.4249,
+              "recomputed_player_score_from_lane_index": 19.6803,
+              "recomputed_opponent_score_from_lane_index": 36.4249,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -16.7446,
+              "top_contributor": {
+                "card_id": "horace-grant-3yr-199192",
+                "player_name": "Horace Grant",
+                "own_lane_index_value_in_this_lane": 29.4667,
+                "own_prime_score": 56.93,
+                "own_canonical_raw_component_value": 0.884,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 21.6985,
+          "displayed_opponent_roster_total": 27.8864,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -39.8174,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.65,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 3,
+          "boss_id": "the_ceiling",
+          "boss_name": "The Ceiling",
+          "rule_id": "top_heavy",
+          "player_bench_weight_candidates": [
+            0.15
+          ],
+          "player_bench_weight_reported": 0.15,
+          "opponent_bench_weight": 0.15,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 20.6769,
+              "displayed_opponent_score": 35.6155,
+              "recomputed_player_score_from_lane_index": 20.6769,
+              "recomputed_opponent_score_from_lane_index": 35.6155,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -14.9386,
+              "top_contributor": {
+                "card_id": "kyrie-irving-3yr-201819",
+                "player_name": "Kyrie Irving",
+                "own_lane_index_value_in_this_lane": 33.602,
+                "own_prime_score": 62.45,
+                "own_canonical_raw_component_value": 21.324,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 31.6323,
+              "displayed_opponent_score": 40.4771,
+              "recomputed_player_score_from_lane_index": 31.6323,
+              "recomputed_opponent_score_from_lane_index": 40.4771,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -8.8448,
+              "top_contributor": {
+                "card_id": "trae-young-3yr-202122",
+                "player_name": "Trae Young",
+                "own_lane_index_value_in_this_lane": 46.3804,
+                "own_prime_score": 58.45,
+                "own_canonical_raw_component_value": 8.8817,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 14.3609,
+              "displayed_opponent_score": 38.3455,
+              "recomputed_player_score_from_lane_index": 14.3609,
+              "recomputed_opponent_score_from_lane_index": 38.3455,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -23.9846,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 64.8267,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 11.3909,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 17.1377,
+              "displayed_opponent_score": 22.6948,
+              "recomputed_player_score_from_lane_index": 17.1377,
+              "recomputed_opponent_score_from_lane_index": 22.6948,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -5.5571,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 23.7737,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 1.6812,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 18.9999,
+              "displayed_opponent_score": 35.3679,
+              "recomputed_player_score_from_lane_index": 18.9999,
+              "recomputed_opponent_score_from_lane_index": 35.3679,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -16.368,
+              "top_contributor": {
+                "card_id": "horace-grant-3yr-199192",
+                "player_name": "Horace Grant",
+                "own_lane_index_value_in_this_lane": 29.4667,
+                "own_prime_score": 56.93,
+                "own_canonical_raw_component_value": 0.884,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 21.027,
+          "displayed_opponent_roster_total": 34.8493,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -69.6931,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.15,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 4,
+          "boss_id": "the_standard",
+          "boss_name": "The Standard",
+          "rule_id": "the_standard",
+          "player_bench_weight_candidates": [
+            0.35
+          ],
+          "player_bench_weight_reported": 0.35,
+          "opponent_bench_weight": 0.35,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 20.8393,
+              "displayed_opponent_score": 41.9348,
+              "recomputed_player_score_from_lane_index": 20.8393,
+              "recomputed_opponent_score_from_lane_index": 41.9348,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -21.0955,
+              "top_contributor": {
+                "card_id": "kyrie-irving-3yr-201819",
+                "player_name": "Kyrie Irving",
+                "own_lane_index_value_in_this_lane": 33.602,
+                "own_prime_score": 62.45,
+                "own_canonical_raw_component_value": 21.324,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 30.4607,
+              "displayed_opponent_score": 43.2848,
+              "recomputed_player_score_from_lane_index": 30.4607,
+              "recomputed_opponent_score_from_lane_index": 43.2848,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -12.8241,
+              "top_contributor": {
+                "card_id": "trae-young-3yr-202122",
+                "player_name": "Trae Young",
+                "own_lane_index_value_in_this_lane": 46.3804,
+                "own_prime_score": 58.45,
+                "own_canonical_raw_component_value": 8.8817,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 16.7235,
+              "displayed_opponent_score": 47.9255,
+              "recomputed_player_score_from_lane_index": 16.7235,
+              "recomputed_opponent_score_from_lane_index": 47.9255,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -31.202,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 64.8267,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 11.3909,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 17.1358,
+              "displayed_opponent_score": 29.3236,
+              "recomputed_player_score_from_lane_index": 17.1358,
+              "recomputed_opponent_score_from_lane_index": 29.3236,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -12.1878,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 23.7737,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 1.6812,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 19.3007,
+              "displayed_opponent_score": 35.2895,
+              "recomputed_player_score_from_lane_index": 19.3007,
+              "recomputed_opponent_score_from_lane_index": 35.2895,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -15.9888,
+              "top_contributor": {
+                "card_id": "horace-grant-3yr-199192",
+                "player_name": "Horace Grant",
+                "own_lane_index_value_in_this_lane": 29.4667,
+                "own_prime_score": 56.93,
+                "own_canonical_raw_component_value": 0.884,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 21.3238,
+          "displayed_opponent_roster_total": 40.9471,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -93.2982,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.35,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 5,
+          "boss_id": "the_long_series",
+          "boss_name": "The Long Series",
+          "rule_id": "the_long_series",
+          "player_bench_weight_candidates": [
+            0.35
+          ],
+          "player_bench_weight_reported": 0.35,
+          "opponent_bench_weight": 0.35,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 20.8393,
+              "displayed_opponent_score": 50.0313,
+              "recomputed_player_score_from_lane_index": 20.8393,
+              "recomputed_opponent_score_from_lane_index": 50.0313,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -29.192,
+              "top_contributor": {
+                "card_id": "kyrie-irving-3yr-201819",
+                "player_name": "Kyrie Irving",
+                "own_lane_index_value_in_this_lane": 33.602,
+                "own_prime_score": 62.45,
+                "own_canonical_raw_component_value": 21.324,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 30.4607,
+              "displayed_opponent_score": 49.6992,
+              "recomputed_player_score_from_lane_index": 30.4607,
+              "recomputed_opponent_score_from_lane_index": 49.6992,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -19.2385,
+              "top_contributor": {
+                "card_id": "trae-young-3yr-202122",
+                "player_name": "Trae Young",
+                "own_lane_index_value_in_this_lane": 46.3804,
+                "own_prime_score": 58.45,
+                "own_canonical_raw_component_value": 8.8817,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 16.7235,
+              "displayed_opponent_score": 52.5285,
+              "recomputed_player_score_from_lane_index": 16.7235,
+              "recomputed_opponent_score_from_lane_index": 52.5285,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -35.805,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 64.8267,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 11.3909,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 17.1358,
+              "displayed_opponent_score": 31.6817,
+              "recomputed_player_score_from_lane_index": 17.1358,
+              "recomputed_opponent_score_from_lane_index": 31.6817,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -14.5459,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 23.7737,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 1.6812,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 19.3007,
+              "displayed_opponent_score": 34.4457,
+              "recomputed_player_score_from_lane_index": 19.3007,
+              "recomputed_opponent_score_from_lane_index": 34.4457,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -15.145,
+              "top_contributor": {
+                "card_id": "horace-grant-3yr-199192",
+                "player_name": "Horace Grant",
+                "own_lane_index_value_in_this_lane": 29.4667,
+                "own_prime_score": 56.93,
+                "own_canonical_raw_component_value": 0.884,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 21.3238,
+          "displayed_opponent_roster_total": 46.6905,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -113.9264,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.35,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        }
+      ]
+    },
+    {
+      "seed": 2026,
+      "starting_starters": [
+        "andrei-kirilenko-3yr-200304",
+        "cedric-maxwell-3yr-198081",
+        "mitch-richmond-3yr-199697",
+        "terry-porter-3yr-199091",
+        "ben-wallace-3yr-200203"
+      ],
+      "starting_bench": [
+        "anthony-edwards-3yr-202425",
+        "mookie-blaylock-3yr-199697"
+      ],
+      "battles": [
+        {
+          "act": 1,
+          "boss_id": "the_wall",
+          "boss_name": "The Wall",
+          "rule_id": "the_wall",
+          "player_bench_weight_candidates": [
+            0.35
+          ],
+          "player_bench_weight_reported": 0.35,
+          "opponent_bench_weight": 0.35,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 23.2867,
+              "displayed_opponent_score": 25.007,
+              "recomputed_player_score_from_lane_index": 23.2867,
+              "recomputed_opponent_score_from_lane_index": 25.007,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -1.7203,
+              "top_contributor": {
+                "card_id": "andrei-kirilenko-3yr-200304",
+                "player_name": "Andrei Kirilenko",
+                "own_lane_index_value_in_this_lane": 39.8227,
+                "own_prime_score": 61.54,
+                "own_canonical_raw_component_value": 22.7867,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 25.2047,
+              "displayed_opponent_score": 34.0851,
+              "recomputed_player_score_from_lane_index": 25.2047,
+              "recomputed_opponent_score_from_lane_index": 34.0851,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -8.8804,
+              "top_contributor": {
+                "card_id": "terry-porter-3yr-199091",
+                "player_name": "Terry Porter",
+                "own_lane_index_value_in_this_lane": 40.9271,
+                "own_prime_score": 64.51,
+                "own_canonical_raw_component_value": 8.2689,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 20.794,
+              "displayed_opponent_score": 10.2634,
+              "recomputed_player_score_from_lane_index": 20.794,
+              "recomputed_opponent_score_from_lane_index": 10.2634,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 10.5306,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 64.8267,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 11.3909,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 21.3054,
+              "displayed_opponent_score": 18.8647,
+              "recomputed_player_score_from_lane_index": 21.3054,
+              "recomputed_opponent_score_from_lane_index": 18.8647,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 2.4407,
+              "top_contributor": {
+                "card_id": "cedric-maxwell-3yr-198081",
+                "player_name": "Cedric Maxwell",
+                "own_lane_index_value_in_this_lane": 34.5478,
+                "own_prime_score": 58.93,
+                "own_canonical_raw_component_value": 3.0551,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 20.9487,
+              "displayed_opponent_score": 16.3495,
+              "recomputed_player_score_from_lane_index": 20.9487,
+              "recomputed_opponent_score_from_lane_index": 16.3495,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 4.5992,
+              "top_contributor": {
+                "card_id": "terry-porter-3yr-199091",
+                "player_name": "Terry Porter",
+                "own_lane_index_value_in_this_lane": 48.5867,
+                "own_prime_score": 64.51,
+                "own_canonical_raw_component_value": 1.4576,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 22.7642,
+          "displayed_opponent_roster_total": 22.5993,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": 6.9698,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.35,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "win",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 2,
+          "boss_id": "strength_in_numbers",
+          "boss_name": "Strength in Numbers",
+          "rule_id": "strength_in_numbers",
+          "player_bench_weight_candidates": [
+            0.65
+          ],
+          "player_bench_weight_reported": 0.65,
+          "opponent_bench_weight": 0.65,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 22.828,
+              "displayed_opponent_score": 28.0563,
+              "recomputed_player_score_from_lane_index": 22.828,
+              "recomputed_opponent_score_from_lane_index": 28.0563,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -5.2283,
+              "top_contributor": {
+                "card_id": "andrei-kirilenko-3yr-200304",
+                "player_name": "Andrei Kirilenko",
+                "own_lane_index_value_in_this_lane": 39.8227,
+                "own_prime_score": 61.54,
+                "own_canonical_raw_component_value": 22.7867,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 24.6574,
+              "displayed_opponent_score": 36.451,
+              "recomputed_player_score_from_lane_index": 24.6574,
+              "recomputed_opponent_score_from_lane_index": 36.451,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -11.7936,
+              "top_contributor": {
+                "card_id": "terry-porter-3yr-199091",
+                "player_name": "Terry Porter",
+                "own_lane_index_value_in_this_lane": 40.9271,
+                "own_prime_score": 64.51,
+                "own_canonical_raw_component_value": 8.2689,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 20.2718,
+              "displayed_opponent_score": 15.0043,
+              "recomputed_player_score_from_lane_index": 20.2718,
+              "recomputed_opponent_score_from_lane_index": 15.0043,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "player",
+              "margin": 5.2675,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 64.8267,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 11.3909,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 20.9679,
+              "displayed_opponent_score": 30.426,
+              "recomputed_player_score_from_lane_index": 20.9679,
+              "recomputed_opponent_score_from_lane_index": 30.426,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -9.4581,
+              "top_contributor": {
+                "card_id": "cedric-maxwell-3yr-198081",
+                "player_name": "Cedric Maxwell",
+                "own_lane_index_value_in_this_lane": 34.5478,
+                "own_prime_score": 58.93,
+                "own_canonical_raw_component_value": 3.0551,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 21.6888,
+              "displayed_opponent_score": 36.4249,
+              "recomputed_player_score_from_lane_index": 21.6888,
+              "recomputed_opponent_score_from_lane_index": 36.4249,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -14.7361,
+              "top_contributor": {
+                "card_id": "terry-porter-3yr-199091",
+                "player_name": "Terry Porter",
+                "own_lane_index_value_in_this_lane": 48.5867,
+                "own_prime_score": 64.51,
+                "own_canonical_raw_component_value": 1.4576,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 22.3319,
+          "displayed_opponent_roster_total": 27.8864,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -35.9486,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.65,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 3,
+          "boss_id": "the_ceiling",
+          "boss_name": "The Ceiling",
+          "rule_id": "top_heavy",
+          "player_bench_weight_candidates": [
+            0.15
+          ],
+          "player_bench_weight_reported": 0.15,
+          "opponent_bench_weight": 0.15,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 23.6502,
+              "displayed_opponent_score": 35.6155,
+              "recomputed_player_score_from_lane_index": 23.6502,
+              "recomputed_opponent_score_from_lane_index": 35.6155,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -11.9653,
+              "top_contributor": {
+                "card_id": "andrei-kirilenko-3yr-200304",
+                "player_name": "Andrei Kirilenko",
+                "own_lane_index_value_in_this_lane": 39.8227,
+                "own_prime_score": 61.54,
+                "own_canonical_raw_component_value": 22.7867,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 25.6385,
+              "displayed_opponent_score": 40.4771,
+              "recomputed_player_score_from_lane_index": 25.6385,
+              "recomputed_opponent_score_from_lane_index": 40.4771,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -14.8386,
+              "top_contributor": {
+                "card_id": "terry-porter-3yr-199091",
+                "player_name": "Terry Porter",
+                "own_lane_index_value_in_this_lane": 40.9271,
+                "own_prime_score": 64.51,
+                "own_canonical_raw_component_value": 8.2689,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 21.2079,
+              "displayed_opponent_score": 38.3455,
+              "recomputed_player_score_from_lane_index": 21.2079,
+              "recomputed_opponent_score_from_lane_index": 38.3455,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -17.1376,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 64.8267,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 11.3909,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 21.5729,
+              "displayed_opponent_score": 22.6948,
+              "recomputed_player_score_from_lane_index": 21.5729,
+              "recomputed_opponent_score_from_lane_index": 22.6948,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -1.1219,
+              "top_contributor": {
+                "card_id": "cedric-maxwell-3yr-198081",
+                "player_name": "Cedric Maxwell",
+                "own_lane_index_value_in_this_lane": 34.5478,
+                "own_prime_score": 58.93,
+                "own_canonical_raw_component_value": 3.0551,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 20.3622,
+              "displayed_opponent_score": 35.3679,
+              "recomputed_player_score_from_lane_index": 20.3622,
+              "recomputed_opponent_score_from_lane_index": 35.3679,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -15.0057,
+              "top_contributor": {
+                "card_id": "terry-porter-3yr-199091",
+                "player_name": "Terry Porter",
+                "own_lane_index_value_in_this_lane": 48.5867,
+                "own_prime_score": 64.51,
+                "own_canonical_raw_component_value": 1.4576,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 23.1067,
+          "displayed_opponent_roster_total": 34.8493,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -60.0691,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.15,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 4,
+          "boss_id": "the_standard",
+          "boss_name": "The Standard",
+          "rule_id": "the_standard",
+          "player_bench_weight_candidates": [
+            0.35
+          ],
+          "player_bench_weight_reported": 0.35,
+          "opponent_bench_weight": 0.35,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 23.2867,
+              "displayed_opponent_score": 41.9348,
+              "recomputed_player_score_from_lane_index": 23.2867,
+              "recomputed_opponent_score_from_lane_index": 41.9348,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -18.6481,
+              "top_contributor": {
+                "card_id": "andrei-kirilenko-3yr-200304",
+                "player_name": "Andrei Kirilenko",
+                "own_lane_index_value_in_this_lane": 39.8227,
+                "own_prime_score": 61.54,
+                "own_canonical_raw_component_value": 22.7867,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 25.2047,
+              "displayed_opponent_score": 43.2848,
+              "recomputed_player_score_from_lane_index": 25.2047,
+              "recomputed_opponent_score_from_lane_index": 43.2848,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -18.0801,
+              "top_contributor": {
+                "card_id": "terry-porter-3yr-199091",
+                "player_name": "Terry Porter",
+                "own_lane_index_value_in_this_lane": 40.9271,
+                "own_prime_score": 64.51,
+                "own_canonical_raw_component_value": 8.2689,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 20.794,
+              "displayed_opponent_score": 47.9255,
+              "recomputed_player_score_from_lane_index": 20.794,
+              "recomputed_opponent_score_from_lane_index": 47.9255,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -27.1315,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 64.8267,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 11.3909,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 21.3054,
+              "displayed_opponent_score": 29.3236,
+              "recomputed_player_score_from_lane_index": 21.3054,
+              "recomputed_opponent_score_from_lane_index": 29.3236,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -8.0182,
+              "top_contributor": {
+                "card_id": "cedric-maxwell-3yr-198081",
+                "player_name": "Cedric Maxwell",
+                "own_lane_index_value_in_this_lane": 34.5478,
+                "own_prime_score": 58.93,
+                "own_canonical_raw_component_value": 3.0551,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 20.9487,
+              "displayed_opponent_score": 35.2895,
+              "recomputed_player_score_from_lane_index": 20.9487,
+              "recomputed_opponent_score_from_lane_index": 35.2895,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -14.3408,
+              "top_contributor": {
+                "card_id": "terry-porter-3yr-199091",
+                "player_name": "Terry Porter",
+                "own_lane_index_value_in_this_lane": 48.5867,
+                "own_prime_score": 64.51,
+                "own_canonical_raw_component_value": 1.4576,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 22.7642,
+          "displayed_opponent_roster_total": 40.9471,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -86.2187,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.35,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        },
+        {
+          "act": 5,
+          "boss_id": "the_long_series",
+          "boss_name": "The Long Series",
+          "rule_id": "the_long_series",
+          "player_bench_weight_candidates": [
+            0.35
+          ],
+          "player_bench_weight_reported": 0.35,
+          "opponent_bench_weight": 0.35,
+          "lanes": [
+            {
+              "lane": "statistical_impact",
+              "label": "Statistical Impact",
+              "displayed_player_score": 23.2867,
+              "displayed_opponent_score": 50.0313,
+              "recomputed_player_score_from_lane_index": 23.2867,
+              "recomputed_opponent_score_from_lane_index": 50.0313,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -26.7446,
+              "top_contributor": {
+                "card_id": "andrei-kirilenko-3yr-200304",
+                "player_name": "Andrei Kirilenko",
+                "own_lane_index_value_in_this_lane": 39.8227,
+                "own_prime_score": 61.54,
+                "own_canonical_raw_component_value": 22.7867,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "traditional_production",
+              "label": "Traditional Production",
+              "displayed_player_score": 25.2047,
+              "displayed_opponent_score": 49.6992,
+              "recomputed_player_score_from_lane_index": 25.2047,
+              "recomputed_opponent_score_from_lane_index": 49.6992,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -24.4945,
+              "top_contributor": {
+                "card_id": "terry-porter-3yr-199091",
+                "player_name": "Terry Porter",
+                "own_lane_index_value_in_this_lane": 40.9271,
+                "own_prime_score": 64.51,
+                "own_canonical_raw_component_value": 8.2689,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "individual_recognition",
+              "label": "Individual Recognition",
+              "displayed_player_score": 20.794,
+              "displayed_opponent_score": 52.5285,
+              "recomputed_player_score_from_lane_index": 20.794,
+              "recomputed_opponent_score_from_lane_index": 52.5285,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -31.7345,
+              "top_contributor": {
+                "card_id": "ben-wallace-3yr-200203",
+                "player_name": "Ben Wallace",
+                "own_lane_index_value_in_this_lane": 64.8267,
+                "own_prime_score": 64.83,
+                "own_canonical_raw_component_value": 11.3909,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "postseason_individual_value",
+              "label": "Playoff Rate Impact",
+              "displayed_player_score": 21.3054,
+              "displayed_opponent_score": 31.6817,
+              "recomputed_player_score_from_lane_index": 21.3054,
+              "recomputed_opponent_score_from_lane_index": 31.6817,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -10.3763,
+              "top_contributor": {
+                "card_id": "cedric-maxwell-3yr-198081",
+                "player_name": "Cedric Maxwell",
+                "own_lane_index_value_in_this_lane": 34.5478,
+                "own_prime_score": 58.93,
+                "own_canonical_raw_component_value": 3.0551,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            },
+            {
+              "lane": "team_achievement",
+              "label": "Team Result",
+              "displayed_player_score": 20.9487,
+              "displayed_opponent_score": 34.4457,
+              "recomputed_player_score_from_lane_index": 20.9487,
+              "recomputed_opponent_score_from_lane_index": 34.4457,
+              "engine_math_verified_bit_identical": {
+                "player": true,
+                "opponent": true
+              },
+              "winner": "opponent",
+              "margin": -13.497,
+              "top_contributor": {
+                "card_id": "terry-porter-3yr-199091",
+                "player_name": "Terry Porter",
+                "own_lane_index_value_in_this_lane": 48.5867,
+                "own_prime_score": 64.51,
+                "own_canonical_raw_component_value": 1.4576,
+                "does_top_contributor_own_value_equal_the_displayed_lane_number": false
+              },
+              "provenance": "lineup_total",
+              "provenance_definition": "Weighted mean of lane_index (a linear 0-100 rescale of the canonical raw PEAK3 component contribution, computed across the eligible pool) over the FULL 5+2 roster -- starters at weight 1.00, bench at bench_weight (0.35 default; varies by System/boss rule). It is NOT any single player's value; the 'top contributor' name printed beside it is a separate field (player_top_card) computed independently as the roster's max lane_index holder, and is not guaranteed (and typically does not happen) to equal the displayed roster number."
+            }
+          ],
+          "displayed_player_roster_total": 22.7642,
+          "displayed_opponent_roster_total": 46.6905,
+          "roster_total_provenance": "lineup_total -- sum(lane_profile[lane] * LANE_PEAK3_WEIGHTS[lane]) for lane in the 5 lanes; a weighted BLEND of already-published lineup lane totals using the official PEAK3 weights for display only, NOT a recomputed PEAK3 score and NOT any individual card's prime_score.",
+          "displayed_summed_margin": -106.8469,
+          "summed_margin_provenance": "other(battle_aggregate_margin) -- sum over the 5 lanes of (player_lineup_total - opponent_lineup_total) per lane. A battle-level tie-break statistic, not a score of any kind.",
+          "displayed_bench_weight": 0.35,
+          "bench_weight_provenance": "other(config_value) -- a scoring weight/coefficient, not a score.",
+          "outcome": "loss",
+          "decided_by": "lanes"
+        }
+      ]
+    }
+  ],
+  "field_provenance_table": [
+    {
+      "displayed_as": "BattleReveal.tsx lane row number (e.g. '27.2') next to a lane label",
+      "api_field": "battle.lanes[i].player_score / opponent_score",
+      "engine_source": "nba_peak/run_the_table/battle.py:player_lane_profile / roster_lane_profile -> lane_score()",
+      "classification": "lineup_total",
+      "note": "This is the roster-wide weighted mean of lane_index for one of the five PEAK3 component lanes. It is NOT an individual player's component value, and is NOT prime_score or any PEAK3 display score."
+    },
+    {
+      "displayed_as": "BattleReveal.tsx 'led by <Player Name>' line directly beneath the lane row",
+      "api_field": "battle.lanes[i].player_top_card.player_name / opponent_top_card.player_name",
+      "engine_source": "nba_peak/run_the_table/battle.py:_top_contributor",
+      "classification": "individual_player_contribution (name only; the adjacent number belongs to the lineup, not to this player)",
+      "note": "PRESENTATION RISK: the top-contributor's name is rendered in the same lane block as the lineup number, one row below it, with no connecting label distinguishing 'this player led the lane' from 'this is this player's score'. The number above it is a lineup total; the name's OWN value in that lane is a different, unshown number (see reconciliation output: own_lane_index_value_in_this_lane)."
+    },
+    {
+      "displayed_as": "LaneProfile.tsx bar + number (roster panel, boss briefing, run result)",
+      "api_field": "lane_profile[i].value (public_state, boss_public, receipt.lane_profile)",
+      "engine_source": "nba_peak/run_the_table/battle.py:roster_lane_profile / player_lane_profile",
+      "classification": "lineup_total",
+      "note": "Same lineup-weighted-mean quantity as the battle lane score, shown pre-battle or post-run."
+    },
+    {
+      "displayed_as": "BossPreview.tsx / RunResult.tsx per-card number beside each roster player's name (e.g. boss roster list, final roster list)",
+      "api_field": "card.prime_score (card_public())",
+      "engine_source": "leaderboards/top_250_3_year_prime.csv 'Prime display' column, via data/web/peak_windows.json, via cards.build_pool",
+      "classification": "individual_player_contribution (raw_component-derived, calibrated)",
+      "note": "This IS a genuine individual value -- the player's own canonical calibrated PEAK3 score for that 3-year window, unmodified by the battle engine. Correctly paired with that player's name."
+    },
+    {
+      "displayed_as": "BattleReveal.tsx / RunResult.tsx 'roster totals X vs Y'",
+      "api_field": "battle.player_roster_total / opponent_roster_total",
+      "engine_source": "nba_peak/run_the_table/battle.py:roster_total",
+      "classification": "lineup_total",
+      "note": "Weighted blend of the 5 lineup lane totals using LANE_PEAK3_WEIGHTS. Second tie-breaker only; not a recomputed PEAK3 score."
+    },
+    {
+      "displayed_as": "'Summed lane margin' on the battle stamp",
+      "api_field": "battle.summed_margin",
+      "engine_source": "nba_peak/run_the_table/battle.py:resolve_battle (sum of per-lane margins)",
+      "classification": "other(battle_aggregate_margin)",
+      "note": "A tie-break aggregate across 5 lane margins. Not a score."
+    },
+    {
+      "displayed_as": "'bench weight' on the battle stamp",
+      "api_field": "battle.bench_weight",
+      "engine_source": "nba_peak/run_the_table/config.py:BENCH_WEIGHT_* constants via battle.bench_weight_for",
+      "classification": "other(config_coefficient)",
+      "note": "A scoring weight/coefficient, not a score."
+    },
+    {
+      "displayed_as": "RunResult.tsx Run MVP 'removing them costs the roster X of overall total'",
+      "api_field": "receipt.run_mvp.marginal_contribution",
+      "engine_source": "nba_peak/run_the_table/receipt.py:_marginal_contribution (drop-one delta of roster_total)",
+      "classification": "perk_adjusted_lineup_total (delta form)",
+      "note": "A counterfactual: full roster_total minus roster_total with this card removed, scored under the player's own Systems. It IS attributable to one player (removing exactly that card), but the quantity itself is a delta of a lineup_total, not that player's own prime_score."
+    },
+    {
+      "displayed_as": "RunResult.tsx 'Best acquisition ... +X.XX PEAK3 over <replaced player>'",
+      "api_field": "receipt.best_acquisition.score_delta",
+      "engine_source": "nba_peak/run_the_table/receipt.py:build_receipt (prime_score delta between two individual cards)",
+      "classification": "individual_player_contribution (delta of two individual prime_scores)",
+      "note": "gained.prime_score - lost.prime_score for two specific cards. A genuine individual-level comparison, correctly labeled 'PEAK3'."
+    },
+    {
+      "displayed_as": "Daily / Practice / 82-0 quiz answer scoring (NOT RTT)",
+      "api_field": "arena_points (calculate_arena_points)",
+      "engine_source": "apps/api/app/services/arena_points.py",
+      "classification": "other(quiz_game_score, unrelated system)",
+      "note": "arena_points is computed ONLY for the Daily/Practice head-to-head quiz answer flow (correctness + closeness-of-gap + speed + streak). It is never referenced anywhere in nba_peak/run_the_table/**, and no RTT battle number is an arena_points value. RTT and Daily/Practice scoring are structurally disjoint code paths."
+    }
+  ],
+  "verdict": {
+    "numerical_defect_found": false,
+    "presentation_defect_found": true,
+    "summary": "No numerical defect: every displayed battle lane number was independently recomputed from the published lane_index values using the documented weighted-mean formula and matched the engine's output bit-for-bit across all seeds/lanes/battles (75 lane-battles checked, all_math_verified=True). The math is correct and internally consistent with the canonical PEAK3 leaderboard data. PRESENTATION DEFECT: the UI pairs a lineup-level number (player_score / opponent_score, a weighted mean over 5 starters + 2 bench) directly above a single player's name (the lane's top contributor), with no connecting text distinguishing 'this player led the lane' from 'this is this player's score'. Across 75 lane-battles audited, the top contributor's own lane_index value equaled the displayed lineup number in only 0 case(s) -- i.e. the pairing is misleading in the overwhelming majority of instances, exactly as the example in the task description illustrates.",
+    "lane_battles_checked": 75,
+    "coincidental_individual_matches": 0
+  }
+}

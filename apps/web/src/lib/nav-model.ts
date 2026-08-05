@@ -24,6 +24,7 @@
 
 import {
   MODE_COPY,
+  MULTIPLAYER_MODE_IDS,
   ModeGroup,
   ModeIconKey,
   ModeId,
@@ -117,9 +118,11 @@ export interface TopLevelNavLink {
 /**
  * Runtime facts the menu cannot know statically.
  *
- * Every flag defaults to `true` because every corresponding route is currently
- * live and tested; they exist so that a mode taken offline is removed from the
- * menu by a caller rather than by editing this file under time pressure.
+ * Every flag defaults to `true` — every corresponding route is currently live
+ * and tested — EXCEPT `dailyRunTheTable`; they exist so that a mode taken
+ * offline (or, per LP2-3 below, on hold pending a reason to advertise it) is
+ * removed from the menu by a caller rather than by editing this file under
+ * time pressure.
  */
 export interface NavAvailability {
   /** 82-0 PEAK Season is playable. */
@@ -132,14 +135,48 @@ export interface NavAvailability {
   leaderboard?: boolean;
   /** Per-user run history exists to link to. */
   matchHistory?: boolean;
+  /**
+   * The Arena's live multiplayer modes are being served.
+   *
+   * Defaults to TRUE, unlike `dailyRunTheTable`. The two games behind it are
+   * finished and routable, and the failure this flag guards against is the one
+   * that actually happened: Three-Man Weave and The $20 Showdown existed, were
+   * playable, and appeared in NO menu, NO homepage section and NO catalog --
+   * reachable only by typing `/arena/lobby`. A finished mode with no door is
+   * the exact condition `navModelIssues` was written to fail on, so they are
+   * listed by default and a caller that knows the Arena is dark passes
+   * `{ multiplayer: false }`.
+   *
+   * The links themselves are honest either way: they point at the lobby, which
+   * reads the server's own readiness and renders a closed-alpha state rather
+   * than a playable button, so a visitor without access lands somewhere that
+   * explains itself instead of on a 403.
+   */
+  multiplayer?: boolean;
 }
 
+/**
+ * LP2-3: `dailyRunTheTable` defaults to `false`, not `true` like every other
+ * flag in this object.
+ *
+ * `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md` traced every
+ * stage of run generation, battle resolution and pricing and found no
+ * `run_type` branch anywhere a player could feel — a daily run and a
+ * standard run given the same seed are identical in everything except which
+ * seed they got — and the one signal the backend computes specifically for
+ * daily (`already_played`) was never wired into any frontend surface that
+ * reads this flag. This is a menu default, not a capability removal: the
+ * route, the seed function, the partial unique index and any already-saved
+ * daily run are all untouched, and passing `{ dailyRunTheTable: true }`
+ * still turns the nav entry back on exactly as before.
+ */
 const DEFAULT_AVAILABILITY: Required<NavAvailability> = {
   peakSeason: true,
-  dailyRunTheTable: true,
+  dailyRunTheTable: false,
   ranked: true,
   leaderboard: true,
   matchHistory: true,
+  multiplayer: true,
 };
 
 /* ------------------------------------------------------------------ */
@@ -270,6 +307,14 @@ export function navGroups(availability: NavAvailability = {}): NavGroup[] {
     );
   }
 
+  // Multiplayer. Its own section rather than a row inside Competitive: these
+  // are the only modes in the product where somebody else is at the table, and
+  // "play against a person" is a different decision from "compare my score to
+  // a board".
+  const multiplayer: NavItem[] = flags.multiplayer
+    ? MULTIPLAYER_MODE_IDS.map((id) => fromMode(id, { activePrefix: "/arena/lobby" }))
+    : [];
+
   const competitive: NavItem[] = [];
   if (flags.ranked) {
     competitive.push(
@@ -347,6 +392,12 @@ export function navGroups(availability: NavAvailability = {}): NavGroup[] {
   const groups: NavGroup[] = [
     { id: "flagship", label: "Flagship", hint: "The long-form modes", items: flagship },
     { id: "daily", label: "Daily", hint: "New board every day", items: daily },
+    {
+      id: "multiplayer",
+      label: "Multiplayer",
+      hint: "Live games against other people",
+      items: multiplayer,
+    },
     { id: "competitive", label: "Competitive", hint: "Play against the field", items: competitive },
     { id: "explore", label: "Explore", hint: "Everything else", items: explore },
   ];
@@ -570,7 +621,9 @@ export function navModelIssues(availability: NavAvailability = {}): string[] {
 
   const flags = { ...DEFAULT_AVAILABILITY, ...availability };
   const availableModes: ModeId[] = (Object.keys(MODE_COPY) as ModeId[]).filter(
-    (id) => !(id === "peak-season" && !flags.peakSeason),
+    (id) =>
+      !(id === "peak-season" && !flags.peakSeason) &&
+      !(MULTIPLAYER_MODE_IDS.includes(id) && !flags.multiplayer),
   );
   for (const modeId of availableModes) {
     if (!canonicalModes.has(modeId)) issues.push(`mode "${modeId}" is not reachable from the nav`);

@@ -387,7 +387,7 @@ async function stepOnce(page: Page, surface: SurfaceId, strategy: Strategy): Pro
     case "rtt-opening-reveal":
     case "rtt-boss-reveal": {
       const kind = surface === "rtt-opening-reveal" ? "roster" : "boss";
-      await page.locator(`[data-testid="rtt-reveal-next-${kind}"]`).click();
+      await page.locator(`[data-testid="rtt-reveal-start-${kind}"]`).click();
       const skip = page.locator(`[data-testid="rtt-reveal-skip-${kind}"]`);
       await skip.waitFor({ state: "visible", timeout: 20_000 });
       await skip.click();
@@ -773,7 +773,7 @@ test("08 opening roster reveal, partial and complete", async ({ page }) => {
   await reveal.waitFor({ state: "visible", timeout: 30_000 });
   // Reveal ONE card so the frame is genuinely partial: some slots named, the
   // rest still face down.
-  await page.getByTestId("rtt-reveal-next-roster").click();
+  await page.getByTestId("rtt-reveal-start-roster").click();
   await page.getByTestId("rtt-reveal-skip-roster").waitFor({ state: "visible", timeout: 20_000 });
   const partialProgress = (await page.getByTestId("rtt-reveal-progress-roster").innerText()).trim();
   await settle(page);
@@ -804,7 +804,7 @@ test("08 opening roster reveal, partial and complete", async ({ page }) => {
   );
   expect(total).toBeGreaterThan(1);
   for (let revealed = 1; revealed < total - 1; revealed++) {
-    await page.getByTestId("rtt-reveal-next-roster").click();
+    await page.getByTestId("rtt-reveal-start-roster").click();
     await expect(progress).toHaveText(new RegExp(`^${revealed + 1} of ${total}`, "i"), {
       timeout: 20_000,
     });
@@ -820,7 +820,7 @@ test("08 opening roster reveal, partial and complete", async ({ page }) => {
     fullPage: true,
   });
 
-  await page.getByTestId("rtt-reveal-next-roster").click();
+  await page.getByTestId("rtt-reveal-start-roster").click();
   await expect(page.getByTestId("rtt-opening-reveal")).toHaveCount(0, { timeout: 25_000 });
   // The tray marks itself with `data-tour-id`, not a testid.
   const tray = page.locator('[data-tour-id="rtt-roster"]');

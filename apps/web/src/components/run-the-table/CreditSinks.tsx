@@ -75,7 +75,7 @@ export default function CreditSinks({ sinks, busy, onSpend, heading }: Props) {
                   <span
                     className="score-number shrink-0 text-xs font-bold"
                     data-testid={`rtt-sink-cost-${sink.id}`}
-                    style={{ color: "var(--peak-accent)" }}
+                    style={{ color: "var(--peak-accent-text)" }}
                   >
                     {sink.cost} cr
                   </span>

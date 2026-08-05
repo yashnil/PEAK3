@@ -104,7 +104,11 @@
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--peak-accent);
+  /* P6-d MEASURED FAIL: 1.39:1 (axe, live, e.g. "How Run the Table works").
+     `.pk-tour-progress` (the "N of M" sibling span) sets its own color and
+     is unaffected; this rule's inherited color reaches the bare eyebrow
+     text specifically. */
+  color: var(--peak-accent-text);
 }
 
 .pk-tour-progress {
@@ -265,7 +269,9 @@
 
 .pk-tour-launcher:hover:not(:disabled) {
   border-color: var(--peak-accent);
-  color: var(--peak-accent);
+  /* P6-d MEASURED FAIL: 1.49:1 (axe, live). The button's `<span>{label}</span>`
+     (e.g. "Take the tour") sets no color of its own and inherits this one. */
+  color: var(--peak-accent-text);
 }
 
 .pk-tour-launcher:disabled {
@@ -306,7 +312,11 @@
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--peak-accent);
+  /* P6-d MEASURED FAIL: 1.32:1 against this coachmark's own --peak-accent-bg
+     wash (axe, live, "First Draft Room" -- fresh browser context, first
+     DraftRoom visit). Text on its own wash, same bug class as
+     .pk-nav-drawer-resume above. */
+  color: var(--peak-accent-text);
 }
 
 .pk-coachmark-body {

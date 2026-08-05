@@ -40,6 +40,21 @@ async function gotoRankings(page: Page): Promise<void> {
  *  warm/idle machine mounts and analyses faster than the animation completes.
  *  The reported "serious: color-contrast" was real; it just described a frame
  *  no user ever interacts with. */
+/** Open the explain modal.
+ *
+ * A ROW CLICK NO LONGER DOES THIS. Selecting a row and explaining a row became
+ * two different actions when the composite chart moved out of the modal and
+ * into a standing detail panel: click the row to swap the panel, click the
+ * player's name to read the full derivation. Comparing twenty peaks used to
+ * mean opening and closing twenty dialogs. */
+async function openExplainModal(page: Page): Promise<void> {
+  await page
+    .locator('[data-testid="rankings-row"]')
+    .first()
+    .getByRole("button", { name: /Explain the PEAK3 score/i })
+    .click();
+}
+
 async function waitForModalOpaque(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
@@ -207,7 +222,7 @@ test.describe("Rankings — explanation modal", () => {
     await gotoRankings(page);
     const urlBefore = page.url();
 
-    await page.locator('[data-testid="rankings-row"]').first().click();
+    await openExplainModal(page);
     const modal = page.locator('[data-testid="score-explain-modal"]');
     await expect(modal).toBeVisible({ timeout: 15_000 });
 
@@ -223,7 +238,7 @@ test.describe("Rankings — explanation modal", () => {
 
   test("the modal is not mostly 'not available'", async ({ page }) => {
     await gotoRankings(page);
-    await page.locator('[data-testid="rankings-row"]').first().click();
+    await openExplainModal(page);
     const modal = page.locator('[data-testid="score-explain-modal"]');
     await expect(modal).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('[data-testid="score-explain-component-cards"]')).toBeVisible();
@@ -239,7 +254,7 @@ test.describe("Rankings — explanation modal", () => {
     // content rather than mere presence.
     const jordan = page.locator('[data-testid="rankings-row"]', { hasText: "Michael Jordan" }).first();
     await jordan.waitFor({ timeout: 20_000 });
-    await jordan.click();
+    await jordan.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
 
     const modal = page.locator('[data-testid="score-explain-modal"]');
     await expect(modal).toBeVisible({ timeout: 15_000 });
@@ -263,7 +278,7 @@ test.describe("Rankings — explanation modal", () => {
 
   test("a component segment is focusable and updates the detail panel", async ({ page }) => {
     await gotoRankings(page);
-    await page.locator('[data-testid="rankings-row"]').first().click();
+    await openExplainModal(page);
     await expect(page.locator('[data-testid="component-breakdown"]')).toBeVisible({ timeout: 15_000 });
 
     const segments = page.locator('[data-testid="component-breakdown"] button');
@@ -282,7 +297,7 @@ test.describe("Rankings — explanation modal", () => {
     await gotoRankings(page);
     await page.locator('[data-testid="pool-tab-seasons"]').click();
     await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
-    await page.locator('[data-testid="rankings-row"]').first().click();
+    await openExplainModal(page);
 
     const modal = page.locator('[data-testid="score-explain-modal"]');
     await expect(modal).toBeVisible({ timeout: 15_000 });
@@ -301,12 +316,12 @@ test.describe("Rankings — explanation modal", () => {
     await gotoRankings(page);
     const modal = page.locator('[data-testid="score-explain-modal"]');
 
-    await page.locator('[data-testid="rankings-row"]').first().click();
+    await openExplainModal(page);
     await expect(modal).toBeVisible({ timeout: 15_000 });
     await page.keyboard.press("Escape");
     await expect(modal).toHaveCount(0);
 
-    await page.locator('[data-testid="rankings-row"]').first().click();
+    await openExplainModal(page);
     await expect(modal).toBeVisible({ timeout: 15_000 });
     await page.locator('[data-testid="score-explain-close"]').click();
     await expect(modal).toHaveCount(0);
@@ -314,7 +329,10 @@ test.describe("Rankings — explanation modal", () => {
 
   test("a row is reachable and openable by keyboard alone", async ({ page }) => {
     await gotoRankings(page);
-    const trigger = page.locator('[data-testid="rankings-row"] button').first();
+    const trigger = page
+      .locator('[data-testid="rankings-row"]')
+      .first()
+      .getByRole("button", { name: /Explain the PEAK3 score/i });
     await trigger.focus();
     await expect(trigger).toBeFocused();
     await page.keyboard.press("Enter");
@@ -337,7 +355,7 @@ test.describe("Rankings — accessibility", () => {
 
   test("the open modal has no critical/serious violations", async ({ page }) => {
     await gotoRankings(page);
-    await page.locator('[data-testid="rankings-row"]').first().click();
+    await openExplainModal(page);
     await expect(page.locator('[data-testid="score-explain-modal"]')).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('[data-testid="component-breakdown"]')).toBeVisible();
     await waitForModalOpaque(page);
@@ -365,7 +383,7 @@ test.describe("Rankings — mobile", () => {
   test("@mobile the modal fits the viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoRankings(page);
-    await page.locator('[data-testid="rankings-row"]').first().click();
+    await openExplainModal(page);
     const modal = page.locator('[data-testid="score-explain-modal"]');
     await expect(modal).toBeVisible({ timeout: 15_000 });
     const box = await modal.boundingBox();
@@ -386,7 +404,7 @@ test.describe("Rankings — row-specific receipts", () => {
     await page.goto("/rankings", { waitUntil: "load" });
     const row = page.getByTestId("rankings-row").first();
     await expect(row).toBeVisible({ timeout: 20_000 });
-    await row.click();
+    await row.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
     await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
   }
 
@@ -423,7 +441,7 @@ test.describe("Rankings — row-specific receipts", () => {
     await page.getByTestId("score-explain-close").click();
 
     const second = page.getByTestId("rankings-row").nth(3);
-    await second.click();
+    await second.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
     await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("score-explain-receipts")).toBeVisible();
     const other = await page.getByTestId("score-explain-receipts").innerText();
@@ -434,6 +452,31 @@ test.describe("Rankings — row-specific receipts", () => {
   test("the modal stays accessible with the new sections", async ({ page }) => {
     await openFirstRow(page);
     await expect(page.getByTestId("score-explain-receipts")).toBeVisible({ timeout: 15_000 });
+
+    // WAIT FOR THE ENTRANCE TRANSITION TO SETTLE BEFORE AUDITING.
+    //
+    // `toBeVisible` resolves as soon as the element has a box, which is true
+    // part-way through the dialog's opacity ramp. Auditing there measures a
+    // frame nobody looks at: axe read `--text-muted` (#838799) composited at
+    // ~94.5% opacity over #191c23 as #7d8193, scored it 4.41:1 and reported a
+    // serious colour-contrast violation. At rest the same pair is 4.78:1 and
+    // passes AA -- the product was never out of compliance, the audit was
+    // simply early. It surfaced as an intermittent failure because whether the
+    // scan lands mid-ramp depends on machine load.
+    //
+    // Asserting settled opacity is STRICTER than what was here before, not
+    // looser: it audits the state a user actually reads, and a genuine
+    // contrast regression at rest still fails exactly as it did.
+    await expect
+      .poll(
+        async () =>
+          page
+            .getByTestId("score-explain-modal")
+            .evaluate((el) => getComputedStyle(el).opacity),
+        { timeout: 5_000 },
+      )
+      .toBe("1");
+
     const results = await new AxeBuilder({ page })
       .include('[data-testid="score-explain-modal"]')
       .analyze();
@@ -479,7 +522,7 @@ test.describe("Rankings — season finalization", () => {
     if (!(await row.count())) {
       test.skip(true, "no 2025-26 row on the default board");
     }
-    await row.click();
+    await row.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
 
     const modal = page.getByTestId("score-explain-modal");
     await expect(modal).toBeVisible({ timeout: 15_000 });
@@ -492,7 +535,7 @@ test.describe("Rankings — season finalization", () => {
     await page.goto("/rankings", { waitUntil: "load" });
     const row = page.getByTestId("rankings-row").first();
     await expect(row).toBeVisible({ timeout: 20_000 });
-    await row.click();
+    await row.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
     await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
 
     const modal = await page.getByTestId("score-explain-modal").innerText();
@@ -536,7 +579,7 @@ test.describe("Rankings — model version", () => {
     await page.getByTestId("rankings-search").fill("LeBron");
     const row = page.getByTestId("rankings-row").first();
     await expect(row).toBeVisible({ timeout: 15_000 });
-    await row.click();
+    await row.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
     await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
 
     const panel = page.getByTestId("score-explain-anchor-selection");
@@ -705,5 +748,106 @@ test.describe("Rankings — provenance", () => {
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow).toBeLessThanOrEqual(1);
+  });
+});
+
+test.describe("Rankings — the selected-player composite profile", () => {
+  test("defaults to the top-ranked row and draws all six axes", async ({ page }) => {
+    await gotoRankings(page);
+
+    const detail = page.locator('[data-testid="rankings-detail"]');
+    await expect(detail).toBeVisible({ timeout: 20_000 });
+
+    // The default is the board's own leader, not an empty panel waiting for a
+    // click. A reader lands on the page already looking at something.
+    const topRowName = (
+      await page
+        .locator('[data-testid="rankings-row"]')
+        .first()
+        .getByRole("button", { name: /Explain the PEAK3 score/i })
+        .innerText()
+    ).trim();
+    await expect(page.locator('[data-testid="rk-detail-name"]')).toHaveText(topRowName);
+
+    for (const key of [
+      "statistical_impact",
+      "traditional_production",
+      "individual_recognition",
+      "postseason_individual_value",
+      "team_achievement",
+      "data_completeness",
+    ]) {
+      await expect(page.locator(`[data-testid="rk-chart-label-${key}"]`)).toBeAttached();
+    }
+  });
+
+  test("selecting a different row swaps the panel in place", async ({ page }) => {
+    await gotoRankings(page);
+    const before = await page.locator('[data-testid="rk-detail-name"]').innerText();
+
+    const third = page.locator('[data-testid="rankings-row"]').nth(2);
+    const scrollBefore = await page.evaluate(() => window.scrollY);
+    await third.click();
+
+    await expect
+      .poll(async () => page.locator('[data-testid="rk-detail-name"]').innerText(), {
+        timeout: 10_000,
+      })
+      .not.toBe(before);
+    await expect(third).toHaveAttribute("data-selected", "true");
+    // The panel swaps; the reader's place in the list does not move.
+    expect(Math.abs((await page.evaluate(() => window.scrollY)) - scrollBefore)).toBeLessThan(80);
+  });
+
+  test("is selectable by keyboard", async ({ page }) => {
+    await gotoRankings(page);
+    const second = page.locator('[data-testid="rankings-row"]').nth(1);
+    const select = second.getByRole("button", { name: /Show the component profile/i });
+    await select.focus();
+    await page.keyboard.press("Enter");
+    await expect(select).toHaveAttribute("aria-pressed", "true");
+    await expect(second).toHaveAttribute("data-selected", "true");
+  });
+
+  test("gives every charted value as a table as well", async ({ page }) => {
+    await gotoRankings(page);
+    // NOT a fallback: a radar is good at shape and bad at exact values, so the
+    // numbers live in a table for everybody rather than only for a reader who
+    // cannot see the chart.
+    const table = page.locator('[data-testid="rk-detail-table"]');
+    await expect(table).toBeVisible();
+    await expect(table.locator("tbody tr")).toHaveCount(6);
+    await expect(page.locator('[data-testid="rk-detail-row-data_completeness"]')).toBeVisible();
+  });
+
+  test("the chart does not clip or trap scrolling at 200% zoom", async ({ page }) => {
+    await gotoRankings(page);
+    // 200% zoom, emulated by halving the viewport against the same CSS pixels.
+    await page.setViewportSize({ width: 640, height: 480 });
+    await expect(page.locator('[data-testid="rankings-composite-chart"]')).toBeVisible();
+
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow, "the rankings page scrolls horizontally at 200% zoom").toBeLessThanOrEqual(1);
+
+    const box = await page.locator(".rk-chart-svg").boundingBox();
+    expect(box, "the chart did not render").not.toBeNull();
+    expect(box!.width).toBeGreaterThan(0);
+  });
+
+  test("has no serious accessibility violations with the panel open", async ({ page }) => {
+    await gotoRankings(page);
+    await expect(page.locator('[data-testid="rankings-detail"]')).toBeVisible();
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    const serious = results.violations.filter((v) =>
+      ["serious", "critical"].includes(v.impact ?? ""),
+    );
+    expect(
+      serious,
+      `serious/critical axe violations: ${serious.map((v) => v.id).join(", ")}`,
+    ).toEqual([]);
   });
 });

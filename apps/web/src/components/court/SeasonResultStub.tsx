@@ -214,12 +214,12 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
   return (
     <div data-testid="season-result" className="share-card-shell flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-black uppercase tracking-widest" style={{ color: "var(--peak-accent, #f5c842)" }}>
+        <span className="text-xs font-black uppercase tracking-widest" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
           PEAK3 · {isDaily ? "Daily PEAK Season" : "82-0 Peak Season"}
         </span>
         <div
           className="text-[10px] uppercase tracking-wide rounded px-2 py-1"
-          style={{ background: "rgba(245,200,66,0.15)", color: "var(--peak-accent, #f5c842)" }}
+          style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent-text, #f5c842)" }}
           data-testid="v0-simulator-label"
         >
           Experimental simulator
@@ -235,7 +235,7 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
         <div
           data-testid="result-tier"
           className="text-xs font-bold uppercase tracking-[0.2em] mb-1"
-          style={{ color: "var(--peak-accent, #f5c842)" }}
+          style={{ color: "var(--peak-accent-text, #f5c842)" }}
         >
           {resultTier(result.wins)}
         </div>
@@ -243,7 +243,7 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
           <div
             data-testid="season-record"
             className="text-6xl font-black"
-            style={{ color: showPerfectStyling ? "var(--peak-accent, #f5c842)" : "var(--text-primary)" }}
+            style={{ color: showPerfectStyling ? "var(--peak-accent-text, #f5c842)" : "var(--text-primary)" }}
           >
             {result.wins}-{result.losses}
           </div>
@@ -253,7 +253,7 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
           {isIncomplete && (
             <span
               className="text-[10px] font-bold uppercase tracking-wide rounded-full px-2 py-1 self-start mt-2"
-              style={{ color: "var(--text-muted)", background: "rgba(255,255,255,0.08)" }}
+              style={{ color: "var(--text-muted)", background: "var(--pk-surface-inset, var(--bg-elevated))" }}
               data-testid="estimated-record-badge"
               title="One or more cards have no official PEAK3 score yet -- this record uses conservative provisional impact for those cards, based on each card's real games/minutes sample."
             >
@@ -263,7 +263,7 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
         </div>
         <div
           className="text-sm font-bold uppercase tracking-wide"
-          style={{ color: showPerfectStyling ? "var(--peak-accent, #f5c842)" : "var(--text-secondary)" }}
+          style={{ color: showPerfectStyling ? "var(--peak-accent-text, #f5c842)" : "var(--text-secondary)" }}
           data-testid="record-framing"
         >
           {recordFraming(result.wins, result.losses, isIncomplete)}
@@ -272,7 +272,7 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
           {identity}
         </div>
         {isDaily && dailyDateLabel && (
-          <div className="text-xs mt-1 font-semibold" style={{ color: "var(--peak-accent, #f5c842)" }} data-testid="daily-challenge-label">
+          <div className="text-xs mt-1 font-semibold" style={{ color: "var(--peak-accent-text, #f5c842)" }} data-testid="daily-challenge-label">
             Daily challenge · {dailyDateLabel}
           </div>
         )}
@@ -303,12 +303,15 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
 
       {best && (
         <motion.div {...reveal(2)} className="flex gap-2 text-xs justify-center" data-testid="best-and-weakness">
-          <span className="rounded-full px-2.5 py-1" style={{ background: "rgba(52,211,153,0.1)", color: "#34d399" }}>
+          <span
+            className="rounded-full px-2.5 py-1"
+            style={{ background: "color-mix(in srgb, var(--accent-emerald) 10%, transparent)", color: "var(--accent-emerald)" }}
+          >
             Best pick: {best}
           </span>
           <span
             className="rounded-full px-2.5 py-1"
-            style={{ background: "rgba(251,146,60,0.1)", color: "#fb923c" }}
+            style={{ background: "color-mix(in srgb, var(--accent-orange) 10%, transparent)", color: "var(--accent-orange)" }}
             data-testid="weakness-label"
           >
             {weaknessLabel}: {weakness}
@@ -424,7 +427,7 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
           <Link
             href="/arena/court/practice/apex_1y"
             className="text-xs font-semibold uppercase tracking-wide rounded px-3 py-1.5 shrink-0"
-            style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+            style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
           >
             Build your own
           </Link>
@@ -442,7 +445,7 @@ export default function SeasonResultStub({ state, result, onPlayAgain, playAgain
           className="text-xs rounded-lg p-3"
           style={{ background: "var(--bg-surface)", color: "var(--text-muted)", border: "1px solid var(--border-default)" }}
         >
-          <span className="font-semibold" style={{ color: "#fb923c" }}>
+          <span className="font-semibold" style={{ color: "var(--warning)" }}>
             Not leaderboard-eligible ·{" "}
           </span>
           {eligibility.reason_detail}

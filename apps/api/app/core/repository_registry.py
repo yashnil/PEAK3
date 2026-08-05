@@ -50,6 +50,19 @@ REPOSITORY_DOMAINS: list[str] = [
     "run_the_table_run",
     "head_to_head",
     "peak_duel_daily_result",
+    # Server-authoritative multiplayer. Wired in core/dependencies.py
+    # (get_arena_repo), which per this list's own rule above is the only
+    # criterion for membership -- and this domain is the sharpest case for that
+    # rule: an arena match is live state with a running clock and a rated result
+    # owed to somebody, so a production process serving it out of a dict would
+    # drop matches mid-turn on every restart.
+    "arena",
+    # Arena public ratings. Wired in core/dependencies.py
+    # (get_arena_rating_repo). A rating is the most durability-sensitive record
+    # in this application: a match lost to a restart can be replayed, but a
+    # rating that silently reverted is a number a player watched go up and then
+    # go back down, with nothing to point at.
+    "arena_rating",
 ]
 
 

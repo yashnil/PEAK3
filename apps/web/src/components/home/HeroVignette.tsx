@@ -112,7 +112,7 @@ export default function HeroVignette({ windows }: HeroVignetteProps) {
                 <div className="min-w-0">
                   <p
                     className="text-[10px] font-bold uppercase tracking-[0.16em]"
-                    style={{ color: "var(--peak-accent)" }}
+                    style={{ color: "var(--peak-accent-text)" }}
                   >
                     Peak window · Rank {w.rank}
                   </p>
@@ -128,7 +128,7 @@ export default function HeroVignette({ windows }: HeroVignetteProps) {
                   <div className="shrink-0 text-right">
                     <p
                       className="score-number text-2xl font-bold leading-none sm:text-3xl"
-                      style={{ color: "var(--peak-accent)", fontVariantNumeric: "tabular-nums" }}
+                      style={{ color: "var(--peak-accent-text)", fontVariantNumeric: "tabular-nums" }}
                     >
                       {w.primeScore.toFixed(1)}
                     </p>

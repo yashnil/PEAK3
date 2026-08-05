@@ -1,7 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { componentLabel, componentColor } from "@/lib/utils";
+import { componentLabel, componentColor, componentTextColor } from "@/lib/utils";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -50,7 +50,7 @@ export default async function PlayerPage({ params }: Props) {
           </p>
           <Link
             href="/rankings"
-            className="inline-flex items-center gap-2 text-sm text-[var(--peak-accent)] underline"
+            className="inline-flex items-center gap-2 text-sm text-[var(--peak-accent-text)] underline"
           >
             <ArrowLeft size={14} /> Back to rankings
           </Link>
@@ -106,7 +106,7 @@ export default async function PlayerPage({ params }: Props) {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-4xl font-bold score-number font-display text-[var(--peak-accent)]">
+                    <p className="text-4xl font-bold score-number font-display text-[var(--peak-accent-text)]">
                       {win.prime_score.toFixed(1)}
                     </p>
                     <p className="text-xs text-[var(--text-muted)]">Prime Score</p>
@@ -126,13 +126,14 @@ export default async function PlayerPage({ params }: Props) {
                       {COMPONENT_KEYS.map((key) => {
                         const val = win.components[key];
                         const color = componentColor(key);
+                        const textColor = componentTextColor(key);
                         const maxVal = 40;
                         const barPct = Math.max(0, Math.min(100, (val / maxVal) * 100));
                         return (
                           <div key={key} className="flex items-center gap-3">
                             <p
                               className="text-xs w-36 shrink-0 text-right"
-                              style={{ color }}
+                              style={{ color: textColor }}
                             >
                               {componentLabel(key)}
                             </p>
@@ -169,7 +170,7 @@ export default async function PlayerPage({ params }: Props) {
                 <div className="pt-2 border-t border-[var(--border-subtle)]">
                   <Link
                     href={`/rankings?years=${d}`}
-                    className="text-xs text-[var(--peak-accent)] underline"
+                    className="text-xs text-[var(--peak-accent-text)] underline"
                   >
                     View {d}-year leaderboard →
                   </Link>
@@ -181,7 +182,7 @@ export default async function PlayerPage({ params }: Props) {
 
         <p className="text-xs text-[var(--text-muted)]">
           Rankings reflect the PEAK3 formula. Not a claim of objective historical truth.{" "}
-          <Link href="/methodology" className="text-[var(--peak-accent)] underline">
+          <Link href="/methodology" className="text-[var(--peak-accent-text)] underline">
             Methodology
           </Link>
         </p>

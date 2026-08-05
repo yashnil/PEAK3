@@ -124,9 +124,33 @@ describe("nav model structure", () => {
     expect(navGroups().map((g) => g.id)).toEqual([
       "flagship",
       "daily",
+      "multiplayer",
       "competitive",
       "explore",
     ]);
+  });
+
+  it("exposes both multiplayer games in their own group", () => {
+    // The defect this asserts against: Three-Man Weave and The $20 Showdown
+    // were finished, playable and in NO menu at all -- reachable only by
+    // typing /arena/lobby.
+    const group = navGroups().find((g) => g.id === "multiplayer");
+    expect(group).toBeDefined();
+    expect(group?.items.map((i) => i.modeId).sort()).toEqual([
+      "three-man-weave",
+      "twenty-dollar",
+    ]);
+    for (const item of group?.items ?? []) {
+      expect(item.kind).toBe("game");
+      expect(item.href.startsWith("/arena/lobby")).toBe(true);
+    }
+  });
+
+  it("drops the multiplayer group when the arena is dark", () => {
+    const groups = navGroups({ multiplayer: false });
+    expect(groups.map((g) => g.id)).not.toContain("multiplayer");
+    // And the reachability invariant must not then complain about them.
+    expect(navModelIssues({ multiplayer: false })).toEqual([]);
   });
 
   it("ends with 'View all games' → /arena, so ArrowUp lands on the hub", () => {
@@ -142,8 +166,17 @@ describe("nav model structure", () => {
     expect(allGameHrefs()).toContain("/play/endless");
   });
 
-  it("offers RUN THE TABLE's daily board as its own entry", () => {
-    expect(allGameHrefs()).toContain(RUN_THE_TABLE_DAILY_HREF);
+  // LP2-3 flipped `dailyRunTheTable`'s default to `false` --
+  // `docs/implementation/launch-polish/RTT_DAILY_EVIDENCE.md` found nothing a
+  // player could point to that it delivers over Standard. The entry itself
+  // still exists in the model and still renders when the flag is explicitly
+  // on; see the two tests below and `"availability is a runtime input"`.
+  it("does not offer RUN THE TABLE's daily board by default", () => {
+    expect(allGameHrefs()).not.toContain(RUN_THE_TABLE_DAILY_HREF);
+  });
+
+  it("offers RUN THE TABLE's daily board as its own entry when explicitly enabled", () => {
+    expect(allGameHrefs({ dailyRunTheTable: true })).toContain(RUN_THE_TABLE_DAILY_HREF);
   });
 });
 
@@ -217,7 +250,10 @@ describe("active-route detection", () => {
   });
 
   it("distinguishes the standard run from the daily run by query", () => {
-    const items = navGroups().flatMap((g) => g.items);
+    // Explicitly enabled: the daily entry is off by default since LP2-3, but
+    // the isActive distinction it relies on (`absentQuery`) is a permanent
+    // invariant of the model, exercised here with the flag turned back on.
+    const items = navGroups({ dailyRunTheTable: true }).flatMap((g) => g.items);
     const standard = items.find((i) => i.id === "run-the-table")!;
     const dailyRun = items.find((i) => i.id === "run-the-table-daily")!;
 
@@ -238,7 +274,7 @@ describe("active-route detection", () => {
   });
 
   it("accepts a URLSearchParams as well as a string", () => {
-    const dailyRun = navGroups()
+    const dailyRun = navGroups({ dailyRunTheTable: true })
       .flatMap((g) => g.items)
       .find((i) => i.id === "run-the-table-daily")!;
     expect(isActive("/arena/run-the-table", dailyRun, new URLSearchParams("mode=daily"))).toBe(

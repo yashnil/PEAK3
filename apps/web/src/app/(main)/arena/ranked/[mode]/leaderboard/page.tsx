@@ -36,7 +36,7 @@ export default function RankedLeaderboardPage({ params }: Props) {
         <h1 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
           {RANKED_MODE_LABELS[rankedMode]} Leaderboard
         </h1>
-        <Link href={`/arena/ranked/${rankedMode}`} className="text-sm" style={{ color: "var(--peak-accent)" }}>
+        <Link href={`/arena/ranked/${rankedMode}`} className="text-sm" style={{ color: "var(--peak-accent-text)" }}>
           Back to queue
         </Link>
       </div>

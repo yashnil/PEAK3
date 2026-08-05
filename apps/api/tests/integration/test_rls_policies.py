@@ -214,11 +214,21 @@ async def test_participant_cannot_read_opponent_submission_before_settlement(db_
 # ---------------------------------------------------------------------------
 
 # table -> (owner column, INSERT taking the owner sub as $1)
+#
+# `profiles` is deliberately NOT in this dict. This generic harness's own
+# verification technique -- `SELECT 1 FROM {table} WHERE {owner_column} = $1`
+# -- requires SELECT privilege on the owner column itself, which is exactly
+# the privilege 20260803120000_profile_column_privileges.sql revokes for
+# `profiles.auth_sub` (Postgres checks column privilege for every column a
+# query REFERENCES, WHERE clauses included, not only the output list). Using
+# this harness unmodified against profiles would either force auth_sub back
+# open or make every profiles case in this loop raise
+# InsufficientPrivilegeError instead of asserting the row-visibility outcome
+# it exists to check. `profiles` gets its own dedicated tests below instead,
+# in "Column-level privileges on profiles", filtering by `id` (which carries
+# no such restriction) and asserting `auth_sub` itself is unreadable as its
+# own, separate, more precise claim.
 _OWNED_TABLES: dict[str, tuple[str, str]] = {
-    "profiles": (
-        "auth_sub",
-        "INSERT INTO profiles (id, auth_sub, is_public) VALUES (gen_random_uuid(), $1, false)",
-    ),
     "games": (
         "owner_sub",
         """
@@ -381,6 +391,131 @@ async def test_guest_owned_rows_are_unreachable_through_postgrest(db_pool, table
                 f"SELECT 1 FROM {table} WHERE {owner_column} = $1", guest_sub
             )
             assert rows == [], f"{table}: a guest's row must not be reachable via PostgREST"
+        finally:
+            await conn.execute("RESET ROLE")
+            await db_pool.release(conn)
+
+
+# ---------------------------------------------------------------------------
+# Column-level privileges on profiles (20260803120000_profile_column_privileges.sql).
+#
+# Same shape as "The spoiler columns" section below for board_snapshots and
+# challenges: profiles_public_read (20260630124900_rls.sql) is a correct ROW
+# filter (`is_public = true`), but combined with
+# 20260630130100_default_privileges.sql's table-wide grant it exposed every
+# COLUMN of a public row, including `auth_sub` -- the raw Supabase auth.uid()
+# behind that profile. Reproduced for real against this database before
+# writing the fix (see the migration's own header for the exact commands),
+# not just reasoned about.
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def seeded_profile(db_pool):
+    """One public profile with a known id and handle, written as the owner."""
+    owner_sub = str(uuid.uuid4())
+    marker = uuid.uuid4().hex[:8]
+    async with db_pool.acquire() as service_conn:
+        row = await service_conn.fetchrow(
+            """
+            INSERT INTO profiles (id, auth_sub, handle, is_public)
+            VALUES (gen_random_uuid(), $1, $2, true)
+            RETURNING id
+            """,
+            owner_sub, f"rlsprobe{marker}",
+        )
+    return {"id": str(row["id"]), "owner_sub": owner_sub, "handle": f"rlsprobe{marker}"}
+
+
+@pytest.mark.asyncio
+async def test_profile_owner_can_still_read_their_own_safe_columns(db_pool, seeded_profile) -> None:
+    """The column-level grant does not collaterally block the owner reading
+    their own safe fields -- filtered by `id`, which carries no privilege
+    restriction (unlike `auth_sub`; see the module comment above
+    `_OWNED_TABLES`)."""
+    conn = await _connection_as(db_pool, seeded_profile["owner_sub"])
+    try:
+        rows = await conn.fetch(
+            "SELECT id, handle, display_name, is_public FROM profiles WHERE id = $1",
+            uuid.UUID(seeded_profile["id"]),
+        )
+        assert len(rows) == 1
+        assert rows[0]["handle"] == seeded_profile["handle"]
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_anonymous_can_read_a_public_profiles_safe_columns(db_pool, seeded_profile) -> None:
+    """The genuinely public metadata is preserved, not collateral damage --
+    same "prove the fix didn't overcorrect" pairing every column-privilege
+    fix in this file gets."""
+    conn = await _connection_as(db_pool, sub=None, role="anon")
+    try:
+        rows = await conn.fetch(
+            "SELECT id, handle, normalized_handle, display_name, bio, region, "
+            "avatar_key, is_public, history_public, joined_at, updated_at "
+            "FROM profiles WHERE id = $1",
+            uuid.UUID(seeded_profile["id"]),
+        )
+        assert len(rows) == 1
+        assert rows[0]["handle"] == seeded_profile["handle"]
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+async def test_anonymous_cannot_read_a_private_profiles_safe_columns(db_pool) -> None:
+    """The row filter still applies on top of the column grant -- a
+    non-public profile's safe columns are still invisible to anon."""
+    owner_sub = str(uuid.uuid4())
+    async with db_pool.acquire() as service_conn:
+        row = await service_conn.fetchrow(
+            "INSERT INTO profiles (id, auth_sub, handle, is_public) "
+            "VALUES (gen_random_uuid(), $1, $2, false) RETURNING id",
+            owner_sub, f"rlsprivate{uuid.uuid4().hex[:8]}",
+        )
+
+    conn = await _connection_as(db_pool, sub=None, role="anon")
+    try:
+        rows = await conn.fetch(
+            "SELECT id, handle FROM profiles WHERE id = $1", row["id"]
+        )
+        assert rows == [], "a private profile's safe columns must still be invisible to anon"
+    finally:
+        await conn.execute("RESET ROLE")
+        await db_pool.release(conn)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT auth_sub FROM profiles",
+        "SELECT * FROM profiles",
+    ],
+)
+async def test_profile_auth_sub_is_never_readable_by_a_client_key(
+    db_pool, seeded_profile, query: str
+) -> None:
+    """The core claim of this whole section, proven against a real database:
+    `auth_sub` is unreachable through a PostgREST-shaped connection no matter
+    who is asking -- an anonymous caller, a signed-in stranger, and even the
+    profile's OWNER (see the migration's own comment on why the owner's case
+    is not a regression: their `auth_sub` IS the `sub` claim in the JWT they
+    are already holding to make the request, so nothing is newly withheld
+    that they did not already have). `SELECT *` is included deliberately,
+    same reasoning as the board_snapshots/challenges version below: it is
+    what a PostgREST client issues by default, and it must fail rather than
+    quietly return the withheld column.
+    """
+    for sub in (None, str(uuid.uuid4()), seeded_profile["owner_sub"]):
+        conn = await _connection_as(db_pool, sub)
+        try:
+            with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
+                await conn.fetch(query)
         finally:
             await conn.execute("RESET ROLE")
             await db_pool.release(conn)

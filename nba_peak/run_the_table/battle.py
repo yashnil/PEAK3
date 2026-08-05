@@ -235,6 +235,19 @@ def resolve_battle(
         margin = round(p - o, LANE_ROUNDING)
         summed_margin += margin
 
+        # Receipt breakdown (SYNTHESIS_CONTRACT.md §2.3). `pre_perk_rating` is
+        # the vanilla rating at the default bench weight, no prep bonus.
+        # `bench_adjustment` is a RESIDUAL, not an independent recomputation --
+        # `p - bonus - pre_perk_rating` -- so it is guaranteed to isolate
+        # exactly the bench-weight effect (Deep Rotation's better-of-two, or a
+        # boss rule fixing the weight for both teams) and the three fields are
+        # guaranteed to sum to `p` rather than merely agreeing with it after
+        # two separately-rounded computations.
+        pre_perk_rating = lane_score(
+            pool, player_starters, player_bench, lane, BENCH_WEIGHT_DEFAULT
+        )
+        bench_adjustment = round(p - bonus - pre_perk_rating, LANE_ROUNDING)
+
         # `tie_broken_by_rule` means "the boss rule, not the raw margin,
         # determined this lane's result". Under a lane-margin rule that means
         # a lane one side would otherwise have taken is drawn instead.
@@ -260,6 +273,8 @@ def resolve_battle(
                 margin=margin,
                 tie_broken_by_rule=tie_broken,
                 player_prep_bonus=bonus,
+                pre_perk_rating=pre_perk_rating,
+                bench_adjustment=bench_adjustment,
                 player_top_card_id=_top_contributor(
                     pool, list(player_starters) + list(player_bench), lane
                 ),

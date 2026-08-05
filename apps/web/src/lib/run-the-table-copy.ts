@@ -211,6 +211,14 @@ export interface NodeTypeCopy {
    * reusing them for node types would break that correspondence.
    */
   accentVar: string;
+  /**
+   * The text-safe sibling of `accentVar` (P5-F1). `accentVar` is correct for
+   * a border or background fill; used directly as a label's `color` it fails
+   * WCAG AA in light mode (Lighthouse caught this live on the RTT route —
+   * see PERFORMANCE.md). Use this one for text, `accentVar` for everything
+   * else, same as `--peak-accent` vs `--peak-accent-text` elsewhere.
+   */
+  accentTextVar: string;
   /** What the node is for, in one clause. */
   purpose: string;
   /** What actually happens when you take it. Concrete, never a tease. */
@@ -238,6 +246,7 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     label: "Draft Room",
     icon: "draft",
     accentVar: "var(--peak-accent)",
+    accentTextVar: "var(--peak-accent-text)",
     purpose: "Buy one player or keep your credits.",
     // NO OFFER COUNT. This used to read "Three priced cards", which is a run
     // shape number this file's own header forbids restating — and v3 can put a
@@ -252,6 +261,7 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     label: "Trade Desk",
     icon: "trade",
     accentVar: "var(--foundation-blue)",
+    accentTextVar: "var(--foundation-blue-text)",
     purpose: "Replace one roster player. You receive a refund toward the incoming card.",
     // The refund is a share of the outgoing card's ORIGINAL price, not of what
     // you paid after a discount (`pricing.refund_for` reads `base_cost`).
@@ -269,6 +279,7 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     label: "Scout & Prepare",
     icon: "film",
     accentVar: "var(--apex-coral)",
+    accentTextVar: "var(--apex-coral-text)",
     purpose: "Scout the boss, shape the next market, or reserve a future card.",
     // Exactly the three branches `state.action_film_room` implements. There is
     // no "take the credits" option at all in v3 — it was deleted, not zeroed —
@@ -282,6 +293,7 @@ export const NODE_TYPE_COPY: Record<NodeType, NodeTypeCopy> = {
     label: "Rest / Bank",
     icon: "rest",
     accentVar: "var(--correct)",
+    accentTextVar: "var(--correct)",
     purpose: "Recover one life or take credits. Your roster does not change.",
     consequence:
       "Get a lost life back, or bank credits instead. At full lives there is nothing to recover.",
@@ -577,6 +589,28 @@ export const RTT_COPY = {
 } as const;
 
 /**
+ * SCORE_RECONCILIATION.md §2 (binding, lead arbitration): the per-lane number
+ * in a battle is a bench-weighted MEAN across the whole roster, not any one
+ * player's value and not a sum — `roster_total` already names the sum, so
+ * reusing "total" here would collide with a live, distinct engine field.
+ *
+ * These three strings are the ONLY place this wording lives; `BattleReveal`
+ * and `BossPreview`'s lane rows both render from here so the label and the
+ * disclosure text can never drift between the two surfaces that show a lane
+ * rating.
+ */
+export const LANE_RATING_LABELS = {
+  player: "YOUR LINEUP RATING",
+  boss: "BOSS LINEUP RATING",
+  /** Verbatim string from SCORE_RECONCILIATION.md §2 — do not paraphrase. */
+  definition:
+    "The bench-weighted average strength of the lineup in that PEAK3 component, normalized to a 0–100 scale.",
+  /** The second, separately-attributed number on a lane row: one player's OWN
+   *  value in that lane, from `card.lane_index` — never the lineup rating. */
+  topContributor: "Top contributor",
+} as const;
+
+/**
  * How a battle is decided.
  *
  * A FUNCTION, not a constant, because `LANES_TO_WIN` belongs to the engine and
@@ -593,4 +627,45 @@ export function lanesToWinSentence(lanesToWin?: number | null): string {
     return `Win ${lanesToWin} of the five lanes and you win the battle.`;
   }
   return "Win a majority of the five lanes and you win the battle.";
+}
+
+/**
+ * What buying/trading for THIS card costs, in the one currency the run makes
+ * scarce: what you can no longer afford afterward.
+ *
+ * PRODUCT_EXPERIENCE_CONTRACT.md §5: "every priced decision surface must
+ * show, at the point of choice, what is foregone — not just what is
+ * gained." Every card already states its own gain (`RunCard`'s lane
+ * fingerprint, its score, its role fit); this is the one line stating the
+ * OTHER half — arithmetic over two numbers the server already sent
+ * (`credits`, `cost`/`net`), never a re-derivation of either.
+ */
+export function creditsForegoneSentence(credits: number, cost: number): string {
+  const after = credits - cost;
+  if (cost <= 0) return `Free — still leaves you all ${credits} credits.`;
+  if (after < 0) return `Costs ${cost} — you don't have it (${credits} available).`;
+  if (after === 0) return `Costs ${cost} — every credit you have, none left this act.`;
+  return `Costs ${cost} — leaves ${after} for the rest of this act.`;
+}
+
+/**
+ * Scout & Prepare payoff (brief §E / P3-E2): "scout information must
+ * visibly matter later." Once the CURRENT act's boss has been scouted
+ * (`ScoutReport.weakest_lane`), one line says whether a market card's own
+ * strongest lane (`cardLaneSummary(...).strongest.lane`, pure comparison of
+ * the server's `lane_percentiles`) counters it — a comparison of two
+ * `LaneField`s the server already sent, never a new score or a re-ranking
+ * of the card.
+ *
+ * Returns `null` for every card that is not a match, so callers render
+ * nothing rather than a row of "no relevance" noise on every other offer.
+ */
+export function bossRelevanceSentence(
+  cardStrongestLane: LaneField,
+  bossName: string,
+  scoutedWeakestLane: LaneField,
+  scoutedWeakestLabel: string,
+): string | null {
+  if (cardStrongestLane !== scoutedWeakestLane) return null;
+  return `Scouted: hits ${bossName}'s weak ${scoutedWeakestLabel}.`;
 }

@@ -30,6 +30,18 @@ migration change rather than hand-editing this file.
 | 23 | `20260801110000_guest_claim_and_daily` | 1 | 1 | 2 | 0 | 0 | 1 | 5 |
 | 24 | `20260801120000_telemetry_events` | 1 | 3 | 2 | 1 | 0 | 1 | 1 |
 | 25 | `20260801130000_peak_duel_results_revoke` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 26 | `20260801140000_owned_results_revoke` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 27 | `20260801150000_daily_grid_attempts` | 1 | 1 | 1 | 0 | 0 | 1 | 1 |
+| 28 | `20260801160000_head_to_head` | 2 | 4 | 0 | 0 | 0 | 2 | 2 |
+| 29 | `20260801170000_revoke_truncate_and_trigger` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 30 | `20260803090000_perfect_season_daily_leaderboard_index` | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| 31 | `20260803100000_profile_handle_contract` | 0 | 1 | 0 | 0 | 0 | 0 | 0 |
+| 32 | `20260803110000_contact_submissions` | 1 | 2 | 0 | 0 | 0 | 1 | 1 |
+| 33 | `20260803120000_profile_column_privileges` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 34 | `20260803130000_user_settings_theme_preference` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 35 | `20260803140000_revoke_truncate_trigger_identity_tables` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| 36 | `20260804100000_arena_foundation` | 7 | 11 | 10 | 3 | 4 | 7 | 7 |
+| 37 | `20260804140000_arena_ratings` | 2 | 4 | 0 | 1 | 2 | 2 | 2 |
 
 ## Detail per migration
 
@@ -729,3 +741,328 @@ migration change rather than hand-editing this file.
 **External table dependencies (not created in this file):** none
 
 **Idempotency:** none detected
+
+### `20260801140000_owned_results_revoke.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260801150000_daily_grid_attempts.sql`
+
+**Tables created:** daily_grid_attempts
+  - `daily_grid_attempts`: id, owner_sub, daily_key, board_id, board_version, started_at, created_at
+
+**Indexes:** daily_grid_attempts_owner_idx
+
+**Constraints:** daily_grid_attempts_unique_owner_day
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** daily_grid_attempts
+
+**Policies:** daily_grid_attempts_owner_read
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260801160000_head_to_head.sql`
+
+**Tables created:** head_to_head_matches, head_to_head_participants
+  - `head_to_head_matches`: match_id, invite_hash, creator_sub, seed, source_run_type, engine_version, ruleset_version, card_pool_version, fairness, status, expires_at, settlement, settled_at, rematch_of, created_at
+  - `head_to_head_participants`: match_id, participant_sub, role, run_id, status, result, submitted_at, joined_at
+
+**Indexes:** head_to_head_matches_rematch_uniq, head_to_head_matches_creator_idx, head_to_head_participants_role_uniq, head_to_head_participants_sub_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** head_to_head_matches, head_to_head_participants
+
+**Policies:** head_to_head_matches_participant_read, head_to_head_participants_self_read
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260801170000_revoke_truncate_and_trigger.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260803090000_perfect_season_daily_leaderboard_index.sql`
+
+**Tables created:** none
+
+**Indexes:** perfect_season_runs_daily_leaderboard_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS
+
+### `20260803100000_profile_handle_contract.sql`
+
+**Tables created:** none
+
+**Indexes:** profiles_normalized_handle_unique_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS
+
+### `20260803110000_contact_submissions.sql`
+
+**Tables created:** contact_submissions
+  - `contact_submissions`: id, subject_hash, subject_kind, category, relevant_area, subject, message, reply_email, status, created_at
+
+**Indexes:** contact_submissions_created_idx, contact_submissions_status_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** contact_submissions
+
+**Policies:** contact_submissions_no_client_access
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260803120000_profile_column_privileges.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260803130000_user_settings_theme_preference.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260803140000_revoke_truncate_trigger_identity_tables.sql`
+
+**Tables created:** none
+
+**Indexes:** none
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** none
+
+**Policies:** none
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** none detected
+
+### `20260804100000_arena_foundation.sql`
+
+**Tables created:** arena_matches, arena_match_seats, arena_match_commands, arena_match_events, arena_turns, arena_match_results, arena_public_queue
+  - `arena_matches`: match_id, mode, mode_version, model_version, status, state_version, seat_count, entry_path, rated, room_code, seed, bot_policy_version, created_by, turn_deadline_at, current_turn_seq, expires_at, snapshot, created_at, updated_at, completed_at
+  - `arena_match_seats`: match_id, seat_index, occupant_kind, occupant_sub, bot_id, bot_rating, display_name, status, joined_at, last_seen_at
+  - `arena_match_commands`: match_id, idempotency_key, actor_seat_index, actor_sub, command_type, payload, accepted, rejection_code, state_version_before, state_version_after, created_at
+  - `arena_match_events`: id, match_id, seq, event_type, actor_seat_index, payload, visibility, visible_to_seat, state_version_after, created_at
+  - `arena_turns`: match_id, turn_seq, seat_index, phase, opened_at, deadline_at, resolved_at, resolution, resolved_by_key
+  - `arena_match_results`: match_id, seat_index, placement, score, outcome, rated, was_bot, detail, created_at
+  - `arena_public_queue`: entry_id, owner_sub, mode, mode_version, seat_count, status, joined_at, human_preference_until, expires_at, matched_at, cancelled_at, match_id
+
+**Indexes:** arena_matches_room_code_live_uniq, arena_matches_live_expiry_idx, arena_matches_mode_status_idx, arena_match_seats_one_per_sub_uniq, arena_match_seats_sub_idx, arena_match_commands_match_created_idx, arena_match_events_replay_idx, arena_turns_overdue_idx, arena_match_results_created_idx, arena_public_queue_active_uniq, arena_public_queue_waiting_idx
+
+**Constraints:** arena_match_commands_rejection_shape, arena_match_commands_version_monotonic, arena_match_events_seq_uniq, arena_match_events_visibility_shape, arena_match_seats_occupant_shape, arena_matches_rated_matches_entry_path, arena_matches_room_code_requires_private, arena_public_queue_window_within_ttl, arena_turns_deadline_after_open, arena_turns_resolution_shape
+
+**Functions:** arena_match_events_immutable, arena_match_results_immutable, is_arena_seat_holder
+
+**Triggers:** arena_match_events_no_update, arena_match_events_no_delete, arena_match_results_no_update, arena_match_results_no_delete
+
+**RLS enabled on:** arena_match_commands, arena_match_events, arena_match_results, arena_match_seats, arena_matches, arena_public_queue, arena_turns
+
+**Policies:** arena_matches_seat_holder_read, arena_match_seats_self_read, arena_match_events_seat_scoped_read, arena_turns_seat_holder_read, arena_match_results_seat_holder_read, arena_public_queue_owner_read, arena_match_commands_no_client_access
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY; triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER
+
+### `20260804140000_arena_ratings.sql`
+
+**Tables created:** arena_ratings, arena_rating_history
+  - `arena_ratings`: owner_sub, mode, rating, rd, volatility, rated_matches, algorithm_version, last_rated_match_at, created_at, updated_at
+  - `arena_rating_history`: id, owner_sub, mode, match_id, pre_rating, pre_rd, pre_volatility, post_rating, post_rd, post_volatility, unbounded_post_rating, bound_applied, placement, opponents, had_bot_opponent, bot_policy_version, algorithm_version, created_at
+
+**Indexes:** arena_ratings_leaderboard_idx, arena_rating_history_one_per_player_match_idx, arena_rating_history_owner_idx, arena_match_results_rated_idx
+
+**Constraints:** none
+
+**Functions:** arena_rating_history_immutable
+
+**Triggers:** arena_rating_history_no_update, arena_rating_history_no_delete
+
+**RLS enabled on:** arena_rating_history, arena_ratings
+
+**Policies:** arena_ratings_public_read, arena_rating_history_owner_read
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** arena_matches
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY; triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER

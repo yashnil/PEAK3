@@ -281,7 +281,7 @@ export const DAILY_GRID_TOUR: readonly TourStep[] = [
     body:
       "Answers are exact player-seasons — “1999-00 Shaquille O’Neal”, not just “Shaquille O’Neal”. The same player’s other seasons may not qualify at all.",
     detail:
-      "Search from the panel beside the board. It confirms whether a season fits the square, and it never shows you what that season is worth.",
+      "Search from the panel below the board. It confirms whether a season fits the square, and it never shows you what that season is worth.",
     targets: ["dg-workbench", "dg-board"],
   },
   {

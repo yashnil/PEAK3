@@ -1,12 +1,34 @@
 "use client";
 import { DraftCard as DraftCardType, ROLE_LABELS, DraftRole } from "@/types/draft";
 
+// Theme-aware `--accent-*` tokens (P3-G2), not literal hex -- same five hues
+// `--role-*` uses (this card's role identity, just not that literal token:
+// `--role-*` is RTT's own roster-role system, a different semantic reusing
+// the same palette by coincidence).
+//
+// P6-b CORRECTION: this comment used to claim --accent-* is "text-safe in
+// both themes" -- it is not, and that exact claim is why the bug below
+// shipped. --accent-* IS darkened per theme (unlike --role-*), but only
+// enough to clear a PLAIN card; used as `color` on top of a color-mix wash
+// of itself (the role pill below, `color-mix(roleColor 20%, transparent)`),
+// axe measured it failing 4.23-4.40:1 in light mode. `--accent-*-text` is
+// the actually-text-safe sibling, darkened again specifically for that case.
 const ROLE_COLORS: Record<DraftRole, string> = {
-  lead_creator: "#f472b6",
-  guard_wing: "#60a5fa",
-  wing_forward: "#a78bfa",
-  forward_big: "#fb923c",
-  anchor: "#34d399",
+  lead_creator: "var(--accent-pink)",
+  guard_wing: "var(--accent-blue)",
+  wing_forward: "var(--accent-violet)",
+  forward_big: "var(--accent-orange)",
+  anchor: "var(--accent-emerald)",
+};
+
+/** Text-safe siblings of `ROLE_COLORS` (P6-b) -- use for `color`, never for a
+ *  background or border, where `ROLE_COLORS` itself is correct. */
+const ROLE_TEXT_COLORS: Record<DraftRole, string> = {
+  lead_creator: "var(--accent-pink-text)",
+  guard_wing: "var(--accent-blue-text)",
+  wing_forward: "var(--accent-violet-text)",
+  forward_big: "var(--accent-orange-text)",
+  anchor: "var(--accent-emerald-text)",
 };
 
 interface Props {
@@ -29,7 +51,10 @@ export default function DraftCard({
   eligible,
 }: Props) {
   const primaryRole = showRole ?? card.primary_role;
-  const roleColor = primaryRole ? ROLE_COLORS[primaryRole] : "#8c8fa8";
+  const roleColor = primaryRole ? ROLE_COLORS[primaryRole] : "var(--text-secondary)";
+  // `var(--text-secondary)` is already text-safe on its own -- no separate
+  // "-text" fallback needed when there is no role.
+  const roleTextColor = primaryRole ? ROLE_TEXT_COLORS[primaryRole] : "var(--text-secondary)";
 
   const scoreDisplay = Math.round(card.individual_peak_score);
   const rankDisplay = `#${card.individual_peak_rank}`;
@@ -49,10 +74,13 @@ export default function DraftCard({
       style={{
         opacity: dimmed ? 0.35 : 1,
         borderColor: selected ? roleColor : "var(--border-default)",
-        boxShadow: selected ? `0 0 0 2px ${roleColor}40` : undefined,
+        // `color-mix`, not a hex-alpha suffix -- `roleColor` is now a
+        // `var(--accent-*)` reference (P3-G2), and appending a hex pair to
+        // a var() reference is invalid CSS.
+        boxShadow: selected ? `0 0 0 2px color-mix(in srgb, ${roleColor} 40%, transparent)` : undefined,
       }}
       className={[
-        "relative flex flex-col text-left w-full rounded-xl border transition-all duration-150",
+        "relative flex flex-col text-left w-full rounded-xl border transition-[background-color,border-color,box-shadow,opacity] duration-150",
         "bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)]",
         compact ? "p-3 gap-1" : "p-4 gap-2",
         onClick ? "cursor-pointer" : "cursor-default",
@@ -100,9 +128,9 @@ export default function DraftCard({
           <span
             className="text-xs font-medium px-2 py-0.5 rounded-full"
             style={{
-              background: `${roleColor}20`,
-              color: roleColor,
-              border: `1px solid ${roleColor}40`,
+              background: `color-mix(in srgb, ${roleColor} 20%, transparent)`,
+              color: roleTextColor,
+              border: `1px solid color-mix(in srgb, ${roleColor} 40%, transparent)`,
             }}
           >
             {ROLE_LABELS[primaryRole]}
@@ -114,7 +142,7 @@ export default function DraftCard({
       {card.data_completeness !== "complete" && (
         <div
           className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full"
-          style={{ background: "#f59e0b" }}
+          style={{ background: "var(--warning)" }}
           title="Data may be incomplete"
         />
       )}

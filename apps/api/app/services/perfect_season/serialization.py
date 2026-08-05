@@ -34,6 +34,7 @@ from nba_peak.perfect_season.schemas import (
     PerfectSeasonBoard,
     SimulationResult,
     SpinPrompt,
+    UndoSnapshot,
 )
 
 
@@ -84,6 +85,9 @@ def court_state_from_dict(d: dict) -> CourtLineupState:
             peak_picks_recap=sim_d.get("peak_picks_recap"),
         )
 
+    undo_d = d.get("undo_snapshot")
+    undo_snapshot: UndoSnapshot | None = UndoSnapshot(**undo_d) if undo_d else None
+
     return CourtLineupState(
         game_id=d["game_id"],
         board=board,
@@ -106,4 +110,12 @@ def court_state_from_dict(d: dict) -> CourtLineupState:
         last_respin_keys=dict(d.get("last_respin_keys") or {}),
         challenge_kind=d.get("challenge_kind", "free_play"),
         challenge_date=d.get("challenge_date"),
+        # launch-polish IMPLEMENTATION_CONTRACT.md §5. `state_version`
+        # defaults to 0 for a payload written before this field existed --
+        # correct-enough behavior for an old row (nothing older than this
+        # change ever has a live `undo_snapshot` to protect anyway, since
+        # that field is new too and defaults to None below).
+        state_version=d.get("state_version", 0),
+        undo_snapshot=undo_snapshot,
+        last_undo_key=d.get("last_undo_key"),
     )

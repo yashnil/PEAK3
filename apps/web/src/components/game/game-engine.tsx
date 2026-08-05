@@ -170,7 +170,7 @@ export function GameEngine({
         </div>
         <div className="flex items-center gap-4 text-xs text-[var(--text-muted)]">
           {state.current_streak > 0 && (
-            <span className="text-[var(--peak-accent)] font-semibold">
+            <span className="text-[var(--peak-accent-text)] font-semibold">
               🔥 {state.current_streak}
             </span>
           )}

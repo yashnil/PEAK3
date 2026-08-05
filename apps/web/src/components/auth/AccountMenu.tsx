@@ -32,6 +32,7 @@ import { useEscapeKey, useLayerStack } from "@/lib/a11y";
 import { useAuth } from "@/lib/auth-context";
 import { accountLinks, isActive } from "@/lib/nav-model";
 import { signInHref } from "@/lib/supabase/safe-next";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { InitialsAvatar } from "./InitialsAvatar";
 
 export interface AccountMenuProps {
@@ -82,7 +83,7 @@ export function AccountMenu({ pathname, search = "", returnTo }: AccountMenuProp
         href={signInHref(target)}
         data-testid="nav-signin"
         className={cn(
-          "pk-nav-account ml-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
+          "pk-nav-account px-3 py-1.5 rounded-md text-sm font-medium transition-colors border",
           "text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]",
         )}
       >
@@ -94,7 +95,7 @@ export function AccountMenu({ pathname, search = "", returnTo }: AccountMenuProp
   const label = user.name ?? user.email ?? "your account";
 
   return (
-    <div ref={rootRef} className="relative ml-2">
+    <div ref={rootRef} className="relative">
       <button
         ref={triggerRef}
         type="button"
@@ -159,6 +160,16 @@ export function AccountMenu({ pathname, search = "", returnTo }: AccountMenuProp
               );
             })}
           </ul>
+
+          <div
+            className="border-t px-2.5 py-2"
+            style={{ borderColor: "var(--border-subtle)" }}
+          >
+            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+              Theme
+            </p>
+            <ThemeToggle variant="menu" />
+          </div>
 
           <div className="border-t pt-1" style={{ borderColor: "var(--border-subtle)" }}>
             <button

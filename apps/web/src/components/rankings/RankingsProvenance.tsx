@@ -81,7 +81,7 @@ export default function RankingsProvenance({ meta, fallbackRowCount }: RankingsP
               style={
                 meta.is_default_model
                   ? undefined
-                  : { color: "var(--peak-accent)", fontWeight: 600 }
+                  : { color: "var(--peak-accent-text)", fontWeight: 600 }
               }
             >
               {meta.model_label}

@@ -86,7 +86,7 @@ export function RevealPanel({
               initial={{ scale: 0.7, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ type: "spring", stiffness: 400, damping: 20 }}
-              className="text-xl font-bold text-[var(--peak-accent)] score-number"
+              className="text-xl font-bold text-[var(--peak-accent-text)] score-number"
             >
               +{answer.arena_points_awarded.toLocaleString()}
             </motion.p>

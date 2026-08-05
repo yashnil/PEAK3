@@ -163,6 +163,28 @@ class SimulationResult:
     # simulation.py::simulate_season's own comment for why this, not the
     # noisy 82-0 record, is the "compare across runs" number.
     lineup_peak_score: float = 0.0
+    # THE LINEUP-QUALITY INDEX: the weighted combination of the fit components
+    # that this model's record projection is built from, BEFORE the win floor,
+    # the 82-win cap and the seeded noise are applied.
+    #
+    # Surfaced rather than computed, and additive rather than a change: it is
+    # the `base` value `simulate_exact_season` already computes on its way to
+    # `expected_wins`. Nothing about `wins`, `expected_wins` or any 82-0
+    # surface moves because this field exists.
+    #
+    # WHY IT IS PUBLISHED. `wins` and `expected_wins` both saturate -- the cap
+    # is 82 and the generational floor is 81 -- so two genuinely different
+    # elite rosters tie on both. `lineup_peak_score` does not saturate but is a
+    # RAW MEAN of the cards' season scores, which knows nothing about bench,
+    # position fit or coverage. A mode that has to rank rosters against each
+    # other needs the model's actual lineup-quality judgement, unclamped and
+    # unrounded to a win total: that is this number. Three-Man Weave ranks on
+    # it (`nba_peak/three_man_weave/evaluation.py`).
+    #
+    # Not a win projection and must never be shown as one. It is an index on
+    # roughly the same scale as expected wins by construction, but it is
+    # deliberately not clamped to a legal record.
+    lineup_quality: float = 0.0
     # Phase 6F Part F: structural result explanation, computed server-side
     # (single source of truth -- see simulation.py::_best_pick_exact /
     # _structural_weakness_exact) so the UI never has to re-derive "weakness"
@@ -203,6 +225,48 @@ class SimulationResult:
 
 
 @dataclass
+class UndoSnapshot:
+    """Enough state to exactly reverse the single most recent placement or
+    swap -- launch-polish IMPLEMENTATION_CONTRACT.md §5's authoritative
+    Undo. Single-level, not a stack: the product surface is one "Undo"
+    toast for the action you just took, not an undo history, so this is
+    overwritten by the next placement/swap and consumed (cleared) by a
+    successful undo -- never more than one of these live at a time.
+
+    `kind == "swap"` needs no extra fields: a swap is its own inverse, so
+    reversing it is re-swapping the same two slots (see
+    state.py::action_undo_last_placement). `kind == "place"` needs the
+    slot's identity plus everything action_place_card cleared/advanced, so
+    undoing can put all of it back: the slot becomes empty again, the
+    round and status roll back, and the same card becomes the pending
+    selection again -- exactly as if placement had not happened.
+    """
+    kind: str  # "place" | "swap"
+    # The exact state_version stamped by _touch() immediately after the
+    # operation this reverses. Comparing this against the CURRENT
+    # state.state_version at undo time is what "nothing has mutated the
+    # state since" actually means -- any other mutating action bumps
+    # state_version, which makes this comparison fail on its own, with no
+    # separate invalidation step required.
+    state_version_after: int = 0
+    # Server-enforced bounded window (UNDO_WINDOW_SECONDS in state.py) --
+    # ISO timestamp, checked regardless of reload; see that constant's own
+    # comment for why the bound is time-based and reload-independent
+    # rather than tied to a client session.
+    expires_at: str = ""
+    # "place" fields:
+    slot_type: Optional[str] = None
+    round_before: Optional[int] = None
+    status_before: Optional[str] = None
+    pending_selection_peak_window_id: Optional[str] = None
+    pending_selection_exact_season_key: Optional[str] = None
+    pending_selection_spin_id: Optional[str] = None
+    # "swap" fields:
+    slot_a: Optional[str] = None
+    slot_b: Optional[str] = None
+
+
+@dataclass
 class CourtLineupState:
     """Complete CourtBuilder game state (server-side, includes private data).
 
@@ -229,6 +293,22 @@ class CourtLineupState:
     simulation_result: Optional[SimulationResult] = None
     created_at: str = ""
     last_action_at: str = ""
+    # launch-polish IMPLEMENTATION_CONTRACT.md §5's authoritative Undo:
+    # incremented by exactly 1 on every state-mutating action (select,
+    # cancel, place, swap, respin x2, complete -- see state.py's `_touch`,
+    # the single place this happens). A dedicated integer counter rather
+    # than reusing `last_action_at` for optimistic-concurrency purposes:
+    # a wall-clock string conflates "when" with "which state", is not
+    # guaranteed strictly monotonic in the presence of clock skew or
+    # sub-resolution collisions, and is awkward to compare for equality
+    # across a JSON round-trip. `state_version` exists for exactly one
+    # job -- "is the client's idea of the current state still current" --
+    # and does only that job. Starts at 0 for a freshly created game (no
+    # mutating action has happened yet); the public state always echoes
+    # the CURRENT value, never the version an action produced, so a client
+    # comparing "what I was just shown" against "what I still see" is
+    # comparing like with like.
+    state_version: int = 0
     mode: str = ""
     duration_years: int = 1
     # Server-resolved only, never client-trusted (PHASE_5_DATA_MODEL.md
@@ -281,6 +361,20 @@ class CourtLineupState:
     # creation from the requested/derived UTC date -- never client-trusted as
     # a label for a seed that doesn't match it (see state.py's own check).
     challenge_date: Optional[str] = None
+    # launch-polish IMPLEMENTATION_CONTRACT.md §5: the single most recent
+    # undoable placement/swap, or None if there isn't one (never placed
+    # anything yet, or the last undoable operation has already been
+    # undone/superseded/expired). See UndoSnapshot's own docstring for why
+    # this is one snapshot, not a stack.
+    undo_snapshot: Optional[UndoSnapshot] = None
+    # The idempotency key of the last SUCCESSFULLY APPLIED undo, so a
+    # duplicate request (double-click, retried fetch) returns the same
+    # result again instead of raising "nothing to undo" -- the same
+    # replay-by-remembered-key shape as last_respin_keys, sized to 1
+    # because undo has no multi-use budget to replay against; the moment a
+    # new placement/swap happens, both this and undo_snapshot move on
+    # together.
+    last_undo_key: Optional[str] = None
 
 
 # Re-exported so callers of this module do not need to import

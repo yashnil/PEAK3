@@ -110,7 +110,7 @@ export default function HistoryPage() {
       </div>
 
       {error && (
-        <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "#ef444420", color: "#ef4444" }}>
+        <p role="alert" className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--incorrect-bg)", color: "var(--incorrect)" }}>
           {error}
         </p>
       )}
@@ -121,7 +121,7 @@ export default function HistoryPage() {
           style={{ color: "var(--text-muted)" }}
         >
           No completed games yet.{" "}
-          <Link href="/arena/daily" className="underline" style={{ color: "var(--peak-accent)" }}>
+          <Link href="/arena/daily" className="underline" style={{ color: "var(--peak-accent-text)" }}>
             Play today&apos;s Daily
           </Link>
         </div>
@@ -164,7 +164,7 @@ export default function HistoryPage() {
                 </div>
                 <div
                   className="text-2xl font-bold tabular-nums"
-                  style={{ color: "var(--peak-accent)" }}
+                  style={{ color: "var(--peak-accent-text)" }}
                 >
                   {(Math.round(item.lineup_peak_rating * 10) / 10).toFixed(1)}
                 </div>
@@ -193,7 +193,7 @@ export default function HistoryPage() {
                 {item.hold_used && (
                   <span
                     className="text-xs px-1.5 py-0.5 rounded"
-                    style={{ background: "rgba(245,200,66,0.12)", color: "var(--peak-accent)" }}
+                    style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent-text)" }}
                   >
                     Hold
                   </span>
@@ -201,7 +201,7 @@ export default function HistoryPage() {
                 {item.reframe_used && (
                   <span
                     className="text-xs px-1.5 py-0.5 rounded"
-                    style={{ background: "rgba(167,139,250,0.12)", color: "#a78bfa" }}
+                    style={{ background: "color-mix(in srgb, var(--accent-violet) 12%, transparent)", color: "var(--accent-violet)" }}
                   >
                     Reframe
                   </span>

@@ -19,7 +19,7 @@ interface Props {
 export default function DNARadar({
   dna,
   size = 120,
-  color = "#f5c842",
+  color = "var(--peak-accent)",
 }: Props) {
   const n = DIMS.length;
   const cx = size / 2;

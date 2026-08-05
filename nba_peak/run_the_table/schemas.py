@@ -131,7 +131,12 @@ class RunBlueprint:
     starting_bench: tuple[str, ...]
     system_offers: tuple[tuple[str, ...], ...]   # act-1 offer, post-boss-1 offer
     stages: tuple[StagePlan, ...]
-    bosses: tuple[Opponent, ...]
+    # v4: NO `bosses` FIELD. A boss is no longer content derived from the seed
+    # alone -- it is generated against the roster standing in front of it when
+    # its act begins, so it cannot exist at blueprint time and lives on
+    # ``RunState.boss_lineups`` instead. Removing the field rather than leaving
+    # it empty is deliberate: an always-empty tuple here would be read by
+    # somebody as "this run has no bosses".
     metadata: dict
 
 
@@ -152,6 +157,30 @@ class LaneResult:
     # included in ``player_score``; carried separately so the result screen can
     # say which lane the player's preparation actually moved.
     player_prep_bonus: float = 0.0
+    # v4 receipt breakdown (SYNTHESIS_CONTRACT.md §2.3): ``player_score``
+    # decomposed into three additive, explanation-ready pieces so a receipt
+    # never has to recompute anything client-side.
+    #
+    # ``pre_perk_rating`` -- the lineup rating at the DEFAULT bench weight
+    # (``BENCH_WEIGHT_DEFAULT``), no Scout & Prepare bonus: the roster's
+    # vanilla lane_index weighted mean, before anything the player chose moves
+    # it.
+    #
+    # ``bench_adjustment`` -- the residual ``player_score - player_prep_bonus -
+    # pre_perk_rating``. By construction this isolates exactly and only the
+    # bench-weight effect: whichever bench weight the lane actually used
+    # (Deep Rotation's better-of-two, or a boss rule that fixes the weight for
+    # both teams) versus the default. It is a residual rather than an
+    # independently recomputed value on purpose -- so the three fields are
+    # GUARANTEED to sum to ``player_score`` rather than merely usually
+    # agreeing with it after two separate roundings.
+    #
+    # Both default to 0.0 for a ``LaneResult`` reconstructed from a pre-v4
+    # snapshot dict that predates these fields (``state_from_dict`` bumps
+    # ``SNAPSHOT_SCHEMA_VERSION`` and refuses those outright, so this default
+    # is a dataclass-construction safety net, not a real code path).
+    pre_perk_rating: float = 0.0
+    bench_adjustment: float = 0.0
 
 
 @dataclass
@@ -261,6 +290,30 @@ class RunState:
     reveal_index: int = 0
     # act -> boss-lineup reveal progress, 0..ROSTER_SIZE. Same contract.
     boss_reveal_index: dict[int, int] = field(default_factory=dict)
+
+    # -- v4: the generated boss slate ---------------------------------------
+    # act -> the Opponent locked for that act, as a plain dict (see
+    # ``state.boss_to_dict`` / ``boss_from_dict``). THIS IS PERSISTED STATE,
+    # not a cache. Under v3 the slate was a constant and could be re-derived
+    # from nothing; under v4 a boss is a function of the roster it was locked
+    # against, and that roster changes as the run goes on -- so re-deriving it
+    # on load would serve a DIFFERENT opponent than the one the player scouted
+    # and prepared for. It is written once, when its act begins, and never
+    # rewritten.
+    boss_lineups: dict[int, dict] = field(default_factory=dict)
+
+    # -- v4: abandonment ----------------------------------------------------
+    # When the player walked away from this run (ISO-8601), and the run they
+    # started instead.
+    #
+    # `successor_run_id` IS THE IDEMPOTENCY MECHANISM, not a breadcrumb. A
+    # double-clicked "Start New Run" arrives twice; the second request finds the
+    # run already abandoned, reads this field, and returns the run the FIRST
+    # request created instead of minting a second one. Storing it on the
+    # abandoned run rather than in a side table means the guarantee survives a
+    # process restart and needs no expiry policy.
+    abandoned_at: Optional[str] = None
+    successor_run_id: Optional[str] = None
 
     def all_card_ids(self) -> list[str]:
         out = [s.card_id for s in self.starters if s.card_id]

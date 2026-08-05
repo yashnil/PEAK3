@@ -38,7 +38,11 @@ if REPOSITORY_MODE not in {"memory", "postgres"}:
     raise RuntimeError(
         f"PEAK3_TEST_REPOSITORY_MODE={REPOSITORY_MODE!r} is not a mode. Use "
         "'memory' (the default, and what scripts/ci/api-unit-tests.sh sets) or "
-        "'postgres' (scripts/ci/api-integration-tests.sh)."
+        "'postgres' (a local, deliberate run against a real backend — see the "
+        "guard below; this is NOT what scripts/ci/api-integration-tests.sh or "
+        "CI's supabase-integration job use, since those exercise "
+        "tests/integration/ and test_repository_conformance.py directly "
+        "against PEAK3_TEST_DATABASE_URL without going through this switch)."
     )
 
 if REPOSITORY_MODE == "memory":
@@ -51,18 +55,88 @@ if REPOSITORY_MODE == "memory":
         print(
             "\n[conftest] PEAK3_DATABASE_URL was set in the environment and has "
             "been ignored: this suite runs in explicit memory mode. Use "
-            "scripts/ci/api-integration-tests.sh for the Postgres-backed tests.\n",
+            "PEAK3_TEST_REPOSITORY_MODE=postgres for the Postgres-backed run.\n",
             file=sys.stderr,
             flush=True,
         )
 else:
-    _pg_url = os.environ.get("PEAK3_DATABASE_URL") or os.environ.get("PEAK3_TEST_DATABASE_URL")
+    # THE GUARD THIS BLOCK EXISTS FOR (launch-polish, IDENTITY_AUDIT.md §1.3).
+    #
+    # A prior version of this branch accepted `PEAK3_DATABASE_URL` as the
+    # connection string, falling back to `PEAK3_TEST_DATABASE_URL` only if
+    # unset. `PEAK3_DATABASE_URL` is the EXACT variable name the deployed
+    # staging/production API reads (docs/implementation/STAGING_DEPLOYMENT.md
+    # §3) and is exactly the variable a developer's local `apps/api/.env` or
+    # shell holds while doing ordinary hands-on staging verification. Running
+    # this repo's own functional suite in postgres mode — most concretely,
+    # `apps/api/tests/test_perfect_season.py`'s `leaderboard_client` fixture,
+    # which plays full games and calls the real `/submit` route — with that
+    # variable silently honoured writes real rows into whatever database it
+    # points at. That is confirmed, not hypothetical: it is what produced the
+    # 32 contaminated rows on the staging 82-0 leaderboard documented in
+    # docs/implementation/launch-polish/IDENTITY_AUDIT.md §1 (seed set, seed
+    # order, and respin pattern all trace to this exact test file).
+    #
+    # The fix has two independent parts, because either one alone is a single
+    # point of failure someone eventually types past without thinking:
+    #
+    #   1. This process NEVER reads `PEAK3_DATABASE_URL` as a source of truth
+    #      for its own connection, even as a fallback. Only the deliberately,
+    #      differently-named `PEAK3_TEST_DATABASE_URL` is accepted — the same
+    #      variable `tests/integration/` and `test_repository_conformance.py`
+    #      already use directly, and the ONLY variable CI's supabase-integration
+    #      job ever sets (`.github/workflows/ci.yml`). A leftover
+    #      `PEAK3_DATABASE_URL` in the environment cannot silently become the
+    #      target: it is not even inspected until after both gates below pass,
+    #      and then only to warn that it is being ignored.
+    #   2. A second, INDEPENDENT explicit opt-in —
+    #      `PEAK3_ALLOW_DESTRUCTIVE_DB_TESTS=1` — is required in addition to
+    #      the URL. This is the literal "explicitly marked as a destructive
+    #      staging test" the brief asks for: a human has to type a second,
+    #      differently-shaped acknowledgement that this run performs real
+    #      writes, not just happen to have a Postgres URL sitting in their
+    #      shell. A stray `.env` cannot satisfy this by accident the way it
+    #      could satisfy a URL check alone.
+    #
+    # Both checks run and raise BEFORE `app.main` is imported below (i.e. at
+    # collection time, when this module is first loaded) — a RuntimeError
+    # here aborts the whole pytest invocation with a clear message, never a
+    # warning buried mid-run. See test_postgres_mode_guard.py, which asserts
+    # this by spawning pytest as a subprocess under each missing-gate
+    # condition and checking it refuses to even collect.
+    _pg_url = os.environ.get("PEAK3_TEST_DATABASE_URL")
     if not _pg_url:
         raise RuntimeError(
-            "PEAK3_TEST_REPOSITORY_MODE=postgres but neither PEAK3_DATABASE_URL "
-            "nor PEAK3_TEST_DATABASE_URL is set. Point one at an isolated test "
-            "database — never a shared or production one."
+            "PEAK3_TEST_REPOSITORY_MODE=postgres but PEAK3_TEST_DATABASE_URL is "
+            "not set. Point it at an isolated test project — never a shared or "
+            "production one, and never PEAK3_DATABASE_URL (that name is read "
+            "only by the deployed API, never by this test process, on purpose: "
+            "see docs/implementation/launch-polish/IDENTITY_AUDIT.md §1.3)."
         )
+    if os.environ.get("PEAK3_ALLOW_DESTRUCTIVE_DB_TESTS", "").strip() != "1":
+        raise RuntimeError(
+            "PEAK3_TEST_REPOSITORY_MODE=postgres also requires "
+            "PEAK3_ALLOW_DESTRUCTIVE_DB_TESTS=1, set as a second, independent "
+            "acknowledgement. This mode runs the app's real functional suite — "
+            "including tests that create games, complete them, and submit to "
+            "the global leaderboard — against whatever database "
+            "PEAK3_TEST_DATABASE_URL points at. Set this flag only alongside a "
+            "PEAK3_TEST_DATABASE_URL you have personally confirmed is an "
+            "isolated test project, never a shared or deployed one."
+        )
+    _leaked_database_url = os.environ.get("PEAK3_DATABASE_URL")
+    if _leaked_database_url:
+        print(
+            "\n[conftest] PEAK3_DATABASE_URL is also set in this environment "
+            "and has been ignored: postgres-mode tests connect ONLY through "
+            "PEAK3_TEST_DATABASE_URL, never PEAK3_DATABASE_URL, even when both "
+            "are present.\n",
+            file=sys.stderr,
+            flush=True,
+        )
+    # `Settings` reads `PEAK3_DATABASE_URL`, so the approved test URL is
+    # written under that name for the app to pick up — this is wiring the
+    # already-vetted value through, not re-accepting whatever was there.
     os.environ["PEAK3_DATABASE_URL"] = _pg_url
 
 from app.core.dataset import dataset_store  # noqa: E402

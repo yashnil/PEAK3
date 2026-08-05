@@ -351,6 +351,132 @@ class Settings(BaseSettings):
     TELEMETRY_MAX_BATCH_SIZE: int = 20
     TELEMETRY_RETENTION_DAYS: int = 90
 
+    # launch-polish IMPLEMENTATION_CONTRACT.md §9. Off by default -- same
+    # posture as every other new-collection-surface flag in this file
+    # (TELEMETRY_ENABLED, COURTBUILDER_LEADERBOARD_ENABLED): a deployment
+    # opts in rather than a new endpoint being live at install time. The
+    # rate limit is intentionally much lower than telemetry's -- a real
+    # visitor submits contact at most a handful of times ever, never per
+    # minute, so this is sized to stop a script, not to accommodate normal
+    # use at any real volume.
+    CONTACT_ENABLED: bool = False
+    CONTACT_RATE_LIMIT: int = 3
+    CONTACT_RATE_LIMIT_WINDOW_SECONDS: float = 600.0
+
+    # ---------------------------------------------------------------------------
+    # Arena — server-authoritative multiplayer foundation
+    #
+    # ITS OWN FLAG NAMESPACE, NOT `RANKED_*`. Reusing the ranked flags would make
+    # the ranked kill-switch ambiguous: `PEAK3_RANKED_ENABLED=false` currently
+    # means exactly one thing -- the Phase 4.0 ranked duel routes are dark -- and
+    # an operator turning it off during an incident must not have to wonder
+    # whether they also just stopped a different subsystem. Ranked's four flags
+    # are untouched by this pass and remain False by default.
+    #
+    # Mirrors the RANKED_*/COURTBUILDER_*/RUN_THE_TABLE_* pattern exactly:
+    # independent capability switches plus a human-facing readiness level whose
+    # consistency is validated at startup.
+    # ---------------------------------------------------------------------------
+
+    # Master switch: arena routes answer at all. /readiness is the one exception
+    # -- it always answers, so the web app can fail closed cleanly rather than
+    # guess why it got a 403 (the same carve-out RUN_THE_TABLE_ENABLED has).
+    ARENA_ENABLED: bool = False
+
+    # Whether the public matchmaking queue accepts joins. Separately switchable
+    # so the queue can be closed -- mid-rating-migration, or during an incident
+    # -- without taking private rooms and practice down with it.
+    ARENA_PUBLIC_QUEUE_ENABLED: bool = False
+
+    # Whether bots may occupy a seat. Off independently of the queue because a
+    # miscalibrated bot is a reason to stop filling seats while still letting
+    # humans play each other. With this off, a public queue entry waits for
+    # humans until its own TTL rather than being bot-filled, and practice is
+    # refused outright -- practice IS a bot match.
+    ARENA_BOTS_ENABLED: bool = False
+
+    # Closed-cohort allowlist of owner_sub values permitted to reach arena
+    # routes while ARENA_ENABLED=True but the release is not yet public. Empty +
+    # enabled = internal engineering only, the same semantics as
+    # RANKED_ALPHA_ALLOWLIST and COURTBUILDER_ALPHA_ALLOWLIST.
+    ARENA_ALPHA_ALLOWLIST: list[str] = []
+
+    # Whether a settled rated match updates public ratings.
+    #
+    # ITS OWN FLAG, NOT RANKED_*. Reusing the ranked namespace would make the
+    # ranked kill-switch ambiguous: "is ranked off?" must have one answer, and
+    # a shared flag would mean turning ranked off also silently stopped arena
+    # ratings (or worse, that turning arena ratings on turned part of ranked
+    # on). Two products, two switches.
+    #
+    # Independent of ARENA_PUBLIC_QUEUE_ENABLED on purpose: a miscalibrated
+    # rating pass is a reason to stop WRITING ratings while still letting people
+    # play. With this off, matches still settle and still record `rated` -- the
+    # rating pass simply does not run, so the backlog can be replayed from
+    # `arena_match_results` once the cause is fixed.
+    ARENA_RATINGS_ENABLED: bool = False
+
+    # Whether the public rating leaderboards return rows. Separate from writing
+    # them, so a rating population can be built and inspected before it is shown
+    # to anyone -- the same read/write split RANKED_PUBLIC_LEADERBOARD_ENABLED
+    # keeps for the same reason.
+    ARENA_LEADERBOARD_ENABLED: bool = False
+
+    # Human-facing readiness classification. Does not itself gate behavior --
+    # the booleans above do -- but is surfaced on /api/v1/arena/readiness and
+    # must be kept consistent with them (validated below).
+    ARENA_READINESS_LEVEL: Literal[
+        "disabled", "internal_dev", "internal_alpha", "closed_alpha", "public_beta"
+    ] = "disabled"
+
+    @model_validator(mode="after")
+    def validate_arena_readiness(self) -> "Settings":
+        level = self.ARENA_READINESS_LEVEL
+        if level == "disabled" and (
+            self.ARENA_ENABLED
+            or self.ARENA_PUBLIC_QUEUE_ENABLED
+            or self.ARENA_BOTS_ENABLED
+        ):
+            raise ValueError(
+                "PEAK3_ARENA_READINESS_LEVEL is 'disabled' but an arena capability "
+                "flag is enabled. Set an appropriate readiness level or disable "
+                "the flag."
+            )
+        if self.ARENA_PUBLIC_QUEUE_ENABLED and not self.ARENA_ENABLED:
+            raise ValueError(
+                "PEAK3_ARENA_PUBLIC_QUEUE_ENABLED is set but PEAK3_ARENA_ENABLED "
+                "is not. The queue creates matches of a mode that would not be "
+                "servable; it cannot be on while the arena is off."
+            )
+        if self.ARENA_BOTS_ENABLED and not self.ARENA_ENABLED:
+            raise ValueError(
+                "PEAK3_ARENA_BOTS_ENABLED is set but PEAK3_ARENA_ENABLED is not."
+            )
+        if self.ARENA_RATINGS_ENABLED and not self.ARENA_ENABLED:
+            raise ValueError(
+                "PEAK3_ARENA_RATINGS_ENABLED is set but PEAK3_ARENA_ENABLED is "
+                "not. Only a public-queue match is rated, and the arena being "
+                "off means no such match can be created -- so this combination "
+                "can only mean one of the two was set by mistake."
+            )
+        if self.ARENA_LEADERBOARD_ENABLED and not self.ARENA_RATINGS_ENABLED:
+            # Refused rather than tolerated: a leaderboard reading a rating
+            # table nothing is writing shows a frozen board that looks live,
+            # which is worse than an obviously-disabled one.
+            raise ValueError(
+                "PEAK3_ARENA_LEADERBOARD_ENABLED is set but "
+                "PEAK3_ARENA_RATINGS_ENABLED is not. The board would serve "
+                "ratings that are no longer being updated."
+            )
+        if self.ARENA_READINESS_LEVEL == "disabled" and (
+            self.ARENA_RATINGS_ENABLED or self.ARENA_LEADERBOARD_ENABLED
+        ):
+            raise ValueError(
+                "PEAK3_ARENA_READINESS_LEVEL is 'disabled' but an arena rating "
+                "capability flag is enabled."
+            )
+        return self
+
     @model_validator(mode="after")
     def warn_insecure_secret(self) -> "Settings":
         if self.SIGNING_SECRET == "INSECURE_DEV_SECRET_CHANGE_IN_PRODUCTION":
@@ -373,6 +499,8 @@ class Settings(BaseSettings):
                 "PEAK3_DATABASE_URL must be set in production (DEBUG=False). "
                 "See docs/implementation/LOCAL_DEV.md for setup instructions."
             )
+        if not self.DEBUG:
+            self._assert_deployable()
         if not self.DEBUG and self.auth_verification_mode == "unconfigured":
             # Without either PEAK3_SUPABASE_URL (JWKS) or
             # PEAK3_SUPABASE_JWT_SECRET (legacy HS256) the API cannot verify a
@@ -385,6 +513,103 @@ class Settings(BaseSettings):
                 "See docs/implementation/AUTH_CONFIGURATION.md."
             )
         return self
+
+
+    # -----------------------------------------------------------------------
+    # Deployment safety — the checks that only matter once DEBUG is False
+    # -----------------------------------------------------------------------
+    #
+    # These reject configurations that are correct for a laptop and wrong for a
+    # deployed environment. Each one has been an actual outage somewhere, and
+    # each fails at STARTUP: a deploy that refuses to boot is a rollback, while
+    # a deploy that boots misconfigured is an incident.
+    #
+    # `DEBUG=False` is the trigger rather than a separate PEAK3_ENV variable, so
+    # there is one switch to get wrong instead of two that can disagree.
+
+    #: Hosts that mean "this machine". A deployed service naming one of these is
+    #: pointing at itself, not at the thing it was meant to reach.
+    _LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "host.docker.internal")
+
+    def _is_local_url(self, value: Optional[str]) -> bool:
+        if not value:
+            return False
+        lowered = value.lower()
+        return any(h in lowered for h in self._LOCAL_HOSTS)
+
+    def _assert_deployable(self) -> None:
+        problems: list[str] = []
+
+        # 1. Localhost URLs. A staging API whose SUPABASE_URL is localhost
+        #    cannot fetch JWKS, so every access token fails verification and
+        #    every authenticated request 401s while the service looks healthy.
+        for name, value in (
+            ("PEAK3_SUPABASE_URL", self.SUPABASE_URL),
+            ("PEAK3_SUPABASE_JWKS_URL", self.SUPABASE_JWKS_URL),
+            ("PEAK3_DATABASE_URL", self.DATABASE_URL),
+        ):
+            if self._is_local_url(value):
+                problems.append(
+                    f"{name} points at localhost. A deployed service cannot reach "
+                    f"the deployer's machine."
+                )
+        for origin in self.CORS_ORIGINS:
+            if self._is_local_url(origin):
+                problems.append(
+                    f"PEAK3_CORS_ORIGINS contains {origin!r}. Allowing a localhost "
+                    f"origin from a deployed API is a development leftover."
+                )
+
+        # 2. Wildcard CORS with credentials. The app sends
+        #    `allow_credentials=True` (main.py), and Starlette answers a
+        #    wildcard by echoing whatever Origin the caller sent -- so "*" here
+        #    is not "any origin, no cookies", it is "every origin, with
+        #    credentials", which is the whole same-origin policy switched off.
+        if "*" in self.CORS_ORIGINS:
+            problems.append(
+                "PEAK3_CORS_ORIGINS contains '*' while the API sends credentialed "
+                "responses. List the exact web origins instead."
+            )
+        if not self.CORS_ORIGINS:
+            problems.append("PEAK3_CORS_ORIGINS is empty; the web app will be blocked by CORS.")
+
+        # 3. Plaintext transport. A Supabase URL over http:// on a deployed
+        #    service means bearer tokens crossing the network in the clear.
+        for name, value in (
+            ("PEAK3_SUPABASE_URL", self.SUPABASE_URL),
+            ("PEAK3_SUPABASE_JWKS_URL", self.SUPABASE_JWKS_URL),
+        ):
+            if value and value.lower().startswith("http://"):
+                problems.append(f"{name} is http://; use https:// outside local development.")
+
+        # 4. Missing dataset. Without it the service starts, logs one warning,
+        #    and serves 503 from readiness forever while /health says 200. The
+        #    Dockerfile generates it at build time, so reaching here means the
+        #    image was built wrong -- worth failing loudly at boot rather than
+        #    discovering it from a graph of 503s.
+        for artifact in ("leaderboards.json", "peak_windows.json"):
+            path = self.DATA_DIR / artifact
+            if not path.exists() or path.stat().st_size == 0:
+                problems.append(
+                    f"Generated dataset missing or empty: {path}. Run "
+                    f"scripts/build_web_dataset.py during the build."
+                )
+
+        # 5. Ranked must be an explicit decision. The defaults are already off;
+        #    this refuses the specific combination of "enabled" plus a readiness
+        #    level that has not been raised past internal, which is what an
+        #    accidental copy of a developer's env looks like.
+        if self.RANKED_ENABLED and self.RANKED_READINESS_LEVEL in ("disabled", "simulation_only"):
+            problems.append(
+                "PEAK3_RANKED_ENABLED is true but PEAK3_RANKED_READINESS_LEVEL is "
+                f"{self.RANKED_READINESS_LEVEL!r}. Ranked must be turned on deliberately."
+            )
+
+        if problems:
+            raise ValueError(
+                "Refusing to start: this configuration is not deployable.\n  - "
+                + "\n  - ".join(problems)
+            )
 
 
 settings = Settings()

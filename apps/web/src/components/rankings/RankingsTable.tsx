@@ -21,7 +21,7 @@
  */
 
 import type { RankingRow } from "@/types";
-import { cn, componentColor, componentLabel } from "@/lib/utils";
+import { cn, componentColor, componentTextColor, componentLabel } from "@/lib/utils";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import {
   RANKING_COLUMNS,
@@ -39,6 +39,12 @@ const HEADER_CLASS =
 export interface RankingsTableProps {
   /** Already sorted by the caller, so the row order here IS the display order. */
   rows: readonly RankingRow[];
+  /** The row the detail panel is showing, marked as the active option. */
+  selectedRowId?: string | null;
+  /** Selecting a row updates the detail panel WITHOUT opening the modal.
+   * Two different actions on one row: select to compare, open to read the
+   * full derivation. */
+  onSelectRow?: (row: RankingRow) => void;
   sortKey: RankingSortKey;
   sortDirection: SortDirection;
   onSort: (key: RankingSortKey) => void;
@@ -54,6 +60,8 @@ export interface RankingsTableProps {
 
 export default function RankingsTable({
   rows,
+  selectedRowId = null,
+  onSelectRow,
   sortKey,
   sortDirection,
   onSort,
@@ -70,11 +78,30 @@ export default function RankingsTable({
   const columnCount = columns.length + (resorted ? 1 : 0) + 3;
 
   return (
-    <div className="overflow-x-auto">
+    // `--bg-surface-data` (§3 palette direction: "a subtle cool neutral for
+    // data-dense regions") turns the table into its own distinct panel,
+    // differentiated from the surrounding page by hue rather than by
+    // stacking yet another lightness step onto an already-compressed ladder.
+    <div
+      className="overflow-x-auto rounded-xl border"
+      style={{ background: "var(--bg-surface-data)", borderColor: "var(--border-default)" }}
+    >
       <table className="w-full text-sm" data-testid="rankings-table">
         <caption className="sr-only">{caption}</caption>
         <thead>
-          <tr className="border-b border-[var(--border-subtle)] text-left">
+          {/* Launch-polish IMPLEMENTATION_CONTRACT.md §3 correctness bug:
+              this row used to share `--border-subtle` (1.37:1 against
+              --bg-surface in Arena Day, under the WCAG 1.4.11 3:1 UI floor)
+              with every data row below, so the header was structurally
+              indistinguishable from a row of data. `--divider-strong` (a
+              data-dense-region-specific token, not a general border
+              darkening) fixes the contrast; the background band is what
+              actually anchors the header as a header, not just a heavier
+              line. */}
+          <tr
+            className="border-b-2 border-[var(--divider-strong)] text-left"
+            style={{ background: "var(--bg-elevated)" }}
+          >
             {resorted && (
               <th scope="col" className={cn(HEADER_CLASS, "w-10")} data-testid="rankings-position-header">
                 <span title="Position in the current sort">#</span>
@@ -111,7 +138,7 @@ export default function RankingsTable({
                   full={column.full}
                   align="right"
                   color={
-                    column.key === "total" ? undefined : componentColor(column.key as string)
+                    column.key === "total" ? undefined : componentTextColor(column.key as string)
                   }
                   className={column.cellClass}
                 />
@@ -122,9 +149,21 @@ export default function RankingsTable({
           {rows.map((row, index) => (
             <tr
               key={row.row_id}
-              onClick={() => onOpenRow(row)}
-              className="group border-b border-[var(--border-subtle)] cursor-pointer transition-colors hover:bg-[var(--bg-surface)]"
+              // ROW CLICK SELECTS; the player-name button explains. Two
+              // different questions -- "show me this shape" and "show me the
+              // derivation" -- that used to share one action, so comparing
+              // twenty rows meant opening and closing twenty dialogs.
+              //
+              // THE ROW ITSELF IS NOT A BUTTON, deliberately. It contains one
+              // (the player name opens the modal), and a control inside a
+              // control is `nested-interactive`: a screen reader announces the
+              // row as a button and then cannot reach the button inside it.
+              // The pointer affordance stays on the row; the KEYBOARD path is
+              // the real select control in the rank cell below.
+              onClick={() => (onSelectRow ? onSelectRow(row) : onOpenRow(row))}
+              className="rankings-row group border-b border-[var(--divider-strong)] cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
               data-testid="rankings-row"
+              data-selected={row.row_id === selectedRowId ? "true" : "false"}
             >
               {resorted && (
                 <td className="px-3 py-2.5 score-number text-[var(--text-primary)] font-semibold">
@@ -132,7 +171,27 @@ export default function RankingsTable({
                 </td>
               )}
               <td className="px-3 py-2.5">
-                {resorted ? (
+                {/* THE KEYBOARD PATH TO SELECTION. A pointer user clicks the
+                    row; everyone else needs a real control, and the rank cell
+                    is where it belongs -- it is the row's own identifier, so
+                    "select rank 4" is a sentence rather than a widget bolted
+                    on. Rendered as a button only when selection is offered, so
+                    a board without a detail panel keeps a plain rank. */}
+                {onSelectRow ? (
+                  <button
+                    type="button"
+                    aria-pressed={row.row_id === selectedRowId}
+                    aria-label={`Show the component profile for ${row.player_name}, ${row.label}`}
+                    data-testid={`rankings-select-${row.rank}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelectRow(row);
+                    }}
+                    className="score-number rounded px-1 font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--peak-accent-text)] aria-pressed:text-[var(--peak-accent-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                  >
+                    {resorted ? `#${row.rank}` : row.rank}
+                  </button>
+                ) : resorted ? (
                   <span
                     className="inline-flex items-center rounded-md border border-[var(--border-default)] bg-[var(--bg-surface)] px-1.5 py-0.5 score-number text-[11px] text-[var(--text-secondary)]"
                     title="This row's rank in the board's own PEAK ordering"
@@ -156,7 +215,7 @@ export default function RankingsTable({
                         onOpenRow(row);
                       }}
                       aria-label={`Explain the PEAK3 score for ${row.player_name}, ${row.label}`}
-                      className="block max-w-full truncate rounded text-left font-medium text-[var(--text-primary)] transition-colors group-hover:text-[var(--peak-accent)] hover:text-[var(--peak-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                      className="block max-w-full truncate rounded text-left font-medium text-[var(--text-primary)] transition-colors group-hover:text-[var(--peak-accent-text)] hover:text-[var(--peak-accent-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                     >
                       {row.player_name}
                     </button>
@@ -173,7 +232,7 @@ export default function RankingsTable({
               <td className="hidden px-3 py-2.5 text-xs text-[var(--text-secondary)] md:table-cell">
                 {row.team ?? "—"}
               </td>
-              <td className="px-3 py-2.5 text-right score-number font-bold text-[var(--peak-accent)]">
+              <td className="px-3 py-2.5 text-right score-number font-bold text-[var(--peak-accent-text)]">
                 {formatScore1(row.prime_score)}
               </td>
               {showComponents &&
@@ -188,7 +247,7 @@ export default function RankingsTable({
                       "hidden px-3 py-2.5 text-right score-number text-xs lg:table-cell",
                       sortKey === key ? "font-bold" : ""
                     )}
-                    style={{ color: componentColor(key) }}
+                    style={{ color: componentTextColor(key) }}
                   >
                     {formatScore1(row.components?.[key])}
                   </td>

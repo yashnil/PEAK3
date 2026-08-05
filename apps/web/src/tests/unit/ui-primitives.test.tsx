@@ -22,6 +22,7 @@ import {
   AnimatedNumber,
   Dialog,
   EmptyState,
+  ErrorState,
   Explainer,
   LiveRegion,
   Portal,
@@ -29,9 +30,11 @@ import {
   SectionHeader,
   Skeleton,
   StatusChip,
+  ThemeToggle,
   Tooltip,
 } from "@/components/ui";
 import { FOCUSABLE_SELECTOR, getFocusableElements } from "@/lib/a11y";
+import { THEME_STORAGE_KEY, __resetThemeStoreForTests } from "@/lib/theme";
 
 /** Installs a `matchMedia` stub whose `(prefers-reduced-motion: reduce)` answer is `reduced`. */
 function mockMatchMedia(reduced: boolean) {
@@ -224,6 +227,86 @@ describe("Dialog", () => {
     }
     render(<Harness />);
     await waitFor(() => expect(screen.getByTestId("preferred")).toHaveFocus());
+  });
+
+  it("places initial focus even if the animation frame beats the portal", async () => {
+    /**
+     * REGRESSION. Focus placement used to live inside the same
+     * `requestAnimationFrame` as the entrance ramp. `Portal` returns `null`
+     * until after its own first effect, so on the render where `open` flips
+     * true there is no panel and no children yet -- both `initialFocusRef`
+     * and the panel ref are null. The frame was racing the portal's
+     * mount-commit, and when the frame won, every focus branch fell through
+     * against nulls and focus stayed on `<body>`: a keyboard user opening a
+     * modal and landing nowhere, with no retry, because `open` had not
+     * changed and the effect never re-ran.
+     *
+     * jsdom won that race most of the time, so it surfaced as an intermittent
+     * failure in an unrelated suite rather than as a bug report. Forcing the
+     * interleaving is what makes it a test instead of a coin flip.
+     */
+    const spy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb) => {
+        cb(performance.now());
+        return 1 as unknown as number;
+      });
+    try {
+      function Harness() {
+        const [open, setOpen] = useState(false);
+        const ref = useRef<HTMLButtonElement>(null);
+        return (
+          <>
+            <button type="button" data-testid="opener" onClick={() => setOpen(true)}>
+              open
+            </button>
+            <Dialog
+              open={open}
+              onClose={() => setOpen(false)}
+              label="Raced"
+              initialFocusRef={ref}
+            >
+              <button type="button" ref={ref} data-testid="raced-preferred">
+                preferred
+              </button>
+            </Dialog>
+          </>
+        );
+      }
+      render(<Harness />);
+      await userEvent.click(screen.getByTestId("opener"));
+      await screen.findByRole("dialog");
+      expect(screen.getByTestId("raced-preferred")).toHaveFocus();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("places initial focus even if the animation frame never fires", async () => {
+    /** A backgrounded tab never runs `requestAnimationFrame`. Focus is an
+     *  accessibility guarantee and must not be contingent on one. */
+    const spy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation(() => 1 as unknown as number);
+    try {
+      function Harness() {
+        const ref = useRef<HTMLButtonElement>(null);
+        return (
+          <Dialog open onClose={() => {}} label="No frame" initialFocusRef={ref}>
+            <button type="button" ref={ref} data-testid="no-frame-preferred">
+              preferred
+            </button>
+          </Dialog>
+        );
+      }
+      render(<Harness />);
+      await screen.findByRole("dialog");
+      await waitFor(() =>
+        expect(screen.getByTestId("no-frame-preferred")).toHaveFocus(),
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("only the innermost of two open dialogs handles Escape", async () => {
@@ -523,5 +606,111 @@ describe("StatusChip / SectionHeader / ScorePill / EmptyState", () => {
       "Finish a run and it will appear here.",
     );
     expect(screen.getByRole("button", { name: "Start a run" })).toBeInTheDocument();
+  });
+
+  it("ErrorState renders the server's own message and an alert role", () => {
+    render(<ErrorState message="Could not reach the PEAK3 API." data-testid="err" />);
+    const box = screen.getByTestId("err");
+    expect(box).toHaveAttribute("role", "alert");
+    expect(box).toHaveTextContent("Could not reach the PEAK3 API.");
+  });
+
+  it("ErrorState falls back to a neutral sentence with no message given", () => {
+    render(<ErrorState data-testid="err" />);
+    expect(screen.getByTestId("err")).toHaveTextContent(/something went wrong/i);
+  });
+
+  it("ErrorState's retry button calls onRetry and meets the tap-target floor", () => {
+    const onRetry = vi.fn();
+    render(<ErrorState message="Failed." onRetry={onRetry} retryLabel="Retry" />);
+    const button = screen.getByRole("button", { name: "Retry" });
+    expect(button).toHaveStyle({ minHeight: "var(--pk-tap-min, 44px)" });
+    button.click();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("ErrorState renders no button at all when there is nothing to retry", () => {
+    render(<ErrorState message="Failed." data-testid="err" />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* ThemeToggle                                                         */
+/* ------------------------------------------------------------------ */
+
+describe("ThemeToggle", () => {
+  beforeEach(() => {
+    window.localStorage.removeItem(THEME_STORAGE_KEY);
+    __resetThemeStoreForTests();
+  });
+
+  it("icon variant starts on dark (the new default) and cycles dark -> light -> system -> dark on click", async () => {
+    const user = userEvent.setup();
+    render(<ThemeToggle />);
+    const button = screen.getByTestId("theme-toggle");
+    // Launch-polish IMPLEMENTATION_CONTRACT.md §2: with nothing stored, a
+    // fresh mount's preference IS "dark" now (not "system"), so the cycle
+    // that `nextThemePreference` always defined (system -> dark -> light ->
+    // system) is experienced starting from dark: dark -> light -> system ->
+    // dark. The accessible name states BOTH the current state and where the
+    // next click goes, so a screen-reader user never clicks blind.
+    expect(button).toHaveAccessibleName(/Arena Night\.\s*Switch to Arena Day/);
+    await user.click(button);
+    expect(button).toHaveAccessibleName(/Arena Day\.\s*Switch to System/);
+    await user.click(button);
+    expect(button).toHaveAccessibleName(/System.*Switch to Arena Night/);
+    await user.click(button);
+    expect(button).toHaveAccessibleName(/Arena Night\.\s*Switch to Arena Day/);
+  });
+
+  it("icon variant meets the 44px tap-target floor", () => {
+    render(<ThemeToggle />);
+    expect(screen.getByTestId("theme-toggle")).toHaveStyle({
+      width: "var(--pk-tap-min, 44px)",
+      height: "var(--pk-tap-min, 44px)",
+    });
+  });
+
+  it("menu variant offers three explicit, independently selectable options", async () => {
+    const user = userEvent.setup();
+    render(<ThemeToggle variant="menu" />);
+    const system = screen.getByTestId("theme-option-system");
+    const dark = screen.getByTestId("theme-option-dark");
+    const light = screen.getByTestId("theme-option-light");
+    // Dark is the default with nothing stored (launch-polish
+    // IMPLEMENTATION_CONTRACT.md §2), not System.
+    expect(dark).toHaveAttribute("aria-pressed", "true");
+    expect(system).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(light);
+    expect(light).toHaveAttribute("aria-pressed", "true");
+    expect(dark).toHaveAttribute("aria-pressed", "false");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+  });
+
+  it("an explicitly chosen System preference is pressed and distinguishable from the default", async () => {
+    const user = userEvent.setup();
+    render(<ThemeToggle variant="menu" />);
+    const system = screen.getByTestId("theme-option-system");
+    const dark = screen.getByTestId("theme-option-dark");
+    await user.click(system);
+    expect(system).toHaveAttribute("aria-pressed", "true");
+    expect(dark).toHaveAttribute("aria-pressed", "false");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("system");
+  });
+
+  it("persists the choice so a second mount reads it back", async () => {
+    // Chooses "light", not "dark" -- dark is now also the no-preference
+    // default, so persisting dark would pass even if persistence were
+    // broken (a fresh mount defaults there anyway). Light actually proves
+    // the round trip.
+    const user = userEvent.setup();
+    const { unmount } = render(<ThemeToggle variant="menu" />);
+    await user.click(screen.getByTestId("theme-option-light"));
+    unmount();
+
+    render(<ThemeToggle variant="menu" />);
+    expect(screen.getByTestId("theme-option-light")).toHaveAttribute("aria-pressed", "true");
   });
 });

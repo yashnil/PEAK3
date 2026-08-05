@@ -261,7 +261,7 @@ function ScoutBossPanel({
         </span>
         {report.rule && (
           <p className="text-xs" data-testid="rtt-scout-rule" style={{ color: "var(--text-secondary)" }}>
-            <strong style={{ color: "var(--peak-accent)" }}>{report.rule.name}</strong>{" "}
+            <strong style={{ color: "var(--peak-accent-text)" }}>{report.rule.name}</strong>{" "}
             {report.rule.summary}
           </p>
         )}
@@ -300,6 +300,12 @@ function ScoutBossPanel({
         <ul className="flex flex-col gap-1.5">
           {report.preparations.map((prep) => (
             <li key={prep.lane}>
+              {/* `would_flip` is the strongest decision signal in the game —
+                  the one preparation choice that actually changes who wins a
+                  lane, versus four that spend the same bonus for no change
+                  in outcome. It used to be a `text-[10px]` caption; now it's
+                  a full-width banner INSIDE the button, large and coloured,
+                  so it reads before the numbers do rather than after. */}
               <button
                 type="button"
                 data-testid={`rtt-scout-prepare-${prep.lane}`}
@@ -307,8 +313,20 @@ function ScoutBossPanel({
                 onClick={() => onPrepare(prep.lane)}
                 disabled={busy}
                 className="rtt-choice-btn w-full text-left disabled:opacity-50"
-                style={{ borderLeft: `3px solid ${laneColorVar(LANE_TOKEN_BY_FIELD[prep.lane])}` }}
+                style={{
+                  borderLeft: `3px solid ${laneColorVar(LANE_TOKEN_BY_FIELD[prep.lane])}`,
+                  borderColor: prep.would_flip ? "var(--correct)" : undefined,
+                }}
               >
+                {prep.would_flip && (
+                  <span
+                    className="mb-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-black uppercase tracking-wide"
+                    data-testid={`rtt-scout-flip-${prep.lane}`}
+                    style={{ background: "var(--correct-bg)", color: "var(--correct)" }}
+                  >
+                    ✓ Flips this lane to a win
+                  </span>
+                )}
                 <span className="flex items-baseline justify-between gap-2">
                   <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                     {prep.label}
@@ -317,15 +335,6 @@ function ScoutBossPanel({
                     {prep.margin_before.toFixed(2)} → {prep.margin_after.toFixed(2)}
                   </span>
                 </span>
-                {prep.would_flip && (
-                  <span
-                    className="text-[10px] font-bold uppercase tracking-wide"
-                    data-testid={`rtt-scout-flip-${prep.lane}`}
-                    style={{ color: "var(--correct)" }}
-                  >
-                    Takes this lane
-                  </span>
-                )}
               </button>
             </li>
           ))}
@@ -419,7 +428,7 @@ function ReservePanel({
                   </span>
                   <span
                     className="score-number shrink-0 text-xs font-bold"
-                    style={{ color: "var(--peak-accent)" }}
+                    style={{ color: "var(--peak-accent-text)" }}
                   >
                     {candidate.locked_cost} cr
                   </span>

@@ -47,11 +47,11 @@ export default function LiveBuildPanel({ liveBuild }: Props) {
       {provisional_record_range && (
         <div className="text-sm" data-testid="live-build-record-range">
           {provisional_record_range.low_wins === provisional_record_range.high_wins ? (
-            <span className="font-bold" style={{ color: "var(--peak-accent, #f5c842)" }}>
+            <span className="font-bold" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
               {provisional_record_range.low_wins}-{82 - provisional_record_range.low_wins}
             </span>
           ) : (
-            <span className="font-bold" style={{ color: "var(--peak-accent, #f5c842)" }}>
+            <span className="font-bold" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
               {provisional_record_range.low_wins}-{82 - provisional_record_range.low_wins}
               {" "}to{" "}
               {provisional_record_range.high_wins}-{82 - provisional_record_range.high_wins}
@@ -69,7 +69,7 @@ export default function LiveBuildPanel({ liveBuild }: Props) {
             <span
               key={tag}
               className="text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5"
-              style={{ color: "var(--text-secondary)", background: "rgba(255,255,255,0.06)" }}
+              style={{ color: "var(--text-secondary)", background: "var(--pk-surface-inset, var(--bg-elevated))" }}
             >
               {tag}
             </span>
@@ -78,7 +78,7 @@ export default function LiveBuildPanel({ liveBuild }: Props) {
             <span
               key={n}
               className="text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5"
-              style={{ color: "var(--peak-accent, #f5c842)", background: "rgba(245,200,66,0.1)" }}
+              style={{ color: "var(--peak-accent-text, #f5c842)", background: "var(--peak-accent-bg)" }}
             >
               {n}
             </span>

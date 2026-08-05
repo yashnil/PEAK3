@@ -34,8 +34,14 @@ const TONES: Record<StatusChipTone, ToneStyle> = {
     background: "var(--pk-surface-raised, var(--bg-surface))",
     border: "var(--border-default)",
   },
+  // P3-G2: `color` here is rendered TEXT (the chip's own label), so every
+  // tone below reads its `-text` sibling, not the frozen/raw token
+  // directly -- `--peak-accent`/`--comp-si` as literal text measured
+  // 1.50:1 / 2.40:1 against the light theme's card surface, failing WCAG
+  // AA at any size. `background`/`border` keep the frozen/raw tokens,
+  // which is exactly where they belong.
   accent: {
-    color: "var(--peak-accent)",
+    color: "var(--peak-accent-text)",
     background: "var(--peak-accent-bg)",
     border: "var(--peak-accent-dim)",
   },
@@ -50,7 +56,7 @@ const TONES: Record<StatusChipTone, ToneStyle> = {
     border: "var(--incorrect-dim)",
   },
   info: {
-    color: "var(--comp-si)",
+    color: "var(--comp-si-text)",
     background: "var(--pk-surface-inset, var(--bg-elevated))",
     border: "var(--border-emphasis)",
   },

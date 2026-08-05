@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getMethodology, getPeakWindowBoard, getSeasonBoard } from "@/lib/api";
 import type { Methodology, RankingBoardData, RankingBoardId, RankingRow } from "@/types";
 import RankingsTable, { ComponentLegend } from "@/components/rankings/RankingsTable";
+import RankingsDetail from "@/components/rankings/RankingsDetail";
 import ScoreExplainModal from "@/components/rankings/ScoreExplainModal";
 import RankingsProvenance from "@/components/rankings/RankingsProvenance";
 import {
@@ -14,12 +15,38 @@ import {
   DEFAULT_SORT_DIRECTION,
   DEFAULT_SORT_KEY,
   RANKING_COLUMNS,
+  RANKING_COMPONENT_KEYS,
   hasComponents,
   isDefaultSort,
   sortRankingRows,
   type RankingSortKey,
   type SortDirection,
 } from "@/components/rankings/board-model";
+
+/**
+ * `?sort=statistical_impact` (any `RankingComponentKey`, or `"total"`) —
+ * the deep link the homepage's interactive component comparison uses so
+ * "click a component" lands here already sorted by it, instead of on a
+ * generic rankings page the visitor has to re-sort themselves. Reads once
+ * on mount; the page's own sort controls own it from then on (this is a
+ * starting point, not a synced URL state).
+ *
+ * Read via `window.location.search` in an effect, NOT `next/navigation`'s
+ * `useSearchParams()` — the same choice `nav.tsx`'s `useLocationSearch`
+ * already made and documents: that hook forces the nearest static shell
+ * into a Suspense boundary, a real cost for a one-time initial read. This
+ * page is already `"use client"`, so there is no server-render agreement
+ * to protect; reading after mount is the same pattern, applied here too.
+ */
+function isDeepLinkableSortKey(value: string | null): value is RankingSortKey {
+  return value === "total" || (RANKING_COMPONENT_KEYS as readonly string[]).includes(value ?? "");
+}
+
+function readSortFromLocation(): RankingSortKey | null {
+  if (typeof window === "undefined") return null;
+  const raw = new URLSearchParams(window.location.search).get("sort");
+  return isDeepLinkableSortKey(raw) ? raw : null;
+}
 
 /**
  * PEAK3 Rankings.
@@ -97,11 +124,25 @@ export default function RankingsPage() {
   const [sortKey, setSortKey] = useState<RankingSortKey>(DEFAULT_SORT_KEY);
   const [sortDirection, setSortDirection] = useState<SortDirection>(DEFAULT_SORT_DIRECTION);
   const [openRow, setOpenRow] = useState<RankingRow | null>(null);
+  // WHICH ROW THE DETAIL PANEL IS SHOWING. Held as a row_id rather than a row
+  // object so a refetch (a different window, a new search) re-resolves it
+  // against the live data instead of pinning a stale copy on screen.
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
     return () => clearTimeout(t);
   }, [search]);
+
+  // `?sort=<component>` deep link (the homepage's component comparison uses
+  // this) — read once, on mount, so a visitor who arrives already sorted
+  // can still freely change it afterward with the page's own controls.
+  useEffect(() => {
+    const requested = readSortFromLocation();
+    if (!requested) return;
+    setSortKey(requested);
+    setSortDirection(RANKING_COLUMNS.find((c) => c.key === requested)?.initialDirection ?? "desc");
+  }, []);
 
   // Component weights and long-form copy for the modal come from the real
   // methodology endpoint -- never hardcoded in TS (project rule).
@@ -173,6 +214,19 @@ export default function RankingsPage() {
   );
   const shownRows = useMemo(() => sortedRows.slice(0, visible), [sortedRows, visible]);
 
+  // THE TOP-RANKED ROW IS THE DEFAULT, resolved from the live rows every
+  // render rather than latched on load. A board switch, a window switch or a
+  // search all change what "the top row" means, and a detail panel still
+  // showing the previous board's leader would be showing a row that is no
+  // longer in the list beside it.
+  const selectedRow = useMemo(() => {
+    if (!sortedRows.length) return null;
+    const match = selectedRowId
+      ? sortedRows.find((row) => row.row_id === selectedRowId)
+      : null;
+    return match ?? sortedRows[0];
+  }, [sortedRows, selectedRowId]);
+
   const boardHeading = boardHeadingFor(board, peakWindow);
   const boardLabel = boardShortLabelFor(board, peakWindow);
   const explainer = explainerFor(board, peakWindow);
@@ -213,7 +267,7 @@ export default function RankingsPage() {
                   className="text-xs font-semibold uppercase tracking-wide rounded-lg px-3.5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                   style={
                     active
-                      ? { background: "var(--peak-accent, #f5c842)", color: "#000" }
+                      ? { background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }
                       : { background: "transparent", color: "var(--text-secondary)" }
                   }
                 >
@@ -247,7 +301,7 @@ export default function RankingsPage() {
                     active
                       ? {
                           background: "var(--peak-accent-bg, rgba(245,200,66,0.12))",
-                          color: "var(--peak-accent, #f5c842)",
+                          color: "var(--peak-accent-text, #f5c842)",
                           border: "1px solid var(--peak-accent-dim)",
                         }
                       : {
@@ -287,7 +341,7 @@ export default function RankingsPage() {
             >
               <span>
                 Sorted by{" "}
-                <strong style={{ color: "var(--peak-accent, #f5c842)" }}>{sortColumn.full}</strong>{" "}
+                <strong style={{ color: "var(--peak-accent-text, #f5c842)" }}>{sortColumn.full}</strong>{" "}
                 {sortDirection === "desc" ? "high to low" : "low to high"}
               </span>
               <button
@@ -316,7 +370,7 @@ export default function RankingsPage() {
             role="alert"
             data-testid="rankings-error"
             className="rounded-lg p-4 text-sm text-center"
-            style={{ background: "var(--bg-surface)", color: "#ef4444" }}
+            style={{ background: "var(--bg-surface)", color: "var(--incorrect)" }}
           >
             {error}
           </div>
@@ -340,6 +394,8 @@ export default function RankingsPage() {
             <h2 className="rankings-board-heading" data-testid="rankings-board-heading">
               {boardHeading}
             </h2>
+            <div className="rankings-split">
+              <div className="rankings-split-list">
             <RankingsTable
               rows={shownRows}
               sortKey={sortKey}
@@ -354,7 +410,20 @@ export default function RankingsPage() {
                   : "No rows available for this board."
               }
               labelHeading={board === "seasons" ? "Season" : "Window"}
+              selectedRowId={selectedRow?.row_id ?? null}
+              onSelectRow={(row) => setSelectedRowId(row.row_id)}
             />
+              </div>
+              <div className="rankings-split-detail">
+                <RankingsDetail
+                  row={selectedRow}
+                  boardLabel={boardLabel}
+                  windowLabel={board === "peakWindows" ? peakWindow.toUpperCase() : null}
+                  populationNoun={board === "seasons" ? "scored season" : "peak window"}
+                  onExplain={setOpenRow}
+                />
+              </div>
+            </div>
 
             {sortedRows.length > shownRows.length && (
               <button

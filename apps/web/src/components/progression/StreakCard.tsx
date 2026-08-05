@@ -17,7 +17,7 @@ export function StreakCard({ streak, compact = false }: Props) {
           role="img"
           aria-label="streak flame"
           className="text-sm"
-          style={{ color: streak.current_streak > 0 ? "var(--peak-accent)" : "var(--text-muted)" }}
+          style={{ color: streak.current_streak > 0 ? "var(--peak-accent-text)" : "var(--text-muted)" }}
         >
           🔥
         </span>
@@ -32,7 +32,7 @@ export function StreakCard({ streak, compact = false }: Props) {
             title="Reserve day available"
             aria-label="Reserve day available"
             className="text-xs px-1 rounded"
-            style={{ background: "rgba(245,200,66,0.15)", color: "var(--peak-accent)" }}
+            style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent-text)" }}
           >
             +1
           </span>
@@ -53,7 +53,7 @@ export function StreakCard({ streak, compact = false }: Props) {
         {hasReserve && (
           <span
             className="text-xs px-2 py-0.5 rounded"
-            style={{ background: "rgba(245,200,66,0.15)", color: "var(--peak-accent)" }}
+            style={{ background: "var(--peak-accent-bg)", color: "var(--peak-accent-text)" }}
             title="1 reserve day available — protects one missed day"
             aria-label="Reserve day available"
           >
@@ -67,7 +67,7 @@ export function StreakCard({ streak, compact = false }: Props) {
           <div
             className="text-3xl font-bold tabular-nums"
             aria-label={`Current streak: ${streak.current_streak} days`}
-            style={{ color: streak.current_streak > 0 ? "var(--peak-accent)" : "var(--text-muted)" }}
+            style={{ color: streak.current_streak > 0 ? "var(--peak-accent-text)" : "var(--text-muted)" }}
           >
             {streak.current_streak}
           </div>

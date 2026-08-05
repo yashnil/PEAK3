@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { createCourtGame, getCourtGame, PerfectSeasonAPIError } from "@/lib/perfect-season-api";
+import { useAuth } from "@/lib/auth-context";
 import { CourtLineupPublicState, CourtMode } from "@/types/perfect-season";
 import CourtBuilder from "./CourtBuilder";
 
@@ -60,6 +61,21 @@ export default function PeakSeasonStartGate({
 }: Props) {
   const [game, setGame] = useState<CourtLineupPublicState | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * Wait for the Supabase session before touching the API.
+   *
+   * `AuthProvider` resolves the session in an effect, so for the first moments
+   * after hydration `getAccessToken()` returns null even for a signed-in
+   * player. A create issued in that window carries no bearer, and the API
+   * quite correctly files the run under a guest subject -- the run is then
+   * owned by somebody who is not the person looking at it, permanently.
+   *
+   * Nothing retries and nothing is hidden: the request is simply not made
+   * until the identity that will own it is known. `loading` is false almost
+   * immediately (and is false from the start when auth is not configured), so
+   * anonymous play is not delayed in any perceptible way.
+   */
+  const { loading: authLoading } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const isDaily = challengeKind === "daily";
 
@@ -80,10 +96,16 @@ export default function PeakSeasonStartGate({
   }, []);
 
   useEffect(() => {
+    // Also gated on auth: a resume fired pre-hydration reads the run as a
+    // guest and 403s against the player's own run.
+    if (authLoading) return;
     if (resumeGameId) void resume(resumeGameId);
-  }, [resumeGameId, resume]);
+  }, [resumeGameId, resume, authLoading]);
 
   async function handleBegin() {
+    // Belt and braces: the button is disabled while `authLoading`, but a
+    // keyboard activation racing the state update must not slip through.
+    if (authLoading) return;
     setBusy(true);
     setError(null);
     try {
@@ -135,8 +157,8 @@ export default function PeakSeasonStartGate({
             className="text-[10px] font-black uppercase tracking-widest rounded-full px-2.5 py-1"
             style={
               isDaily
-                ? { background: "rgba(96,165,250,0.15)", color: "#60a5fa" }
-                : { background: "rgba(245,200,66,0.15)", color: "var(--peak-accent, #f5c842)" }
+                ? { background: "color-mix(in srgb, var(--accent-blue) 15%, transparent)", color: "var(--accent-blue)" }
+                : { background: "var(--peak-accent-bg)", color: "var(--peak-accent-text, #f5c842)" }
             }
           >
             {isDaily ? "Daily PEAK Season" : "82-0 PEAK Season"}
@@ -211,7 +233,7 @@ export default function PeakSeasonStartGate({
         )}
 
         {error && (
-          <p role="alert" className="text-sm" style={{ color: "#ef4444" }} data-testid="start-gate-error">
+          <p role="alert" className="text-sm" style={{ color: "var(--incorrect)" }} data-testid="start-gate-error">
             {error}
           </p>
         )}
@@ -219,11 +241,17 @@ export default function PeakSeasonStartGate({
         <button
           data-testid="begin-run-btn"
           onClick={handleBegin}
-          disabled={busy}
+          disabled={busy || authLoading}
           className="self-start px-6 py-3 rounded-lg text-sm font-bold uppercase tracking-wide disabled:opacity-60"
-          style={{ background: "var(--peak-accent, #f5c842)", color: "#000" }}
+          style={{ background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }}
         >
-          {busy ? "Starting…" : isDaily ? "Begin Daily Run" : "Begin 82-0 Run"}
+          {authLoading
+            ? "Checking your session…"
+            : busy
+              ? "Starting…"
+              : isDaily
+                ? "Begin Daily Run"
+                : "Begin 82-0 Run"}
         </button>
 
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -240,7 +268,7 @@ function Step({ n }: { n: number }) {
     <span
       aria-hidden="true"
       className="shrink-0 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center mt-0.5"
-      style={{ background: "var(--bg-surface)", color: "var(--peak-accent, #f5c842)" }}
+      style={{ background: "var(--bg-surface)", color: "var(--peak-accent-text, #f5c842)" }}
     >
       {n}
     </span>

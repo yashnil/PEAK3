@@ -946,7 +946,7 @@ export default function SpinStage({
             data-phase={respinning ? (teamIsTicking ? "spinning" : "revealed") : phase}
             style={{
               background: "var(--bg-surface)",
-              border: "1px solid var(--border-muted, #333)",
+              border: "1px solid var(--border-subtle)",
               minHeight: 128,
               opacity: teamIsLocked ? 0.55 : 1,
               "--slot-accent": teamAccentReady ? colors.primary : "var(--text-muted)",
@@ -1059,7 +1059,7 @@ export default function SpinStage({
             data-phase={respinning ? (seasonIsTicking ? "spinning" : "revealed") : phase}
             style={{
               background: "var(--bg-surface)",
-              border: "1px solid var(--border-muted, #333)",
+              border: "1px solid var(--border-subtle)",
               minHeight: 128,
               opacity: seasonIsLocked ? 0.55 : 1,
               "--slot-accent": teamAccentReady ? colors.primary : "var(--text-muted)",
@@ -1099,7 +1099,7 @@ export default function SpinStage({
                 data-testid="spin-season-reel-center"
                 data-final-value={secondDisplay}
                 className="text-2xl font-black"
-                style={{ color: phase === "revealed" ? "var(--peak-accent, #f5c842)" : "var(--text-primary)" }}
+                style={{ color: phase === "revealed" ? "var(--peak-accent-text, #f5c842)" : "var(--text-primary)" }}
                 initial={reduceMotion ? false : { opacity: 0, scale: 0.92 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: reduceMotion ? 0 : 0.22, ease: "easeOut" }}

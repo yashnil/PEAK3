@@ -1,14 +1,15 @@
 "use client";
-import { useState } from "react";
-import { Check, Copy, Link as LinkIcon, RotateCcw, Repeat } from "lucide-react";
+import { useRef, useState } from "react";
+import { Camera, Check, Copy, Link as LinkIcon, RotateCcw, Repeat } from "lucide-react";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
-import { RunReceipt, RunVersions } from "@/types/run-the-table";
+import { MapAct, RunReceipt, RunVersions } from "@/types/run-the-table";
 import {
   DECIDED_BY_LABELS,
   buildRunShareText,
   challengeUrl,
   formatReceiptItem,
   formatSigned,
+  ladderRows,
   outcomeColorVar,
   receiptItemColorVar,
   receiptItems,
@@ -24,35 +25,30 @@ import {
   perkPlainEffect,
   perkStrategyHint,
 } from "@/lib/run-the-table-copy";
+import { drawShareCard } from "@/lib/run-the-table-share-card";
 import LaneProfile from "./LaneProfile";
 
 /**
- * The run receipt.
+ * The run receipt — restructured to the twelve sections
+ * PRODUCT_EXPERIENCE_CONTRACT.md §6 specifies, in order, each visually
+ * distinct in weight. Every claim on this screen is still a field on
+ * `build_receipt()` (or, for the decision timeline, `state.map`) — the
+ * MVP's marginal contribution, the best acquisition's value per credit,
+ * the closest battle's tightest lane margin, the explanation lines.
+ * Nothing is re-derived, ranked or editorialised beyond picking WHICH
+ * already-sent field to lead with (e.g. "largest mistake" is the most
+ * negative value already present across `best_acquisition`/`best_trade`/
+ * `marginal_contributions` — never a new comparison the engine did not
+ * already make available).
  *
- * Every claim on this screen is a field on `build_receipt()` — the MVP's
- * marginal contribution, the best acquisition's value per credit, the closest
- * battle's tightest lane margin, and the explanation lines. Nothing is
- * re-derived, ranked or editorialised here; the component's job is to lay it
- * out.
+ * §2.2's verdict retirement and §2.3's kind-driven receipt-item colour both
+ * still apply exactly as before; see the git history for that reasoning if
+ * you are looking for it — it did not change in this pass, only its
+ * position on the page did (§6 item 1: the verdict is now the single
+ * largest, highest-contrast element, first in DOM order, not an
+ * `text-[11px]` caption under the headline).
  *
- * TWO CONTRACT CHANGES LAND HERE.
- *
- * 1. THE VERDICT (plan §2.2). `"RUN COMPLETE"` is retired — it was printed for
- *    a 0-for-3 losing run, which is victory framing on a defeat. The three
- *    strings are `TABLE CLEARED`, `RUN ENDED AT THE FINAL BOSS` and
- *    `RUN ENDED IN ACT {n}`, and `runVerdict()` derives them for a v1 receipt
- *    saved before the engine emitted an `outcome`.
- *
- * 2. THE RECEIPT LINES (plan §2.3). Colour now comes from `item.kind` and from
- *    NOTHING ELSE. It used to come from the sign of `reason.signed_value`, and
- *    the engine negated a credit HOLDING to force that colour — so this screen
- *    printed "Finished holding 68 unspent credits" beside a red −68.0, two
- *    sections below a Credits block that said `finished holding 68`. Old
- *    receipts still render: `receiptItems()` falls back to `reasons[]`.
- *    `signedColorVar` survives only where a signed delta genuinely IS the
- *    semantic — a PEAK3 score delta on an acquisition or a trade.
- *
- * The confirmation pattern is ShareRunPanel's: the button's own label swaps
+ * The confirmation pattern is ShareRunPanel's: a button's own label swaps
  * for two seconds. No toast.
  */
 interface Props {
@@ -63,6 +59,12 @@ interface Props {
    *  battles on the receipt, which can only under-report "reached the final
    *  boss" and never claims a clear that did not happen. */
   actsTotal?: number | null;
+  /** `state.map` — the completed run's ladder, for the decision timeline
+   *  (§6 item 10). Optional so a caller that genuinely cannot supply it
+   *  (an old saved receipt with no live run behind it) still renders every
+   *  other section rather than crashing; the timeline section is simply
+   *  omitted, never faked. */
+  map?: MapAct[] | null;
   onRunItBack: () => void;
   onReplaySeed: () => void;
   onChallenge: () => Promise<string | null>;
@@ -75,12 +77,15 @@ export default function RunResult({
   versions,
   busy,
   actsTotal,
+  map,
   onRunItBack,
   onReplaySeed,
   onChallenge,
 }: Props) {
   const [copied, setCopied] = useState<CopiedKind>(null);
   const [challengeError, setChallengeError] = useState<string | null>(null);
+  const [shareImageReady, setShareImageReady] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const roster = [...receipt.starters, ...receipt.bench];
   const outcome = runOutcome(receipt, actsTotal);
   const verdict = runVerdict(receipt, actsTotal);
@@ -117,18 +122,130 @@ export default function RunResult({
     }
   }
 
+  /** §6 item 11 — a REAL rendered image, not a re-label of the clipboard
+   *  action above (which stays, unchanged, as its own button). Draws once
+   *  into an offscreen canvas and offers it as a PNG download. */
+  function handleShareCard() {
+    const canvas = canvasRef.current ?? document.createElement("canvas");
+    canvasRef.current = canvas;
+    drawShareCard(canvas, receipt, actsTotal);
+    setShareImageReady(true);
+    const url = canvas.toDataURL("image/png");
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `run-the-table-${receipt.seed}.png`;
+    a.click();
+    trackRunTheTable({ type: "rtt_shared", surface: "card" });
+  }
+
+  // ---- §6 item 4: most valuable transaction (promoted, not duplicated) ----
+  const bestAcq = receipt.best_acquisition;
+  const bestTrade = receipt.best_trade;
+  const mostValuable: { kind: "acquisition"; data: NonNullable<typeof bestAcq> } | { kind: "trade"; data: NonNullable<typeof bestTrade> } | null =
+    bestAcq && bestTrade
+      ? bestAcq.score_delta >= bestTrade.score_delta
+        ? { kind: "acquisition", data: bestAcq }
+        : { kind: "trade", data: bestTrade }
+      : bestAcq
+        ? { kind: "acquisition", data: bestAcq }
+        : bestTrade
+          ? { kind: "trade", data: bestTrade }
+          : null;
+  const runnerUp = mostValuable?.kind === "acquisition" ? bestTrade : mostValuable?.kind === "trade" ? bestAcq : null;
+
+  // ---- §6 item 5: largest mistake — the most negative value ALREADY on the
+  // receipt, never a new comparison. Priority: a "best" transaction that was
+  // still a net loss outranks a merely-underperforming roster player, since
+  // it is the more legible story ("your best move still cost you"). ----
+  const worstContribution =
+    receipt.marginal_contributions.length > 0
+      ? receipt.marginal_contributions.reduce((min, c) =>
+          c.marginal_contribution < min.marginal_contribution ? c : min,
+        )
+      : null;
+  type Mistake = { label: string; detail: React.ReactNode; delta: number };
+  const mistakeCandidates: Mistake[] = [];
+  if (bestAcq && bestAcq.score_delta < 0) {
+    mistakeCandidates.push({
+      label: "Worst acquisition",
+      delta: bestAcq.score_delta,
+      detail: (
+        <>
+          <strong style={{ color: "var(--text-primary)" }}>{bestAcq.player_name}</strong> for{" "}
+          <span className="score-number">{bestAcq.cost}</span> credits in Act{" "}
+          <span className="score-number">{bestAcq.act}</span> —{" "}
+          <span className="score-number" style={{ color: "var(--incorrect)" }}>
+            {formatSigned(bestAcq.score_delta, 2)}
+          </span>{" "}
+          PEAK3 over {bestAcq.replaced?.player_name ?? "an empty slot"}.
+        </>
+      ),
+    });
+  }
+  if (bestTrade && bestTrade.score_delta < 0) {
+    mistakeCandidates.push({
+      label: "Worst trade",
+      delta: bestTrade.score_delta,
+      detail: (
+        <>
+          <strong style={{ color: "var(--text-primary)" }}>{bestTrade.incoming.player_name}</strong> for{" "}
+          {bestTrade.outgoing.player_name} — net{" "}
+          <span className="score-number">{bestTrade.net_cost}</span> credits,{" "}
+          <span className="score-number" style={{ color: "var(--incorrect)" }}>
+            {formatSigned(bestTrade.score_delta, 2)}
+          </span>{" "}
+          PEAK3.
+        </>
+      ),
+    });
+  }
+  if (worstContribution && worstContribution.marginal_contribution < 0) {
+    mistakeCandidates.push({
+      label: "Weakest roster spot",
+      delta: worstContribution.marginal_contribution,
+      detail: (
+        <>
+          <strong style={{ color: "var(--text-primary)" }}>{worstContribution.player_name}</strong>{" "}
+          {worstContribution.anchor_season} — the roster would have scored{" "}
+          <span className="score-number" style={{ color: "var(--correct)" }}>
+            {formatSigned(-worstContribution.marginal_contribution, 2)}
+          </span>{" "}
+          higher without them.
+        </>
+      ),
+    });
+  }
+  const largestMistake =
+    mistakeCandidates.length > 0
+      ? mistakeCandidates.reduce((worst, m) => (m.delta < worst.delta ? m : worst))
+      : null;
+
+  // ---- §6 item 6: closest LOST lane only — a closest WON lane is a
+  // different, less interesting fact. ----
+  const closestLostBattle =
+    receipt.closest_battle && receipt.closest_battle.outcome !== "win" ? receipt.closest_battle : null;
+
+  // ---- §6 item 10: decision timeline, from `map` (optional — omitted, not
+  // faked, when the caller has none to give). ----
+  const timelineRows = map ? ladderRows(map).filter((r) => r.state !== "locked") : [];
+
   return (
     <div className="share-card-shell flex flex-col gap-4" data-testid="rtt-result">
-      <header className="flex flex-col gap-1">
+      {/* §6 item 1 — THE VERDICT. The single largest, highest-contrast
+          element on the screen, first in DOM order, above every highlight
+          card. Used to be `text-[11px]` — smaller than the flavour line
+          beneath it, which is backwards: whether the table was cleared is
+          the one fact this whole screen exists to state. */}
+      <header className="flex flex-col gap-1.5">
         <span
-          className="text-[11px] font-black uppercase tracking-[0.22em]"
+          className="text-4xl font-black uppercase leading-none tracking-tight sm:text-5xl"
           style={{ color: stampColor }}
           data-testid="rtt-result-verdict"
           data-outcome={outcome}
         >
           {verdict}
         </span>
-        <h2 className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+        <h2 className="text-base font-semibold" style={{ color: "var(--text-primary)" }}>
           {receipt.headline}
         </h2>
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
@@ -141,39 +258,7 @@ export default function RunResult({
         </p>
       </header>
 
-      {/* Roster */}
-      <section className="flex flex-col gap-2">
-        <h3 className="rtt-result-heading">Final roster</h3>
-        <ul className="grid gap-1 sm:grid-cols-2">
-          {roster.map((entry) => (
-            <li
-              key={entry.slot_id}
-              className="flex items-center gap-2 rounded-lg px-2 py-1.5 min-w-0"
-              style={{ background: "var(--bg-surface)" }}
-            >
-              <PlayerAvatar name={entry.player_name} size={24} />
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-                  {entry.player_name}
-                </span>
-                <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  {slotLabel({ slot_id: entry.slot_id, role: entry.role, is_starter: true })} ·{" "}
-                  {entry.window}
-                </span>
-              </span>
-              <span
-                className="score-number ml-auto text-xs shrink-0"
-                style={{ color: "var(--peak-accent)" }}
-              >
-                {entry.prime_score.toFixed(1)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      {/* Boss record — one row per act, so "3-0" is auditable rather than
-          asserted. Every field is `receipt.battles[]`; nothing is recounted. */}
+      {/* §6 item 2 — act reached / boss record, one row per act. */}
       {receipt.battles.length > 0 && (
         <section className="flex flex-col gap-1.5">
           <h3 className="rtt-result-heading">Boss record</h3>
@@ -214,7 +299,143 @@ export default function RunResult({
         </section>
       )}
 
-      {/* Front office perks (internally: Systems — plan §5.2) */}
+      {/* §6 items 3-5 + 7 — MVP, most-valuable transaction, largest mistake,
+          credits — the "stat tile" row. Positive framing (MVP, best move)
+          alongside the negative framing this screen used to have none of. */}
+      <section className="grid gap-2 sm:grid-cols-2">
+        <Highlight title="Run MVP">
+          {receipt.run_mvp ? (
+            <>
+              <strong style={{ color: "var(--text-primary)" }}>{receipt.run_mvp.player_name}</strong>{" "}
+              {receipt.run_mvp.anchor_season} — removing them costs the roster{" "}
+              <span className="score-number" style={{ color: "var(--peak-accent-text)" }}>
+                {receipt.run_mvp.marginal_contribution.toFixed(2)}
+              </span>{" "}
+              of overall total.
+            </>
+          ) : (
+            "No cards on the roster."
+          )}
+        </Highlight>
+
+        <Highlight title="Best move" testId="rtt-result-best-move">
+          {mostValuable ? (
+            <>
+              <span
+                className="mb-0.5 block text-[9px] font-bold uppercase tracking-widest"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {mostValuable.kind === "acquisition" ? "Acquisition" : "Trade"}
+              </span>
+              {mostValuable.kind === "acquisition" ? (
+                <>
+                  <strong style={{ color: "var(--text-primary)" }}>{mostValuable.data.player_name}</strong> for{" "}
+                  <span className="score-number">{mostValuable.data.cost}</span> credits in Act{" "}
+                  <span className="score-number">{mostValuable.data.act}</span> —{" "}
+                  <span className="score-number" style={{ color: signedColorVar(mostValuable.data.score_delta) }}>
+                    {formatSigned(mostValuable.data.score_delta, 2)}
+                  </span>{" "}
+                  PEAK3 over {mostValuable.data.replaced?.player_name ?? "an empty slot"}.
+                </>
+              ) : (
+                <>
+                  <strong style={{ color: "var(--text-primary)" }}>{mostValuable.data.incoming.player_name}</strong> for{" "}
+                  {mostValuable.data.outgoing.player_name} — net{" "}
+                  <span className="score-number">{mostValuable.data.net_cost}</span> credits,{" "}
+                  <span className="score-number" style={{ color: signedColorVar(mostValuable.data.score_delta) }}>
+                    {formatSigned(mostValuable.data.score_delta, 2)}
+                  </span>{" "}
+                  PEAK3.
+                </>
+              )}
+              {/* The runner-up: a secondary line, not a full duplicate card. */}
+              {runnerUp && (
+                <span className="mt-1 block text-[11px]" style={{ color: "var(--text-muted)" }}>
+                  {"incoming" in runnerUp
+                    ? `Also traded for ${runnerUp.incoming.player_name} (${formatSigned(runnerUp.score_delta, 2)} PEAK3).`
+                    : `Also bought ${runnerUp.player_name} (${formatSigned(runnerUp.score_delta, 2)} PEAK3).`}
+                </span>
+              )}
+            </>
+          ) : (
+            "No acquisition or trade this run."
+          )}
+        </Highlight>
+
+        {/* NEW — the negative framing this screen used to have none of.
+            Omitted entirely when the data supports nothing negative, per
+            §6 item 5 / VERIFICATION_PLAN item 12: absence is only correct
+            when nothing negative exists, never a placeholder. */}
+        {largestMistake && (
+          <Highlight title={largestMistake.label} testId="rtt-result-largest-mistake" tone="incorrect">
+            {largestMistake.detail}
+          </Highlight>
+        )}
+
+        {/* §6 item 6 — closest LOST lane only. A closest WON lane is a
+            different, less interesting fact and is not shown here. */}
+        {closestLostBattle && (
+          <Highlight title="Closest lost lane" testId="rtt-result-closest-lost">
+            Act <span className="score-number">{closestLostBattle.act}</span> —{" "}
+            {closestLostBattle.outcome}, lanes{" "}
+            <span className="score-number">{closestLostBattle.lanes}</span>. Tightest lane was{" "}
+            <span className="score-number">{closestLostBattle.tightest_lane_margin.toFixed(2)}</span> apart.
+          </Highlight>
+        )}
+
+        {/* §6 item 7 — credits, promoted out of paragraph form into its own
+            tile: a resource-management payoff the player made decisions
+            toward all run, not a footnote. */}
+        <Highlight title="Credits" testId="rtt-result-credits">
+          Started with <span className="score-number">{receipt.starting_credits}</span> · spent{" "}
+          <span className="score-number">{receipt.credits_spent}</span> · refunded{" "}
+          <span className="score-number">{receipt.credits_refunded}</span> · finished holding{" "}
+          <span className="score-number">{receipt.credits_remaining}</span>
+        </Highlight>
+      </section>
+
+      {/* §6 item 8 — final roster. */}
+      <section className="flex flex-col gap-2">
+        <h3 className="rtt-result-heading">Final roster</h3>
+        <ul className="grid gap-1 sm:grid-cols-2">
+          {roster.map((entry) => (
+            <li
+              key={entry.slot_id}
+              className="flex items-center gap-2 rounded-lg px-2 py-1.5 min-w-0"
+              style={{ background: "var(--bg-surface)" }}
+            >
+              <PlayerAvatar name={entry.player_name} size={24} />
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                  {entry.player_name}
+                </span>
+                <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  {slotLabel({ slot_id: entry.slot_id, role: entry.role, is_starter: true })} · {entry.window}
+                </span>
+              </span>
+              <span className="score-number ml-auto text-xs shrink-0" style={{ color: "var(--peak-accent-text)" }}>
+                {entry.prime_score.toFixed(1)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {/* §6 item 9 — five-lane profile. */}
+      <section className="flex flex-col gap-2">
+        <h3 className="rtt-result-heading">Five-lane profile</h3>
+        <LaneProfile lanes={receiptLaneProfile(receipt.lane_profile)} dense />
+        <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+          Strongest: {receipt.strongest_lane.label}{" "}
+          <span className="score-number">{receipt.strongest_lane.value.toFixed(1)}</span> · weakest:{" "}
+          {receipt.weakest_lane.label}{" "}
+          <span className="score-number">{receipt.weakest_lane.value.toFixed(1)}</span>
+        </p>
+      </section>
+
+      {/* Front office perks (internally: Systems — plan §5.2). Not one of
+          §6's twelve numbered sections, but real decision-relevant data
+          this screen already explained well; kept. */}
       <section className="flex flex-col gap-1.5">
         <h3 className="rtt-result-heading">Front office perks</h3>
         {receipt.systems.length === 0 ? (
@@ -222,17 +443,13 @@ export default function RunResult({
             No perk was ever selected.
           </p>
         ) : (
-          // Three layers, same as `SystemSelect` and the tray (plan §6). This
-          // surface used to show NO plain line at all — just the name and the
-          // dense threshold summary — so the one screen a player reads after
-          // the run was the one that never said what their perk did.
           receipt.systems.map((sys) => {
             const plain = perkPlainEffect(sys.id);
             const hint = perkStrategyHint(sys.id);
             return (
               <div key={sys.id} className="flex flex-col" data-testid={`rtt-result-system-${sys.id}`}>
                 <p className="text-xs" style={{ color: "var(--text-primary)" }}>
-                  <span className="font-semibold" style={{ color: "var(--peak-accent)" }}>
+                  <span className="font-semibold" style={{ color: "var(--peak-accent-text)" }}>
                     {sys.name}
                   </span>{" "}
                   — {plain ?? sys.summary}
@@ -246,11 +463,7 @@ export default function RunResult({
                   <details data-testid={`rtt-result-system-rule-${sys.id}`}>
                     <summary
                       className="cursor-pointer select-none text-[11px]"
-                      style={{
-                        color: "var(--text-muted)",
-                        textDecoration: "underline",
-                        textUnderlineOffset: "2px",
-                      }}
+                      style={{ color: "var(--text-muted)", textDecoration: "underline", textUnderlineOffset: "2px" }}
                     >
                       {PERK_EXACT_RULE_LABEL}
                       <span className="sr-only"> for {sys.name}</span>
@@ -266,115 +479,58 @@ export default function RunResult({
         )}
       </section>
 
-      {/* Lane profile */}
-      <section className="flex flex-col gap-2">
-        <h3 className="rtt-result-heading">Five-lane profile</h3>
-        <LaneProfile lanes={receiptLaneProfile(receipt.lane_profile)} dense />
-        <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-          Strongest: {receipt.strongest_lane.label}{" "}
-          <span className="score-number">{receipt.strongest_lane.value.toFixed(1)}</span> · weakest:{" "}
-          {receipt.weakest_lane.label}{" "}
-          <span className="score-number">{receipt.weakest_lane.value.toFixed(1)}</span>
-        </p>
-      </section>
-
-      {/* Highlights */}
-      <section className="grid gap-2 sm:grid-cols-2">
-        <Highlight title="Run MVP">
-          {receipt.run_mvp ? (
-            <>
-              <strong style={{ color: "var(--text-primary)" }}>
-                {receipt.run_mvp.player_name}
-              </strong>{" "}
-              {receipt.run_mvp.anchor_season} — removing them costs the roster{" "}
-              <span className="score-number" style={{ color: "var(--peak-accent)" }}>
-                {receipt.run_mvp.marginal_contribution.toFixed(2)}
-              </span>{" "}
-              of overall total.
-            </>
-          ) : (
-            "No cards on the roster."
-          )}
-        </Highlight>
-
-        <Highlight title="Best acquisition">
-          {receipt.best_acquisition ? (
-            <>
-              <strong style={{ color: "var(--text-primary)" }}>
-                {receipt.best_acquisition.player_name}
-              </strong>{" "}
-              for <span className="score-number">{receipt.best_acquisition.cost}</span> credits in
-              Act <span className="score-number">{receipt.best_acquisition.act}</span> —{" "}
-              <span
-                className="score-number"
-                style={{ color: signedColorVar(receipt.best_acquisition.score_delta) }}
+      {/* §6 item 10 — decision timeline: the map the player just played,
+          presented once more as a story. Omitted (not faked) when the
+          caller has no `map` to give — see the prop docstring. */}
+      {timelineRows.length > 0 && (
+        <section className="flex flex-col gap-1.5">
+          <h3 className="rtt-result-heading">Decision timeline</h3>
+          <ol
+            className="flex flex-wrap gap-1.5"
+            data-testid="rtt-result-timeline"
+            aria-label="The run's stages, in order"
+          >
+            {timelineRows.map((row) => (
+              <li
+                key={row.key}
+                data-testid={`rtt-result-timeline-${row.key}`}
+                className="flex flex-col items-center gap-0.5 rounded-lg px-2 py-1 text-center"
+                style={{
+                  background: "var(--bg-surface)",
+                  border: `1px solid ${
+                    row.kind === "boss"
+                      ? row.state === "won"
+                        ? "var(--correct-dim)"
+                        : row.state === "lost"
+                          ? "var(--incorrect-dim)"
+                          : "var(--border-default)"
+                      : "var(--border-subtle)"
+                  }`,
+                  minWidth: "76px",
+                }}
               >
-                {formatSigned(receipt.best_acquisition.score_delta, 2)}
-              </span>{" "}
-              PEAK3 over{" "}
-              {receipt.best_acquisition.replaced?.player_name ?? "an empty slot"}.
-            </>
-          ) : (
-            "You never bought a card."
-          )}
-        </Highlight>
+                <span className="text-[9px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                  {row.kind === "boss" ? `Act ${row.act} boss` : `Act ${row.act}·${row.stage}`}
+                </span>
+                <span className="text-[10px] font-semibold" style={{ color: "var(--text-primary)" }}>
+                  {row.kind === "boss"
+                    ? row.state === "won"
+                      ? "Won"
+                      : row.state === "lost"
+                        ? "Lost"
+                        : row.state === "drawn"
+                          ? "Drew"
+                          : row.sublabel
+                    : row.sublabel}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
-        <Highlight title="Best trade">
-          {receipt.best_trade ? (
-            <>
-              <strong style={{ color: "var(--text-primary)" }}>
-                {receipt.best_trade.incoming.player_name}
-              </strong>{" "}
-              for {receipt.best_trade.outgoing.player_name} — net{" "}
-              <span className="score-number">{receipt.best_trade.net_cost}</span> credits,{" "}
-              <span
-                className="score-number"
-                style={{ color: signedColorVar(receipt.best_trade.score_delta) }}
-              >
-                {formatSigned(receipt.best_trade.score_delta, 2)}
-              </span>{" "}
-              PEAK3.
-            </>
-          ) : (
-            "You never made a trade."
-          )}
-        </Highlight>
-
-        <Highlight title="Closest battle">
-          {receipt.closest_battle ? (
-            <>
-              Act <span className="score-number">{receipt.closest_battle.act}</span> —{" "}
-              {receipt.closest_battle.outcome}, lanes{" "}
-              <span className="score-number">{receipt.closest_battle.lanes}</span>. Tightest lane
-              was{" "}
-              <span className="score-number">
-                {receipt.closest_battle.tightest_lane_margin.toFixed(2)}
-              </span>{" "}
-              apart.
-            </>
-          ) : (
-            "No battle was played."
-          )}
-        </Highlight>
-      </section>
-
-      {/* Economy */}
-      <section className="flex flex-col gap-1">
-        <h3 className="rtt-result-heading">Credits</h3>
-        <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
-          Started with <span className="score-number">{receipt.starting_credits}</span> · spent{" "}
-          <span className="score-number">{receipt.credits_spent}</span> · refunded{" "}
-          <span className="score-number">{receipt.credits_refunded}</span> · finished holding{" "}
-          <span className="score-number">{receipt.credits_remaining}</span>
-        </p>
-      </section>
-
-      {/* The semantic receipt (plan §2.3).
-          COLOUR COMES FROM `kind` AND FROM NOTHING ELSE — never from the sign
-          of the number beside it. `value` is printed as the true magnitude the
-          engine sent, so a credit HOLDING reads as 68 in the muted tone and
-          not as a red −68. `receiptItems()` adapts a v1 `reasons[]` receipt
-          into the same shape, so an old saved run still renders. */}
+      {/* The semantic receipt (plan §2.3). COLOUR COMES FROM `kind` AND FROM
+          NOTHING ELSE — never from the sign of the number beside it. */}
       <section className="flex flex-col gap-1.5">
         <h3 className="rtt-result-heading">Why this run ended this way</h3>
         {items.length === 0 ? (
@@ -391,9 +547,6 @@ export default function RunResult({
                 className="flex items-baseline gap-2 rounded-lg px-2 py-1.5"
                 style={{ background: "var(--bg-surface)" }}
               >
-                {/* `min-w`, not a fixed `w-12`: a `display` string is real
-                    copy ("3 of 5 battles"), not a number, and a fixed column
-                    would clip it. */}
                 <span
                   className="score-number min-w-12 shrink-0 whitespace-nowrap text-right text-xs font-bold"
                   style={{ color: receiptItemColorVar(item.kind) }}
@@ -409,7 +562,22 @@ export default function RunResult({
         )}
       </section>
 
-      {/* Actions */}
+      {/* §6 item 12 — leaderboard placement, or an EXPLICIT "not ranked
+          yet" — never a silent omission. RTT has no leaderboard contract
+          yet (SCORE_RECONCILIATION.md "Mode separation": RTT gets a
+          leaderboard only after its own score contract is defined,
+          separately, not in this pass) — so "not ranked yet" is the
+          correct, honest state right now, not a placeholder for a feature
+          that doesn't exist. */}
+      <section className="flex flex-col gap-1" data-testid="rtt-result-leaderboard">
+        <h3 className="rtt-result-heading">Leaderboard</h3>
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Not ranked yet — RUN THE TABLE doesn&apos;t have a global leaderboard in this build.
+        </p>
+      </section>
+
+      {/* Actions — five, per §6: run it back · replay this seed · challenge
+          a friend · copy summary · share card (image). */}
       {challengeError && (
         <p role="alert" className="text-xs" style={{ color: "var(--incorrect)" }}>
           {challengeError}
@@ -422,7 +590,7 @@ export default function RunResult({
           onClick={onRunItBack}
           disabled={busy}
           className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-bold uppercase tracking-wide disabled:opacity-60"
-          style={{ background: "var(--peak-accent)", color: "#000" }}
+          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           <RotateCcw size={13} aria-hidden="true" />
           Run it back
@@ -433,11 +601,7 @@ export default function RunResult({
           onClick={onReplaySeed}
           disabled={busy}
           className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide disabled:opacity-60"
-          style={{
-            background: "var(--bg-elevated)",
-            color: "var(--text-primary)",
-            border: "1px solid var(--border-default)",
-          }}
+          style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
         >
           <Repeat size={13} aria-hidden="true" />
           Replay this seed
@@ -448,11 +612,7 @@ export default function RunResult({
           onClick={handleChallenge}
           disabled={busy}
           className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide disabled:opacity-60"
-          style={{
-            background: "var(--bg-elevated)",
-            color: "var(--text-primary)",
-            border: "1px solid var(--border-default)",
-          }}
+          style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
         >
           {copied === "challenge" ? <Check size={13} aria-hidden="true" /> : <LinkIcon size={13} aria-hidden="true" />}
           {copied === "challenge" ? "Link copied!" : "Challenge a friend"}
@@ -462,16 +622,31 @@ export default function RunResult({
           data-testid="rtt-copy-summary"
           onClick={handleCopySummary}
           className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
-          style={{
-            background: "var(--bg-elevated)",
-            color: "var(--text-primary)",
-            border: "1px solid var(--border-default)",
-          }}
+          style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
         >
           {copied === "summary" ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
           {copied === "summary" ? "Copied!" : "Copy summary"}
         </button>
+        <button
+          type="button"
+          data-testid="rtt-share-card"
+          onClick={handleShareCard}
+          className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
+          style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+        >
+          <Camera size={13} aria-hidden="true" />
+          Share card (image)
+        </button>
       </div>
+      {/* Offscreen — `handleShareCard` draws into this element and reads it
+          back via `toDataURL()`; it is never meant to be seen inline. */}
+      <canvas
+        ref={canvasRef}
+        aria-hidden="true"
+        data-testid="rtt-share-canvas"
+        data-ready={shareImageReady ? "true" : "false"}
+        style={{ display: "none" }}
+      />
 
       <details className="text-[10px]" style={{ color: "var(--text-muted)" }} data-testid="rtt-data-receipt">
         <summary className="cursor-pointer select-none" style={{ color: "var(--text-secondary)" }}>
@@ -493,11 +668,27 @@ export default function RunResult({
   );
 }
 
-function Highlight({ title, children }: { title: string; children: React.ReactNode }) {
+function Highlight({
+  title,
+  children,
+  testId,
+  tone,
+}: {
+  title: string;
+  children: React.ReactNode;
+  testId?: string;
+  /** "incorrect" gets a red-tinted border so the negative-framed section
+   *  reads as cautionary at a glance, not just by its words. */
+  tone?: "incorrect";
+}) {
   return (
     <div
+      data-testid={testId}
       className="rounded-xl border p-2.5 flex flex-col gap-1"
-      style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
+      style={{
+        background: "var(--bg-elevated)",
+        borderColor: tone === "incorrect" ? "var(--incorrect-dim)" : "var(--border-default)",
+      }}
     >
       <h4 className="rtt-result-heading">{title}</h4>
       <p className="text-xs" style={{ color: "var(--text-secondary)" }}>

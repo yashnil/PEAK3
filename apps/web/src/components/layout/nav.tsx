@@ -37,6 +37,29 @@
  * it after mount instead: identical on the server and on the first client
  * render, so there is no hydration mismatch and no layout shift.
  *
+ * WHY THE HEADER PUBLISHES `data-nav-ready`, AND WHY EVERY TOP-LEVEL LINK HAS
+ * A TEST ID. Two distinct hazards, both of which bit this navbar:
+ *
+ *   1. THE LINKS ARE CLICKABLE BEFORE THEY WORK. The header is server-rendered,
+ *      so every link is in the DOM and hit-testable from first paint — but a
+ *      click that lands before React has hydrated this subtree is CAPTURED by
+ *      React's root listener, `preventDefault`ed, and replayed only once
+ *      hydration completes. It does not fail; it happens late. Measured against
+ *      a deliberately delayed `main-app.js`: a click at +213ms navigated at
+ *      +7.2s. That is invisible on a warm dev server and is exactly what a cold
+ *      CI runner produces. `data-nav-ready` appears in an effect, i.e. once
+ *      this component has hydrated and its links carry their handlers, so
+ *      "these controls are live" is observable rather than assumed.
+ *
+ *   2. `getByRole("link", { name: … })` MATCHES SUBSTRINGS. With the Play panel
+ *      open — and the panel is a descendant of this same landmark — the name
+ *      "Daily" matches four links: "Daily Grid Challenge", "Peak Duel Daily",
+ *      "Peak Duel Endless" (its blurb) and the top-level "Daily". Which one a
+ *      selector resolves to then depends on whether a menu happens to be open.
+ *      `desktop-nav-<id>` names exactly one control, mirroring the drawer's
+ *      existing `mobile-nav-<id>` convention so desktop and mobile are
+ *      addressable the same way.
+ *
  * ROUTES WITHOUT THIS HEADER. `/c/[token]` (a shared challenge) and
  * `/auth/callback` live outside the `(main)` route group and render no header
  * at all. That is deliberate isolation, not an oversight: a challenge link is a
@@ -55,6 +78,8 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth-context";
 import { isActive, topLevelLinks } from "@/lib/nav-model";
 import { AccountMenu } from "@/components/auth/AccountMenu";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { useAccountThemeSync } from "@/lib/theme";
 import { PlayMenu } from "./PlayMenu";
 import { MobileNavDrawer } from "./MobileNavDrawer";
 
@@ -73,6 +98,19 @@ export function Nav() {
   const search = useLocationSearch(pathname);
   const { user, supabaseEnabled } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Flipped in an effect, so it is absent from the server HTML and from the
+  // first client render — no hydration mismatch — and present exactly once
+  // this component's own hydration has run. See the header note.
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
+  // Pulls the account's saved theme preference onto this device once per
+  // sign-in (launch-polish IMPLEMENTATION_CONTRACT.md §2). Lives here
+  // rather than inside `AccountMenu` because that component's wrapping
+  // `<nav>` is `hidden sm:flex` -- it never mounts on a narrow viewport,
+  // where `MobileNavDrawer` takes over instead. `Nav()` itself renders on
+  // every viewport, so this is the one guaranteed mount point. A no-op
+  // while signed out.
+  useAccountThemeSync(Boolean(user));
 
   // Arriving somewhere closes the menu that took you there.
   useEffect(() => {
@@ -80,15 +118,18 @@ export function Nav() {
   }, [pathname]);
 
   return (
-    <header className="pk-nav-header sticky top-0 z-40">
+    <header
+      className="pk-nav-header sticky top-0 z-40"
+      data-nav-ready={ready ? "true" : undefined}
+    >
       <div className="pk-nav-bar mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
         <Link
           href="/"
           className="pk-nav-wordmark font-display text-lg font-bold tracking-tight"
           aria-label="PEAK3 Arena home"
         >
-          <span className="text-[var(--peak-accent)]">PEAK</span>
-          <span className="text-[var(--text-secondary)]">3</span>
+          <span className="text-[var(--peak-accent-text)]">PEAK</span>
+          <span className="text-[var(--text-secondary)]">3</span>{" "}
           <span className="ml-1.5 text-xs font-medium text-[var(--text-muted)] tracking-widest uppercase">
             Arena
           </span>
@@ -104,6 +145,7 @@ export function Nav() {
                 <li key={link.id}>
                   <Link
                     href={link.href}
+                    data-testid={`desktop-nav-${link.id}`}
                     aria-current={current ? "page" : undefined}
                     className={cn(
                       "pk-nav-link px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
@@ -118,9 +160,20 @@ export function Nav() {
               );
             })}
           </ul>
-          {/* Gating lives inside AccountMenu (it needs `user` anyway), so the
-              anonymous-only deployment still renders no account affordance. */}
-          <AccountMenu pathname={pathname} search={search} />
+          {/* Launch-polish IMPLEMENTATION_CONTRACT.md §10: "make the theme
+              control feel integrated rather than bolted on." It used to sit
+              at its own `ml-2` margin, immediately followed by AccountMenu's
+              own separate `ml-2` -- two independently-spaced items with no
+              signal that they're related, which is exactly what "bolted on"
+              looks like. A shared cluster with a hairline divider from the
+              nav links reads as one intentional "account & display" zone,
+              not an icon that wandered in from somewhere else. */}
+          <div className="ml-2 flex items-center gap-1 border-l border-[var(--border-subtle)] pl-2">
+            <ThemeToggle />
+            {/* Gating lives inside AccountMenu (it needs `user` anyway), so the
+                anonymous-only deployment still renders no account affordance. */}
+            <AccountMenu pathname={pathname} search={search} />
+          </div>
         </nav>
 
         {/* Mobile trigger. No `aria-controls`: the drawer is portalled and only

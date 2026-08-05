@@ -51,7 +51,7 @@ export function GoogleSignInButton({
       onClick={handleClick}
       disabled={pending}
       data-testid="google-signin"
-      className="w-full py-2.5 rounded-lg text-sm font-semibold border transition-all hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2"
+      className="w-full py-2.5 rounded-lg text-sm font-semibold border transition-opacity hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2"
       style={{
         background: "var(--bg-elevated)",
         borderColor: "var(--border-default)",

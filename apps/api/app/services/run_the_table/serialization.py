@@ -26,7 +26,35 @@ from nba_peak.run_the_table.state import VersionMismatch
 # of those to "nothing armed, nothing spent, nothing revealed" — a run that
 # never happened. The bump refuses it instead, which is the same answer the
 # ruleset gate gives and is reported through the same 409.
-SNAPSHOT_SCHEMA_VERSION = 2
+#
+# 2 -> 3 for the receipt-breakdown fields (SYNTHESIS_CONTRACT.md §2.3):
+# `LaneResult` gained `pre_perk_rating` and `bench_adjustment`, the residual
+# decomposition of `player_score` a receipt needs to explain a lane's rating
+# without the client recomputing anything. Same reasoning as the 1->2 bump: a
+# v2 snapshot loaded under this schema would silently default both new fields
+# to 0.0 — a receipt claiming "no bench effect, no baseline" for a battle that
+# may have had either — so the bump refuses it instead of guessing.
+#
+# 3 -> 4 with rtt_ruleset_v4. `RunState` gained `boss_lineups`: the five
+# opponents are no longer a constant slate that can be re-derived from nothing,
+# they are GENERATED per act against the roster that will face them, so the
+# lineup a run actually locked is irreducible state. A v3 snapshot loaded under
+# this schema would deserialise with `boss_lineups == {}`, and the run would
+# then lock a fresh opponent against whatever roster it holds NOW -- serving a
+# different boss than the player scouted and prepared for, mid-run. The bump
+# refuses it instead of guessing, exactly as 1->2 and 2->3 did.
+#
+# 4 -> 5, SAME UNSHIPPED RELEASE as 3 -> 4. `RunState` gained `abandoned_at`
+# and `successor_run_id`, which carry the "Start New Run" flow: a run the
+# player walked away from, and the run they started instead.
+# `successor_run_id` is what makes a double-clicked restart idempotent -- the
+# second request finds the run already abandoned and returns the successor
+# rather than minting another -- so a snapshot that dropped it would silently
+# re-enable the double-create it exists to prevent.
+#
+# TWO BUMPS, ONE EVENT. Nothing is deployed and no data exists at either
+# version, so these read as a single release rather than two migrations.
+SNAPSHOT_SCHEMA_VERSION = 5
 
 
 class SnapshotSchemaMismatch(VersionMismatch):
@@ -71,6 +99,12 @@ def _lane_to_dict(l: LaneResult) -> dict:
         # Persisted because the result screen states which lane the preparation
         # actually moved, and a re-read must be able to say the same thing.
         "player_prep_bonus": l.player_prep_bonus,
+        # v4 (schema 3): the receipt breakdown. Both already folded into
+        # `player_score`; persisted so a re-read reconstructs the same
+        # explanation rather than one recomputed from a roster that may have
+        # since changed.
+        "pre_perk_rating": l.pre_perk_rating,
+        "bench_adjustment": l.bench_adjustment,
     }
 
 
@@ -165,6 +199,19 @@ def state_to_dict(state: RunState) -> dict:
         "sink_spend": [dict(row) for row in state.sink_spend],
         "reveal_index": state.reveal_index,
         "boss_reveal_index": {str(k): v for k, v in state.boss_reveal_index.items()},
+        # -- v4 -------------------------------------------------------------
+        # The generated boss slate. NOT a cache: a boss is a function of the
+        # roster it was locked against, and that roster moves as the run goes
+        # on, so this is the only record of which opponent the player actually
+        # faced. Keyed by act; JSON object keys are strings, so stringified
+        # here and re-inted below -- the same treatment `boss_reveal_index` and
+        # `veteran_minimum_used_in_act` already get.
+        "boss_lineups": {str(k): dict(v) for k, v in state.boss_lineups.items()},
+        # Abandonment. `status` already carries "abandoned", but these two say
+        # WHEN and WHAT REPLACED IT, and the successor id is load-bearing --
+        # see the schema-version note above.
+        "abandoned_at": state.abandoned_at,
+        "successor_run_id": state.successor_run_id,
     }
 
 
@@ -217,4 +264,9 @@ def state_from_dict(d: dict) -> RunState:
         boss_reveal_index={
             int(k): v for k, v in (d.get("boss_reveal_index") or {}).items()
         },
+        boss_lineups={
+            int(k): dict(v) for k, v in (d.get("boss_lineups") or {}).items()
+        },
+        abandoned_at=d.get("abandoned_at"),
+        successor_run_id=d.get("successor_run_id"),
     )

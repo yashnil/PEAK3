@@ -127,6 +127,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from nba_peak.run_the_table.bosses import BOSS_SPECS
 from nba_peak.run_the_table.config import ACTS, RULESET_VERSION, version_tuple
 from nba_peak.run_the_table.schemas import RunBlueprint, RunState
 
@@ -259,6 +260,29 @@ def fairness_digest(blueprint: RunBlueprint) -> dict:
     than hashed away, so a support question ("did we really give them the same
     bosses?") is answerable from the row, and the `digest` is what the code
     actually compares.
+
+    WHAT IS PINNED, WHAT IS NOT, AND WHY THE GAP IS NOT A HOLE
+    ----------------------------------------------------------
+    PINNED: the seed (the match row's own column), the ruleset version, the
+    starting starters and bench, both System offers in order, the five boss
+    identities with their rules, and `node_structure_signature` -- which covers
+    the whole node graph AND every offer-generation input (draft offer ids,
+    trade incoming ids, reserve candidate ids), and therefore every market
+    refresh derived from them. That is the entire SHAPE of the run.
+
+    NOT PINNED under v4: the boss LINEUPS. They cannot be, because they do not
+    exist at blueprint time -- each is generated when its act begins, against
+    the roster that will actually face it.
+
+    THIS IS NOT A FAIRNESS REGRESSION, AND SOMEBODY WILL EVENTUALLY READ IT AS
+    ONE. It is symmetric, and arguably fairer than what it replaces. Under v3
+    both players faced one fixed lineup, which could happen to suit one
+    player's roster and not the other's -- identical opponents, unequal
+    difficulty. Under v4 each player faces bosses calibrated to the roster they
+    actually built, so what is equalised is the DIFFICULTY RELATIONSHIP rather
+    than the opponent. Both players still start from the same roster, so their
+    act-1 opponents are identical; the slates diverge only to the extent the
+    players themselves diverged, which is the thing a match is measuring.
     """
     body = {
         # `generation.generate_blueprint` builds `metadata` as
@@ -269,7 +293,16 @@ def fairness_digest(blueprint: RunBlueprint) -> dict:
         "starting_bench": list(blueprint.starting_bench),
         # "same initial perk choices": both System offers, in order.
         "system_offers": [list(offer) for offer in blueprint.system_offers],
-        "boss_ids": [b.boss_id for b in blueprint.bosses],
+        # v4: boss IDENTITIES (the five names, in act order, each with its
+        # rule) are still fixed by the ruleset and still shared by both sides,
+        # so they stay in the fairness digest. Their LINEUPS are not pinned
+        # here, and cannot be: a boss is now generated against the roster that
+        # will face it, so two players on one seed meet an identical act-1
+        # opponent (their starting rosters are identical) and thereafter meet
+        # opponents scaled to the rosters they each chose to build. Pinning a
+        # lineup would mean pinning something that no longer exists at
+        # blueprint time.
+        "boss_ids": [spec["boss_id"] for spec in BOSS_SPECS],
         "node_signature": node_structure_signature(blueprint),
     }
     return {**body, "digest": _stable_hash(body)}

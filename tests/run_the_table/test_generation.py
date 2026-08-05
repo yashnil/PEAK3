@@ -14,6 +14,7 @@ from nba_peak.run_the_table.config import (
     ACTS,
     BENCH_SLOTS,
     DRAFT_GUARANTEED_AFFORDABLE_COST,
+    MARQUEE_PERCENTILE_MIN,
     NODE_CHOICES_PER_STAGE,
     NODE_TYPES,
     OFFERS_PER_DRAFT,
@@ -28,6 +29,7 @@ from nba_peak.run_the_table.config import (
     SYSTEM_IDS,
     version_tuple,
 )
+from nba_peak.run_the_table import state as S
 from nba_peak.run_the_table.generation import (
     generate_blueprint,
     generate_starting_roster,
@@ -69,7 +71,10 @@ class TestBlueprintDeterminism:
         bp = generate_blueprint(5, pool=pool)
         for key, value in version_tuple().items():
             assert bp.metadata[key] == value
-        assert bp.metadata["generation_algorithm"] == "rtt_gen_v1"
+        # v2: the blueprint no longer generates bosses, and every act now
+        # carries a guaranteed marquee offer.
+        assert bp.metadata["generation_algorithm"] == "rtt_gen_v2"
+        assert len(bp.metadata["marquee_node_ids"]) == ACTS
         assert bp.metadata["card_pool_size"] == len(pool)
 
     def test_different_seeds_create_meaningful_variation(self, blueprints):
@@ -293,6 +298,125 @@ class TestNodeGeneration:
                         assert pool.get(cid).player_slug not in owned, (
                             f"seed {seed}: offered {cid}, already on the roster"
                         )
+
+    def test_offers_never_include_a_card_acquired_mid_run_either(
+        self, pool, blueprints
+    ):
+        """WIDENED, not replaced. The test above still asserts exactly what it
+        always did -- the blueprint's boards exclude the STARTING roster.
+
+        This is the half v3 did not have. The blueprint's exclusion set is fixed
+        at generation time, so a card bought in act 1 stayed on every later
+        board it happened to appear on: measured over 500 seeds the same
+        identity appeared on two or more boards in 499 of them, and seed 1 put
+        `larry-nance-3yr-199192` on both the act-1 draft board and the act-3
+        trade board. `state.node_offers` substitutes owned identities out at
+        READ time, which is the only layer that can know what act 3 bought.
+        """
+        for seed in range(40):
+            bp = blueprints(seed)
+            st = S.create_run(bp, f"r{seed}", pool=pool)
+            offered = [
+                cid
+                for plan in bp.stages
+                for opt in plan.options
+                for key in ("offer_ids", "incoming_ids")
+                for cid in plan.payloads[opt.node_id].get(key, [])
+            ]
+            planted = next(
+                (c for c in offered if S.legal_slots_for(st, pool, c)), None
+            )
+            if planted is None:
+                continue
+            slot = S.legal_slots_for(st, pool, planted)[0]
+            S._slot(st, slot).card_id = planted
+            planted_slug = pool.get(planted).player_slug
+
+            for plan in bp.stages:
+                for opt in plan.options:
+                    if opt.node_type not in ("draft_room", "trade_desk"):
+                        continue
+                    board = S.node_offers(st, bp, opt.node_id, pool)
+                    slugs = [pool.get(c).player_slug for c in board]
+                    assert planted_slug not in slugs, (
+                        f"seed {seed}: {opt.node_id} still offers {planted}, "
+                        f"which the roster already holds"
+                    )
+                    # And the substitution must not introduce a duplicate.
+                    assert len(set(slugs)) == len(slugs), (
+                        f"seed {seed}: {opt.node_id} offers one identity twice"
+                    )
+
+    def test_every_act_guarantees_a_top_decile_offer(self, pool, blueprints):
+        """The acquisition ceiling, asserted as a guarantee rather than a hope.
+
+        v3's boards already reached the top of the pool often -- the best card
+        reachable in a run had a median prime_score of 91.31 -- but WHICH act it
+        showed up in was left to the seed, so a run could spend three acts with
+        nothing above the middle of the board on offer. One marquee per act is
+        now guaranteed; its PRICE is what keeps it scarce.
+        """
+        for seed in range(SWEEP):
+            bp = blueprints(seed)
+            per_act = {act: False for act in range(1, ACTS + 1)}
+            for plan in bp.stages:
+                for opt in plan.options:
+                    key = {"draft_room": "offer_ids", "trade_desk": "incoming_ids"}.get(
+                        opt.node_type
+                    )
+                    if key is None:
+                        continue
+                    if any(
+                        pool.get(cid).overall_percentile >= MARQUEE_PERCENTILE_MIN
+                        for cid in plan.payloads[opt.node_id][key]
+                    ):
+                        per_act[plan.act] = True
+            missing = [a for a, ok in per_act.items() if not ok]
+            assert not missing, f"seed {seed}: no top-decile offer in acts {missing}"
+
+    def test_the_marquee_guarantee_does_not_flood_the_boards_with_elites(
+        self, pool, blueprints
+    ):
+        """Scarcity is the other half of the contract. A guaranteed marquee per
+        act must not turn into a board full of them, or the credit cost that
+        makes the choice interesting stops binding."""
+        elite_offers = 0
+        total_offers = 0
+        for seed in range(SWEEP):
+            bp = blueprints(seed)
+            for plan in bp.stages:
+                for opt in plan.options:
+                    key = {"draft_room": "offer_ids", "trade_desk": "incoming_ids"}.get(
+                        opt.node_type
+                    )
+                    if key is None:
+                        continue
+                    for cid in plan.payloads[opt.node_id][key]:
+                        total_offers += 1
+                        if pool.get(cid).overall_percentile >= MARQUEE_PERCENTILE_MIN:
+                            elite_offers += 1
+        share = elite_offers / total_offers
+        # The pool is 10% top-decile by definition; the guarantee lifts the
+        # offered share above that but must stay a minority of the board.
+        assert 0.10 < share < 0.30, f"top-decile share of all offers is {share:.3f}"
+
+    def test_the_affordability_guarantee_survives_the_marquee_guarantee(
+        self, pool, blueprints
+    ):
+        """The marquee lands on the LAST slot precisely so it cannot displace
+        slot 0's affordable anchor. A board that guaranteed only an unaffordable
+        card would be a board a broke player cannot use."""
+        for seed in range(SWEEP):
+            bp = blueprints(seed)
+            for plan in bp.stages:
+                for opt in plan.options:
+                    if opt.node_type != "draft_room":
+                        continue
+                    ids = plan.payloads[opt.node_id]["offer_ids"]
+                    assert any(
+                        pool.get(cid).base_cost <= DRAFT_GUARANTEED_AFFORDABLE_COST
+                        for cid in ids
+                    ), f"seed {seed} {opt.node_id} has no affordable offer"
 
     def test_rest_nodes_publish_their_credit_amount_and_scout_nodes_publish_none(
         self, pool, blueprints
