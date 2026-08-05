@@ -35,14 +35,25 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 /**
  * Today's NBA fact, chosen server-side by calendar date.
  *
- * FAIL-CLOSED, like every other fetch on this page. `data/web/` is generated
- * and gitignored, so a checkout that has not run the exporter serves a 503
- * here -- and a homepage that 500s because a trivia panel has no data would be
- * a worse outcome than a homepage with no trivia panel. `null` renders nothing.
+ * FAIL-CLOSED, like every other fetch on this page. A checkout or a deploy
+ * whose fact bank is missing serves a 503 here, and a homepage that 500s
+ * because a trivia panel has no data would be worse than a homepage without
+ * the panel. `null` renders nothing -- never a fabricated fact.
  *
- * `no-store` rather than a revalidate window: the fact changes at UTC midnight
- * and a cached page would serve yesterday's for however long the window ran.
- * The response is a few hundred bytes and the route reads an in-process cache.
+ * `no-store`, AND THAT IS LOAD-BEARING RATHER THAN A PREFERENCE. Two reasons,
+ * the second learned the hard way:
+ *
+ *   1. The fact changes at UTC midnight, so any revalidate window would serve
+ *      yesterday's fact for the length of that window.
+ *   2. A FAILURE MUST NOT BE CACHED. Staging shipped an image with no fact
+ *      bank and this endpoint returned 503 for the whole deploy. With a cached
+ *      fetch, the homepage would have gone on rendering that absence after the
+ *      API was fixed, and recovery would have needed a redeploy of the
+ *      frontend. With `no-store` every request re-asks, so the panel returns on
+ *      its own the moment the API is healthy -- no source change, no rebuild.
+ *
+ * The response is a few hundred bytes and the route reads an in-process cache,
+ * so re-asking every request is cheap.
  */
 export async function loadNbaFactOfTheDay(): Promise<NbaFactView | null> {
   try {

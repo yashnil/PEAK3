@@ -59,17 +59,31 @@ COPY apps/api/ ./apps/api/
 
 # THE GENERATED-DATA BUILD STEP.
 #
-# `data/web/` is gitignored (CLAUDE.md, "Data export rules"), so a clean
-# checkout has none of it and the API would start, log one warning, and serve
-# 503 from /health/readiness forever. The exporter reads only the committed
-# leaderboard CSVs — no network — and takes about a second.
+# `data/web/` is gitignored (CLAUDE.md, "Data export rules") AND excluded in
+# .dockerignore, so a clean checkout has none of it and none of it can leak in
+# from a developer's machine. Everything under it must therefore be produced
+# HERE. Both generators read only committed files — no network — and together
+# take about a second.
 #
-# It runs at BUILD time, not at boot: a container that has to rebuild its
+# They run at BUILD time, not at boot: a container that has to rebuild its
 # dataset before it can answer is a slower cold start and a boot that can fail
 # for a reason unrelated to the request that triggered it.
+#
+# EVERY GENERATOR THAT WRITES INTO data/web/ MUST BE LISTED HERE. That is not a
+# style note — it is the exact defect this step was extended to fix. The fact
+# bank was added to `scripts/ci/build-web-data.sh` and to CI, both of which
+# built it happily, while this file was left with only the exporter. CI stayed
+# green because CI generates the bank; the deployed image never had it, so
+# staging served a 503 from /api/v1/nba-facts/today and the homepage quietly
+# dropped the panel.
+#
+# The `test -s` assertions are what make a missing artifact a FAILED BUILD
+# rather than a running container that is silently short of one file.
 RUN python scripts/build_web_dataset.py \
  && test -s data/web/peak_windows.json \
  && test -s data/web/leaderboards.json
+RUN python scripts/build_nba_facts.py \
+ && test -s data/web/nba_facts.v1.json
 
 # Railway injects PORT. The default matches local development so `docker run`
 # without -e PORT behaves like `make api`.
