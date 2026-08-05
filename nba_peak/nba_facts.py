@@ -44,6 +44,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -638,8 +639,11 @@ def bank_payload(bank: list[NbaFact]) -> dict:
 def load_bank(path: Path | None = None) -> list[NbaFact]:
     """Read the built bank. Returns an empty list when it has not been built.
 
-    Empty rather than raising: a deployment that has not run the exporter
-    should render a homepage without the panel, not a 500.
+    Empty rather than raising: a missing or unreadable bank must not turn every
+    request into a 500. What it MUST do is stay visible, which is why
+    `bank_status` exists and why `/health/readiness` reports it -- an empty bank
+    that nothing surfaced is exactly how a deployed staging API served 503 from
+    /api/v1/nba-facts/today while reporting itself ready.
     """
     load_path = path or BANK_PATH
     if not load_path.exists():
@@ -651,8 +655,47 @@ def load_bank(path: Path | None = None) -> list[NbaFact]:
     return [NbaFact.from_dict(entry) for entry in payload.get("facts", [])]
 
 
+@lru_cache(maxsize=1)
+def cached_bank() -> tuple[NbaFact, ...]:
+    """The process-wide bank. Read once, shared by every caller.
+
+    ONE CACHE, so the route and the readiness probe can never disagree about
+    whether the bank is present. Two independent caches would let readiness
+    report "ready" from a warm copy while the route rebuilt and found nothing --
+    which is the shape of the defect this function was added during.
+    """
+    return tuple(load_bank())
+
+
+def clear_bank_cache() -> None:
+    """Drop the process-wide bank -- for tests that write a different one."""
+    cached_bank.cache_clear()
+
+
+def bank_status(path: Path | None = None) -> dict:
+    """Whether the bank is usable, in the shape a readiness probe wants.
+
+    Reports the RESOLVED PATH as well as the count. The path is derived from
+    this module's own location rather than from the working directory, and a
+    probe that says where it looked turns "the bank is missing" from a guess
+    into a one-line answer.
+    """
+    load_path = path or BANK_PATH
+    facts = list(cached_bank()) if path is None else load_bank(path)
+    return {
+        "loaded": bool(facts),
+        "fact_count": len(facts),
+        "bank_version": FACT_BANK_VERSION,
+        "path": str(load_path),
+        "exists": load_path.exists(),
+    }
+
+
 __all__ = [
     "BANK_PATH",
+    "bank_status",
+    "cached_bank",
+    "clear_bank_cache",
     "CATEGORIES",
     "FACT_BANK_VERSION",
     "GENERATORS",
