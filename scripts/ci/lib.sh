@@ -41,6 +41,11 @@ require_generated_data() {
   [ -s "$REPO_ROOT/data/web/peak_windows.json" ] || missing+=("data/web/peak_windows.json")
   [ -s "$REPO_ROOT/data/web/leaderboards.json" ] || missing+=("data/web/leaderboards.json")
   [ -s "$REPO_ROOT/data/game/profiles/card_profiles.v3.json" ] || missing+=("data/game/profiles/card_profiles.v3.json")
+  # The fact bank is generated data like the rest of data/web/, so a checkout
+  # that has the exporter's output but not this one is a checkout where
+  # /api/v1/nba-facts/today serves 503 and the homepage quietly drops a
+  # section. Named here so that is a startup error rather than a puzzle.
+  [ -s "$REPO_ROOT/data/web/nba_facts.v1.json" ] || missing+=("data/web/nba_facts.v1.json")
 
   if [ ${#missing[@]} -gt 0 ]; then
     die "Missing generated data: ${missing[*]}
