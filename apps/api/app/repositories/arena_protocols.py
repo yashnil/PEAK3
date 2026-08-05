@@ -57,7 +57,9 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Optional, Protocol, Sequence, runtime_checkable
+
+from app.repositories.arena_rating_protocols import ArenaPlayerStats
 
 # ---------------------------------------------------------------------------
 # Vocabulary. Mirrors the CHECK constraints in
@@ -357,6 +359,48 @@ class CommandOutcome:
 
 class ArenaRepositoryError(RuntimeError):
     """Base class for arena repository invariant violations."""
+
+
+#: Bounds on an idempotency key, mirrored from the schema.
+#:
+#: `arena_match_commands.idempotency_key` carries
+#: `CHECK (char_length(idempotency_key) BETWEEN 8 AND 128)`
+#: (20260804100000_arena_foundation.sql:335). Postgres enforced it and the
+#: memory backend did not, so a key shorter than 8 characters passed the whole
+#: unit suite and raised CheckViolationError only against a real database --
+#: found by `test_repository_conformance.py`, which exists for exactly this.
+#:
+#: These constants are the schema's numbers restated ONCE so both backends read
+#: the same source. A lower bound at all is deliberate: a one-character key is
+#: almost always a placeholder rather than a real client-generated token, and a
+#: placeholder that collides silently replays somebody else's verdict.
+IDEMPOTENCY_KEY_MIN_LENGTH = 8
+IDEMPOTENCY_KEY_MAX_LENGTH = 128
+
+
+class InvalidIdempotencyKey(ArenaRepositoryError):
+    """The key is outside the length the schema accepts.
+
+    Raised by BOTH backends, so a caller cannot pass a key that works in tests
+    and fails in production. Distinct from a generic ValueError so a route can
+    answer 400 rather than 500 -- this is a malformed request, not a server
+    fault.
+    """
+
+
+def validate_idempotency_key(key: str) -> None:
+    """Raise `InvalidIdempotencyKey` unless `key` satisfies the schema's CHECK.
+
+    Called by the memory backend to reproduce a constraint Postgres applies for
+    free. The Postgres path does not call it: letting the database be the one
+    that enforces its own constraint keeps a single source of truth there, and
+    the conformance suite asserts both surfaces raise.
+    """
+    if not (IDEMPOTENCY_KEY_MIN_LENGTH <= len(key) <= IDEMPOTENCY_KEY_MAX_LENGTH):
+        raise InvalidIdempotencyKey(
+            f"idempotency_key must be {IDEMPOTENCY_KEY_MIN_LENGTH}..."
+            f"{IDEMPOTENCY_KEY_MAX_LENGTH} characters, got {len(key)}"
+        )
 
 
 class MatchNotFound(ArenaRepositoryError):
@@ -685,6 +729,26 @@ class ArenaRepository(Protocol):
         """Every match this subject holds a seat in, newest first."""
         ...
 
+    async def set_bot_policy_version(self, match_id: str, policy_version: str) -> bool:
+        """Pin the bot policy this match's bots were seated under. Returns True
+        iff THIS caller set it.
+
+        FIRST WRITE WINS, and the statement says so rather than the caller:
+        `WHERE bot_policy_version IS NULL`. A match created already carrying a
+        version (the public-queue fill, which knows at creation time) is never
+        overwritten, and two concurrent host fills pin one value rather than
+        racing to replace each other's.
+
+        Exists because a private room is created with no bots and therefore no
+        policy version -- the host's later "fill empty seats" is the first
+        moment there is one to record. Pinning it at seat time rather than
+        reading the current policy at scoring time is the same discipline
+        `bots.bot_seat` applies to `bot_rating`, and for the same reason: a
+        recalibration must not retroactively change what a settled match was
+        played against.
+        """
+        ...
+
     # -- the mutation path --------------------------------------------------
 
     async def apply_command(
@@ -794,6 +858,37 @@ class ArenaRepository(Protocol):
         Empty until the match completes."""
         ...
 
+    async def get_player_stats(
+        self,
+        mode: str,
+        owner_subs: Sequence[str],
+        detail_keys: Sequence[str] = (),
+    ) -> dict[str, "ArenaPlayerStats"]:
+        """Aggregates over these players' RATED results in one mode.
+
+        LIVES HERE, NOT ON THE RATING REPOSITORY, because it is an aggregate
+        over `arena_match_results` joined to `arena_match_seats` -- this
+        repository's own tables. A rating repository reaching into them is how
+        two repositories end up jointly owning one table.
+
+        DERIVED, NEVER MATERIALISED. There is no statistics table to fall out of
+        step with the results it summarises; the migration
+        (20260804140000_arena_ratings.sql) explains the choice and adds the
+        partial index that makes it cheap.
+
+        `detail_keys` names numeric keys to average and max out of the result
+        `detail` JSONB, so this method stays mode-agnostic: Three-Man Weave asks
+        for `lineup_peak_score`, the $20 Showdown asks for `budget_remaining`
+        and `peak3_per_dollar`, and a third mode needs no change here. A key
+        that is absent or non-numeric is skipped rather than defaulted -- a
+        missing measurement is missing, not zero.
+
+        ONLY RATED RESULTS COUNT, mirroring the rating pass: private-room and
+        practice matches are excluded, so a leaderboard statistic can never
+        describe a match that did not affect a rating.
+        """
+        ...
+
     # -- public queue -------------------------------------------------------
 
     async def enqueue(self, entry: ArenaQueueEntry) -> ArenaQueueEntry:
@@ -809,6 +904,32 @@ class ArenaRepository(Protocol):
 
     async def cancel_queue_entry(self, owner_sub: str, mode: str) -> bool:
         """Withdraw. Returns True iff an entry was actually cancelled."""
+        ...
+
+    async def collapse_human_preference(
+        self, owner_sub: str, mode: str, now: datetime
+    ) -> Optional[ArenaQueueEntry]:
+        """Bring this subject's OWN human-preference window forward to `now`, so
+        bots may fill immediately. Returns the updated entry, or None when this
+        subject has no waiting entry for this mode.
+
+        THE WINDOW STAYS AN ABSOLUTE INSTANT. `services/arena/matchmaking.py`'s
+        module docstring explains why `human_preference_until` is a stored
+        instant rather than a duration: two readers a millisecond apart must
+        never disagree about whether it has elapsed. "Fill with bots now"
+        therefore WRITES a new instant rather than passing a fudged clock into
+        the matcher -- after this returns, every reader agrees, which is exactly
+        the property that faking `now` at one call site would destroy.
+
+        MONOTONIC, NEVER EXTENDING. The stored value becomes the EARLIER of the
+        existing instant and `now`, so this can only bring the window forward.
+        A double-click is therefore a no-op on the second press rather than a
+        way to push the window out, and the operation is safely repeatable
+        without a separate idempotency record.
+
+        Scoped to `owner_sub` inside the statement rather than checked by the
+        caller: this can only ever collapse the caller's own window.
+        """
         ...
 
     async def list_waiting_entries(

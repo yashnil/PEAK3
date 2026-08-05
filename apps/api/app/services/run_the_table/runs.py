@@ -40,8 +40,10 @@ from app.services.run_the_table.public import public_state
 from app.services.run_the_table.serialization import state_from_dict, state_to_dict
 from nba_peak.run_the_table.cards import CardPool, CardPoolUnavailable, get_pool
 from nba_peak.run_the_table.config import (
+    CONCLUDED_STATUSES,
     LEGACY_RULESET_VERSION,
     RULESET_VERSION,
+    STATUS_ABANDONED,
     version_tuple,
 )
 from nba_peak.run_the_table.daily import (
@@ -69,6 +71,7 @@ from nba_peak.run_the_table.state import (
     action_reveal,
     action_select_system,
     action_trade,
+    abandon_run as engine_abandon,
     assert_version_compatible,
     create_run as engine_create_run,
 )
@@ -77,6 +80,9 @@ from nba_peak.run_the_table.state import (
 __all__ = [
     "CHALLENGE_RULESET_CLAIM",
     "CardPoolUnavailable",
+    "DailyNotRestartable",
+    "RestartStateConflict",
+    "restart_run",
     "InvalidActionRequest",
     "InvalidRunDate",
     "RunActionError",
@@ -324,7 +330,10 @@ async def create_run(
 
     blueprint = generate_blueprint(resolved_seed, resolved_type, run_date, pool)
     run_id = new_run_id(resolved_type, run_date, owner_sub)
-    state = engine_create_run(blueprint, run_id, owner_sub)
+    # The pool is required here now, not optional: creating a run LOCKS ACT 1'S
+    # BOSS (`state.create_run` -> `ensure_boss_for_act`), which needs cards to
+    # build a lineup from.
+    state = engine_create_run(blueprint, run_id, owner_sub, pool=pool)
 
     stored, created = await repo.create_run(_stored_from_state(state, owner_sub, run_date))
     if not created:
@@ -333,6 +342,106 @@ async def create_run(
         state = _rehydrate(stored)
         blueprint = blueprint_for(stored, pool)
     return stored, state, blueprint, created
+
+
+class DailyNotRestartable(Exception):
+    """A daily run may not be abandoned and replaced. -> 409.
+
+    THIS IS THE DAILY CONTRACT, NOT AN INDEX LIMITATION.
+    `run_the_table_runs_unique_daily_idx` is a partial UNIQUE on
+    (owner_sub, run_type, run_date), and adding `AND status <> 'abandoned'` to
+    it would technically let an abandoned daily be replaced. But that would not
+    be relaxing a constraint, it would be deleting a rule. "The FIRST attempt is
+    the official one" is stated outright in `run_the_table_protocols.py` and in
+    the migration header, and it is the only thing that makes one player's daily
+    result comparable to another's. If abandoning re-opened the date, a player
+    who disliked their board would restart until they liked it, and every daily
+    score in the product would quietly become a best-of-N.
+
+    A daily therefore has no "Start New Run". It is not a dead end: the daily
+    surface offers a STANDARD run instead -- a new board rather than a re-roll
+    of today's -- and the 366-day archive already exists for replaying a date.
+    """
+
+
+class RestartStateConflict(Exception):
+    """The run moved on between the client reading it and confirming. -> 409."""
+
+
+async def restart_run(
+    repo: Any,
+    run_id: str,
+    owner_sub: str,
+    pool: Optional[CardPool] = None,
+    expected_action_count: Optional[int] = None,
+) -> tuple[StoredRun, RunState, RunBlueprint, bool]:
+    """Abandon an unfinished run and start a fresh one. Returns the NEW run.
+
+    Ordering is deliberate, and crash-safe in the direction that matters:
+    abandon and persist FIRST, then create the successor, then record the link.
+
+    * Interrupted after the abandon, the player has lost the run they chose to
+      leave -- their stated intent -- and has no successor yet. The next request
+      finds an abandoned run with no `successor_run_id` and creates one, so a
+      retry COMPLETES the flow instead of dead-ending.
+    * The reverse order would leave a live old run plus an orphan new one, and a
+      retry would mint a third.
+
+    IDEMPOTENCY IS `successor_run_id`, not a request key. A second confirm --
+    double-click, retry, a refresh that re-fires -- finds the run already
+    abandoned WITH a successor recorded and returns that successor untouched.
+    That survives a process restart, needs no expiry policy, and cannot drift
+    from the thing it protects, because it lives on the row it describes.
+
+    `expected_action_count` is the optimistic-concurrency check: the client
+    sends the `action_count` it last rendered, and a mismatch means the run
+    advanced in another tab between the dialog opening and the confirmation.
+    Refusing there is what stops a stale confirmation from discarding progress
+    the player has not seen.
+    """
+    pool = pool or card_pool()
+    stored, state, _blueprint = await load_run(repo, run_id, owner_sub, pool)
+
+    if stored.run_type == "daily":
+        raise DailyNotRestartable(
+            "Today's daily is a single attempt, so it cannot be restarted. "
+            "Start a standard run instead."
+        )
+
+    # Already abandoned AND already replaced: hand back the same successor.
+    if state.status == STATUS_ABANDONED and state.successor_run_id:
+        successor = await repo.get_run(state.successor_run_id)
+        if successor is not None and successor.owner_sub == owner_sub:
+            return (
+                successor,
+                _rehydrate(successor),
+                blueprint_for(successor, pool),
+                False,
+            )
+
+    if state.status not in CONCLUDED_STATUSES and state.status != STATUS_ABANDONED:
+        if (
+            expected_action_count is not None
+            and expected_action_count != len(state.action_log)
+        ):
+            raise RestartStateConflict(
+                "This run has moved on since you opened this screen. Reload it "
+                "and try again."
+            )
+        # A CONCLUDED run is never relabelled -- the player earned that result
+        # and the receipt that goes with it. Only an unfinished run is abandoned.
+        engine_abandon(state)
+        await save_run(repo, stored, state)
+
+    new_stored, new_state, new_blueprint, _created = await create_run(
+        repo, owner_sub, "standard", None, None, pool
+    )
+
+    if state.status == STATUS_ABANDONED and not state.successor_run_id:
+        state.successor_run_id = new_stored.run_id
+        await save_run(repo, stored, state)
+
+    return new_stored, new_state, new_blueprint, True
 
 
 def blueprint_for(stored: StoredRun, pool: Optional[CardPool] = None) -> RunBlueprint:
@@ -419,9 +528,11 @@ def apply_action(
             idempotency_key=key,
         )
     if action_type == "choose_node":
+        # The pool is threaded because choosing a Scout & Prepare node LOCKS
+        # that act's boss (it is about to be shown), which needs cards.
         return action_choose_node(
             state, blueprint, _required(fields, "node_id", action_type),
-            idempotency_key=key,
+            pool=pool, idempotency_key=key,
         )
     if action_type == "draft_buy":
         return action_draft_buy(
@@ -433,7 +544,7 @@ def apply_action(
             idempotency_key=key,
         )
     if action_type == "draft_pass":
-        return action_draft_pass(state, blueprint, idempotency_key=key)
+        return action_draft_pass(state, blueprint, pool=pool, idempotency_key=key)
     if action_type == "trade":
         return action_trade(
             state, blueprint,
@@ -443,7 +554,7 @@ def apply_action(
             idempotency_key=key,
         )
     if action_type == "decline_trade":
-        return action_decline_trade(state, blueprint, idempotency_key=key)
+        return action_decline_trade(state, blueprint, pool=pool, idempotency_key=key)
     if action_type == "film_room":
         # `lane`, `role` and `card_id` are branch-specific and NOT required
         # here: which one a choice needs is a rules fact the engine owns, and
@@ -462,7 +573,7 @@ def apply_action(
     if action_type == "rest_bank":
         return action_rest_bank(
             state, blueprint, _required(fields, "choice", action_type),
-            idempotency_key=key,
+            pool=pool, idempotency_key=key,
         )
     if action_type == "market_refresh":
         return action_market_refresh(state, blueprint, pool=pool, idempotency_key=key)
@@ -482,7 +593,8 @@ def apply_action(
     if action_type == "resolve_boss":
         return action_resolve_boss(state, blueprint, pool=pool, idempotency_key=key)
     if action_type == "advance":
-        return action_advance(state, blueprint, idempotency_key=key)
+        # Advancing an act locks that act's boss, so the pool is threaded here.
+        return action_advance(state, blueprint, pool=pool, idempotency_key=key)
 
     # Unreachable through the request model's closed Literal; kept so adding an
     # engine action without a mapping here fails loudly instead of 500-ing.

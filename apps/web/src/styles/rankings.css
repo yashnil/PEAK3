@@ -143,3 +143,239 @@
   color: var(--text-muted);
   overflow-wrap: anywhere;
 }
+
+/* ---------------------------------------------------------------------------
+   Master-detail: the ranking list beside a standing composite profile.
+
+   The chart used to live inside the explain modal, so comparing two peaks
+   meant open, read, close, open. Here it is a panel that swaps in place.
+   --------------------------------------------------------------------------- */
+
+.rankings-split {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+@media (min-width: 1024px) {
+  .rankings-split {
+    grid-template-columns: minmax(0, 1.7fr) minmax(21rem, 0.9fr);
+  }
+  .rankings-split-detail {
+    /* Sticky so the profile stays beside the row being scanned rather than
+       scrolling away at row eleven. `top` clears the fixed header. */
+    position: sticky;
+    top: 4.5rem;
+  }
+}
+
+.rankings-split-list {
+  min-width: 0;
+}
+
+.rk-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  background: var(--bg-elevated);
+}
+
+.rk-detail-rank {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.rk-detail-name {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.rk-detail-season {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.rk-detail-score {
+  margin-top: 0.35rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.rk-detail-score-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent-text);
+}
+
+.rk-detail-score-label {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.rk-detail-empty {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+/* --- the chart ------------------------------------------------------------ */
+
+.rk-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  /* NEVER CLIPS. The SVG scales inside its own box and the labels live in the
+     viewBox padding, so 200% zoom shrinks the drawing rather than cutting the
+     axis names off. */
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.rk-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 26rem;
+  margin-inline: auto;
+}
+
+/* `--text-secondary`, not `--text-muted`: this panel sits on `--bg-elevated`,
+   where muted lands at 4.46:1 against the 4.5:1 floor. One token, one fix, both
+   themes -- rather than a per-element override that the next background change
+   would silently undo. */
+.rk-chart-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  fill: var(--text-secondary);
+}
+
+.rk-chart-value {
+  font-size: 11px;
+  font-weight: 800;
+  fill: var(--text-secondary);
+}
+
+.rk-chart-value[data-active="true"] {
+  fill: var(--peak-accent-text);
+}
+
+.rk-chart-keys {
+  display: grid;
+  gap: 0.15rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+}
+
+.rk-chart-key {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.2rem 0.3rem;
+  border-radius: 0.3rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.rk-chart-key:hover,
+.rk-chart-key:focus-visible {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.rk-chart-swatch {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  flex: none;
+}
+
+.rk-chart-key-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rk-chart-key-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.rk-chart-scale,
+.rk-detail-note {
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* --- the table beside it -------------------------------------------------- */
+
+.rk-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.6875rem;
+}
+
+.rk-detail-table caption {
+  text-align: left;
+  padding-bottom: 0.3rem;
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+}
+
+.rk-detail-table th,
+.rk-detail-table td {
+  padding: 0.25rem 0.3rem;
+  border-bottom: 1px solid var(--divider-strong);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.rk-detail-table thead th,
+.rk-detail-table tbody th {
+  text-align: left;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.rk-detail-explain {
+  align-self: flex-start;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--peak-accent-text);
+  text-decoration: underline;
+}
+
+/* THE SELECTED ROW IS MARKED, NOT TINTED — and the marker touches NO
+   BACKGROUND AT ALL.
+   ---------------------------------------------------------------------------
+   Two tints were tried and both failed axe, for the same reason in two places.
+   `--peak-accent-bg` under the table's `--text-secondary` cells lands at
+   4.46:1; `--bg-surface-hover` under the mobile-only `--text-muted` season
+   label lands short too. Every text colour in this table was chosen against
+   the table's own surface, so ANY change to that surface re-opens a contrast
+   question for every cell on the row.
+
+   An accent rule down the leading edge marks the row without repainting
+   anything behind text, which is why it is the whole treatment rather than an
+   accompaniment to one. */
+.rankings-row[data-selected="true"] {
+  box-shadow: inset 3px 0 0 0 var(--peak-accent);
+}

@@ -58,9 +58,12 @@ from nba_peak.run_the_table.config import (
     BOSS_LANES_TO_WIN,
     BOSS_RULES,
     LANES_TO_WIN,
+    CONCLUDED_STATUSES,
+    STATUS_ABANDONED,
     TERMINAL_STATUSES,
     system_by_id,
 )
+from nba_peak.run_the_table.bosses import boss_spec_for_act
 from nba_peak.run_the_table.generation import node_option, stage_for
 from nba_peak.run_the_table.pricing import (
     price_for,
@@ -74,6 +77,7 @@ from nba_peak.run_the_table.state import (
     active_reservation,
     active_role_focus,
     available_system_offer,
+    boss_for_act,
     credit_sink_total,
     legal_slots_for,
     node_offers,
@@ -162,9 +166,16 @@ def boss_public(
             else LANES_TO_WIN
         ),
         "source": boss.source,
-        # The slate is fixed by the ruleset and the seed — no clock, no model
-        # inference, no opponent assembled live. Said outright so the reveal
-        # animation cannot imply otherwise.
+        # Its lineup exists and is fixed. See `_unlocked_boss_public`.
+        "locked": True,
+        # Still true under v4, and still worth saying outright so the reveal
+        # animation cannot imply otherwise -- but it now means something
+        # slightly different and the client copy has to match. The lineup is
+        # not one of five constants any more: it is generated when its act
+        # begins, from the seed and the roster it will face, and then stored on
+        # the run. No clock, no model inference, no opponent assembled live
+        # while you watch, and the same seed played the same way always
+        # produces the same opponent.
         "deterministic": True,
         "revealed": revealed,
     }
@@ -184,6 +195,40 @@ def boss_public(
         ]
         out["roster_total"] = roster_total(profile)
     return out
+
+
+def _unlocked_boss_public(act: int) -> dict:
+    """An act's opponent before its lineup has been generated (v4).
+
+    Same shape as :func:`boss_public` minus every roster field, so a client can
+    render the identity and the rule it has always rendered without having to
+    know that the lineup does not exist yet. ``revealed`` is False and no
+    ``starters``/``bench``/``lane_profile`` key is present at all -- absent, not
+    empty, which is the same discipline `boss_public` applies to an unreached
+    boss and the reason a client cannot accidentally render a blank lineup as a
+    real one.
+    """
+    spec = boss_spec_for_act(act)
+    rule_id = spec["rule_id"]
+    rule = BOSS_RULES.get(rule_id) if rule_id else None
+    return {
+        "boss_id": spec["boss_id"],
+        "name": spec["name"],
+        "tagline": spec["tagline"],
+        "act": act,
+        "rule": rule,
+        "is_final": act >= ACTS,
+        "lane_margin": BOSS_LANE_MARGIN.get(rule_id, 0.0) if rule_id else 0.0,
+        "lanes_to_win": (
+            BOSS_LANES_TO_WIN.get(rule_id, LANES_TO_WIN) if rule_id else LANES_TO_WIN
+        ),
+        "source": "generated",
+        "deterministic": True,
+        "revealed": False,
+        # The one genuinely new fact a client may want to show: this opponent
+        # is still being matched to your roster, so it is not merely unrevealed.
+        "locked": False,
+    }
 
 
 def _battle_public(pool: CardPool, b) -> dict:
@@ -545,7 +590,28 @@ def _active_node_public(
         incoming = []
         for cid in node_offers(state, blueprint, option.node_id, pool):
             pub = card_public(pool, cid, state.systems)
-            pub["legal_slots"] = legal_slots_for(state, pool, cid)
+            legal = legal_slots_for(state, pool, cid)
+            pub["legal_slots"] = legal
+            # A Draft Room offer has carried `affordable`/`selectable`/
+            # `blocked_reason` since v3; a Trade Desk offer never did, so an
+            # incoming card the run could not pay for under ANY outgoing choice
+            # rendered exactly like one it could. The cheapest possible net cost
+            # is `price - the best refund on the roster`, so that is the honest
+            # affordability test at board level -- the per-pairing net cost is
+            # still computed against the actual outgoing pick.
+            best_refund = max(
+                (refund_for(pool.get(s.card_id), state.systems)
+                 for s in state.starters + state.bench if s.card_id),
+                default=0,
+            )
+            cheapest_net = pub["cost"] - best_refund
+            pub["cheapest_net_cost"] = cheapest_net
+            pub["affordable"] = cheapest_net <= state.credits
+            pub["selectable"] = pub["affordable"] and bool(legal)
+            pub["blocked_reason"] = (
+                None if pub["selectable"]
+                else ("Not enough credits" if not pub["affordable"] else "No legal slot")
+            )
             incoming.append(pub)
         out["incoming"] = incoming
         out["role_focus"] = active_role_focus(state, option.node_id)
@@ -648,7 +714,7 @@ def _stage_options_public(state: RunState, blueprint: RunBlueprint) -> Optional[
 def _map_public(state: RunState, blueprint: RunBlueprint) -> list[dict]:
     """The run ladder. Never leaks unresolved future node content, only shape."""
     out = []
-    for act in range(1, min(ACTS, len(blueprint.bosses)) + 1):
+    for act in range(1, ACTS + 1):
         stages = []
         for stage in range(1, STAGES_PER_ACT + 1):
             plan = stage_for(blueprint, act, stage)
@@ -678,9 +744,13 @@ def _map_public(state: RunState, blueprint: RunBlueprint) -> list[dict]:
             {
                 "act": act,
                 "stages": stages,
+                # Identity and name come from the act's SPEC, not from a locked
+                # lineup: the ladder names every act's opponent from the start
+                # (it always did, and a name is not a spoiler), while the
+                # lineup behind that name does not exist until its act begins.
                 "boss": {
-                    "boss_id": blueprint.bosses[act - 1].boss_id,
-                    "name": blueprint.bosses[act - 1].name,
+                    "boss_id": boss_spec_for_act(act)["boss_id"],
+                    "name": boss_spec_for_act(act)["name"],
                     "is_final": act >= ACTS,
                     "state": (
                         "won" if battle and battle.outcome == "win"
@@ -746,8 +816,16 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
 
     next_boss = None
     boss_revealed = False
-    if state.act <= ACTS and state.act <= len(blueprint.bosses):
-        boss = blueprint.bosses[state.act - 1]
+    boss = boss_for_act(state, blueprint, state.act, pool)
+    if boss is None and 1 <= state.act <= ACTS:
+        # v4: this act's lineup has not been locked yet -- it is fixed when the
+        # player opens Scout & Prepare or arrives at the fight, so that it is
+        # calibrated against the roster that will actually play it. The act's
+        # IDENTITY is still published (name, tagline, rule, whether it is the
+        # final boss) because the ladder has always named the opponents ahead of
+        # time and a name is not a spoiler. There is simply no roster to send.
+        next_boss = _unlocked_boss_public(state.act)
+    elif boss is not None:
         boss_revealed = (
             state.status in (STATUS_BOSS_READY, STATUS_BOSS_RESOLVED)
             or f"a{state.act}s{STAGES_PER_ACT}" in state.scouted_stage_keys
@@ -756,9 +834,13 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
         )
         next_boss = boss_public(pool, boss, boss_revealed, state.systems)
 
+    # CONCLUDED, not TERMINAL. An abandoned run is terminal -- no further
+    # action is accepted -- but it was never played to a conclusion, so it gets
+    # no receipt: no verdict, no record, no run MVP, and nothing downstream that
+    # reads one. See config.CONCLUDED_STATUSES.
     receipt = (
         build_receipt(state, blueprint, pool)
-        if state.status in TERMINAL_STATUSES else None
+        if state.status in CONCLUDED_STATUSES else None
     )
 
     return {
@@ -836,7 +918,24 @@ def public_state(state: RunState, blueprint: RunBlueprint, pool: CardPool) -> di
         # The published price list, so no client ever restates a sink's cost.
         "credit_sinks": credit_sink_catalogue(),
         "roster_size": ROSTER_SIZE,
+        # `action_count` doubles as the optimistic-concurrency token the restart
+        # confirmation sends back, so the server can refuse a confirmation made
+        # against a screen the run has since moved past.
         "action_count": len(state.action_log),
+        # -- v4: the restart / abandon surface --------------------------------
+        # The client must not infer any of this from `status`. "Abandoned" and
+        # "concluded" are different questions with different answers, and which
+        # actions a run offers is a rules fact the engine owns: a daily has no
+        # "Start New Run" at all (see `runs.DailyNotRestartable`), and a client
+        # deriving that from `run_type` would be a second copy of the rule.
+        "abandoned": state.status == STATUS_ABANDONED,
+        "abandoned_at": state.abandoned_at,
+        "successor_run_id": state.successor_run_id,
+        "concluded": state.status in CONCLUDED_STATUSES,
+        "can_restart": state.run_type != "daily",
+        "restart_blocked_reason": (
+            "daily_single_attempt" if state.run_type == "daily" else None
+        ),
         "receipt": receipt,
         "versions": state.versions,
         "created_at": state.created_at,

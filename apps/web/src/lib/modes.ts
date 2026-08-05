@@ -20,7 +20,29 @@
  * in the abstract.
  */
 
-export type ModeId = "run-the-table" | "peak-season" | "daily-grid" | "peak-duel";
+export type ModeId =
+  | "run-the-table"
+  | "peak-season"
+  | "daily-grid"
+  | "peak-duel"
+  | "three-man-weave"
+  | "twenty-dollar";
+
+/**
+ * Modes that need a live opponent, or at least a live server match.
+ *
+ * Listed separately because reachability is CONDITIONAL for these two in a way
+ * it is not for the rest of the catalogue: the Arena is behind a server flag
+ * and a closed-alpha allowlist, so a card for one of them must be able to
+ * render in a "not open to you yet" state rather than as a link that 403s.
+ * `navGroups({ multiplayer: false })` and the homepage's readiness fetch are
+ * the two callers.
+ */
+export const MULTIPLAYER_MODE_IDS: readonly ModeId[] = [
+  "three-man-weave",
+  "twenty-dollar",
+] as const;
+
 
 /**
  * Which section of the Play menu a mode belongs to.
@@ -29,7 +51,12 @@ export type ModeId = "run-the-table" | "peak-season" | "daily-grid" | "peak-duel
  * from this rather than from a second hand-maintained list, so a mode can never
  * be described one way on a card and another way in the launcher.
  */
-export type ModeGroup = "flagship" | "daily" | "competitive" | "explore";
+export type ModeGroup =
+  | "flagship"
+  | "daily"
+  | "multiplayer"
+  | "competitive"
+  | "explore";
 
 /**
  * A stable, renderer-agnostic icon name.
@@ -50,7 +77,9 @@ export type ModeIconKey =
   | "medal"
   | "history"
   | "infinity"
-  | "calendar";
+  | "calendar"
+  | "users"
+  | "gavel";
 
 export interface ModeCopy {
   id: ModeId;
@@ -123,6 +152,34 @@ export const MODE_COPY: Record<ModeId, ModeCopy> = {
     group: "daily",
     blurb: "Nine squares, same board for everyone",
     iconKey: "grid",
+  },
+  "three-man-weave": {
+    id: "three-man-weave",
+    href: "/arena/lobby?game=three_man_weave",
+    eyebrow: "Multiplayer",
+    title: "Three-Man Weave",
+    description:
+      "Three drafters, six rounds, one shared franchise and decade per round. Every name taken is gone for everyone, and the lineup PEAK3 rates highest wins.",
+    meta: ["3 players", "6 rounds", "10-15 minutes"],
+    cta: "Enter the draft room",
+    group: "multiplayer",
+    blurb: "Three-way snake draft, six shared rolls",
+    badge: "Closed alpha",
+    iconKey: "users",
+  },
+  "twenty-dollar": {
+    id: "twenty-dollar",
+    href: "/arena/lobby?game=twenty_dollar",
+    eyebrow: "Multiplayer",
+    title: "The $20 Showdown",
+    description:
+      "Two bidders, twenty dollars each, one player at a time on the block. Bids alternate upward and the PEAK3 score stays hidden until the hammer falls.",
+    meta: ["2 players", "Live auction", "8-12 minutes"],
+    cta: "Enter the auction room",
+    group: "multiplayer",
+    blurb: "Two bidders, $20, one starting five",
+    badge: "Closed alpha",
+    iconKey: "gavel",
   },
   "peak-duel": {
     id: "peak-duel",

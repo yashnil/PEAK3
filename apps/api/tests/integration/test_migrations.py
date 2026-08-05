@@ -60,6 +60,8 @@ EXPECTED_TABLES = (
     "arena_matches", "arena_match_seats", "arena_match_commands",
     "arena_match_events", "arena_turns", "arena_match_results",
     "arena_public_queue",
+    # Arena public ratings                                      20260804140000
+    "arena_ratings", "arena_rating_history",
 )
 
 # Tables whose rows are owned by one player and must never be world-readable.
@@ -79,6 +81,14 @@ RLS_REQUIRED_TABLES = (
     "arena_matches", "arena_match_seats", "arena_match_commands",
     "arena_match_events", "arena_turns", "arena_match_results",
     "arena_public_queue",
+    # `arena_ratings` is world-READABLE by design -- it is a public
+    # leaderboard -- but RLS is still required on it, because the protection
+    # that matters there is COLUMN-level: `owner_sub` is a Supabase auth.uid()
+    # and is withheld from anon/authenticated by an explicit column GRANT, the
+    # same treatment `profiles.auth_sub` gets. RLS being enabled is what makes
+    # the write policies below it meaningful.
+    # `arena_rating_history` is a player's own ledger and is self-only.
+    "arena_ratings", "arena_rating_history",
 )
 
 

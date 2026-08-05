@@ -78,6 +78,13 @@ export function Dialog({
   "data-testid": testId,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Focus is placed from the panel's own ref callback -- see the long note on
+  // `setPanelRef` below.
+  const openRef = useRef(open);
+  openRef.current = open;
+  const focusedRef = useRef(false);
+  const initialFocusRefRef = useRef(initialFocusRef);
+  initialFocusRefRef.current = initialFocusRef;
   const reducedMotion = usePrefersReducedMotion();
   const [entered, setEntered] = useState(false);
 
@@ -97,29 +104,67 @@ export function Dialog({
 
   useEscapeKey(open, handleClose, isTopLayer);
 
-  // Move focus in. `initialFocusRef` wins; otherwise the first focusable child;
-  // otherwise the dialog itself (it carries tabIndex={-1} for exactly this).
+  // The entrance ramp only. Focus is NOT done here -- see below for why.
   useEffect(() => {
     if (!open) {
       setEntered(false);
       return;
     }
-    const frame = requestAnimationFrame(() => {
-      setEntered(true);
-      const explicit = initialFocusRef?.current;
-      if (explicit && typeof explicit.focus === "function") {
-        explicit.focus();
-        return;
-      }
-      const focusable = getFocusableElements(dialogRef.current);
-      if (focusable.length > 0) {
-        focusable[0].focus();
-        return;
-      }
-      dialogRef.current?.focus();
-    });
+    const frame = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(frame);
-  }, [open, initialFocusRef]);
+  }, [open]);
+
+  // Reset the once-per-open latch when the dialog closes.
+  useEffect(() => {
+    if (!open) focusedRef.current = false;
+  }, [open]);
+
+  /**
+   * Move focus in. `initialFocusRef` wins; otherwise the first focusable child;
+   * otherwise the dialog itself (it carries tabIndex={-1} for exactly this).
+   *
+   * DONE FROM THE PANEL'S REF CALLBACK, NOT FROM A FRAME.
+   *
+   * This used to run inside the same `requestAnimationFrame` as the entrance
+   * ramp above, and that was a real accessibility defect rather than a styling
+   * detail. `Portal` returns `null` until after its own first effect, so on the
+   * render where `open` flips true there is no panel and no children yet:
+   * `dialogRef.current` and `initialFocusRef.current` are both null. The frame
+   * was therefore racing the portal's mount-commit. If the frame won, every
+   * branch below fell through against nulls, focus stayed on `<body>` -- a
+   * keyboard user opening a modal and landing nowhere -- and nothing ever
+   * retried, because `open` had not changed and the effect never re-ran.
+   *
+   * A probe that forces that interleaving (run the frame before the portal
+   * commits) reproduces it deterministically: `document.activeElement` is
+   * `BODY`. jsdom happened to win the race most of the time, which is why it
+   * surfaced as an intermittent test failure rather than as a bug report; a
+   * loaded browser or a slow device has no such luck.
+   *
+   * A ref callback fires during the commit in which the node is attached, and
+   * refs attach bottom-up -- children first -- so `initialFocusRef.current` is
+   * already populated when this runs. That removes the race without adding a
+   * render: an earlier fix used state for the node, which forced an extra
+   * render pass on every dialog open and changed effect ordering for consumers
+   * that drive their own state from a modal (it broke a daily-grid rollover
+   * test outright). Placing focus here touches nothing but the DOM.
+   */
+  const setPanelRef = useCallback((node: HTMLDivElement | null) => {
+    dialogRef.current = node;
+    if (!node || !openRef.current || focusedRef.current) return;
+    focusedRef.current = true;
+    const explicit = initialFocusRefRef.current?.current;
+    if (explicit && typeof explicit.focus === "function") {
+      explicit.focus();
+      return;
+    }
+    const focusable = getFocusableElements(node);
+    if (focusable.length > 0) {
+      focusable[0].focus();
+      return;
+    }
+    node.focus();
+  }, []);
 
   if (!open) return null;
 
@@ -153,7 +198,7 @@ export function Dialog({
           }}
         />
         <div
-          ref={dialogRef}
+          ref={setPanelRef}
           role="dialog"
           aria-modal="true"
           aria-label={label}

@@ -57,6 +57,12 @@ REPOSITORY_DOMAINS: list[str] = [
     # owed to somebody, so a production process serving it out of a dict would
     # drop matches mid-turn on every restart.
     "arena",
+    # Arena public ratings. Wired in core/dependencies.py
+    # (get_arena_rating_repo). A rating is the most durability-sensitive record
+    # in this application: a match lost to a restart can be replayed, but a
+    # rating that silently reverted is a number a player watched go up and then
+    # go back down, with nothing to point at.
+    "arena_rating",
 ]
 
 

@@ -492,13 +492,63 @@ test.describe("Daily Grid — discoverability", () => {
     // there and the grid is one deliberate click further.
     await skipRules(page);
     await page.goto("/", { waitUntil: "load" });
+
+    // The header is server-rendered, so its links are hit-testable from first
+    // paint but do nothing until React attaches their handlers -- a click in
+    // that window is captured by React's root listener, preventDefault'ed and
+    // replayed only once hydration finishes (measured with a delayed
+    // `main-app.js`: a click at +213ms navigated at +7.2s). `data-nav-ready` is
+    // the header's own signal that its controls are live, so the click below
+    // lands on a working control rather than on a placeholder.
+    //
+    // FOR THE RECORD: this gate was NOT what was failing in CI. The trace from
+    // run 30958310273 shows it satisfied at t+2585ms and the click at t+2631ms
+    // issuing its navigation immediately. See the note above `toHaveURL` for
+    // what actually took the time.
+    await expect(page.locator("header[data-nav-ready='true']")).toBeAttached();
+
+    // Addressed by test id, not by accessible name: `getByRole("link", { name:
+    // "Daily" })` is a SUBSTRING match, and the Play panel -- a descendant of
+    // this same landmark -- carries "Daily Grid Challenge" and "Peak Duel
+    // Daily". Which control that selector resolves to depended on whether a
+    // menu happened to be open. The accessible name is still asserted, exactly,
+    // right here.
     const daily = page
       .getByRole("navigation", { name: "Main navigation" })
-      .getByRole("link", { name: "Daily" });
+      .getByTestId("desktop-nav-daily");
+    await expect(daily).toHaveAccessibleName("Daily");
     await expect(daily).toHaveAttribute("href", "/daily");
 
     await daily.click();
-    await expect(page).toHaveURL(/\/daily$/);
+
+    // THE CLICK WORKS; COLD `next dev` COMPILATION IS WHAT TOOK THE TIME.
+    //
+    // From the CI trace of run 30958310273, timed against the document request
+    // for `/`:
+    //
+    //   t+2585ms  `data-nav-ready` satisfied -- the header had hydrated
+    //   t+2631ms  the click action runs, and succeeds
+    //   t+2641ms  the browser issues GET /daily?_rsc=... -- the router started
+    //             the navigation 10ms after the click, so the anchor was not
+    //             swallowed, not covered, and not the wrong element
+    //   ...       that request takes 5165ms to answer: the dev server is
+    //             compiling the /daily route
+    //   t+7695ms  the old bare 5s `toHaveURL` window expires, ~110ms short
+    //   t+7807ms  the RSC payload arrives
+    //   t+7837ms  the route's client chunk is requested, and is aborted by the
+    //             teardown the failed assertion has already started
+    //
+    // So the URL was correct about the world: a soft navigation does not commit
+    // until the destination has compiled and its payload has applied. Every
+    // other route transition in this file goes through `page.goto` (Playwright's
+    // 30s navigation budget) or an explicit `{ timeout: 15_000 }`; this was the
+    // one place a cold compile had to fit inside `expect`'s default 5s. The
+    // sibling test at "reaches the grid and the duel from the hub" already
+    // clicks a card, soft-navigates and asserts the URL with `15_000`.
+    //
+    // The click, the destination, the card click and the board render all stay
+    // exactly as they were. Only the budget now matches the file's own.
+    await expect(page).toHaveURL(/\/daily$/, { timeout: 15_000 });
     await page.getByTestId("daily-hub-grid-card").click();
     await expect(page.getByTestId("daily-grid-board")).toBeVisible({ timeout: 15_000 });
   });

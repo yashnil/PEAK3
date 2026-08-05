@@ -61,12 +61,15 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.core.auth import RequiredAuth
 from app.core.config import settings
-from app.core.dependencies import ArenaRepoDep, ProfileRepoDep
+from app.core.dependencies import ArenaRatingRepoDep, ArenaRepoDep, ProfileRepoDep
 from app.core.rate_limit import RateLimitRule, client_key, limiter
 from app.models.arena import (
     ArenaEventsResponse,
+    ArenaLeaderboardEntry,
+    ArenaLeaderboardResponse,
     ArenaEventView,
     ArenaMatchView,
+    ArenaModeInfo,
     ArenaReadinessResponse,
     ArenaResultsResponse,
     ArenaResultView,
@@ -80,6 +83,7 @@ from app.models.arena import (
     SubmitCommandResponse,
 )
 from app.repositories.arena_protocols import (
+    ENTRY_PATH_PRIVATE_ROOM,
     ActiveQueueEntryExists,
     ArenaMatch,
     ArenaSeat,
@@ -89,6 +93,7 @@ from app.repositories.arena_protocols import (
     validate_client_command,
 )
 from app.services.arena import bots as bot_service
+from app.services.arena import rating as arena_rating
 from app.services.arena import clock
 from app.services.arena import matchmaking as mm
 from app.services.arena.modes import ModeNotRegistered, registry as mode_registry
@@ -281,7 +286,7 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
     )
 
 
-async def _advance(repo, mode, match_id: str) -> ArenaMatch:
+async def _advance(repo, mode, match_id: str, rating_repo=None) -> ArenaMatch:
     """Run the clock, then let any bots whose turn it is move.
 
     Called before serving a match and after a human's command, which is what
@@ -294,7 +299,23 @@ async def _advance(repo, mode, match_id: str) -> ArenaMatch:
     await clock.enforce(repo, match_id, mode.reduce if mode else None, now)
     if mode is not None and settings.ARENA_BOTS_ENABLED:
         await bot_service.drive_pending_bots(repo, mode, mode.reduce, match_id, now)
-    return await _match_or_404(repo, match_id)
+    match = await _match_or_404(repo, match_id)
+
+    # Rating is settled on the same lazy path as the clock, for the same reason:
+    # no background runner exists in this application. `settle_match_rating` is
+    # idempotent through a unique index, so being called on every read is the
+    # design rather than a cost -- and a flag that is off means "no rating
+    # written", never "settlement fails", which is why this cannot raise into
+    # the caller's response.
+    if rating_repo is not None and settings.ARENA_RATINGS_ENABLED:
+        try:
+            await arena_rating.settle_match_rating(repo, rating_repo, match, now)
+        except Exception:  # pragma: no cover - defensive
+            # A rating that could not be written must never cost a player their
+            # match view. The result rows are already durable, so the next
+            # request retries from the same input.
+            logger.exception("arena: rating settlement failed for %s", match_id)
+    return match
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +330,13 @@ async def readiness() -> ArenaReadinessResponse:
         arena_enabled=settings.ARENA_ENABLED,
         public_queue_enabled=settings.ARENA_PUBLIC_QUEUE_ENABLED,
         bots_enabled=settings.ARENA_BOTS_ENABLED,
-        modes=list(mode_registry.names()),
+        # Seat count is read from the registry -- the same object the matchmaker
+        # sizes matches from -- so the number the lobby draws and the number the
+        # server actually seats cannot become two different facts.
+        modes=[
+            ArenaModeInfo(id=name, seat_count=mode_registry.get(name).seat_count)
+            for name in mode_registry.names()
+        ],
     )
 
 
@@ -466,6 +493,221 @@ async def queue_status(
     )
 
 
+#: Which `arena_match_results.detail` keys each mode's board surfaces.
+#:
+#: The repository is mode-agnostic and takes these as parameters, so adding a
+#: mode is a line here rather than a change to a query. Keys are the ones the
+#: mode's own settlement writes -- Three-Man Weave's `lineup_peak_score`
+#: (three_man_weave/mode.py), the Showdown's `budget_remaining` and
+#: `peak3_per_dollar` (twenty_dollar/mode.py).
+_MODE_DETAIL_KEYS: dict[str, tuple[str, ...]] = {
+    "three_man_weave": ("lineup_peak_score",),
+    "twenty_dollar": ("budget_remaining", "peak3_per_dollar"),
+}
+
+#: Rated matches before a rating stops being labelled provisional. Matches the
+#: placement convention ranked already uses (`placement_states.required_matches`
+#: defaults to 7) rather than inventing a second number for the same idea.
+_PROVISIONAL_UNTIL = 7
+
+
+@router.get(f"{BASE}/leaderboard/{{mode}}", response_model=ArenaLeaderboardResponse)
+async def leaderboard(
+    mode: str,
+    repo: ArenaRepoDep,
+    rating_repo: ArenaRatingRepoDep,
+    profile_repo: ProfileRepoDep,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> ArenaLeaderboardResponse:
+    """The public rating board for one mode.
+
+    NO AUTH. A public leaderboard is public, and requiring a token to read one
+    would make it invisible to exactly the people it exists to attract. What
+    that costs is nothing, because the row carries only a handle and
+    statistics -- see `ArenaLeaderboardEntry`.
+
+    ONLY PLAYERS WITH A PUBLIC HANDLE APPEAR. A rating exists for every player
+    who has finished a rated match, but a board row needs a name, and the only
+    name this product will show is the handle a player chose
+    (launch-polish IMPLEMENTATION_CONTRACT.md §8). A player without one is rated
+    and simply unlisted until they pick a handle -- their rating is not lost and
+    their matches still counted.
+    """
+    _require_enabled()
+    if not settings.ARENA_LEADERBOARD_ENABLED:
+        # Answered rather than 403'd, the same carve-out /readiness has: the web
+        # app can render "not open yet" instead of guessing why it got an error.
+        return ArenaLeaderboardResponse(leaderboard_enabled=False, mode=mode)
+
+    mode_impl = _mode_or_404(mode)
+    rows = await rating_repo.get_leaderboard_page(mode_impl.mode, limit, offset)
+    if not rows:
+        return ArenaLeaderboardResponse(leaderboard_enabled=True, mode=mode)
+
+    subs = [r.owner_sub for r in rows]
+    stats = await repo.get_player_stats(
+        mode_impl.mode, subs, _MODE_DETAIL_KEYS.get(mode_impl.mode, ())
+    )
+
+    entries: list[ArenaLeaderboardEntry] = []
+    for index, row in enumerate(rows):
+        profile = await profile_repo.get_profile_by_auth_sub(row.owner_sub)
+        handle = getattr(profile, "handle", None) if profile else None
+        if not handle:
+            continue  # rated, but has not chosen a public name
+        st = stats.get(row.owner_sub)
+        entries.append(
+            ArenaLeaderboardEntry(
+                rank=offset + index + 1,
+                handle=handle,
+                rating=round(row.rating, 2),
+                rd=round(row.rd, 2),
+                rated_matches=row.rated_matches,
+                provisional=row.rated_matches < _PROVISIONAL_UNTIL,
+                wins=st.wins if st else 0,
+                losses=st.losses if st else 0,
+                draws=st.draws if st else 0,
+                matches_with_bots=st.matches_with_bots if st else 0,
+                matches_all_human=st.matches_all_human if st else 0,
+                average_placement=st.average_placement if st else None,
+                podium_rate=st.podium_rate if st else None,
+                average_score=st.score_avg if st else None,
+                best_score=st.score_best if st else None,
+                averages=dict(st.detail_averages) if st else {},
+                bests=dict(st.detail_bests) if st else {},
+            )
+        )
+    return ArenaLeaderboardResponse(
+        leaderboard_enabled=True, mode=mode, entries=entries
+    )
+
+
+def _require_bots_enabled() -> None:
+    """Refuse cleanly rather than half-seating.
+
+    Checked BEFORE anything is written, so a disabled-bots deploy cannot leave a
+    room with two of its three seats filled and no way to reach the third.
+    """
+    if not settings.ARENA_BOTS_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail=_error("Bots are not currently enabled.", "bots_disabled"),
+        )
+
+
+@router.post(f"{BASE}/queue/{{mode}}/fill-now", response_model=QueueStatusResponse)
+async def fill_queue_now(
+    mode: str,
+    auth: RequiredAuth,
+    repo: ArenaRepoDep,
+    profile_repo: ProfileRepoDep,
+) -> QueueStatusResponse:
+    """"Fill with bots now" -- the other half of "Keep waiting".
+
+    Waiting already had a route (the poll IS waiting). This is the waiting
+    player saying they would rather start than hold out for the rest of their
+    30-second window.
+
+    ONLY YOUR OWN WINDOW. The subject comes from the verified JWT and is passed
+    straight into a statement that narrows on `owner_sub`; there is no request
+    field naming whose entry to collapse, so this cannot be aimed at another
+    player. A caller with no waiting entry gets `not_in_queue`, not somebody
+    else's match.
+
+    STILL RATED. This is the public queue, so `is_rated(ENTRY_PATH_PUBLIC_QUEUE)`
+    is True exactly as it would have been had the window lapsed on its own --
+    which is the whole point of the matchmaking module's argument that a
+    bot-filled public match stays rated. Waiting 30 seconds versus pressing a
+    button must not change what the match is worth, or the button becomes a way
+    to farm unrated matches out of a rated queue.
+    """
+    _require_access(auth)
+    _require_bots_enabled()
+    mode_impl = _mode_or_404(mode)
+    now = _now()
+
+    name = await _display_name(profile_repo, auth.sub)
+    match = await mm.fill_queue_with_bots_now(
+        repo, mode_impl, auth.sub, {auth.sub: name}, now
+    )
+    if match is not None:
+        return QueueStatusResponse(status="matched", mode=mode, match_id=match.match_id)
+
+    # No waiting entry. Either this is a second press whose first press already
+    # created the match, or the caller was never queued. Resolved exactly the way
+    # `queue_status` resolves a vanished entry rather than with a second
+    # bookkeeping mechanism -- which is also what makes a double-click return
+    # the FIRST match instead of seating a second set of bots.
+    for m in await repo.list_matches_for_sub(auth.sub, limit=5):
+        if m.mode == mode and m.is_live():
+            return QueueStatusResponse(status="matched", mode=mode, match_id=m.match_id)
+    return QueueStatusResponse(status="not_in_queue", mode=mode)
+
+
+@router.post(f"{BASE}/matches/{{match_id}}/fill-bots", response_model=ArenaMatchView)
+async def fill_room_with_bots(
+    match_id: str,
+    auth: RequiredAuth,
+    repo: ArenaRepoDep,
+    profile_repo: ProfileRepoDep,
+) -> ArenaMatchView:
+    """"Fill empty seats with bots" -- the private-room host's explicit choice.
+
+    A private room is still NEVER auto-filled; `create_private_room` says so and
+    that stays true. This is the host deciding out loud that they would rather
+    start than keep waiting for a friend.
+
+    HOST ONLY, AND VERIFIED SERVER-SIDE. `match.created_by` is compared against
+    the JWT subject. There is no host field in the request body to spoof, and a
+    guest who already holds a seat in the room is still refused -- holding a seat
+    is not the same authority as opening the room.
+
+    STILL UNRATED. `rated` is not touched here; it was derived from
+    `private_room` at creation and the `arena_matches_rated_matches_entry_path`
+    CHECK would refuse anything else. No new entry_path is introduced either:
+    a host-filled room is the same private room with its seats resolved, not a
+    fourth way into the arena.
+    """
+    _require_access(auth)
+    _require_bots_enabled()
+    match = await _match_or_404(repo, match_id)
+
+    if match.entry_path != ENTRY_PATH_PRIVATE_ROOM:
+        raise HTTPException(
+            status_code=400,
+            detail=_error(
+                "Only a private room's empty seats can be filled on request.",
+                "not_a_private_room",
+            ),
+        )
+    if match.created_by != auth.sub:
+        # 403 and not 404: the caller may well be a guest who legitimately holds
+        # a seat here, so "this is not yours to do" is the honest answer rather
+        # than pretending the room does not exist.
+        raise HTTPException(
+            status_code=403,
+            detail=_error(
+                "Only the player who opened this room can fill its seats.",
+                "not_room_host",
+            ),
+        )
+
+    mode_impl = _mode_or_404(match.mode)
+    try:
+        match = await mm.fill_private_room_with_bots(
+            repo, mode_impl, match, auth.sub, _now()
+        )
+    except SeatUnavailable as exc:
+        # Also what a double-click gets: the first press consumed the seats.
+        raise HTTPException(
+            status_code=409, detail=_error(str(exc), "no_empty_seats")
+        )
+
+    _, seat = await _seat_or_403(repo, match_id, auth.sub)
+    return await _build_view(repo, mode_impl, match, seat)
+
+
 @router.post(f"{BASE}/queue/{{mode}}/cancel")
 async def cancel_queue(mode: str, auth: RequiredAuth, repo: ArenaRepoDep) -> dict:
     _require_access(auth)
@@ -495,7 +737,10 @@ async def list_matches(auth: RequiredAuth, repo: ArenaRepoDep) -> MatchHistoryRe
 
 @router.get(f"{BASE}/matches/{{match_id}}", response_model=ArenaMatchView)
 async def get_match(
-    match_id: str, auth: RequiredAuth, repo: ArenaRepoDep
+    match_id: str,
+    auth: RequiredAuth,
+    repo: ArenaRepoDep,
+    rating_repo: ArenaRatingRepoDep,
 ) -> ArenaMatchView:
     """THE POLL. Enforces the clock, pumps bots, then serves this seat's view.
 
@@ -507,7 +752,7 @@ async def get_match(
     _require_access(auth)
     match, seat = await _seat_or_403(repo, match_id, auth.sub)
     mode = mode_registry.get(match.mode) if mode_registry.has(match.mode) else None
-    match = await _advance(repo, mode, match_id)
+    match = await _advance(repo, mode, match_id, rating_repo)
     await repo.touch_seat(match_id, seat.seat_index, _now())
     return await _build_view(repo, mode, match, seat)
 
@@ -518,6 +763,7 @@ async def submit_command(
     body: SubmitCommandRequest,
     auth: RequiredAuth,
     repo: ArenaRepoDep,
+    rating_repo: ArenaRatingRepoDep,
 ) -> SubmitCommandResponse:
     """THE MUTATION.
 
@@ -563,7 +809,7 @@ async def submit_command(
             status_code=404, detail=_error("No such match.", "match_not_found")
         )
 
-    updated = await _advance(repo, mode, match_id)
+    updated = await _advance(repo, mode, match_id, rating_repo)
     return SubmitCommandResponse(
         accepted=outcome.accepted,
         replayed=outcome.replayed,

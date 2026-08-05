@@ -37,8 +37,9 @@ import asyncio
 import copy
 from dataclasses import replace
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Sequence
 
+from app.repositories.arena_rating_protocols import ArenaPlayerStats
 from app.repositories.arena_protocols import (
     LIVE_MATCH_STATUSES,
     MATCH_STATUS_COMPLETED,
@@ -230,6 +231,15 @@ class MemoryArenaRepository:
         rows.sort(key=lambda m: m.created_at, reverse=True)
         return [_clone_match(m) for m in rows[:limit]]
 
+    async def set_bot_policy_version(self, match_id: str, policy_version: str) -> bool:
+        async with self._lock_for(match_id):
+            match = self._matches.get(match_id)
+            # First write wins -- see the protocol docstring.
+            if match is None or match.bot_policy_version is not None:
+                return False
+            match.bot_policy_version = policy_version
+            return True
+
     # -- the mutation path --------------------------------------------------
 
     async def apply_command(
@@ -238,6 +248,15 @@ class MemoryArenaRepository:
         reducer: MatchReducer,
         now: datetime,
     ) -> CommandOutcome:
+        # Reproduce the schema's key-length CHECK. Postgres enforces it and this
+        # backend did not, so a short key passed every unit test and failed only
+        # against a real database. Validated BEFORE the lock and before the
+        # idempotency lookup, because a key the database would reject must never
+        # become a recorded verdict that a later replay would return.
+        from app.repositories.arena_protocols import validate_idempotency_key
+
+        validate_idempotency_key(request.idempotency_key)
+
         async with self._lock_for(request.match_id):
             match = self._matches.get(request.match_id)
             if match is None:
@@ -512,6 +531,75 @@ class MemoryArenaRepository:
         )
         return [_clone_result(r) for r in rows]
 
+    async def get_player_stats(
+        self,
+        mode: str,
+        owner_subs: Sequence[str],
+        detail_keys: Sequence[str] = (),
+    ) -> dict[str, ArenaPlayerStats]:
+        wanted = set(owner_subs)
+        stats: dict[str, ArenaPlayerStats] = {
+            sub: ArenaPlayerStats(owner_sub=sub) for sub in wanted
+        }
+        # Accumulated separately so an absent or non-numeric detail key is
+        # simply not counted, rather than dragging an average toward zero.
+        sums: dict[str, dict[str, float]] = {sub: {} for sub in wanted}
+        counts: dict[str, dict[str, int]] = {sub: {} for sub in wanted}
+        score_sums: dict[str, float] = {}
+        score_counts: dict[str, int] = {}
+
+        for match_id, results in self._results.items():
+            match = self._matches.get(match_id)
+            if match is None or match.mode != mode:
+                continue
+            seats = {s.seat_index: s for s in self._seats.get(match_id, [])}
+            any_bot = any(r.was_bot for r in results)
+            for result in results:
+                if not result.rated or result.was_bot:
+                    continue
+                seat = seats.get(result.seat_index)
+                sub = seat.occupant_sub if seat else None
+                if sub not in wanted:
+                    continue
+                st = stats[sub]
+                st.rated_matches += 1
+                st.placement_sum += result.placement
+                if result.outcome == "win":
+                    st.wins += 1
+                elif result.outcome == "loss":
+                    st.losses += 1
+                else:
+                    st.draws += 1
+                # Top half of the table. In a two-seat mode that is first place;
+                # in three seats it is first or second.
+                if result.placement <= max(1, match.seat_count // 2):
+                    st.podiums += 1
+                if any_bot:
+                    st.matches_with_bots += 1
+                else:
+                    st.matches_all_human += 1
+
+                score = float(result.score)
+                score_sums[sub] = score_sums.get(sub, 0.0) + score
+                score_counts[sub] = score_counts.get(sub, 0) + 1
+                st.score_best = score if st.score_best is None else max(st.score_best, score)
+
+                for key in detail_keys:
+                    raw = (result.detail or {}).get(key)
+                    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+                        continue
+                    sums[sub][key] = sums[sub].get(key, 0.0) + float(raw)
+                    counts[sub][key] = counts[sub].get(key, 0) + 1
+                    prev = st.detail_bests.get(key)
+                    st.detail_bests[key] = float(raw) if prev is None else max(prev, float(raw))
+
+        for sub, st in stats.items():
+            if score_counts.get(sub):
+                st.score_avg = round(score_sums[sub] / score_counts[sub], 4)
+            for key, total in sums[sub].items():
+                st.detail_averages[key] = round(total / counts[sub][key], 4)
+        return stats
+
     # -- public queue -------------------------------------------------------
 
     async def enqueue(self, entry: ArenaQueueEntry) -> ArenaQueueEntry:
@@ -551,6 +639,24 @@ class MemoryArenaRepository:
                     e.status = QUEUE_STATUS_CANCELLED
                     return True
             return False
+
+    async def collapse_human_preference(
+        self, owner_sub: str, mode: str, now: datetime
+    ) -> Optional[ArenaQueueEntry]:
+        async with self._queue_lock:
+            for e in self._queue.values():
+                if (
+                    e.owner_sub == owner_sub
+                    and e.mode == mode
+                    and e.status == QUEUE_STATUS_WAITING
+                ):
+                    # min(), so the window only ever moves EARLIER -- see the
+                    # protocol docstring. A second press changes nothing.
+                    e.human_preference_until = min(
+                        _utc(e.human_preference_until), _utc(now)
+                    )
+                    return _clone_entry(e)
+            return None
 
     async def list_waiting_entries(
         self,

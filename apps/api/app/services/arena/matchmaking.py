@@ -55,7 +55,8 @@ from app.repositories.arena_protocols import (
     SeatUnavailable,
 )
 from app.services.arena import bots as bot_service
-from app.services.arena.modes import ArenaMode
+from app.services.arena import modes as mode_seam
+from app.services.arena.modes import ArenaMode, human_seat_for
 
 logger = logging.getLogger(__name__)
 
@@ -168,9 +169,28 @@ async def start_practice(
         mode, ENTRY_PATH_PRACTICE, owner_sub, _new_seed(), now,
         bot_policy_version=policy.policy_version,
     )
-    seats = [_human_seat(match.match_id, 0, owner_sub, display_name)]
-    for index in range(1, mode.seat_count):
-        seats.append(bot_service.bot_seat(match.match_id, index, policy))
+
+    # WHICH SEAT THE HUMAN GETS IS THE MODE'S CALL, from the match seed.
+    # Hard-coding seat 0 meant a Three-Man Weave player always opened the
+    # snake and never once experienced the back-to-back turn at a round
+    # boundary that the order is built around. Two-seat modes have no such
+    # hook and are unaffected.
+    human_index = human_seat_for(mode, match.seed)
+    bot_indexes = [index for index in range(mode.seat_count) if index != human_index]
+    names = bot_service.bot_seat_names(mode, match.seed, bot_indexes)
+
+    seats = [_human_seat(match.match_id, human_index, owner_sub, display_name)]
+    for index in bot_indexes:
+        seats.append(
+            bot_service.bot_seat(
+                match.match_id,
+                index,
+                policy,
+                display_name=names.get(index),
+                seat_count=mode.seat_count,
+            )
+        )
+    seats.sort(key=lambda seat: seat.seat_index)
     return await _create_and_open(repo, mode, match, seats, now)
 
 
@@ -350,8 +370,18 @@ async def _pair(
     if len(seats) < mode.seat_count:
         if not fill_with_bots:
             return None
-        for index in range(len(seats), mode.seat_count):
-            seats.append(bot_service.bot_seat(match.match_id, index, policy))
+        bot_indexes = list(range(len(seats), mode.seat_count))
+        names = bot_service.bot_seat_names(mode, match.seed, bot_indexes)
+        for index in bot_indexes:
+            seats.append(
+                bot_service.bot_seat(
+                    match.match_id,
+                    index,
+                    policy,
+                    display_name=names.get(index),
+                    seat_count=mode.seat_count,
+                )
+            )
 
     claimed = await repo.claim_entries_into_match(
         [e.entry_id for e in entries[: mode.seat_count]], match, seats, now
@@ -362,6 +392,122 @@ async def _pair(
         # request into an unbounded retry storm.
         return None
     return await _open_play(repo, mode, match.match_id, now)
+
+
+# ---------------------------------------------------------------------------
+# Bot fill, asked for explicitly
+#
+# The brief offers a waiting player "Fill with bots now" and "Keep waiting".
+# Keep-waiting already existed -- the poll IS waiting. These are the other half.
+#
+# NEITHER CHANGES `rated`. `_pair` derives it from ENTRY_PATH_PUBLIC_QUEUE and
+# `fill_private_room_with_bots` never touches the column, so a bot-filled public
+# match stays RATED and a bot-filled private room stays UNRATED. That is the
+# `arena_matches_rated_matches_entry_path` CHECK's rule, and both paths below go
+# through the same constructors that already satisfy it rather than writing
+# `rated` themselves. No new entry_path is introduced: "the host filled the
+# seats" is not a different way of entering the arena, it is the same private
+# room with its seats resolved.
+# ---------------------------------------------------------------------------
+
+
+async def fill_queue_with_bots_now(
+    repo: ArenaRepository,
+    mode: ArenaMode,
+    owner_sub: str,
+    display_names: Optional[dict[str, str]] = None,
+    now: Optional[datetime] = None,
+) -> Optional[ArenaMatch]:
+    """Collapse the caller's OWN human-preference window and match immediately.
+
+    Returns the match, or None when the caller has no waiting entry.
+
+    ONLY THE WAITING PLAYER'S OWN WINDOW. `collapse_human_preference` narrows on
+    `owner_sub` inside its own statement, so there is no path here that reaches
+    another player's entry -- a spectator or a second player cannot force
+    somebody else to be bot-filled.
+
+    HUMANS STILL WIN. `try_match` is unchanged and still takes every waiting
+    human first; collapsing the window only removes the reason to KEEP waiting,
+    it does not skip past people who are already available. A player who presses
+    this at the same moment three humans arrive gets the humans.
+
+    IDEMPOTENT BY CONSTRUCTION, not by a second bookkeeping table. The collapse
+    is monotonic (`LEAST`/`min`), and the match itself is created by
+    `claim_entries_into_match`, which is all-or-nothing on the queue entries --
+    so the second press finds no waiting entry and returns None, and the route
+    resolves that to the match the first press created, exactly the way
+    `queue_status` already resolves a vanished entry.
+    """
+    now = now or _now()
+    entry = await repo.collapse_human_preference(owner_sub, mode.mode, now)
+    if entry is None:
+        return None
+    return await try_match(repo, mode, entry, display_names or {}, now)
+
+
+async def fill_private_room_with_bots(
+    repo: ArenaRepository,
+    mode: ArenaMode,
+    match: ArenaMatch,
+    actor_sub: str,
+    now: Optional[datetime] = None,
+) -> ArenaMatch:
+    """Seat bots in a private room's empty seats, at the HOST's explicit request.
+
+    `create_private_room` refuses to auto-fill, and that stays true: a room is
+    still never filled because a friend was slow. This is the host deciding, out
+    loud, that they would rather start.
+
+    HOST ONLY, VERIFIED SERVER-SIDE. `match.created_by` is the host, read from
+    the stored match rather than from anything the client sent. A guest who
+    already holds a seat in the room still cannot fill it.
+
+    THE UNIQUE SEAT INDEX IS THE RACE ARBITER, not a pre-check. Seats are added
+    one at a time through `add_seat`, which raises `SeatUnavailable` on the
+    unique index, so a bot fill racing a real human's join produces exactly one
+    outcome per seat: whoever's INSERT lands first takes it and the other is
+    told the seat is gone. Reading the seat list first and inserting afterwards
+    is precisely the race `join_private_room` documents avoiding.
+
+    Raises SeatUnavailable if the room is already full -- which is also what a
+    double-click gets, since the first press consumed the seats.
+    """
+    now = now or _now()
+    seats = await repo.get_seats(match.match_id)
+    if len(seats) >= match.seat_count:
+        raise SeatUnavailable("this room has no empty seats")
+
+    policy = bot_service.registry.default_for(mode.mode)
+    taken = {s.seat_index for s in seats}
+    for index in range(match.seat_count):
+        if index in taken:
+            continue
+        # Lost to a human who joined in between: their seat stands, this bot
+        # does not take it, and the loop moves on to the next empty index.
+        # Never both, and never a rollback of the human's join.
+        try:
+            await repo.add_seat(
+                bot_service.bot_seat(
+                    match.match_id, index, policy, seat_count=match.seat_count
+                )
+            )
+        except SeatUnavailable:
+            logger.info(
+                "arena: seat %d of %s was taken while filling with bots",
+                index, match.match_id,
+            )
+
+    # `bot_policy_version` is pinned on the match the same way the timeout path
+    # pins it, and the seat's calibrated `bot_rating` is pinned by `bot_seat`
+    # itself -- so a later recalibration cannot retroactively change what this
+    # match was played against.
+    await repo.set_bot_policy_version(match.match_id, policy.policy_version)
+
+    seats = await repo.get_seats(match.match_id)
+    if len(seats) >= match.seat_count:
+        return await _open_play(repo, mode, match.match_id, now)
+    return await repo.get_match(match.match_id)  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +556,9 @@ async def _open_play(
                 rejection_message="This match has already started.",
             )
         snapshot = mode.initial_snapshot(data.match.seed, data.seats)
+        # WHICH SEAT OPENS IS THE MODE'S TO SAY, not this function's. See
+        # `modes.initial_turn_seat` for the defect a hardcoded 0 caused.
+        first_seat = mode_seam.initial_turn_seat(mode, snapshot)
         return ReducerOutput(
             accepted=True,
             snapshot=snapshot,
@@ -427,7 +576,7 @@ async def _open_play(
             open_turn=TurnDraft(
                 phase=mode.initial_phase(),
                 deadline_at=data.now + timedelta(seconds=mode.turn_seconds),
-                seat_index=0,
+                seat_index=first_seat,
             ),
         )
 

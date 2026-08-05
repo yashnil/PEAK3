@@ -38,6 +38,11 @@ from app.repositories.memory import (
     MemoryGameRepository,
     MemoryResultSnapshotRepository,
 )
+from app.repositories.leaderboard_memory import MemoryPerfectSeasonLeaderboardRepository
+from app.repositories.leaderboard_protocols import (
+    DuplicateRunSubmission,
+    PerfectSeasonRun,
+)
 from app.repositories.memory_profile import MemoryProfileRepository
 from app.repositories.profile_protocols import HandleTakenError
 from app.repositories.protocols import ChallengeRecord, DailyCompletion, ResultSnapshot
@@ -534,6 +539,297 @@ async def _assert_arena_queue_conforms(repo) -> None:
     ) == 1
     assert await repo.get_queue_entry(sub_c, mode) is None
 
+    # -- explicit bot fill ---------------------------------------------------
+    # `collapse_human_preference` brings the caller's own window forward so
+    # "Fill with bots now" can match immediately. Both backends must agree that
+    # it is scoped to one subject and that it only ever moves the window
+    # EARLIER -- a backend where a second press pushed the window out would let
+    # a double-click extend the wait it was meant to end.
+    sub_d, sub_e = f"user-{uuid.uuid4()}", f"user-{uuid.uuid4()}"
+    d = await repo.enqueue(entry(sub_d))
+    await repo.enqueue(entry(sub_e))
+
+    collapsed = await repo.collapse_human_preference(sub_d, mode, now)
+    assert collapsed is not None
+    assert collapsed.prefers_humans_at(now) is False
+    assert collapsed.owner_sub == sub_d
+
+    # The other player's window is untouched -- one press cannot drag a
+    # different waiting player into a bot match.
+    other = await repo.get_queue_entry(sub_e, mode)
+    assert other is not None
+    assert other.prefers_humans_at(now) is True
+
+    # Monotonic: a later call cannot push the window back out.
+    again = await repo.collapse_human_preference(
+        sub_d, mode, now + timedelta(minutes=5)
+    )
+    assert again is not None
+    assert again.human_preference_until == collapsed.human_preference_until
+    assert d.entry_id  # the entry itself is unchanged in identity
+
+    # A subject with no waiting entry gets None rather than an error.
+    assert await repo.collapse_human_preference(
+        f"user-{uuid.uuid4()}", mode, now
+    ) is None
+
+
+async def _assert_arena_bot_policy_pin_conforms(repo) -> None:
+    """`set_bot_policy_version` is first-write-wins on both backends.
+
+    A private room is created with no bots and therefore no policy version; the
+    host's later "fill empty seats" is the first moment there is one to record.
+    Two concurrent fills must pin ONE value rather than race to overwrite each
+    other, which is why the condition lives in the statement.
+    """
+    match = _arena_match(entry_path="private_room")
+    await repo.create_match(match, _arena_seats(match.match_id, 1))
+    assert (await repo.get_match(match.match_id)).bot_policy_version is None
+
+    assert await repo.set_bot_policy_version(match.match_id, "policy_v1") is True
+    assert (await repo.get_match(match.match_id)).bot_policy_version == "policy_v1"
+
+    # Second write loses and changes nothing.
+    assert await repo.set_bot_policy_version(match.match_id, "policy_v2") is False
+    assert (await repo.get_match(match.match_id)).bot_policy_version == "policy_v1"
+
+    # An unknown match is False, not an error.
+    assert await repo.set_bot_policy_version(str(uuid.uuid4()), "policy_v1") is False
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_bot_policy_pin_conforms():
+    from app.repositories.arena_memory import MemoryArenaRepository
+    await _assert_arena_bot_policy_pin_conforms(MemoryArenaRepository())
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_bot_policy_pin_conforms(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    await _assert_arena_bot_policy_pin_conforms(PostgresArenaRepository(pg_pool))
+
+
+async def _assert_arena_rating_conforms(repo, match_ids: list[str]) -> None:
+    """The rating ledger's guarantees, identical on both backends.
+
+    The one that matters most is idempotency: a settlement replayed -- by a
+    retry, a redeploy mid-settle, or the lazy `_advance` path calling it on
+    every read -- must write nothing the second time. A backend where it wrote
+    twice would double a rating change, which is the single class of bug in a
+    rating system that players notice and never accept.
+    """
+    from app.repositories.arena_rating_protocols import ArenaRatingHistoryEntry
+
+    mode = f"rmode_{uuid.uuid4().hex[:8]}"
+    sub_a, sub_b = f"user-{uuid.uuid4()}", f"user-{uuid.uuid4()}"
+    # Real match ids supplied by the caller: `arena_rating_history.match_id` is
+    # a FOREIGN KEY into arena_matches on Postgres, so a random UUID is rejected
+    # there while the memory backend would happily accept it. The conformance
+    # suite exists to surface exactly that kind of divergence, and did.
+    match_id, second = match_ids[0], match_ids[1]
+
+    def entry(sub, match, *, pre=1500.0, post=1560.0, placement=1, bot=False):
+        return ArenaRatingHistoryEntry(
+            owner_sub=sub, mode=mode, match_id=match,
+            pre_rating=pre, pre_rd=350.0, pre_volatility=0.06,
+            post_rating=post, post_rd=290.0, post_volatility=0.06,
+            unbounded_post_rating=post, bound_applied=False,
+            placement=placement, had_bot_opponent=bot,
+            bot_policy_version="policy_v1" if bot else None,
+            algorithm_version="test_v1",
+            opponents=[{"opponent_seat": 1, "score": 1.0, "was_bot": bot}],
+        )
+
+    # Nothing yet -- absent, not defaulted. The caller owns the starting rating.
+    assert await repo.get_ratings_for_subs([sub_a], mode) == {}
+
+    written = await repo.record_match_rating(
+        [entry(sub_a, match_id, post=1560.0),
+         entry(sub_b, match_id, post=1440.0, placement=2)]
+    )
+    assert written == 2
+
+    ratings = await repo.get_ratings_for_subs([sub_a, sub_b], mode)
+    assert ratings[sub_a].rating == pytest.approx(1560.0)
+    assert ratings[sub_a].rated_matches == 1
+    assert ratings[sub_b].rating == pytest.approx(1440.0)
+
+    # THE REPLAY. Same match, same players -- nothing written, and critically
+    # the rating does NOT advance a second time.
+    assert await repo.record_match_rating(
+        [entry(sub_a, match_id, post=9999.0),
+         entry(sub_b, match_id, post=1.0, placement=2)]
+    ) == 0
+    replayed = await repo.get_ratings_for_subs([sub_a, sub_b], mode)
+    assert replayed[sub_a].rating == pytest.approx(1560.0)
+    assert replayed[sub_a].rated_matches == 1, "a replay must not count a match twice"
+
+    # A different match does advance.
+    assert await repo.record_match_rating([entry(sub_a, second, pre=1560.0, post=1600.0)]) == 1
+    after = await repo.get_ratings_for_subs([sub_a], mode)
+    assert after[sub_a].rating == pytest.approx(1600.0)
+    assert after[sub_a].rated_matches == 2
+
+    # Leaderboard order: rating desc, then matches desc, then sub -- total, so
+    # paging cannot repeat or skip.
+    board = await repo.get_leaderboard_page(mode, limit=10)
+    assert [r.owner_sub for r in board] == [sub_a, sub_b]
+    assert board[0].rated_matches == 2
+
+    # History is newest-first and carries the pairwise decomposition.
+    history = await repo.list_history(sub_a, mode)
+    assert len(history) == 2
+    assert history[0].match_id == second
+    assert history[0].opponents and history[0].opponents[0]["score"] == 1.0
+
+    # An empty batch is a no-op, not an error.
+    assert await repo.record_match_rating([]) == 0
+
+
+async def _assert_arena_player_stats_conforms(repo) -> None:
+    """Leaderboard statistics, identical on both backends.
+
+    WRITTEN BECAUSE THE TWO IMPLEMENTATIONS ARE GENUINELY DIFFERENT -- one is a
+    Python loop over dicts, the other a SQL aggregate with a correlated EXISTS
+    for the bot-composition flag and a separate JSONB pass per detail key.
+    Nothing about "these compute the same thing" is obvious from reading them,
+    and a leaderboard that disagrees with the match history it was derived from
+    is the failure this prevents.
+
+    The properties that matter and are easy to get wrong in exactly one backend:
+    only RATED results count; the player's own bot flag is irrelevant (what
+    matters is whether the MATCH contained a bot); and a detail key that is
+    absent or non-numeric is skipped rather than counted as zero.
+    """
+    from app.repositories.arena_protocols import ArenaResult, ReducerOutput, ResultDraft
+
+    mode = "conformance_mode"
+    sub = f"user-{uuid.uuid4()}"
+    other = f"user-{uuid.uuid4()}"
+
+    async def finish(*, rated: bool, placement: int, outcome: str, score: float,
+                     detail: dict, with_bot: bool):
+        from app.repositories.arena_protocols import (
+            MATCH_STATUS_COMPLETED, ArenaSeat, CommandRequest,
+        )
+        match = _arena_match(seat_count=2,
+                             entry_path="public_queue" if rated else "private_room")
+        seats = [
+            ArenaSeat(match_id=match.match_id, seat_index=0, occupant_kind="human",
+                      occupant_sub=sub, display_name="P0"),
+            ArenaSeat(match_id=match.match_id, seat_index=1,
+                      occupant_kind="bot" if with_bot else "human",
+                      occupant_sub=None if with_bot else other,
+                      bot_id="b1" if with_bot else None,
+                      bot_rating=1500.0 if with_bot else None,
+                      display_name="P1"),
+        ]
+        await repo.create_match(match, seats)
+
+        def _complete(data):
+            return ReducerOutput(
+                accepted=True,
+                status=MATCH_STATUS_COMPLETED,
+                results=(
+                    ResultDraft(seat_index=0, placement=placement, score=score,
+                                outcome=outcome, detail=detail),
+                    ResultDraft(seat_index=1, placement=3 - placement,
+                                score=score - 1, outcome="loss", detail={}),
+                ),
+            )
+
+        await repo.apply_command(
+            CommandRequest(
+                # >= 8 chars: arena_match_commands CHECK. The memory backend does not
+                # enforce that length rule, so a short key passes there and fails
+                # on Postgres -- found by this test on its first run.
+                match_id=match.match_id, idempotency_key=f"finish-{match.match_id[:8]}",
+                command_type="__finish__", actor_sub=None,
+                expected_state_version=None,
+                issued_at=datetime.now(timezone.utc),
+            ),
+            _complete, datetime.now(timezone.utc),
+        )
+        return match.match_id
+
+    # Two rated wins (one against a bot), one rated loss, one UNRATED win that
+    # must not be counted at all.
+    await finish(rated=True, placement=1, outcome="win", score=100.0,
+                 detail={"lineup_peak_score": 80.0}, with_bot=False)
+    await finish(rated=True, placement=1, outcome="win", score=90.0,
+                 detail={"lineup_peak_score": 70.0}, with_bot=True)
+    await finish(rated=True, placement=2, outcome="loss", score=50.0,
+                 detail={"lineup_peak_score": 40.0}, with_bot=False)
+    await finish(rated=False, placement=1, outcome="win", score=999.0,
+                 detail={"lineup_peak_score": 999.0}, with_bot=False)
+
+    stats = await repo.get_player_stats(mode, [sub], ("lineup_peak_score",))
+    st = stats[sub]
+
+    assert st.rated_matches == 3, "the unrated match must not be counted"
+    assert st.wins == 2
+    assert st.losses == 1
+    assert st.draws == 0
+    # seat_count 2 -> top half is first place only.
+    assert st.podiums == 2
+    assert st.average_placement == pytest.approx((1 + 1 + 2) / 3, abs=0.001)
+
+    assert st.score_avg == pytest.approx(80.0, abs=0.01)   # (100+90+50)/3
+    assert st.score_best == pytest.approx(100.0, abs=0.01)
+    assert st.detail_averages["lineup_peak_score"] == pytest.approx(
+        (80.0 + 70.0 + 40.0) / 3, abs=0.01
+    )
+    assert st.detail_bests["lineup_peak_score"] == pytest.approx(80.0, abs=0.01)
+
+    # Composition: one of the three rated matches contained a bot. This is a
+    # per-MATCH property, not the player's own was_bot -- which is always false
+    # for a human seat and would give 0/3 if confused for it.
+    assert st.matches_with_bots == 1
+    assert st.matches_all_human == 2
+
+    # A subject with no matches is present and zeroed, not missing -- the route
+    # indexes into this dict per leaderboard row.
+    empty = await repo.get_player_stats(mode, [f"user-{uuid.uuid4()}"], ())
+    assert len(empty) == 1
+    assert next(iter(empty.values())).rated_matches == 0
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_player_stats_conforms():
+    from app.repositories.arena_memory import MemoryArenaRepository
+    await _assert_arena_player_stats_conforms(MemoryArenaRepository())
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_player_stats_conforms(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    await _assert_arena_player_stats_conforms(PostgresArenaRepository(pg_pool))
+
+
+@pytest.mark.asyncio
+async def test_memory_arena_rating_conforms():
+    from app.repositories.arena_rating_memory import MemoryArenaRatingRepository
+    await _assert_arena_rating_conforms(
+        MemoryArenaRatingRepository(), [str(uuid.uuid4()), str(uuid.uuid4())]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_arena_rating_conforms(pg_pool):
+    from app.repositories.arena_postgres import PostgresArenaRepository
+    from app.repositories.arena_rating_postgres import PostgresArenaRatingRepository
+
+    arena = PostgresArenaRepository(pg_pool)
+    ids = []
+    for _ in range(2):
+        match = _arena_match()
+        await arena.create_match(match, _arena_seats(match.match_id, 2))
+        ids.append(match.match_id)
+    await _assert_arena_rating_conforms(PostgresArenaRatingRepository(pg_pool), ids)
+
 
 @pytest.mark.asyncio
 async def test_memory_arena_queue_conforms():
@@ -603,6 +899,168 @@ async def test_arena_concurrent_commands_on_one_match_serialize(pg_pool):
     assert rejected[0].rejection_code == REJECT_STALE_STATE_VERSION
     assert (await repo.get_match(match.match_id)).state_version == 1
     assert (await repo.get_match(match.match_id)).snapshot["n"] == 1
+
+# PerfectSeasonLeaderboardRepository
+#
+# WHY THIS EXISTS. `PostgresPerfectSeasonLeaderboardRepository` had NO
+# real-database coverage of any kind: every leaderboard test in the suite
+# (18 of them) exercises the in-memory implementation, so the code path that
+# actually runs in production -- the one behind the public 82-0 board -- was
+# asserted about only through its stand-in. That is the gap this closes.
+#
+# It is not hypothetical. A leaderboard write that silently fails, or a row
+# written with `is_public` false, or a `lineup_score` float rejected by
+# asyncpg's NUMERIC codec, would each produce exactly one symptom -- an empty
+# public board after a successful-looking submission -- and every existing
+# test would still pass. (Those three specific hypotheses were checked by hand
+# and are NOT bugs today; this test is what keeps that true.)
+# ---------------------------------------------------------------------------
+
+
+def _leaderboard_run(owner_sub: str, *, game_id: str, wins: int, score: float,
+                     team_respins: int = 0, season_respins: int = 0,
+                     mode: str = "apex_1y") -> PerfectSeasonRun:
+    return PerfectSeasonRun(
+        id="",
+        owner_sub=owner_sub,
+        display_name="conformancehandle",
+        mode=mode,
+        game_id=game_id,
+        seed=7,
+        wins=wins,
+        losses=82 - wins,
+        lineup_score=score,
+        score_status="complete",
+        exact_cards_scored=8,
+        total_cards=8,
+        team_respins_used=team_respins,
+        season_respins_used=season_respins,
+        roster_card_keys=[f"card-{i}" for i in range(8)],
+    )
+
+
+async def _purge_leaderboard_rows(pool, owner_sub: str) -> None:
+    """Delete only this test's own rows.
+
+    Unlike every other table this suite touches, `perfect_season_runs` backs a
+    PUBLIC board, so a leftover conformance row would sit on a developer's
+    local leaderboard permanently. Scoped strictly to the random `owner_sub`
+    this test generated, so it can never reach real data.
+    """
+    await pool.execute(
+        "DELETE FROM perfect_season_run_cards WHERE run_id IN "
+        "(SELECT id FROM perfect_season_runs WHERE owner_sub = $1)",
+        owner_sub,
+    )
+    await pool.execute("DELETE FROM perfect_season_runs WHERE owner_sub = $1", owner_sub)
+
+
+async def _assert_leaderboard_repo_conforms(repo, owner_sub: str) -> None:
+    prefix = uuid.uuid4().hex[:8]
+    # Four runs chosen to exercise EVERY level of the sort key in one pass:
+    # wins desc, then lineup_score desc, then (team+season) respins asc.
+    # `b` ties `a` on wins AND score and differs only by respins; `d` ties on
+    # wins and differs only by score; `c` loses on wins despite the best score.
+    a = _leaderboard_run(owner_sub, game_id=f"{prefix}-a", wins=70, score=70.0)
+    b = _leaderboard_run(owner_sub, game_id=f"{prefix}-b", wins=70, score=70.0,
+                         team_respins=1, season_respins=1)
+    d = _leaderboard_run(owner_sub, game_id=f"{prefix}-d", wins=70, score=60.0)
+    c = _leaderboard_run(owner_sub, game_id=f"{prefix}-c", wins=65, score=90.0)
+
+    saved_a = await repo.submit_run(a)
+    assert saved_a.id, "submit_run must assign an id"
+    # The single most load-bearing default in this file: a run submitted
+    # through the product is public unless its owner later hides it. If this
+    # ever became False the board would be empty while every write "succeeded".
+    assert saved_a.is_public is True
+
+    for run in (b, d, c):
+        await repo.submit_run(run)
+
+    # 1. Round-trip by game_id, including the roster written to the child table.
+    found = await repo.get_run_by_game_id(f"{prefix}-a")
+    assert found is not None
+    assert found.id == saved_a.id
+    assert found.roster_card_keys == [f"card-{i}" for i in range(8)], \
+        "roster card keys must round-trip in slot order"
+
+    # 2. A submitted run is on the public board immediately -- no visibility
+    #    step, no delay, no extra flag to flip.
+    board = await repo.get_leaderboard(mode="apex_1y", limit=500, cursor=None)
+    mine = [r for r in board if r.owner_sub == owner_sub]
+    assert len(mine) == 4, "every submitted run must appear on the public board"
+
+    # 3. The sort contract, asserted on this test's own rows only so it holds
+    #    on a shared local database that already has unrelated runs in it.
+    assert [r.game_id for r in mine] == [f"{prefix}-a", f"{prefix}-b",
+                                         f"{prefix}-d", f"{prefix}-c"], (
+        "expected wins desc, then lineup_score desc, then fewer respins first"
+    )
+
+    # 4. A run that used respins is on the board exactly like one that did not
+    #    (launch-polish IMPLEMENTATION_CONTRACT.md §7 -- respins are normal
+    #    play and were never a reason to exclude a run).
+    respin_run = next(r for r in mine if r.game_id == f"{prefix}-b")
+    assert respin_run.team_respins_used == 1
+    assert respin_run.season_respins_used == 1
+
+    # 5. The mode identifier written is the one the board queries. `mode` is a
+    #    canonical id (apex_1y / prime_3y / foundation_5y), never the
+    #    user-facing word "Standard" -- a write/read mismatch here is
+    #    indistinguishable from an empty board.
+    unfiltered = await repo.get_leaderboard(mode=None, limit=500, cursor=None)
+    assert any(r.id == saved_a.id for r in unfiltered)
+    other_mode = await repo.get_leaderboard(mode="prime_3y", limit=500, cursor=None)
+    assert not any(r.owner_sub == owner_sub for r in other_mode), \
+        "mode must actually filter, not be ignored"
+
+    # 6. One completed game produces exactly one entry, forever.
+    with pytest.raises(DuplicateRunSubmission):
+        await repo.submit_run(
+            _leaderboard_run(owner_sub, game_id=f"{prefix}-a", wins=82, score=99.0)
+        )
+
+    # 7. Personal placement uses the same ordering as the board.
+    placement = await repo.get_personal_placement(owner_sub, "apex_1y")
+    assert placement is not None
+    rank, best = placement
+    assert best.game_id == f"{prefix}-a"
+    assert rank >= 1
+
+    # 8. Hiding a run removes it from the public board but never from the
+    #    owner's own history.
+    hidden = await repo.set_visibility(saved_a.id, owner_sub, False)
+    assert hidden is not None and hidden.is_public is False
+    board_after = await repo.get_leaderboard(mode="apex_1y", limit=500, cursor=None)
+    assert not any(r.id == saved_a.id for r in board_after)
+    own = await repo.list_runs_for_owner(owner_sub)
+    assert any(r.id == saved_a.id for r in own), "hiding must not delete"
+
+    # 9. Visibility is owner-scoped: a stranger holding the run id cannot flip
+    #    it. Possessing an id never grants mutation rights (app/core/ownership.py).
+    assert await repo.set_visibility(saved_a.id, f"stranger-{uuid.uuid4()}", True) is None
+
+    # 10. Guest-claim transfer moves ownership only.
+    moved_to = f"claimed-{uuid.uuid4()}"
+    try:
+        moved = await repo.transfer_owner(owner_sub, moved_to)
+        assert moved == 4
+        assert len(await repo.list_runs_for_owner(owner_sub)) == 0
+        transferred = await repo.list_runs_for_owner(moved_to)
+        assert len(transferred) == 4
+        assert all(r.display_name == "conformancehandle" for r in transferred), \
+            "transfer must not rewrite the submitted display name"
+    finally:
+        # Hand the rows back so the caller's cleanup (which keys on the
+        # original owner_sub) still finds all four.
+        await repo.transfer_owner(moved_to, owner_sub)
+
+
+@pytest.mark.asyncio
+async def test_memory_perfect_season_leaderboard_repo_conforms():
+    await _assert_leaderboard_repo_conforms(
+        MemoryPerfectSeasonLeaderboardRepository(), f"conformance-{uuid.uuid4()}"
+    )
 
 
 @pytest.mark.asyncio
@@ -683,3 +1141,16 @@ async def test_arena_concurrent_turn_resolution_has_one_winner(pg_pool):
     )
     assert sorted(results) == [False, False, True]
     assert await repo.get_open_turn(match.match_id) is None
+
+async def test_postgres_perfect_season_leaderboard_repo_conforms(pg_pool):
+    from app.repositories.leaderboard_postgres import (
+        PostgresPerfectSeasonLeaderboardRepository,
+    )
+
+    owner_sub = f"conformance-{uuid.uuid4()}"
+    try:
+        await _assert_leaderboard_repo_conforms(
+            PostgresPerfectSeasonLeaderboardRepository(pg_pool), owner_sub
+        )
+    finally:
+        await _purge_leaderboard_rows(pg_pool, owner_sub)

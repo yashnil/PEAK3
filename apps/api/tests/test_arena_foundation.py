@@ -166,9 +166,22 @@ async def _live_match(repo: MemoryArenaRepository, seat_count: int = 2):
 
 
 def _cmd(match_id: str, key: str, **kw) -> CommandRequest:
+    """Build a CommandRequest from a short, readable test label.
+
+    `key` is a LABEL ("k-1", "t"), not a realistic idempotency key. The schema
+    requires 8..128 characters (`arena_match_commands_idempotency_key_check`)
+    and both backends now enforce it, so the label is padded into a valid key
+    here rather than lengthened at ~40 call sites where it would only make the
+    tests harder to read.
+
+    The padding is deterministic and label-derived, so two different labels
+    still produce two different keys and an idempotent REPLAY of the same label
+    still produces the same key -- which is the property every test using this
+    helper is actually asserting.
+    """
     return CommandRequest(
         match_id=match_id,
-        idempotency_key=key,
+        idempotency_key=f"{key}-testkey-{len(key):02d}" if len(key) < 8 else key,
         command_type=kw.pop("command_type", "play"),
         actor_sub=kw.pop("actor_sub", "user-a"),
         actor_seat_index=kw.pop("actor_seat_index", 0),

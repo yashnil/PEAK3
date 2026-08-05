@@ -52,6 +52,17 @@ class ProfileRepository(Protocol):
 
     async def get_profile_by_handle(self, handle: str) -> Optional[Profile]: ...
 
+    async def get_profile_by_auth_sub(self, auth_sub: str) -> Optional[Profile]:
+        """Look up a profile WITHOUT creating one. None when absent.
+
+        Distinct from `get_or_create_profile`, and the distinction is the whole
+        point: the arena leaderboard resolves a handle for every rated player on
+        the board, and doing that through the upsert would INSERT a profile row
+        for every subject it read -- a write on a read path, triggered by a
+        public unauthenticated endpoint.
+        """
+        ...
+
     async def get_or_create_settings(self, auth_sub: str) -> UserSettings: ...
 
     async def update_settings(self, auth_sub: str, updates: dict) -> UserSettings: ...

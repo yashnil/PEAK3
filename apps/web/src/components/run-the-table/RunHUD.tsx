@@ -29,9 +29,18 @@ interface Props {
    *  Brief §E's HUD payoff: "pin the discovered vulnerability into the
    *  HUD." */
   scoutIntel?: ScoutIntel | null;
+  /** The secondary "Start new run" control. Passed in rather than built here
+   *  because it owns a confirmation dialog and a server call, neither of which
+   *  belongs in a component whose whole job is presenting three numbers. */
+  restartControl?: React.ReactNode;
 }
 
-export default function RunHUD({ state, objective, scoutIntel = null }: Props) {
+export default function RunHUD({
+  state,
+  objective,
+  scoutIntel = null,
+  restartControl = null,
+}: Props) {
   const progress = ladderProgress(state.map);
   return (
     <div className="rtt-hud" data-testid="rtt-hud">
@@ -92,6 +101,12 @@ export default function RunHUD({ state, objective, scoutIntel = null }: Props) {
           </span>
         )}
       </div>
+      {/* Secondary, and last in the DOM: it is the one control on this bar that
+          ends the run, so it neither leads the reading order nor competes with
+          the objective for emphasis. */}
+      {restartControl && (
+        <div className="rtt-hud-secondary ml-auto shrink-0">{restartControl}</div>
+      )}
     </div>
   );
 }

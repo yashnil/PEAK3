@@ -404,12 +404,38 @@
    Rendered inside the shared `Dialog`, which owns the portal, the focus
    trap, the scroll lock and Escape. Everything here is presentation. */
 
+/*
+ * THE DRAWER SCROLLS IN ONE PLACE: THE SECTION THAT IS OPEN.
+ *
+ * It used to scroll as a whole -- `.pk-nav-drawer-inner` was the single
+ * overflow container for the header, the theme row, every accordion section,
+ * Rankings, Learn and Account. That works only while the open section is short
+ * enough that everything after it still fits, which made "Rankings is one
+ * control away" a property of how many games happened to be in the Play
+ * catalog. Adding the Multiplayer group pushed the Rankings row below 844px on
+ * a 390-wide phone and it stopped being visible at all without scrolling.
+ *
+ * So the layout is now explicit rather than incidental: the head, the theme
+ * row, the resume banner, the collapsed section headers and the standalone
+ * rows are all fixed-size, and the ONE expanded section absorbs whatever slack
+ * is left and scrolls inside itself. Rankings therefore stays on the first
+ * screen no matter how long the Play catalog grows, which is the actual
+ * product requirement.
+ *
+ * `-inner` keeps `overflow-y: auto` as a last resort for a viewport so short
+ * that the fixed rows alone do not fit; the expanded body shrinks first,
+ * because it is the only flexible child.
+ */
 .pk-nav-drawer {
-  /* Fill the sheet the Dialog gives us, so the accordion has room and the
-     content scrolls inside it rather than the page behind it. */
+  /* `dvh` first: on a phone `100vh` is the LARGE viewport, so with the URL bar
+     showing it overshoots and the last row sits under the browser chrome.
+     `vh` stays as the fallback for engines without `dvh`. */
   height: calc(100vh - var(--pk-space-8));
+  height: calc(100dvh - var(--pk-space-8));
   display: flex;
   flex-direction: column;
+  /* The panel itself must not scroll -- if it did, the fixed rows would move. */
+  overflow: hidden;
 }
 
 .pk-nav-drawer-inner {
@@ -417,7 +443,36 @@
   flex-direction: column;
   gap: var(--pk-space-1);
   padding: var(--pk-space-3);
+  /* Never let the last row (Sign in / Account) sit under a home indicator. */
+  padding-bottom: max(var(--pk-space-3), env(safe-area-inset-bottom, 0px));
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+}
+
+/* Everything except the open section holds its natural height. */
+.pk-nav-drawer-head,
+.pk-nav-drawer-theme,
+.pk-nav-drawer-resume,
+.pk-nav-drawer-inner > .pk-nav-drawer-toprow,
+.pk-nav-drawer-section {
+  flex: 0 0 auto;
+}
+
+.pk-nav-drawer-section[data-expanded="true"] {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pk-nav-drawer-section[data-expanded="true"] > .pk-nav-drawer-section-body {
+  flex: 1 1 auto;
+  /* A floor, so a very short viewport shrinks this to a usable list rather
+     than to nothing -- past that, `-inner` scrolls. */
+  min-height: 4.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .pk-nav-drawer-head {

@@ -77,10 +77,13 @@ from nba_peak.run_the_table.battle import (  # noqa: E402
     player_lane_profile,
     resolve_battle,
     roster_lane_profile,
+    roster_total,
 )
 from nba_peak.run_the_table.bosses import (  # noqa: E402
+    BOSS_SPECS,
+    boss_lineup_rating,
+    boss_slugs,
     boss_starter_mean,
-    resolve_bosses,
     scout_report,
 )
 from nba_peak.run_the_table.cards import CardPool, CardPoolUnavailable, get_pool  # noqa: E402
@@ -88,7 +91,8 @@ from nba_peak.run_the_table.config import (  # noqa: E402
     ACTS,
     BENCH_SLOTS,
     BOSS_LANE_MARGIN,
-    BOSS_TARGET_STARTER_MEAN,
+    BOSS_RELATIVE_TARGET,
+    BOSS_RULE_TARGET_OFFSET,
     BOSS_WIN_CREDITS,
     COMEBACK_CREDITS,
     CREDIT_SINKS,
@@ -96,7 +100,10 @@ from nba_peak.run_the_table.config import (  # noqa: E402
     EMERGENCY_RECOVERY_COST,
     EMERGENCY_RECOVERY_MAX_PER_RUN,
     LANE_FIELDS,
+    BOSS_ELITE_PERCENTILE,
     LANES_TO_WIN,
+    MARQUEE_OFFERS_PER_ACT,
+    MARQUEE_PERCENTILE_MIN,
     MARKET_REFRESH_COST,
     MARKET_REFRESHES_PER_NODE,
     MAX_LIVES,
@@ -181,6 +188,69 @@ def mean(values: list[float]) -> float:
     return round(sum(values) / len(values), 3) if values else 0.0
 
 
+def _roster_sensitivity(f) -> dict:
+    """Per-act difficulty delta, split by how strong the run's roster was.
+
+    The point of a roster-relative opponent is that it is fair to ANY roster,
+    so the delta must be flat across strength buckets. If weak rosters saw a
+    systematically larger delta than strong ones, the calibration would be
+    working only at the median -- which is the absolute-target defect again.
+    """
+    out: dict = {}
+    for act, pairs in sorted(f.rating_vs_delta.items()):
+        if not pairs:
+            continue
+        ordered = sorted(pairs)
+        third = max(1, len(ordered) // 3)
+        buckets = {
+            "weak_third": ordered[:third],
+            "middle_third": ordered[third: 2 * third],
+            "strong_third": ordered[2 * third:],
+        }
+        out[f"act_{act}"] = {
+            name: {
+                "n": len(rows),
+                "player_rating_mean": round(
+                    sum(r for r, _ in rows) / len(rows), 4
+                ) if rows else None,
+                "delta_mean": round(sum(d for _, d in rows) / len(rows), 4)
+                if rows else None,
+            }
+            for name, rows in buckets.items()
+        }
+    return out
+
+
+def _dist(values) -> dict:
+    """Mean and percentiles of a measured distribution.
+
+    The v4 calibration is a statement about DISTRIBUTIONS (act bands must
+    overlap; no act may be near-automatic or effectively unwinnable), so a
+    single mean per act would not be able to express it.
+    """
+    vals = sorted(values)
+    if not vals:
+        return {"n": 0}
+
+    def pct(p: float) -> float:
+        if len(vals) == 1:
+            return round(vals[0], 4)
+        idx = min(len(vals) - 1, max(0, int(round(p * (len(vals) - 1)))))
+        return round(vals[idx], 4)
+
+    return {
+        "n": len(vals),
+        "mean": round(sum(vals) / len(vals), 4),
+        "min": round(vals[0], 4),
+        "p10": pct(0.10),
+        "p25": pct(0.25),
+        "median": pct(0.50),
+        "p75": pct(0.75),
+        "p90": pct(0.90),
+        "max": round(vals[-1], 4),
+    }
+
+
 def rate(numerator: int, denominator: int) -> float:
     return round(numerator / denominator, 4) if denominator else 0.0
 
@@ -207,6 +277,9 @@ class Findings:
         "replay_mismatches", "negative_credit_runs", "zombie_runs",
         "bad_outcomes", "sink_violations", "refresh_violations",
         "reservation_violations", "recovery_violations", "prep_violations",
+        # v4
+        "player_boss_collisions", "board_owned_offers", "self_trades",
+        "boss_boss_collisions",
     )
     COUNTER_FIELDS = (
         "card_offer_counts", "draft_offer_counts", "trade_offer_counts",
@@ -225,6 +298,9 @@ class Findings:
         "preps_spent", "preps_flipped_a_lane", "preps_flipped_a_battle",
         "spend_band_runs", "spend_band_cleared", "spend_over_threshold",
         "battles_at_raised_lane_bar",
+        # v4
+        "marquee_offers_seen", "marquee_bought", "elite_bought",
+        "acts_with_a_marquee_offer",
     )
     NESTED_COUNTER_FIELDS = (
         "node_visits", "system_selection_counts", "system_available_counts",
@@ -233,6 +309,10 @@ class Findings:
     LIST_ACCUM_FIELDS = (
         "spend", "leftover", "lives_left", "ending_act",
         "available_credits", "spend_fraction", "sink_spend",
+        # v4 -- keyed by ACT, so the calibration can report the realised
+        # difficulty distribution per act rather than a single mean.
+        "boss_delta", "player_rating", "boss_rating", "boss_starter_means",
+        "boss_elite_counts", "boss_decades", "rating_vs_delta",
     )
 
     def __init__(self) -> None:
@@ -337,10 +417,9 @@ def audit_blueprint(pool: CardPool, bp, f: Findings, v: Violations) -> None:
 # Lane projection — the information a player actually has
 # ---------------------------------------------------------------------------
 def _boss_for(bp, st):
-    idx = st.act - 1
-    if 0 <= idx < len(bp.bosses):
-        return bp.bosses[idx]
-    return None
+    # v4: bosses live on the RUN, not the blueprint -- each is generated
+    # against the roster it will face when its act begins.
+    return S.boss_for_act(st, bp, st.act)
 
 
 def _boss_profile(pool: CardPool, boss, systems) -> dict[str, float]:
@@ -433,7 +512,7 @@ def play(bp, pool: CardPool, policy: str, rng: random.Random, f: Findings, v: Vi
         elif st.status == "node_select":
             plan = stage_for(bp, st.act, st.stage)
             choice = _choose_node(st, bp, pool, plan, policy, rng)
-            S.action_choose_node(st, bp, choice.node_id)
+            S.action_choose_node(st, bp, choice.node_id, pool)
             f.node_visits[policy][choice.node_type] += 1
 
         elif st.status == "node_active":
@@ -442,6 +521,13 @@ def play(bp, pool: CardPool, policy: str, rng: random.Random, f: Findings, v: Vi
 
         elif st.status == "boss_ready":
             lives_before = st.lives
+            # v4 HARD INVARIANT + CALIBRATION MEASUREMENT, taken at the moment
+            # the two rosters actually face each other. This is the check the
+            # v3 harness did not have: its `duplicate_identities` counter
+            # compared the player's roster against ITSELF, which is why 88.5% of
+            # runs could start with a boss's own card on the roster and the
+            # audit reported zero violations over 800,000 runs.
+            _audit_matchup_identities(pool, st, bp, policy, f, v)
             S.action_reveal(st, bp, "boss", len(ROLES) + BENCH_SLOTS)
             prep_before = dict(st.pending_prep) if st.pending_prep else None
             S.action_resolve_boss(st, bp, pool)
@@ -468,7 +554,7 @@ def play(bp, pool: CardPool, policy: str, rng: random.Random, f: Findings, v: Vi
                 f.zombie_runs.append((bp.seed, policy, st.act, "fought with 0 lives"))
 
         elif st.status == "boss_resolved":
-            S.action_advance(st, bp)
+            S.action_advance(st, bp, pool)
 
         if st.credits < 0:
             v["negative_credit_states"] += 1
@@ -533,7 +619,7 @@ def _audit_preparation(pool, st, bp, battle, prep_before, policy, f: Findings, v
     # Did the preparation change the OUTCOME? Re-resolve without it.
     starters = [s.card_id for s in st.starters if s.card_id]
     bench = [s.card_id for s in st.bench if s.card_id]
-    boss = bp.bosses[battle.act - 1]
+    boss = S.boss_for_act(st, bp, battle.act)
     without = resolve_battle(
         pool, starters, bench, boss, st.systems,
         lives_before=battle.lives_after + (1 if battle.outcome == "loss" else 0),
@@ -543,8 +629,63 @@ def _audit_preparation(pool, st, bp, battle, prep_before, policy, f: Findings, v
         f.preps_flipped_a_battle[policy] += 1
 
 
+def _audit_matchup_identities(pool, st, bp, policy, f: Findings, v: Violations) -> None:
+    """No identity may stand on both sides of a fight. Measured at the fight.
+
+    Also records the realised roster-relative difficulty, which is the quantity
+    v4 calibrates on: `boss_lineup_rating - player_lineup_rating`, both scored
+    exactly the way `resolve_battle` will score them.
+    """
+    boss = S.boss_for_act(st, bp, st.act)
+    if boss is None:
+        return
+    starters = [s.card_id for s in st.starters if s.card_id]
+    bench = [s.card_id for s in st.bench if s.card_id]
+    owned = {pool.get(cid).player_slug for cid in starters + bench}
+    theirs = boss_slugs(pool, boss)
+
+    clash = owned & theirs
+    if clash:
+        v["player_and_boss_share_an_identity"] += 1
+        f.player_boss_collisions.append((bp.seed, policy, st.act, sorted(clash)))
+
+    # No two UNBEATEN bosses may share an identity either.
+    resolved = {b.act for b in st.battles}
+    for act, payload in st.boss_lineups.items():
+        if act == st.act or act in resolved:
+            continue
+        other = boss_slugs(pool, S.boss_from_dict(payload))
+        if theirs & other:
+            v["two_bosses_share_an_identity"] += 1
+            f.boss_boss_collisions.append(
+                (bp.seed, policy, st.act, act, sorted(theirs & other))
+            )
+
+    player_rating = roster_total(
+        player_lane_profile(pool, starters, bench, st.systems, boss.rule_id)
+    )
+    boss_rating = boss_lineup_rating(pool, boss, st.systems)
+    f.boss_delta[st.act].append(round(boss_rating - player_rating, 4))
+    f.rating_vs_delta[st.act].append(
+        (player_rating, round(boss_rating - player_rating, 4))
+    )
+    f.player_rating[st.act].append(player_rating)
+    f.boss_rating[st.act].append(boss_rating)
+    f.boss_starter_means[st.act].append(round(boss_starter_mean(pool, boss), 3))
+    f.boss_elite_counts[st.act].append(
+        sum(
+            1 for cid in list(boss.starter_ids) + list(boss.bench_ids)
+            if pool.get(cid).overall_percentile >= BOSS_ELITE_PERCENTILE
+        )
+    )
+    f.boss_decades[st.act].append(
+        len({pool.get(cid).anchor_season[:3] for cid in
+             list(boss.starter_ids) + list(boss.bench_ids)})
+    )
+
+
 def _count_rule_effect(pool, st, bp, battle, f: Findings) -> None:
-    boss = bp.bosses[battle.act - 1]
+    boss = S.boss_for_act(st, bp, battle.act)
     if not boss.rule_id:
         return
     f.rule_battles[boss.rule_id] += 1
@@ -864,11 +1005,29 @@ def _resolve_node(st, bp, plan, opt, pool, policy, rng, f: Findings, v: Violatio
         else:  # lane_aware / look_ahead / film_aware / credit_spending
             choice = best_lane or best_overall
 
+        # v4 ACQUISITION-CEILING MEASUREMENT. The v3 problem was never offer
+        # supply, it was budget: 28 cards at >=80 prime all cost 23-30 against a
+        # 50-credit start, and the most aggressive spender had the second-worst
+        # clear rate in the whole sweep. So both halves are measured -- how often
+        # a top-decile card is SEEN, and how often one is actually BOUGHT.
+        seen_marquee = [
+            cid for cid in offers
+            if pool.get(cid).overall_percentile >= MARQUEE_PERCENTILE_MIN
+        ]
+        if seen_marquee:
+            f.marquee_offers_seen[policy] += 1
+            f.acts_with_a_marquee_offer[(policy, st.act)] += 1
+
         if choice:
             S.action_draft_buy(st, bp, choice[1], choice[2], pool, choice[3])
             f.purchases[policy] += 1
+            bought = pool.get(choice[1])
+            if bought.overall_percentile >= MARQUEE_PERCENTILE_MIN:
+                f.marquee_bought[policy] += 1
+            if bought.overall_percentile >= BOSS_ELITE_PERCENTILE:
+                f.elite_bought[policy] += 1
         else:
-            S.action_draft_pass(st, bp)
+            S.action_draft_pass(st, bp, pool)
             f.declines[key] += 1
 
     elif node_type == "trade_desk":
@@ -921,7 +1080,7 @@ def _resolve_node(st, bp, plan, opt, pool, policy, rng, f: Findings, v: Violatio
             S.action_trade(st, bp, move[2], move[1], pool)
             f.trades[policy] += 1
         else:
-            S.action_decline_trade(st, bp)
+            S.action_decline_trade(st, bp, pool)
             f.declines[key] += 1
 
     elif node_type == "film_room":
@@ -949,7 +1108,7 @@ def _resolve_node(st, bp, plan, opt, pool, policy, rng, f: Findings, v: Violatio
             choice = rng.choice(list(S.REST_CHOICES))
         else:
             choice = "recover_life" if st.lives < MAX_LIVES else "take_credits"
-        S.action_rest_bank(st, bp, choice)
+        S.action_rest_bank(st, bp, choice, pool)
         f.node_choices[(policy, "rest_bank", choice)] += 1
 
 
@@ -1186,7 +1345,6 @@ def _replay_matches(bp, st, pool, seed, f: Findings, v: Violations) -> bool:
 def run_audit(seeds: int, replay_sample: int, workers: int, quiet: bool = False) -> dict:
     started = time.time()
     pool = get_pool()
-    bosses = resolve_bosses(pool)
 
     replay_every = max(1, seeds // max(1, replay_sample))
     chunk = max(1, seeds // max(1, workers * 4))
@@ -1223,18 +1381,18 @@ def run_audit(seeds: int, replay_sample: int, workers: int, quiet: bool = False)
                 )
 
     return _summarise(
-        seeds, findings, violations, pool, bosses, replays_checked,
+        seeds, findings, violations, pool, replays_checked,
         time.time() - started,
     )
 
 
-def _summarise(seeds, f: Findings, v: Violations, pool, bosses, replays_checked, elapsed) -> dict:
+def _summarise(seeds, f: Findings, v: Violations, pool, replays_checked, elapsed) -> dict:
     total_runs = sum(f.runs_played.values())
     offered_cards = set(f.card_offer_counts)
     unreachable = sorted(
         c.peak_window_id for c in pool.cards if c.peak_window_id not in offered_cards
     )
-    boss_ids = {b.boss_id for b in bosses}
+    boss_ids = {spec["boss_id"] for spec in BOSS_SPECS}
     unreachable_bosses = sorted(boss_ids - set(f.bosses_faced))
 
     era = Counter()
@@ -1409,6 +1567,14 @@ def _summarise(seeds, f: Findings, v: Violations, pool, bosses, replays_checked,
         "preparation_applied_without_being_bought",
         "preparation_not_applied_to_the_battle_it_was_bought_for",
         "preparation_leaked_past_its_battle",
+        # v4 IDENTITY INTEGRITY. These are the two the v3 harness did not have,
+        # and their absence is why the reported defect survived 800,000 audited
+        # runs with `duplicate_identities` sitting at zero the whole time: that
+        # counter compares the player's roster against ITSELF, so it is blind to
+        # the same player standing on both sides of a fight. `_audit_matchup_
+        # identities` measures the matchup, at the matchup.
+        "player_and_boss_share_an_identity",
+        "two_bosses_share_an_identity",
     )
     hard = {name: v[name] for name in hard_names}
 
@@ -1579,6 +1745,8 @@ def _summarise(seeds, f: Findings, v: Violations, pool, bosses, replays_checked,
             "preparation_not_applied_to_the_battle_it_was_bought_for":
                 f.prep_violations[:5],
             "preparation_leaked_past_its_battle": f.prep_violations[:5],
+            "player_and_boss_share_an_identity": f.player_boss_collisions[:5],
+            "two_bosses_share_an_identity": f.boss_boss_collisions[:5],
         },
         "content_distribution": {
             "distinct_cards_offered": len(offered_cards),
@@ -1601,27 +1769,67 @@ def _summarise(seeds, f: Findings, v: Violations, pool, bosses, replays_checked,
                 for cid, n in f.card_offer_counts.most_common()[-5:]
             ],
         },
+        # v4: a boss is generated per run, so there is no single lineup to
+        # describe. What is fixed is the SPEC (id, act, rule) and the published
+        # difficulty target; what is measured is the realised distribution of
+        # the roster-relative delta each boss actually landed at.
         "bosses": [
             {
-                "boss_id": b.boss_id,
-                "act": b.act,
-                "rule_id": b.rule_id,
-                "is_final": b.act >= ACTS,
-                "source": b.source,
-                "starter_mean": round(boss_starter_mean(pool, b), 3),
-                "target": BOSS_TARGET_STARTER_MEAN[i],
-                "lane_margin": BOSS_LANE_MARGIN.get(b.rule_id, 0.0) if b.rule_id else 0.0,
-                "times_faced": f.bosses_faced[b.boss_id],
-                "lanes_drawn_by_rule": f.lane_drawn_by_rule[b.rule_id or "none"],
+                "boss_id": spec["boss_id"],
+                "act": spec["act"],
+                "rule_id": spec["rule_id"],
+                "is_final": spec["act"] >= ACTS,
+                "source": "generated",
+                "relative_target": BOSS_RELATIVE_TARGET[i],
+                "rule_target_offset": BOSS_RULE_TARGET_OFFSET.get(spec["rule_id"], 0.0),
+                "realised_delta": _dist(f.boss_delta[spec["act"]]),
+                "player_lineup_rating": _dist(f.player_rating[spec["act"]]),
+                "boss_lineup_rating": _dist(f.boss_rating[spec["act"]]),
+                "boss_starter_mean": _dist(f.boss_starter_means[spec["act"]]),
+                "lane_margin": BOSS_LANE_MARGIN.get(spec["rule_id"], 0.0),
+                "times_faced": f.bosses_faced[spec["boss_id"]],
+                "lanes_drawn_by_rule": f.lane_drawn_by_rule[spec["rule_id"] or "none"],
                 # Share of this boss's battles whose OUTCOME the published rule
                 # actually changed, measured by re-resolving with the rule off.
                 "rule_decisive_rate": rate(
-                    f.rule_decisive[b.rule_id or ""], f.rule_battles[b.rule_id or ""]
+                    f.rule_decisive[spec["rule_id"] or ""],
+                    f.rule_battles[spec["rule_id"] or ""],
                 ),
-                "rule_decisive_battles": f.rule_decisive[b.rule_id or ""],
+                "rule_decisive_battles": f.rule_decisive[spec["rule_id"] or ""],
             }
-            for i, b in enumerate(bosses)
+            for i, spec in enumerate(BOSS_SPECS)
         ],
+        # v4: the acquisition ceiling, measured on both halves. `seen` is how
+        # many Draft Rooms carried a top-decile card (the marquee guarantee puts
+        # one in every act); `bought` is how many were actually taken. A large
+        # gap between them is the intended shape: the opportunity is guaranteed,
+        # the credits are not.
+        "acquisition_ceiling": {
+            "marquee_percentile_min": MARQUEE_PERCENTILE_MIN,
+            "marquee_offers_per_act": MARQUEE_OFFERS_PER_ACT,
+            "by_policy": {
+                policy: {
+                    "draft_rooms_showing_a_marquee": f.marquee_offers_seen[policy],
+                    "marquee_cards_bought": f.marquee_bought[policy],
+                    "top_decile_cards_bought": f.elite_bought[policy],
+                    "purchases": f.purchases[policy],
+                    "marquee_share_of_purchases": rate(
+                        f.marquee_bought[policy], f.purchases[policy]
+                    ),
+                }
+                for policy in sorted(f.runs_played)
+            },
+            "acts_with_a_marquee_offer": {
+                f"{policy}:act_{act}": n
+                for (policy, act), n in sorted(f.acts_with_a_marquee_offer.items())
+            },
+        },
+        # v4: does the calibration hold for a WEAK roster as well as a STRONG
+        # one? Rosters are bucketed by their own opening lineup rating, and the
+        # per-act delta is reported per bucket. A roster-relative design that
+        # only worked at the median would be the old absolute-target defect
+        # wearing a different hat.
+        "roster_strength_sensitivity": _roster_sensitivity(f),
         "battle_decided_by": dict(f.boss_decided_by.most_common()),
         "lane_outcomes_by_rule": {
             f"{rule}:{winner}": n for (rule, winner), n in f.lane_results.most_common()
@@ -1671,14 +1879,20 @@ def print_report(result: dict) -> bool:
 
     print("-- BOSSES " + "-" * 78)
     bw = [22, 5, 22, 8, 14, 10, 12, 14, 16]
+    # v4: a boss has no single starter mean any more -- it is generated per
+    # run -- so the table reports the DISTRIBUTION of the roster-relative delta
+    # it actually landed at, against the target it was aiming for.
     print(_row(
-        ["boss", "act", "rule", "final", "starter_mean", "target", "faced",
-         "lanes_drawn", "rule_decisive"], bw))
+        ["boss", "act", "rule", "final", "target", "delta_p10", "delta_med",
+         "delta_p90", "faced", "rule_decisive"], bw))
     for boss in result["bosses"]:
+        d = boss["realised_delta"]
+        target = boss["relative_target"] + boss["rule_target_offset"]
         print(_row(
             [boss["boss_id"], boss["act"], boss["rule_id"],
-             "yes" if boss["is_final"] else "", boss["starter_mean"],
-             boss["target"], boss["times_faced"], boss["lanes_drawn_by_rule"],
+             "yes" if boss["is_final"] else "", f"{target:+.2f}",
+             f"{d.get('p10', 0):+.2f}", f"{d.get('median', 0):+.2f}",
+             f"{d.get('p90', 0):+.2f}", boss["times_faced"],
              f"{boss['rule_decisive_rate']:.1%}"],
             bw,
         ))

@@ -284,6 +284,16 @@ export default function BossPreview({
                 </li>
               ))}
             </ul>
+          ) : boss.locked === false ? (
+            /* v4: the lineup does not exist YET. A boss is built when its act
+               begins, against the roster standing in front of it, so before
+               that there is nothing to hide and nothing to scout. Saying so is
+               what stops a named boss with no five reading as a loading bug. */
+            <p className="text-xs" style={{ color: "var(--text-muted)" }} data-testid="rtt-boss-unlocked-note">
+              Not picked yet. This opponent is matched to your roster when the act
+              starts — you know the name and the rule now, and the five when you
+              get there.
+            </p>
           ) : (
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>
               Not scouted. You know the act, the name and the rule — not the five. A Film Room

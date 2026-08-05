@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { getMethodology, getPeakWindowBoard, getSeasonBoard } from "@/lib/api";
 import type { Methodology, RankingBoardData, RankingBoardId, RankingRow } from "@/types";
 import RankingsTable, { ComponentLegend } from "@/components/rankings/RankingsTable";
+import RankingsDetail from "@/components/rankings/RankingsDetail";
 import ScoreExplainModal from "@/components/rankings/ScoreExplainModal";
 import RankingsProvenance from "@/components/rankings/RankingsProvenance";
 import {
@@ -123,6 +124,10 @@ export default function RankingsPage() {
   const [sortKey, setSortKey] = useState<RankingSortKey>(DEFAULT_SORT_KEY);
   const [sortDirection, setSortDirection] = useState<SortDirection>(DEFAULT_SORT_DIRECTION);
   const [openRow, setOpenRow] = useState<RankingRow | null>(null);
+  // WHICH ROW THE DETAIL PANEL IS SHOWING. Held as a row_id rather than a row
+  // object so a refetch (a different window, a new search) re-resolves it
+  // against the live data instead of pinning a stale copy on screen.
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -208,6 +213,19 @@ export default function RankingsPage() {
     [rows, sortKey, sortDirection]
   );
   const shownRows = useMemo(() => sortedRows.slice(0, visible), [sortedRows, visible]);
+
+  // THE TOP-RANKED ROW IS THE DEFAULT, resolved from the live rows every
+  // render rather than latched on load. A board switch, a window switch or a
+  // search all change what "the top row" means, and a detail panel still
+  // showing the previous board's leader would be showing a row that is no
+  // longer in the list beside it.
+  const selectedRow = useMemo(() => {
+    if (!sortedRows.length) return null;
+    const match = selectedRowId
+      ? sortedRows.find((row) => row.row_id === selectedRowId)
+      : null;
+    return match ?? sortedRows[0];
+  }, [sortedRows, selectedRowId]);
 
   const boardHeading = boardHeadingFor(board, peakWindow);
   const boardLabel = boardShortLabelFor(board, peakWindow);
@@ -376,6 +394,8 @@ export default function RankingsPage() {
             <h2 className="rankings-board-heading" data-testid="rankings-board-heading">
               {boardHeading}
             </h2>
+            <div className="rankings-split">
+              <div className="rankings-split-list">
             <RankingsTable
               rows={shownRows}
               sortKey={sortKey}
@@ -390,7 +410,20 @@ export default function RankingsPage() {
                   : "No rows available for this board."
               }
               labelHeading={board === "seasons" ? "Season" : "Window"}
+              selectedRowId={selectedRow?.row_id ?? null}
+              onSelectRow={(row) => setSelectedRowId(row.row_id)}
             />
+              </div>
+              <div className="rankings-split-detail">
+                <RankingsDetail
+                  row={selectedRow}
+                  boardLabel={boardLabel}
+                  windowLabel={board === "peakWindows" ? peakWindow.toUpperCase() : null}
+                  populationNoun={board === "seasons" ? "scored season" : "peak window"}
+                  onExplain={setOpenRow}
+                />
+              </div>
+            </div>
 
             {sortedRows.length > shownRows.length && (
               <button

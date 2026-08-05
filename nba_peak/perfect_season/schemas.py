@@ -163,6 +163,28 @@ class SimulationResult:
     # simulation.py::simulate_season's own comment for why this, not the
     # noisy 82-0 record, is the "compare across runs" number.
     lineup_peak_score: float = 0.0
+    # THE LINEUP-QUALITY INDEX: the weighted combination of the fit components
+    # that this model's record projection is built from, BEFORE the win floor,
+    # the 82-win cap and the seeded noise are applied.
+    #
+    # Surfaced rather than computed, and additive rather than a change: it is
+    # the `base` value `simulate_exact_season` already computes on its way to
+    # `expected_wins`. Nothing about `wins`, `expected_wins` or any 82-0
+    # surface moves because this field exists.
+    #
+    # WHY IT IS PUBLISHED. `wins` and `expected_wins` both saturate -- the cap
+    # is 82 and the generational floor is 81 -- so two genuinely different
+    # elite rosters tie on both. `lineup_peak_score` does not saturate but is a
+    # RAW MEAN of the cards' season scores, which knows nothing about bench,
+    # position fit or coverage. A mode that has to rank rosters against each
+    # other needs the model's actual lineup-quality judgement, unclamped and
+    # unrounded to a win total: that is this number. Three-Man Weave ranks on
+    # it (`nba_peak/three_man_weave/evaluation.py`).
+    #
+    # Not a win projection and must never be shown as one. It is an index on
+    # roughly the same scale as expected wins by construction, but it is
+    # deliberately not clamped to a legal record.
+    lineup_quality: float = 0.0
     # Phase 6F Part F: structural result explanation, computed server-side
     # (single source of truth -- see simulation.py::_best_pick_exact /
     # _structural_weakness_exact) so the UI never has to re-derive "weakness"

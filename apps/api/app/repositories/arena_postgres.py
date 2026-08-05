@@ -39,9 +39,11 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
+from app.repositories.arena_rating_protocols import ArenaPlayerStats
 from app.repositories.arena_protocols import (
+    InvalidIdempotencyKey,
     LIVE_MATCH_STATUSES,
     MATCH_STATUS_COMPLETED,
     MATCH_STATUS_EXPIRED,
@@ -390,6 +392,21 @@ class PostgresArenaRepository:
             )
         return [_row_to_match(r) for r in rows]
 
+    async def set_bot_policy_version(self, match_id: str, policy_version: str) -> bool:
+        # `bot_policy_version IS NULL` in the statement, not a read first:
+        # first write wins and every later caller matches zero rows, so two
+        # concurrent host fills cannot overwrite each other's pin.
+        async with self._pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE arena_matches
+                   SET bot_policy_version = $2, updated_at = NOW()
+                 WHERE match_id = $1 AND bot_policy_version IS NULL
+                """,
+                match_id, policy_version,
+            )
+        return int(result.rsplit(" ", 1)[-1] or 0) > 0
+
     # -- the mutation path --------------------------------------------------
 
     async def apply_command(
@@ -665,18 +682,38 @@ class PostgresArenaRepository:
         version_before: int,
         version_after: int,
     ) -> None:
-        await conn.execute(
-            """
-            INSERT INTO arena_match_commands
-                (match_id, idempotency_key, actor_seat_index, actor_sub,
-                 command_type, payload, accepted, rejection_code,
-                 state_version_before, state_version_after, created_at)
-            VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,NOW())
-            """,
-            request.match_id, request.idempotency_key, request.actor_seat_index,
-            request.actor_sub, request.command_type, json.dumps(request.payload),
-            accepted, rejection_code, version_before, version_after,
-        )
+        try:
+            await conn.execute(
+                """
+                INSERT INTO arena_match_commands
+                    (match_id, idempotency_key, actor_seat_index, actor_sub,
+                     command_type, payload, accepted, rejection_code,
+                     state_version_before, state_version_after, created_at)
+                VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,NOW())
+                """,
+                request.match_id, request.idempotency_key, request.actor_seat_index,
+                request.actor_sub, request.command_type, json.dumps(request.payload),
+                accepted, rejection_code, version_before, version_after,
+            )
+        except asyncpg.CheckViolationError as exc:
+            # The key-length CHECK, surfaced as a DOMAIN exception rather than a
+            # driver one. Without this the two backends fail differently for the
+            # same bad input -- `InvalidIdempotencyKey` in memory, an
+            # `asyncpg.CheckViolationError` here -- and a caller could not catch
+            # the Postgres case without importing asyncpg, which is exactly the
+            # leak `head_to_head_postgres.py:234-235` converts for
+            # UniqueViolationError. A route turns the domain exception into a
+            # 400 (malformed request); the driver exception would have become a
+            # 500 (server fault).
+            #
+            # Nothing reaches this today: `SubmitCommandRequest.idempotency_key`
+            # is `Field(..., min_length=8, max_length=128)` (models/arena.py:213),
+            # so a short key from a real client is a 422 at the boundary. This
+            # closes the SERVER-issued and internal paths, which have no such
+            # guard.
+            if "idempotency_key" in str(exc):
+                raise InvalidIdempotencyKey(str(exc)) from exc
+            raise
 
     # -- turns and the clock ------------------------------------------------
 
@@ -776,6 +813,111 @@ class PostgresArenaRepository:
 
     # -- results ------------------------------------------------------------
 
+    async def get_player_stats(
+        self,
+        mode: str,
+        owner_subs: Sequence[str],
+        detail_keys: Sequence[str] = (),
+    ) -> dict[str, ArenaPlayerStats]:
+        if not owner_subs:
+            return {}
+        # One pass. `r.rated` is the settlement-time copy, so this can never
+        # include a private-room or practice result even if arena_matches were
+        # later corrected -- the same reason the column is denormalised at all.
+        #
+        # `matches_with_bots` is a per-MATCH property (did this match contain
+        # any bot at all), so it is computed with a window over the match rather
+        # than from the player's own seat, whose was_bot is always false here.
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                WITH mine AS (
+                    SELECT r.match_id, r.seat_index, r.placement, r.outcome,
+                           r.score, r.detail, s.occupant_sub, m.seat_count,
+                           EXISTS (
+                               SELECT 1 FROM arena_match_results br
+                                WHERE br.match_id = r.match_id AND br.was_bot
+                           ) AS any_bot
+                      FROM arena_match_results r
+                      JOIN arena_match_seats s
+                        ON s.match_id = r.match_id AND s.seat_index = r.seat_index
+                      JOIN arena_matches m ON m.match_id = r.match_id
+                     WHERE r.rated
+                       AND NOT r.was_bot
+                       AND m.mode = $1
+                       AND s.occupant_sub = ANY($2::text[])
+                )
+                SELECT occupant_sub,
+                       COUNT(*)                                        AS rated_matches,
+                       COUNT(*) FILTER (WHERE outcome = 'win')         AS wins,
+                       COUNT(*) FILTER (WHERE outcome = 'loss')        AS losses,
+                       COUNT(*) FILTER (WHERE outcome = 'draw')        AS draws,
+                       COUNT(*) FILTER (
+                           WHERE placement <= GREATEST(1, seat_count / 2)
+                       )                                               AS podiums,
+                       SUM(placement)                                  AS placement_sum,
+                       AVG(score)                                      AS score_avg,
+                       MAX(score)                                      AS score_best,
+                       COUNT(*) FILTER (WHERE any_bot)                 AS with_bots,
+                       COUNT(*) FILTER (WHERE NOT any_bot)             AS all_human
+                  FROM mine
+                 GROUP BY occupant_sub
+                """,
+                mode, list(owner_subs),
+            )
+
+            stats = {sub: ArenaPlayerStats(owner_sub=sub) for sub in owner_subs}
+            for row in rows:
+                sub = row["occupant_sub"]
+                stats[sub] = ArenaPlayerStats(
+                    owner_sub=sub,
+                    rated_matches=row["rated_matches"],
+                    wins=row["wins"],
+                    losses=row["losses"],
+                    draws=row["draws"],
+                    podiums=row["podiums"],
+                    placement_sum=int(row["placement_sum"] or 0),
+                    score_avg=round(float(row["score_avg"]), 4) if row["score_avg"] is not None else None,
+                    score_best=round(float(row["score_best"]), 4) if row["score_best"] is not None else None,
+                    matches_with_bots=row["with_bots"],
+                    matches_all_human=row["all_human"],
+                )
+
+            for key in detail_keys:
+                # A separate narrow query per key rather than dynamic SQL built
+                # from `key`: the key names a JSONB field and is chosen by the
+                # route, but it is still passed as a PARAMETER and never
+                # interpolated into the statement.
+                #
+                # `jsonb_typeof(...) = 'number'` is what makes an absent or
+                # non-numeric value skipped rather than coerced -- a missing
+                # measurement is missing, not zero.
+                drows = await conn.fetch(
+                    """
+                    SELECT s.occupant_sub,
+                           AVG((r.detail ->> $3)::numeric) AS avg_value,
+                           MAX((r.detail ->> $3)::numeric) AS max_value
+                      FROM arena_match_results r
+                      JOIN arena_match_seats s
+                        ON s.match_id = r.match_id AND s.seat_index = r.seat_index
+                      JOIN arena_matches m ON m.match_id = r.match_id
+                     WHERE r.rated
+                       AND NOT r.was_bot
+                       AND m.mode = $1
+                       AND s.occupant_sub = ANY($2::text[])
+                       AND jsonb_typeof(r.detail -> $3) = 'number'
+                     GROUP BY s.occupant_sub
+                    """,
+                    mode, list(owner_subs), key,
+                )
+                for row in drows:
+                    st = stats[row["occupant_sub"]]
+                    if row["avg_value"] is not None:
+                        st.detail_averages[key] = round(float(row["avg_value"]), 4)
+                    if row["max_value"] is not None:
+                        st.detail_bests[key] = round(float(row["max_value"]), 4)
+        return stats
+
     async def get_results(self, match_id: str) -> list[ArenaResult]:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
@@ -852,6 +994,29 @@ class PostgresArenaRepository:
                 owner_sub, mode, QUEUE_STATUS_CANCELLED, QUEUE_STATUS_WAITING,
             )
         return int(result.rsplit(" ", 1)[-1] or 0) > 0
+
+    async def collapse_human_preference(
+        self, owner_sub: str, mode: str, now: datetime
+    ) -> Optional[ArenaQueueEntry]:
+        # LEAST(), so the window only ever moves EARLIER. A retry or a
+        # double-click recomputes the same value and the row is unchanged,
+        # which is what makes this safely repeatable without its own
+        # idempotency record -- see the protocol docstring.
+        #
+        # One statement, no read-then-write: the row is never inspected before
+        # being narrowed, so two concurrent presses cannot interleave into a
+        # window that moved backwards.
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"""
+                UPDATE arena_public_queue
+                   SET human_preference_until = LEAST(human_preference_until, $3)
+                 WHERE owner_sub = $1 AND mode = $2 AND status = $4
+             RETURNING {_QUEUE_COLUMNS}
+                """,
+                owner_sub, mode, now, QUEUE_STATUS_WAITING,
+            )
+        return _row_to_entry(row) if row else None
 
     async def list_waiting_entries(
         self,

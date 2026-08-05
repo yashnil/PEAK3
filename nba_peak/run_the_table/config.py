@@ -27,7 +27,16 @@ ENGINE_VERSION: Final[str] = "run_the_table_v1"
 #   3. mid-run income is cut and four published credit sinks are added.
 # `state.assert_version_compatible` refuses a saved v2 run on sight, and
 # `daily.daily_seed` is salted by this string so every daily board changes too.
-RULESET_VERSION: Final[str] = "rtt_ruleset_v3"
+#
+# v4 changes three more things that make a v3 run unreplayable:
+#   1. boss lineups are GENERATED PER RUN, relative to the roster that will
+#      face them, instead of one fixed curated slate shared by every player;
+#   2. no identity may appear on both the player's roster and a boss's roster
+#      -- which changes which cards a run can be dealt and offered at all;
+#   3. every market board excludes identities the run already owns, and each
+#      act guarantees one top-decile "marquee" offer.
+# The same refusal path applies: a v3 snapshot is rejected, not reinterpreted.
+RULESET_VERSION: Final[str] = "rtt_ruleset_v4"
 # The ruleset a saved run or a challenge token carries when it names no ruleset
 # at all. Only v1 predates the field, so "unversioned" and "v1" are the same
 # statement -- and inferring it is what lets an old challenge link report the
@@ -182,7 +191,17 @@ PRICE_MAX: Final[int] = 30
 # refund that does not match the number the Trade Desk prints beside it.
 # Basing the refund on base cost is what stops a price-discount System from
 # being used to buy cheap and sell dear.
-TRADE_REFUND_PCT: Final[float] = 0.50
+#
+# v4: 0.50 -> 0.60. The measured acquisition-ceiling problem was budget, not
+# supply (see MARQUEE_PERCENTILE_MIN). A 50% refund on a mid-board card returns
+# 5-7 credits against a 23-30 credit marquee, so trading up was never a route
+# to the top of the board -- only hoarding was, which is why the do-nothing
+# banker out-cleared the aggressive spender 27.4% to 0.66%. 0.60 makes a
+# trade-up fund roughly a quarter of a marquee instead of a fifth, which is
+# enough to make the Trade Desk a real path to one without making a round-trip
+# profitable: `refund_for` still floors, and the refund is still strictly less
+# than the price, so churning a card still loses credits.
+TRADE_REFUND_PCT: Final[float] = 0.60
 
 # ---------------------------------------------------------------------------
 # Battle
@@ -256,6 +275,37 @@ OFFERS_PER_TRADE: Final[int] = 3
 # replaces). tests/run_the_table/test_generation.py asserts both, and asserts
 # the guarantee holds on every Draft Room over a seed sweep.
 DRAFT_GUARANTEED_AFFORDABLE_COST: Final[int] = 8
+
+# ---------------------------------------------------------------------------
+# The marquee guarantee (v4)
+# ---------------------------------------------------------------------------
+# MEASURED PROBLEM: the v3 boards already offered elite cards -- a best-branch
+# sweep over 2,000 seeds found the best card reachable in a run had a median
+# prime_score of 91.31, and a typical blueprint put 4-5 cards at or above 80 on
+# some board. High-ceiling acquisition was never an OFFER problem. It was a
+# BUDGET problem: all 28 pool cards at >=80 prime cost 23-30 credits against a
+# 50-credit start, a mid-tier card refunds only 5-7, and the policy that spent
+# most aggressively (`credit_spending`) had the second-WORST clear rate in the
+# whole sweep at 0.66%.
+#
+# v4 fixes both halves, using existing game concepts rather than new mechanics:
+#
+#   1. MARQUEE_PERCENTILE_MIN + one guaranteed marquee offer per act makes the
+#      opportunity real in EVERY act rather than a function of which branch the
+#      seed happened to put a star on. It is the same construction as the
+#      affordability guarantee at draft slot 0, inverted: one slot on one board
+#      per act is reserved for the top decile.
+#   2. TRADE_REFUND_PCT rises (see below) so the trade-up path can actually
+#      fund one of these, which is what turns the guarantee from a display case
+#      into a decision.
+#
+# Scarcity is preserved BY PRICE, not by hiding the card: one marquee per act,
+# still costing 23-30 against a purse that funds roughly one of them per run,
+# still needing a legal role slot, and still competing with the other branch of
+# the same stage. A weak run gets no free superstar; a strong run cannot farm
+# them.
+MARQUEE_PERCENTILE_MIN: Final[float] = 0.90
+MARQUEE_OFFERS_PER_ACT: Final[int] = 1
 
 # Rest / Bank
 # v3: 12 -> 11. Two more decision nodes in the run means the same deposit is
@@ -400,7 +450,11 @@ TWO_WAY_DISCOUNT: Final[float] = 0.30
 # the exact opposite of the scarcity it is supposed to create.
 TWO_WAY_MAX_PERCENTILE: Final[float] = 0.78
 
-TRADE_MACHINE_REFUND_PCT: Final[float] = 0.70
+# v4: 0.70 -> 0.78, tracking the TRADE_REFUND_PCT rise so the System keeps the
+# same ~18-point edge over the base refund it was designed with rather than
+# being squeezed to a 10-point rounding difference. Still strictly below 1.0,
+# so a buy-then-sell round trip continues to lose credits under it.
+TRADE_MACHINE_REFUND_PCT: Final[float] = 0.78
 
 VETERAN_MINIMUM_PERCENTILE_MAX: Final[float] = 0.35
 VETERAN_MINIMUM_USES_PER_ACT: Final[int] = 1
@@ -636,19 +690,155 @@ BOSS_RULE_PUBLISHED_THRESHOLDS: Final[dict[str, dict[str, str]]] = {
     },
 }
 
-# Difficulty targets: the mean prime_score of each boss's five starters. Tuned
-# against the real 3Y pool via scripts/audit_run_the_table_v2.py so a base
-# roster usually beats Boss 1, needs upgrades for Boss 2, needs perk/economy
-# strategy for Boss 3, and needs a strong whole run for the Final Boss. Curated
-# boss rosters are validated against these bands in tests.
-# v3 appends a fifth band that continues the existing +4 / +5 / +4.5 ramp with
-# +3.5. It is deliberately the smallest step in the ramp: the anchor slot has
-# only 28 eligible cards in the 3Y pool and none above 67.33, so every lineup at
-# this level -- the player's included -- is four strong cards and one weak
-# anchor, and pushing the band higher would only widen the gap in the four slots
-# where both sides are already spending everything they have.
-BOSS_TARGET_STARTER_MEAN: Final[tuple[float, ...]] = (61.0, 65.0, 70.0, 74.5, 76.5)
-BOSS_TARGET_TOLERANCE: Final[float] = 2.5
+# ---------------------------------------------------------------------------
+# Boss difficulty (v4: ROSTER-RELATIVE)
+# ---------------------------------------------------------------------------
+# v3 targeted an ABSOLUTE mean prime_score for each boss's five starters
+# (61.0 / 65.0 / 70.0 / 74.5 / 76.5). Measured over 100,000 seeds x 8 policies
+# (docs/implementation/run-the-table-balance-v3.json) that produced a run whose
+# first fight was decided before it started and whose last one usually was too:
+# act-1 win rate 97-99% for every competent policy, act-5 win rate 0.2-35%.
+# An absolute target cannot do better, because the thing it is NOT measured
+# against is the only thing that matters -- the roster actually standing across
+# from it.
+#
+# v4 targets a DELTA on the authoritative lineup rating instead:
+#
+#     boss_target = player_lineup_rating + BOSS_RELATIVE_TARGET[act]
+#                                        + BOSS_RULE_TARGET_OFFSET[rule]
+#                                        + jitter
+#
+# `player_lineup_rating` is `battle.roster_total(player_lane_profile(...))` --
+# the exact number the roster panel prints and the battle scores, not a
+# prime_score mean and not a recomputed PEAK3 score. Same scale, both sides.
+#
+# THE NUMBERS ARE MEASURED, NOT CHOSEN. A sweep of 120 starting rosters x 6
+# rules x 7 deltas established the local sensitivity: near parity, one point of
+# lineup rating is worth roughly 13 percentage points of win rate, and the
+# curve is monotonic over the whole band used here. The per-act deltas below
+# are the inverse of that curve evaluated at the target midpoints, then
+# corrected by the measured act-over-act drift of a live run (the player
+# upgrades twice INSIDE an act after the boss is locked, and gains up to two
+# Systems and a Scout preparation over the run, all of which push the realised
+# rate above the static-roster rate).
+# FITTED AGAINST LIVE RUNS, not against a static roster. A first pass set these
+# from a 120-roster x 6-rule sweep that fought every boss with an UNMODIFIED
+# starting five; measured against real play (300 seeds x 8 policies through the
+# balance audit) that under-shot, because a live run also carries up to two
+# Systems and a Scout preparation. These are the second iteration, solved from
+# the realised per-act win rates so each act lands on the middle of its band.
+BOSS_RELATIVE_TARGET: Final[tuple[float, ...]] = (0.57, 1.26, 1.28, 2.98, 2.91)
+
+# ---------------------------------------------------------------------------
+# How hard the opponent tracks the roster
+# ---------------------------------------------------------------------------
+# A boss that tracked the roster 1:1 is perfectly fair and almost pointless: it
+# makes every fight the same fight, so building a better team buys nothing.
+# Measured at full tracking, the do-nothing control cleared the table 15.8% of
+# the time against the best policy's 32% -- a 2x spread across the entire skill
+# range, when the whole game is the decisions.
+#
+# So the opponent tracks the roster PARTIALLY. Its target is anchored at a
+# published reference rating and moves at BOSS_ROSTER_TRACKING of whatever the
+# roster has gained above it:
+#
+#     target = ANCHOR + TRACKING * (player_rating - ANCHOR) + act_target
+#
+# At TRACKING = 1.0 this is pure rubber-banding. At 0.0 it is v3's absolute
+# target, which is the defect. 0.72 keeps a weak roster's fight winnable -- a
+# roster still near the anchor sees essentially no change -- while a roster that
+# has been built up to 47 faces an opponent roughly 6.6 rating points below
+# where full tracking would have put it. That gap IS the reward for playing
+# well, and it is why an upgrade is worth buying.
+#
+# BOSS_ROSTER_ANCHOR is the median opening lineup rating over 600 seeds (23.36).
+# It is a measured property of START_ROSTER_PERCENTILE_BAND, not a free
+# parameter: every run starts at it, so at act 1 the tracking term is ~0 and the
+# act target alone decides the fight.
+BOSS_ROSTER_ANCHOR: Final[float] = 23.36
+BOSS_ROSTER_TRACKING: Final[float] = 0.90
+
+# Per-rule correction. At an identical delta the five rules do NOT produce an
+# identical win rate, so a rule that is intrinsically easier for the player gets
+# a HARDER opponent and vice versa -- otherwise the act band would mean five
+# different things depending on which boss occupied it, and the act ramp and the
+# rule assignment would be two uncontrolled variables measured as one.
+#
+# Also refitted from live play. The residual of each rule against a linear fit
+# of win rate on delta (slope ~0.114 win rate per rating point, measured across
+# the same 300-seed sweep) is what each number below converts back into rating
+# points. Note the SUM of an act's entry here and its BOSS_RELATIVE_TARGET is
+# the quantity that must rise monotonically -- neither half does on its own, and
+# neither half is meaningful alone.
+BOSS_RULE_TARGET_OFFSET: Final[dict[str, float]] = {
+    "the_wall": 0.06,
+    "strength_in_numbers": 0.33,
+    "top_heavy": 0.91,
+    "the_standard": -0.77,
+    "the_long_series": 0.13,
+}
+
+
+def boss_combined_target(act: int, rule_id: str | None) -> float:
+    """The published difficulty delta for an act, rule correction included.
+
+    THIS is the number that must rise act over act, and the one every test and
+    the balance audit compare a realised delta against. Published as a function
+    so nothing has to add the two halves by hand and get the pairing wrong.
+    """
+    idx = max(0, min(len(BOSS_RELATIVE_TARGET) - 1, act - 1))
+    return BOSS_RELATIVE_TARGET[idx] + (
+        BOSS_RULE_TARGET_OFFSET.get(rule_id, 0.0) if rule_id else 0.0
+    )
+
+# Deterministic per-(seed, act) spread on the target, applied as
+# uniform(-JITTER, +JITTER). This is what makes the per-act win-rate
+# DISTRIBUTIONS OVERLAP rather than sit in five disjoint tiers: at ~13 points
+# of win rate per point of rating, +/-0.6 is roughly +/-8 percentage points, so
+# an individual act-4 boss can and does land harder than an individual act-5
+# boss while act 5 stays hardest in aggregate. Deliberately not tunable per
+# act -- a wider spread late would read as "the last boss is random".
+BOSS_TARGET_JITTER: Final[float] = 0.75
+
+# How close the search must get to the target before it stops looking. In
+# rating points, on the same scale as BOSS_RELATIVE_TARGET.
+BOSS_TARGET_TOLERANCE: Final[float] = 0.25
+
+# Candidate lineups sampled per boss. 220 is where the measured miss-distance
+# from the target stops improving materially (p95 miss 0.21 at 220 vs 0.19 at
+# 600) while keeping a five-boss run inside the audit's time budget: the whole
+# search is ~0.12 ms per candidate lineup.
+BOSS_SEARCH_ATTEMPTS: Final[int] = 220
+
+# How many cards from the top decile of the pool a boss should field. Difficulty
+# is supposed to come from the TARGET, not from stacking GOATs: an opponent that
+# hits its band with five all-time greats and one that hits it with a balanced
+# seven are the same difficulty, and only one of them is interesting to play.
+#
+# A SOFT CAP, PRICED -- NOT A HARD FILTER, and that distinction was measured.
+# As a hard filter it was unreachable at the top of the range: a player who had
+# built a 47-rating roster by act 5 needed a ~49-rating opponent, no lineup of
+# two-or-fewer elites could get there, and the strongest third of rosters
+# therefore faced act-5 bosses at a mean delta of -0.09 while the weakest third
+# faced +2.03. The cap was quietly handing the best players the easiest final
+# boss -- the same "unfair to a roster it has not seen" failure the absolute
+# targets had, arriving through a different door.
+#
+# Each card above the cap now costs BOSS_ELITE_OVERFLOW_PENALTY rating points
+# of equivalent difficulty miss, so the search takes a third elite only when it
+# buys more accuracy than that. Below the top of the range nothing changes; at
+# the top the opponent can still be built.
+BOSS_ELITE_PERCENTILE: Final[float] = 0.90
+BOSS_MAX_ELITE_CARDS: Final[int] = 2
+BOSS_ELITE_OVERFLOW_PENALTY: Final[float] = 0.50
+
+# Relative weights of the three terms the lineup search optimises. Difficulty
+# accuracy dominates by an order of magnitude on purpose: a boss that expresses
+# its rule beautifully at the wrong difficulty is a balance regression, while a
+# boss at the right difficulty that merely fits its rule loosely is not.
+BOSS_WEIGHT_TARGET: Final[float] = 10.0
+BOSS_WEIGHT_RULE_EXPRESSION: Final[float] = 1.0
+BOSS_WEIGHT_DIVERSITY: Final[float] = 0.6
 
 # ---------------------------------------------------------------------------
 # Run status values
@@ -661,6 +851,27 @@ STATUS_BOSS_RESOLVED: Final[str] = "boss_resolved"
 STATUS_COMPLETE: Final[str] = "complete"
 STATUS_FAILED: Final[str] = "failed"
 
-TERMINAL_STATUSES: Final[frozenset[str]] = frozenset({STATUS_COMPLETE, STATUS_FAILED})
+# v4: the player walked away from an unfinished run to start another one. It is
+# over and cannot be resumed -- but it was never PLAYED to a conclusion, so it
+# is deliberately not one of the two statuses that earn anything.
+STATUS_ABANDONED: Final[str] = "abandoned"
+
+# A run that can no longer be acted on. All three, because `state._guard` reads
+# this to refuse further actions and an abandoned run must refuse them.
+TERMINAL_STATUSES: Final[frozenset[str]] = frozenset(
+    {STATUS_COMPLETE, STATUS_FAILED, STATUS_ABANDONED}
+)
+
+# A run that was played to a conclusion and therefore HAS a result.
+#
+# THE SPLIT IS THE POINT. `TERMINAL_STATUSES` answers "may this run be acted
+# on"; this answers "did this run earn anything". Collapsing them would hand an
+# abandoned run a receipt -- and with it a verdict, a record, a run MVP and
+# every downstream reward that reads one -- for a run the player quit. Somebody
+# who abandons in act 1 with three lives intact must not receive the same
+# artifact as somebody who lost three battles.
+CONCLUDED_STATUSES: Final[frozenset[str]] = frozenset(
+    {STATUS_COMPLETE, STATUS_FAILED}
+)
 
 RUN_TYPES: Final[tuple[str, ...]] = ("standard", "daily", "challenge")

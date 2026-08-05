@@ -8,7 +8,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from nba_peak.run_the_table import state as S
-from nba_peak.run_the_table.battle import roster_lane_profile, roster_total
+from nba_peak.run_the_table.battle import (
+    player_lane_profile,
+    roster_lane_profile,
+    roster_total,
+)
 from nba_peak.run_the_table.config import (
     ACTS,
     LANE_FIELDS,
@@ -35,10 +39,15 @@ from nba_peak.run_the_table.receipt import (
     build_receipt,
 )
 
+from .conftest import slate_for_seed
+
 RECEIPT_SEEDS = (0, 8, 12, 44, 101, 777)
-# A greedy run that sweeps all five v3 bosses. Was 8, which under v3's five acts
-# and cut mid-run income runs out of lives in act 4.
-SEED_GREEDY_SWEEP = 27
+# A greedy run that sweeps all five bosses WITHOUT LOSING ONE -- the receipt
+# under test asserts a 5-0 record, not merely a clear. v4 re-pick from 27: the
+# boss slate is generated per run now, so which seeds a policy sweeps changed
+# wholesale, and a flawless sweep is genuinely rarer than it was because each
+# fight is calibrated to the roster instead of to a fixed band.
+SEED_GREEDY_SWEEP = 31
 
 
 def _canonical(receipt: dict) -> str:
@@ -106,7 +115,7 @@ class TestReceiptBreakdownFixtures:
                 systems=(), lives_before=3, comeback_credits=COMEBACK_CREDITS,
                 win_credits=BOSS_WIN_CREDITS,
             )
-            for boss in bp.bosses
+            for boss in slate_for_seed(pool, seed)
         ]
 
     def test_every_lane_of_every_battle_reconciles_for_all_three_seeds(
@@ -136,29 +145,64 @@ class TestReceiptBreakdownFixtures:
     # captured once and checked in as a regression anchor. A change to either
     # the lane math or the pool/leaderboard data that moves any of these
     # numbers must be a deliberate, reviewed change, not a silent drift.
+    #
+    # v4 UPDATE, AND EXACTLY HOW MUCH OF IT CHANGED. Every PLAYER-side value
+    # below is BYTE-IDENTICAL to the v3 fixture and to
+    # docs/implementation/rtt-overhaul/rtt_score_semantics_audit.json: the
+    # player's lane ratings depend only on the starting roster and the lane
+    # math, and this pass changed neither. That was verified across all 15
+    # lanes before this fixture was touched, and it is the check that proves
+    # the published score semantics are intact.
+    #
+    # The OPPONENT column moved, and had to: the act-1 boss is no longer five
+    # constants shared by every seed (which is why the opponent numbers used to
+    # be identical for all three seeds -- 25.007, 34.0851, ... repeated down the
+    # table), it is generated against each seed's own roster. Three distinct
+    # opponent columns where there used to be one is the change working.
     ACT1_PINNED = {
         11: {
-            "statistical_impact": (23.7783, 25.007),
-            "traditional_production": (39.4687, 34.0851),
-            "individual_recognition": (13.7469, 10.2634),
-            "postseason_individual_value": (15.1098, 18.8647),
-            "team_achievement": (26.6511, 16.3495),
+            #                          player     opponent
+            "statistical_impact": (23.7783, 25.8097),
+            "traditional_production": (39.4687, 29.9347),
+            "individual_recognition": (13.7469, 24.5927),
+            "postseason_individual_value": (15.1098, 11.8485),
+            "team_achievement": (26.6511, 10.6629),
         },
         42: {
-            "statistical_impact": (20.8393, 25.007),
-            "traditional_production": (30.4607, 34.0851),
-            "individual_recognition": (16.7235, 10.2634),
-            "postseason_individual_value": (17.1358, 18.8647),
-            "team_achievement": (19.3007, 16.3495),
+            "statistical_impact": (20.8393, 26.0559),
+            "traditional_production": (30.4607, 26.8598),
+            "individual_recognition": (16.7235, 16.0235),
+            "postseason_individual_value": (17.1358, 19.1633),
+            "team_achievement": (19.3007, 17.5398),
         },
         2026: {
-            "statistical_impact": (23.2867, 25.007),
-            "traditional_production": (25.2047, 34.0851),
-            "individual_recognition": (20.794, 10.2634),
-            "postseason_individual_value": (21.3054, 18.8647),
-            "team_achievement": (20.9487, 16.3495),
+            "statistical_impact": (23.2867, 23.5357),
+            "traditional_production": (25.2047, 35.7748),
+            "individual_recognition": (20.794, 13.4171),
+            "postseason_individual_value": (21.3054, 19.0896),
+            "team_achievement": (20.9487, 18.0086),
         },
     }
+
+    # The player-side halves, kept separately and asserted separately, so a
+    # future boss-generation change can never quietly take the player's
+    # published lane ratings with it.
+    PLAYER_PINNED_UNCHANGED_SINCE_V3 = {
+        11: (23.7783, 39.4687, 13.7469, 15.1098, 26.6511),
+        42: (20.8393, 30.4607, 16.7235, 17.1358, 19.3007),
+        2026: (23.2867, 25.2047, 20.794, 21.3054, 20.9487),
+    }
+
+    def test_the_player_side_lane_ratings_are_unchanged_from_v3(
+        self, pool, blueprints
+    ):
+        """The score-semantics anchor. These fifteen numbers are the ones
+        `scripts/audit_rtt_score_semantics.py` reconciled against the canonical
+        3Y leaderboard CSV, and no balance or boss change may move them."""
+        for seed in self.AUDIT_SEEDS:
+            _, battles = self._battles(seed, pool, blueprints)
+            actual = tuple(l.player_score for l in battles[0].lanes)
+            assert actual == self.PLAYER_PINNED_UNCHANGED_SINCE_V3[seed], seed
 
     def test_act_one_lane_ratings_match_the_pinned_fixture(self, pool, blueprints):
         for seed in self.AUDIT_SEEDS:
@@ -213,10 +257,20 @@ class TestReceiptContent:
             assert row["base_cost"] == card.base_cost
 
     def test_the_lane_profile_matches_a_direct_recomputation(self, pool, finished):
+        """Recomputed THE WAY THE PLAYER WAS SCORED, Systems included.
+
+        This previously recomputed with a flat 0.35 bench weight, which is only
+        correct for a run holding no battle System. `build_receipt` uses
+        `player_lane_profile(..., state.systems, None)` -- under Deep Rotation
+        that is the better of two bench weights per lane -- so the flat version
+        was a second, WRONG model of the same quantity that happened to agree
+        for as long as the fixture seed never picked that perk. The v4 re-pick
+        of SEED_GREEDY_SWEEP holds it, which is what surfaced the latent bug.
+        """
         _, st, receipt = finished
         starters = [s.card_id for s in st.starters if s.card_id]
         bench = [s.card_id for s in st.bench if s.card_id]
-        expected = roster_lane_profile(pool, starters, bench, 0.35)
+        expected = player_lane_profile(pool, starters, bench, st.systems, None)
         assert [row["lane"] for row in receipt["lane_profile"]] == list(LANE_FIELDS)
         for row in receipt["lane_profile"]:
             assert row["value"] == expected[row["lane"]]
@@ -265,9 +319,11 @@ class TestReceiptContent:
             assert isinstance(reason["signed_value"], (int, float))
 
     def test_a_failed_run_reports_the_act_it_ended_in(self, pool, play_policy):
-        """Seed 6 under the do-nothing policy loses acts 1-3, which is all three
-        lives before the Final Boss is ever fought."""
-        bp, st = play_policy(6, random.Random(3), pool, "pass")
+        """Seed 12 under the do-nothing policy loses acts 1-3, which is all
+        three lives before the Final Boss is ever fought. Re-picked from 6 for
+        v4: bosses are built to the roster they face, so a do-nothing run no
+        longer loses every fight on an arbitrary seed."""
+        bp, st = play_policy(12, random.Random(3), pool, "pass")
         assert st.status == "failed"
         assert st.battles[-1].act < ACTS
         receipt = build_receipt(st, bp, pool)
@@ -427,7 +483,7 @@ class TestOutcomeTaxonomy:
         st = S.create_run(bp, "draw")
         # A roster mirroring the boss draws exactly; injected directly because
         # no seed is guaranteed to produce a mirror at act 4.
-        boss = bp.bosses[-1]
+        boss = slate_for_seed(pool, 4)[-1]
         mirror = dataclasses.replace(boss)
         result = resolve_battle(
             pool_or_none := __import__(
