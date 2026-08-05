@@ -88,9 +88,16 @@ install-web:
 
 # ── Data ─────────────────────────────────────────────────────────────────────
 
+# EVERY GENERATOR THAT WRITES INTO data/web/ BELONGS HERE, for the same reason
+# they all belong in the Dockerfile's build step: `data/web/` is gitignored, so
+# this target is the only way a developer gets any of it. The fact bank was
+# added to CI and to the image but not to this target, which meant `make
+# build-dataset` produced an API that 503s on /api/v1/nba-facts/today.
 build-dataset:
 	@echo "Building web dataset from leaderboard CSVs..."
 	@$(PYTHON) scripts/build_web_dataset.py
+	@echo "Building the NBA Fact of the Day bank..."
+	@$(PYTHON) scripts/build_nba_facts.py
 	@echo "$(GREEN)✓ Dataset built in data/web/$(RESET)"
 
 build-card-profiles:

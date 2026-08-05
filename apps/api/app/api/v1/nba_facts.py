@@ -12,26 +12,23 @@ which is the property the feature promises ("everyone sees the same fact today")
 and the one a test needs to assert. The server's own UTC date is the default, so
 a normal caller passes nothing.
 
-THE BANK IS LOADED ONCE. `lru_cache` holds it for the process; it is a few
-hundred kilobytes of immutable JSON shared by every request rather than re-read
-per visitor.
+THE BANK IS LOADED ONCE, AND BY ONE CACHE. `nba_facts.cached_bank` holds it for
+the process -- a few hundred kilobytes of immutable JSON shared by every
+request rather than re-read per visitor. `/health/readiness` reads the SAME
+cache, so the probe and the route can never disagree about whether the bank is
+there. They did once, in a way nothing surfaced: the deployed image was missing
+the file, this route served 503, and readiness reported "ready".
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from functools import lru_cache
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from nba_peak.nba_facts import FACT_BANK_VERSION, NbaFact, fact_for_date, load_bank
+from nba_peak.nba_facts import FACT_BANK_VERSION, cached_bank, fact_for_date
 
 router = APIRouter()
-
-
-@lru_cache(maxsize=1)
-def _bank() -> tuple[NbaFact, ...]:
-    return tuple(load_bank())
 
 
 @router.get("/nba-facts/today")
@@ -42,11 +39,15 @@ async def get_fact_of_the_day(
     ),
 ) -> dict:
     """One fact, chosen deterministically for a calendar date."""
-    bank = list(_bank())
+    bank = list(cached_bank())
     if not bank:
-        # A deployment that has not run the exporter renders no panel rather
-        # than a 500. `data/web/` is generated and gitignored, so an
-        # un-built checkout is a normal state, not a fault.
+        # NOT A NORMAL STATE IN A DEPLOYED IMAGE. The bank is generated during
+        # the Docker build and the build asserts the file is non-empty, so
+        # reaching here means either a local checkout that has not run
+        # `make build-dataset`, or something removed the artifact after the
+        # build. `/health/readiness` reports the same condition and returns 503
+        # for it, so this is visible on a probe rather than only to whoever
+        # happened to request a fact.
         raise HTTPException(
             status_code=503,
             detail=(
