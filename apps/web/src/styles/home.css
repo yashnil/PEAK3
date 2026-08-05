@@ -628,6 +628,9 @@
   gap: 0.75rem;
 }
 
+/* THE DISCLOSURE IS NATIVE `<details>`, so the open/closed state is the
+   browser's and there is no hydration window in which the control is inert.
+   These rules only make a `<summary>` look like the control it replaced. */
 .fotd-source,
 .fotd-link {
   font-size: 0.6875rem;
@@ -636,11 +639,64 @@
   text-decoration: underline;
 }
 
+.fotd-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: fit-content;
+  cursor: pointer;
+  /* The default UA marker is replaced with one that follows the accent, but
+     the element keeps its native disclosure semantics either way. */
+  list-style: none;
+}
+
+.fotd-source::-webkit-details-marker {
+  display: none;
+}
+
+.fotd-source::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transition: transform 120ms ease;
+}
+
+.fotd-details[open] > .fotd-source::before {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fotd-source::before {
+    transition: none;
+  }
+}
+
+/* The label follows the state without a hook. `display: none` also removes the
+   inactive text from the accessibility tree, so the summary's accessible name
+   is exactly one of the two. */
+.fotd-source-open,
+.fotd-details[open] > .fotd-source .fotd-source-closed {
+  display: none;
+}
+
+.fotd-details[open] > .fotd-source .fotd-source-open {
+  display: inline;
+}
+
 .fotd-source:hover,
 .fotd-link:hover,
 .fotd-source:focus-visible,
 .fotd-link:focus-visible {
   color: var(--peak-accent-text);
+}
+
+.fotd-source:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 0.2rem;
 }
 
 .fotd-evidence {

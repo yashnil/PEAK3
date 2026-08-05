@@ -51,15 +51,47 @@ describe("NbaFactOfTheDay", () => {
 
   it("discloses the source rows behind the claim", async () => {
     render(<NbaFactOfTheDay fact={fact()} />);
-    const toggle = screen.getByTestId("fotd-evidence-toggle");
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await userEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const details = screen.getByTestId("fotd-details") as HTMLDetailsElement;
+    const summary = screen.getByTestId("fotd-evidence-toggle");
+    expect(details.open).toBe(false);
+
+    await userEvent.click(summary);
+    expect(details.open).toBe(true);
 
     const table = screen.getByTestId("fotd-evidence");
     expect(table).toHaveTextContent("1984-85");
     expect(table).toHaveTextContent("2002-03");
     expect(screen.getByText(/Basketball-Reference per-season totals/)).toBeInTheDocument();
+
+    await userEvent.click(summary);
+    expect(details.open).toBe(false);
+  });
+
+  it("needs no hydration to be operable", () => {
+    // THE DEFECT THIS REPLACED. The disclosure was a `<button>` driving a
+    // `useState`, and CI caught a click landing 0.6s after
+    // `domcontentloaded` -- while the client bundles were still in flight --
+    // on a control that was already visible, enabled and receiving events.
+    // A native `<details>` has no such window: the browser owns the state, so
+    // the component ships no client JavaScript and carries no handler that
+    // could be missing.
+    render(<NbaFactOfTheDay fact={fact()} />);
+    const summary = screen.getByTestId("fotd-evidence-toggle");
+    expect(summary.tagName).toBe("SUMMARY");
+    expect(summary.closest("details")).toBe(screen.getByTestId("fotd-details"));
+    // And no hand-written ARIA duplicating what the element already reports.
+    expect(summary).not.toHaveAttribute("aria-expanded");
+    expect(summary).not.toHaveAttribute("aria-controls");
+  });
+
+  it("names itself for the state it is in", () => {
+    render(<NbaFactOfTheDay fact={fact()} />);
+    // Both labels are in the markup; CSS shows exactly one, which is also what
+    // keeps the other out of the accessibility tree. jsdom applies no
+    // stylesheet, so this asserts the pair exists rather than which is shown --
+    // the browser suite asserts the visible one.
+    expect(screen.getByText("Show source rows")).toBeInTheDocument();
+    expect(screen.getByText("Hide source rows")).toBeInTheDocument();
   });
 
   it("links to the player's PEAK3 profile when there is one to link to", () => {

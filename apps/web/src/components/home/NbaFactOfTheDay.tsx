@@ -1,5 +1,3 @@
-"use client";
-import { useState } from "react";
 import Link from "next/link";
 
 /**
@@ -19,10 +17,34 @@ import Link from "next/link";
  * generated trivia with no way back to its source is indistinguishable from
  * invented trivia, and the disclosure is what makes the difference checkable.
  *
- * SERVER-RENDERED, WITH NO CLIENT FETCH. The fact is chosen by calendar date on
- * the server and passed in as a prop, so the panel costs the homepage one
- * additional element and no additional request. The only client state is
- * whether the evidence is expanded.
+ * SERVER-RENDERED, AND SHIPS NO CLIENT JAVASCRIPT AT ALL. The fact is chosen by
+ * calendar date on the server and passed in as a prop, so the panel costs the
+ * homepage one additional element and no additional request.
+ *
+ * THE DISCLOSURE IS NATIVE `<details>`, AND THAT IS A CORRECTNESS FIX RATHER
+ * THAN A SIMPLIFICATION. It was a `<button>` driving a `useState`, and CI
+ * caught the consequence: the trace shows the click landing 0.6s after
+ * `domcontentloaded` while `main-app.js`, `layout.js` and `page.js` were all
+ * still in flight. The button was server-rendered, so it was visible, stable,
+ * enabled and receiving events -- it passed every actionability check there is
+ * -- and React had not yet attached its `onClick`. The event dispatched into a
+ * live DOM node and did nothing.
+ *
+ * That is not only a test defect. Anyone who lands on the homepage and reaches
+ * for "Show source rows" inside the first second gets the same dead click, and
+ * on a slow connection that window is much longer than a second.
+ *
+ * A `<details>` element has no such window. The browser owns the open/closed
+ * state, so it works before hydration and with JavaScript disabled entirely; it
+ * is keyboard-operable (Enter and Space) with no handler of ours; and it
+ * exposes its state to assistive technology natively, which is why there is no
+ * hand-written `aria-expanded` or `aria-controls` here -- adding them would
+ * duplicate, and eventually contradict, what the element already reports.
+ *
+ * The label still changes with the state. That is done in CSS
+ * (`.fotd-details[open]`), because the one thing native disclosure cannot do is
+ * rewrite its own summary -- and doing it with a hook would put the dead-click
+ * window straight back.
  */
 
 export interface NbaFactView {
@@ -52,8 +74,6 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default function NbaFactOfTheDay({ fact }: { fact: NbaFactView | null }) {
-  const [showEvidence, setShowEvidence] = useState(false);
-
   // A homepage that has not had its data built renders no panel rather than an
   // error card. `data/web/` is generated and gitignored, so an un-built
   // checkout is a normal state.
@@ -89,29 +109,16 @@ export default function NbaFactOfTheDay({ fact }: { fact: NbaFactView | null }) 
           {fact.text}
         </p>
 
-        <div className="fotd-actions">
-          <button
-            type="button"
-            className="fotd-source"
-            data-testid="fotd-evidence-toggle"
-            aria-expanded={showEvidence}
-            aria-controls="fotd-evidence"
-            onClick={() => setShowEvidence((open) => !open)}
-          >
-            {showEvidence ? "Hide source rows" : "Show source rows"}
-          </button>
-          {fact.player_slug && (
-            <Link
-              href={`/players/${fact.player_slug}`}
-              className="fotd-link"
-              data-testid="fotd-player-link"
-            >
-              See their PEAK3 profile
-            </Link>
-          )}
-        </div>
+        <details className="fotd-details" data-testid="fotd-details">
+          <summary className="fotd-source" data-testid="fotd-evidence-toggle">
+            {/* Only one of these is in the DOM's accessibility tree at a time:
+                `display: none` removes the other, so the summary's accessible
+                name is "Show source rows" closed and "Hide source rows" open,
+                exactly as the button's label used to be. */}
+            <span className="fotd-source-closed">Show source rows</span>
+            <span className="fotd-source-open">Hide source rows</span>
+          </summary>
 
-        <div id="fotd-evidence" hidden={!showEvidence}>
           <table className="fotd-evidence" data-testid="fotd-evidence">
             <caption>The seasons this fact was computed from.</caption>
             <thead>
@@ -134,7 +141,19 @@ export default function NbaFactOfTheDay({ fact }: { fact: NbaFactView | null }) 
             </tbody>
           </table>
           <p className="fotd-provenance">{fact.source_label}</p>
-        </div>
+        </details>
+
+        {fact.player_slug && (
+          <div className="fotd-actions">
+            <Link
+              href={`/players/${fact.player_slug}`}
+              className="fotd-link"
+              data-testid="fotd-player-link"
+            >
+              See their PEAK3 profile
+            </Link>
+          </div>
+        )}
       </div>
     </section>
   );
