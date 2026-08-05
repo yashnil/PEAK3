@@ -29,6 +29,7 @@ const EXPECTED_LINKS: Record<string, readonly [string, string][]> = {
     ["82-0 Peak Season", "/arena/court/daily"],
     ["Daily Grid", "/daily/grid"],
     ["Peak Duel", "/play/daily"],
+    ["Multiplayer", "/arena/lobby"],
     ["Rankings", "/rankings"],
   ],
   Learn: [

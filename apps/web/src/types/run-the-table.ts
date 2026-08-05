@@ -224,6 +224,11 @@ export interface BossPublic {
    * outright rather than implying otherwise.
    */
   deterministic?: boolean;
+  /** v4: whether this act's LINEUP has been generated yet. False before the
+   *  act begins -- a boss is built against the roster that will face it, so
+   *  until then there is no five to reveal and none to scout. Distinct from
+   *  `revealed`, which asks whether an EXISTING lineup is being shown. */
+  locked?: boolean;
   /** This boss's win condition. A boss rule may raise it above the default
    *  (`BOSS_LANES_TO_WIN`), for both sides. */
   lanes_to_win?: number;
@@ -850,6 +855,16 @@ export interface RunPublicState {
   /** v3: the published price list, for a run-level rules panel. */
   credit_sinks?: CreditSink[];
   action_count: number;
+  /** v4 restart surface. `abandoned` and `concluded` are different questions:
+   *  an abandoned run is over but was never PLAYED to a conclusion, so it has
+   *  no receipt and earns nothing. `can_restart` is a rules fact the server
+   *  owns -- a daily is a single attempt and offers no restart at all. */
+  abandoned?: boolean;
+  abandoned_at?: string | null;
+  successor_run_id?: string | null;
+  concluded?: boolean;
+  can_restart?: boolean;
+  restart_blocked_reason?: string | null;
   receipt: RunReceipt | null;
   versions: RunVersions;
   created_at: string;

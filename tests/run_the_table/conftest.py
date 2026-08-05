@@ -80,7 +80,7 @@ def play(seed, rng, pool=None, policy="greedy", bp=None):
     """
     pool = pool or get_pool()
     bp = bp or generate_blueprint(seed)
-    st = S.create_run(bp, f"run-{seed}")
+    st = S.create_run(bp, f"run-{seed}", pool=pool)
     guard = 0
     while st.status not in ("complete", "failed"):
         guard += 1
@@ -101,13 +101,18 @@ def play(seed, rng, pool=None, policy="greedy", bp=None):
                 choice = opts[0]
             else:
                 choice = rng.choice(opts)
-            S.action_choose_node(st, bp, choice.node_id)
+            S.action_choose_node(st, bp, choice.node_id, pool)
         elif st.status == "node_active":
             plan, opt = S.node_option(bp, st.active_node_id)
             t = opt.node_type
             if t == "draft_room":
                 best = None
-                for cid in plan.payloads[opt.node_id]["offer_ids"]:
+                # `node_offers`, NOT `plan.payloads[...]`. Under v4 a board is
+                # the blueprint's offers with every identity the run already
+                # owns (and every identity on an unbeaten boss) substituted
+                # out, so reading the raw payload would let a policy try to buy
+                # a card that is not on the board the engine will sell from.
+                for cid in S.node_offers(st, bp, opt.node_id, pool):
                     card = pool.get(cid)
                     cost, _ = price_for(card, st.systems)
                     free = S.veteran_minimum_available(
@@ -126,11 +131,11 @@ def play(seed, rng, pool=None, policy="greedy", bp=None):
                 if best and policy != "pass":
                     S.action_draft_buy(st, bp, best[1], best[2], pool, best[3])
                 else:
-                    S.action_draft_pass(st, bp)
+                    S.action_draft_pass(st, bp, pool)
             elif t == "trade_desk":
                 done = False
                 if policy == "greedy":
-                    for cid in plan.payloads[opt.node_id]["incoming_ids"]:
+                    for cid in S.node_offers(st, bp, opt.node_id, pool):
                         card = pool.get(cid)
                         for slot in S.legal_slots_for(st, pool, cid):
                             if slot not in ROLES:
@@ -144,18 +149,60 @@ def play(seed, rng, pool=None, policy="greedy", bp=None):
                         if done:
                             break
                 if not done:
-                    S.action_decline_trade(st, bp)
+                    S.action_decline_trade(st, bp, pool)
             elif t == "film_room":
                 resolve_scout_and_prepare(st, bp, plan, opt, pool, policy, rng)
             else:
                 S.action_rest_bank(
-                    st, bp, "recover_life" if st.lives < MAX_LIVES else "take_credits"
+                    st, bp,
+                    "recover_life" if st.lives < MAX_LIVES else "take_credits",
+                    pool,
                 )
         elif st.status == "boss_ready":
             S.action_resolve_boss(st, bp, pool)
         elif st.status == "boss_resolved":
-            S.action_advance(st, bp)
+            S.action_advance(st, bp, pool)
     return bp, st
+
+
+def slate_for_seed(pool, seed: int = 11):
+    """Every act's boss for one run, locked against its STARTING roster.
+
+    v4 REPLACEMENT FOR `resolve_bosses(pool)`. There is no longer a boss slate
+    that exists independently of a run -- a boss is generated against the
+    roster it will face -- so a test that wants "the five opponents" has to say
+    which run's five it means. This locks all five against the run's opening
+    roster, which is the only point at which all five are comparable to each
+    other, and is what the difficulty and rule-expression tests want.
+
+    Note this is NOT how a real run experiences them: acts 2-5 lock against the
+    roster as it stands when that act begins, which is stronger. `play()` and
+    the API tests exercise that path.
+    """
+    from nba_peak.run_the_table.bosses import generate_boss_for_act
+    from nba_peak.run_the_table.config import ACTS
+
+    bp = generate_blueprint(seed, pool=pool)
+    starters = list(bp.starting_starters)
+    bench = list(bp.starting_bench)
+    exclude = set(pool.get(c).player_slug for c in starters + bench)
+    out = []
+    for act in range(1, ACTS + 1):
+        boss = generate_boss_for_act(
+            pool, seed, act, starters, bench, (), frozenset(exclude)
+        )
+        out.append(boss)
+        exclude |= {
+            pool.get(c).player_slug
+            for c in list(boss.starter_ids) + list(boss.bench_ids)
+        }
+    return out
+
+
+@pytest.fixture(scope="session")
+def boss_slate(pool):
+    """The five opponents of a reference run. See :func:`slate_for_seed`."""
+    return slate_for_seed(pool)
 
 
 @pytest.fixture(scope="session")

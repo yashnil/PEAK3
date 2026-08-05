@@ -1,0 +1,1215 @@
+/* THREE-MAN WEAVE room.
+   ---------------------------------------------------------------------------
+   Owns `.tmw-*` only. The shared room chrome (`.ar-*`) lives in arena.css and
+   the court geometry (`.roster-board*`, `.court-panel-wrapper`) in globals.css
+   -- both are reused here rather than restated, so the draft board and the
+   82-0 court are literally the same court.
+
+   EVERY COLOUR IS A TOKEN. Nothing in this file hardcodes a hex value, which is
+   what makes light mode and dark mode one implementation instead of two. */
+
+.tmw-room {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  /* The room owns its own width. Any child that wants to be wider scrolls
+     inside its own box rather than pushing the document sideways. */
+  max-width: 100%;
+  min-width: 0;
+}
+
+.tmw-room > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Anything that legitimately wants to be wider than the room scrolls INSIDE
+   ITS OWN BOX. A horizontally scrolling document is the one overflow failure a
+   phone user cannot work around. */
+.tmw-room .tmw-tablist,
+.tmw-room [data-testid="tmw-order-list"] {
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   The spinner
+   --------------------------------------------------------------------------- */
+
+.tmw-spinner {
+  border: 1px solid var(--peak-accent);
+  background: var(--peak-accent-bg);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  text-align: center;
+}
+
+.tmw-spinner--idle {
+  border-color: var(--border-subtle);
+  background: var(--bg-elevated);
+}
+
+.tmw-spinner-round {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tmw-spinner-reels {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+/* On a phone the two reels stack, because side by side each one is too narrow
+   to hold a franchise name and the pair is what the round is about. */
+@media (max-width: 480px) {
+  .tmw-spinner-reels {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .tmw-reel-value,
+  .tmw-spinner .spin-reel-strip {
+    width: min(18rem, 78vw);
+    height: 60px;
+    line-height: 60px;
+  }
+  .tmw-spinner-x {
+    display: none;
+  }
+}
+
+.tmw-reel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.tmw-reel-label {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The settled value and the moving strip must occupy the SAME box, or the
+   layout jumps at the moment the reel lands -- which reads as a glitch at
+   exactly the beat that is supposed to feel decisive. */
+.tmw-reel-value,
+.tmw-spinner .spin-reel-strip {
+  display: block;
+  height: 90px;
+  line-height: 90px;
+  /* SIZED AGAINST THE VIEWPORT, not against a comfortable desktop reading of
+     "Golden State Warriors". Two fixed 11rem reels plus the separator came to
+     392px, which overflowed a 390px phone by exactly the amount the e2e
+     overflow check caught. */
+  width: min(18rem, 40vw);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(0.95rem, 2.6vw, 1.35rem);
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tmw-spinner .spin-reel-track {
+  display: block;
+  will-change: transform;
+}
+
+.tmw-spinner .spin-reel-row {
+  display: block;
+  height: 30px;
+  line-height: 30px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tmw-spinner-x {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  align-self: center;
+}
+
+.tmw-spinner[data-reel="decade"] .tmw-reel-value,
+.tmw-reel[data-reel="decade"] .tmw-reel-value {
+  color: var(--peak-accent-text);
+}
+
+.tmw-spinner-note {
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------------------
+   The three-roster board
+   --------------------------------------------------------------------------- */
+
+.tmw-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tmw-board-qualifier {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.tmw-board-grid {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Tabs are the MOBILE presentation, so the grid and the tabs swap at the width
+   where three courts stop being readable rather than at an arbitrary
+   breakpoint: below ~720px each court gets under 230px, which drops player
+   names. */
+.tmw-board-tabs {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .tmw-board-grid {
+    display: none;
+  }
+  .tmw-board-tabs {
+    display: block;
+  }
+}
+
+.tmw-tablist {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  scroll-snap-type: x mandatory;
+}
+
+.tmw-tab {
+  flex: 1 1 0;
+  min-width: 7rem;
+  scroll-snap-align: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  background: var(--bg-elevated);
+  text-align: left;
+}
+
+.tmw-tab[aria-selected="true"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+}
+
+.tmw-tab[data-on-turn="true"] .tmw-tab-name {
+  color: var(--peak-accent-text);
+}
+
+.tmw-tab-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tmw-tab-meta {
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   One seat
+   --------------------------------------------------------------------------- */
+
+.tmw-seat {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.tmw-seat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.tmw-seat-identity {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.tmw-seat-letter {
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+  border-radius: 0.25rem;
+  border: 1px solid var(--border-subtle);
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.tmw-seat[data-on-turn="true"] .tmw-seat-letter {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent);
+  color: var(--peak-accent-on);
+}
+
+.tmw-seat-name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tmw-seat[data-on-turn="true"] .tmw-seat-name {
+  color: var(--peak-accent-text);
+}
+
+.tmw-seat-kind {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  flex: none;
+}
+
+.tmw-seat-meters {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: none;
+}
+
+.tmw-seat-count {
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.tmw-seat-edge {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tmw-seat-edge[data-band="leading"] {
+  color: var(--peak-accent-text);
+}
+
+/* ---------------------------------------------------------------------------
+   Seat clocks
+   --------------------------------------------------------------------------- */
+
+.tmw-clock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.6rem;
+  height: 1.6rem;
+  padding: 0 0.35rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-page);
+}
+
+.tmw-clock[data-state="live"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+}
+
+.tmw-clock[data-state="idle"] {
+  opacity: 0.45;
+}
+
+.tmw-clock-value {
+  font-size: 0.9375rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent-text);
+  line-height: 1;
+}
+
+.tmw-clock[data-urgent="true"] .tmw-clock-value {
+  color: var(--text-primary);
+}
+
+.tmw-clock-unit {
+  font-size: 0.5625rem;
+  font-weight: 600;
+  margin-left: 0.05rem;
+}
+
+.tmw-clock-idle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.tmw-clock-dots {
+  display: inline-flex;
+  gap: 0.15rem;
+}
+
+.tmw-clock-dots i {
+  width: 0.25rem;
+  height: 0.25rem;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: tmw-think 1.05s ease-in-out infinite;
+}
+
+.tmw-clock-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.tmw-clock-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes tmw-think {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Roster slot cards
+   --------------------------------------------------------------------------- */
+
+.tmw-slot {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.1rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border-subtle);
+  /* Opaque, so the decorative court markings show only through the gaps
+     between cards -- the same layering the court stylesheet describes. */
+  background: var(--bg-elevated);
+  padding: 0.3rem 0.4rem;
+  text-align: left;
+}
+
+.tmw-slot--movable {
+  cursor: pointer;
+}
+
+.tmw-slot--movable:hover {
+  border-color: var(--peak-accent);
+}
+
+/* The pick "animation" is a one-shot highlight rather than a movement, so it
+   survives prefers-reduced-motion untouched and cannot strand a card
+   mid-flight if a poll lands while it is showing. */
+.tmw-slot[data-just-picked="true"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+  animation: tmw-land 520ms ease-out;
+}
+
+@keyframes tmw-land {
+  0% {
+    transform: scale(0.94);
+  }
+  55% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-slot[data-just-picked="true"] {
+    animation: none;
+  }
+}
+
+.tmw-slot-tag {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tmw-slot-name {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.15;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tmw-slot-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem;
+  font-size: 0.5625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.tmw-slot-season {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tmw-slot-score {
+  flex: none;
+  font-weight: 700;
+  color: var(--peak-accent-text);
+}
+
+.tmw-slot-open {
+  font-size: 0.625rem;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   The pick overlay
+   --------------------------------------------------------------------------- */
+
+.tmw-overlay-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--bg-page) 82%, transparent);
+  backdrop-filter: blur(2px);
+  overflow-y: auto;
+}
+
+.tmw-overlay {
+  width: min(64rem, 100%);
+  max-height: min(90vh, 46rem);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--peak-accent);
+  border-radius: 0.85rem;
+  background: var(--bg-elevated);
+  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+  overflow: hidden;
+}
+
+.tmw-overlay-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tmw-overlay-round {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tmw-overlay-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.tmw-overlay-seat {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.tmw-overlay-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--peak-accent);
+  background: var(--peak-accent-bg);
+}
+
+.tmw-overlay-clock-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent-text);
+}
+
+.tmw-overlay-clock-unit {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tmw-overlay-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+  flex: 1;
+}
+
+@media (max-width: 780px) {
+  .tmw-overlay-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.tmw-overlay-pool {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.7rem 0.9rem;
+  min-height: 0;
+  border-right: 1px solid var(--border-subtle);
+}
+
+@media (max-width: 780px) {
+  .tmw-overlay-pool {
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+}
+
+.tmw-overlay-search input {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--border-default);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+}
+
+.tmw-overlay-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.tmw-filter-chip {
+  min-width: 2.1rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-page);
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.tmw-filter-chip[aria-pressed="true"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+  color: var(--peak-accent-text);
+}
+
+.tmw-filter-clear {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+  text-decoration: underline;
+}
+
+.tmw-overlay-count {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.tmw-overlay-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  /* A hard floor so the list is a list even on a short mobile viewport, where
+     the overlay itself is already capped at 90vh. */
+  max-height: 22rem;
+}
+
+.tmw-candidate {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-page);
+  text-align: left;
+}
+
+.tmw-candidate[aria-pressed="true"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+}
+
+.tmw-candidate:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.tmw-candidate-name {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tmw-candidate-meta,
+.tmw-candidate-reason {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.tmw-candidate-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tmw-candidate-positions {
+  color: var(--text-secondary);
+}
+
+.tmw-candidate-fit[data-fit="fits_now"] {
+  color: var(--comp-team);
+}
+.tmw-candidate-fit[data-fit="fits_after_rearrangement"] {
+  color: var(--comp-po);
+}
+.tmw-candidate-fit[data-fit="no_legal_arrangement"] {
+  color: var(--text-muted);
+}
+
+.tmw-overlay-empty {
+  padding: 0.75rem;
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.tmw-overlay-place {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.9rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.tmw-overlay-subhead {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tmw-place-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.tmw-place-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-page);
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.tmw-place-slot[data-incoming="true"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+}
+
+.tmw-place-slot[data-vacating="true"] {
+  border-color: var(--comp-po);
+}
+
+.tmw-place-tag {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  width: 1.6rem;
+  flex: none;
+}
+
+.tmw-place-body {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.tmw-place-open {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.tmw-place-move {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--comp-po);
+}
+
+.tmw-place-confirm,
+.tmw-place-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.tmw-place-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.tmw-place-choice select {
+  padding: 0.25rem 0.4rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--border-default);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+}
+
+.tmw-place-rearrange {
+  font-size: 0.6875rem;
+  color: var(--comp-po);
+}
+
+.tmw-place-actions,
+.tmw-move-actions,
+.tmw-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* ---------------------------------------------------------------------------
+   The move dialog
+   --------------------------------------------------------------------------- */
+
+.tmw-move {
+  width: min(28rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.9rem;
+  border: 1px solid var(--peak-accent);
+  border-radius: 0.75rem;
+  background: var(--bg-elevated);
+}
+
+.tmw-move-title {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.tmw-move-from,
+.tmw-move-none {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.tmw-move-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.tmw-move-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-page);
+  text-align: left;
+}
+
+.tmw-move-option[aria-checked="true"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+}
+
+.tmw-move-option-tag {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  width: 1.8rem;
+  flex: none;
+}
+
+.tmw-move-option-body {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.tmw-move-option-swap {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.tmw-move-error {
+  font-size: 0.6875rem;
+  color: var(--text-primary);
+}
+
+/* ---------------------------------------------------------------------------
+   The result screen
+   --------------------------------------------------------------------------- */
+
+.tmw-result {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tmw-result-head {
+  padding: 0.9rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  text-align: center;
+}
+
+/* First / second / third are DIFFERENT, and third is not punished. A losing
+   roster is still six real seasons the player chose. */
+.tmw-result-head[data-tier="first"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+}
+
+.tmw-result-head[data-tier="second"] {
+  border-color: var(--comp-tm);
+}
+
+.tmw-result-placement {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tmw-result-head[data-tier="first"] .tmw-result-placement {
+  color: var(--peak-accent-text);
+}
+
+.tmw-result-headline {
+  font-size: clamp(1.1rem, 3.5vw, 1.6rem);
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.tmw-result-basis {
+  margin-top: 0.3rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+.tmw-result-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tmw-result-row {
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.65rem;
+  background: var(--bg-elevated);
+  padding: 0.6rem 0.75rem;
+}
+
+.tmw-result-row[data-placement="1"] {
+  border-color: var(--peak-accent);
+}
+
+.tmw-result-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.tmw-result-rank {
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  flex: none;
+  border-radius: 0.3rem;
+  background: var(--bg-page);
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.tmw-result-row[data-placement="1"] .tmw-result-rank {
+  background: var(--peak-accent);
+  color: var(--peak-accent-on);
+}
+
+.tmw-result-name {
+  flex: 1;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.tmw-result-you,
+.tmw-result-tied {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.tmw-result-score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex: none;
+}
+
+.tmw-result-score strong {
+  font-size: 1.15rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent-text);
+}
+
+.tmw-result-score-label,
+.tmw-result-secondary {
+  font-size: 0.5625rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tmw-result-secondary {
+  margin-top: 0.25rem;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.625rem;
+}
+
+.tmw-result-unranked {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.tmw-result-cards {
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+
+.tmw-result-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-page);
+}
+
+.tmw-result-card[data-decisive="true"] {
+  border-color: var(--peak-accent);
+}
+
+.tmw-result-card-tag {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  width: 1.6rem;
+  flex: none;
+}
+
+.tmw-result-card-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.tmw-result-card-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tmw-result-card-season,
+.tmw-result-card-origin,
+.tmw-result-card-note {
+  font-size: 0.5625rem;
+  color: var(--text-muted);
+}
+
+.tmw-result-card-score {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent-text);
+  flex: none;
+}
+
+.tmw-result-facts {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+}
+
+.tmw-result-facts dt {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tmw-result-facts dd {
+  color: var(--text-secondary);
+}
+
+.tmw-result-unranked-note,
+.tmw-result-empty {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------------------
+   Celebration
+   --------------------------------------------------------------------------- */
+
+.celebration {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* NEVER BLOCKS A CONTROL. This line is the whole reason a CSS layer was
+     chosen over a canvas library that mounts its own positioned element. */
+  pointer-events: none;
+  z-index: 2;
+}
+
+.celebration-bit {
+  position: absolute;
+  top: -8%;
+  width: 6px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--peak-accent);
+  animation-name: celebration-fall;
+  animation-timing-function: cubic-bezier(0.3, 0.7, 0.5, 1);
+  animation-iteration-count: 1;
+  animation-fill-mode: forwards;
+}
+
+.celebration-bit[data-hue="1"] {
+  background: var(--comp-si);
+}
+.celebration-bit[data-hue="2"] {
+  background: var(--comp-rec);
+}
+
+@keyframes celebration-fall {
+  0% {
+    transform: translate3d(0, -20px, 0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--drift, 0), 340px, 0) rotate(540deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .celebration {
+    display: none;
+  }
+}

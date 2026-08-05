@@ -3,7 +3,11 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ArrowRight, Grid3x3, Swords, Trophy } from "lucide-react";
 import GameCard from "@/components/shared/GameCard";
+import MultiplayerSection, {
+  MultiplayerLobbyLink,
+} from "@/components/arena/MultiplayerSection";
 import { MODE_COPY, RUN_THE_TABLE_RUNS_HREF } from "@/lib/modes";
+import { getArenaCatalogue } from "@/lib/arena-readiness-server";
 import { getCourtBuilderReadiness } from "@/lib/perfect-season-api";
 
 /**
@@ -83,6 +87,9 @@ export default async function ArenaPage() {
   } catch {
     courtBuilderEnabled = false;
   }
+  // Fail-closed inside the helper, so this cannot reject and cannot take the
+  // catalog down when the Arena is unreachable.
+  const arenaCatalogue = await getArenaCatalogue();
 
   const flagship = MODE_COPY["run-the-table"];
   const dailyGrid = MODE_COPY["daily-grid"];
@@ -302,6 +309,23 @@ export default async function ArenaPage() {
             compact
           />
         </div>
+      </section>
+
+      {/* Multiplayer. THE GROUP THAT WAS MISSING: both games were finished and
+          playable and appeared in no catalog, no menu and no homepage section,
+          so the only way in was to type /arena/lobby. Rendered
+          unconditionally — either two cards or an honest closed-alpha note. */}
+      <section className="mt-9" aria-labelledby="arena-multiplayer-heading">
+        <GroupHeading
+          id="arena-multiplayer-heading"
+          label="Multiplayer · live games"
+          description="Play other people in real time. Bots fill any empty seat."
+          action={<MultiplayerLobbyLink testId="arena-multiplayer-lobby-link" />}
+        />
+        <MultiplayerSection
+          catalogue={arenaCatalogue}
+          testIdPrefix="arena"
+        />
       </section>
 
       {/* Competitive — the community board and the model's own board. Both were

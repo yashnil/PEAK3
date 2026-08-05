@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1 import health, leaderboards, meta, methodology, peaks, players, game
 from app.api.v1 import seasons
+from app.api.v1 import nba_facts as nba_facts_router
 from app.api.v1 import draft
 from app.api.v1 import auth as auth_router
 from app.api.v1 import profiles as profiles_router
@@ -24,6 +25,7 @@ from app.api.v1 import run_the_table as run_the_table_router
 from app.api.v1 import head_to_head as head_to_head_router
 from app.api.v1 import telemetry as telemetry_router
 from app.api.v1 import contact as contact_router
+from app.api.v1 import arena as arena_router
 from app.core.config import settings
 from app.core.dataset import dataset_store
 from app.core.repository_registry import (
@@ -136,6 +138,10 @@ app.include_router(leaderboards.router, prefix="/api/v1", tags=["leaderboards"])
 app.include_router(peaks.router, prefix="/api/v1", tags=["peaks"])
 app.include_router(seasons.router, prefix="/api/v1", tags=["seasons"])
 app.include_router(meta.router, prefix="/api/v1", tags=["meta"])
+# NBA Fact of the Day. Read-only and precomputed -- general basketball trivia,
+# never a PEAK3 insight; see `nba_peak/nba_facts.py` for why the two are kept
+# apart.
+app.include_router(nba_facts_router.router, prefix="/api/v1", tags=["nba-facts"])
 app.include_router(methodology.router, prefix="/api/v1", tags=["methodology"])
 app.include_router(players.router, prefix="/api/v1", tags=["players"])
 app.include_router(game.router, prefix="/api/v1", tags=["game"])
@@ -162,3 +168,41 @@ app.include_router(telemetry_router.router, prefix="/api/v1", tags=["telemetry"]
 # telemetry immediately above, for the same reason -- PEAK3_CONTACT_ENABLED
 # (default OFF) decides live behavior, not whether the route exists.
 app.include_router(contact_router.router, prefix="/api/v1", tags=["contact"])
+# Server-authoritative multiplayer. Same "always mounted, gated by settings"
+# shape as telemetry and contact above, for the same reason -- PEAK3_ARENA_ENABLED
+# (default OFF) decides live behavior, not whether the route exists, so the
+# disabled path is exercised by the test suite rather than being a build that
+# nobody has run. /arena/readiness always answers so the web app can fail
+# closed cleanly instead of guessing why it got a 403.
+app.include_router(arena_router.router, prefix="/api/v1", tags=["arena"])
+
+# ---------------------------------------------------------------------------
+# Arena mode registration.
+#
+# WHY THESE IMPORTS EXIST AND MUST NOT BE "CLEANED UP". Each mode registers
+# itself into `app.services.arena.modes.registry` as a module-level side
+# effect of being imported. Nothing else imports them, so without these two
+# lines both modes are fully built, fully tested, and completely unreachable:
+# `/arena/readiness` reports an empty `modes` list, the lobby shows no cards
+# because it renders the intersection of the catalogue with what the server
+# advertises, and every match-creation route 404s on an unknown mode.
+#
+# A linter will read these as unused imports. They are not -- the import IS
+# the registration. That is why they are last, after the router is mounted,
+# and why they are named rather than star-imported.
+#
+# BOTH IMPORTS ARE EAGER ON PURPOSE. Each mode warms its data caches at
+# import, BEFORE registering, so a mode whose files failed to load never
+# advertises itself as serving. Deferring the cost to first use would move it
+# onto the first match-creation request and, worse, into `ArenaMode.reduce`,
+# which runs inside the transaction holding the match's row lock and is
+# forbidden to do I/O (see `MatchReducer`). Measured marginal cost at startup
+# once pandas is loaded (which `perfect_season` already pays): ~0.46s for
+# Three-Man Weave's eligibility index and career-position sets. Paid once, at
+# boot, off the request path.
+#
+# Registration is idempotent: `ModeRegistry.register` only refuses a name held
+# by a *different* object, and each `mode` is a module-level singleton, so a
+# re-import is a `sys.modules` hit and a no-op.
+from app.services.three_man_weave import mode as _three_man_weave_mode  # noqa: E402,F401
+from app.services.twenty_dollar import mode as _twenty_dollar_mode  # noqa: E402,F401

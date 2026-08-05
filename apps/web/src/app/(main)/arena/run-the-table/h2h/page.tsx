@@ -15,7 +15,7 @@ import HeadToHeadHistory from "@/components/head-to-head/HeadToHeadHistory";
 export const metadata: Metadata = {
   title: "Head-to-Head | RUN THE TABLE | PEAK3 Arena",
   description:
-    "Challenge someone to the exact same RUN THE TABLE board. Same roster, same offers, same bosses — only your choices differ.",
+    "Challenge someone to the same RUN THE TABLE board. Same roster, same offers, same five bosses scaled to the team you build — only your choices differ.",
 };
 
 export default function HeadToHeadHubPage() {

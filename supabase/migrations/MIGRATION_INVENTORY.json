@@ -2002,5 +2002,332 @@
     "idempotency_notes": [
       "none detected"
     ]
+  },
+  {
+    "filename": "20260804100000_arena_foundation.sql",
+    "identifier": "20260804100000_arena_foundation",
+    "tables_created": {
+      "arena_matches": [
+        "match_id",
+        "mode",
+        "mode_version",
+        "model_version",
+        "status",
+        "state_version",
+        "seat_count",
+        "entry_path",
+        "rated",
+        "room_code",
+        "seed",
+        "bot_policy_version",
+        "created_by",
+        "turn_deadline_at",
+        "current_turn_seq",
+        "expires_at",
+        "snapshot",
+        "created_at",
+        "updated_at",
+        "completed_at"
+      ],
+      "arena_match_seats": [
+        "match_id",
+        "seat_index",
+        "occupant_kind",
+        "occupant_sub",
+        "bot_id",
+        "bot_rating",
+        "display_name",
+        "status",
+        "joined_at",
+        "last_seen_at"
+      ],
+      "arena_match_commands": [
+        "match_id",
+        "idempotency_key",
+        "actor_seat_index",
+        "actor_sub",
+        "command_type",
+        "payload",
+        "accepted",
+        "rejection_code",
+        "state_version_before",
+        "state_version_after",
+        "created_at"
+      ],
+      "arena_match_events": [
+        "id",
+        "match_id",
+        "seq",
+        "event_type",
+        "actor_seat_index",
+        "payload",
+        "visibility",
+        "visible_to_seat",
+        "state_version_after",
+        "created_at"
+      ],
+      "arena_turns": [
+        "match_id",
+        "turn_seq",
+        "seat_index",
+        "phase",
+        "opened_at",
+        "deadline_at",
+        "resolved_at",
+        "resolution",
+        "resolved_by_key"
+      ],
+      "arena_match_results": [
+        "match_id",
+        "seat_index",
+        "placement",
+        "score",
+        "outcome",
+        "rated",
+        "was_bot",
+        "detail",
+        "created_at"
+      ],
+      "arena_public_queue": [
+        "entry_id",
+        "owner_sub",
+        "mode",
+        "mode_version",
+        "seat_count",
+        "status",
+        "joined_at",
+        "human_preference_until",
+        "expires_at",
+        "matched_at",
+        "cancelled_at",
+        "match_id"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "arena_matches_room_code_live_uniq",
+        "table": "arena_matches"
+      },
+      {
+        "name": "arena_matches_live_expiry_idx",
+        "table": "arena_matches"
+      },
+      {
+        "name": "arena_matches_mode_status_idx",
+        "table": "arena_matches"
+      },
+      {
+        "name": "arena_match_seats_one_per_sub_uniq",
+        "table": "arena_match_seats"
+      },
+      {
+        "name": "arena_match_seats_sub_idx",
+        "table": "arena_match_seats"
+      },
+      {
+        "name": "arena_match_commands_match_created_idx",
+        "table": "arena_match_commands"
+      },
+      {
+        "name": "arena_match_events_replay_idx",
+        "table": "arena_match_events"
+      },
+      {
+        "name": "arena_turns_overdue_idx",
+        "table": "arena_turns"
+      },
+      {
+        "name": "arena_match_results_created_idx",
+        "table": "arena_match_results"
+      },
+      {
+        "name": "arena_public_queue_active_uniq",
+        "table": "arena_public_queue"
+      },
+      {
+        "name": "arena_public_queue_waiting_idx",
+        "table": "arena_public_queue"
+      }
+    ],
+    "constraints": [
+      "arena_match_commands_rejection_shape",
+      "arena_match_commands_version_monotonic",
+      "arena_match_events_seq_uniq",
+      "arena_match_events_visibility_shape",
+      "arena_match_seats_occupant_shape",
+      "arena_matches_rated_matches_entry_path",
+      "arena_matches_room_code_requires_private",
+      "arena_public_queue_window_within_ttl",
+      "arena_turns_deadline_after_open",
+      "arena_turns_resolution_shape"
+    ],
+    "functions": [
+      "arena_match_events_immutable",
+      "arena_match_results_immutable",
+      "is_arena_seat_holder"
+    ],
+    "triggers": [
+      {
+        "name": "arena_match_events_no_update",
+        "table": "arena_match_events"
+      },
+      {
+        "name": "arena_match_events_no_delete",
+        "table": "arena_match_events"
+      },
+      {
+        "name": "arena_match_results_no_update",
+        "table": "arena_match_results"
+      },
+      {
+        "name": "arena_match_results_no_delete",
+        "table": "arena_match_results"
+      }
+    ],
+    "rls_enabled_on": [
+      "arena_match_commands",
+      "arena_match_events",
+      "arena_match_results",
+      "arena_match_seats",
+      "arena_matches",
+      "arena_public_queue",
+      "arena_turns"
+    ],
+    "policies": [
+      {
+        "name": "arena_matches_seat_holder_read",
+        "table": "arena_matches"
+      },
+      {
+        "name": "arena_match_seats_self_read",
+        "table": "arena_match_seats"
+      },
+      {
+        "name": "arena_match_events_seat_scoped_read",
+        "table": "arena_match_events"
+      },
+      {
+        "name": "arena_turns_seat_holder_read",
+        "table": "arena_turns"
+      },
+      {
+        "name": "arena_match_results_seat_holder_read",
+        "table": "arena_match_results"
+      },
+      {
+        "name": "arena_public_queue_owner_read",
+        "table": "arena_public_queue"
+      },
+      {
+        "name": "arena_match_commands_no_client_access",
+        "table": "arena_match_commands"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY",
+      "triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER"
+    ]
+  },
+  {
+    "filename": "20260804140000_arena_ratings.sql",
+    "identifier": "20260804140000_arena_ratings",
+    "tables_created": {
+      "arena_ratings": [
+        "owner_sub",
+        "mode",
+        "rating",
+        "rd",
+        "volatility",
+        "rated_matches",
+        "algorithm_version",
+        "last_rated_match_at",
+        "created_at",
+        "updated_at"
+      ],
+      "arena_rating_history": [
+        "id",
+        "owner_sub",
+        "mode",
+        "match_id",
+        "pre_rating",
+        "pre_rd",
+        "pre_volatility",
+        "post_rating",
+        "post_rd",
+        "post_volatility",
+        "unbounded_post_rating",
+        "bound_applied",
+        "placement",
+        "opponents",
+        "had_bot_opponent",
+        "bot_policy_version",
+        "algorithm_version",
+        "created_at"
+      ]
+    },
+    "indexes": [
+      {
+        "name": "arena_ratings_leaderboard_idx",
+        "table": "arena_ratings"
+      },
+      {
+        "name": "arena_rating_history_one_per_player_match_idx",
+        "table": "arena_rating_history"
+      },
+      {
+        "name": "arena_rating_history_owner_idx",
+        "table": "arena_rating_history"
+      },
+      {
+        "name": "arena_match_results_rated_idx",
+        "table": "arena_match_results"
+      }
+    ],
+    "constraints": [],
+    "functions": [
+      "arena_rating_history_immutable"
+    ],
+    "triggers": [
+      {
+        "name": "arena_rating_history_no_update",
+        "table": "arena_rating_history"
+      },
+      {
+        "name": "arena_rating_history_no_delete",
+        "table": "arena_rating_history"
+      }
+    ],
+    "rls_enabled_on": [
+      "arena_rating_history",
+      "arena_ratings"
+    ],
+    "policies": [
+      {
+        "name": "arena_ratings_public_read",
+        "table": "arena_ratings"
+      },
+      {
+        "name": "arena_rating_history_owner_read",
+        "table": "arena_rating_history"
+      }
+    ],
+    "grants": "none (RLS is the access gate; no explicit GRANTs used)",
+    "seed_or_config_inserts": [],
+    "extensions_declared": [],
+    "external_table_dependencies": [
+      "arena_matches"
+    ],
+    "idempotency_notes": [
+      "tables: CREATE TABLE IF NOT EXISTS",
+      "indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS",
+      "policies: DROP POLICY IF EXISTS guard before CREATE POLICY",
+      "triggers: DROP TRIGGER IF EXISTS guard before CREATE TRIGGER"
+    ]
   }
 ]

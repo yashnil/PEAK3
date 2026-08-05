@@ -20,7 +20,6 @@ from nba_peak.run_the_table.battle import (
     roster_lane_profile,
     roster_total,
 )
-from nba_peak.run_the_table.bosses import resolve_bosses
 from nba_peak.run_the_table.config import (
     BENCH_WEIGHT_DEEP_ROTATION,
     BENCH_WEIGHT_DEFAULT,
@@ -414,10 +413,10 @@ class TestLaneMarginRules:
 
 
 class TestBossRuleSafety:
-    def test_no_boss_rule_alters_any_individual_cards_lane_index(self, pool, blueprints):
+    def test_no_boss_rule_alters_any_individual_cards_lane_index(self, pool, blueprints, boss_slate):
         bp = blueprints(6)
         before = {c.peak_window_id: copy.deepcopy(c.lane_index) for c in pool.cards}
-        for boss in resolve_bosses(pool):
+        for boss in boss_slate:
             resolve_battle(
                 pool, list(bp.starting_starters), list(bp.starting_bench), boss,
                 ("deep_rotation",), lives_before=3, comeback_credits=COMEBACK_CREDITS,
@@ -425,9 +424,9 @@ class TestBossRuleSafety:
         after = {c.peak_window_id: c.lane_index for c in pool.cards}
         assert before == after
 
-    def test_both_sides_receive_the_same_bench_weight_under_a_bench_rule(self, pool, blueprints):
+    def test_both_sides_receive_the_same_bench_weight_under_a_bench_rule(self, pool, blueprints, boss_slate):
         bp = blueprints(6)
-        bosses = {b.boss_id: b for b in resolve_bosses(pool)}
+        bosses = {b.boss_id: b for b in boss_slate}
         for boss_id, expected in (
             ("strength_in_numbers", BENCH_WEIGHT_DEEP_ROTATION),
             ("the_ceiling", BENCH_WEIGHT_TOP_HEAVY),
@@ -448,9 +447,9 @@ class TestBossRuleSafety:
                     pool, bp.starting_starters, bp.starting_bench, lane, expected
                 )
 
-    def test_lane_results_carry_labels_and_top_contributors(self, pool, blueprints):
+    def test_lane_results_carry_labels_and_top_contributors(self, pool, blueprints, boss_slate):
         bp = blueprints(6)
-        boss = resolve_bosses(pool)[0]
+        boss = boss_slate[0]
         result = resolve_battle(
             pool, list(bp.starting_starters), list(bp.starting_bench), boss, (),
             lives_before=3, comeback_credits=COMEBACK_CREDITS,
@@ -463,11 +462,11 @@ class TestBossRuleSafety:
             best = max(pool.get(c).lane_index[row.lane] for c in roster)
             assert pool.get(row.player_top_card_id).lane_index[row.lane] == best
 
-    def test_battle_resolution_is_repeatable(self, pool, blueprints):
+    def test_battle_resolution_is_repeatable(self, pool, blueprints, boss_slate):
         import dataclasses
 
         bp = blueprints(6)
-        boss = resolve_bosses(pool)[2]
+        boss = boss_slate[2]
         args = (pool, list(bp.starting_starters), list(bp.starting_bench), boss, ("deep_rotation",))
         a = resolve_battle(*args, lives_before=3, comeback_credits=COMEBACK_CREDITS)
         b = resolve_battle(*args, lives_before=3, comeback_credits=COMEBACK_CREDITS)

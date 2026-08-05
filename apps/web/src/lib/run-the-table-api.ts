@@ -186,6 +186,36 @@ export async function postRunAction(
   });
 }
 
+/**
+ * Abandon an unfinished run server-side and get the NEW run back.
+ *
+ * Not a client-side reset. Clearing React state or localStorage would leave the
+ * old run live on the server, resumable from any other tab, and countable by
+ * anything that reads runs -- which is exactly what this endpoint exists to
+ * prevent. The server marks the old run `abandoned` and returns its successor.
+ *
+ * `expectedActionCount` is optimistic concurrency: pass the `action_count` the
+ * confirmation dialog was opened against, and the server refuses (409
+ * `restart_state_conflict`) if the run advanced in another tab in between,
+ * rather than discarding progress the player never saw.
+ */
+export async function restartRun(
+  runId: string,
+  expectedActionCount?: number,
+): Promise<RunPublicState> {
+  return rttFetch<RunPublicState>(
+    `/run-the-table/runs/${encodeURIComponent(runId)}/restart`,
+    {
+      method: "POST",
+      body: JSON.stringify(
+        expectedActionCount === undefined
+          ? {}
+          : { expected_action_count: expectedActionCount },
+      ),
+    },
+  );
+}
+
 export async function createChallenge(runId: string): Promise<ChallengeResponse> {
   return rttFetch<ChallengeResponse>(
     `/run-the-table/runs/${encodeURIComponent(runId)}/challenge`,

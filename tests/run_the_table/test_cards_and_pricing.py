@@ -401,11 +401,19 @@ class TestTwoWayValue:
 
 
 class TestTradeMachine:
-    """"Outgoing cards refund 70% instead of 50%." """
+    """Trade Machine refunds more than the base rate, and both are published."""
 
     def test_summary_string_matches_the_constants(self):
+        # DERIVED, NOT RETYPED. This used to hardcode "70% instead of 50%", so
+        # the v4 refund change (0.50 -> 0.60 and 0.70 -> 0.78; see
+        # config.TRADE_REFUND_PCT for the measured reason) failed it for
+        # restating a number rather than for breaking a contract. The contract
+        # is that the summary states both LIVE percentages, which is what
+        # SYSTEM_PUBLISHED_THRESHOLDS already walks, so it is expressed that
+        # way here too and cannot go stale again.
         assert system_by_id("trade_machine")["summary"] == (
-            "Outgoing cards refund 70% instead of 50%."
+            f"Outgoing cards refund {round(TRADE_MACHINE_REFUND_PCT * 100)}% "
+            f"instead of {round(TRADE_REFUND_PCT * 100)}%."
         )
 
     def test_refund_uses_the_undiscounted_base_cost_and_rounds_down(self, pool):
@@ -418,9 +426,20 @@ class TestTradeMachine:
             assert refund_for(card, ("moneyball",)) == int(card.base_cost * TRADE_REFUND_PCT)
 
     def test_hand_computed_refunds(self):
+        # The BEHAVIOUR under test is "multiply by the published rate, then
+        # floor" -- the floor is the part a hand-computed case exists to pin,
+        # because it is what stops a round trip turning a profit. The rate
+        # itself is a balance constant, so the expectation is computed from it
+        # and the floor is asserted explicitly on a value that is not whole.
         card = make_card("x", 50.0, base_cost=25)
-        assert refund_for(card, ()) == 12          # floor(12.5)
-        assert refund_for(card, ("trade_machine",)) == 17   # floor(17.5)
+        assert refund_for(card, ()) == int(25 * TRADE_REFUND_PCT)
+        assert refund_for(card, ("trade_machine",)) == int(25 * TRADE_MACHINE_REFUND_PCT)
+        # 25 * 0.6 == 15.0 exactly, so pick a base cost that does not divide
+        # evenly and prove the result is floored rather than rounded.
+        odd = make_card("y", 50.0, slug="y", base_cost=7)
+        assert 7 * TRADE_REFUND_PCT % 1 != 0
+        assert refund_for(odd, ()) == int(7 * TRADE_REFUND_PCT)
+        assert refund_for(odd, ()) < 7 * TRADE_REFUND_PCT
 
     def test_trade_net_cost_is_incoming_price_minus_outgoing_refund(self):
         outgoing = make_card("out", 50.0, slug="out", base_cost=20)
@@ -428,13 +447,15 @@ class TestTradeMachine:
 
         plain = trade_net_cost(outgoing, incoming, ())
         assert plain["incoming_cost"] == 28
-        assert plain["outgoing_refund"] == 10
-        assert plain["net_cost"] == 18
+        assert plain["outgoing_refund"] == int(20 * TRADE_REFUND_PCT)
+        assert plain["net_cost"] == 28 - int(20 * TRADE_REFUND_PCT)
 
         machine = trade_net_cost(outgoing, incoming, ("trade_machine",))
         assert machine["incoming_cost"] == 28
-        assert machine["outgoing_refund"] == 14
-        assert machine["net_cost"] == 14
+        assert machine["outgoing_refund"] == int(20 * TRADE_MACHINE_REFUND_PCT)
+        assert machine["net_cost"] == 28 - int(20 * TRADE_MACHINE_REFUND_PCT)
+        # The System must actually be worth holding.
+        assert machine["net_cost"] < plain["net_cost"]
 
     def test_trade_machine_never_reduces_the_refund_on_the_real_pool(self, pool):
         for card in pool.cards:

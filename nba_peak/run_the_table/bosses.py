@@ -1,80 +1,107 @@
 """Boss lineups for RUN THE TABLE.
 
-Five curated opponents, each assembled entirely from canonical exact 3-year
-prime windows that exist in the committed card pool. Every window id below was
-verified present, role-legal for its slot, and duplicate-free before being
-written here; ``tests/run_the_table/test_bosses.py`` re-verifies all of that on
-every run so a card-pool rebuild that drops a card fails loudly.
+Five named opponents, each assembled at run time from canonical exact 3-year
+prime windows in the committed card pool, calibrated against the roster that
+will actually face them.
+
+WHAT CHANGED IN v4, AND WHY
+---------------------------
+v3 shipped five CURATED lineups: fixed card ids written into this file, the
+same five opponents for every player, every seed and every day. Two defects
+followed from that, and neither was fixable inside the curated model.
+
+1. DUPLICATE IDENTITY. Because the boss slate was fixed and the player's
+   starting roster was drawn from a percentile band that overlaps it, the same
+   player could be dealt to both sides. Fourteen of the thirty-five curated
+   boss identities sat inside ``START_ROSTER_PERCENTILE_BAND``; measured over
+   2,000 seeds, 88.5% of runs began with a boss's own card on the player's
+   roster and 13.8% shared an identity with the FINAL boss. The reported case
+   -- Joakim Noah anchoring both the player's roster and The Long Series -- is
+   seed 23. ``generate_blueprint`` computed the boss slugs and then discarded
+   them; there was nothing to subtract them from, because the roster was drawn
+   before the bosses were known and the bosses could not move.
+
+2. RAW-TIER DIFFICULTY. A fixed slate cannot be fair to a roster it has never
+   seen. Measured over 100,000 seeds x 8 policies, act 1 was won 97-99% of the
+   time by every competent policy and act 5 was won 0.2-35% of the time.
+
+v4 inverts the dependency. The starting roster is still drawn from the seed
+FIRST; each boss is then generated to face it, excluding every identity the run
+owns. The collision is therefore impossible by construction rather than
+prevented by a filter that has to be remembered, and difficulty is expressed as
+a delta on the roster's own authoritative lineup rating.
 
 Honesty note
 ------------
-These are **not** reconstructions of real NBA teams. Each card is that
-player's own career-best 3-year window, which is frequently from a different
-franchise and era than the theme suggests, so the bosses are named for the
-statistical identity they actually have rather than for a historical roster.
-Presenting "2004 Detroit" while serving Chauncey Billups' 2005-08 Denver window
-would be a claim the data does not support.
+These are **not** reconstructions of real NBA teams, and they never were. Each
+card is that player's own career-best 3-year window, frequently from a
+different franchise and era than any theme would suggest. The bosses are named
+for the statistical identity their RULE creates, not for a historical roster,
+and the lineups behind those names are generated -- ``Opponent.source`` says
+``"generated"`` and the API publishes it, so the UI can state plainly that the
+slate is seed-and-roster derived rather than implying a live opponent or a
+scouted real team.
 
-If a curated window is ever missing from the pool, ``resolve_bosses`` falls
-back to :func:`generate_themed_boss`, which builds an equivalent opponent from
-the live pool using the same theme scoring and difficulty target.
+Determinism
+-----------
+A boss is a pure function of ``(seed, act, the roster it faces, the systems in
+play, the identities already excluded)``. It is generated once, when its act
+begins, and then PERSISTED on the run state (``RunState.boss_lineups``), so a
+refresh, a reload and a replay all serve the lineup that was actually locked
+rather than re-deriving one against a roster that has since changed.
 """
 from __future__ import annotations
 
 import random
 import statistics
-from typing import Callable, Sequence
+from typing import Optional, Sequence
 
 from nba_peak.run_the_table.cards import CardPool
 from nba_peak.run_the_table.config import (
+    ACTS,
     BENCH_SLOTS,
+    BOSS_ELITE_OVERFLOW_PENALTY,
+    BOSS_ELITE_PERCENTILE,
+    BOSS_MAX_ELITE_CARDS,
+    BOSS_ROSTER_ANCHOR,
+    BOSS_ROSTER_TRACKING,
     BOSS_RULES,
-    BOSS_TARGET_STARTER_MEAN,
+    BOSS_SEARCH_ATTEMPTS,
+    BOSS_TARGET_JITTER,
     BOSS_TARGET_TOLERANCE,
+    BOSS_WEIGHT_DIVERSITY,
+    BOSS_WEIGHT_RULE_EXPRESSION,
+    BOSS_WEIGHT_TARGET,
+    boss_combined_target,
     LANE_FIELDS,
     LANE_LABELS,
+    LANE_PEAK3_WEIGHTS,
     LANE_ROUNDING,
     ROLES,
     SCOUT_PREP_LANE_BONUS,
+    STARTER_WEIGHT,
 )
 from nba_peak.run_the_table.schemas import Opponent, RunCard
 
+
+class BossGenerationError(RuntimeError):
+    """A boss could not be built from the pool. Always a bug, never a state."""
+
+
 # ---------------------------------------------------------------------------
-# Curated definitions
+# The five acts
 # ---------------------------------------------------------------------------
-# Each starter tuple is ordered to match ``config.ROLES``.
-#
-# The five-act progression each boss is built to test (v3, plan §4.3):
-#   1. The Wall            — teaches the lane system; beatable with the starting five.
-#   2. Strength in Numbers — punishes a one-dimensional roster: a balanced
-#                            opponent under a rule that makes your bench count.
-#   3. The Ceiling         — makes perk/economy strategy matter: the bench is
-#                            nearly switched off, so credits had to go into starters.
-#   4. The Standard        — a decisive-margin test: a lane you did not really
-#                            win is nobody's.
-#   5. The Long Series     — the v3 Final Boss. Three lanes is a split decision
-#                            here; four of five wins outright and anything short
-#                            of that is settled on total margin, so the whole
-#                            roster is on trial rather than its best three lanes.
-#                            Winning it is the only way to clear the table.
-CURATED_BOSSES: tuple[dict, ...] = (
+# Identity, copy and RULE only -- no card ids. The rule is the boss: it is what
+# the lineup is built to express, what the scout report explains, and what the
+# published difficulty offset corrects for. Names and taglines are unchanged
+# from v3 so the presentation a player already knows is preserved.
+BOSS_SPECS: tuple[dict, ...] = (
     {
         "boss_id": "the_wall",
         "name": "The Wall",
         "tagline": "Five two-way profiles with almost no hardware. They win on impact, not on votes.",
         "act": 1,
         "rule_id": "the_wall",
-        "starter_ids": (
-            "kyle-lowry-3yr-201617",         # lead_creator   60.56
-            "hassan-whiteside-3yr-201516",   # guard_wing     59.92
-            "jarrett-allen-3yr-202425",      # wing_forward   59.04
-            "elton-brand-3yr-200506",        # forward_big    63.48
-            "marc-gasol-3yr-201213",         # anchor         60.50
-        ),
-        "bench_ids": (
-            "clint-capela-3yr-201718",       # 57.38
-            "mike-conley-3yr-201617",        # 55.67
-        ),
     },
     {
         "boss_id": "strength_in_numbers",
@@ -82,17 +109,6 @@ CURATED_BOSSES: tuple[dict, ...] = (
         "tagline": "No superstar, no weak link. Every lane is covered by somebody.",
         "act": 2,
         "rule_id": "strength_in_numbers",
-        "starter_ids": (
-            "terry-porter-3yr-199091",       # lead_creator   64.51
-            "ray-allen-3yr-200001",          # guard_wing     64.28
-            "paul-pierce-3yr-200102",        # wing_forward   62.57
-            "pau-gasol-3yr-200809",          # forward_big    64.78
-            "gary-payton-3yr-199596",        # anchor         67.33
-        ),
-        "bench_ids": (
-            "reggie-miller-3yr-199394",      # 66.53
-            "jeff-hornacek-3yr-199596",      # 57.05
-        ),
     },
     {
         "boss_id": "the_ceiling",
@@ -100,17 +116,6 @@ CURATED_BOSSES: tuple[dict, ...] = (
         "tagline": "The highest-rated five you can face. Your bench will not save you.",
         "act": 3,
         "rule_id": "top_heavy",
-        "starter_ids": (
-            "patrick-ewing-3yr-198990",      # lead_creator   69.08
-            "alonzo-mourning-3yr-199900",    # guard_wing     72.35
-            "clyde-drexler-3yr-199192",      # wing_forward   72.98
-            "chauncey-billups-3yr-200506",   # forward_big    71.00
-            "jason-kidd-3yr-200203",         # anchor         65.28
-        ),
-        "bench_ids": (
-            "rudy-gobert-3yr-201819",        # 71.73
-            "ben-wallace-3yr-200203",        # 64.83
-        ),
     },
     {
         "boss_id": "the_standard",
@@ -119,268 +124,515 @@ CURATED_BOSSES: tuple[dict, ...] = (
                    "lanes or the lane goes to nobody.",
         "act": 4,
         "rule_id": "the_standard",
-        "starter_ids": (
-            "steve-nash-3yr-200506",         # lead_creator   77.79
-            "tracy-mcgrady-3yr-200203",      # guard_wing     77.45
-            "julius-erving-3yr-198081",      # wing_forward   76.47
-            "victor-wembanyama-3yr-202526",  # forward_big    76.50
-            "draymond-green-3yr-201516",     # anchor         63.82
-        ),
-        "bench_ids": (
-            "john-stockton-3yr-198788",      # 76.21
-            "jimmy-butler-3yr-202223",       # 73.11
-        ),
     },
     {
-        # v3's Final Boss. Built by a constrained search over the live pool
-        # (starter mean within 0.6 of the 76.5 band, bench mean within 3.0 of
-        # the starter mean so the published difficulty target is not quietly
-        # beaten by a stacked bench, no player already used by bosses 1-4, and
-        # an anchor at or above 59.5 so the lineup is not four monsters and a
-        # hole), then written down here as a curated spec.
-        # Starter mean 76.50, bench mean 78.95.
         "boss_id": "the_long_series",
         "name": "The Long Series",
         "tagline": "No exploitable lane and no cheap three-lane win. Beat them across "
                    "the board or beat them on total margin.",
         "act": 5,
         "rule_id": "the_long_series",
-        "starter_ids": (
-            "kevin-durant-3yr-201314",       # lead_creator   88.79
-            "anthony-davis-3yr-201920",      # guard_wing     80.80
-            "allen-iverson-3yr-200001",      # wing_forward   69.53
-            "dirk-nowitzki-3yr-200506",      # forward_big    82.78
-            "joakim-noah-3yr-201314",        # anchor         60.58
-        ),
-        "bench_ids": (
-            "shai-gilgeous-alexander-3yr-202425",   # 90.61
-            "adrian-dantley-3yr-198384",            # 67.29
-        ),
     },
 )
 
+BOSS_SPEC_BY_ACT: dict[int, dict] = {spec["act"]: spec for spec in BOSS_SPECS}
+
+
+def boss_spec_for_act(act: int) -> dict:
+    try:
+        return BOSS_SPEC_BY_ACT[act]
+    except KeyError:
+        raise BossGenerationError(
+            f"No boss is defined for act {act}; this run has {ACTS}."
+        )
+
 
 # ---------------------------------------------------------------------------
-# Theme scoring — used only by the generated fallback
+# Rule expression
 # ---------------------------------------------------------------------------
-def _theme_wall(card: RunCard) -> float:
-    """Impact and playoff value without recognition."""
-    p = card.lane_percentiles
-    return (
-        0.55 * p["statistical_impact"]
-        + 0.30 * p["postseason_individual_value"]
-        + 0.15 * (100.0 - p["individual_recognition"])
-    )
+# Each boss must EXPRESS its rule rather than merely carry it as a label, and
+# the only honest way to score that is against the lane profile of the roster
+# it is being built for -- "expresses the wall" is a statement about a matchup,
+# not about a lineup in isolation.
+#
+# Every function below returns a NORMALISED value in roughly [-1, 1], higher
+# being a better fit, and they are combined at BOSS_WEIGHT_RULE_EXPRESSION --
+# a tenth of the difficulty weight, so the whole rule term is worth at most
+# about 0.1 rating points of difficulty miss. It shapes WHICH lineup at a given
+# difficulty is chosen; it cannot move the difficulty.
+#
+# THE NORMALISATION IS LOAD-BEARING, not tidiness. The first implementation
+# returned raw lane-index quantities, so the bench-depth term for
+# `strength_in_numbers` could reach ~30 while a difficulty miss of 1.0 cost only
+# 10 -- the search happily bought 0.75 rating points of extra difficulty to buy
+# a deeper bench, and act 2 landed +0.75 off its target while every other act
+# was within 0.15. Dividing by each term's natural range is what keeps the
+# weights meaning what they say.
+_WALL_SCALE = 20.0        # mean per-lane gap, lane-index points
+_BENCH_SCALE = 30.0       # bench-minus-starter lane mean, lane-index points
+_LANE_GAP_SCALE = 20.0    # single-lane advantage, lane-index points
 
 
-def _theme_depth(card: RunCard) -> float:
-    """Balanced across all five lanes — high mean, low spread."""
-    vals = list(card.lane_percentiles.values())
-    return statistics.mean(vals) - 1.4 * statistics.pstdev(vals)
+def _card_lane_mean(card: RunCard) -> float:
+    return statistics.mean(card.lane_index[lane] for lane in LANE_FIELDS)
 
 
-def _theme_ceiling(card: RunCard) -> float:
-    """Peak recognised performance."""
-    p = card.lane_percentiles
-    return 0.5 * p["individual_recognition"] + 0.5 * p["statistical_impact"]
+def _express_the_wall(boss: dict[str, float], player: dict[str, float]) -> float:
+    """A lane you have not really won is nobody's -- so make many lanes close.
 
-
-def _theme_standard(card: RunCard) -> float:
-    """No exploitable lane: a high floor across all five, then peak on top.
-
-    The Final Boss's published rule only awards a lane to a decisive winner, so
-    the opponent it is fair to build for it is one with no lane you can beat by
-    four points almost by accident.
+    The rule draws any lane won by 1.50 or less. A boss that expresses it is
+    one whose profile TRACKS the player's, so the band actually fires; a boss
+    that happens to be 10 points clear everywhere carries the rule without ever
+    triggering it (which is precisely the v1 defect this rule replaced).
     """
-    vals = list(card.lane_percentiles.values())
-    return 0.55 * min(vals) + 0.45 * statistics.mean(vals)
+    gap = sum(abs(boss[lane] - player[lane]) for lane in LANE_FIELDS) / len(LANE_FIELDS)
+    return -min(1.0, gap / _WALL_SCALE)
 
 
-def _theme_long_series(card: RunCard) -> float:
-    """A high floor everywhere, with total output as the tie-break.
+def _express_bench_depth(starters: list[RunCard], bench: list[RunCard]) -> float:
+    """Bench weight is 0.65 for both teams -- so bring a bench worth counting.
 
-    The Final Boss's published rule pushes most battles onto the summed margin
-    across all five lanes, so the opponent it is fair to build for it is one
-    with no lane cheap enough to concede and enough overall volume that a
-    two-lane player still loses the total.
+    Rewards a bench close to (or above) the starters. A top-heavy lineup under
+    this rule is handing the player the advantage the rule creates.
     """
-    vals = list(card.lane_percentiles.values())
-    return 0.45 * min(vals) + 0.55 * statistics.mean(vals)
+    s = statistics.mean(_card_lane_mean(c) for c in starters)
+    b = statistics.mean(_card_lane_mean(c) for c in bench)
+    return max(-1.0, min(1.0, (b - s) / _BENCH_SCALE))
 
 
-_THEMES: dict[str, Callable[[RunCard], float]] = {
-    "the_wall": _theme_wall,
-    "strength_in_numbers": _theme_depth,
-    "the_ceiling": _theme_ceiling,
-    "the_standard": _theme_standard,
-    "the_long_series": _theme_long_series,
-}
+def _express_top_heavy(starters: list[RunCard], bench: list[RunCard]) -> float:
+    """Bench weight is 0.15 for both teams -- so put everything in the five.
+
+    The exact inverse of Strength in Numbers, and the reason the two rules feel
+    different rather than merely reading differently.
+    """
+    return -_express_bench_depth(starters, bench)
+
+
+def _express_the_standard(boss: dict[str, float], player: dict[str, float]) -> float:
+    """A lane is only taken if won by more than 4.00 -- so leave no soft lane.
+
+    Scores the player's BEST lane advantage, negated: the fewer lanes the
+    player can clear the 4.00 band in, the better this boss expresses its rule.
+    """
+    worst = max(player[lane] - boss[lane] for lane in LANE_FIELDS)
+    return -max(-1.0, min(1.0, worst / _LANE_GAP_SCALE))
+
+
+def _express_the_long_series(boss: dict[str, float], player: dict[str, float]) -> float:
+    """Four of five lanes, else total margin -- so concede nothing cheaply.
+
+    Rewards raising the boss's WORST lane relative to the player. A lineup with
+    one throwaway lane hands the player a quarter of the four it now needs.
+    """
+    floor = min(boss[lane] - player[lane] for lane in LANE_FIELDS)
+    return max(-1.0, min(1.0, floor / _LANE_GAP_SCALE))
+
+
+def _rule_expression(
+    rule_id: Optional[str],
+    boss_profile: dict[str, float],
+    player_profile: dict[str, float],
+    starters: list[RunCard],
+    bench: list[RunCard],
+) -> float:
+    if rule_id == "the_wall":
+        return _express_the_wall(boss_profile, player_profile)
+    if rule_id == "strength_in_numbers":
+        return _express_bench_depth(starters, bench)
+    if rule_id == "top_heavy":
+        return _express_top_heavy(starters, bench)
+    if rule_id == "the_standard":
+        return _express_the_standard(boss_profile, player_profile)
+    if rule_id == "the_long_series":
+        return _express_the_long_series(boss_profile, player_profile)
+    return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Diversity
+# ---------------------------------------------------------------------------
+def _decade(card: RunCard) -> str:
+    """The decade of the window's anchor season, e.g. '1995-96' -> '1990'."""
+    return f"{card.anchor_season[:3]}0"
+
+
+def _diversity_score(cards: list[RunCard]) -> float:
+    """Reward era spread and penalise a lineup that is all one decade.
+
+    A generated opponent drawn from a 174-card pool will happily return seven
+    cards from the same eight-year stretch, which reads as a bug even when the
+    difficulty is right. This is a soft preference at BOSS_WEIGHT_DIVERSITY,
+    never a constraint -- it can shade a choice between two equally-calibrated
+    lineups and can never reject a legal one.
+    """
+    # Normalised to [0, 1] for the same reason the rule terms are: at raw
+    # scale a fifth decade was worth 0.06 rating points of difficulty miss,
+    # which is small but not nothing, and "small but not nothing" is exactly
+    # what a tie-break term must not be allowed to become.
+    return len({_decade(c) for c in cards}) / float(len(ROLES) + BENCH_SLOTS)
+
+
+def _elite_count(cards: list[RunCard]) -> int:
+    return sum(1 for c in cards if c.overall_percentile >= BOSS_ELITE_PERCENTILE)
+
+
+# ---------------------------------------------------------------------------
+# Lineup search
+# ---------------------------------------------------------------------------
+class _CandidateIndex:
+    """Per-role candidate lists and precomputed lane vectors, built once.
+
+    THIS EXISTS FOR SPEED, and the speed is load-bearing rather than cosmetic.
+    The obvious implementation re-filters the whole candidate list for every
+    role of every attempt -- 220 attempts x 5 roles x ~170 cards -- which
+    measured at 24.7 ms per boss, i.e. 124 ms per five-act run and 3.4 hours
+    for the 100,000-seed balance audit. That is slow enough that the run would
+    not be calibrated at all, so the index is what makes the calibration
+    possible rather than what makes it tidy.
+
+    Nothing here changes WHAT is searched: the candidate set, the scarcest-
+    first order and the resulting distribution are identical to the naive
+    version, and `assert_boss_is_legal` still validates the winner.
+    """
+
+    __slots__ = ("cards", "by_role", "scarcity", "lanes", "elite")
+
+    def __init__(self, candidates: list[RunCard]) -> None:
+        self.cards = candidates
+        self.by_role = {
+            role: [c for c in candidates if role in c.eligible_roles] for role in ROLES
+        }
+        # Scarcest role first. `anchor` has only 28 eligible cards in the whole
+        # 3Y pool against 155 for `guard_wing`, so filling it last would fail
+        # constantly.
+        self.scarcity = sorted(ROLES, key=lambda r: len(self.by_role[r]))
+        # lane_index as a fixed-order tuple per card, so the rating loop never
+        # touches a dict or the pool.
+        self.lanes = {
+            c.peak_window_id: tuple(c.lane_index[lane] for lane in LANE_FIELDS)
+            for c in candidates
+        }
+        self.elite = {
+            c.peak_window_id: c.overall_percentile >= BOSS_ELITE_PERCENTILE
+            for c in candidates
+        }
 
 
 def _legal_lineup(
-    candidates: list[RunCard], rng: random.Random
-) -> tuple[list[RunCard], list[RunCard]] | None:
-    """Fill the five roles scarcest-first, then draw a bench. No duplicate players."""
-    scarcity = sorted(
-        ROLES, key=lambda r: sum(1 for c in candidates if r in c.eligible_roles)
-    )
+    index: _CandidateIndex, rng: random.Random
+) -> Optional[tuple[list[RunCard], list[RunCard]]]:
+    """Fill the five roles scarcest-first, then draw a bench. No duplicate players.
+
+    Rejection sampling rather than re-filtering: a collision needs the same
+    identity to be drawn twice out of a list of 28-155, so the expected number
+    of redraws is small and each one is O(1) instead of O(candidates).
+    """
     used_slugs: set[str] = set()
     by_role: dict[str, RunCard] = {}
-    for role in scarcity:
-        options = [
-            c for c in candidates
-            if role in c.eligible_roles and c.player_slug not in used_slugs
-        ]
+    for role in index.scarcity:
+        options = index.by_role[role]
         if not options:
             return None
-        pick = rng.choice(options)
+        pick = None
+        for _ in range(24):
+            candidate = rng.choice(options)
+            if candidate.player_slug not in used_slugs:
+                pick = candidate
+                break
+        if pick is None:
+            # Dense collision (a tiny or heavily-excluded pool). Fall back to
+            # the exhaustive filter so a legal lineup is never missed just
+            # because sampling was unlucky.
+            remaining = [c for c in options if c.player_slug not in used_slugs]
+            if not remaining:
+                return None
+            pick = rng.choice(remaining)
         by_role[role] = pick
         used_slugs.add(pick.player_slug)
-    rest = [c for c in candidates if c.player_slug not in used_slugs]
-    if len(rest) < BENCH_SLOTS:
-        return None
-    return [by_role[r] for r in ROLES], rng.sample(rest, BENCH_SLOTS)
+
+    bench: list[RunCard] = []
+    bench_slugs: set[str] = set()
+    for _ in range(BENCH_SLOTS):
+        pick = None
+        for _ in range(24):
+            candidate = rng.choice(index.cards)
+            if (
+                candidate.player_slug not in used_slugs
+                and candidate.player_slug not in bench_slugs
+            ):
+                pick = candidate
+                break
+        if pick is None:
+            remaining = [
+                c for c in index.cards
+                if c.player_slug not in used_slugs and c.player_slug not in bench_slugs
+            ]
+            if not remaining:
+                return None
+            pick = rng.choice(remaining)
+        bench.append(pick)
+        bench_slugs.add(pick.player_slug)
+
+    return [by_role[r] for r in ROLES], bench
 
 
-def generate_themed_boss(
-    pool: CardPool,
-    boss_id: str,
-    act: int,
-    name: str,
-    tagline: str,
-    rule_id: str | None,
-    target_mean: float,
-    seed: int,
-    attempts: int = 3000,
-) -> Opponent:
-    """Deterministic fallback opponent built from the live pool.
+def _fast_profile_and_rating(
+    index: _CandidateIndex,
+    starters: list[RunCard],
+    bench: list[RunCard],
+    bench_weight: float,
+) -> tuple[dict[str, float], float]:
+    """The boss's lane profile and lineup rating, computed without the pool.
 
-    Searches role-legal lineups inside a score band around ``target_mean`` and
-    keeps the one that best balances difficulty accuracy against theme fit.
-    Fully determined by ``(pool, boss_id, target_mean, seed)``.
+    Reproduces `battle.roster_lane_profile` + `battle.roster_total` exactly,
+    including both rounding steps, so the value the search optimises is the
+    value the battle will use. The only difference is that it reads the
+    precomputed lane tuples instead of doing 35 pool lookups per candidate.
     """
-    theme = _THEMES.get(boss_id, _theme_depth)
-    band = [
-        c for c in pool.cards
-        if target_mean - 8.0 <= c.prime_score <= target_mean + 8.0
-    ]
-    if len(band) < len(ROLES) + BENCH_SLOTS:
-        band = list(pool.cards)
+    total_weight = len(starters) * STARTER_WEIGHT + len(bench) * bench_weight
+    profile: dict[str, float] = {}
+    rating = 0.0
+    for i, lane in enumerate(LANE_FIELDS):
+        acc = 0.0
+        for c in starters:
+            acc += STARTER_WEIGHT * index.lanes[c.peak_window_id][i]
+        for c in bench:
+            acc += bench_weight * index.lanes[c.peak_window_id][i]
+        value = round(acc / total_weight, LANE_ROUNDING) if total_weight > 0 else 0.0
+        profile[lane] = value
+        rating += value * LANE_PEAK3_WEIGHTS[lane]
+    return profile, round(rating, LANE_ROUNDING)
 
-    # A band can be large and still be UNFILLABLE. At the v3 Final Boss's target
-    # the band is [68.5, 84.5], and the whole 3Y pool contains no anchor-eligible
-    # card above 67.33 -- so `_legal_lineup` returned None on every attempt and
-    # the fallback raised on a pool that can obviously field a lineup. Any role
-    # the band cannot cover is topped up with the closest-scoring eligible cards
-    # from the full pool, which keeps the search near its difficulty target
-    # instead of collapsing it onto the whole pool.
-    covered = {c.player_slug for c in band}
-    for role in ROLES:
-        if any(role in c.eligible_roles for c in band):
-            continue
-        nearest = sorted(
-            (c for c in pool.cards if role in c.eligible_roles),
-            key=lambda c: (abs(c.prime_score - target_mean), c.peak_window_id),
-        )[: len(ROLES) + BENCH_SLOTS]
-        for c in nearest:
-            if c.player_slug not in covered:
-                band.append(c)
-                covered.add(c.player_slug)
-    band.sort(key=lambda c: c.peak_window_id)
 
-    rng = random.Random(seed)
-    best: tuple[float, list[RunCard], list[RunCard]] | None = None
-    for _ in range(attempts):
-        got = _legal_lineup(band, rng)
+def _search_pass(
+    index: _CandidateIndex,
+    rng: random.Random,
+    target: float,
+    rule_id: Optional[str],
+    player_profile: dict[str, float],
+    opponent_bench_weight: float,
+    best: Optional[tuple[float, list[RunCard], list[RunCard]]],
+    best_miss: float,
+) -> tuple[Optional[tuple[float, list[RunCard], list[RunCard]]], float]:
+    """One sampling pass over a candidate set.
+
+    Carries the incumbent in and out, so passes COMPETE rather than replace --
+    which is what guarantees a later pass can never make the result worse.
+    """
+    for _ in range(BOSS_SEARCH_ATTEMPTS):
+        got = _legal_lineup(index, rng)
         if got is None:
             continue
         starters, bench = got
-        mean = statistics.mean(c.prime_score for c in starters)
-        score = -abs(mean - target_mean) * 4.0 + statistics.mean(
-            theme(c) for c in starters + bench
-        ) * 0.09
+        profile, rating = _fast_profile_and_rating(
+            index, starters, bench, opponent_bench_weight
+        )
+        # The elite cap is PRICED, not enforced. See BOSS_MAX_ELITE_CARDS: as a
+        # hard filter it made the top of the difficulty range unreachable and
+        # handed the strongest rosters the easiest final boss.
+        overflow = max(
+            0,
+            sum(index.elite[c.peak_window_id] for c in starters + bench)
+            - BOSS_MAX_ELITE_CARDS,
+        )
+        miss = abs(rating - target)
+        score = (
+            -BOSS_WEIGHT_TARGET * miss
+            - BOSS_WEIGHT_TARGET * BOSS_ELITE_OVERFLOW_PENALTY * overflow
+            + BOSS_WEIGHT_RULE_EXPRESSION
+            * _rule_expression(rule_id, profile, player_profile, starters, bench)
+            + BOSS_WEIGHT_DIVERSITY * _diversity_score(starters + bench)
+        )
         if best is None or score > best[0]:
             best = (score, starters, bench)
+            best_miss = miss
+    return best, best_miss
+
+
+def boss_target_rating(
+    player_rating: float, act: int, rule_id: Optional[str], seed: int
+) -> float:
+    """The lineup rating this act's boss is built to hit.
+
+    Published as its own function because the scout report, the tests and the
+    balance audit all need to state the target without restating the formula.
+    """
+    # PARTIAL tracking, not 1:1. See config.BOSS_ROSTER_TRACKING: an opponent
+    # that matched the roster exactly would make every fight the same fight and
+    # building a better team worth nothing.
+    tracked = BOSS_ROSTER_ANCHOR + BOSS_ROSTER_TRACKING * (
+        player_rating - BOSS_ROSTER_ANCHOR
+    )
+    # Its own keyed stream, so the jitter cannot shift the lineup search's draw
+    # and vice versa.
+    jitter_rng = random.Random(f"rtt:{seed}:boss-jitter:{act}")
+    jitter = jitter_rng.uniform(-BOSS_TARGET_JITTER, BOSS_TARGET_JITTER)
+    return tracked + boss_combined_target(act, rule_id) + jitter
+
+
+def generate_boss_for_act(
+    pool: CardPool,
+    seed: int,
+    act: int,
+    player_starters: Sequence[str],
+    player_bench: Sequence[str],
+    systems: Sequence[str] = (),
+    exclude_slugs: frozenset[str] = frozenset(),
+) -> Opponent:
+    """Build this act's opponent for the roster that will face it.
+
+    Pure function of its arguments. The RNG stream follows the repository's
+    keyed-stream convention (``rtt:{seed}:{stream}``) so adding this stream did
+    not and cannot shift any existing stream's output.
+
+    ``exclude_slugs`` MUST already contain every identity the player owns.
+    Passing it is not an optimisation -- it is the whole of the duplicate-
+    identity fix, and :func:`assert_boss_is_legal` re-checks it before the
+    lineup is returned so a caller that forgets fails loudly rather than
+    shipping a duplicate to a player.
+    """
+    # Imported here rather than at module scope: `battle` is the resolution
+    # layer, and importing it eagerly would make the boss catalogue depend on
+    # it for every caller that only wants the specs.
+    from nba_peak.run_the_table.battle import (
+        bench_weight_for,
+        player_lane_profile,
+        roster_lane_profile,
+        roster_total,
+    )
+
+    spec = boss_spec_for_act(act)
+    rule_id = spec["rule_id"]
+
+    _, opponent_bench_weight = bench_weight_for(systems, rule_id)
+    player_profile = player_lane_profile(
+        pool, player_starters, player_bench, systems, rule_id
+    )
+    player_rating = roster_total(player_profile)
+    target = boss_target_rating(player_rating, act, rule_id, seed)
+
+    candidates = [c for c in pool.cards if c.player_slug not in exclude_slugs]
+    if len(candidates) < len(ROLES) + BENCH_SLOTS:
+        raise BossGenerationError(
+            f"Only {len(candidates)} cards remain after exclusions; act {act} needs "
+            f"at least {len(ROLES) + BENCH_SLOTS}."
+        )
+
+    rng = random.Random(f"rtt:{seed}:boss:{act}")
+    best: Optional[tuple[float, list[RunCard], list[RunCard]]] = None
+    best_miss = float("inf")
+
+    # TWO PASSES, and the second is load-bearing at the top of the range.
+    # Uniform sampling finds a mid-pool target quickly and essentially never
+    # finds one in the top tail: measured, the strongest third of rosters
+    # reached act 5 at a ~47 lineup rating wanting a ~49 opponent, and 220
+    # uniform draws landed at a mean delta of +0.62 against a target of +2.02.
+    # Pass 2 re-runs the identical search over the strongest half of the
+    # candidates, which is where a high target actually lives. Pass 1's winner
+    # still competes, so the middle of the range is untouched -- this only adds
+    # reach, and it is skipped entirely once pass 1 is already inside tolerance.
+    passes = [candidates]
+    strong = sorted(candidates, key=lambda c: -_card_lane_mean(c))[
+        : max(len(ROLES) + BENCH_SLOTS, len(candidates) // 2)
+    ]
+    if len(strong) >= len(ROLES) + BENCH_SLOTS:
+        passes.append(strong)
+
+    for candidate_set in passes:
+        best, best_miss = _search_pass(
+            _CandidateIndex(candidate_set), rng, target, rule_id, player_profile,
+            opponent_bench_weight, best, best_miss,
+        )
+        if best_miss <= BOSS_TARGET_TOLERANCE:
+            break
 
     if best is None:
-        raise RuntimeError(
-            f"Could not generate a legal fallback boss '{boss_id}' from a pool of "
-            f"{len(pool)} cards."
+        raise BossGenerationError(
+            f"Could not build a legal boss for act {act} from {len(candidates)} "
+            f"candidate cards."
         )
+
     _, starters, bench = best
-    return Opponent(
-        boss_id=boss_id,
-        name=name,
-        tagline=tagline,
+    opponent = Opponent(
+        boss_id=spec["boss_id"],
+        name=spec["name"],
+        tagline=spec["tagline"],
         act=act,
         rule_id=rule_id,
         starter_ids=tuple(c.peak_window_id for c in starters),
         bench_ids=tuple(c.peak_window_id for c in bench),
-        source="generated_fallback",
+        source="generated",
+    )
+    assert_boss_is_legal(pool, opponent, exclude_slugs)
+    return opponent
+
+
+# ---------------------------------------------------------------------------
+# Server-side legality
+# ---------------------------------------------------------------------------
+def assert_boss_is_legal(
+    pool: CardPool, boss: Opponent, exclude_slugs: frozenset[str] = frozenset()
+) -> None:
+    """Refuse an illegal boss lineup at the point it is produced.
+
+    A TEST IS NOT ENOUGH HERE. The duplicate-identity defect this replaces was
+    invisible for the life of v3 precisely because every check that existed was
+    scoped to one side: the balance audit compared the player's roster against
+    itself, and the boss tests compared a boss against itself. This assertion
+    is on the WRITE path, so a regression cannot reach a player even on a seed
+    no test ever draws.
+    """
+    ids = list(boss.starter_ids) + list(boss.bench_ids)
+    if len(ids) != len(ROLES) + BENCH_SLOTS:
+        raise BossGenerationError(
+            f"Boss '{boss.boss_id}' has {len(ids)} cards; expected "
+            f"{len(ROLES) + BENCH_SLOTS}."
+        )
+    missing = [i for i in ids if not pool.has(i)]
+    if missing:
+        raise BossGenerationError(
+            f"Boss '{boss.boss_id}' names cards outside the pool: {missing}"
+        )
+    slugs = [pool.get(i).player_slug for i in ids]
+    if len(set(slugs)) != len(slugs):
+        dupes = sorted({s for s in slugs if slugs.count(s) > 1})
+        raise BossGenerationError(
+            f"Boss '{boss.boss_id}' fields the same identity twice: {dupes}"
+        )
+    collision = sorted(set(slugs) & set(exclude_slugs))
+    if collision:
+        raise BossGenerationError(
+            f"Boss '{boss.boss_id}' fields an excluded identity (the run owns it, "
+            f"or another boss already has it): {collision}"
+        )
+    for role, card_id in zip(ROLES, boss.starter_ids):
+        if role not in pool.get(card_id).eligible_roles:
+            raise BossGenerationError(
+                f"Boss '{boss.boss_id}' starts {card_id} at '{role}', which it "
+                f"cannot play."
+            )
+
+
+def boss_slugs(pool: CardPool, boss: Opponent) -> frozenset[str]:
+    """Every identity this boss fields."""
+    return frozenset(
+        pool.get(cid).player_slug
+        for cid in list(boss.starter_ids) + list(boss.bench_ids)
     )
 
 
-def _curated_is_resolvable(pool: CardPool, spec: dict) -> bool:
-    ids = list(spec["starter_ids"]) + list(spec["bench_ids"])
-    if not all(pool.has(i) for i in ids):
-        return False
-    slugs = [pool.get(i).player_slug for i in ids]
-    if len(set(slugs)) != len(slugs):
-        return False
-    for role, card_id in zip(ROLES, spec["starter_ids"]):
-        if role not in pool.get(card_id).eligible_roles:
-            return False
-    return True
-
-
-def resolve_bosses(pool: CardPool) -> tuple[Opponent, ...]:
-    """Return the five act bosses, in act order, curated where possible.
-
-    Deterministic and independent of the run seed — every run faces the same
-    five opponents, which is what makes runs comparable to each other and to
-    the daily board. The last entry is the Final Boss: winning it is the only
-    way to clear the table (``receipt.build_receipt``).
-    """
-    out: list[Opponent] = []
-    for idx, spec in enumerate(CURATED_BOSSES):
-        if _curated_is_resolvable(pool, spec):
-            out.append(
-                Opponent(
-                    boss_id=spec["boss_id"],
-                    name=spec["name"],
-                    tagline=spec["tagline"],
-                    act=spec["act"],
-                    rule_id=spec["rule_id"],
-                    starter_ids=tuple(spec["starter_ids"]),
-                    bench_ids=tuple(spec["bench_ids"]),
-                    source="curated",
-                )
-            )
-        else:
-            out.append(
-                generate_themed_boss(
-                    pool,
-                    boss_id=spec["boss_id"],
-                    act=spec["act"],
-                    name=spec["name"],
-                    tagline=spec["tagline"],
-                    rule_id=spec["rule_id"],
-                    target_mean=BOSS_TARGET_STARTER_MEAN[idx],
-                    # Fixed per-boss seed: the fallback must not vary by run.
-                    seed=90_001 + idx * 977,
-                )
-            )
-    return tuple(out)
-
-
+# ---------------------------------------------------------------------------
+# Presentation
+# ---------------------------------------------------------------------------
 def boss_reveal_order(pool: CardPool, boss: Opponent) -> list[dict]:
     """The deterministic slot-by-slot reveal of a boss lineup (spec §3).
 
     Same seven slots and the same order as the opening roster reveal, so a
-    client can drive both with one component. Pure lookup — no seed, no clock,
-    no model inference: the boss slate is fixed for every run of a ruleset, and
-    labelling the reveal as seed/rule generated rather than "an LLM building a
-    team live" is only honest if the data actually behaves that way.
+    client can drive both with one component. Pure lookup -- no seed, no clock,
+    no model inference: the lineup was decided when the act began and is stored
+    on the run, and labelling the reveal as seed/roster generated rather than
+    "an LLM building a team live" is only honest if the data behaves that way.
     """
     out: list[dict] = []
     for idx, (role, card_id) in enumerate(zip(ROLES, boss.starter_ids)):
@@ -425,25 +677,23 @@ def scout_report(
     """Everything "Scout the Boss" reveals, computed from published values.
 
     Spec §5A: the next boss's rule, its two strongest lanes, its weakest lane,
-    and a projected matchup — then the capped preparation the player may buy on
+    and a projected matchup -- then the capped preparation the player may buy on
     top of it. Every number here is one the player can already reproduce from
     the lane profiles the UI shows; scouting buys the *work*, not private
     information the engine is otherwise hiding.
 
     ``would_flip`` on each preparation option is the whole reason this node is
-    no longer dead content: it tells the player, before they commit, whether the
+    not dead content: it tells the player, before they commit, whether the
     2.5-point preparation actually changes a lane result in the fight they are
     about to take.
     """
-    # Imported here rather than at module scope: `battle` is the resolution
-    # layer and importing it eagerly would make the boss catalogue depend on it
-    # for every caller that only wants the lineups.
     from nba_peak.run_the_table.battle import (
         bench_weight_for,
         lane_margin_threshold,
         lanes_to_win_for,
         player_lane_profile,
         roster_lane_profile,
+        roster_total,
     )
 
     _, opponent_bench_weight = bench_weight_for(systems, boss.rule_id)
@@ -528,6 +778,13 @@ def scout_report(
         "projection": projection,
         "preparations": preparations,
         "starter_mean": round(boss_starter_mean(pool, boss), 3),
+        # v4: the authoritative lineup rating of each side, on the SAME scale
+        # the battle scores and the roster panel prints. Published because the
+        # boss is now built to a target expressed in exactly this quantity, and
+        # a player told "this opponent was built for your roster" is owed the
+        # number that claim is made in.
+        "opponent_lineup_rating": roster_total(boss_profile),
+        "player_lineup_rating": roster_total(player_profile),
     }
 
 
@@ -535,6 +792,17 @@ def boss_starter_mean(pool: CardPool, boss: Opponent) -> float:
     return statistics.mean(pool.get(i).prime_score for i in boss.starter_ids)
 
 
-def boss_within_target(pool: CardPool, boss: Opponent, act_index: int) -> bool:
-    target = BOSS_TARGET_STARTER_MEAN[act_index]
-    return abs(boss_starter_mean(pool, boss) - target) <= BOSS_TARGET_TOLERANCE
+def boss_lineup_rating(
+    pool: CardPool, boss: Opponent, systems: Sequence[str] = ()
+) -> float:
+    """The boss's authoritative lineup rating, scored as the battle will score it."""
+    from nba_peak.run_the_table.battle import (
+        bench_weight_for,
+        roster_lane_profile,
+        roster_total,
+    )
+
+    _, obw = bench_weight_for(systems, boss.rule_id)
+    return roster_total(
+        roster_lane_profile(pool, boss.starter_ids, boss.bench_ids, obw)
+    )

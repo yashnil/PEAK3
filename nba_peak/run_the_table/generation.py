@@ -15,12 +15,13 @@ from __future__ import annotations
 import random
 from typing import Optional
 
-from nba_peak.run_the_table.bosses import resolve_bosses
 from nba_peak.run_the_table.cards import CardPool, get_pool
 from nba_peak.run_the_table.config import (
     ACTS,
     BENCH_SLOTS,
     DRAFT_GUARANTEED_AFFORDABLE_COST,
+    MARQUEE_OFFERS_PER_ACT,
+    MARQUEE_PERCENTILE_MIN,
     MAX_GENERATION_ATTEMPTS,
     NODE_CHOICES_PER_STAGE,
     OFFERS_PER_DRAFT,
@@ -120,12 +121,62 @@ def generate_system_offers(seed: int) -> tuple[tuple[str, ...], tuple[str, ...]]
 # ---------------------------------------------------------------------------
 # Node offers
 # ---------------------------------------------------------------------------
+def marquee_candidates(pool: CardPool, exclude_slugs: frozenset[str] = frozenset()) -> list[str]:
+    """The cards that satisfy the marquee guarantee, in canonical order.
+
+    A marquee card is one at or above ``MARQUEE_PERCENTILE_MIN`` of the pool by
+    prime_score -- the top decile, 28 cards at CARD_POOL_VERSION v3, all of
+    them costing 23-30 credits. See the constant for why the guarantee exists
+    and why price, not scarcity of supply, is what keeps it honest.
+    """
+    return [
+        c.peak_window_id
+        for c in pool.cards
+        if c.overall_percentile >= MARQUEE_PERCENTILE_MIN
+        and c.player_slug not in exclude_slugs
+    ]
+
+
+def _place_marquee(
+    pool: CardPool,
+    rng: random.Random,
+    picks: list[str],
+    exclude_slugs: frozenset[str],
+    protected_index: Optional[int],
+) -> list[str]:
+    """Force one marquee card onto this board if it does not already carry one.
+
+    ``protected_index`` is the slot the caller may NOT overwrite -- slot 0 of a
+    Draft Room carries the affordability guarantee, and a board that is
+    guaranteed to hold a card a broke player can buy must not have that
+    guarantee replaced by one they certainly cannot. The marquee therefore
+    lands on the LAST slot, exactly as Role Focus does and for the same reason.
+    """
+    if any(
+        pool.get(cid).overall_percentile >= MARQUEE_PERCENTILE_MIN for cid in picks
+    ):
+        return picks
+    on_board = {pool.get(cid).player_slug for cid in picks}
+    candidates = marquee_candidates(pool, exclude_slugs | frozenset(on_board))
+    if not candidates:
+        # Unreachable with the real pool (28 marquee cards against a 7-card
+        # roster) but the engine must not fabricate an offer.
+        raise RunGenerationError("No marquee card is available for this board")
+    out = list(picks)
+    target = len(out) - 1
+    if protected_index is not None and target == protected_index:
+        target = max(0, len(out) - 2)
+    out[target] = rng.choice(candidates)
+    return out
+
+
 def _draft_offers(
     pool: CardPool,
     seed: int,
     node_id: str,
     exclude_slugs: frozenset[str],
     guaranteed_affordable_cost: int,
+    require_marquee: bool = False,
 ) -> list[str]:
     """Three offers, at least one of them cheap enough for a broke player.
 
@@ -173,18 +224,32 @@ def _draft_offers(
         raise RunGenerationError(f"Could not fill draft node {node_id}")
 
     rng.shuffle(picks)
-    return [c.peak_window_id for c in picks]
+    ids = [c.peak_window_id for c in picks]
+    if require_marquee:
+        # The anchor is affordability-guaranteed and must survive, so tell
+        # `_place_marquee` which slot it occupies after the shuffle.
+        anchor_index = ids.index(anchor.peak_window_id)
+        ids = _place_marquee(pool, rng, ids, exclude_slugs, anchor_index)
+    return ids
 
 
 def _trade_offers(
-    pool: CardPool, seed: int, node_id: str, exclude_slugs: frozenset[str]
+    pool: CardPool,
+    seed: int,
+    node_id: str,
+    exclude_slugs: frozenset[str],
+    require_marquee: bool = False,
 ) -> list[str]:
     rng = _rng(seed, f"trade:{node_id}")
     candidates = [c for c in pool.cards if c.player_slug not in exclude_slugs]
     if len(candidates) < OFFERS_PER_TRADE:
         raise RunGenerationError(f"Not enough cards to fill trade node {node_id}")
     picks = rng.sample(candidates, OFFERS_PER_TRADE)
-    return [c.peak_window_id for c in picks]
+    ids = [c.peak_window_id for c in picks]
+    if require_marquee:
+        # No affordability guarantee on a trade board, so no protected slot.
+        ids = _place_marquee(pool, rng, ids, exclude_slugs, None)
+    return ids
 
 
 def _reserve_candidates(
@@ -250,6 +315,35 @@ def _stage_node_types(seed: int, act: int, stage: int) -> tuple[str, str]:
         return a, b
 
 
+_MARKET_NODE_TYPES = ("draft_room", "trade_desk")
+
+
+def _marquee_node_ids(seed: int) -> frozenset[str]:
+    """Which node in each act carries the guaranteed top-decile offer.
+
+    Deterministic, one keyed stream, chosen among the act's market nodes only.
+    Every stage is guaranteed to contain at least one market node -- the two
+    non-market types (``rest_bank`` and ``film_room``) are the one pair
+    ``_stage_node_types`` refuses to emit -- so a market node always exists to
+    receive the guarantee.
+    """
+    rng = _rng(seed, "marquee")
+    out: set[str] = set()
+    for act in range(1, ACTS + 1):
+        market_nodes: list[str] = []
+        for stage in range(1, STAGES_PER_ACT + 1):
+            for idx, node_type in enumerate(_stage_node_types(seed, act, stage)):
+                if node_type in _MARKET_NODE_TYPES:
+                    market_nodes.append(f"a{act}s{stage}o{idx}")
+        if not market_nodes:
+            raise RunGenerationError(
+                f"Act {act} of seed {seed} has no market node to carry the "
+                f"marquee guarantee."
+            )
+        out.update(rng.sample(market_nodes, min(MARQUEE_OFFERS_PER_ACT, len(market_nodes))))
+    return frozenset(out)
+
+
 def generate_blueprint(
     seed: int,
     run_type: str = "standard",
@@ -261,18 +355,29 @@ def generate_blueprint(
     starters, bench = generate_starting_roster(pool, seed)
     start_slugs = frozenset(pool.get(cid).player_slug for cid in starters + bench)
     system_offers = generate_system_offers(seed)
-    bosses = resolve_bosses(pool)
-    boss_slugs = frozenset(
-        pool.get(cid).player_slug
-        for b in bosses
-        for cid in list(b.starter_ids) + list(b.bench_ids)
-    )
 
-    # Cards already on the starting roster are excluded from every offer so a
-    # run can never be shown a card it already owns. Boss cards stay available:
-    # beating The Ceiling with a card off its own bench is a good story, and
-    # excluding 21 more cards would thin the anchor pool dangerously.
+    # v4: NO BOSS GENERATION HERE. Under v3 this function resolved the five
+    # curated bosses, computed their slugs, and then threw that set away --
+    # which is exactly how the same player ended up on both rosters. The
+    # dependency now runs the other way: the roster is drawn from the seed
+    # first, and each boss is generated against it when its act begins
+    # (`state.ensure_boss_for_act`), excluding every identity the run owns. A
+    # collision is therefore impossible by construction rather than prevented
+    # by a filter somebody has to remember to apply.
+    #
+    # Cards already on the starting roster are still excluded from every board
+    # here, so an opening board can never offer a card the run already holds.
+    # Cards acquired LATER are excluded at read time instead -- see
+    # `market_offers`, which takes the run's live owned-identity set, because a
+    # board fixed at blueprint time cannot know what act 3 bought.
     exclude = start_slugs
+
+    # One board per act is guaranteed to carry a top-decile card. Which one is
+    # decided here, deterministically, from a stream of its own so it cannot
+    # shift any existing stream. It is chosen among the act's MARKET nodes only
+    # (every stage has at least one -- `_stage_node_types` never pairs the two
+    # non-market types), so the guarantee always has somewhere to land.
+    marquee_nodes = _marquee_node_ids(seed)
 
     stages: list[StagePlan] = []
     for act in range(1, ACTS + 1):
@@ -288,6 +393,7 @@ def generate_blueprint(
                         node_id=node_id, node_type=node_type, title=title, summary=summary
                     )
                 )
+                is_marquee = node_id in marquee_nodes
                 if node_type == "draft_room":
                     # The budget the guarantee is written against is the WORST
                     # case, not the starting one: a player arriving here may have
@@ -298,11 +404,14 @@ def generate_blueprint(
                         "offer_ids": _draft_offers(
                             pool, seed, node_id, exclude,
                             DRAFT_GUARANTEED_AFFORDABLE_COST,
+                            require_marquee=is_marquee,
                         )
                     }
                 elif node_type == "trade_desk":
                     payloads[node_id] = {
-                        "incoming_ids": _trade_offers(pool, seed, node_id, exclude)
+                        "incoming_ids": _trade_offers(
+                            pool, seed, node_id, exclude, require_marquee=is_marquee
+                        )
                     }
                 elif node_type == "film_room":
                     # No "credits" key at all. Scout & Prepare pays nothing —
@@ -326,8 +435,11 @@ def generate_blueprint(
         "card_pool_size": len(pool),
         "excluded_profiles": pool.stats.excluded_count,
         "duration_years": pool.stats.duration_years,
-        "boss_sources": [b.source for b in bosses],
-        "generation_algorithm": "rtt_gen_v1",
+        # v4: no `boss_sources`. The blueprint no longer knows the bosses --
+        # they are generated per act against the live roster and recorded on the
+        # run state, which is where `Opponent.source` now lives.
+        "marquee_node_ids": sorted(marquee_nodes),
+        "generation_algorithm": "rtt_gen_v2",
     }
 
     return RunBlueprint(
@@ -338,7 +450,6 @@ def generate_blueprint(
         starting_bench=bench,
         system_offers=system_offers,
         stages=tuple(stages),
-        bosses=bosses,
         metadata=metadata,
     )
 
@@ -482,6 +593,54 @@ def _apply_role_focus(
     return out
 
 
+def _substitute_owned(
+    pool: CardPool,
+    blueprint: RunBlueprint,
+    node_id: str,
+    ids: list[str],
+    exclude_slugs: frozenset[str],
+    refresh_index: int,
+) -> list[str]:
+    """Replace any offer the run already owns with a deterministic stand-in.
+
+    THE BLUEPRINT CANNOT DO THIS. A board is fixed from the seed, so the only
+    identities it can exclude up front are the ones already known then -- the
+    STARTING roster. Under v3 that was the whole exclusion set, so a card bought
+    in act 1 stayed on every later board it appeared on: measured over 500
+    seeds, the same identity appeared on two or more boards in 499 of them, and
+    the concrete case is seed 1, where `larry-nance-3yr-199192` sits on the act-1
+    draft board and the act-3 trade board.
+
+    Applied at READ time, from the run's live owned set, so a board can never
+    offer a card the roster already holds no matter when it was acquired. The
+    substitute is drawn from a keyed stream, so the same run always sees the
+    same replacement and a client cannot re-roll for a better one.
+
+    ``exclude_slugs`` also carries every identity on a boss this run has locked
+    and not yet beaten -- see `state.unavailable_slugs` for why acquiring one
+    has to be impossible rather than merely discouraged.
+    """
+    offending = [cid for cid in ids if pool.get(cid).player_slug in exclude_slugs]
+    if not offending:
+        return ids
+
+    rng = _rng(blueprint.seed, f"substitute:{node_id}:{refresh_index}")
+    out = list(ids)
+    on_board = {pool.get(cid).player_slug for cid in ids}
+    for cid in offending:
+        blocked = exclude_slugs | frozenset(on_board)
+        candidates = [c for c in pool.cards if c.player_slug not in blocked]
+        if not candidates:
+            raise RunGenerationError(
+                f"No card remains to replace an owned offer at node {node_id}"
+            )
+        replacement = rng.choice(candidates)
+        out[out.index(cid)] = replacement.peak_window_id
+        on_board.discard(pool.get(cid).player_slug)
+        on_board.add(replacement.player_slug)
+    return out
+
+
 def market_offers(
     pool: CardPool,
     blueprint: RunBlueprint,
@@ -490,13 +649,19 @@ def market_offers(
     refresh_index: int = 0,
     role_focus: Optional[str] = None,
     reserved_card_id: Optional[str] = None,
+    exclude_slugs: frozenset[str] = frozenset(),
 ) -> list[str]:
     """The card ids actually on this node's board, after every live modifier.
 
     Composition order is fixed and published: refresh first (it replaces the
     whole board), then role focus (it repairs whatever board survived), then the
+    owned-identity substitution (nothing the run holds may be offered), then the
     reservation (it is an addition the player already paid for and can never be
     refreshed away).
+
+    The substitution runs AFTER role focus on purpose: role focus may itself
+    introduce a card the run owns, and a guarantee that hands back a duplicate
+    is not a guarantee.
     """
     plan, option = node_option(blueprint, node_id)
     key = _OFFER_KEY.get(option.node_type)
@@ -511,6 +676,11 @@ def market_offers(
     if role_focus:
         ids = _apply_role_focus(
             pool, blueprint, node_id, ids, role_focus, refresh_index
+        )
+
+    if exclude_slugs:
+        ids = _substitute_owned(
+            pool, blueprint, node_id, ids, exclude_slugs, refresh_index
         )
 
     if reserved_card_id and option.node_type == "draft_room":

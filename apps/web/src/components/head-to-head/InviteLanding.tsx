@@ -104,7 +104,8 @@ export default function InviteLanding({ token }: { token: string }) {
 
       <p className="mt-4 text-sm opacity-80">
         You will both play the <strong>same board</strong> — the same starting roster, the
-        same perk offers, the same node map and the same bosses. Only your choices differ.
+        same perk offers, the same node map and the same five bosses, each one scaled
+        to the team you build. Only your choices differ.
       </p>
       <p className="mt-2 text-sm opacity-80">
         Neither of you sees the other&apos;s result until you have both finished.

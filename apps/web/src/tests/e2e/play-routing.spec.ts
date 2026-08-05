@@ -70,6 +70,14 @@ function playTrigger(page: Page): Locator {
 async function openPlayMenu(page: Page): Promise<Locator> {
   const trigger = playTrigger(page);
   await expect(trigger).toBeVisible();
+  // `aria-expanded="false"` is SERVER-RENDERED, so it proves the HTML arrived
+  // and nothing more -- it is already true before React has attached the
+  // trigger's handler, and a click in that window is captured by React's root
+  // listener and replayed later, leaving the menu shut. `data-nav-ready` is
+  // set from an effect (see `nav.tsx`) and is the header's own "this control
+  // is live" signal. Observed as a real failure in `arena-multiplayer.spec.ts`:
+  // `aria-expanded` read "false" for a full 5s after a successful click.
+  await expect(page.locator("header[data-nav-ready='true']")).toBeAttached();
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await trigger.click();
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
@@ -322,6 +330,17 @@ test.describe("Navbar Play", () => {
     await expect(rankings).toHaveAttribute("href", "/rankings");
     // Visible without scrolling the drawer.
     await expect(rankings).toBeInViewport();
+
+    // AND ON A SHORT PHONE. The drawer used to scroll as a whole, so whether
+    // Rankings cleared the fold was a function of how long the open Play
+    // catalog happened to be -- which is how adding the Multiplayer group
+    // pushed it off screen. Only the expanded section scrolls now, so the
+    // property holds at 360x640 too, and the close control and the account row
+    // stay reachable with it.
+    await page.setViewportSize({ width: 360, height: 640 });
+    await expect(rankings).toBeInViewport();
+    await expect(page.getByTestId("mobile-nav-close")).toBeInViewport();
+    await expect(page.getByTestId("mobile-nav-account")).toBeInViewport();
   });
 
   test("the open Play panel stays inside the viewport at every desktop width", async ({ page }) => {

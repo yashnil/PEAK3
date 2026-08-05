@@ -2454,6 +2454,26 @@ describe("BossPreview — the pre-boss briefing (plan §6)", () => {
     );
   }
 
+  it("says an unlocked boss has not been picked yet, not that it is hidden", () => {
+    /* v4: before its act begins a boss has no lineup at all -- it is built
+       against the roster that will face it. "Not scouted" would be a lie
+       (there is nothing to scout), and silence reads as a loading bug. */
+    renderPreview({ revealed: false, locked: false, starters: undefined, bench: undefined });
+    const note = screen.getByTestId("rtt-boss-unlocked-note");
+    expect(note.textContent).toMatch(/not picked yet/i);
+    expect(note.textContent).toMatch(/matched to your roster/i);
+    // Name and rule are still shown -- those exist from the start.
+    expect(screen.getByTestId("rtt-boss-rule-summary")).toBeInTheDocument();
+  });
+
+  it("still says NOT SCOUTED for a locked-but-unrevealed boss", () => {
+    /* The other half of the same distinction: here the five DO exist and are
+       being withheld, which is a scouting decision rather than a timing one. */
+    renderPreview({ revealed: false, locked: true, starters: undefined, bench: undefined });
+    expect(screen.queryByTestId("rtt-boss-unlocked-note")).not.toBeInTheDocument();
+    expect(screen.getByText(/not scouted/i)).toBeInTheDocument();
+  });
+
   it("states the win condition from the payload, never a literal", () => {
     renderPreview({}, 4);
     expect(screen.getByTestId("rtt-boss-win-condition")).toHaveTextContent("First to 4 of 5 lanes");

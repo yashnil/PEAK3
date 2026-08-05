@@ -229,6 +229,86 @@ describe("Dialog", () => {
     await waitFor(() => expect(screen.getByTestId("preferred")).toHaveFocus());
   });
 
+  it("places initial focus even if the animation frame beats the portal", async () => {
+    /**
+     * REGRESSION. Focus placement used to live inside the same
+     * `requestAnimationFrame` as the entrance ramp. `Portal` returns `null`
+     * until after its own first effect, so on the render where `open` flips
+     * true there is no panel and no children yet -- both `initialFocusRef`
+     * and the panel ref are null. The frame was racing the portal's
+     * mount-commit, and when the frame won, every focus branch fell through
+     * against nulls and focus stayed on `<body>`: a keyboard user opening a
+     * modal and landing nowhere, with no retry, because `open` had not
+     * changed and the effect never re-ran.
+     *
+     * jsdom won that race most of the time, so it surfaced as an intermittent
+     * failure in an unrelated suite rather than as a bug report. Forcing the
+     * interleaving is what makes it a test instead of a coin flip.
+     */
+    const spy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((cb) => {
+        cb(performance.now());
+        return 1 as unknown as number;
+      });
+    try {
+      function Harness() {
+        const [open, setOpen] = useState(false);
+        const ref = useRef<HTMLButtonElement>(null);
+        return (
+          <>
+            <button type="button" data-testid="opener" onClick={() => setOpen(true)}>
+              open
+            </button>
+            <Dialog
+              open={open}
+              onClose={() => setOpen(false)}
+              label="Raced"
+              initialFocusRef={ref}
+            >
+              <button type="button" ref={ref} data-testid="raced-preferred">
+                preferred
+              </button>
+            </Dialog>
+          </>
+        );
+      }
+      render(<Harness />);
+      await userEvent.click(screen.getByTestId("opener"));
+      await screen.findByRole("dialog");
+      expect(screen.getByTestId("raced-preferred")).toHaveFocus();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("places initial focus even if the animation frame never fires", async () => {
+    /** A backgrounded tab never runs `requestAnimationFrame`. Focus is an
+     *  accessibility guarantee and must not be contingent on one. */
+    const spy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation(() => 1 as unknown as number);
+    try {
+      function Harness() {
+        const ref = useRef<HTMLButtonElement>(null);
+        return (
+          <Dialog open onClose={() => {}} label="No frame" initialFocusRef={ref}>
+            <button type="button" ref={ref} data-testid="no-frame-preferred">
+              preferred
+            </button>
+          </Dialog>
+        );
+      }
+      render(<Harness />);
+      await screen.findByRole("dialog");
+      await waitFor(() =>
+        expect(screen.getByTestId("no-frame-preferred")).toHaveFocus(),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("only the innermost of two open dialogs handles Escape", async () => {
     const user = userEvent.setup();
     function Nested() {

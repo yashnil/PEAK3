@@ -33,6 +33,8 @@ from nba_peak.run_the_table.config import (
     STARTING_CREDITS,
     STARTING_LIVES,
     TERMINAL_STATUSES,
+    TRADE_MACHINE_REFUND_PCT,
+    TRADE_REFUND_PCT,
     VETERAN_MINIMUM_PERCENTILE_MAX,
     version_tuple,
 )
@@ -54,23 +56,32 @@ SEED_TRADE = 12          # act 1 stage 1 offers a Trade Desk at node a1s1o1
 # anchor offer and so changed which cards seed 0's boards hold.
 # `test_seed_fixture_still_provides_what_this_test_needs` is the guard that
 # catches exactly this, which is why it exists.
-SEED_VET_MIN = 98
+# v4 re-pick from 98: the marquee guarantee and the owned-identity substitution
+# both change which cards a board holds, so 98 no longer carries a bottom-35%
+# offer at every node this fixture needs. Re-picked by search, not by hand.
+SEED_VET_MIN = 106
 # Offers Trade Machine and opens on a Trade Desk at a1s1o0. Previously borrowed
 # SEED_VET_MIN, which coupled two unrelated fixtures to one seed; split out so
 # re-picking one of them cannot break the other.
 SEED_TRADE_MACHINE = 0
-# Under Standard v3 the "pass" policy loses acts 1, 2 and 3 here, which burns
-# all three lives before the Final Boss -- the seed the immediate-game-over rule
-# is asserted against.
-SEED_ALL_LOSSES = 6
+# The "pass" policy loses acts 1, 2 and 3 here, burning all three lives before
+# the Final Boss -- the seed the immediate-game-over rule is asserted against.
+# v4 re-pick from 6: bosses are now built to the roster they face, so a
+# do-nothing run no longer loses every fight by default on an arbitrary seed.
+# That is the calibration working, not a regression; the fixture just has to
+# name a seed where the roster genuinely cannot keep up.
+SEED_ALL_LOSSES = 12
 SEED_FILM_EARLY = 3      # Scout & Prepare at act 1 stage 2
 # Scout & Prepare ONLY at the very last stage of the run. Re-picked from 9 for
 # v3: `_stage_node_types` is keyed per (act, stage), so adding a fifth act gave
 # seed 9 further Scout & Prepare nodes and it no longer isolates the last one.
 SEED_FILM_LAST = 239
-# A greedy run that sweeps all five bosses. Re-picked from 8, which under v3's
-# five acts and cut income runs out of lives in act 4.
-SEED_GREEDY_SWEEP = 27
+# A greedy run that survives all five acts. v4 re-pick from 27: the boss slate
+# is generated per run against the roster facing it, so which seeds a policy
+# survives changed wholesale. Note this file drives the policy with
+# `random.Random(5)`, NOT with the seed, so it needs its own constant --
+# `test_receipt_and_daily.py` has a separate one for a FLAWLESS (5-0) sweep.
+SEED_GREEDY_SWEEP = 1
 
 
 def _volatile(state: S.RunState) -> dict:
@@ -136,17 +147,42 @@ class TestStandardV3Shape:
         assert MAX_LIVES == 3
         assert STARTING_CREDITS == 50
 
-    def test_the_ruleset_is_versioned_v3(self):
+    def test_the_ruleset_is_versioned_v4(self):
         from nba_peak.run_the_table.config import RULESET_VERSION
 
-        assert RULESET_VERSION == "rtt_ruleset_v3"
-        assert version_tuple()["ruleset_version"] == "rtt_ruleset_v3"
+        assert RULESET_VERSION == "rtt_ruleset_v4"
+        assert version_tuple()["ruleset_version"] == "rtt_ruleset_v4"
 
-    def test_every_generated_run_has_a_boss_for_every_act(self, blueprints):
+    def test_every_run_locks_a_boss_for_every_act_as_it_reaches_it(
+        self, pool, blueprints
+    ):
+        """REWRITTEN. v3 asserted `len(bp.bosses) == ACTS` -- the blueprint
+        carried all five opponents from the moment it was generated.
+
+        DESIGN DECISION (approved): a boss is now generated against the roster
+        that will face it, so it cannot exist before its act begins and the
+        blueprint has no `bosses` field at all. The replacement asserts the
+        stronger property -- exactly one boss is locked per act, at the moment
+        that act starts and never before -- which is also what stops a future
+        act's lineup from existing to leak.
+        """
         bp = blueprints(1)
-        assert len(bp.bosses) == ACTS
-        assert [b.act for b in bp.bosses] == list(range(1, ACTS + 1))
         assert len(bp.stages) == DECISION_NODES
+        assert not hasattr(bp, "bosses")
+        st = S.create_run(bp, "r", pool=pool)
+        # NOTHING is locked at creation: an opponent built against the opening
+        # roster would be stale by the time act 1 is actually fought, because
+        # the player spends the whole starting purse in between.
+        assert st.boss_lineups == {}
+        for act in range(1, ACTS + 1):
+            st.act = act
+            assert S.boss_for_act(st, bp, act, pool) is None
+            locked = S.ensure_boss_for_act(st, bp, act, pool)
+            assert locked.act == act
+            # Idempotent: asking again serves the lineup already locked.
+            assert S.ensure_boss_for_act(st, bp, act, pool) == locked
+            assert S.boss_for_act(st, bp, act, pool) == locked
+        assert sorted(st.boss_lineups) == list(range(1, ACTS + 1))
 
     def test_the_published_credit_sink_prices_are_the_spec_prices(self):
         """Spec §4 names three of the four prices outright; the fourth is
@@ -273,7 +309,7 @@ class TestActionLegality:
 
     def test_an_action_with_no_open_node_is_rejected(self, pool, blueprints):
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         S.action_select_system(st, bp, bp.system_offers[0][0])
         st.status = "node_active"
         with pytest.raises(RunActionError) as exc:
@@ -284,7 +320,7 @@ class TestActionLegality:
         bp, st = play_policy(SEED_ALL_LOSSES, random.Random(1), pool, "pass")
         assert st.status in TERMINAL_STATUSES
         with pytest.raises(RunActionError) as exc:
-            S.action_advance(st, bp)
+            S.action_advance(st, bp, pool)
         assert exc.value.code == "run_finished"
 
     def test_unknown_slot_lookup_raises(self, blueprints):
@@ -295,9 +331,9 @@ class TestActionLegality:
 
 
 class TestSystemSelection:
-    def test_selecting_a_system_advances_to_node_select(self, blueprints):
+    def test_selecting_a_system_advances_to_node_select(self, blueprints, pool):
         bp = blueprints(2)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         chosen = bp.system_offers[0][1]
         S.action_select_system(st, bp, chosen)
         assert st.systems == [chosen]
@@ -311,7 +347,7 @@ class TestSystemSelection:
             if not overlap:
                 continue
             held = sorted(overlap)[0]
-            st = S.create_run(bp, "r")
+            st = S.create_run(bp, "r", pool=pool)
             S.action_select_system(st, bp, held)
             st.pending_system_offer = bp.system_offers[1]
             available = S.available_system_offer(st)
@@ -320,9 +356,9 @@ class TestSystemSelection:
             return
         pytest.skip("no seed in range produced overlapping System offers")
 
-    def test_at_most_two_systems_can_be_held(self, blueprints):
+    def test_at_most_two_systems_can_be_held(self, blueprints, pool):
         bp = blueprints(2)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         st.systems = list(bp.system_offers[0][:MAX_SYSTEMS])
         st.pending_system_offer = bp.system_offers[0]
         st.status = "system_select"
@@ -331,9 +367,9 @@ class TestSystemSelection:
             S.action_select_system(st, bp, spare)
         assert exc.value.code == "system_limit"
 
-    def test_holding_a_system_twice_is_rejected(self, blueprints):
+    def test_holding_a_system_twice_is_rejected(self, blueprints, pool):
         bp = blueprints(2)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         held = bp.system_offers[0][0]
         S.action_select_system(st, bp, held)
         st.pending_system_offer = bp.system_offers[0]
@@ -387,18 +423,42 @@ class TestDraftRoom:
         assert "a1s1o0" in st.resolved_node_ids
 
     def test_a_card_already_on_the_roster_has_no_legal_slot(self, pool, blueprints):
+        """REWRITTEN. THE OLD ASSERTION ENCODED THE BUG.
+
+        It asserted `legal_slots_for(owned_card) == [the slot it is in]`, with
+        the message "the only legal home for an owned card is the slot it
+        already occupies" -- i.e. it required the function to report a card as a
+        legal acquisition INTO ITS OWN SLOT. That is what made a self-trade
+        legal: `action_trade` had no `outgoing != incoming` guard and relied on
+        this function to refuse, so trading a card for itself passed every check
+        and charged `cost - refund` for a no-op.
+
+        The test name was always right and the assertion always contradicted it.
+        It now asserts what the name says, which is also what the function's own
+        docstring claimed: a card already on the roster has NO legal slot.
+        """
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         owned = bp.starting_starters[0]
-        assert S.legal_slots_for(st, pool, owned) == [ROLES[0]], (
-            "the only legal home for an owned card is the slot it already occupies"
+        assert S.legal_slots_for(st, pool, owned) == []
+        # A different card that can play the same role still has that slot
+        # available, so refilling a slot is unaffected.
+        role = ROLES[0]
+        owned_slugs = {pool.get(c).player_slug for c in st.all_card_ids()}
+        blocked = S.unavailable_slugs(st, pool)
+        other = next(
+            c for c in pool.cards
+            if role in c.eligible_roles
+            and c.player_slug not in owned_slugs
+            and c.player_slug not in blocked
         )
+        assert role in S.legal_slots_for(st, pool, other.peak_window_id)
 
     def test_legal_slots_respect_role_eligibility_and_allow_any_bench_slot(
         self, pool, blueprints
     ):
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         owned = {pool.get(c).player_slug for c in st.all_card_ids()}
         outsider = next(c for c in pool.cards if c.player_slug not in owned)
         slots = S.legal_slots_for(st, pool, outsider.peak_window_id)
@@ -468,7 +528,7 @@ class TestVeteranMinimumInPlay:
         S.action_choose_node(st, bp, stage_for(bp, 1, 2).options[0].node_id)
         self._resolve_open_node(st, bp, pool)
         S.action_resolve_boss(st, bp, pool)
-        S.action_advance(st, bp)
+        S.action_advance(st, bp, pool)
         if st.status == "system_select":
             S.action_select_system(st, bp, S.available_system_offer(st)[0])
         assert st.act == 2 and st.status == "node_select"
@@ -521,7 +581,7 @@ class TestTradeDesk:
         expected = trade_net_cost(outgoing, incoming, st.systems)
         assert expected["incoming_cost"] == price_for(incoming, st.systems)[0]
         assert expected["outgoing_refund"] == refund_for(outgoing, st.systems)
-        assert expected["outgoing_refund"] == int(outgoing.base_cost * 0.50)
+        assert expected["outgoing_refund"] == int(outgoing.base_cost * TRADE_REFUND_PCT)
         assert expected["net_cost"] == expected["incoming_cost"] - expected["outgoing_refund"]
 
         before = st.credits
@@ -534,7 +594,7 @@ class TestTradeDesk:
         assert st.trades[-1]["net_cost"] == expected["net_cost"]
         assert st.trades[-1]["outgoing_refund"] == expected["outgoing_refund"]
 
-    def test_trade_machine_lifts_the_refund_to_seventy_percent(self, pool, blueprints):
+    def test_trade_machine_lifts_the_refund_above_the_base_rate(self, pool, blueprints):
         """`SEED_TRADE_MACHINE` offers Trade Machine and opens with a Trade Desk
         at a1s1o0."""
         bp = blueprints(SEED_TRADE_MACHINE)
@@ -553,8 +613,10 @@ class TestTradeDesk:
         plain_spend, outgoing, plain_row = results["veteran_minimum"]
         machine_spend, _, machine_row = results["trade_machine"]
 
-        assert plain_row["outgoing_refund"] == int(outgoing.base_cost * 0.50)
-        assert machine_row["outgoing_refund"] == int(outgoing.base_cost * 0.70)
+        assert plain_row["outgoing_refund"] == int(outgoing.base_cost * TRADE_REFUND_PCT)
+        assert machine_row["outgoing_refund"] == int(
+            outgoing.base_cost * TRADE_MACHINE_REFUND_PCT
+        )
         assert machine_row["incoming_cost"] == plain_row["incoming_cost"]
         assert machine_spend == plain_spend - (
             machine_row["outgoing_refund"] - plain_row["outgoing_refund"]
@@ -607,7 +669,7 @@ class TestTradeDesk:
 
 def open_first_of_type(bp, pool, node_type):
     """Walk the run with pass-only actions until a node of this type opens."""
-    st = S.create_run(bp, "r")
+    st = S.create_run(bp, "r", pool=pool)
     guard = 0
     while guard < 80:
         guard += 1
@@ -616,7 +678,7 @@ def open_first_of_type(bp, pool, node_type):
         elif st.status == "node_select":
             plan = stage_for(bp, st.act, st.stage)
             match = [o for o in plan.options if o.node_type == node_type]
-            S.action_choose_node(st, bp, (match or list(plan.options))[0].node_id)
+            S.action_choose_node(st, bp, (match or list(plan.options))[0].node_id, pool)
         elif st.status == "node_active":
             _, opt = S.node_option(bp, st.active_node_id)
             if opt.node_type == node_type:
@@ -632,7 +694,7 @@ def open_first_of_type(bp, pool, node_type):
         elif st.status == "boss_ready":
             S.action_resolve_boss(st, bp, pool)
         elif st.status == "boss_resolved":
-            S.action_advance(st, bp)
+            S.action_advance(st, bp, pool)
         else:
             break
     raise AssertionError(f"seed {bp.seed} never opened a {node_type}")
@@ -683,7 +745,7 @@ class TestScoutAndPrepare:
         bp = generate_blueprint(SEED_FILM_EARLY, pool=pool)
         plain = S.create_run(bp, "plain")
         prepared = S.create_run(bp, "prepared")
-        boss = bp.bosses[0]
+        boss = S.ensure_boss_for_act(plain, bp, 1, pool)
         from nba_peak.run_the_table.battle import resolve_battle
 
         args = dict(
@@ -876,7 +938,7 @@ class TestScoutAndPrepare:
             elif st.status == "boss_ready":
                 S.action_resolve_boss(st, bp, pool)
             elif st.status == "boss_resolved":
-                S.action_advance(st, bp)
+                S.action_advance(st, bp, pool)
             else:
                 break
         raise AssertionError("seed never reached a Draft Room after reserving")
@@ -912,7 +974,7 @@ class TestFilmAndRest:
 class TestBossProgression:
     def test_a_boss_battle_moves_the_run_forward_one_act(self, pool, blueprints):
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         S.action_select_system(st, bp, bp.system_offers[0][0])
         for stage in range(1, STAGES_PER_ACT + 1):
             S.action_choose_node(st, bp, stage_for(bp, 1, stage).options[0].node_id)
@@ -923,17 +985,18 @@ class TestBossProgression:
         S.action_resolve_boss(st, bp, pool)
         assert st.status == "boss_resolved"
         assert len(st.battles) == 1
-        assert st.battles[0].boss_id == bp.bosses[0].boss_id
+        assert st.battles[0].boss_id == S.boss_for_act(st, bp, 1, pool).boss_id
 
-        S.action_advance(st, bp)
+        S.action_advance(st, bp, pool)
         assert st.act == 2
         assert st.stage == 1
         assert st.status in {"system_select", "node_select"}
 
     def test_a_battle_with_an_incomplete_roster_is_rejected(self, pool, blueprints):
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         st.status = "boss_ready"
+        S.ensure_boss_for_act(st, bp, 1, pool)
         st.starters[0].card_id = None
         with pytest.raises(RunActionError) as exc:
             S.action_resolve_boss(st, bp, pool)
@@ -962,7 +1025,7 @@ class TestBossProgression:
         live until the client acknowledged the battle. Resolving the boss is now
         itself terminal."""
         bp = blueprints(SEED_ALL_LOSSES)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         S.action_select_system(st, bp, bp.system_offers[0][0])
         st.lives = 1
         while st.status != "boss_ready":
@@ -975,14 +1038,14 @@ class TestBossProgression:
         assert st.lives == 0
         assert st.status == "failed"
         with pytest.raises(RunActionError) as exc:
-            S.action_advance(st, bp)
+            S.action_advance(st, bp, pool)
         assert exc.value.code == "run_finished"
 
     def test_winning_a_boss_pays_the_published_win_reward(self, pool, blueprints):
         """v1 paid a winner NOTHING and a loser 8 credits, so the only battle
         income in the game went to the player who was losing."""
         bp = blueprints(8)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         S.action_select_system(st, bp, bp.system_offers[0][0])
         for stage in range(1, STAGES_PER_ACT + 1):
             S.action_choose_node(st, bp, stage_for(bp, 1, stage).options[0].node_id)
@@ -1000,18 +1063,20 @@ class TestBossProgression:
         self, pool, blueprints
     ):
         """`blueprint.bosses[state.act - 1]` had no length guard, so any drift
-        between a stored act and the generated boss list was a 500."""
+        between a stored act and the generated boss list was a 500. v4 resolves
+        the boss through `boss_for_act`, which answers None for an out-of-range
+        act and for one that was never locked; both must still be a 409."""
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         st.status = "boss_ready"
-        st.act = len(bp.bosses) + 1
+        st.act = ACTS + 1
         with pytest.raises(RunActionError) as exc:
             S.action_resolve_boss(st, bp, pool)
         assert exc.value.code == "no_boss_for_act"
 
     def test_comeback_credits_actually_land_in_the_players_balance(self, pool, blueprints):
         bp = blueprints(SEED_ALL_LOSSES)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         S.action_select_system(st, bp, bp.system_offers[0][0])
         for stage in range(1, STAGES_PER_ACT + 1):
             S.action_choose_node(st, bp, stage_for(bp, 1, stage).options[0].node_id)
@@ -1094,7 +1159,7 @@ class TestCreditsNeverGoNegative:
         elif st.status == "boss_ready":
             S.action_resolve_boss(st, bp, pool)
         else:
-            S.action_advance(st, bp)
+            S.action_advance(st, bp, pool)
 
     def test_random_legal_play_never_produces_a_negative_balance(self, pool):
         rng = random.Random(31337)
@@ -1152,7 +1217,9 @@ class TestApiAccessors:
         assert by_id["scout_boss"]["cost"] == 0
         assert by_id["scout_boss"]["available"] is True
         assert by_id["scout_boss"]["prep_bonus"] == SCOUT_PREP_LANE_BONUS
-        assert by_id["scout_boss"]["report"]["boss_id"] == bp.bosses[st.act - 1].boss_id
+        assert by_id["scout_boss"]["report"]["boss_id"] == S.boss_for_act(
+            st, bp, st.act, pool
+        ).boss_id
         assert by_id["shape_market"]["cost"] == ROLE_FOCUS_COST
         assert by_id["reserve_card"]["cost"] == RESERVE_CARD_COST
         assert [c["card_id"] for c in by_id["reserve_card"]["candidates"]] == (
@@ -1190,14 +1257,17 @@ class TestApiAccessors:
         self, pool, blueprints
     ):
         bp = blueprints(1)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
+        S.ensure_boss_for_act(st, bp, 1, pool)
         payload = S.reveal_progress(st, bp, pool)
         assert payload["roster"]["total"] == ROSTER_SIZE
         assert payload["roster"]["revealed"] == 0
         assert payload["roster"]["complete"] is False
         assert len(payload["roster"]["slots"]) == ROSTER_SIZE
-        assert payload["boss"]["boss_id"] == bp.bosses[0].boss_id
-        assert payload["boss"]["source"] == "curated"
+        assert payload["boss"]["boss_id"] == S.boss_for_act(st, bp, 1, pool).boss_id
+        # v4: lineups are generated per run, so `source` is "generated". It was
+        # "curated" while the slate was five constants.
+        assert payload["boss"]["source"] == "generated"
         assert len(payload["boss"]["slots"]) == ROSTER_SIZE
 
         S.action_reveal(st, bp, "roster", ROSTER_SIZE)
@@ -1373,9 +1443,9 @@ class TestOpeningReveal:
         b = opening_reveal(pool, generate_blueprint(77, pool=pool))
         assert a == b
 
-    def test_reveal_progress_is_server_side_and_resumable(self, blueprints):
+    def test_reveal_progress_is_server_side_and_resumable(self, blueprints, pool):
         bp = blueprints(1)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         assert st.reveal_index == 0
         S.action_reveal(st, bp, "roster", 1)
         S.action_reveal(st, bp, "roster", 2)
@@ -1386,25 +1456,38 @@ class TestOpeningReveal:
 
     def test_boss_reveal_progress_is_tracked_per_act(self, pool, blueprints):
         bp = blueprints(1)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
+        S.ensure_boss_for_act(st, bp, 1, pool)
         S.action_reveal(st, bp, "boss", 3)
         assert st.boss_reveal_index == {1: 3}
-        st.act = 2
+        # v4: an act's boss does not exist until that act begins, so reaching
+        # act 2 means going through the transition that locks it rather than
+        # just moving the counter.
+        st.lives = 3
+        S._advance_after_boss(st, bp, pool)
+        assert st.act == 2
+        S.ensure_boss_for_act(st, bp, 2, pool)
         S.action_reveal(st, bp, "boss", 99)
         assert st.boss_reveal_index == {1: 3, 2: ROSTER_SIZE}
 
     def test_the_reveal_replays_exactly(self, pool, blueprints):
-        bp = blueprints(1)
-        st = S.create_run(bp, "r")
+        """A boss reveal is only reachable once its lineup is locked, so the
+        replay has to reach that state the same way the original did -- by
+        opening a Scout & Prepare node, which is what locks it."""
+        bp = blueprints(SEED_FILM_EARLY)
+        st = open_first_of_type(bp, pool, "film_room")
         S.action_reveal(st, bp, "roster", 4)
         S.action_reveal(st, bp, "boss", 2)
+
         rebuilt = S.replay(bp, st.action_log, "r", pool=pool)
         assert rebuilt.reveal_index == 4
-        assert rebuilt.boss_reveal_index == {1: 2}
+        assert rebuilt.boss_reveal_index == {st.act: 2}
+        # The replayed run must serve the SAME locked lineup, not a fresh one.
+        assert rebuilt.boss_lineups == st.boss_lineups
 
-    def test_an_unknown_reveal_target_is_rejected(self, blueprints):
+    def test_an_unknown_reveal_target_is_rejected(self, blueprints, pool):
         bp = blueprints(1)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         with pytest.raises(RunActionError) as exc:
             S.action_reveal(st, bp, "opponent_bench", 1)
         assert exc.value.code == "unknown_reveal_target"
@@ -1412,7 +1495,7 @@ class TestOpeningReveal:
     def test_the_reveal_gates_nothing(self, pool, blueprints):
         """A client that never calls it is degraded, not broken."""
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         assert st.reveal_index == 0
         S.action_select_system(st, bp, bp.system_offers[0][0])
         S.action_choose_node(st, bp, "a1s1o0")
@@ -1469,7 +1552,7 @@ class TestVersionRetirement:
             S.assert_version_compatible(saved)
         message = str(exc.value)
         assert "rtt_ruleset_v2" in message
-        assert "rtt_ruleset_v3" in message
+        assert "rtt_ruleset_v4" in message
         assert "previous ruleset" in message
         assert exc.value.changed_fields == ["ruleset_version"]
 
@@ -1500,7 +1583,7 @@ class TestVersionRetirement:
 class TestIdempotency:
     def test_a_repeated_key_is_a_no_op_on_every_action_type(self, pool, blueprints):
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
 
         S.action_select_system(st, bp, bp.system_offers[0][0], idempotency_key="k1")
         snapshot = _volatile(st)
@@ -1531,7 +1614,7 @@ class TestIdempotency:
 
     def test_a_repeated_boss_key_does_not_double_resolve(self, pool, blueprints):
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         S.action_select_system(st, bp, bp.system_offers[0][0])
         for stage in range(1, STAGES_PER_ACT + 1):
             S.action_choose_node(st, bp, stage_for(bp, 1, stage).options[0].node_id)
@@ -1545,7 +1628,7 @@ class TestIdempotency:
 
     def test_distinct_keys_are_not_deduplicated(self, pool, blueprints):
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         S.action_select_system(st, bp, bp.system_offers[0][0], idempotency_key="a")
         S.action_choose_node(st, bp, "a1s1o0", idempotency_key="b")
         assert [a.idempotency_key for a in st.action_log] == ["a", "b"]
@@ -1569,7 +1652,7 @@ class TestReplay:
 
     def test_a_partial_log_replays_to_the_matching_partial_state(self, pool, blueprints):
         bp = blueprints(SEED_TRADE)
-        st = S.create_run(bp, "r")
+        st = S.create_run(bp, "r", pool=pool)
         S.action_select_system(st, bp, bp.system_offers[0][0])
         S.action_choose_node(st, bp, "a1s1o0")
         S.action_draft_pass(st, bp)
@@ -1632,7 +1715,7 @@ class TestVersionCompatibility:
         assert "start a new run" in message.lower()
         assert exc.value.changed_fields == ["ruleset_version"]
 
-    def test_a_non_ruleset_change_names_the_field_that_moved(self):
+    def test_a_non_ruleset_change_names_the_field_that_moved(self, pool):
         """A card-pool rebuild and a rules change are different events and a
         player deserves to be told which one cost them their run."""
         saved = dict(version_tuple())
@@ -1644,7 +1727,7 @@ class TestVersionCompatibility:
         assert version_tuple()["card_pool_version"] in message
         assert exc.value.changed_fields == ["card_pool_version"]
 
-    def test_several_changed_fields_are_all_named(self):
+    def test_several_changed_fields_are_all_named(self, pool):
         saved = dict(version_tuple())
         saved["card_pool_version"] = "v2"
         saved["engine_version"] = "run_the_table_v0"
@@ -1653,3 +1736,167 @@ class TestVersionCompatibility:
         assert set(exc.value.changed_fields) == {"card_pool_version", "engine_version"}
         assert "card pool" in str(exc.value)
         assert "engine" in str(exc.value)
+
+
+class TestIdentityIntegrityInPlay:
+    """v4 acceptance tests for the three identity defects, at the action layer.
+
+    `test_bosses.py` covers generation; these cover what the state machine will
+    actually ACCEPT, which is where two of the three defects lived.
+    """
+
+    def test_a_card_cannot_be_traded_for_itself(self, pool, blueprints):
+        """THE SELF-TRADE. Under v3 `legal_slots_for` reported a card as legal
+        for the slot it already occupied and `action_trade` had no
+        `outgoing != incoming` guard, so a player could pay `cost - refund` --
+        7 credits on a 14-cost card -- to swap a player for himself.
+        """
+        bp = blueprints(SEED_TRADE)
+        st = _drive_to_node(bp, pool, "a1s1o1")
+        slot = st.starters[0]
+        owned = slot.card_id
+        before = st.credits
+        with pytest.raises(RunActionError) as exc:
+            S.action_trade(st, bp, slot.slot_id, owned, pool)
+        assert exc.value.code in {"card_not_offered", "same_player_trade"}
+        assert st.credits == before
+        assert S._slot(st, slot.slot_id).card_id == owned
+
+    def test_the_outgoing_player_is_never_on_the_incoming_board(
+        self, pool, blueprints
+    ):
+        for seed in range(30):
+            bp = blueprints(seed)
+            st = S.create_run(bp, f"r{seed}", pool=pool)
+            owned = {pool.get(c).player_slug for c in st.all_card_ids()}
+            for plan in bp.stages:
+                for opt in plan.options:
+                    if opt.node_type != "trade_desk":
+                        continue
+                    board = S.node_offers(st, bp, opt.node_id, pool)
+                    assert not (
+                        {pool.get(c).player_slug for c in board} & owned
+                    ), f"seed {seed} {opt.node_id} offers a card the roster holds"
+
+    def test_a_boss_identity_cannot_be_acquired_while_that_boss_is_unbeaten(
+        self, pool, blueprints
+    ):
+        """A card on a LOCKED, still-unbeaten boss must be unbuyable.
+
+        The boss for an act is fixed when it is scouted or reached, and the
+        player then keeps playing decision nodes. Without this, a card bought at
+        one of them could walk onto the board opposite its own twin.
+        """
+        bp = blueprints(SEED_FILM_EARLY)
+        st = open_first_of_type(bp, pool, "film_room")
+        boss = S.boss_for_act(st, bp, st.act, pool)
+        assert boss is not None, "opening Scout & Prepare must lock the opponent"
+        for cid in list(boss.starter_ids) + list(boss.bench_ids):
+            assert S.legal_slots_for(st, pool, cid) == [], (
+                f"{cid} is on the unbeaten act-{st.act} boss and must not be "
+                f"acquirable"
+            )
+        # And no board offers one either.
+        for plan in bp.stages:
+            for opt in plan.options:
+                if opt.node_type not in ("draft_room", "trade_desk"):
+                    continue
+                board = S.node_offers(st, bp, opt.node_id, pool)
+                assert not (
+                    {pool.get(c).player_slug for c in board}
+                    & {pool.get(c).player_slug
+                       for c in list(boss.starter_ids) + list(boss.bench_ids)}
+                )
+
+    def test_the_roster_assertion_refuses_a_duplicate_written_around_the_action_api(
+        self, pool, blueprints
+    ):
+        """The server-side guard, not the legality check.
+
+        `assert_roster_identities_unique` runs on the WRITE path so a duplicate
+        cannot be persisted even if a future caller bypasses `legal_slots_for`.
+        """
+        bp = blueprints(SEED_TRADE)
+        st = S.create_run(bp, "r", pool=pool)
+        st.bench[0].card_id = st.starters[0].card_id
+        with pytest.raises(RunActionError) as exc:
+            S.assert_roster_identities_unique(st, pool)
+        assert exc.value.code == "duplicate_identity"
+
+
+class TestBossPersistence:
+    """The generated slate is state, not a cache: it must survive a re-read."""
+
+    def test_a_refresh_serves_the_lineup_that_was_locked(self, pool, blueprints):
+        """Re-reading a run must not re-derive a different opponent.
+
+        This is the whole reason `boss_lineups` is persisted. A boss is a
+        function of the roster it was locked against, and that roster moves as
+        the run goes on -- so re-deriving on load would hand the player a
+        different opponent than the one they scouted and prepared for.
+        """
+        bp = blueprints(SEED_FILM_EARLY)
+        st = open_first_of_type(bp, pool, "film_room")
+        locked = S.boss_for_act(st, bp, st.act, pool)
+        assert locked is not None
+
+        # Upgrade the roster hard, then re-read. The opponent must not move.
+        strongest = max(
+            (c for c in pool.cards if S.legal_slots_for(st, pool, c.peak_window_id)),
+            key=lambda c: c.prime_score,
+        )
+        slot = S.legal_slots_for(st, pool, strongest.peak_window_id)[0]
+        S._slot(st, slot).card_id = strongest.peak_window_id
+
+        assert S.boss_for_act(st, bp, st.act, pool) == locked
+        assert S.ensure_boss_for_act(st, bp, st.act, pool) == locked
+
+    def test_a_replay_reproduces_the_same_locked_slate(self, pool, play_policy):
+        import random as _random
+
+        for seed in (3, 11, 44):
+            bp, st = play_policy(seed, _random.Random(seed), pool, "greedy")
+            rebuilt = S.replay(bp, st.action_log, st.run_id, pool=pool)
+            assert rebuilt.boss_lineups == st.boss_lineups, (
+                f"seed {seed}: replay produced a different boss slate"
+            )
+            assert [b.boss_id for b in rebuilt.battles] == [
+                b.boss_id for b in st.battles
+            ]
+
+    # NOTE: the snapshot round-trip of `boss_lineups` is asserted in
+    # `apps/api/tests/test_run_the_table.py` -- serialisation lives in the API
+    # layer, which is not on this suite's import path.
+
+
+class TestModelIsUntouched:
+    """This pass changed game balance. It must not have changed the model."""
+
+    def test_no_canonical_component_value_or_prime_score_changed(self, pool):
+        """The card pool is read straight from the committed artifacts. If a
+        balance change had reached into the data, it would show up here."""
+        import json
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent.parent
+        windows = {
+            w["id"]: w
+            for w in json.loads((root / "data" / "web" / "peak_windows.json").read_text())
+        }
+        for card in pool.cards:
+            w = windows[card.peak_window_id]
+            for lane, value in card.lane_values.items():
+                assert value == round(float(w["components"][lane]), 4), (
+                    f"{card.peak_window_id} lane {lane} drifted from the dataset"
+                )
+
+    def test_the_official_peak3_weights_are_unchanged(self):
+        from nba_peak.run_the_table.config import LANE_PEAK3_WEIGHTS
+
+        assert LANE_PEAK3_WEIGHTS == {
+            "statistical_impact": 0.38,
+            "traditional_production": 0.21,
+            "individual_recognition": 0.20,
+            "postseason_individual_value": 0.18,
+            "team_achievement": 0.03,
+        }
