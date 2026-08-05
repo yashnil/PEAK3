@@ -118,10 +118,15 @@ test.describe("both games are reachable through normal navigation", () => {
     const trigger = page
       .getByRole("navigation", { name: "Main navigation" })
       .getByRole("button", { name: "Play" });
-    // Wait for `aria-expanded` to exist before clicking: the trigger renders
-    // server-side and only becomes interactive once the launcher hydrates, so
-    // a click sent before then is swallowed. `play-routing.spec.ts` gates on
-    // the same attribute for the same reason.
+    // GATE ON THE HEADER'S OWN READINESS, not on `aria-expanded`. That
+    // attribute is SERVER-RENDERED as "false", so waiting for it proves only
+    // that the HTML arrived -- it is true before React has attached the
+    // trigger's handler, and a click in that window is captured by React's
+    // root listener and replayed later, leaving the menu shut. Caught locally:
+    // this assertion read "false" for the full 5s after a click that Playwright
+    // reported as successful. `data-nav-ready` is set from an effect (see
+    // `nav.tsx`), so it appears only once this header has hydrated.
+    await expect(page.locator("header[data-nav-ready='true']")).toBeAttached();
     await expect(trigger).toHaveAttribute("aria-expanded", "false");
     await trigger.click();
     await expect(trigger).toHaveAttribute("aria-expanded", "true");

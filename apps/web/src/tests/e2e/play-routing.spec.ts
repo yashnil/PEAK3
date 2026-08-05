@@ -70,6 +70,14 @@ function playTrigger(page: Page): Locator {
 async function openPlayMenu(page: Page): Promise<Locator> {
   const trigger = playTrigger(page);
   await expect(trigger).toBeVisible();
+  // `aria-expanded="false"` is SERVER-RENDERED, so it proves the HTML arrived
+  // and nothing more -- it is already true before React has attached the
+  // trigger's handler, and a click in that window is captured by React's root
+  // listener and replayed later, leaving the menu shut. `data-nav-ready` is
+  // set from an effect (see `nav.tsx`) and is the header's own "this control
+  // is live" signal. Observed as a real failure in `arena-multiplayer.spec.ts`:
+  // `aria-expanded` read "false" for a full 5s after a successful click.
+  await expect(page.locator("header[data-nav-ready='true']")).toBeAttached();
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
   await trigger.click();
   await expect(trigger).toHaveAttribute("aria-expanded", "true");
