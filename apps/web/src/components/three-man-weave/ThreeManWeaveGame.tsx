@@ -26,9 +26,10 @@ import {
 } from "@/lib/three-man-weave-state";
 import { modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
+import ArenaTimer, { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
+import BotPickReveal, { turnHeadline } from "./BotPickReveal";
 import DraftOrderStrip from "./DraftOrderStrip";
 import IdentityLockPanel from "./IdentityLockPanel";
-import MoveDialog from "./MoveDialog";
 import PickOverlay from "./PickOverlay";
 import PodiumReceipt from "./PodiumReceipt";
 import RosterBoard from "./RosterBoard";
@@ -37,6 +38,11 @@ import WeaveSpinner from "./WeaveSpinner";
 
 /** How often to re-read the match while it is someone else's turn. */
 const POLL_MS = 2000;
+
+/** The human decision window, in seconds. Matches the mode's own
+ *  `turn_seconds`; used only to draw the timer's progress arc, never to decide
+ *  anything — the deadline itself is always the server's. */
+const TURN_SECONDS = 45;
 
 /**
  * THREE-MAN WEAVE, driven entirely by the server.
@@ -80,12 +86,13 @@ export default function ThreeManWeaveGame({
   const [rejection, setRejection] = useState<string | null>(null);
   const [failures, setFailures] = useState(0);
   const [justPicked, setJustPicked] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState<number | null>(
-    initialMatch.seconds_remaining,
+  // A LOCAL MONOTONIC DEADLINE, not a duration in state. A duration re-seeded
+  // from a two-second poll and ticked down locally drifts, so a control could
+  // read "3" on a turn the server had already closed. See `ArenaTimer`.
+  const [deadlineAt, setDeadlineAt] = useState<number | null>(
+    deadlineFromSeconds(initialMatch.seconds_remaining),
   );
   const [revealedRoll, setRevealedRoll] = useState<string | null>(null);
-  const [moveSlot, setMoveSlot] = useState<TmwSlotType | null>(null);
-  const [moveError, setMoveError] = useState<string | null>(null);
 
   // Guards a poll landing while a command is in flight from overwriting the
   // newer state the command already returned.
@@ -101,7 +108,7 @@ export default function ThreeManWeaveGame({
       const next = await getMatch(match.match_id);
       if (!inFlight.current) {
         setMatch(next as TmwMatchView);
-        setCountdown(next.seconds_remaining);
+        setDeadlineAt(deadlineFromSeconds(next.seconds_remaining));
       }
       setFailures(0);
     } catch {
@@ -115,17 +122,6 @@ export default function ThreeManWeaveGame({
     const timer = window.setInterval(refresh, POLL_MS);
     return () => window.clearInterval(timer);
   }, [complete, refresh]);
-
-  // Local countdown between polls, purely so the number moves every second. It
-  // is re-seeded from the server on every refresh and is never used to decide
-  // anything -- the authoritative deadline lives on the server.
-  useEffect(() => {
-    if (complete || countdown === null) return;
-    const timer = window.setInterval(() => {
-      setCountdown((value) => (value === null ? null : Math.max(0, value - 1)));
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [complete, countdown]);
 
   useEffect(() => {
     if (!complete || results) return;
@@ -163,7 +159,7 @@ export default function ThreeManWeaveGame({
           ),
         );
         setMatch(response.match as TmwMatchView);
-        setCountdown(response.match.seconds_remaining);
+        setDeadlineAt(deadlineFromSeconds(response.match.seconds_remaining));
         setFailures(0);
         return response;
       } finally {
@@ -207,17 +203,19 @@ export default function ThreeManWeaveGame({
   const rearrange = useCallback(
     async (placements: Record<string, string>) => {
       setBusy(true);
-      setMoveError(null);
+      setRejection(null);
       try {
         const response = await send(TMW_COMMAND_REARRANGE, { placements });
         if (!response) return;
-        if (response.accepted || response.replayed) {
-          setMoveSlot(null);
-        } else {
-          setMoveError(response.message ?? "That move was refused.");
+        if (!response.accepted && !response.replayed) {
+          // `message` is the field the API actually sends. The Showdown client
+          // read a field that did not exist and showed a generic string on
+          // every rejection; this surface reads the right one and says so here
+          // so the mistake is not repeated by copy-paste.
+          setRejection(response.message ?? "That move was refused.");
         }
       } catch (error) {
-        setMoveError(describe(error, "the move was not sent"));
+        setRejection(describe(error, "the move was not sent"));
       } finally {
         setBusy(false);
       }
@@ -241,6 +239,14 @@ export default function ThreeManWeaveGame({
 
   const meta = modeMeta("three_man_weave");
   const hasBots = match.seats.some((seat) => seat.is_bot);
+  // PART 8: exactly one participant is unmistakably active, and the top status
+  // says which in words rather than through a small badge in a corner.
+  const headline = turnHeadline(
+    match.seats,
+    match.current_turn_seat_index,
+    match.your_seat_index,
+    complete,
+  );
 
   return (
     <div className="ar-room tmw-room" data-testid="tmw-room">
@@ -298,11 +304,38 @@ export default function ThreeManWeaveGame({
             }
           />
 
+          {/* WHOSE TURN IT IS, AT THE TOP, IN WORDS. Paired with the clock so
+              the two facts a player needs under time pressure are one glance
+              apart. */}
+          <div className="tmw-turnbar" data-testid="tmw-turnbar">
+            <p
+              className="tmw-turnbar-headline"
+              data-testid="tmw-turn-spotlight"
+              data-yours={yourTurn ? "true" : "false"}
+              aria-live="polite"
+            >
+              {headline}
+            </p>
+            <ArenaTimer
+              deadlineAt={deadlineAt}
+              totalSeconds={TURN_SECONDS}
+              label={yourTurn ? "YOUR PICK" : "ON THE CLOCK"}
+              yours={yourTurn}
+              testId="tmw-turn-clock"
+            />
+          </div>
+
+          <BotPickReveal
+            state={state}
+            seats={match.seats}
+            currentTurnSeatIndex={match.current_turn_seat_index}
+            yourSeatIndex={match.your_seat_index}
+          />
+
           <DraftOrderStrip
             order={turnOrder(state, match.seat_count)}
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
-            secondsRemaining={countdown}
           />
 
           <RosterBoard
@@ -311,11 +344,6 @@ export default function ThreeManWeaveGame({
             yourSeatIndex={match.your_seat_index}
             currentTurnSeatIndex={match.current_turn_seat_index}
             justPickedSlug={justPicked}
-            secondsRemaining={countdown}
-            onMoveRequest={(slot) => {
-              setMoveError(null);
-              setMoveSlot(slot);
-            }}
           />
 
           <IdentityLockPanel entries={identityLock(state)} seats={match.seats} />
@@ -330,46 +358,47 @@ export default function ThreeManWeaveGame({
             roster={yourRoster}
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
-            secondsRemaining={countdown}
+            deadlineAt={deadlineAt}
+            turnSeconds={TURN_SECONDS}
             busy={busy}
             onPick={pick}
+            onMove={rearrange}
             // A turn you must resolve has no cancel, so closing simply returns
             // to the board -- the overlay reopens on the next render because
             // `overlayOpen` is derived from the server's own turn state, and
             // that is the correct behaviour: the clock is still running.
             onClose={() => setRejection(null)}
           />
-
-          <MoveDialog
-            open={moveSlot !== null}
-            roster={yourRoster}
-            fromSlot={moveSlot}
-            busy={busy}
-            error={moveError}
-            onCommit={rearrange}
-            onClose={() => {
-              setMoveSlot(null);
-              setMoveError(null);
-            }}
-          />
         </>
       )}
 
-      {/* The final board, kept below the receipt so a completed match still
-          shows every roster it produced. */}
+      {/* THE FINAL BOARDS, BEHIND A DISCLOSURE.
+          PART 12: "do not immediately repeat three giant interactive roster
+          boards ... use compact placement cards and expandable detailed
+          receipts." They used to render unconditionally under the podium, so
+          the payoff viewport was followed by three full court panels the player
+          had just spent six rounds looking at -- which is what pushed the
+          result's own numbers off the screen. They are still here, because a
+          completed match should be able to show every roster it produced; they
+          are simply no longer the thing that greets you. */}
       {complete && results && (
-        <div className="tmw-board-grid" data-testid="tmw-final-courts">
-          {state.rosters.map((roster) => (
-            <SeatCourt
-              key={roster.seat_index}
-              roster={roster}
-              seat={match.seats.find((seat) => seat.seat_index === roster.seat_index)}
-              isYou={roster.seat_index === match.your_seat_index}
-              isOnTurn={false}
-              justPickedSlug={null}
-            />
-          ))}
-        </div>
+        <details className="tmw-final-courts-disclosure">
+          <summary data-testid="tmw-final-courts-toggle">
+            Show all three final rosters
+          </summary>
+          <div className="tmw-board-grid" data-testid="tmw-final-courts">
+            {state.rosters.map((roster) => (
+              <SeatCourt
+                key={roster.seat_index}
+                roster={roster}
+                seat={match.seats.find((seat) => seat.seat_index === roster.seat_index)}
+                isYou={roster.seat_index === match.your_seat_index}
+                isOnTurn={false}
+                justPickedSlug={null}
+              />
+            ))}
+          </div>
+        </details>
       )}
     </div>
   );

@@ -13,7 +13,6 @@ import {
   filledCount,
   slotAbbrev,
 } from "@/lib/three-man-weave-state";
-import SeatClock from "./SeatClock";
 
 /**
  * One participant's roster court. Rendered for ALL THREE seats, always.
@@ -51,8 +50,6 @@ export default function SeatCourt({
   isOnTurn,
   justPickedSlug,
   edge,
-  secondsRemaining,
-  onMoveRequest,
 }: {
   roster: TmwRoster;
   seat: ArenaSeatPublic | undefined;
@@ -60,11 +57,6 @@ export default function SeatCourt({
   isOnTurn: boolean;
   justPickedSlug?: string | null;
   edge?: TmwEdgeBand | null;
-  /** Only meaningful for the seat on the clock; null otherwise. */
-  secondsRemaining?: number | null;
-  /** Opens the rearrangement control for one placed player. Absent for a seat
-   * that is not yours, because you may only move your own roster. */
-  onMoveRequest?: (slot: TmwSlotType) => void;
 }) {
   const name = seat?.display_name ?? `Seat ${roster.seat_index + 1}`;
   const filled = filledCount(roster);
@@ -98,12 +90,19 @@ export default function SeatCourt({
         </div>
 
         <div className="tmw-seat-meters">
-          <SeatClock
-            seatIndex={roster.seat_index}
-            isOnTurn={isOnTurn}
-            isBot={!!seat?.is_bot}
-            secondsRemaining={secondsRemaining ?? null}
-          />
+          {/* THE PER-SEAT COUNTDOWN IS GONE FROM HERE. Three of these ticked
+              once a second and re-rendered three whole court panels for a
+              number that belongs beside the controls; `ArenaTimer` owns it now.
+              What stays is the ON-THE-CLOCK STATE, which changes only when the
+              turn does. */}
+          {isOnTurn ? (
+            <span
+              className="tmw-seat-onclock"
+              data-testid={`tmw-seat-onclock-${roster.seat_index}`}
+            >
+              On the clock
+            </span>
+          ) : null}
           <span
             data-testid={`tmw-seat-progress-${roster.seat_index}`}
             className="tmw-seat-count"
@@ -126,12 +125,12 @@ export default function SeatCourt({
 
       <div
         className="court-panel-wrapper"
-        style={{
-          // The turn spotlight is a ring on the court itself, layered over the
-          // wrapper's own border so a seat that is both yours and on-turn still
-          // reads as on-turn first.
-          boxShadow: isOnTurn ? "inset 0 0 0 2px var(--peak-accent)" : undefined,
-        }}
+        /* THE ACTIVE TREATMENT IS A CLASS, NOT AN INLINE RING (PART 8). A 2px
+           inset shadow was the entire signal that a roster was live, which is
+           the "indicated by tiny text and a small badge" finding. The class
+           carries a bright border, a broadcast glow and a dimming of the two
+           inactive courts -- see `.tmw-seat[data-on-turn="true"]`. */
+        data-on-turn={isOnTurn ? "true" : "false"}
       >
         <div className="roster-board">
           <div className="roster-board-sideline" aria-hidden="true" />
@@ -148,7 +147,6 @@ export default function SeatCourt({
                   slotType={slotType}
                   pick={roster.slots[slotType] ?? null}
                   highlight={roster.slots[slotType]?.player_slug === justPickedSlug}
-                  onMoveRequest={onMoveRequest}
                 />
               </div>
             ))}
@@ -163,7 +161,6 @@ export default function SeatCourt({
                 slotType={slotType}
                 pick={pick}
                 highlight={pick?.player_slug === justPickedSlug}
-                onMoveRequest={onMoveRequest}
               />
             ))}
           </div>
@@ -173,18 +170,23 @@ export default function SeatCourt({
   );
 }
 
+/** One slot on a court. READ-ONLY here.
+ *
+ * These used to be `<button>`s that opened a move dialog over the board. The
+ * movement control now lives inside the draft room (`PlacementBoard`), where a
+ * move can be previewed against a staged pick and committed atomically with it
+ * -- and where a player is already looking. A card that is a button on three
+ * courts, two of which belong to opponents and do nothing when pressed, was
+ * offering an interaction it could not honour. */
 function SlotCard({
   slotType,
   pick,
   highlight,
-  onMoveRequest,
 }: {
   slotType: TmwSlotType;
   pick: TmwPick | null;
   highlight: boolean;
-  onMoveRequest?: (slot: TmwSlotType) => void;
 }) {
-  const movable = !!pick && !!onMoveRequest;
   const body = (
     <>
       <span className="tmw-slot-tag">
@@ -218,21 +220,6 @@ function SlotCard({
     </>
   );
 
-  if (movable && pick) {
-    return (
-      <button
-        type="button"
-        data-testid={`tmw-slot-${slotType}`}
-        data-filled="true"
-        data-just-picked={highlight ? "true" : "false"}
-        className="tmw-slot tmw-slot--movable"
-        onClick={() => onMoveRequest?.(slotType)}
-        aria-label={`Move ${pick.player_name} out of ${TMW_SLOT_LABELS[slotType]}`}
-      >
-        {body}
-      </button>
-    );
-  }
 
   return (
     <div

@@ -1,117 +1,175 @@
 /**
- * NBA Fact of the Day, on the homepage.
+ * The NBA Fact of the Day card.
  *
- * The rules asserted here are the ones the feature would be wrong without: it
- * is NBA trivia and not a PEAK3 claim, every fact discloses the rows it came
- * from, and a deployment with no built bank renders nothing rather than an
- * error card.
+ * TWO FINDINGS FROM THE MANUAL REVIEW, AND THEY HAD ONE CAUSE.
+ *
+ *   "NBA Fact of the Day is visually weak"
+ *   "the generated fact is often too dull to deserve homepage prominence"
+ *
+ * The card was a heading, two tiny tags, one paragraph — and, as its most
+ * prominent interaction, a `<details>` labelled "Show source rows" that opened
+ * a four-column table of (player, season, team, games). One type size, nothing
+ * to look at, and a call to action that invited a visitor to audit the fact
+ * rather than enjoy it.
+ *
+ * The dullness half is fixed in the bank (see `nba_peak/nba_facts/`). This file
+ * is about the card: a featured value with a court motif, a headline, a
+ * supporting sentence, and NO SOURCE TABLE ANYWHERE. The rows still exist in
+ * the payload and are still re-derived by the model tests; they are simply not
+ * what the homepage offers.
  */
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 
 import NbaFactOfTheDay, {
   type NbaFactView,
 } from "@/components/home/NbaFactOfTheDay";
 
-function fact(overrides: Partial<NbaFactView> = {}): NbaFactView {
-  return {
-    fact_id: "franchise_tenure-abc123",
-    text:
-      "John Stockton played all 19 of his recorded seasons for one franchise (UTA), from 1984-85 to 2002-03.",
-    category: "franchise_tenure",
-    era: "1980s",
-    source_label: "Basketball-Reference per-season totals (1979-80 onward)",
-    player_slug: "john-stockton",
-    team_code: "UTA",
-    evidence: [
-      { player: "John Stockton", team: "UTA", season: "1984-85", games_played: 82 },
-      { player: "John Stockton", team: "UTA", season: "2002-03", games_played: 82 },
-    ],
-    ...overrides,
-  };
+const FACT: NbaFactView = {
+  fact_id: "rules-abc123",
+  headline: "Basketball invented the shot clock because one game finished 19–18.",
+  body:
+    "On 22 November 1950 the Fort Wayne Pistons held the ball for minutes at a time. " +
+    "Four years later the NBA adopted a 24-second clock.",
+  category: "rules",
+  era: "1950s",
+  geography: "usa",
+  feature: "24 seconds",
+  feature_label: "the new clock",
+  source_label: "Editorial — checked against a named published source",
+  player_slug: null,
+  team_code: null,
+};
+
+function renderCard(overrides: Partial<NbaFactView> = {}) {
+  return render(<NbaFactOfTheDay fact={{ ...FACT, ...overrides }} />);
 }
 
-describe("NbaFactOfTheDay", () => {
-  it("is headed as NBA trivia, never as a PEAK3 insight", () => {
-    render(<NbaFactOfTheDay fact={fact()} />);
-    const panel = screen.getByTestId("nba-fact-of-the-day");
-    expect(screen.getByRole("heading", { name: "NBA Fact of the Day" })).toBeInTheDocument();
-    // The branding rule, asserted on the rendered text rather than trusted.
-    expect(panel.textContent).not.toMatch(/PEAK3 Fact/i);
-    expect(screen.getByTestId("fotd-text")).toHaveTextContent(/John Stockton played all 19/);
+describe("the card renders the fact, and only the fact", () => {
+  it("leads with the headline and supports it with the body", () => {
+    renderCard();
+    expect(screen.getByTestId("fotd-text")).toHaveTextContent(/shot clock/i);
+    expect(screen.getByTestId("fotd-support")).toHaveTextContent(/Fort Wayne/i);
   });
 
-  it("labels the category and the era without leaning on the model", () => {
-    render(<NbaFactOfTheDay fact={fact()} />);
-    expect(screen.getByTestId("fotd-category")).toHaveTextContent("Franchise tenure");
-    expect(screen.getByTestId("fotd-era")).toHaveTextContent("1980s");
+  it("sets the featured value apart from the prose", () => {
+    // THE FOCAL POINT the card previously had none of. It is a separate
+    // element rather than a bolded span inside the sentence, because the whole
+    // point is that it is a different typographic register.
+    renderCard();
+    const feature = screen.getByTestId("fotd-feature");
+    expect(feature).toHaveTextContent("24 seconds");
+    expect(feature).toHaveTextContent(/the new clock/i);
+    expect(screen.getByTestId("fotd-text").contains(feature)).toBe(false);
   });
 
-  it("discloses the source rows behind the claim", async () => {
-    render(<NbaFactOfTheDay fact={fact()} />);
-    const details = screen.getByTestId("fotd-details") as HTMLDetailsElement;
-    const summary = screen.getByTestId("fotd-evidence-toggle");
-    expect(details.open).toBe(false);
-
-    await userEvent.click(summary);
-    expect(details.open).toBe(true);
-
-    const table = screen.getByTestId("fotd-evidence");
-    expect(table).toHaveTextContent("1984-85");
-    expect(table).toHaveTextContent("2002-03");
-    expect(screen.getByText(/Basketball-Reference per-season totals/)).toBeInTheDocument();
-
-    await userEvent.click(summary);
-    expect(details.open).toBe(false);
+  it("labels the category in words a reader knows", () => {
+    renderCard();
+    expect(screen.getByTestId("fotd-category")).toHaveTextContent("Rule changes");
+    expect(screen.getByTestId("fotd-era")).toHaveTextContent("1950s");
   });
 
-  it("needs no hydration to be operable", () => {
-    // THE DEFECT THIS REPLACED. The disclosure was a `<button>` driving a
-    // `useState`, and CI caught a click landing 0.6s after
-    // `domcontentloaded` -- while the client bundles were still in flight --
-    // on a control that was already visible, enabled and receiving events.
-    // A native `<details>` has no such window: the browser owns the state, so
-    // the component ships no client JavaScript and carries no handler that
-    // could be missing.
-    render(<NbaFactOfTheDay fact={fact()} />);
-    const summary = screen.getByTestId("fotd-evidence-toggle");
-    expect(summary.tagName).toBe("SUMMARY");
-    expect(summary.closest("details")).toBe(screen.getByTestId("fotd-details"));
-    // And no hand-written ARIA duplicating what the element already reports.
-    expect(summary).not.toHaveAttribute("aria-expanded");
-    expect(summary).not.toHaveAttribute("aria-controls");
+  it("tags geography only when it is worth saying", () => {
+    renderCard();
+    expect(screen.queryByTestId("fotd-geography")).toBeNull();
+    renderCard({ geography: "global" });
+    expect(screen.getAllByTestId("fotd-geography")[0]).toHaveTextContent("Global");
   });
 
-  it("names itself for the state it is in", () => {
-    render(<NbaFactOfTheDay fact={fact()} />);
-    // Both labels are in the markup; CSS shows exactly one, which is also what
-    // keeps the other out of the accessibility tree. jsdom applies no
-    // stylesheet, so this asserts the pair exists rather than which is shown --
-    // the browser suite asserts the visible one.
-    expect(screen.getByText("Show source rows")).toBeInTheDocument();
-    expect(screen.getByText("Hide source rows")).toBeInTheDocument();
+  it("names itself as NBA trivia, never as a PEAK3 claim", () => {
+    // A visitor reads this before they have been told what PEAK3 is.
+    const { container } = renderCard();
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(
+      "NBA Fact of the Day",
+    );
+    expect(container.textContent ?? "").not.toMatch(/PEAK3 (fact|rates|score)/i);
+  });
+});
+
+describe("the source-row table is gone", () => {
+  it("renders no evidence table", () => {
+    renderCard();
+    expect(screen.queryByTestId("fotd-evidence")).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
   });
 
-  it("links to the player's PEAK3 profile when there is one to link to", () => {
-    render(<NbaFactOfTheDay fact={fact()} />);
+  it("offers no 'show source rows' disclosure", () => {
+    const { container } = renderCard();
+    expect(screen.queryByTestId("fotd-evidence-toggle")).toBeNull();
+    expect(container.querySelector("details")).toBeNull();
+    expect(container.textContent ?? "").not.toMatch(/source rows/i);
+  });
+
+  it("ships no interactive element except a genuinely useful link", () => {
+    // The card is server-rendered and carries no client behaviour at all now,
+    // which also retires the pre-hydration dead-click window the previous
+    // version's own comment documented.
+    const { container } = renderCard();
+    expect(container.querySelectorAll("button")).toHaveLength(0);
+    expect(container.querySelectorAll("a")).toHaveLength(0);
+  });
+
+  it("links a player profile only when the fact is about a player", () => {
+    renderCard({ player_slug: "wilt-chamberlain" });
     expect(screen.getByTestId("fotd-player-link")).toHaveAttribute(
       "href",
-      "/players/john-stockton",
+      "/players/wilt-chamberlain",
     );
   });
+});
 
-  it("omits the player link when the fact is not about one player", () => {
-    render(<NbaFactOfTheDay fact={fact({ player_slug: null })} />);
-    expect(screen.queryByTestId("fotd-player-link")).toBeNull();
+describe("the graphic", () => {
+  it("draws court lines with no text, hidden from assistive technology", () => {
+    const { container } = renderCard();
+    const svg = container.querySelector("svg.fotd-motif");
+    expect(svg).not.toBeNull();
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(svg!.querySelector("text")).toBeNull();
+    // No logo, no likeness, no photograph — the project ships none of those.
+    expect(container.querySelector("img")).toBeNull();
   });
 
-  it("renders nothing at all when the bank has not been built", () => {
-    // `data/web/` is generated and gitignored, so an un-built checkout is a
-    // normal state. A homepage that 500s over a trivia panel would be worse
-    // than a homepage without one.
+  it("inherits the theme rather than hard-coding two palettes", () => {
+    const { container } = renderCard();
+    const strokes = Array.from(
+      container.querySelectorAll("svg.fotd-motif [stroke]"),
+    ).map((el) => el.getAttribute("stroke"));
+    expect(strokes.length).toBeGreaterThan(0);
+    for (const stroke of strokes) expect(stroke).toBe("currentColor");
+  });
+});
+
+describe("degraded payloads", () => {
+  it("renders nothing at all when there is no fact", () => {
+    // An un-built checkout is a normal state; a broken homepage is not.
     const { container } = render(<NbaFactOfTheDay fact={null} />);
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("renders a v1 payload's single text field rather than dropping it", () => {
+    render(
+      <NbaFactOfTheDay
+        fact={
+          {
+            fact_id: "franchise_tenure-old",
+            text: "John Stockton played all 19 of his seasons for one franchise.",
+            category: "franchise_tenure",
+            era: "1980s",
+            source_label: "Basketball-Reference per-season totals",
+            player_slug: "john-stockton",
+            team_code: "UTA",
+          } as unknown as NbaFactView
+        }
+      />,
+    );
+    expect(screen.getByTestId("fotd-text")).toHaveTextContent(/John Stockton/);
+    expect(screen.getByTestId("fotd-category")).toHaveTextContent("Franchises");
+  });
+
+  it("omits the featured block when the fact carries no feature", () => {
+    renderCard({ feature: null, feature_label: null });
+    expect(screen.queryByTestId("fotd-feature")).toBeNull();
+    expect(screen.getByTestId("fotd-text")).toBeInTheDocument();
   });
 });

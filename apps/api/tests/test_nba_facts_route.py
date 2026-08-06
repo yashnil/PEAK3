@@ -34,13 +34,19 @@ def _fresh_bank_cache():
 def _repoint_bank(monkeypatch, path: Path) -> None:
     """Point every reader at `path`, exactly as a different image layout would.
 
-    Both the module constant and the route's own import are patched, because
-    the route imports names rather than the module -- and a test that patched
-    only one would pass against a route that still read the other.
+    THREE readers, and every one is patched, because `nba_facts` is a package
+    now: the route imports `cached_bank` by name, `bank_status` reads
+    `nba_facts.bank.BANK_PATH` from inside the submodule, and the package
+    re-exports the same constant. Patching only the package attribute would
+    leave `bank_status` reading the real file -- which is precisely the
+    disagreement between the route and the readiness probe that this suite
+    exists to rule out.
     """
     from app.api.v1 import nba_facts as route
+    from nba_peak.nba_facts import bank as bank_module
 
     monkeypatch.setattr(nba_facts, "BANK_PATH", path)
+    monkeypatch.setattr(bank_module, "BANK_PATH", path)
     monkeypatch.setattr(route, "cached_bank", lambda: tuple(nba_facts.load_bank(path)))
 
 
@@ -49,7 +55,7 @@ def _repoint_bank(monkeypatch, path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_route_serves_a_fact_with_evidence_and_metadata(client):
+def test_the_route_serves_a_sourced_fact_with_metadata(client):
     response = client.get("/api/v1/nba-facts/today")
     if response.status_code == 503:
         pytest.skip("data/web/ has not been built in this checkout")
@@ -58,18 +64,43 @@ def test_the_route_serves_a_fact_with_evidence_and_metadata(client):
     body = response.json()
 
     assert body["fact_id"]
+    assert body["headline"].strip()
+    # `text` is retained so a client built against v1 keeps rendering.
     assert body["text"].strip()
     assert body["category"]
     assert body["source_label"]
     assert body["bank_version"] == nba_facts.FACT_BANK_VERSION
-    assert body["bank_size"] >= 60
+    assert body["bank_size"] >= nba_facts.MIN_FACTS
     assert body["date"]
 
-    # EVIDENCE IS THE POINT. A generated fact with no way back to its rows is
-    # indistinguishable from an invented one.
-    assert body["evidence"], "the fact carries no supporting rows"
-    for row in body["evidence"]:
-        assert row["player"] and row["season"] and row["team"]
+    # SOURCING IS THE POINT, and it takes two forms now. A DERIVED fact carries
+    # the rows it was computed from; a CURATED one carries the record a person
+    # checked it against. What no published fact may be is neither.
+    assert body["provenance"] in ("derived", "editorial")
+    assert body["source_detail"].strip(), "the fact names no source"
+    assert body["verified"] is True
+    if body["provenance"] == "derived":
+        assert body["evidence"], "a generated fact carries no supporting rows"
+        for row in body["evidence"]:
+            assert row["player"] and row["season"] and row["team"]
+
+
+def test_the_route_uses_the_applications_own_day_boundary(client, monkeypatch):
+    """PACIFIC, NOT UTC. This route used to default to the server's UTC date, so
+    the homepage fact rolled over at 4pm or 5pm local while every other daily
+    surface in the product rolled over at midnight America/Los_Angeles. One
+    product, two different days."""
+    from app.api.v1 import nba_facts as route
+    from nba_peak.daily_key import daily_key
+
+    if client.get("/api/v1/nba-facts/today").status_code == 503:
+        pytest.skip("data/web/ has not been built in this checkout")
+
+    today = client.get("/api/v1/nba-facts/today").json()
+    assert today["date"] == daily_key()
+    # And the module actually reads that helper, rather than happening to agree
+    # with it on the day the test ran.
+    assert route.daily_key is daily_key
 
 
 def test_selection_is_deterministic_by_date(client):
@@ -92,7 +123,7 @@ def test_readiness_reports_the_bank_when_it_is_present(client):
     # The resolved path is reported, so "where did it look?" is answerable.
     assert bank["path"].endswith("data/web/nba_facts.v1.json")
     if bank["loaded"]:
-        assert bank["fact_count"] >= 60
+        assert bank["fact_count"] >= nba_facts.MIN_FACTS
 
 
 # ---------------------------------------------------------------------------

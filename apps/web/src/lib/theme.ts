@@ -298,13 +298,34 @@ export function useTheme(): {
 }
 
 /**
- * Cycles System → Dark → Light → System. The header toggle's single-click
- * behaviour; the account-menu setting instead offers all three explicitly.
+ * What the header toggle sets on its next click: THE OPPOSITE OF WHAT IS
+ * CURRENTLY ON SCREEN, always, as an explicit preference.
+ *
+ * THE DEFECT THIS REPLACES, and why it was asymmetric. This function used to
+ * cycle System → Dark → Light → System — three preferences over a binary
+ * appearance. From `"light"` the next preference was `"system"`, and on a
+ * machine whose OS is itself in light mode `resolveTheme("system") === "light"`,
+ * so the click changed the stored preference and changed NOTHING the user could
+ * see. The second click reached `"dark"`. That is exactly the reported
+ * behaviour: Dark → Light in one click (dark → light genuinely flips), Light →
+ * Dark in two. It was not a hydration race, a replaced node or a competing
+ * provider; it was a three-state cycle driving a two-state surface, and it was
+ * deterministic on any light-mode OS.
+ *
+ * The contract now: a click on the header toggle is an EXPLICIT choice of the
+ * theme you are not currently in. `resolved` — not `current` — is the input,
+ * because the visible theme is the thing the user is toggling, and it is the
+ * only value that is well defined when the preference is `"system"`. An
+ * explicit choice overrides the system preference by construction, since
+ * `"light"`/`"dark"` are never re-resolved against `matchMedia`.
+ *
+ * `"system"` is still a first-class preference and is still reachable — the
+ * account menu's `variant="menu"` offers all three explicitly, which is the
+ * surface where "what are my choices" is the question. It is simply no longer
+ * an invisible stop on the way between the two visible ones.
  */
-export function nextThemePreference(current: ThemePreference): ThemePreference {
-  if (current === "system") return "dark";
-  if (current === "dark") return "light";
-  return "system";
+export function nextThemePreference(resolved: ResolvedTheme): ThemePreference {
+  return resolved === "dark" ? "light" : "dark";
 }
 
 /**

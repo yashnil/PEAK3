@@ -175,7 +175,13 @@ export default function WeaveSpinner({
       <p
         role="status"
         aria-live="polite"
-        className="tmw-spinner-result"
+        /* SCREEN-READER ONLY. This is the live-region announcement for the
+           pair; the reels above already show the franchise and the decade, and
+           the note below already shows the count. Rendered visibly it printed
+           the same sentence twice, one line apart -- a review frame read
+           "41 eligible players undrafted." directly above "41 eligible players
+           still undrafted". */
+        className="tmw-spinner-result sr-only"
         data-testid="tmw-roll-result"
       >
         {revealed

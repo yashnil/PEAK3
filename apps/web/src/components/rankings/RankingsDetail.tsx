@@ -9,12 +9,13 @@ import CompositeChart, { compositeAxes } from "./CompositeChart";
  * The selected-player detail panel: a large composite chart and the same
  * numbers as a table.
  *
- * MASTER-DETAIL, AND THE DETAIL IS THE POINT. The rankings board already
- * carried a component radar, but only inside the explain modal -- so seeing the
- * shape of a peak meant opening a dialog, reading it, closing it, and opening
- * the next one, which makes comparison impossible. Here the chart is a standing
- * panel beside the list: selecting a different row swaps the panel and nothing
- * else moves, so a reader scanning the top twenty keeps their place.
+ * THE FIRST VIEW OF THE ANALYSIS DRAWER, and only that. It is deliberately the
+ * PLAYER: rank, board, window, season, team, score, the composite chart and the
+ * exact per-component values. The derivation — weights, arithmetic, receipts,
+ * source window — sits below it inside `RankingsAnalysis`, behind disclosures,
+ * so a reader who wanted the shape of a peak is not made to scroll past its
+ * algebra to see it. Previous/Next swap this panel and nothing else moves, so a
+ * reader walking the top twenty keeps their place.
  *
  * THE TABLE IS NOT A FALLBACK. It renders always, beside the chart, carrying
  * the identical values -- so the chart is one of two equal readings rather than
@@ -31,13 +32,11 @@ export default function RankingsDetail({
   boardLabel,
   windowLabel,
   populationNoun,
-  onExplain,
 }: {
   row: RankingRow | null;
   boardLabel: string;
   windowLabel: string | null;
   populationNoun: string;
-  onExplain?: (row: RankingRow) => void;
 }) {
   const dataComplete = (row?.data_completeness ?? "complete") === "complete";
   const axes = useMemo(
@@ -139,16 +138,10 @@ export default function RankingsDetail({
         </p>
       )}
 
-      {onExplain && (
-        <button
-          type="button"
-          className="rk-detail-explain"
-          data-testid="rk-detail-explain"
-          onClick={() => onExplain(row)}
-        >
-          Full score explanation
-        </button>
-      )}
+      {/* NO "Full score explanation" BUTTON. There is nowhere else for it to
+          go: the derivation is directly below this panel, in the same drawer,
+          behind three disclosures. A control that scrolls you three hundred
+          pixels is worse than the heading it would scroll you to. */}
     </aside>
   );
 }

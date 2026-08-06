@@ -501,6 +501,9 @@ export interface PerfectSeasonRunPublic {
   display_name: string;
   mode: CourtMode;
   game_type: string;
+  /** The public receipt: `/arena/court/results/{game_id}` is the same shared
+   *  scorecard the run's owner links themselves. */
+  game_id: string;
   seed: number;
   wins: number;
   losses: number;
@@ -520,6 +523,26 @@ export interface LeaderboardResponse {
   leaderboard_enabled: boolean;
   runs: PerfectSeasonRunPublic[];
   next_cursor: string | null;
+  /** Echoes the request's own flag, so a client never has to infer from the
+   *  rows alone whether it is looking at the all-time or the daily board. */
+  daily?: boolean;
+  daily_key?: string | null;
+}
+
+/**
+ * Where the signed-in caller stands on the PUBLIC board — not merely which
+ * runs they have submitted.
+ *
+ * `rank` and `run` are both null together, never one without the other, when
+ * the caller has no public run in `mode`. The endpoint existed on the API from
+ * the start and had no client at all, which is why the board could be read but
+ * never showed a reader their own place on it.
+ */
+export interface PersonalPlacementResponse {
+  leaderboard_enabled: boolean;
+  mode?: string | null;
+  rank?: number | null;
+  run?: PerfectSeasonRunPublic | null;
 }
 
 export interface MyRunsResponse {

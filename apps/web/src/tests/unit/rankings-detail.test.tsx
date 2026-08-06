@@ -7,7 +7,7 @@
  * the chart is never the only way to read the numbers.
  */
 import React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
@@ -77,7 +77,6 @@ describe("RankingsDetail", () => {
         boardLabel="Peak windows"
         windowLabel="1Y"
         populationNoun="peak window"
-        onExplain={vi.fn()}
       />,
     );
   }

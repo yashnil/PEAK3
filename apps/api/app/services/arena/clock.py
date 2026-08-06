@@ -76,6 +76,35 @@ logger = logging.getLogger(__name__)
 #: Rejection code for a timeout whose turn somebody already resolved.
 REJECT_TURN_ALREADY_RESOLVED = "turn_already_resolved"
 
+#: HOW LONG A TURN STAYS ANSWERABLE AFTER ITS DEADLINE, in seconds.
+#:
+#: Not slack in the rules and not a second clock: the visible countdown still
+#: runs to `deadline_at`, and `seconds_remaining` never includes this. It is
+#: the allowance for the two delays between a player deciding and the server
+#: hearing about it -- the age of the poll their countdown was seeded from, and
+#: the request's own flight time.
+#:
+#: WHY IT HAS TO EXIST. `submit_command` enforces the clock BEFORE applying a
+#: command, so that a genuinely late action loses to the timeout instead of
+#: beating it by being the request that triggered the sweep. That ordering is
+#: right and is kept. With a zero-width window it also destroyed actions the
+#: player had every reason to believe were in time: a scripted reproduction
+#: against the real repository showed a `$2` bid submitted 120 ms past the
+#: deadline swept away, the lot awarded to the bot at `$1`, and the human's
+#: command rejected as `stale_state_version` -- the exact failure reported from
+#: manual testing.
+#:
+#: 2.0 seconds covers a 2-second poll interval that has just lapsed plus a
+#: normal round trip. It is deliberately not larger: a window long enough to
+#: hide a genuinely abandoned turn would make the opponent wait for a player
+#: who is not there.
+#:
+#: IT CANNOT BE USED TO ACT TWICE. The turn resolves the instant any action
+#: lands, and `guard_timeout` refuses a timeout whose turn is no longer open.
+#: It is measured against the SERVER clock only; no field in a request body can
+#: move it.
+ACTION_GRACE_SECONDS = 2.0
+
 
 def timeout_idempotency_key(match_id: str, turn_seq: int) -> str:
     """The key a timeout for this exact turn always carries.
@@ -142,9 +171,11 @@ async def enforce(
             logger.info("arena: match %s expired at its own deadline", match_id)
         return None
 
-    # 2. The turn clock.
+    # 2. The turn clock, plus the action grace window. See
+    #    `ACTION_GRACE_SECONDS` for why a turn is not swept the instant its
+    #    deadline passes, and why that is not slack in the rules.
     turn = await repo.get_open_turn(match_id)
-    if turn is None or not turn.is_overdue_at(now) or reducer is None:
+    if turn is None or not turn.is_overdue_at(now, ACTION_GRACE_SECONDS) or reducer is None:
         return None
 
     request = CommandRequest(

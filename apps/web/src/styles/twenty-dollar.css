@@ -1237,3 +1237,343 @@
   color: var(--text-secondary);
   padding: 0.4rem 0;
 }
+
+/* ==========================================================================
+   RESCUE PASS: the balanced stage, the settled tray, and the gap summary.
+   ==========================================================================
+   THREE LAYOUT DEFECTS, ONE CAUSE. The settled-lot history lived inside the
+   right-hand column, above the opponent's roster. As lots piled up it grew,
+   crushed the roster panel a player most needs to read, and pushed the
+   opponent's budget meter off screen — so the two participants ended up with
+   structurally different panels even though the markup intended symmetry
+   (PART 19). It is now a full-width tray BELOW the stage, collapsed by
+   default, holding its own scroll.
+
+   The side columns are also given equal, fixed track widths, so neither can
+   be squeezed by its own content.
+   ========================================================================== */
+
+.td-column-seat {
+  gap: 0.85rem;
+}
+
+.td-column-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+/* THE CENTRE COLUMN KEEPS ITS CONTROLS IN VIEW. PART 19's "no active controls
+   pushed below the fold": on a short laptop the stage scrolls INSIDE itself
+   rather than pushing the bid buttons past the viewport. */
+@media (min-width: 62rem) and (min-height: 44rem) {
+  .td-column-centre {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    /* Room for a focus ring on the last control inside the scroll area. */
+    padding: 2px;
+  }
+}
+
+/* -- the dismissible, self-clearing error ---------------------------------- */
+
+.td-error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.td-error-text {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.td-error-dismiss {
+  flex-shrink: 0;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border-default, var(--border-subtle));
+  border-radius: var(--pk-r-sm, 6px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.td-error-dismiss:hover {
+  color: var(--text-primary);
+  border-color: var(--peak-accent);
+}
+
+.td-error-dismiss:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.td-bid-expired {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* -- "while you were away" ------------------------------------------------- */
+
+.td-missed {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--peak-accent-dim);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+}
+
+.td-missed-title {
+  font-family: var(--font-display, inherit);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.td-missed-sub {
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.td-missed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.7rem 0;
+}
+
+.td-missed-row {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr) auto;
+  grid-template-areas:
+    "lot name score"
+    "lot verdict verdict";
+  gap: 0.1rem 0.6rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--bg-surface);
+  font-size: 0.8125rem;
+}
+
+.td-missed-lot {
+  grid-area: lot;
+  align-self: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.td-missed-name { grid-area: name; font-weight: 600; color: var(--text-primary); }
+.td-missed-verdict { grid-area: verdict; font-size: 0.75rem; color: var(--text-secondary); }
+.td-missed-score {
+  grid-area: score;
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent-text, var(--peak-accent));
+}
+
+/* -- the settled tray ------------------------------------------------------ */
+
+.td-tray {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.td-tray-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.6rem 0.9rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.td-tray-toggle:hover { background: var(--bg-surface-hover, var(--bg-surface)); }
+.td-tray-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+.td-tray-count {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--peak-accent-bg);
+  color: var(--peak-accent-text, var(--peak-accent));
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.td-tray-chevron {
+  margin-left: auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid var(--text-secondary);
+  border-bottom: 2px solid var(--text-secondary);
+  transform: rotate(45deg);
+  transition: transform 150ms ease;
+}
+
+.td-tray[data-open="true"] .td-tray-chevron { transform: rotate(-135deg); }
+
+.td-tray-panel {
+  max-height: 18rem;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.td-tray-panel:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+.td-tray-list { display: flex; flex-direction: column; }
+
+.td-tray-row {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 11rem) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.45rem 0.9rem;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.8125rem;
+}
+
+.td-tray-row:last-child { border-bottom: 0; }
+
+.td-tray-lot { font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.td-tray-name { font-weight: 600; color: var(--text-primary); }
+.td-tray-verdict { font-size: 0.75rem; color: var(--text-secondary); }
+.td-tray-score {
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent-text, var(--peak-accent));
+}
+
+@media (max-width: 40rem) {
+  .td-tray-row {
+    grid-template-columns: 2.2rem minmax(0, 1fr) auto;
+    grid-template-areas:
+      "lot name score"
+      "lot verdict verdict";
+  }
+  .td-tray-lot { grid-area: lot; }
+  .td-tray-name { grid-area: name; }
+  .td-tray-verdict { grid-area: verdict; }
+  .td-tray-score { grid-area: score; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .td-tray-chevron { transition: none; }
+}
+
+/* The margin, and the result actions as real buttons. `.btn-primary` and
+   `.btn-secondary` are defined in `arena.css` -- they were used here and by
+   three Weave surfaces and defined nowhere, which is why every one of them
+   painted as plain text. */
+.td-result-margin {
+  margin-top: 0.15rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--peak-accent-text, var(--peak-accent));
+}
+
+.td-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.td-result-actions .btn-primary { flex: 1 1 12rem; }
+.td-result-actions .btn-secondary { flex: 1 1 10rem; }
+
+/* The settled-lot breakdown, behind a disclosure. See `LotReveal`: the
+   silhouette inline was most of the panel's height, which pushed the revealed
+   score below the fold. */
+.td-reveal-breakdown > summary {
+  min-height: var(--pk-tap-min, 44px);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border-default, var(--border-subtle));
+  border-radius: var(--pk-r-sm, 6px);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.td-reveal-breakdown > summary::-webkit-details-marker { display: none; }
+.td-reveal-breakdown > summary:hover { color: var(--text-primary); border-color: var(--peak-accent); }
+.td-reveal-breakdown > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.td-reveal-breakdown[open] > summary { margin-bottom: 0.5rem; }
+
+/* THE ACTION DOCK, ON A PHONE.
+   The 390x844 review frame showed the auction's primary controls -- Open at
+   $1, Market Skip -- sitting entirely below the fold, behind a scroll, and on
+   a 667px handset it would have been worse. PART 19 asks for controls that are
+   comfortably in the viewport, not technically reachable from it.
+   So on a phone the bid block docks to the bottom of the screen. The WHOLE
+   block docks, not just the buttons: docking the buttons alone would leave you
+   confirming an amount chosen by a stepper you had scrolled away from. The
+   candidate, the clock and the feed scroll underneath it.
+   `max-height` keeps the dock from eating the board if the block grows, and
+   `.td-game`'s padding reserves the space so the settled tray and the footer
+   are still reachable rather than trapped under it. */
+@media (max-width: 48rem) {
+  .td-bid {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    max-height: 52vh;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0.8rem 1rem calc(0.9rem + env(safe-area-inset-bottom, 0px));
+    border-radius: 0;
+    border-top: 1px solid var(--border-default, var(--border-subtle));
+    background: var(--bg-elevated);
+    box-shadow: 0 -12px 28px rgb(0 0 0 / 0.5);
+  }
+
+  .td-game {
+    padding-bottom: 15rem;
+  }
+}
+
+/* THE ROOM HEADER GIVES BACK ITS HEIGHT ON A PHONE.
+   With the bid dock pinned to the bottom of a 390x844 screen, the review frame
+   showed the countdown half underneath it: 130px of title, badges and rule
+   disclosure above the block pushed the clock down into the dock's edge. The
+   clock is the one thing a player needs at the same time as the controls.
+   The title drops a size, the meta row tightens, and the STANDARD-market badge
+   goes -- the lot badge beside it already says which lot this is, and the
+   phase only carries information once it changes, which is why the closeout
+   badge is explicitly kept. */
+@media (max-width: 48rem) {
+  .td-game .ar-room-head {
+    gap: 0.4rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .td-game .ar-room-title {
+    font-size: 1.25rem;
+  }
+
+  .td-game [data-testid="td-market-phase"][data-phase="standard"] {
+    display: none;
+  }
+}

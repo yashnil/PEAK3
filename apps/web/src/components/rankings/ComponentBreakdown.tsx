@@ -5,10 +5,14 @@
  * explain modal.
  *
  * The interaction is modelled on the Formula Explorer's weight bar: a stacked
- * bar of real `<button>` segments, non-selected segments dimmed, and one detail
+ * bar of real `<button>` segments, the selected one marked, and one detail
  * panel below with a left colour stripe. Clicking OR focusing a segment swaps
  * the panel, so a keyboard user tabbing across the bar gets the same reading
  * experience as a mouse user.
+ *
+ * "MARKED", NOT "the others dimmed" — see the segment style below. Dimming with
+ * `opacity` dragged each segment's own 10px label to 2.27:1, which is the same
+ * mistake this repository has now made and fixed four times.
  *
  * HARD RULES obeyed here:
  *  - The official weights are NEVER written in TypeScript. They arrive in the
@@ -170,12 +174,30 @@ export default function ComponentBreakdown({
               aria-label={`${componentLabel(key)}: ${formatScore2(components[key])} points${
                 pct ? `, ${pct} percentile` : ""
               }`}
+              // NEVER `opacity` FOR RECESSION. This bar dimmed its unselected
+              // segments with `opacity: 0.42`, and opacity applies to every
+              // descendant — so the segment's own 10px label was composited
+              // along with its fill and axe measured it at 2.27:1 against the
+              // darkened result. The label is `aria-hidden` decoration, which
+              // makes it easy to think it does not matter; it is 10px bold text
+              // a sighted reader is expected to read, so it does.
+              //
+              // This repository has fixed the identical mistake three times
+              // already (inactive Weave courts, the ON THE CLOCK badge, the
+              // analysis drawer's own scrim) and the rule each time was the
+              // same: RECESS BY FILL, NOT BY OPACITY. So every segment keeps a
+              // full-strength fill and the ACTIVE one is marked instead — an
+              // inset ring and a brightened face, neither of which touches
+              // text.
               style={{
                 width: `${Math.max(width, 4)}%`,
                 backgroundColor: componentColor(key),
-                opacity: isActive ? 1 : 0.42,
+                boxShadow: isActive
+                  ? "inset 0 0 0 2px var(--text-primary)"
+                  : "inset 0 0 0 1px rgba(0, 0, 0, 0.25)",
+                filter: isActive ? "brightness(1.12)" : undefined,
               }}
-              className="flex min-w-0 items-center justify-center text-[10px] font-bold text-black/75 transition-opacity duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]"
+              className="flex min-w-0 items-center justify-center text-[10px] font-bold text-black/80 transition-[box-shadow,filter] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--focus-ring)]"
             >
               <span aria-hidden="true" className="truncate px-0.5">
                 {width >= 11 ? COMPONENT_ABBR[key] : ""}

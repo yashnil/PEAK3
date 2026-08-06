@@ -38,6 +38,17 @@ export interface BidControlsProps {
   seatNames: string[];
   /** True while a command is in flight, or while the view is known stale. */
   busy: boolean;
+  /**
+   * The LOCAL countdown has reached zero on this seat's turn.
+   *
+   * The controls stop offering an action, and say why. This is not the client
+   * deciding a timeout — it never submits anything and the server still owns
+   * the resolution, with a grace window that lets a genuinely in-time action
+   * land. It is the honest end of the previous behaviour, where a live-looking
+   * Bid button on an expired turn is what produced the reported "I bid $2 and
+   * was told my move was not accepted".
+   */
+  expired?: boolean;
   onSubmit: (command: "bid" | "pass", amount: number) => void;
 }
 
@@ -46,6 +57,7 @@ export default function BidControls({
   privateState,
   seatNames,
   busy,
+  expired = false,
   onSubmit,
 }: BidControlsProps) {
   const min = Math.max(1, privateState.minimum_bid);
@@ -63,9 +75,26 @@ export default function BidControls({
     seatNames,
     publicState.active_seat,
   );
-  const canBid = blocked === null && min <= max;
+  const canBid = blocked === null && min <= max && !expired;
   const clamped = Math.min(Math.max(amount, min), Math.max(max, min));
   const opening = publicState.current_bid <= 0;
+  const pending = busy || expired;
+
+  /* WHICH command is in flight, not merely THAT one is.
+     `busy` is one flag for the whole board, and both buttons were reading it:
+     press Bid and the review frame caught the pass control announcing
+     "Submitting…" too, so the screen claimed to be doing two contradictory
+     things at once. This remembers what was actually pressed. It is label-only
+     -- `busy` still disables both, because only one command may be in flight
+     -- and it clears when the command settles. */
+  const [sent, setSent] = useState<"bid" | "pass" | null>(null);
+  useEffect(() => {
+    if (!busy) setSent(null);
+  }, [busy]);
+  const send = (command: "bid" | "pass", value: number) => {
+    setSent(command);
+    onSubmit(command, value);
+  };
 
   const step = (delta: number) =>
     setAmount((value) => Math.min(Math.max(value + delta, min), Math.max(max, min)));
@@ -88,7 +117,7 @@ export default function BidControls({
           type="button"
           className="td-step"
           data-testid="td-bid-minus"
-          disabled={!canBid || busy || clamped <= min}
+          disabled={!canBid || pending || clamped <= min}
           onClick={() => step(-1)}
           aria-label="Decrease bid by one dollar"
         >
@@ -105,7 +134,7 @@ export default function BidControls({
           type="button"
           className="td-step"
           data-testid="td-bid-plus"
-          disabled={!canBid || busy || clamped >= max}
+          disabled={!canBid || pending || clamped >= max}
           onClick={() => step(1)}
           aria-label="Increase bid by one dollar"
         >
@@ -118,7 +147,7 @@ export default function BidControls({
           type="button"
           className="td-chip-btn"
           data-testid="td-bid-plus-1"
-          disabled={!canBid || busy || clamped + 1 > max}
+          disabled={!canBid || pending || clamped + 1 > max}
           onClick={() => step(1)}
         >
           +$1
@@ -127,7 +156,7 @@ export default function BidControls({
           type="button"
           className="td-chip-btn"
           data-testid="td-bid-plus-2"
-          disabled={!canBid || busy || clamped + 2 > max}
+          disabled={!canBid || pending || clamped + 2 > max}
           onClick={() => step(2)}
         >
           +$2
@@ -136,7 +165,7 @@ export default function BidControls({
           type="button"
           className="td-chip-btn"
           data-testid="td-bid-max"
-          disabled={!canBid || busy || clamped >= max}
+          disabled={!canBid || pending || clamped >= max}
           onClick={() => setAmount(max)}
         >
           Max {formatDollars(max)}
@@ -148,10 +177,19 @@ export default function BidControls({
           type="button"
           className="td-btn td-btn-primary"
           data-testid="td-submit-bid"
-          disabled={!canBid || busy}
-          onClick={() => onSubmit("bid", clamped)}
+          disabled={!canBid || pending}
+          data-loading={busy && sent !== "pass" ? "true" : "false"}
+          onClick={() => send("bid", clamped)}
         >
-          {opening ? `Open at ${formatDollars(clamped)}` : `Bid ${formatDollars(clamped)}`}
+          {/* THE PENDING STATE NAMES THE AMOUNT. PART 14 asks for
+              "Submitting $2 bid…" specifically, because a spinner that does
+              not say what is in flight leaves a player unsure whether their
+              number or the previous one is on its way. */}
+          {busy && sent !== "pass"
+            ? `Submitting ${formatDollars(clamped)} bid…`
+            : opening
+              ? `Open at ${formatDollars(clamped)}`
+              : `Bid ${formatDollars(clamped)}`}
         </button>
         <button
           type="button"
@@ -161,13 +199,30 @@ export default function BidControls({
              verdict: a seat out of market skips, facing a candidate it can
              legally use with nothing bid, must open. Deriving that here would
              be a second copy of the rule that could disagree with the first. */
-          disabled={busy || !privateState.is_your_turn || !privateState.can_pass}
+          disabled={pending || !privateState.is_your_turn || !privateState.can_pass}
           data-costs-skip={privateState.pass_consumes_skip ? "true" : "false"}
-          onClick={() => onSubmit("pass", 0)}
+          data-loading={busy && sent === "pass" ? "true" : "false"}
+          onClick={() => send("pass", 0)}
         >
-          {privateState.pass_consumes_skip ? "Skip (−1)" : "Pass"}
+          {/* TWO ACTIONS, TWO NAMES, TWO CONSEQUENCES. PART 15: "do not use the
+              same visual label for different consequences." A market skip
+              spends one of five; conceding a live auction spends nothing, and
+              the previous "Skip (−1)" / "Pass" pair left the count implicit on
+              the expensive one and the freeness implicit on the other. */}
+          {busy && sent === "pass"
+            ? "Submitting…"
+            : privateState.pass_consumes_skip
+              ? `Market Skip — ${privateState.market_skips} of ${publicState.market_skips_per_seat}`
+              : "Pass — free"}
         </button>
       </div>
+
+      {expired ? (
+        <p className="td-bid-expired" data-testid="td-bid-expired" role="status">
+          The clock ran out. The server is settling this lot — its decision will
+          appear here in a moment.
+        </p>
+      ) : null}
 
       {/* THE REASON. Rendered whenever the bid control is unavailable, beside
           the button rather than in a tooltip. */}

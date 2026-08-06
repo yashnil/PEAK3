@@ -11,6 +11,7 @@ import {
   LeaderboardResponse,
   MyRunsResponse,
   PersonalBests,
+  PersonalPlacementResponse,
   PerfectSeasonRunPublic,
   SavedRunsResponse,
   SaveRunResponse,
@@ -282,6 +283,9 @@ export async function getLeaderboard(params: {
   mode?: CourtMode;
   limit?: number;
   cursor?: string;
+  /** The current application day only (midnight America/Los_Angeles), same
+   *  query and same tie-break order. NOT a second table. */
+  daily?: boolean;
 } = {}): Promise<LeaderboardResponse> {
   // launch-polish IMPLEMENTATION_CONTRACT.md §7: no respin filter -- removed,
   // not defaulted off. Respins are normal Standard 82-0 play; the API no
@@ -290,8 +294,30 @@ export async function getLeaderboard(params: {
   if (params.mode) qs.set("mode", params.mode);
   if (params.limit) qs.set("limit", String(params.limit));
   if (params.cursor) qs.set("cursor", params.cursor);
+  if (params.daily) qs.set("daily", "true");
   const suffix = qs.toString() ? `?${qs.toString()}` : "";
   return apiFetch<LeaderboardResponse>(`/perfect-season/leaderboard${suffix}`, { cache: "no-store" } as RequestInit);
+}
+
+/**
+ * Where the caller stands on the public board.
+ *
+ * THE ENDPOINT WAS ALWAYS THERE AND HAD NO CLIENT. `GET
+ * /perfect-season/leaderboard/me` has existed since the gap-#2 pass; nothing
+ * in the web app called it, so the board could be read and a player could
+ * never see their own place on it. Reads the SAME public rows the board
+ * serves, in the same order, so a rank returned here always corresponds to a
+ * position the board would actually show on some page of it.
+ */
+export async function getPersonalPlacement(
+  accessToken: string,
+  mode?: CourtMode,
+): Promise<PersonalPlacementResponse> {
+  const qs = mode ? `?mode=${encodeURIComponent(mode)}` : "";
+  return apiFetch<PersonalPlacementResponse>(
+    `/perfect-season/leaderboard/me${qs}`,
+    { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" } as RequestInit,
+  );
 }
 
 export async function getMyRuns(accessToken: string): Promise<MyRunsResponse> {
