@@ -50,12 +50,39 @@ COPY scripts/ ./scripts/
 COPY leaderboards/ ./leaderboards/
 COPY data/game/ ./data/game/
 COPY data/generated/ ./data/generated/
+# THE CURATED HALF OF THE FACT BANK, AND IT WAS MISSING.
+#
+# 94KB of committed, human-checked, individually sourced facts — the half of
+# the bank no generator over a season table could ever produce. Every other
+# input to `scripts/build_nba_facts.py` happened to live under a directory
+# already copied for another reason, so this one was the only one that had to
+# be added deliberately, and it was not.
+#
+# What that cost: the image built a valid bank out of two thirds of its inputs
+# and failed the MIN_FACTS floor with "only 113 facts published". Not 228 minus
+# the 91 editorial facts, either — the rotation-group ceiling is a share of the
+# provisional bank, so losing 91 candidates shrank the denominator and evicted
+# 24 derived facts as well. Two causes moving one number.
+#
+# `nba_facts.REQUIRED_INPUTS` now names all three in one place and
+# `tests/test_nba_facts_deployment.py` asserts this file copies every one of
+# them, so a fourth input is a failing test rather than a failing deploy.
+COPY data/facts/ ./data/facts/
 # Small (~6.5MB tracked) and load-bearing for CourtBuilder's exact
 # player-season resolution. Absent, nba_peak/perfect_season/career_positions.py
 # degrades silently rather than erroring, so leaving them out would cost
 # position fidelity with nothing in the logs to say so.
 COPY cache/processed/ ./cache/processed/
 COPY apps/api/ ./apps/api/
+
+# THE INPUTS ARE CHECKED BEFORE ANYTHING IS GENERATED FROM THEM.
+#
+# A separate, named step on purpose. The generator's own guard (see
+# `assert_inputs_present`) would catch this too, but a build that stops here
+# says "the image is missing a file it was supposed to copy" at the layer that
+# does the copying — one line above the COPY that is wrong — instead of inside
+# the output of a generator four steps later.
+RUN python -c "from nba_peak.nba_facts import assert_inputs_present; assert_inputs_present()"
 
 # THE GENERATED-DATA BUILD STEP.
 #
