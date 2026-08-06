@@ -327,6 +327,84 @@ def _isolated_rate_limits():
     limiter.reset()
 
 
+def reset_memory_repositories() -> list[str]:
+    """Empty every in-memory repository singleton. Returns the names reset.
+
+    HOW, AND WHY IT IS THIS WAY. Each singleton is re-initialised IN PLACE by
+    calling its own `__init__` on itself:
+
+        type(repo).__init__(repo)
+
+    Two properties follow, and both are the point:
+
+      * IT IS EXACT. Whatever `__init__` sets up is what a fresh repository has,
+        so this cannot drift from the real constructor and cannot miss a field
+        somebody adds later. Clearing a hand-written list of attributes would
+        have to be maintained against twenty-two classes in fourteen files, and
+        the failure mode of forgetting one is silent.
+      * IT IS IN PLACE. Rebinding `dependencies._memory_daily_completion_repo`
+        to a new instance would work for the app — `get_daily_completion_repo`
+        reads the module global on every call — but EIGHT test modules import
+        these singletons at module scope (`from app.core.dependencies import
+        _memory_arena_repo`). Those names would go on pointing at the old
+        object, so the test would inspect one store while the app wrote to
+        another and its assertions would quietly stop meaning anything.
+
+    Discovered by prefix rather than listed, so a new domain is covered the day
+    it is wired rather than the day somebody remembers this file. Every one of
+    the twenty-two takes no constructor arguments; `test_memory_repositories_
+    can_all_be_reset` asserts that stays true.
+    """
+    from app.core import dependencies
+
+    reset: list[str] = []
+    for name, repo in vars(dependencies).items():
+        if not name.startswith("_memory_"):
+            continue
+        type(repo).__init__(repo)
+        reset.append(name)
+    return reset
+
+
+@pytest.fixture(autouse=True)
+def _isolated_memory_repositories():
+    """Give every test empty repositories, for the same reason as rate limits.
+
+    THE FAILURE THIS CLOSES. `client` is session-scoped, so one anonymous
+    subject — one `peak3_anon` cookie — plays every test in the run, and the
+    memory repositories are module-level singletons that nothing emptied
+    between test modules. `MemoryDailyCompletionRepository` is keyed on
+    `(owner_sub, board_id)` and first-write-wins, which is correct: a player
+    gets one recorded attempt at a daily board. So the FIRST test anywhere in
+    the suite to finish today's `apex_1y` daily board took that key, and
+    `test_daily_completion_is_recorded_on_finish` — which finishes the same
+    board as the same subject and then asserts the record is its own — found
+    the earlier test's row and failed on `c.game_id == game_id`.
+
+    It passed alone, it passed in pairs, and it failed in the full suite: the
+    signature of leaked state rather than of a bug in what was being tested.
+    Nothing about the application is wrong here, and this fixture deliberately
+    does NOT change it — the one-attempt rule, the date window the test
+    searches, and the duplicate-attempt protection all stay exactly as they
+    are. What changes is that a test no longer inherits the writes of the tests
+    that ran before it.
+
+    EVERY DOMAIN, NOT JUST THE ONE THAT BROKE. Daily completions are simply
+    where it surfaced first; games, snapshots, profiles, ratings and arena
+    matches are all the same shape of singleton behind the same session-scoped
+    client. Resetting one domain would leave the next instance of this bug to
+    be diagnosed from scratch.
+
+    STATE SHARED WITHIN A SINGLE TEST IS UNAFFECTED. The reset happens once
+    before the test function runs and once after it, so everything a test does
+    — including multi-step fixtures it requests, and helpers that create a game
+    and then finish it — sees one continuous store.
+    """
+    reset_memory_repositories()
+    yield
+    reset_memory_repositories()
+
+
 @pytest.fixture(scope="session")
 def fixture_leaderboards() -> dict[int, list[dict]]:
     return FIXTURE_LEADERBOARDS

@@ -41,8 +41,14 @@ from nba_peak.twenty_dollar.config import (
 )
 from nba_peak.twenty_dollar.pool import get_pool
 
-#: How many seeds the full sweep runs. The brief asks for at least a thousand.
-SEED_COUNT = 1000
+#: How many seeds the full sweep runs.
+#:
+#: The original brief asked for at least a thousand; the production-rescue
+#: specification (PART 18) asks for at least two thousand deterministic full
+#: bot-versus-bot matches, and names the metrics they must produce. Raised
+#: rather than duplicated into a second suite, so there is one number and one
+#: definition of "the sweep".
+SEED_COUNT = 2000
 
 #: A guard, not a limit. A match that needed this many ACTIONS would already
 #: have failed the lot-cap assertion; this exists so a genuine infinite loop
@@ -82,9 +88,9 @@ def _play(seed: int, pool, policy: TwentyDollarBot) -> dict:
 def sweep(pool):
     """Every terminal state, plus the aggregates the assertions read.
 
-    Built once for the module. A thousand matches is a few seconds of work and
-    twelve separate assertions over it; re-simulating per test would be twelve
-    times the runtime for identical data.
+    Built once for the module. Two thousand matches is a few seconds of work
+    and twenty-odd separate assertions over it; re-simulating per test would be
+    twenty times the runtime for identical data.
     """
     policy = TwentyDollarBot()
     states = [_play(seed, pool, policy) for seed in range(SEED_COUNT)]
@@ -94,10 +100,14 @@ def sweep(pool):
     remaining: list[int] = []
     skips_used: list[int] = []
     prices_by_tier: dict[str, list[int]] = defaultdict(list)
+    roster_totals: list[float] = []
+    timeouts = 0
+    extreme_overpays: list[dict] = []
     closeout_matches = 0
     autofilled_matches = 0
 
     for state in states:
+        roster_totals.extend(S.final_scores(state, pool))
         auctioned = [
             record
             for record in state["history"]
@@ -113,8 +123,24 @@ def sweep(pool):
             spend.append(STARTING_BUDGET - int(seat["budget"]))
             skips_used.append(MARKET_SKIPS_PER_SEAT - int(seat["market_skips"]))
         for record in auctioned:
-            if record["winner_seat"] is not None and record.get("candidate_tier"):
-                prices_by_tier[record["candidate_tier"]].append(int(record["price"]))
+            timeouts += sum(1 for flag in record.get("timed_out", ()) if flag)
+            if record["winner_seat"] is None or not record.get("candidate_tier"):
+                continue
+            price = int(record["price"])
+            prices_by_tier[record["candidate_tier"]].append(price)
+            # AN EXTREME OVERPAYMENT, defined against the tier the candidate was
+            # actually drawn from rather than against its hidden score -- the
+            # bot cannot see the score, so judging it by one would be scoring a
+            # different opponent. More than half the $20 budget on a bottom-tier
+            # candidate is the shape PART 18 asks to be counted.
+            if record["candidate_tier"] == "251-500" and price > STARTING_BUDGET // 2:
+                extreme_overpays.append(
+                    {
+                        "player": record["candidate"]["player_name"],
+                        "price": price,
+                        "tier": record["candidate_tier"],
+                    }
+                )
 
     return {
         "states": states,
@@ -123,6 +149,9 @@ def sweep(pool):
         "remaining": remaining,
         "skips_used": skips_used,
         "prices_by_tier": dict(prices_by_tier),
+        "roster_totals": roster_totals,
+        "timeouts": timeouts,
+        "extreme_overpays": extreme_overpays,
         "closeout_matches": closeout_matches,
         "autofilled_matches": autofilled_matches,
     }
@@ -556,3 +585,88 @@ def test_a_deep_tier_candidate_is_valued_below_an_elite_one(pool):
         for tier in ("1-100", "101-250", "251-500")
     }
     assert ceilings["1-100"] > ceilings["101-250"] >= ceilings["251-500"]
+
+
+# ---------------------------------------------------------------------------
+# PART 18's reported metrics
+# ---------------------------------------------------------------------------
+
+
+def test_no_extreme_overpayment_for_a_bottom_tier_candidate(sweep):
+    """PART 18: the bot must not "overpay irrationally for redundant weak
+    players".
+
+    Judged against the TIER the candidate was drawn from, not against its
+    hidden score -- the bot cannot see the score, so scoring it by one would be
+    grading a different opponent. Spending more than half of $20 on a
+    rank-251-500 candidate is the shape being counted.
+
+    Not asserted as zero: a seat whose last slot needs a centre, holding money
+    it cannot otherwise spend, is behaving correctly when it pays up. Asserted
+    as RARE, because a policy that did it routinely would be the defect.
+    """
+    total_sold = sum(len(prices) for prices in sweep["prices_by_tier"].values())
+    rate = len(sweep["extreme_overpays"]) / max(1, total_sold)
+    assert rate < 0.01, (
+        f"{len(sweep['extreme_overpays'])} of {total_sold} sales were more than "
+        f"half a budget on a bottom-tier candidate ({rate:.3%})"
+    )
+
+
+def test_no_timeouts_occur_in_a_bot_versus_bot_sweep(sweep):
+    """A bot always has a legal move, so a simulated match never times out.
+
+    Worth asserting rather than assuming: a policy that returned an illegal
+    command would be resolved through the mode's timeout path in production
+    (`bots._resolve_stalled_bot_turn`), and the symptom there is a silently
+    worse opponent rather than an error.
+    """
+    assert sweep["timeouts"] == 0
+
+
+def test_final_roster_scores_are_a_real_distribution(sweep):
+    """Not a fixed answer, and not noise.
+
+    Two identical rosters every match would mean the auction decides nothing;
+    a spread as wide as the pool would mean the reserve rule is not binding.
+    """
+    totals = sweep["roster_totals"]
+    assert len(totals) == 2 * SEED_COUNT
+    assert all(total > 0 for total in totals)
+    spread = statistics.pstdev(totals)
+    assert 5.0 < spread < 60.0, spread
+
+
+def test_simulation_report_is_printable(sweep, capsys):
+    """Emits the metrics PART 18 asks to be reported.
+
+    A test rather than a script so the numbers come from the same run CI
+    already pays for, and so they cannot drift from what is actually asserted.
+    """
+    lots = sweep["lots"]
+    with capsys.disabled():
+        print("\n--- $20 Showdown bot-vs-bot simulation ---")
+        print(f"  matches                          {SEED_COUNT}")
+        print(f"  completion rate                  {len(sweep['states']) / SEED_COUNT:.4f}")
+        print(f"  max auctioned lots               {max(lots)}")
+        print(f"  mean auctioned lots              {statistics.fmean(lots):.2f}")
+        print(f"  hard lot cap                     {HARD_MAX_LOTS}")
+        print(f"  closeout matches                 {sweep['closeout_matches']}")
+        print(f"  auto-filled matches              {sweep['autofilled_matches']}")
+        for tier in sorted(sweep["prices_by_tier"]):
+            prices = sweep["prices_by_tier"][tier]
+            print(
+                f"  mean price · tier {tier:<9}    ${statistics.fmean(prices):.2f} "
+                f"(n={len(prices)}, max=${max(prices)})"
+            )
+        print(f"  mean spend per seat              ${statistics.fmean(sweep['spend']):.2f}")
+        print(f"  mean budget remaining            ${statistics.fmean(sweep['remaining']):.2f}")
+        print(f"  mean market skips used           {statistics.fmean(sweep['skips_used']):.2f}")
+        print(
+            f"  final roster score               "
+            f"mean {statistics.fmean(sweep['roster_totals']):.1f} "
+            f"sd {statistics.pstdev(sweep['roster_totals']):.1f}"
+        )
+        print(f"  illegal actions                  0 (asserted in _play)")
+        print(f"  timeouts                         {sweep['timeouts']}")
+        print(f"  extreme overpayments             {len(sweep['extreme_overpays'])}")

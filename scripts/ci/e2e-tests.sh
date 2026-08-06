@@ -32,6 +32,18 @@ export PEAK3_COURTBUILDER_ENABLED=true
 export PEAK3_COURTBUILDER_TEAM_SPIN_ENABLED=true
 export PEAK3_COURTBUILDER_READINESS_LEVEL=internal_dev
 export PEAK3_COURTBUILDER_EXPERIMENTAL_TEAM_YEAR_ENABLED=true
+# THE 82-0 LEADERBOARD IS OFF FOR THIS SUITE, AND IT IS DECLARED RATHER THAN
+# LEFT UNSET. It was unset, which meant the API took its value from whatever
+# `apps/api/.env` happened to say — so a developer who enabled the board
+# locally broke `leaderboard page says the board is not open when the feature
+# is off` while a clean checkout passed it. That is exactly the laptop-versus-
+# checkout divergence this file's other two exports exist to prevent (see
+# CLAUDE.md on PEAK3_TEST_REPOSITORY_MODE and NEXT_PUBLIC_PEAK3_E2E_AUTH).
+#
+# The suite covers BOTH postures: the disabled state needs the real API to
+# report `leaderboard_enabled: false`, and the populated and failed states are
+# driven by network fixtures, so they hold either way.
+export PEAK3_COURTBUILDER_LEADERBOARD_ENABLED=false
 
 # The Arena's multiplayer modes. Ratings and the public leaderboard stay OFF --
 # they are deliberately not part of this release, and the browser suite must not

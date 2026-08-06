@@ -39,18 +39,18 @@ const HEADER_CLASS =
 export interface RankingsTableProps {
   /** Already sorted by the caller, so the row order here IS the display order. */
   rows: readonly RankingRow[];
-  /** The row the detail panel is showing, marked as the active option. */
+  /** The row the analysis drawer is showing, marked as the active option. */
   selectedRowId?: string | null;
-  /** Selecting a row updates the detail panel WITHOUT opening the modal.
-   * Two different actions on one row: select to compare, open to read the
-   * full derivation. */
+  /** THE row action. One destination: the unified player analysis, which
+   *  carries the chart AND the derivation. There is no second handler here any
+   *  more — `onOpenRow` opened a separate score-derivation modal and both it
+   *  and the `ƒ` column it was reached from are gone. */
   onSelectRow?: (row: RankingRow) => void;
   sortKey: RankingSortKey;
   sortDirection: SortDirection;
   onSort: (key: RankingSortKey) => void;
   /** False when no loaded row carries contributions -- hides those columns. */
   showComponents: boolean;
-  onOpenRow: (row: RankingRow) => void;
   /** sr-only <caption>: what this table is, for screen readers. */
   caption: string;
   emptyMessage: string;
@@ -66,7 +66,6 @@ export default function RankingsTable({
   sortDirection,
   onSort,
   showComponents,
-  onOpenRow,
   caption,
   emptyMessage,
   labelHeading,
@@ -75,6 +74,7 @@ export default function RankingsTable({
   const columns = RANKING_COLUMNS.filter(
     (column) => showComponents || column.key === "rank" || column.key === "total"
   );
+  // +3 for Player, Window and Team.
   const columnCount = columns.length + (resorted ? 1 : 0) + 3;
 
   return (
@@ -119,6 +119,10 @@ export default function RankingsTable({
             <th scope="col" className={HEADER_CLASS}>
               Player
             </th>
+            {/* NO DERIVATION COLUMN. There used to be one — a `w-px` cell
+                headed `ƒ`, holding a one-character button that opened a second
+                dialog. It is gone, header and cells, and the width it held is
+                back in the table. See the row comment below. */}
             <th scope="col" className={cn(HEADER_CLASS, "hidden sm:table-cell")}>
               {labelHeading}
             </th>
@@ -149,18 +153,26 @@ export default function RankingsTable({
           {rows.map((row, index) => (
             <tr
               key={row.row_id}
-              // ROW CLICK SELECTS; the player-name button explains. Two
-              // different questions -- "show me this shape" and "show me the
-              // derivation" -- that used to share one action, so comparing
-              // twenty rows meant opening and closing twenty dialogs.
+              // EVERY PATH ON THIS ROW OPENS THE ONE PLAYER ANALYSIS. There is
+              // no second destination any more: the row, the rank and the
+              // player name all open the same drawer, and the derivation is a
+              // disclosure inside it rather than a separate `ƒ` dialog.
               //
-              // THE ROW ITSELF IS NOT A BUTTON, deliberately. It contains one
-              // (the player name opens the modal), and a control inside a
-              // control is `nested-interactive`: a screen reader announces the
-              // row as a button and then cannot reach the button inside it.
-              // The pointer affordance stays on the row; the KEYBOARD path is
-              // the real select control in the rank cell below.
-              onClick={() => (onSelectRow ? onSelectRow(row) : onOpenRow(row))}
+              // NOTHING IS SELECTED UNTIL SOMEBODY DOES THIS. The page used to
+              // default `selectedRow` to `sortedRows[0]`, so it opened with an
+              // analysis nobody had asked for and a chart already drawn.
+              //
+              // THE ROW ITSELF IS NOT A BUTTON AND CARRIES NO ROLE,
+              // deliberately. It contains real controls, and an interactive
+              // ROLE wrapping focusable descendants is axe's
+              // `nested-interactive`: a screen reader would announce the row as
+              // a button and then be unable to reach the buttons inside it.
+              //
+              // So the row's click handler is a POINTER CONVENIENCE for the
+              // whitespace between cells, and every path it offers is also
+              // reachable as a real control: the rank button and the player
+              // name both open the analysis. Nothing here is only clickable.
+              onClick={() => onSelectRow?.(row)}
               className="rankings-row group border-b border-[var(--divider-strong)] cursor-pointer transition-colors hover:bg-[var(--bg-surface-hover)]"
               data-testid="rankings-row"
               data-selected={row.row_id === selectedRowId ? "true" : "false"}
@@ -181,8 +193,15 @@ export default function RankingsTable({
                   <button
                     type="button"
                     aria-pressed={row.row_id === selectedRowId}
-                    aria-label={`Show the component profile for ${row.player_name}, ${row.label}`}
+                    aria-label={`Open the full PEAK3 analysis for ${row.player_name}, ${row.label}`}
                     data-testid={`rankings-select-${row.rank}`}
+                    // THE FOCUS RETURN TARGET. Closing the analysis drawer
+                    // sends focus back to the row that opened it, and this is
+                    // how the page finds it again -- see `closeAnalysis` in
+                    // `rankings/page.tsx`. A `<button>` handles Enter and Space
+                    // natively, which is the whole of PART 22's keyboard
+                    // requirement.
+                    data-row-id={row.row_id}
                     onClick={(event) => {
                       event.stopPropagation();
                       onSelectRow(row);
@@ -204,27 +223,53 @@ export default function RankingsTable({
                   </span>
                 )}
               </td>
+              {/* THE PLAYER CELL IS THE MAIN ROW AREA, AND IT OPENS THE
+                  ANALYSIS.
+
+                  WHAT THIS REPLACES, TWICE OVER. The name used to open the
+                  score DERIVATION, and it is the widest thing in a row: at
+                  1440px a mid-row tap landed on empty table and opened the
+                  analysis, at 390px the identical gesture opened a different
+                  dialog. That was first fixed by moving the derivation into its
+                  own bounded `ƒ` cell — two controls, two boxes, one row.
+
+                  It is now fixed properly, by there being only one thing to
+                  open. The name, the rank and the row all activate the same
+                  unified analysis, and the derivation is a disclosure inside
+                  it. Two targets that cannot overlap became one target. */}
               <td className="px-3 py-2.5">
                 <div className="flex items-center gap-2 min-w-0">
                   <PlayerAvatar name={row.player_name} size={26} imageUrl={row.headshot_url} />
                   <span className="min-w-0">
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenRow(row);
-                      }}
-                      aria-label={`Explain the PEAK3 score for ${row.player_name}, ${row.label}`}
-                      className="block max-w-full truncate rounded text-left font-medium text-[var(--text-primary)] transition-colors group-hover:text-[var(--peak-accent-text)] hover:text-[var(--peak-accent-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                    >
-                      {row.player_name}
-                    </button>
+                    {/* A CONTROL ONLY WHERE THERE IS SOMETHING TO OPEN. A board
+                        rendered without `onSelectRow` has no analysis
+                        destination, and a button that does nothing is worse
+                        than a name. */}
+                    {onSelectRow ? (
+                      <button
+                        type="button"
+                        data-testid="rankings-open-analysis"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelectRow(row);
+                        }}
+                        aria-label={`Open the full PEAK3 analysis for ${row.player_name}, ${row.label}`}
+                        className="block max-w-full truncate rounded text-left font-medium text-[var(--text-primary)] transition-colors group-hover:text-[var(--peak-accent-text)] hover:text-[var(--peak-accent-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                      >
+                        {row.player_name}
+                      </button>
+                    ) : (
+                      <span className="block max-w-full truncate font-medium text-[var(--text-primary)]">
+                        {row.player_name}
+                      </span>
+                    )}
                     <span className="block truncate text-[11px] text-[var(--text-muted)] sm:hidden">
                       {row.label}
                     </span>
                   </span>
                 </div>
               </td>
+
               <td className="hidden px-3 py-2.5 text-xs text-[var(--text-secondary)] sm:table-cell">
                 {row.label || "—"}
                 {row.season_in_progress ? " (in progress)" : ""}

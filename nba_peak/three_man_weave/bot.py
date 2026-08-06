@@ -52,18 +52,30 @@ on five things a drafter actually weighs:
                    only they can fill, and for taking a one-position player
                    early when the roll is deep at that position.
 
-Then it CHOOSES PROBABILISTICALLY from three bands rather than taking the
-maximum: roughly 70% from the strongest group, 25% a defensible non-optimal
-option, 5% a mild mistake. The bands are ordinal over the ranked options, so
-the calibration holds whatever the roll looks like.
+Then it CHOOSES PROBABILISTICALLY rather than taking the maximum: 90% the best
+legal option, 8% a near-equivalent, 2% a mild defensible deviation. The bands
+are measured in UTILITY REGRET, not in rank.
+
+WHY REGRET AND NOT RANK, which is the correction this file exists to record.
+The bands used to be ordinal -- fractions of the ranked option list, sampled
+70/25/5. On a forty-option roll that meant 30% of picks came from options 8
+through 32, and a rank is a rank whether the gap behind the leader is 0.01 or
+0.9. A roll containing peak Stephen Curry and Carl Landry therefore produced
+"Landry over Curry" roughly three times in ten. That is not a mild mistake, it
+is a different kind of decision, and no ordinal band can tell the two apart.
 
 WHAT IT WILL NOT DO, EVER
 --------------------------
 Make an illegal pick, break the identity lock, take a player whose placement
-makes its own roster impossible to complete, or intentionally throw. The
-"mistake" band is drawn from the middle of the ranking and never from the
-bottom quarter: an imperfect drafter takes the third-best wing, not the worst
-player on the board.
+makes its own roster impossible to complete, or intentionally throw. The last
+one is enforced by ONE structural rule rather than left to the distribution:
+
+  THE QUALITY GATE (`viable_options`). A candidate more than
+  `_MAX_QUALITY_REGRET_POINTS` behind the best candidate this seat can legally
+  take is removed before anything is ranked or sampled. The dominance guard is
+  this same rule reported rather than a second mechanism: when only one player
+  survives the gate the pick is forced, because there is nothing else to
+  choose. Deriving both from one filter is what stops them drifting apart.
 """
 from __future__ import annotations
 
@@ -83,17 +95,79 @@ from nba_peak.three_man_weave.config import (
 
 COMMAND_PICK = "tmw_pick"
 
-#: Ordinal bands over the ranked options, as fractions of the option list.
-#: The first band is at least one option wide however short the list is, so a
-#: two-option roll still has a "strong" choice to make.
-_STRONG_BAND = 0.20
-_DEFENSIBLE_BAND = 0.55
-#: A mistake is drawn from the middle, never the tail. Options ranked below
-#: this fraction are unreachable: the bot is imperfect, not self-sabotaging.
-_MISTAKE_FLOOR = 0.80
+#: BANDS ARE MEASURED IN UTILITY REGRET, NOT IN RANK.
+#:
+#: THE DEFECT THIS REPLACES. The bands used to be ORDINAL -- fractions of the
+#: ranked option list (`0.20` / `0.55` / `0.80`) sampled at `(0.70, 0.25,
+#: 0.05)`. On a forty-option roll that put 30% of picks in options 8-32
+#: regardless of whether option 8 was a hair behind the best or a chasm behind
+#: it. A roll holding peak Stephen Curry and Carl Landry produced exactly the
+#: reported catastrophe about three times in ten, because rank 12 is rank 12
+#: whether it costs 0.01 of lineup value or 0.9 of it.
+#:
+#: Regret is the right unit because it is the thing a spectator judges. A
+#: drafter who takes the second-best wing when the two are near-identical has
+#: made a defensible call; one who takes a role player over a superstar has
+#: made a different KIND of decision, and no rank-based band can tell those
+#: apart. These thresholds are in the same units as `_utility` returns, whose
+#: quality term is normalised to [0, 1] across the roll -- so `0.06` means
+#: "within six percent of this roll's whole quality spread".
+_NEAR_EQUIVALENT_REGRET = 0.06
+_MILD_DEVIATION_REGRET = 0.18
 
-#: Calibration targets from the brief. Not branches -- weights over the bands.
-_BAND_WEIGHTS = (0.70, 0.25, 0.05)
+#: Calibration targets from the brief: 90% best legal choice, 8% second-best or
+#: strategically near-equivalent, 2% mild defensible deviation. Weights over the
+#: bands, not branches -- and an EMPTY band falls back to the best option rather
+#: than widening, which is the second half of the old bug (`_sample` used to
+#: fall through to "anything", so a short list turned a 5% mistake rate into a
+#: much larger one).
+_BAND_WEIGHTS = (0.90, 0.08, 0.02)
+
+#: THE QUALITY GATE, IN PEAK3 SCORE POINTS. The single rule that makes a
+#: catastrophic pick unreachable.
+#:
+#: A candidate more than this far below the BEST CANDIDATE THIS SEAT CAN
+#: LEGALLY TAKE is not viable, and is removed before the policy ranks anything.
+#: `viable_options` applies it; `_sample` never sees the excluded options at
+#: all. Three consequences, and each one is a requirement from PART 10:
+#:
+#:   * "A bot may not pass over peak Stephen Curry for Carl Landry" -- Landry
+#:     is fifty points behind and is simply not on the list.
+#:   * "...unless Curry would make legal completion impossible" -- a candidate
+#:     who cannot be legally placed produces no option, so the gate measures
+#:     against the best LEGAL candidate and the carve-out needs no special
+#:     case.
+#:   * "When the top candidate exceeds the next viable choice by a major
+#:     threshold, always select the dominant candidate; do not apply
+#:     randomness" -- when only one player survives the gate there is nothing
+#:     to sample from, so the guard is the gate rather than a second mechanism
+#:     that could disagree with it. `dominant_option` reports exactly that.
+#:
+#: WHY POINTS AND NOT NORMALISED UNITS. `_utility`'s quality term is normalised
+#: against the roll's own spread, which is right for RANKING -- "good for this
+#: roll" is what a drafter weighs -- and useless for judging whether a gap is
+#: catastrophic, because normalisation destroys the scale. On a two-candidate
+#: roll the better player scores 1.0 and the other 0.0 whether they are fifty
+#: points apart or half a point apart, so a normalised gate would fire
+#: identically for Curry-vs-Landry (50.4 points) and Bogut-vs-Lee (0.54), and
+#: would turn the bot into a maximiser on exactly the close calls that should
+#: be judgement.
+#:
+#: WHY 12 AND NOT 5. The positional terms in `_utility` (scarcity, the starter
+#: bonus, the replacement gap) exist to let the bot draft around its roster
+#: shape rather than down a leaderboard, and taking a scarce centre over a
+#: somewhat better wing is a real basketball answer, not a mistake. Twelve
+#: points is roughly the difference between a good starter and a very good one
+#: in the committed franchise-decade index -- wide enough that genuine
+#: positional judgement survives, narrow enough that the thirty-two-point
+#: overrides the unbounded model produced cannot recur.
+_MAX_QUALITY_REGRET_POINTS = 12.0
+
+#: The smallest quality range `options` will normalise against, in PEAK3
+#: points. See the comment at its use site: without a floor, a roll whose
+#: candidates are half a point apart normalises to a full 0-1 spread and the
+#: utility bands read a rounding difference as a decisive one.
+_QUALITY_SPREAD_FLOOR = 20.0
 
 #: Basketball archetypes, never real player names. A drafted player's name has
 #: to be unambiguous on a board where every other label is also a person, and
@@ -180,7 +254,19 @@ class ThreeManWeaveBot:
             return []
         best_overall = max(values)
         worst_overall = min(values)
-        spread = max(1e-6, best_overall - worst_overall)
+        # THE SPREAD HAS A FLOOR, and it is not merely a divide-by-zero guard.
+        #
+        # Normalising against the roll's OWN min and max means the top and
+        # bottom candidates always land on 1.0 and 0.0 -- whether they are
+        # fifty PEAK3 points apart or half a point apart. On a thin roll that
+        # manufactures a chasm out of nothing: two near-identical bigs would
+        # produce a utility gap of over 1.0, which the deviation bands would
+        # then read as "decisive" and refuse to choose between. Clamping the
+        # denominator to `_QUALITY_SPREAD_FLOOR` points makes `normalised` mean
+        # the same thing on every roll -- "how far ahead, on a scale where this
+        # many points is the whole range" -- so a small real difference stays a
+        # small utility difference and the bands stay calibrated.
+        spread = max(_QUALITY_SPREAD_FLOOR, best_overall - worst_overall)
 
         # Replacement level per slot: the best OTHER candidate who could fill
         # it. What a slot is really worth is the gap to its alternative.
@@ -211,6 +297,14 @@ class ThreeManWeaveBot:
                         "player_slug": slug,
                         "slot_type": slot,
                         "state": fit.get("state"),
+                        # BOTH SCALES ARE CARRIED. `quality` is the
+                        # roll-normalised value the utility ranking is built
+                        # from; `score` is the raw franchise-decade PEAK3
+                        # season the guards are measured in. Keeping them
+                        # separate is what stops a two-candidate roll from
+                        # looking like a chasm -- see `_DOMINANCE_SCORE_GAP`.
+                        "quality": normalised,
+                        "score": score,
                         "utility": self._utility(
                             normalised=normalised,
                             replacement_gap=(score - replacement) / spread,
@@ -316,37 +410,108 @@ class ThreeManWeaveBot:
         return COMMAND_PICK, payload
 
     @staticmethod
+    def viable_options(options: list[dict]) -> list[dict]:
+        """`options`, minus everyone the quality gate excludes.
+
+        THE ONE PLACE A CATASTROPHIC PICK IS MADE UNREACHABLE, and it is a
+        FILTER rather than a tie-break, because a tie-break can always be
+        outvoted by enough positional bonus. Measured in PEAK3 points against
+        the best candidate this seat can legally take -- see
+        `_MAX_QUALITY_REGRET_POINTS` for why points and why twelve.
+
+        Applied AFTER `options` has ranked everything, not inside it, so the
+        full ranking stays available for diagnostics and for the regret
+        measurements the simulation reports. The order is preserved, so
+        `viable_options(...)[0]` is still the best option the policy may take.
+        """
+        if not options:
+            return []
+        floor = max(option["score"] for option in options) - _MAX_QUALITY_REGRET_POINTS
+        viable = [option for option in options if option["score"] >= floor]
+        # The top-scoring option always clears its own floor, so this cannot be
+        # empty; kept as a guarantee rather than an assumption.
+        return viable or [max(options, key=lambda option: option["score"])]
+
+    @staticmethod
+    def dominant_option(options: list[dict]) -> Optional[dict]:
+        """The option the policy is REQUIRED to take, or None if it is a
+        judgement call.
+
+        Dominance is not a second mechanism sitting beside the quality gate --
+        it IS the gate, reported. When only one player survives
+        `viable_options`, every alternative is more than
+        `_MAX_QUALITY_REGRET_POINTS` behind and there is nothing left to
+        sample: randomness is not "switched off", it has nothing to act on.
+        Deriving it this way rather than from a second threshold means the two
+        rules cannot drift apart.
+
+        Published so a regression can assert it directly. "Given this roll the
+        bot must take Curry" is a statement about this function, and a test
+        that could only observe it through two thousand samples would be a slow
+        proxy for a rule.
+        """
+        viable = ThreeManWeaveBot.viable_options(options)
+        if not viable:
+            return None
+        if len({option["player_slug"] for option in viable}) > 1:
+            return None
+        # `viable` preserves the utility order, so this is that player's best
+        # slot rather than an arbitrary one.
+        return viable[0]
+
+    @staticmethod
+    def is_dominant(options: list[dict]) -> bool:
+        """Whether this roll is decisive at all. A convenience over
+        `dominant_option`, kept because "is this a judgement call" reads better
+        at an assertion site than a None check."""
+        return ThreeManWeaveBot.dominant_option(options) is not None
+
+    @staticmethod
     def _sample(options: list[dict], rng: random.Random) -> dict:
         """Draw one option from the three calibration bands.
 
-        Bands are computed from the list length, so they mean the same thing
-        on a two-option roll and a forty-option one. An empty band falls
-        through to the previous non-empty one rather than to a uniform draw,
-        because falling back to "anything" is how a 5% mistake rate becomes a
-        100% one on a short list.
-        """
-        count = len(options)
-        strong_end = max(1, math.ceil(count * _STRONG_BAND))
-        defensible_end = max(strong_end, math.ceil(count * _DEFENSIBLE_BAND))
-        mistake_end = max(defensible_end, math.ceil(count * _MISTAKE_FLOOR))
+        THE ORDER OF THE THREE RULES BELOW IS THE POLICY.
 
-        bands = [
-            options[0:strong_end],
-            options[strong_end:defensible_end],
-            options[defensible_end:mistake_end],
+        1. THE QUALITY GATE FIRST, and everything after it operates on the
+           survivors only. When one candidate is decisively ahead of the board
+           they are the only survivor, so the pick is forced and no randomness
+           is consumed -- a bot that rolled dice on "superstar or role player"
+           would be broken however good its distribution looked in aggregate.
+        2. BANDS BY REGRET, NOT BY RANK. `near` is everything within
+           `_NEAR_EQUIVALENT_REGRET` of the best surviving option; `mild`
+           everything within `_MILD_DEVIATION_REGRET`. Because the gate has
+           already run, no draw from either band can be a catastrophic miss --
+           that is a property of the list, not of the thresholds.
+        3. AN EMPTY BAND FALLS BACK TO THE BEST OPTION, never to a wider one.
+           The previous implementation fell through to whatever was non-empty,
+           which turned a 5% mistake rate into a much larger one on short
+           rolls -- a bug that got worse exactly as the board got thinner and
+           the picks mattered more.
+        """
+        if not options:  # pragma: no cover - callers check first
+            raise ValueError("no options to sample from")
+
+        viable = ThreeManWeaveBot.viable_options(options)
+        best = viable[0]
+        if len(viable) == 1:
+            return best
+
+        def reachable(option: dict, regret_limit: float) -> bool:
+            if option is best:
+                return False
+            return (best["utility"] - option["utility"]) <= regret_limit
+
+        near = [o for o in viable if reachable(o, _NEAR_EQUIVALENT_REGRET)]
+        mild = [
+            o for o in viable if reachable(o, _MILD_DEVIATION_REGRET) and o not in near
         ]
 
         roll = rng.random()
-        cumulative = 0.0
-        for band, weight in zip(bands, _BAND_WEIGHTS):
-            cumulative += weight
-            if roll < cumulative and band:
-                return band[rng.randrange(len(band))]
-        # Every band above this one was empty (a very short option list).
-        for band in reversed(bands):
-            if band:
-                return band[rng.randrange(len(band))]
-        return options[0]  # pragma: no cover - count >= 1 guarantees a band
+        if roll < _BAND_WEIGHTS[0]:
+            return best
+        if roll < _BAND_WEIGHTS[0] + _BAND_WEIGHTS[1]:
+            return near[rng.randrange(len(near))] if near else best
+        return mild[rng.randrange(len(mild))] if mild else best
 
     # -- quality, the one thing the projection no longer publishes ----------
 

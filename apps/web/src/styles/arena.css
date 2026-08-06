@@ -174,6 +174,99 @@
   color: var(--peak-accent-text);
 }
 
+/* PLAYABLE, and it has to LOOK like the opposite of the alpha badge.
+   ---------------------------------------------------------------------------
+   The cards used to carry "Closed alpha" beside a primary button that starts a
+   match immediately, which is a badge arguing with the control under it. In the
+   practice-only posture the badge states what is true of THAT CARD -- you can
+   play this now -- and the alpha caveat is stated once, in the page header and
+   again in `.ar-later`, where it is about the page rather than about the game.
+
+   Emerald rather than gold: gold is this product's accent and is already
+   carrying "alpha", so reusing it here would make two opposite meanings share
+   one colour. `--comp-team` is the established emerald token. */
+.ar-badge-play {
+  border-color: color-mix(in srgb, var(--comp-team, #34d399) 45%, transparent);
+  background: color-mix(in srgb, var(--comp-team, #34d399) 12%, transparent);
+  /* Text, not the raw token: the component swatch is chosen to read on a chart
+     fill, and this is 10px uppercase type on a surface. */
+  color: var(--comp-team-text, var(--comp-team, #34d399));
+}
+
+/* The one-line alpha statement under the page title. Says both halves in one
+   breath, which the old intro did not: it said "live games against other
+   people" in every configuration, including the one where that is exactly what
+   is closed. */
+.ar-alpha-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* A card's own footnote about matchmaking. Deliberately quiet and deliberately
+   LAST: it is a fact about later, under two controls that work now. */
+.ar-card-later {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.6rem;
+}
+
+/* WHAT THE ALPHA IS HOLDING BACK -- once, at the end.
+   ---------------------------------------------------------------------------
+   This replaces four permanently-disabled buttons (two per card). A capability
+   that is not coming back this week is not a disabled control; rendering it as
+   one made a two-game lobby look mostly broken, and gave the greyed-out state
+   -- which should mean "temporarily unavailable" -- a second, permanent
+   meaning. */
+.ar-later {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px dashed var(--border-default, var(--border-subtle));
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-surface);
+}
+
+.ar-later-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ar-later-list {
+  display: grid;
+  gap: 0.5rem 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.ar-later-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.ar-later-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ar-later-detail {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
 .ar-card-title {
   font-family: var(--font-display, inherit);
   font-size: 1.375rem;
@@ -585,4 +678,572 @@
   .ar-progress::-webkit-progress-value {
     transition: none;
   }
+}
+
+/* ==================================================================
+   THE SHARED GAME-ACTION BUTTONS — `.btn-primary` / `.btn-secondary`
+   ==================================================================
+   THESE RULES DID NOT EXIST, AND THAT WAS THE DEFECT. Four surfaces —
+   Three-Man Weave's pick overlay (Draft / Back), its move dialog
+   (Move / Cancel), its podium (Play again / Back to Arena), and the
+   Showdown result (Play again / Back to Arena) — have always rendered
+   `className="btn-primary"` and `className="btn-secondary"`. No
+   stylesheet in the repository defined either class: `grep` matched only
+   `pk-tour-btn-primary`, `td-btn-primary` and `ar-btn-primary`, three
+   unrelated rules with different names.
+
+   The app runs Tailwind v4 with Preflight, whose reset gives a bare
+   `<button>` `background: transparent; border: 0; padding: 0` and an
+   inherited font. So every one of those eight controls painted as plain
+   text. That single missing rule is the whole of the manual finding
+   "the primary action appears as visually weak text such as 'Draft
+   Kevin Garnett'" and "the result screen uses weak text-like Play Again
+   and Back actions", on BOTH games.
+
+   Defined here, in the file that owns the chrome both game rooms share,
+   rather than in either mode's own partial — one definition means the
+   Weave draft button and the Showdown result button cannot drift apart.
+   `<a>` is included in the selector because "Back to Arena" is a
+   `next/link`, and a navigation that looks unlike the button beside it
+   is the same defect in a smaller form.
+   ================================================================== */
+
+.btn-primary,
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  /* The project's 44px floor (PRODUCT_EXPERIENCE_CONTRACT.md §10). A game's
+     primary action is the one control a player reaches for under a clock. */
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.625rem 1.25rem;
+  border-radius: var(--pk-r-md, 10px);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 90ms ease,
+    box-shadow 140ms ease;
+}
+
+.btn-primary {
+  background: var(--peak-accent);
+  border-color: var(--peak-accent);
+  color: var(--peak-accent-on, #12131a);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25), 0 6px 18px -10px var(--peak-accent);
+}
+
+.btn-primary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--peak-accent-dim, var(--peak-accent));
+  border-color: var(--peak-accent-dim, var(--peak-accent));
+}
+
+.btn-secondary {
+  background: var(--bg-surface);
+  border-color: var(--border-default, var(--border-subtle));
+  color: var(--text-primary);
+}
+
+.btn-secondary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--bg-surface-hover, var(--bg-elevated));
+  border-color: var(--peak-accent);
+  color: var(--text-primary);
+}
+
+/* PRESSED IS A REAL STATE, not a hover repeat. A button under a decision
+   clock has to acknowledge the click before the round trip returns. */
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* A DISABLED PRIMARY IS NEUTRAL, NOT A FADED YELLOW.
+   ---------------------------------------------------------------------------
+   `opacity: 0.45` over the accent fill produces a murky olive, and the review
+   frames showed what that costs: "Choose a slot for Alex Caruso" and "Choose
+   where Aaron Wiggins goes" both read as a control in some indeterminate
+   colour rather than as one that is deliberately not ready yet. Dropping to
+   the surface tokens says "not yet" unambiguously, and keeps the label legible
+   -- which matters more here than usual, because on both of those controls the
+   label is what tells you HOW to enable it. */
+.btn-primary:disabled,
+.btn-primary[aria-disabled="true"] {
+  background: var(--bg-surface);
+  border-color: var(--border-default, var(--border-subtle));
+  color: var(--text-muted);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-secondary:disabled,
+.btn-secondary[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* THE LOADING STATE IS A STATE, not a label swap. `data-loading` is set by
+   the caller while a command is in flight; the control keeps its size (so
+   the layout does not jump) and stops responding to hover. */
+.btn-primary[data-loading="true"],
+.btn-secondary[data-loading="true"] {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-primary,
+  .btn-secondary {
+    transition: none;
+  }
+  .btn-primary:active:not(:disabled),
+  .btn-secondary:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* ==================================================================
+   THE DECISION CLOCK — `ArenaTimer`
+   ==================================================================
+   PART 2: large number, visual progress, attached to the active
+   participant, visible near the controls, clear under-5-second
+   urgency. Shared by both game rooms so the two cannot drift into
+   different clocks.
+
+   The number is `tabular-nums` and the container reserves its width,
+   so counting from 20 to 9 does not reflow the panel beside it — a
+   timer that nudges the controls every ten seconds reads as jitter.
+   ================================================================== */
+
+.ar-timer {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas:
+    "label label"
+    "value unit"
+    "track track"
+    "note  note";
+  align-items: baseline;
+  gap: 0.15rem 0.5rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+}
+
+.ar-timer--idle {
+  grid-template-areas: "label label";
+  color: var(--text-secondary);
+}
+
+.ar-timer-label {
+  grid-area: label;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.ar-timer[data-yours="true"] .ar-timer-label {
+  color: var(--peak-accent-text, var(--peak-accent));
+}
+
+.ar-timer-value {
+  grid-area: value;
+  font-family: var(--font-display, inherit);
+  font-size: 2.75rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  /* Three digits' worth, so 20 -> 9 does not move the unit beside it. */
+  min-width: 2.4ch;
+  color: var(--text-primary);
+}
+
+.ar-timer-unit {
+  grid-area: unit;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.ar-timer-track {
+  grid-area: track;
+  display: block;
+  height: 4px;
+  margin-top: 0.4rem;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.ar-timer-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  /* Driven by a custom property the component sets, so the width is a
+     style recalculation on one element rather than a React render. */
+  width: calc(var(--ar-timer-fraction, 1) * 100%);
+  background: var(--peak-accent);
+  transition: width 250ms linear;
+}
+
+.ar-timer-consequence {
+  grid-area: note;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* UNDER FIVE SECONDS READS AS URGENT, and does so through colour AND a
+   pulse — colour alone would be the only signal for a player who cannot
+   distinguish it. */
+.ar-timer[data-state="urgent"] {
+  border-color: var(--incorrect, #ef4444);
+}
+
+.ar-timer[data-state="urgent"] .ar-timer-value {
+  color: var(--incorrect, #ef4444);
+  animation: ar-timer-pulse 1s ease-in-out infinite;
+}
+
+.ar-timer[data-state="urgent"] .ar-timer-fill {
+  background: var(--incorrect, #ef4444);
+}
+
+.ar-timer[data-state="expired"] .ar-timer-value {
+  color: var(--text-muted);
+}
+
+@keyframes ar-timer-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ar-timer-fill {
+    transition: none;
+  }
+  .ar-timer[data-state="urgent"] .ar-timer-value {
+    animation: none;
+    /* The urgency still has a non-colour carrier: the number goes bold
+       and the border turns. Removing the pulse must not remove the
+       signal. */
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+  }
+}
+
+/* ==========================================================================
+   THE 82-0 PEAK SEASON LEADERBOARD
+   ==========================================================================
+   A finished board rather than a debug table. What was here before was a
+   `runs.map()` of flex rows carrying an index, a handle, a record and a score
+   — no date, no mode, no route to the roster behind an entry, no pagination
+   past the first page, no "where am I", and nothing at all distinguishing the
+   run at the top from the run at position forty.
+
+   THE TABLE IS A TABLE, and that is a correctness choice rather than a
+   stylistic one. Seven columns of aligned figures compared down the page is
+   exactly what `<table>` is for, and it is what gives a screen reader the
+   column headers that make a row's fourth number mean "lineup score". */
+
+.ps-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  /* DEFENSIVE, AND MEASURED TO BE JUST THAT. `min-width: auto` on a flex item
+     resolves to a content-based minimum only along the container's MAIN axis,
+     and this container is a column — so the seven-column table never widened
+     anything, and `overflow-x: auto` on `.ps-board-scroll` was doing the whole
+     job on its own. Measured both ways at 390px: the page's maximum horizontal
+     scroll is 0 with or without this line.
+
+     It stays because the declaration costs nothing and the day this becomes a
+     row container is the day it would matter. It is NOT recorded as a fix,
+     because it did not fix anything. */
+  min-width: 0;
+}
+
+.ps-board-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ps-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.ps-tab {
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.4rem 0.85rem;
+  border: 1px solid var(--border-default, var(--border-subtle));
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.ps-tab[aria-selected="true"] {
+  border-color: var(--peak-accent-dim, var(--peak-accent));
+  background: var(--peak-accent-bg);
+  color: var(--peak-accent-text, var(--peak-accent));
+}
+
+.ps-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Wide content scrolls INSIDE ITS OWN BOX. Seven columns do not fit a phone,
+   and a table that widened the document would take the whole page sideways
+   with it. */
+.ps-board-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border-default, var(--border-subtle));
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-surface-data, var(--bg-surface));
+}
+
+.ps-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.ps-table thead tr {
+  background: var(--bg-elevated);
+  /* `--divider-strong` rather than `--border-subtle`: the header used to share
+     a separator with every data row, which left it structurally
+     indistinguishable from data. Same fix, same reason, as the rankings
+     table's own header. */
+  border-bottom: 2px solid var(--divider-strong, var(--border-default));
+}
+
+.ps-table th {
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ps-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ps-table tbody tr:last-child td { border-bottom: 0; }
+
+/* THE NUMBER ONE IS MARKED BY A RULE AND A CROWN, NOT BY A TINT.
+   Repainting the row's background would re-open a contrast question for every
+   cell on it — each text colour here was chosen against the table's own
+   surface. The same rule the rankings board's selected row follows. */
+.ps-table tbody tr[data-leader="true"] {
+  box-shadow: inset 3px 0 0 0 var(--peak-accent);
+}
+
+.ps-table tbody tr[data-you="true"] {
+  box-shadow: inset 3px 0 0 0 var(--comp-team, #34d399);
+}
+
+.ps-rank,
+.ps-record,
+.ps-score,
+.ps-seed {
+  font-variant-numeric: tabular-nums;
+}
+
+.ps-rank { color: var(--text-muted); font-weight: 600; }
+
+.ps-crown {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--peak-accent-text, var(--peak-accent));
+  font-weight: 700;
+}
+
+.ps-name {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: normal;
+}
+
+.ps-you {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--comp-team, #34d399) 14%, transparent);
+  color: var(--comp-team-text, var(--comp-team, #34d399));
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ps-respins {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ps-record { font-weight: 700; color: var(--peak-accent-text, var(--peak-accent)); }
+.ps-score { font-weight: 600; color: var(--text-primary); }
+.ps-date,
+.ps-seed { color: var(--text-muted); font-size: 0.75rem; }
+
+.ps-link a {
+  color: var(--peak-accent-text, var(--peak-accent));
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ps-link a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* THREE STATES THAT USED TO BE ONE. `loading`, `disabled`, `failed` and
+   `empty` all share this shell and say four different things, because a
+   reader's next action differs in each: wait, come back later, retry, play. */
+.ps-board-state {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border-default, var(--border-subtle));
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.ps-board-state-title {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ps-board-retry,
+.ps-board-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.4rem 1rem;
+  border: 1px solid var(--border-default, var(--border-subtle));
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ps-board-more { align-self: center; }
+.ps-board-more:disabled { cursor: not-allowed; }
+
+.ps-board-retry:focus-visible,
+.ps-board-more:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.ps-board-cta {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.4rem 1rem;
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--peak-accent, #f5c842);
+  color: var(--text-inverse);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+/* YOUR BEST, whether or not it is on the page above. This is the panel the
+   `GET /leaderboard/me` endpoint existed for and that nothing ever called. */
+.ps-you-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--comp-team, #34d399) 40%, transparent);
+  border-radius: var(--pk-r-lg, 14px);
+  background: color-mix(in srgb, var(--comp-team, #34d399) 8%, transparent);
+}
+
+.ps-you-eyebrow {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ps-you-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.ps-you-rank {
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.ps-you-record {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--peak-accent-text, var(--peak-accent));
 }

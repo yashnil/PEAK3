@@ -30,6 +30,7 @@ from nba_peak import nba_facts  # noqa: E402
 from nba_peak.nba_facts import (  # noqa: E402
     BANK_PATH,
     FACT_BANK_VERSION,
+    MIN_FACTS,
     bank_status,
     build_bank,
     clear_bank_cache,
@@ -71,7 +72,7 @@ def test_a_clean_output_directory_produces_a_bank(tmp_path):
     assert out.exists(), "the generator did not create its output directory"
     payload = json.loads(out.read_text())
     assert payload["version"] == FACT_BANK_VERSION
-    assert payload["count"] >= 60
+    assert payload["count"] >= MIN_FACTS
     assert len(payload["facts"]) == payload["count"]
 
 
@@ -96,8 +97,9 @@ def test_the_generator_writes_exactly_where_the_loader_reads(tmp_path):
     # And a bank written there is the bank `load_bank()` finds.
     out = tmp_path / "nba_facts.v1.json"
     assert _run_generator(out).returncode == 0
+    published, _rejected = build_bank()
     assert [fact.fact_id for fact in load_bank(out)] == [
-        fact.fact_id for fact in build_bank()
+        fact.fact_id for fact in published
     ]
 
 
@@ -263,7 +265,12 @@ def test_a_bank_that_is_too_small_fails_the_build(tmp_path, monkeypatch):
     assert spec.loader is not None
     spec.loader.exec_module(module)
 
-    monkeypatch.setattr(module, "build_bank", lambda: build_bank()[:3])
+    # `build_bank` returns (published, rejected) now, so the stub has to as
+    # well — a stub returning a bare list would make `main()` fail for the
+    # wrong reason and the test would pass without exercising the floor.
+    monkeypatch.setattr(
+        module, "build_bank", lambda: (build_bank()[0][:3], [])
+    )
     monkeypatch.setattr(
         sys, "argv", ["build_nba_facts.py", "--out", str(tmp_path / "small.json")]
     )
@@ -273,7 +280,13 @@ def test_a_bank_that_is_too_small_fails_the_build(tmp_path, monkeypatch):
 
 def test_missing_source_data_fails_the_build_loudly(tmp_path, monkeypatch):
     """A missing input is a build failure, not an empty bank."""
-    monkeypatch.setattr(nba_facts, "SEASONS_PATH", tmp_path / "gone.json")
+    # Patched on the SUBMODULE, because `nba_facts` is a package now and
+    # `load_rows` reads the constant from inside `derived`. Patching the
+    # package re-export would leave the real file in place and the test would
+    # pass without exercising anything.
+    from nba_peak.nba_facts import derived as derived_module
+
+    monkeypatch.setattr(derived_module, "SEASONS_PATH", tmp_path / "gone.json")
     with pytest.raises(FileNotFoundError):
         nba_facts.load_rows()
 
@@ -293,12 +306,23 @@ def test_the_cache_is_shared_so_the_probe_and_the_route_cannot_disagree():
     assert bank_status()["fact_count"] == len(first)
 
 
-def test_the_real_bank_selects_a_dated_fact_with_evidence():
+def test_the_real_bank_selects_a_dated_fact_that_names_its_source():
+    """SOURCING, not evidence rows.
+
+    This asserted `fact.evidence` when every fact in the bank was generated
+    from the committed season table. The bank now has a curated half whose
+    facts carry a NAMED CHECKED SOURCE instead of rows — a per-season totals
+    table cannot know why the shot clock is 24 seconds. So the assertion is the
+    thing that is true of both: no published fact is unsourced.
+    """
     bank = list(nba_facts.cached_bank())
     if not bank:
         pytest.skip("data/web/ has not been built in this checkout")
     fact = fact_for_date(bank, "2026-08-05")
     assert fact is not None
-    assert fact.evidence
     assert fact.source_label
+    assert fact.source_detail
+    assert fact.verified
     assert fact.category
+    if fact.provenance == "derived":
+        assert fact.evidence

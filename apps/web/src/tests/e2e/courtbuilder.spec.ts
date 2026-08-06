@@ -1280,9 +1280,113 @@ test.describe("CourtBuilder leaderboard (Part E)", () => {
     await expect(page.locator('[data-testid="leaderboard-submit-panel"]')).toHaveCount(0, { timeout: 5_000 });
   });
 
-  test("leaderboard page shows a not-enabled message when the feature is off", async ({ page }) => {
+  test("leaderboard page says the board is not open when the feature is off", async ({ page }) => {
     await page.goto("/arena/court/leaderboard", { waitUntil: "load" });
-    await expect(page.getByText("isn't enabled yet")).toBeVisible({ timeout: 5_000 });
+    const panel = page.getByTestId("ps-board-disabled");
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    // AND NOT THE FAILURE STATE. The two used to be one: the page's `catch`
+    // set `enabled = false`, so a request that never completed rendered the
+    // sentence about a capability nobody had turned on. A reader's next action
+    // is different in each case, so the states must be.
+    await expect(page.getByTestId("ps-board-failed")).toHaveCount(0);
+  });
+
+  test("a failed board request is reported as a failure, with a retry", async ({ page }) => {
+    // Simulated at the network layer rather than by disabling a flag, because
+    // the defect was precisely that the app could not tell these apart.
+    await page.route("**/api/v1/perfect-season/leaderboard**", (route) => route.abort());
+    await page.goto("/arena/court/leaderboard", { waitUntil: "load" });
+    const panel = page.getByTestId("ps-board-failed");
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    await expect(panel).toContainText(/not a closed feature/i);
+    await expect(page.getByTestId("ps-board-retry")).toBeVisible();
+    await expect(page.getByTestId("ps-board-disabled")).toHaveCount(0);
+  });
+
+  test("an enabled, populated board is a finished table", async ({ page }) => {
+    // FIXTURES, not a live board: this pass turns the capability on but writes
+    // no rows anywhere, and a test that needed real submissions would be a test
+    // about whoever had played that day.
+    await page.route("**/api/v1/perfect-season/leaderboard?*", async (route) => {
+      await route.fulfill({
+        json: {
+          leaderboard_enabled: true,
+          next_cursor: null,
+          daily: false,
+          daily_key: null,
+          runs: [
+            {
+              id: "run-a", display_name: "alpha", mode: "apex_1y",
+              game_type: "peak_season", game_id: "game-a", seed: 101,
+              wins: 82, losses: 0, lineup_score: 91.4, score_status: "complete",
+              exact_cards_scored: 8, total_cards: 8,
+              team_respins_used: 0, season_respins_used: 0,
+              data_version: null, formula_version: null, simulation_version: null,
+              created_at: "2026-08-04T05:10:16.000Z",
+            },
+            {
+              id: "run-b", display_name: "peakfan", mode: "apex_1y",
+              game_type: "peak_season", game_id: "game-b", seed: 431465972,
+              wins: 81, losses: 1, lineup_score: 77.3, score_status: "complete",
+              exact_cards_scored: 8, total_cards: 8,
+              team_respins_used: 2, season_respins_used: 2,
+              data_version: null, formula_version: null, simulation_version: null,
+              created_at: "2026-08-04T05:10:16.000Z",
+            },
+          ],
+        },
+      });
+    });
+    await page.goto("/arena/court/leaderboard", { waitUntil: "load" });
+    await expect(page.getByTestId("leaderboard-table")).toBeVisible({ timeout: 10_000 });
+
+    const rows = page.getByTestId("leaderboard-row");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toHaveAttribute("data-leader", "true");
+    await expect(rows.nth(1)).toContainText("81");
+    await expect(rows.nth(1)).toContainText("77.3");
+    await expect(rows.nth(1).getByRole("link")).toHaveAttribute(
+      "href",
+      "/arena/court/results/game-b",
+    );
+  });
+
+  test("@mobile the board does not take the page sideways", async ({ page }) => {
+    await page.route("**/api/v1/perfect-season/leaderboard?*", async (route) => {
+      await route.fulfill({
+        json: {
+          leaderboard_enabled: true, next_cursor: null, daily: false, daily_key: null,
+          runs: [{
+            id: "run-a", display_name: "alpha", mode: "apex_1y", game_type: "peak_season",
+            game_id: "game-a", seed: 101, wins: 82, losses: 0, lineup_score: 91.4,
+            score_status: "complete", exact_cards_scored: 8, total_cards: 8,
+            team_respins_used: 0, season_respins_used: 0, data_version: null,
+            formula_version: null, simulation_version: null,
+            created_at: "2026-08-04T05:10:16.000Z",
+          }],
+        },
+      });
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/arena/court/leaderboard", { waitUntil: "load" });
+    await expect(page.getByTestId("leaderboard-table")).toBeVisible({ timeout: 10_000 });
+    // Seven columns do not fit a phone. They scroll inside `.ps-board-scroll`,
+    // which is what keeps the PAGE from scrolling sideways with them.
+    //
+    // MEASURED BY TRYING TO SCROLL, not by `documentElement.scrollWidth`.
+    // Chromium counts a nested scroll container's clipped layout overflow in
+    // the ROOT element's `scrollWidth`, so the usual probe reported 238px of
+    // overflow on a page whose body was 390px wide and whose maximum
+    // horizontal scroll was zero. It is the right probe everywhere else in this
+    // file and a phantom on a page with a scrolling region.
+    const maxScrollX = await page.evaluate(() => {
+      const before = window.scrollX;
+      window.scrollTo(9999, 0);
+      const after = window.scrollX;
+      window.scrollTo(before, 0);
+      return after;
+    });
+    expect(maxScrollX, "the page scrolls sideways on a phone").toBe(0);
   });
 });
 

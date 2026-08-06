@@ -81,14 +81,15 @@ export default function PodiumReceipt({
       <Celebration active={won} testId="tmw-celebration" />
 
       <header className="tmw-result-head" data-tier={tierOf(placement)}>
+        {/* WHOSE PLACEMENT THIS IS, SAID OUT LOUD.
+            It read "3RD PLACE" directly above "The Closer wins", and the review
+            frame showed the result: the two lines together parse as "The Closer
+            won third place". The eyebrow is about YOU and the headline is about
+            the winner, so the eyebrow now says so. */}
         <p className="tmw-result-placement" data-testid="tmw-your-placement">
           {placement === null
             ? "Match complete"
-            : placement === 1
-              ? "1st place"
-              : placement === 2
-                ? "2nd place"
-                : `${ordinal(placement)} place`}
+            : `You finished ${ordinal(placement)}`}
         </p>
         <h2 className="tmw-result-headline" data-testid="tmw-outcome">
           {outcomeHeadline(rows)}

@@ -54,10 +54,22 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
  *
  * The response is a few hundred bytes and the route reads an in-process cache,
  * so re-asking every request is cheap.
+ *
+ * The route's day is now Pacific rather than UTC (`nba_peak.daily_key`), which
+ * makes this the same day every other daily surface in the product rolls over
+ * on. `no-store` matters for that too: a revalidate window straddling midnight
+ * Pacific would serve yesterday's fact into today.
  */
-export async function loadNbaFactOfTheDay(): Promise<NbaFactView | null> {
+export async function loadNbaFactOfTheDay(
+  on?: string,
+): Promise<NbaFactView | null> {
   try {
-    const response = await fetch(`${API_BASE}/api/v1/nba-facts/today`, {
+    // `?on=` is forwarded, never defaulted here. The SERVER decides what day it
+    // is (midnight America/Los_Angeles, from `nba_peak.daily_key`); this only
+    // passes through an explicitly requested one, which is what makes the daily
+    // card reviewable on a day other than today.
+    const query = on ? `?on=${encodeURIComponent(on)}` : "";
+    const response = await fetch(`${API_BASE}/api/v1/nba-facts/today${query}`, {
       cache: "no-store",
     });
     if (!response.ok) return null;

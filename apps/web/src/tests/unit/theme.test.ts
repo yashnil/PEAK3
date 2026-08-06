@@ -24,7 +24,6 @@ import {
   useTheme,
   useThemePreference,
   __resetThemeStoreForTests,
-  type ThemePreference,
 } from "@/lib/theme";
 
 /** `systemLight = true` answers `(prefers-color-scheme: light)` as matching. */
@@ -155,15 +154,64 @@ describe("useTheme", () => {
 });
 
 describe("nextThemePreference", () => {
-  it("cycles system -> dark -> light -> system", () => {
-    const order: ThemePreference[] = ["system", "dark", "light"];
-    let current: ThemePreference = "system";
-    const seen: ThemePreference[] = [current];
-    for (let i = 0; i < 3; i += 1) {
-      current = nextThemePreference(current);
-      seen.push(current);
-    }
-    expect(seen).toEqual([...order, "system"]);
+  // THE REGRESSION THAT MATTERS. This used to cycle System -> Dark -> Light ->
+  // System, three preferences over a two-state appearance, so from "light" the
+  // next preference was "system" -- which on a light-mode OS resolves straight
+  // back to light and changes nothing visible. Light -> Dark therefore took two
+  // clicks while Dark -> Light took one. The input is now the RESOLVED theme and
+  // the output is always an explicit preference for the other one.
+  it("always names the appearance you are not currently in", () => {
+    expect(nextThemePreference("dark")).toBe("light");
+    expect(nextThemePreference("light")).toBe("dark");
+  });
+
+  it("never returns 'system', so no click can be a visual no-op", () => {
+    expect(nextThemePreference("dark")).not.toBe("system");
+    expect(nextThemePreference("light")).not.toBe("system");
+  });
+});
+
+describe("one click flips the theme in both directions", () => {
+  /** Drives the real store the way the header toggle does. */
+  function clickToggleOnce(): void {
+    const resolved = document.documentElement.getAttribute("data-theme") === "light"
+      ? "light"
+      : "dark";
+    act(() => setThemePreference(nextThemePreference(resolved)));
+  }
+
+  for (const systemLight of [true, false]) {
+    it(`alternates cleanly for twenty cycles with a ${
+      systemLight ? "light" : "dark"
+    }-mode OS`, () => {
+      mockMatchMedia(systemLight);
+      __resetThemeStoreForTests();
+      const { result } = renderHook(() => useResolvedTheme());
+      // Establish a known starting appearance without relying on the default.
+      act(() => setThemePreference("dark"));
+      expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+
+      const seen: string[] = [];
+      for (let i = 0; i < 40; i += 1) {
+        clickToggleOnce();
+        seen.push(document.documentElement.getAttribute("data-theme") ?? "?");
+      }
+
+      // Forty clicks, forty flips, starting from dark: light, dark, light...
+      // A single repeated value anywhere in this list is the two-click defect.
+      expect(seen).toEqual(
+        Array.from({ length: 40 }, (_, i) => (i % 2 === 0 ? "light" : "dark")),
+      );
+      expect(result.current).toBe("dark");
+    });
+  }
+
+  it("an explicit choice survives a light-mode OS (never re-resolved)", () => {
+    mockMatchMedia(true);
+    __resetThemeStoreForTests();
+    act(() => setThemePreference("dark"));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
   });
 });
 

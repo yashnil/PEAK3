@@ -22,6 +22,7 @@ import {
   totalArenaPoints,
 } from "@/lib/daily-grid-state";
 import { formatCountdown, msUntilNextBoard, recentEntries } from "@/lib/daily-grid-archive";
+import OptimalGrid from "./OptimalGrid";
 import RecentResults from "./RecentResults";
 
 interface Props {
@@ -53,11 +54,19 @@ interface Props {
 }
 
 /** Colour per square grade. Always paired with a number or a word on screen --
- *  the colour is reinforcement, never the only carrier of the fact. */
+ *  the colour is reinforcement, never the only carrier of the fact.
+ *
+ *  `beat` AND `close` TRADED COLOURS when the optimal board was added below.
+ *  Two grids now sit on the same screen, each with its own legend, and the same
+ *  colour meaning different things across four inches is a contradiction a
+ *  reader has to notice and resolve. Gold means "you beat the best legal grid"
+ *  in both grids now; blue means "close to it", which is the only place blue
+ *  appears on this panel. Green already meant the same thing in both. Nothing
+ *  moved that a word does not also say. */
 const GRADE_COLOR: Record<CellGrade, string> = {
-  beat: "var(--comp-si)",
+  beat: "var(--peak-accent)",
   best: "var(--comp-team)",
-  close: "var(--peak-accent)",
+  close: "var(--comp-si)",
   fair: "var(--comp-po)",
   weak: "var(--text-muted)",
 };
@@ -323,9 +332,10 @@ export default function CompletionPanel({
             })}
           </div>
           <p className="mt-1.5 text-[10px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
-            Points scored per square. <span style={{ color: GRADE_COLOR.best }}>Max</span> means the best legal
-            grid scored the same here; <span style={{ color: GRADE_COLOR.beat }}>Beat</span> means you scored
-            more than it did. A red outline marks your biggest miss.
+            Points scored per square.{" "}
+            <span style={{ color: "var(--comp-team-text)" }}>Max</span> means the best legal grid scored the
+            same here; <span style={{ color: "var(--peak-accent-text)" }}>Beat</span> means you scored more
+            than it did. A red outline marks your biggest miss.
           </p>
 
           {result.biggest_miss ? (
@@ -440,6 +450,21 @@ export default function CompletionPanel({
                 ))}
               </ul>
             )}
+
+            {/* The same nine facts, on the board they came from. The list
+                above is complete and reading it means holding three
+                coordinates in your head at once; this is read by looking. It
+                is placed INSIDE the same block, under the text, because it is
+                the same answer told a second way rather than a new section. */}
+            <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--border-subtle)" }}>
+              <p
+                className="text-[10px] font-bold uppercase tracking-[0.14em]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                The optimal 3×3
+              </p>
+              <OptimalGrid board={board} cells={result.cells} />
+            </div>
           </div>
         </>
       )}

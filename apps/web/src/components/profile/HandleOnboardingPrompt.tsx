@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { getAccessToken } from "@/lib/auth";
 import { fetchProfile, updateProfile, ProfileAPIError, handleLooksValid } from "@/lib/profile-api";
@@ -48,9 +49,32 @@ type Phase = "checking" | "hidden" | "prompting" | "saving" | "saved";
  * actually required: submitting to the public leaderboard
  * (apps/api/app/api/v1/perfect_season.py::submit_run's `handle_required`
  * rejection).
+ *
+ * IT DOES NOT APPEAR OVER A LIVE ARENA MATCH, and that is not a style
+ * preference. The Arena rescue's review capture caught it sitting on top of the
+ * player's OWN roster during a three-seat draft, with a decision clock running:
+ * the one panel a drafter has to read to make their pick, covered by a prompt
+ * about a leaderboard they are not currently submitting to. Both modes also run
+ * their own `aria-modal` overlays, so two competing dialogs could be open at
+ * once.
+ *
+ * Suppressed rather than delayed: a match is minutes long, the prompt is
+ * session-scoped, and it asks again on the next sign-in anyway. Nothing is lost
+ * by waiting until the player is not on a clock.
  */
+
+/** Routes where a modal prompt would land on top of a live game board. */
+function isLiveMatchRoute(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return (
+    /^\/arena\/three-man-weave\/[^/]+/.test(pathname) ||
+    /^\/arena\/twenty-dollar\/[^/]+/.test(pathname)
+  );
+}
+
 export default function HandleOnboardingPrompt() {
   const { user, loading } = useAuth();
+  const pathname = usePathname();
   const [phase, setPhase] = useState<Phase>("checking");
   const [suggestion] = useState<string>(() => randomSuggestion());
   const [handle, setHandle] = useState<string>("");
@@ -126,6 +150,9 @@ export default function HandleOnboardingPrompt() {
     }
   }
 
+  // A LIVE MATCH OWNS THE SCREEN. See the docstring: the capture caught this
+  // covering a player's own roster mid-draft, under a running clock.
+  if (isLiveMatchRoute(pathname)) return null;
   if (phase !== "prompting" && phase !== "saving" && phase !== "saved") return null;
 
   return (

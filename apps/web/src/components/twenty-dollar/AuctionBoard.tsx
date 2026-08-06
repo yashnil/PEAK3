@@ -38,13 +38,11 @@ export function CandidateCard({
   fits,
   seatNames,
   yourSeat,
-  secondsRemaining,
 }: {
   publicState: TwentyDollarPublicState;
   fits: string[];
   seatNames: string[];
   yourSeat: number | null;
-  secondsRemaining: number | null;
 }) {
   const candidate = publicState.candidate;
   if (!candidate) return null;
@@ -69,16 +67,16 @@ export function CandidateCard({
           data-your-turn={yourTurn ? "true" : "false"}
           aria-live="polite"
         >
+          {/* THE COUNTDOWN IS NOT HERE ANY MORE. It lives in `ArenaTimer`,
+              beside the controls, so a tick rerenders four characters instead
+              of the whole board — see that component's docstring for the
+              measurement. This line says WHOSE turn it is, which changes only
+              when the authoritative state does. */}
           {active === null
             ? "Settling…"
             : yourTurn
               ? "Your move"
               : `${seatNames[active] ?? "Opponent"} to act`}
-          {secondsRemaining !== null && yourTurn ? (
-            <span className="td-turn-clock" data-testid="td-turn-clock">
-              {Math.ceil(secondsRemaining)}s
-            </span>
-          ) : null}
         </p>
       </header>
 
@@ -392,7 +390,13 @@ export function LotReveal({
       data-testid="td-lot-reveal"
       aria-live="polite"
     >
-      <p className="td-reveal-lot">Lot {lot.lot_index + 1} · sold</p>
+      {/* SOLD OR UNSOLD, said in the eyebrow as well as the verdict. It was
+          hardcoded to "sold", and the review frame caught the result: an
+          unsold lot headed "LOT 2 · SOLD" with "Nobody bid. The lot leaves the
+          board." three lines underneath it. */}
+      <p className="td-reveal-lot" data-testid="td-reveal-lot">
+        Lot {lot.lot_index + 1} · {won === null ? "unsold" : "sold"}
+      </p>
       <h3 className="td-reveal-name">{lot.candidate.player_name}</h3>
       <p className="td-reveal-season" data-testid="td-reveal-season">
         Career-best season {lot.candidate.anchor_season}
@@ -402,8 +406,17 @@ export function LotReveal({
         {lot.candidate.prime_score.toFixed(2)}
         <span className="td-reveal-score-label"> PEAK3</span>
       </p>
+      {/* THE BREAKDOWN IS BEHIND A DISCLOSURE (PART 19: "a 'View breakdown'
+          action may open the radar chart after settlement" -- and, directly
+          above it, "do not append a giant chart under the active controls").
+          The silhouette was rendering inline, which is most of this panel's
+          height, and the review frame showed the consequence: the revealed
+          SCORE -- the payoff of the whole lot -- sat below the fold. */}
       {lot.candidate.component_index ? (
-        <ComponentSilhouette componentIndex={lot.candidate.component_index} />
+        <details className="td-reveal-breakdown">
+          <summary data-testid="td-reveal-breakdown-toggle">View breakdown</summary>
+          <ComponentSilhouette componentIndex={lot.candidate.component_index} />
+        </details>
       ) : null}
       <p className="td-reveal-verdict" data-testid="td-reveal-verdict">
         {won === null

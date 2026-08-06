@@ -41,21 +41,13 @@ enough on its own.
 """
 from __future__ import annotations
 
-import hashlib
 import json
-from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+from .schema import NbaFact, QualityScores, fact_id as _hash_id
 
-#: Bumped whenever a generator changes what it emits for unchanged data. Part of
-#: the date hash, so a regenerated bank reshuffles the calendar rather than
-#: silently swapping today's fact for a different one under the same id.
-FACT_BANK_VERSION = "nba_facts_v1"
-
-BANK_PATH = _REPO_ROOT / "data" / "web" / "nba_facts.v1.json"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: The per-season source. Committed, and the same file the eligibility index
 #: reads -- so a fact and a draft card cannot disagree about who played where.
@@ -88,62 +80,6 @@ MAX_CAREER_SPAN_YEARS = 23
 
 #: Multi-team aggregate rows. A "team" for one of these is not a team.
 MULTI_TEAM_CODES = frozenset({"2TM", "3TM", "4TM", "5TM", "TOT"})
-
-CATEGORIES = (
-    "franchise_tenure",
-    "age_season",
-    "role_player",
-    "career_arc",
-    "streak",
-    "rare_threshold",
-    "era_anomaly",
-)
-
-
-@dataclass(frozen=True)
-class NbaFact:
-    """One fact, with the rows that prove it.
-
-    `evidence` is not decoration. A trivia line with no way back to its source
-    is indistinguishable from an invented one, and this bank is generated code
-    rather than authored prose -- so the rows are carried, the UI can disclose
-    them, and a test can re-derive the claim.
-    """
-
-    fact_id: str
-    text: str
-    category: str
-    era: str
-    source_label: str
-    evidence: tuple[dict, ...] = field(default_factory=tuple)
-    player_slug: Optional[str] = None
-    team_code: Optional[str] = None
-
-    def as_dict(self) -> dict:
-        return {
-            "fact_id": self.fact_id,
-            "text": self.text,
-            "category": self.category,
-            "era": self.era,
-            "source_label": self.source_label,
-            "evidence": [dict(row) for row in self.evidence],
-            "player_slug": self.player_slug,
-            "team_code": self.team_code,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "NbaFact":
-        return cls(
-            fact_id=str(data["fact_id"]),
-            text=str(data["text"]),
-            category=str(data["category"]),
-            era=str(data.get("era") or ""),
-            source_label=str(data.get("source_label") or SOURCE_LABEL),
-            evidence=tuple(dict(row) for row in (data.get("evidence") or ())),
-            player_slug=data.get("player_slug"),
-            team_code=data.get("team_code"),
-        )
-
 
 # ---------------------------------------------------------------------------
 # Source rows
@@ -226,17 +162,9 @@ def _evidence(rows: Iterable[dict]) -> tuple[dict, ...]:
 
 
 def _fact_id(category: str, *parts: str) -> str:
-    joined = ":".join(str(part) for part in parts)
-    digest = hashlib.sha256(joined.encode("utf-8")).hexdigest()[:10]
-    return f"{category}-{digest}"
-
-
-# ---------------------------------------------------------------------------
-# Generators
-# ---------------------------------------------------------------------------
-#
-# Each returns facts for one PATTERN. Adding a generator is how the bank grows;
-# none of them writes prose about a player, only about a shape in the data.
+    """The shared id hasher, kept under the old name so every generator below
+    reads unchanged."""
+    return _hash_id(category, *parts)
 
 
 def _by_player(rows: list[dict]) -> dict[str, list[dict]]:
@@ -244,6 +172,165 @@ def _by_player(rows: list[dict]) -> dict[str, list[dict]]:
     for row in rows:
         grouped.setdefault(row["player_slug"], []).append(row)
     return grouped
+
+
+
+# ---------------------------------------------------------------------------
+# From a generator's output to a publishable fact
+# ---------------------------------------------------------------------------
+
+#: WHERE EACH GENERATOR'S OUTPUT BELONGS IN THE NEW VOCABULARY. The seven
+#: original categories were named after the SQL that produced them; these are
+#: named after what a reader would say the fact is about.
+_CATEGORY_MAP = {
+    "franchise_tenure": "franchise",
+    "age_season": "player_story",
+    "role_player": "role_players",
+    "career_arc": "player_story",
+    "streak": "streaks",
+    "rare_threshold": "statistical_oddity",
+    "era_anomaly": "connections",
+}
+
+#: QUALITY, SCORED PER GENERATOR AND SCORED HONESTLY.
+#:
+#: This is the part of the pass that had to be written down rather than felt.
+#: The old bank published everything a generator produced, and the review named
+#: the result exactly: "Ricky Pierce played exactly one season for each of four
+#: franchises" — true, checkable, and not worth a homepage. A generator finds a
+#: PATTERN; whether the pattern is interesting is a separate question, and it
+#: had never been asked.
+#:
+#: So each generator's output is scored on the seven axes, and three of the nine
+#: score below the floor on purpose:
+#:
+#:   one-and-done stints        broad_interest 2 — the fact the review quoted
+#:   heavy-minute role players  broad_interest 2, homepage 2
+#:   franchise era anchors      total 22, under the 23 floor
+#:
+#: They are still GENERATED, still counted in the report, and still rejected by
+#: name, which is more useful than deleting the generator: the report says how
+#: many candidates each produced and why none of them shipped.
+#:
+#: TWO MORE WERE RE-SCORED DOWN AFTER READING THE CARDS. The first sheet of
+#: frames put this on a homepage:
+#:
+#:     "A.C. Green left LAL after 1992-93 and returned 7 years later, in
+#:      1999-00. Two separate stints at the same franchise."
+#:
+#: which is precisely what the brief asks the bank not to be dominated by —
+#: "players switching teams", "dull bookkeeping", and a supporting sentence that
+#: restates the headline. `franchise_return` and `many_franchise` are both that
+#: shape, and both now score `broad_interest: 2`, under the floor. Scoring them
+#: honestly rather than deleting them keeps the count visible in the report.
+_QUALITY = {
+    "franchise_tenure": dict(surprise=3, significance=3, clarity=4, broad_interest=3,
+                             novelty=3, source_confidence=5, homepage_suitability=3),
+    "many_franchise": dict(surprise=3, significance=2, clarity=4, broad_interest=2,
+                           novelty=3, source_confidence=5, homepage_suitability=2),
+    "late_career": dict(surprise=3, significance=3, clarity=4, broad_interest=3,
+                        novelty=3, source_confidence=5, homepage_suitability=3),
+    "iron_man": dict(surprise=4, significance=3, clarity=4, broad_interest=3,
+                     novelty=4, source_confidence=5, homepage_suitability=3),
+    "era_anchor": dict(surprise=2, significance=3, clarity=4, broad_interest=3,
+                       novelty=2, source_confidence=5, homepage_suitability=3),
+    "one_and_done": dict(surprise=2, significance=2, clarity=4, broad_interest=2,
+                         novelty=2, source_confidence=5, homepage_suitability=2),
+    "heavy_minutes": dict(surprise=3, significance=2, clarity=3, broad_interest=2,
+                          novelty=3, source_confidence=5, homepage_suitability=2),
+    "cross_decade": dict(surprise=4, significance=3, clarity=4, broad_interest=4,
+                         novelty=3, source_confidence=5, homepage_suitability=4),
+    "franchise_return": dict(surprise=3, significance=2, clarity=4, broad_interest=2,
+                             novelty=3, source_confidence=5, homepage_suitability=2),
+}
+
+#: Which score profile a fact gets, from the id prefix its generator used.
+#: Keyed on the id rather than on the category because several generators share
+#: a category and they are not equally interesting.
+_PROFILE_BY_PREFIX = (
+    ("franchise_tenure", "franchise_tenure"),
+    ("career_arc", "many_franchise"),
+    ("age_season", "late_career"),
+    ("streak", "iron_man"),
+    ("rare_threshold", "heavy_minutes"),
+    ("role_player", "one_and_done"),
+    ("era_anomaly", "cross_decade"),
+)
+
+#: Generators that share a legacy category, disambiguated by the extra token
+#: their `_fact_id` call passes. Set by `_derived`'s `profile=` argument.
+_DEFAULT_PROFILE = "franchise_tenure"
+
+
+def _ordinal(n: int) -> str:
+    """`23rd`, not `23th`.
+
+    FOUND BY READING A REVIEW FRAME, not by a test. The longevity generator
+    wrote `f"{len(seasons)}th"` and had done since it was written, so the
+    homepage published "his 23th recorded season" — correct arithmetic in
+    incorrect English, on the surface a visitor sees first. 11/12/13 take
+    `th` despite ending in 1/2/3, which is the whole reason this is a function
+    rather than a lookup on the last digit.
+    """
+    if 10 <= n % 100 <= 20:
+        return f"{n}th"
+    return f"{n}{ {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th') }".replace(" ", "")
+
+
+def _split(text: str) -> tuple[str, str]:
+    """A generated sentence, as a headline and a body.
+
+    The generators write one long sentence with an em-dash before the payoff,
+    which is exactly where a card wants to break: the claim, then why it is
+    worth reading."""
+    for separator in (" \u2014 ", " -- "):
+        head, sep, rest = text.partition(separator)
+        if sep:
+            return head.strip() + ".", rest.strip()[:1].upper() + rest.strip()[1:]
+    head, sep, rest = text.partition(". ")
+    return (head + ".") if sep else text, rest
+
+
+def _derived(*, fact_id: str, text: str, category: str, era: str,
+             source_label: str, evidence=(), player_slug=None, team_code=None,
+             profile: Optional[str] = None, feature: Optional[str] = None,
+             feature_label: Optional[str] = None) -> NbaFact:
+    """One generated fact.
+
+    `feature` IS NOT OPTIONAL IN PRACTICE, whatever the signature says. The
+    card sets it large against a court motif, and a fact without one collapses
+    to a headline and a thin line — which is exactly how the first sheet of
+    frames came back for every derived fact while the curated ones looked
+    finished. Every generator passes one; the default exists so a new generator
+    fails visibly rather than at import.
+    """
+    headline, body = _split(text)
+    key = profile or _DEFAULT_PROFILE
+    scores = _QUALITY[key]
+    return NbaFact(
+        fact_id=fact_id,
+        # `profile` already names the generator one-for-one, so it is the
+        # pattern the cap counts. One identifier, not two that can disagree.
+        pattern=f"derived:{key}",
+        headline=headline,
+        body=body,
+        category=_CATEGORY_MAP.get(category, category),
+        era=era,
+        provenance="derived",
+        source_label=source_label,
+        source_detail=(
+            "Recomputed at build time from the committed per-season table; the "
+            "exact rows are carried on the fact."
+        ),
+        verified=True,
+        geography="usa",
+        quality=QualityScores.from_dict(scores),
+        feature=feature,
+        feature_label=feature_label,
+        evidence=tuple(evidence),
+        player_slug=player_slug,
+        team_code=team_code,
+    )
 
 
 def gen_long_single_franchise_tenures(rows: list[dict], minimum: int = 15) -> list[NbaFact]:
@@ -256,7 +343,10 @@ def gen_long_single_franchise_tenures(rows: list[dict], minimum: int = 15) -> li
         team = next(iter(teams))
         first, last = seasons[0], seasons[-1]
         out.append(
-            NbaFact(
+            _derived(
+                profile="franchise_tenure",
+                feature=str(len(seasons)),
+                feature_label="seasons, one team",
                 fact_id=_fact_id("franchise_tenure", slug, team),
                 text=(
                     f"{first['player']} played all {len(seasons)} of his recorded "
@@ -284,7 +374,10 @@ def gen_many_franchise_journeymen(rows: list[dict], minimum: int = 8) -> list[Nb
             continue
         first = seasons[0]
         out.append(
-            NbaFact(
+            _derived(
+                profile="many_franchise",
+                feature=str(len(teams)),
+                feature_label="franchises",
                 fact_id=_fact_id("career_arc", slug, "journeyman"),
                 text=(
                     f"{first['player']} suited up for {len(teams)} different "
@@ -309,11 +402,14 @@ def gen_late_career_workloads(rows: list[dict], minimum_season: int = 20) -> lis
             continue
         first, last = seasons[0], seasons[-1]
         out.append(
-            NbaFact(
+            _derived(
+                profile="late_career",
+                feature=_ordinal(len(seasons)),
+                feature_label="season",
                 fact_id=_fact_id("age_season", slug, "longevity"),
                 text=(
                     f"{first['player']} was still on an NBA roster in his "
-                    f"{len(seasons)}th recorded season, {last['season']} with "
+                    f"{_ordinal(len(seasons))} recorded season, {last['season']} with "
                     f"{last['team']} — {last['season_start'] - first['season_start']} "
                     f"years after his first, in {first['season']}."
                 ),
@@ -349,7 +445,10 @@ def gen_iron_man_seasons(rows: list[dict], streak: int = 6) -> list[NbaFact]:
         if len(best) < streak:
             continue
         out.append(
-            NbaFact(
+            _derived(
+                profile="iron_man",
+                feature=str(len(best)),
+                feature_label="straight seasons",
                 fact_id=_fact_id("streak", slug, "iron_man"),
                 text=(
                     f"{best[0]['player']} played at least 80 games in "
@@ -380,8 +479,11 @@ def gen_franchise_era_anchors(rows: list[dict], minimum: int = 10) -> list[NbaFa
             if len(stint) < minimum:
                 continue
             out.append(
-                NbaFact(
-                    fact_id=_fact_id("franchise_tenure", slug, team, "anchor"),
+                _derived(
+                    profile="era_anchor",
+                    feature=str(len(stint)),
+                    feature_label="seasons there",
+                fact_id=_fact_id("franchise_tenure", slug, team, "anchor"),
                     text=(
                         f"{stint[0]['player']} spent {len(stint)} seasons with "
                         f"{team} ({stint[0]['season']}–{stint[-1]['season']}) and "
@@ -413,7 +515,10 @@ def gen_one_and_done_stints(rows: list[dict]) -> list[NbaFact]:
             continue
         stints = [by_team[team][0] for team in singles]
         out.append(
-            NbaFact(
+            _derived(
+                profile="one_and_done",
+                feature=str(len(singles)),
+                feature_label="one-season stops",
                 fact_id=_fact_id("career_arc", slug, "single_seasons"),
                 text=(
                     f"{seasons[0]['player']} played exactly one season for each of "
@@ -443,7 +548,10 @@ def gen_heavy_minute_role_players(rows: list[dict], minimum: int = 5) -> list[Nb
             continue
         teams = sorted({row["team"] for row in perfect})
         out.append(
-            NbaFact(
+            _derived(
+                profile="heavy_minutes",
+                feature=str(len(perfect)),
+                feature_label="full seasons",
                 fact_id=_fact_id("rare_threshold", slug, "all_82"),
                 text=(
                     f"{perfect[0]['player']} played all 82 games in "
@@ -473,7 +581,10 @@ def gen_cross_decade_careers(rows: list[dict], decades: int = 4) -> list[NbaFact
         if len(touched) < decades:
             continue
         out.append(
-            NbaFact(
+            _derived(
+                profile="cross_decade",
+                feature=str(len(touched)),
+                feature_label="decades",
                 fact_id=_fact_id("era_anomaly", slug, "decades"),
                 text=(
                     f"{seasons[0]['player']} appeared in NBA games across "
@@ -515,7 +626,10 @@ def gen_franchise_returns(rows: list[dict]) -> list[NbaFact]:
                 continue
             before, after = gaps[0]
             out.append(
-                NbaFact(
+                _derived(
+                    profile="franchise_return",
+                    feature=f"{after - before} yrs",
+                    feature_label="away",
                     fact_id=_fact_id("career_arc", slug, team, "return"),
                     text=(
                         f"{stint[0]['player']} left {team} after "
@@ -551,159 +665,3 @@ GENERATORS = (
     gen_cross_decade_careers,
     gen_franchise_returns,
 )
-
-
-def build_bank(rows: Optional[list[dict]] = None) -> list[NbaFact]:
-    """Run every generator and return the deduplicated, sorted bank.
-
-    Sorted by `fact_id`, which is a hash of the fact's own identity rather than
-    of its text -- so rewording a generator's sentence does not reshuffle the
-    calendar, while adding or removing a fact does.
-    """
-    source = rows if rows is not None else load_rows()
-    seen: dict[str, NbaFact] = {}
-    for generator in GENERATORS:
-        for fact in generator(source):
-            seen.setdefault(fact.fact_id, fact)
-    return sorted(seen.values(), key=lambda fact: fact.fact_id)
-
-
-# ---------------------------------------------------------------------------
-# Selection
-# ---------------------------------------------------------------------------
-
-
-def fact_for_date(bank: list[NbaFact], iso_date: str) -> Optional[NbaFact]:
-    """The fact for one calendar date. Pure, and never repeats day to day.
-
-    A plain `hash(date) % len(bank)` is not enough on its own: it can land on
-    the same index twice in a row, and a homepage that showed the same trivia
-    two mornings running reads as broken rather than as unlucky. So the index
-    is a hash-derived STEP through the bank rather than a hash-derived
-    position -- the day number selects a start and the hash selects a stride
-    coprime with the bank size, which visits every fact before repeating any
-    and cannot produce two equal consecutive indices for a bank of size > 1.
-    """
-    if not bank:
-        return None
-    size = len(bank)
-    if size == 1:
-        return bank[0]
-
-    day = _day_number(iso_date)
-    digest = hashlib.sha256(f"{FACT_BANK_VERSION}:{size}".encode("utf-8")).digest()
-    stride = int.from_bytes(digest[:8], "big") % size
-    # A stride sharing a factor with `size` would cycle through a subset of the
-    # bank forever, so it is walked up to the first coprime value.
-    while stride < 2 or _gcd(stride, size) != 1:
-        stride += 1
-        if stride >= size:
-            stride = 1
-            break
-    return bank[(day * stride) % size]
-
-
-def _day_number(iso_date: str) -> int:
-    """Days since 1970-01-01, from an ISO date, with no clock read.
-
-    Parsed rather than passed through `datetime.now()` anywhere: selection is a
-    function of the date the caller supplies, so a test can ask for any day and
-    a replay of a request produces the same answer.
-    """
-    from datetime import date
-
-    parsed = date.fromisoformat(iso_date[:10])
-    return parsed.toordinal()
-
-
-def _gcd(a: int, b: int) -> int:
-    while b:
-        a, b = b, a % b
-    return a
-
-
-# ---------------------------------------------------------------------------
-# The serialised bank
-# ---------------------------------------------------------------------------
-
-
-def bank_payload(bank: list[NbaFact]) -> dict:
-    return {
-        "version": FACT_BANK_VERSION,
-        "source_label": SOURCE_LABEL,
-        "count": len(bank),
-        "facts": [fact.as_dict() for fact in bank],
-    }
-
-
-def load_bank(path: Path | None = None) -> list[NbaFact]:
-    """Read the built bank. Returns an empty list when it has not been built.
-
-    Empty rather than raising: a missing or unreadable bank must not turn every
-    request into a 500. What it MUST do is stay visible, which is why
-    `bank_status` exists and why `/health/readiness` reports it -- an empty bank
-    that nothing surfaced is exactly how a deployed staging API served 503 from
-    /api/v1/nba-facts/today while reporting itself ready.
-    """
-    load_path = path or BANK_PATH
-    if not load_path.exists():
-        return []
-    try:
-        payload = json.loads(load_path.read_text())
-    except (OSError, ValueError):
-        return []
-    return [NbaFact.from_dict(entry) for entry in payload.get("facts", [])]
-
-
-@lru_cache(maxsize=1)
-def cached_bank() -> tuple[NbaFact, ...]:
-    """The process-wide bank. Read once, shared by every caller.
-
-    ONE CACHE, so the route and the readiness probe can never disagree about
-    whether the bank is present. Two independent caches would let readiness
-    report "ready" from a warm copy while the route rebuilt and found nothing --
-    which is the shape of the defect this function was added during.
-    """
-    return tuple(load_bank())
-
-
-def clear_bank_cache() -> None:
-    """Drop the process-wide bank -- for tests that write a different one."""
-    cached_bank.cache_clear()
-
-
-def bank_status(path: Path | None = None) -> dict:
-    """Whether the bank is usable, in the shape a readiness probe wants.
-
-    Reports the RESOLVED PATH as well as the count. The path is derived from
-    this module's own location rather than from the working directory, and a
-    probe that says where it looked turns "the bank is missing" from a guess
-    into a one-line answer.
-    """
-    load_path = path or BANK_PATH
-    facts = list(cached_bank()) if path is None else load_bank(path)
-    return {
-        "loaded": bool(facts),
-        "fact_count": len(facts),
-        "bank_version": FACT_BANK_VERSION,
-        "path": str(load_path),
-        "exists": load_path.exists(),
-    }
-
-
-__all__ = [
-    "BANK_PATH",
-    "bank_status",
-    "cached_bank",
-    "clear_bank_cache",
-    "CATEGORIES",
-    "FACT_BANK_VERSION",
-    "GENERATORS",
-    "SOURCE_LABEL",
-    "NbaFact",
-    "bank_payload",
-    "build_bank",
-    "fact_for_date",
-    "load_bank",
-    "load_rows",
-]

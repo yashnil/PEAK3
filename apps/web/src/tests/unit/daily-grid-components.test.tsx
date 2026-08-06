@@ -1116,3 +1116,142 @@ describe("DailyGridGame — the best legal grid", () => {
     }
   });
 });
+
+/**
+ * The optimal board, drawn as a board.
+ *
+ * The list above it is complete and reading it means holding three coordinates
+ * in your head at once: which square this line is about, who you put there,
+ * who the grid wanted. These assert the three things that make the visual
+ * version worth having — that a square's POSITION is its position on the real
+ * board, that each square states its own verdict in a word rather than only in
+ * a colour, and that a changed square carries the player's own answer so
+ * nobody has to look back up.
+ */
+describe("DailyGridGame — the optimal 3x3", () => {
+  function seedCompleted() {
+    window.localStorage.setItem(
+      dailyGridProgressKey(BOARD.board_id),
+      JSON.stringify(completedProgress()),
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    mockSearch.mockResolvedValue({ query: "olajuwon", results: [hit()] });
+  });
+
+  it("draws nine squares under the best-legal-grid text, with the board's own headers", async () => {
+    mockGetResult.mockResolvedValue(gridResult());
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    expect(within(grid).getAllByTestId("complete-optimal-cell")).toHaveLength(9);
+    // Row and column headers are what make this recognisably the same puzzle
+    // rather than nine cards in a square.
+    expect(within(grid).getAllByTestId("complete-optimal-row-header")).toHaveLength(3);
+    expect(within(grid).getAllByTestId("complete-optimal-col-header")).toHaveLength(3);
+    // And the textual explanation it augments is still there.
+    expect(screen.getByTestId("complete-comparison")).toHaveTextContent(/best legal grid/i);
+  });
+
+  it("puts each square where it sits on the real board, not where it was filled", async () => {
+    // `result.cells` arrives in FILL order. A `grid-cols-3` fills left to
+    // right, top to bottom, so rendering straight from it would put answer
+    // sheet square N in board position N — the same thing only by coincidence.
+    const result = gridResult();
+    result.cells = [...result.cells].reverse();
+    mockGetResult.mockResolvedValue(result);
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    const cells = within(grid).getAllByTestId("complete-optimal-cell");
+    const expected = [...result.cells].sort((a, b) => a.row - b.row || a.col - b.col);
+    cells.forEach((node, i) => {
+      expect(node).toHaveTextContent(expected[i].optimal_player_season.player_name);
+    });
+  });
+
+  it("marks a square you already played as matched, and says so in a word", async () => {
+    mockGetResult.mockResolvedValue(gridResult());
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    const matched = within(grid)
+      .getAllByTestId("complete-optimal-cell")
+      .filter((c) => c.getAttribute("data-state") === "matched");
+    // The fixture matches on eight of nine squares.
+    expect(matched).toHaveLength(8);
+    expect(matched[0]).toHaveTextContent("Matched");
+    // Nothing to cross-reference on a square you already got right.
+    expect(within(matched[0]).queryByTestId("complete-optimal-your-answer")).toBeNull();
+  });
+
+  it("shows what you used on a square the grid would change", async () => {
+    mockGetResult.mockResolvedValue(gridResult());
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    const changed = within(grid)
+      .getAllByTestId("complete-optimal-cell")
+      .filter((c) => c.getAttribute("data-state") === "replacement");
+    expect(changed).toHaveLength(1);
+    // The optimal season is the content...
+    expect(changed[0]).toHaveTextContent("Nikola Jokic");
+    expect(changed[0]).toHaveTextContent("Best choice");
+    // ...and the player's own answer is right there under it, which is the
+    // whole reason this grid exists next to the list.
+    const yours = within(changed[0]).getByTestId("complete-optimal-your-answer");
+    expect(yours).toHaveTextContent(/You used:/i);
+    expect(yours).toHaveTextContent(/pts/i);
+  });
+
+  it("gives a square you outscored its own state, never 'matched'", async () => {
+    // `matched_optimal` is `points_left === 0` and `points_left` floors at
+    // zero, so a beaten square carries `matched_optimal: true` while naming
+    // somebody else. Labelling that "Matched" under a different name reads as
+    // a bug in the comparison.
+    const result = gridResult();
+    const target = result.cells.findIndex(
+      (c) => c.user_player_season.id !== c.optimal_player_season.id,
+    );
+    result.cells[target] = {
+      ...result.cells[target],
+      optimal_points: result.cells[target].user_points - 12,
+      points_left: 0,
+      matched_optimal: true,
+      beat_optimal: true,
+    };
+    mockGetResult.mockResolvedValue(result);
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    const beaten = within(grid)
+      .getAllByTestId("complete-optimal-cell")
+      .filter((c) => c.getAttribute("data-state") === "beat");
+    expect(beaten).toHaveLength(1);
+    expect(beaten[0]).toHaveTextContent("You beat this");
+    expect(beaten[0]).not.toHaveTextContent("Matched");
+    expect(within(beaten[0]).getByTestId("complete-optimal-your-answer")).toBeInTheDocument();
+  });
+
+  it("names the square, both answers and the verdict for a screen reader", async () => {
+    mockGetResult.mockResolvedValue(gridResult());
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    const changed = within(grid)
+      .getAllByTestId("complete-optimal-cell")
+      .filter((c) => c.getAttribute("data-state") === "replacement")[0];
+    // Colour is reinforcement here, never the only carrier of the fact.
+    expect(changed).toHaveAccessibleName(/best legal grid plays .+ Nikola Jokic/i);
+    expect(changed).toHaveAccessibleName(/You played /i);
+  });
+});
