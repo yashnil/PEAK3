@@ -52,6 +52,57 @@ SOURCE_LABEL = derived_module.SOURCE_LABEL
 MIN_FACTS = 180
 
 
+#: EVERY COMMITTED FILE THE GENERATOR READS, named in one place.
+#:
+#: There are exactly three, and until this list existed there was nowhere to
+#: look them up: each lived as a private constant in the module that read it,
+#: so "what does a build of the bank need on disk" could only be answered by
+#: reading three modules and hoping. The Dockerfile answered it by hand, got it
+#: wrong by one entry, and shipped an image that generated 113 facts.
+#:
+#: `tests/test_nba_facts_deployment.py` asserts this list against the
+#: Dockerfile's COPY lines and against `.dockerignore`, so a fourth input added
+#: to the pipeline and not to the image is a failing test rather than a failing
+#: deploy.
+REQUIRED_INPUTS: tuple[Path, ...] = (
+    EDITORIAL_PATH,
+    derived_module.SEASONS_PATH,
+    awards_module.CONTEXT_PATH,
+)
+
+
+def missing_inputs() -> list[Path]:
+    """Which of `REQUIRED_INPUTS` are not on disk. Empty means buildable."""
+    return [path for path in REQUIRED_INPUTS if not path.exists()]
+
+
+def assert_inputs_present() -> None:
+    """Fail with the missing FILE, rather than with a fact count.
+
+    Called before anything is generated, so a packaging mistake reports itself
+    as a packaging mistake. The failure this replaces was a bank that built
+    successfully from two thirds of its inputs and then tripped the `MIN_FACTS`
+    floor — true, and four steps removed from the cause.
+    """
+    missing = missing_inputs()
+    if not missing:
+        return
+    root = _REPO_ROOT
+    lines = []
+    for path in missing:
+        try:
+            lines.append(f"  - {path.relative_to(root)}")
+        except ValueError:  # pragma: no cover - only if moved outside the repo
+            lines.append(f"  - {path}")
+    raise FileNotFoundError(
+        "The NBA fact generator is missing committed input(s):\n"
+        + "\n".join(lines)
+        + "\n\nAll three are tracked in git. A checkout without them is broken "
+        "rather than un-built. In a container build this means the Dockerfile "
+        "is not COPYing the directory, or `.dockerignore` is excluding it."
+    )
+
+
 def build_candidates(
     rows: Optional[list[dict]] = None,
     editorial_path: Optional[Path] = None,
@@ -281,6 +332,9 @@ __all__ = [
     "BANK_PATH",
     "EDITORIAL_PATH",
     "MIN_FACTS",
+    "REQUIRED_INPUTS",
+    "assert_inputs_present",
+    "missing_inputs",
     "SOURCE_LABEL",
     "bank_payload",
     "bank_status",

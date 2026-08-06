@@ -32,6 +32,7 @@ from nba_peak.nba_facts import (  # noqa: E402
     EditorialFactError,
     MIN_FACTS,
     PERISHABLE_CATEGORIES,
+    assert_inputs_present,
     bank_payload,
     build_bank,
     build_candidates,
@@ -251,6 +252,18 @@ def main() -> int:
         "than today, so the report is reproducible instead of clock-dependent.",
     )
     args = parser.parse_args()
+
+    # THE INPUTS, BEFORE ANY OF THEM IS READ.
+    #
+    # Named first so a packaging mistake reports itself as one. Without this,
+    # a build missing `data/facts/` produced a perfectly valid 113-fact bank
+    # and failed four steps later on the `MIN_FACTS` floor — a true statement
+    # about a count, and no help at all in finding the cause.
+    try:
+        assert_inputs_present()
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     try:
         candidates = build_candidates()

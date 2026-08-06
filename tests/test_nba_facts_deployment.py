@@ -326,3 +326,137 @@ def test_the_real_bank_selects_a_dated_fact_that_names_its_source():
     assert fact.category
     if fact.provenance == "derived":
         assert fact.evidence
+
+
+# ---------------------------------------------------------------------------
+# The generator's INPUTS, not just its outputs
+#
+# The previous packaging defect was "the image never runs the generator", and
+# the tests above close it. This one was the mirror image: the image ran the
+# generator against two thirds of its inputs. `data/facts/` was never COPYed,
+# `load_editorial` returned an empty list for a missing file, and the first
+# thing to notice was the MIN_FACTS floor tripping with "only 113 facts
+# published" — a true statement about a count, four steps from the cause.
+#
+# So the invariant these assert is one step earlier than the ones above: every
+# committed file the generator READS has to be inside the image, and has to
+# survive `.dockerignore` to get there.
+# ---------------------------------------------------------------------------
+
+
+def _copied_paths(dockerfile: str) -> list[str]:
+    """Repository-relative sources of every `COPY src dst` in the Dockerfile."""
+    return [
+        m.group(1)
+        for m in re.finditer(r"^COPY\s+(\S+)\s+\S+\s*$", dockerfile, re.MULTILINE)
+    ]
+
+
+def test_every_generator_input_is_copied_into_the_image():
+    """THE REGRESSION TEST FOR THE 113-FACT BUILD.
+
+    Asserted against `REQUIRED_INPUTS` rather than against a list written here,
+    so a fourth input added to the pipeline is covered the moment it is added.
+    """
+    from nba_peak.nba_facts import REQUIRED_INPUTS
+
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    copied = _copied_paths(dockerfile)
+
+    for required in REQUIRED_INPUTS:
+        rel = required.relative_to(REPO_ROOT)
+        # A COPY of any ancestor directory brings the file with it, which is
+        # how `data/generated/` and `data/game/` already cover two of the
+        # three. Matching on prefix rather than on the exact path keeps this
+        # honest about what Docker actually does.
+        candidates = [str(rel)] + [f"{parent}/" for parent in rel.parents if str(parent) != "."]
+        assert any(c in copied for c in candidates), (
+            f"the fact generator reads {rel} and the Dockerfile never copies it. "
+            "The image will build a bank out of the inputs it does have and "
+            "fail on the MIN_FACTS floor, which names a count rather than this "
+            f"file. COPY lines present: {copied}"
+        )
+
+
+def test_no_generator_input_is_excluded_from_the_build_context():
+    """A COPY cannot copy what `.dockerignore` removed from the context.
+
+    The two halves fail identically and for different reasons, so both are
+    checked: a missing COPY line, and a COPY line whose source was filtered out
+    before the build ever saw it.
+    """
+    from nba_peak.nba_facts import REQUIRED_INPUTS
+
+    patterns = [
+        line.strip()
+        for line in (REPO_ROOT / ".dockerignore").read_text().splitlines()
+        if line.strip() and not line.strip().startswith("#") and not line.startswith("!")
+    ]
+    for required in REQUIRED_INPUTS:
+        rel = str(required.relative_to(REPO_ROOT))
+        for pattern in patterns:
+            bare = pattern.rstrip("/")
+            assert not (rel == bare or rel.startswith(f"{bare}/")), (
+                f"`.dockerignore` line {pattern!r} removes {rel} from the build "
+                "context, so the fact generator cannot read it inside the image"
+            )
+
+
+def test_a_missing_input_names_the_file_rather_than_a_fact_count():
+    """The diagnostic, asserted as behaviour.
+
+    `assert_inputs_present` exists so the build fails with the path it could
+    not find. Without it, the same condition produced a valid-looking 113-fact
+    bank and an error about `MIN_FACTS`.
+    """
+    from nba_peak.nba_facts import assert_inputs_present, missing_inputs
+    import nba_peak.nba_facts.bank as bank_module
+
+    assert missing_inputs() == [], "this checkout is missing a committed input"
+    assert_inputs_present()  # does not raise
+
+    absent = REPO_ROOT / "data" / "facts" / "does-not-exist.json"
+    original = bank_module.REQUIRED_INPUTS
+    bank_module.REQUIRED_INPUTS = original + (absent,)
+    try:
+        with pytest.raises(FileNotFoundError) as excinfo:
+            bank_module.assert_inputs_present()
+    finally:
+        bank_module.REQUIRED_INPUTS = original
+    message = str(excinfo.value)
+    assert "does-not-exist.json" in message
+    assert "MIN_FACTS" not in message
+    assert "Dockerfile" in message or "COPY" in message
+
+
+def test_the_curated_half_refuses_to_be_silently_absent():
+    """`load_editorial` used to return `[]` for a missing file.
+
+    That is the single behaviour that turned a packaging mistake into a fact
+    count: the build carried on, produced a smaller bank, and reported the size
+    rather than the cause. Its two sibling loaders have always raised.
+    """
+    from nba_peak.nba_facts import EditorialFactError, load_editorial
+
+    with pytest.raises(EditorialFactError) as excinfo:
+        load_editorial(REPO_ROOT / "data" / "facts" / "not-a-real-file.json")
+    assert "missing" in str(excinfo.value).lower()
+
+
+def test_the_image_asserts_its_inputs_before_generating_anything():
+    """The Dockerfile checks the copy landed, at the layer that does the copy."""
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    assert "assert_inputs_present" in dockerfile, (
+        "the image generates the bank without first checking it has the files "
+        "to generate it from"
+    )
+    # Against the RUN line, not against any mention: the comment above the
+    # generated-data block names the script too, and matching that would pass
+    # for an assertion placed anywhere at all.
+    run_line = re.search(
+        r"^RUN python scripts/build_nba_facts\.py", dockerfile, re.MULTILINE
+    )
+    assert run_line, "the image no longer runs the fact generator"
+    assert dockerfile.index("assert_inputs_present") < run_line.start(), (
+        "the input assertion must run BEFORE the generator, or it adds nothing"
+    )

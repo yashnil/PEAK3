@@ -54,7 +54,34 @@ class EditorialFactError(ValueError):
 def load_editorial(path: Optional[Path] = None) -> list[NbaFact]:
     source = path or EDITORIAL_PATH
     if not source.exists():
-        return []
+        # RAISES RATHER THAN RETURNING NOTHING, and the difference is a release
+        # blocker's worth of diagnosis.
+        #
+        # This used to `return []`, which reads as tolerant and is not: the
+        # curated half is not optional, and a build that cannot find it has a
+        # broken input rather than a smaller bank. What actually happened is
+        # that the Docker image never copied `data/facts/`, so the whole
+        # editorial half vanished, and the FIRST thing to notice was
+        # `build_nba_facts.py` four steps later reporting
+        #
+        #     ERROR: only 113 facts published, expected at least 180
+        #
+        # which names a symptom. Worse, 113 is not "228 minus the 91 editorial
+        # facts": the rotation-group ceiling is a SHARE of the provisional bank
+        # (`quality.MAX_ROTATION_GROUP_SHARE`), so removing 91 candidates
+        # shrank the denominator and evicted 24 DERIVED facts as well. A count
+        # that moves for two reasons at once is a count nobody can work
+        # backwards from.
+        #
+        # `awards.load_context` has raised on its missing input from the start,
+        # and `derived.load_rows` raises through `read_text`. This is the third
+        # input behaving like the other two.
+        raise EditorialFactError(
+            f"Editorial facts missing at {source}. They are committed; a "
+            "checkout or an image without them is broken rather than "
+            "un-built. If this is a container build, `data/facts/` is not "
+            "being copied in."
+        )
     payload = json.loads(source.read_text())
     facts: list[NbaFact] = []
     for entry in payload.get("facts", []):
