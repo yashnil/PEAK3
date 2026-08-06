@@ -197,10 +197,25 @@ def test_an_account_outside_the_allowlist_is_refused():
 
 
 def test_an_anonymous_caller_is_refused():
+    # A SUPABASE ANONYMOUS SESSION, which is a verified token for an identity
+    # that can be discarded by clearing a cookie. Refused on every route, in
+    # every configuration -- distinct from the DEBUG-only local-practice
+    # subject, which is refused everywhere EXCEPT practice and only when its
+    # own flag is set (see test_arena_local_practice.py).
     subject = AuthSubject(sub="anon:x", email=None, is_anonymous=True, raw_claims={})
     app.dependency_overrides[get_required_auth] = lambda: subject
+    app.dependency_overrides[get_optional_auth] = lambda: subject
     client = TestClient(app)
     r = client.post("/api/v1/arena/matches/private", json={"mode": RouteTestMode.mode})
+    assert r.status_code == 403
+    assert r.json()["detail"]["error_code"] == "arena_requires_account"
+
+    # And on practice too, which is the one path a local-practice subject may
+    # take. "Anonymous" is not one thing here and the difference is the whole
+    # of the change: one kind can be handed out by a deployed API, the other
+    # cannot exist on one.
+    settings.ARENA_BOTS_ENABLED = True
+    r = client.post("/api/v1/arena/matches/practice", json={"mode": RouteTestMode.mode})
     assert r.status_code == 403
     assert r.json()["detail"]["error_code"] == "arena_requires_account"
 

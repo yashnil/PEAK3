@@ -10,67 +10,95 @@ import Link from "next/link";
  * the people who read it have not yet been told what PEAK3 is, and a line they
  * cannot evaluate is a line they skip.
  *
- * NOTHING IS GENERATED HERE OR AT REQUEST TIME. The facts come from a versioned
- * bank built offline by `scripts/build_nba_facts.py` from committed per-season
- * data, each carrying the exact rows it was computed from. This component
- * renders one, and the evidence is a disclosure rather than a footnote --
- * generated trivia with no way back to its source is indistinguishable from
- * invented trivia, and the disclosure is what makes the difference checkable.
+ * WHAT THE MANUAL REVIEW FOUND, AND WHAT CHANGED
+ * ==============================================
+ * Two findings, and they had one cause between them.
  *
- * SERVER-RENDERED, AND SHIPS NO CLIENT JAVASCRIPT AT ALL. The fact is chosen by
- * calendar date on the server and passed in as a prop, so the panel costs the
- * homepage one additional element and no additional request.
+ *   "NBA Fact of the Day is visually weak"
+ *   "the generated fact is often too dull to deserve homepage prominence"
  *
- * THE DISCLOSURE IS NATIVE `<details>`, AND THAT IS A CORRECTNESS FIX RATHER
- * THAN A SIMPLIFICATION. It was a `<button>` driving a `useState`, and CI
- * caught the consequence: the trace shows the click landing 0.6s after
- * `domcontentloaded` while `main-app.js`, `layout.js` and `page.js` were all
- * still in flight. The button was server-rendered, so it was visible, stable,
- * enabled and receiving events -- it passed every actionability check there is
- * -- and React had not yet attached its `onClick`. The event dispatched into a
- * live DOM node and did nothing.
+ * The panel was a heading, two small tags, one paragraph of body text, and — as
+ * its most prominent interaction — a `<details>` labelled **Show source rows**
+ * that opened a four-column table of `(player, season, team, games)`. So the
+ * card's design was: read one sentence, then optionally read a database. It had
+ * no typographic hierarchy to speak of, nothing to look at, and its call to
+ * action was an invitation to audit it.
  *
- * That is not only a test defect. Anyone who lands on the homepage and reaches
- * for "Show source rows" inside the first second gets the same dead click, and
- * on a slow connection that window is much longer than a second.
+ * The card now leads with a FEATURED VALUE — the number, name or date the fact
+ * turns on — set large beside a court-line motif, then the headline, then one
+ * or two supporting sentences. The source rows are gone from the homepage
+ * entirely. They still exist: they are carried in the payload and they are what
+ * `tests/test_nba_facts.py` re-derives. They are simply not the thing a visitor
+ * is offered first.
  *
- * A `<details>` element has no such window. The browser owns the open/closed
- * state, so it works before hydration and with JavaScript disabled entirely; it
- * is keyboard-operable (Enter and Space) with no handler of ours; and it
- * exposes its state to assistive technology natively, which is why there is no
- * hand-written `aria-expanded` or `aria-controls` here -- adding them would
- * duplicate, and eventually contradict, what the element already reports.
+ * A "Learn more" link survives, and only where it is genuinely useful: when the
+ * fact is about a player this product actually has a profile for.
  *
- * The label still changes with the state. That is done in CSS
- * (`.fotd-details[open]`), because the one thing native disclosure cannot do is
- * rewrite its own summary -- and doing it with a hook would put the dead-click
- * window straight back.
+ * STILL SERVER-RENDERED, STILL ZERO CLIENT JAVASCRIPT. The fact is chosen on
+ * the server by calendar date and passed in as a prop. Removing the `<details>`
+ * removed the last interactive element, so this panel now ships no behaviour at
+ * all — which also retires the dead-click window the previous version's own
+ * comment documented at length.
+ *
+ * THE GRAPHIC IS AN SVG WITH NO TEXT IN IT, and it is `aria-hidden`. Court
+ * lines — a key circle and a three-point arc — drawn in `currentColor` at low
+ * alpha, so it inherits the theme instead of carrying two hard-coded palettes.
+ * No logo, no photograph, no likeness: the project ships none of those.
  */
 
 export interface NbaFactView {
   fact_id: string;
-  text: string;
+  /** The compelling lead. */
+  headline: string;
+  /** One or two sentences that make the lead hold up. */
+  body: string;
+  /** The v1 single-string field, kept so an older payload still renders. */
+  text?: string;
   category: string;
   era: string;
+  geography?: string;
+  /** The number, name or event the card sets large. */
+  feature?: string | null;
+  feature_label?: string | null;
   source_label: string;
   player_slug: string | null;
   team_code: string | null;
-  evidence: Array<{
-    player: string;
-    team: string;
-    season: string;
-    games_played: number | null;
-  }>;
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
-  franchise_tenure: "Franchise tenure",
+  nba_history: "NBA history",
+  obscure_history: "Buried history",
+  current_nba: "Right now",
+  player_story: "Player story",
+  connections: "Connections",
+  records: "Records",
+  playoffs_finals: "Playoffs & Finals",
+  franchise: "Franchises",
+  rules: "Rule changes",
+  tactics: "How the game changed",
+  draft: "Draft",
+  global: "Global game",
+  olympics_fiba: "Olympics & FIBA",
+  womens: "Women's basketball",
+  international_leagues: "International leagues",
+  culture: "Culture",
+  statistical_oddity: "Statistical oddity",
+  streaks: "Streaks",
+  role_players: "Role players",
+  historic_games: "Historic games",
+  // v1 categories, so an un-rebuilt bank still labels itself.
+  franchise_tenure: "Franchises",
   age_season: "Longevity",
   role_player: "Role players",
   career_arc: "Career arc",
   streak: "Streaks",
   rare_threshold: "Rare thresholds",
   era_anomaly: "Era anomaly",
+};
+
+const GEOGRAPHY_LABELS: Record<string, string> = {
+  international: "International",
+  global: "Global",
 };
 
 export default function NbaFactOfTheDay({ fact }: { fact: NbaFactView | null }) {
@@ -80,12 +108,18 @@ export default function NbaFactOfTheDay({ fact }: { fact: NbaFactView | null }) 
   if (!fact) return null;
 
   const label = CATEGORY_LABELS[fact.category] ?? "NBA history";
+  const place = fact.geography ? GEOGRAPHY_LABELS[fact.geography] : undefined;
+  // A v1 payload has `text` and no split; render it as the headline rather
+  // than dropping it.
+  const headline = fact.headline || fact.text || "";
+  const body = fact.headline ? fact.body : "";
 
   return (
     <section
       className="fotd"
       data-testid="nba-fact-of-the-day"
       data-fact-id={fact.fact_id}
+      data-category={fact.category}
       aria-labelledby="fotd-heading"
     >
       <div className="fotd-inner">
@@ -102,47 +136,40 @@ export default function NbaFactOfTheDay({ fact }: { fact: NbaFactView | null }) 
                 {fact.era}
               </span>
             )}
+            {place && (
+              <span className="fotd-tag" data-testid="fotd-geography">
+                {place}
+              </span>
+            )}
           </p>
         </div>
 
-        <p className="fotd-text" data-testid="fotd-text">
-          {fact.text}
-        </p>
+        <div className="fotd-body">
+          {fact.feature && (
+            <div className="fotd-feature" data-testid="fotd-feature">
+              <CourtMotif />
+              <span className="fotd-feature-value">{fact.feature}</span>
+              {fact.feature_label && (
+                <span className="fotd-feature-label">{fact.feature_label}</span>
+              )}
+            </div>
+          )}
 
-        <details className="fotd-details" data-testid="fotd-details">
-          <summary className="fotd-source" data-testid="fotd-evidence-toggle">
-            {/* Only one of these is in the DOM's accessibility tree at a time:
-                `display: none` removes the other, so the summary's accessible
-                name is "Show source rows" closed and "Hide source rows" open,
-                exactly as the button's label used to be. */}
-            <span className="fotd-source-closed">Show source rows</span>
-            <span className="fotd-source-open">Hide source rows</span>
-          </summary>
+          <div className="fotd-copy">
+            <p className="fotd-headline" data-testid="fotd-text">
+              {headline}
+            </p>
+            {body && (
+              <p className="fotd-support" data-testid="fotd-support">
+                {body}
+              </p>
+            )}
+          </div>
+        </div>
 
-          <table className="fotd-evidence" data-testid="fotd-evidence">
-            <caption>The seasons this fact was computed from.</caption>
-            <thead>
-              <tr>
-                <th scope="col">Player</th>
-                <th scope="col">Season</th>
-                <th scope="col">Team</th>
-                <th scope="col">Games</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fact.evidence.map((row, index) => (
-                <tr key={`${row.season}-${row.team}-${index}`}>
-                  <td>{row.player}</td>
-                  <td>{row.season}</td>
-                  <td>{row.team}</td>
-                  <td>{row.games_played ?? "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="fotd-provenance">{fact.source_label}</p>
-        </details>
-
+        {/* NO SOURCE-ROW TABLE, AND NO DISCLOSURE THAT OPENS ONE. The rows are
+            still carried in the payload and still re-derived by the model tests;
+            they are not what a visitor is offered first, or at all, here. */}
         {fact.player_slug && (
           <div className="fotd-actions">
             <Link
@@ -156,5 +183,39 @@ export default function NbaFactOfTheDay({ fact }: { fact: NbaFactView | null }) 
         )}
       </div>
     </section>
+  );
+}
+
+/** Court lines, in `currentColor`, with no text and no branding.
+ *
+ *  `currentColor` rather than two hard-coded palettes: the motif then inherits
+ *  whatever the card's text colour resolves to, so light and dark are one
+ *  declaration instead of a media query that can be forgotten. */
+function CourtMotif() {
+  return (
+    <svg
+      className="fotd-motif"
+      viewBox="0 0 120 120"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="60" cy="60" r="26" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path
+        d="M10 118 A 62 62 0 0 1 110 118"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+      <line x1="10" y1="118" x2="110" y2="118" stroke="currentColor" strokeWidth="1.5" />
+      <rect
+        x="42"
+        y="72"
+        width="36"
+        height="46"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      />
+    </svg>
   );
 }

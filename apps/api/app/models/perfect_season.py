@@ -127,6 +127,18 @@ class PerfectSeasonRunPublic(BaseModel):
     display_name: str
     mode: str
     game_type: str
+    # THE PUBLIC RECEIPT. A board row asserts a record and a score; without
+    # this there is no way from the assertion to the roster behind it, which
+    # made "82-0, 91.4" a number a reader had to take on trust.
+    #
+    # SAFE TO PUBLISH, and not a new decision: `game_id` is already the share
+    # link every player sends (`/arena/court/results/{game_id}`), and
+    # `GET /perfect-season/games/{game_id}/shared-result` deliberately takes no
+    # identity because there is nothing there for ownership to protect -- it
+    # 404s anything not `result_ready` and strips every owner-scoped key by
+    # name. Every row on this board is `is_public = TRUE`, so its owner has
+    # already published the result; this publishes the way to check it.
+    game_id: str
     seed: int
     wins: int
     losses: int

@@ -73,6 +73,24 @@ function clamp(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
+/** Vertical distance between two wrapped label lines, in viewBox units. */
+const LINE_HEIGHT = 10;
+
+/**
+ * Split a component label across at most two lines.
+ *
+ * Only the genuinely long ones wrap: a label that already fits is left alone,
+ * because a needlessly stacked "TEAM RESULT" reads as two axes rather than one.
+ * Split at the LAST space so the shorter half sits on top, which keeps the
+ * block's optical weight next to the ring.
+ */
+export function wrapLabel(label: string): string[] {
+  if (label.length <= 14) return [label];
+  const cut = label.lastIndexOf(" ");
+  if (cut <= 0) return [label];
+  return [label.slice(0, cut), label.slice(cut + 1)];
+}
+
 export default function CompositeChart({
   axes,
   size = 320,
@@ -89,7 +107,11 @@ export default function CompositeChart({
   // Generous padding: the labels sit OUTSIDE the ring, and a label that
   // overflowed the viewBox is the clipping this chart exists to avoid at 200%
   // zoom. The viewBox scales with the container rather than the font.
-  const pad = 58;
+  // Enough room for a WRAPPED label (see `wrapLabel`) plus its value. A single
+  // line of "TRADITIONAL PRODUCTION" needs roughly twice this and was clipped
+  // by the viewBox; wrapping is what makes a fixed pad sufficient rather than
+  // an ever-growing one that would shrink the ring to nothing.
+  const pad = 66;
   const box = size + pad * 2;
   const cx = box / 2;
   const cy = box / 2;
@@ -185,26 +207,44 @@ export default function CompositeChart({
         })}
 
         {/* Labels outside the ring, anchored by quadrant so a left-hand label
-            grows leftwards and cannot run back over the chart. */}
+            grows leftwards and cannot run back over the chart.
+
+            LONG LABELS WRAP, and that is what stops them clipping. The padding
+            is fixed in user units; "TRADITIONAL PRODUCTION" and "INDIVIDUAL
+            RECOGNITION" are twenty-two characters, and set on ONE line at the
+            east and south-east axes they ran past the viewBox and were cut off
+            by the SVG boundary -- visible on the review frames as "TRADITIONAL
+            PR" and "INDIVIDUAL RECC". PART 22 asks for labels that do not clip,
+            so `wrapLabel` splits on the natural word break and each half sits
+            on its own line, roughly halving the width the padding has to
+            accommodate. */}
         {axes.map((axis, index) => {
           const p = point(index, radius + 24);
           const anchor =
             Math.abs(p.x - cx) < 4 ? "middle" : p.x > cx ? "start" : "end";
+          const lines = wrapLabel(axis.label);
+          // The block is centred on the axis point, so a two-line label does
+          // not shunt its own value downward into the next one.
+          const top = p.y - ((lines.length - 1) * LINE_HEIGHT) / 2;
           return (
             <g key={axis.key}>
               <text
                 x={p.x}
-                y={p.y}
+                y={top}
                 textAnchor={anchor}
                 dominantBaseline="middle"
                 className="rk-chart-label"
                 data-testid={`rk-chart-label-${axis.key}`}
               >
-                {axis.label}
+                {lines.map((line, lineIndex) => (
+                  <tspan key={line} x={p.x} dy={lineIndex === 0 ? 0 : LINE_HEIGHT}>
+                    {line}
+                  </tspan>
+                ))}
               </text>
               <text
                 x={p.x}
-                y={p.y + 13}
+                y={top + (lines.length - 1) * LINE_HEIGHT + 13}
                 textAnchor={anchor}
                 dominantBaseline="middle"
                 className="rk-chart-value"

@@ -1213,3 +1213,830 @@
     display: none;
   }
 }
+
+/* ==========================================================================
+   RESCUE PASS
+   ==========================================================================
+   Four surfaces, one theme: make the state visible instead of describing it.
+   ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+   THE SPINNER READS AS A REEL (PART 7)
+   ---------------------------------------------------------------------------
+   The MECHANICS were already right -- `SpinReel` is the 82-0 wheel, with a
+   constant 52-row travel, an easing curve, a settle overshoot and a
+   `transitionend`/timeout pair. Manual acceptance still called it "effectively
+   a static result banner", and the reason was entirely presentational:
+
+     * NO WINDOW. A 90px box with no frame, no payline and no edge fade does
+       not read as an aperture onto a moving strip; it reads as text changing.
+     * A WEIGHT JUMP AT THE LANDING. Spinning rows were 13px and
+       `--text-secondary`; the settled value is up to 21.6px and
+       `--text-primary`. So the animation ended with the type changing size and
+       colour, which reads as "a label appeared" rather than "a wheel stopped".
+     * NO LANDING BEAT. The transform overshoots, but nothing on screen marks
+       the moment it locks.
+
+   None of that needs new JavaScript: `data-phase` and `data-stage` are already
+   on the DOM from t=0.
+   --------------------------------------------------------------------------- */
+
+.tmw-spinner {
+  position: relative;
+  overflow: hidden;
+}
+
+/* THE APERTURE. A framed window with a payline across its middle row and a
+   fade at both edges, so the strip visibly runs THROUGH something. */
+.tmw-spinner .spin-reel-strip {
+  position: relative;
+  border: 1px solid var(--peak-accent-dim);
+  border-radius: 0.5rem;
+  background: var(--bg-page);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 22%,
+    #000 78%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 22%,
+    #000 78%,
+    transparent 100%
+  );
+}
+
+/* The payline sits on the WINDOW, never on a row -- a class on the moving row
+   would change its size mid-flight and re-lay-out the strip underneath the
+   animation, which is the bug the shared component's docstring records. */
+.tmw-spinner .spin-reel-strip::after {
+  content: "";
+  position: absolute;
+  inset: 30px 0;
+  pointer-events: none;
+  border-top: 1px solid var(--peak-accent);
+  border-bottom: 1px solid var(--peak-accent);
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--peak-accent-bg) 45%,
+    var(--peak-accent-bg) 55%,
+    transparent
+  );
+}
+
+/* THE SAME WEIGHT, MOVING OR STOPPED. The landing must be the strip arriving,
+   not the type changing. */
+.tmw-spinner .spin-reel-row {
+  font-size: clamp(0.85rem, 2.2vw, 1.15rem);
+  font-weight: 700;
+  color: var(--text-primary);
+  opacity: 0.55;
+}
+
+/* MOTION BLUR while the strip is at speed, easing off as it settles. A short
+   vertical blur is what a real reel looks like and is the cheapest possible
+   cue that this is movement rather than a redraw. */
+.tmw-spinner .spin-reel-strip[data-stage="spinning"] .spin-reel-track {
+  filter: blur(1.6px);
+  transition: filter 200ms ease-out;
+}
+
+.tmw-spinner .spin-reel-strip[data-stage="settling"] .spin-reel-track {
+  filter: blur(0);
+  transition: filter 180ms ease-out;
+}
+
+/* THE LANDING BEAT. One pulse on the whole ceremony as the result locks, so
+   the moment has a mark. */
+.tmw-spinner[data-phase="revealed"] .tmw-reel-value {
+  animation: tmw-reel-land 420ms cubic-bezier(0.22, 1.2, 0.36, 1);
+}
+
+.tmw-spinner[data-phase="revealed"] {
+  animation: tmw-spinner-flash 520ms ease-out;
+}
+
+@keyframes tmw-reel-land {
+  0% { transform: scale(0.92); opacity: 0.4; }
+  55% { transform: scale(1.045); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes tmw-spinner-flash {
+  0% { box-shadow: 0 0 0 0 var(--peak-accent-bg); }
+  40% { box-shadow: 0 0 0 6px var(--peak-accent-bg); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-spinner .spin-reel-strip[data-stage] .spin-reel-track,
+  .tmw-spinner[data-phase="revealed"] .tmw-reel-value,
+  .tmw-spinner[data-phase="revealed"] {
+    animation: none;
+    filter: none;
+    transition: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   EXACTLY ONE ROSTER IS ACTIVE (PART 8)
+   ---------------------------------------------------------------------------
+   The whole signal used to be an inline `inset 0 0 0 2px` shadow on the court
+   wrapper -- the "indicated by tiny text and a small badge" finding. The active
+   seat now takes a bright border, a broadcast glow and a raised header, and the
+   two inactive courts recede. Recession is by opacity of the CHROME only, not
+   of the text, so the other rosters stay readable: reading what your opponents
+   still need is the strategy.
+   --------------------------------------------------------------------------- */
+
+.tmw-seat {
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+.tmw-seat[data-on-turn="true"] {
+  border-color: var(--peak-accent);
+  box-shadow:
+    0 0 0 1px var(--peak-accent),
+    0 0 28px -6px var(--peak-accent);
+  transform: translateY(-2px);
+}
+
+.tmw-seat[data-on-turn="true"] .tmw-seat-head {
+  background: var(--peak-accent-bg);
+  border-bottom-color: var(--peak-accent-dim);
+}
+
+.tmw-seat[data-on-turn="true"] .tmw-seat-name {
+  color: var(--peak-accent-text, var(--peak-accent));
+}
+
+/* RECESSION BY FILL, NEVER BY OPACITY.
+   An `opacity: 0.82` on the inactive courts blended every text colour inside
+   them toward the page and dropped `--text-muted` from 5.4:1 to 4.05:1 — an
+   axe `color-contrast` failure on the seat kind, the progress count and every
+   empty bench slot. It is also the wrong instrument: reading what your
+   opponents still need is the entire strategy of this mode, so the two courts
+   that are not on the clock must stay fully legible. They recede because the
+   ACTIVE one advances -- a brighter border, a glow, a lifted header -- and
+   because their own border steps back one tone. Nothing about their text
+   changes.
+
+   The draft-order strip already recorded this discipline for its completed
+   turns ("recessed by fill rather than opacity, so a completed turn's label
+   stays readable at AA"); this is the same rule, applied where it was missed. */
+.tmw-seat[data-on-turn="false"] {
+  border-color: var(--border-subtle);
+}
+
+.tmw-seat[data-on-turn="false"] .tmw-seat-head {
+  background: var(--bg-page);
+}
+
+.tmw-seat-onclock {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--peak-accent);
+  color: var(--peak-accent-on, #12131a);
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* THE PULSE IS A RING, NOT AN OPACITY FADE. Fading the badge halves the
+     contrast of its own text for half of every cycle -- axe caught it at
+     4.13:1 mid-fade -- and a live-region-adjacent status that becomes hard to
+     read on a beat is worse than one that simply sits there. A box-shadow
+     animates on the compositor and never touches the text. */
+  animation: tmw-onclock-breathe 2s ease-in-out infinite;
+}
+
+@keyframes tmw-onclock-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(245 200 66 / 45%); }
+  50% { box-shadow: 0 0 0 4px rgb(245 200 66 / 0%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-seat,
+  .tmw-seat-onclock {
+    transition: none;
+    animation: none;
+  }
+  .tmw-seat[data-on-turn="true"] {
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   THE TURN BAR AND THE BOT REVEAL (PART 8, PART 9)
+   --------------------------------------------------------------------------- */
+
+.tmw-turnbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+}
+
+.tmw-turnbar-headline {
+  font-family: var(--font-display, inherit);
+  font-size: clamp(1.1rem, 3vw, 1.5rem);
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.tmw-turnbar-headline[data-yours="true"] {
+  color: var(--peak-accent-text, var(--peak-accent));
+}
+
+.tmw-reveal {
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--peak-accent-dim);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+  text-align: center;
+}
+
+.tmw-reveal[data-state="revealed"] {
+  animation: tmw-reveal-in 320ms ease-out;
+}
+
+.tmw-reveal-who {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.tmw-reveal-name {
+  font-family: var(--font-display, inherit);
+  font-size: clamp(1.15rem, 3.4vw, 1.6rem);
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.tmw-reveal-meta {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+/* The scouting animation: three dots, and nothing that implies a percentage of
+   anything. The bot's think time is a seeded 1-5 seconds enforced against the
+   turn's `opened_at`, not a task with progress. */
+.tmw-reveal-scouting {
+  display: flex;
+  justify-content: center;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.tmw-reveal-scouting span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--peak-accent);
+  animation: tmw-scout-bounce 1.1s ease-in-out infinite;
+}
+
+.tmw-reveal-scouting span:nth-child(2) { animation-delay: 0.15s; }
+.tmw-reveal-scouting span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes tmw-scout-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* Slides, does not fade. Same reason as `.rk-analysis`: this tray carries a
+   player name and a slot, and a panel that animates its own opacity makes
+   every character inside it transiently low-contrast. */
+@keyframes tmw-reveal-in {
+  from { transform: translateY(6px); }
+  to { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-reveal[data-state="revealed"],
+  .tmw-reveal-scouting span {
+    animation: none;
+  }
+  .tmw-reveal-scouting span { opacity: 1; }
+}
+
+/* ---------------------------------------------------------------------------
+   THE DRAFT TIMELINE (PART 11)
+   --------------------------------------------------------------------------- */
+
+.tmw-order {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.tmw-order-heading {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* `position: relative` is the fix for a real mobile overflow. Each turn chip
+   carries an `.sr-only` label and the house `.sr-only` is `position:
+   absolute` -- an absolutely-positioned descendant is clipped by its
+   CONTAINING BLOCK, not by the nearest scroll container, so with no positioned
+   ancestor those labels escaped the list and stretched the document 160px
+   sideways on a 390px phone. */
+.tmw-order-list {
+  position: relative;
+  display: flex;
+  gap: 0.5rem;
+  min-width: 0;
+  max-width: 100%;
+  padding-bottom: 0.3rem;
+  overflow-x: auto;
+}
+
+.tmw-order-round {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  background: var(--bg-surface);
+}
+
+.tmw-order-round-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.tmw-order-reverse {
+  color: var(--peak-accent-text, var(--peak-accent));
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.tmw-order-turns {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.tmw-order-turn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.4rem;
+  padding: 0.2rem 0.35rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.35rem;
+  background: var(--bg-page);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.tmw-order-turn[data-you="true"] { border-color: var(--peak-accent-dim); }
+/* Recessed by FILL, never by opacity -- the same rule the seat courts follow,
+   and for the same reason: a dimmed label is an unreadable label. */
+.tmw-order-turn[data-done="true"] {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.tmw-order-turn[data-next="true"] {
+  border-color: var(--peak-accent-dim);
+  color: var(--text-primary);
+}
+
+.tmw-order-turn[data-active="true"] {
+  background: var(--peak-accent);
+  border-color: var(--peak-accent);
+  color: var(--peak-accent-on, #12131a);
+  opacity: 1;
+  animation: tmw-order-mark 1.6s ease-in-out infinite;
+}
+
+@keyframes tmw-order-mark {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  50% { box-shadow: 0 0 0 3px var(--peak-accent-bg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-order-turn[data-active="true"] { animation: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   THE PLACEMENT BOARD (PARTS 3, 4, 5)
+   ---------------------------------------------------------------------------
+   The right half of the draft room used to be a plain list with a dropdown
+   under it and, for a single-slot candidate, nothing at all -- "the right side
+   of the selection dialog is often mostly empty despite roster placement being
+   the most important interaction". Every slot is now a target with three
+   visible states: legal, staged, and vacating.
+   --------------------------------------------------------------------------- */
+
+.tmw-overlay-place {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  min-height: 0;
+  overflow-y: auto;
+  /* So a slot scrolled to the bottom clears the sticky action row rather than
+     ending up underneath it. */
+  scroll-padding-bottom: 6rem;
+}
+
+.tmw-overlay-place-head { display: flex; flex-direction: column; gap: 0.15rem; }
+
+.tmw-place-instruction {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.tmw-place-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.tmw-place-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+/* AN ELEMENT THAT LOOKS CLICKABLE IS CLICKABLE. The interactive variant is the
+   only one that gets a pointer cursor, a hover and a focus ring -- the
+   component renders a `<button>` for exactly these and a `<div>` otherwise, so
+   the accessibility tree agrees with the eye. */
+.tmw-place-slot--interactive {
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, transform 90ms ease;
+}
+
+.tmw-place-slot--interactive:hover {
+  border-color: var(--peak-accent);
+  background: var(--bg-surface-hover, var(--bg-elevated));
+}
+
+.tmw-place-slot--interactive:active { transform: translateY(1px); }
+
+.tmw-place-slot:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* LEGAL DESTINATIONS LIGHT UP; ILLEGAL ONES RECEDE. Both carry a non-colour
+   carrier too -- the legal ones are the only ones with a solid accent edge and
+   the only ones that are buttons. */
+.tmw-place-slots[data-mode="placing"] .tmw-place-slot[data-legal="true"],
+.tmw-place-slots[data-mode="moving"] .tmw-place-slot[data-legal="true"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+}
+
+.tmw-place-slots[data-mode="placing"] .tmw-place-slot[data-legal="false"],
+.tmw-place-slots[data-mode="moving"] .tmw-place-slot[data-legal="false"] {
+  opacity: 0.45;
+}
+
+.tmw-place-slot[data-incoming="true"] {
+  border-color: var(--peak-accent);
+  border-width: 2px;
+  background: var(--peak-accent-bg);
+}
+
+.tmw-place-slot[data-source="true"] {
+  border-style: dashed;
+  border-color: var(--peak-accent);
+  opacity: 0.75;
+}
+
+.tmw-place-slot[data-vacating="true"] { border-color: var(--comp-tm, #94a3b8); }
+
+.tmw-place-tag {
+  flex-shrink: 0;
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.2rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.3rem;
+  background: var(--bg-page);
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.tmw-place-body {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.tmw-place-incoming { color: var(--peak-accent-text, var(--peak-accent)); font-weight: 700; }
+.tmw-place-open { color: var(--text-muted); font-style: italic; }
+
+.tmw-place-move,
+.tmw-place-swap {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--comp-tm, #94a3b8);
+}
+
+/* THE REARRANGEMENT, AS A SEQUENCE. "Fits after rearrangement" was a label;
+   this is the arrangement, in order, with the same information also drawn on
+   the slots it affects. */
+.tmw-place-rearrange {
+  padding: 0.55rem 0.7rem;
+  border: 1px dashed var(--peak-accent-dim);
+  border-radius: 0.5rem;
+  background: var(--bg-surface);
+}
+
+.tmw-place-rearrange-head {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.tmw-place-rearrange-list {
+  margin-top: 0.3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  list-style: decimal inside;
+}
+
+.tmw-place-choice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.tmw-place-choice select {
+  flex: 1;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border-default, var(--border-subtle));
+  border-radius: 0.35rem;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+}
+
+/* THE PRIMARY ACTION STAYS IN VIEW at common laptop heights (PART 6). The pool
+   and the placement column each scroll internally; the action row does not. */
+/* THE ACTION ROW IS OPAQUE, AND THE COLUMN RESERVES ROOM FOR IT.
+   ---------------------------------------------------------------------------
+   It is `position: sticky` at the bottom of a scrolling column, which is what
+   keeps the Draft button in view at laptop heights. Two things were wrong with
+   the first version, and the 390px review frame showed both at once: the
+   background was a gradient whose top 35% is transparent, so the roster slot
+   underneath BLED THROUGH the button ("SF  Open" legible across "Choose a slot
+   for Al Wood"); and the column reserved no space for it, so the last slots
+   could never scroll clear of it and a legal destination sat permanently
+   underneath a control.
+
+   Opaque fill plus a hairline, and `scroll-padding-bottom` on the column so the
+   sticky row is never the thing a slot scrolls behind. */
+.tmw-place-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.6rem 0 0.1rem;
+  margin-top: auto;
+  background: var(--bg-elevated);
+  box-shadow: 0 -8px 12px -8px rgb(0 0 0 / 55%);
+}
+
+.tmw-place-actions::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.tmw-place-actions .btn-primary { flex: 1 1 12rem; }
+
+.tmw-place-hint {
+  padding: 0.6rem 0.7rem;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* MOBILE: two steps, never two crushed columns (PART 6). Below the breakpoint
+   the pool and the placement board stack, the placement board is the second
+   step, and the action row stays pinned. */
+/* MOBILE IS A TWO-STEP FLOW (PART 6): select, then place.
+   ---------------------------------------------------------------------------
+   Below this width the pool and the placement board share one scrolling column,
+   and the 390px review frame showed what that costs once a candidate IS
+   selected: three visible candidates, a truncated fourth, and a roster board
+   squeezed underneath with its own action row pinned over the last slots. The
+   pool has already done its job at that point.
+
+   So step two hides step one. The staged player's name is in the instruction
+   line and on the slot itself, the timer stays pinned in the header, and
+   "Cancel selection" / "Cancel move" is the Back action -- every requirement
+   PART 6 lists for the mobile flow, with no second component and no hidden
+   confirmation. Desktop is unaffected: both columns fit side by side there,
+   which is why the rule is scoped to the breakpoint. */
+@media (max-width: 780px) {
+  .tmw-overlay[data-mode="placing"] .tmw-overlay-pool,
+  .tmw-overlay[data-mode="moving"] .tmw-overlay-pool {
+    display: none;
+  }
+
+  .tmw-overlay[data-mode="placing"] .tmw-overlay-place,
+  .tmw-overlay[data-mode="moving"] .tmw-overlay-place {
+    border-top: 0;
+  }
+
+  .tmw-overlay-place {
+    border-top: 1px solid var(--border-subtle);
+    /* ROOM FOR THE PINNED ACTIONS. At 390px they stack, so the row is two full
+       buttons tall; without this the last roster slots sit permanently behind
+       it and a legal destination cannot be reached. */
+    padding-bottom: 0.6rem;
+  }
+  .tmw-place-slots {
+    /* The reserve, sized to the stacked action row. A margin rather than
+       padding on the column, so the dashed idle hint keeps its own box. */
+    scroll-margin-bottom: 7rem;
+  }
+  .tmw-place-actions {
+    position: sticky;
+    bottom: 0;
+    padding-bottom: 0.6rem;
+  }
+  .tmw-place-actions .btn-primary,
+  .tmw-place-actions .btn-secondary {
+    flex: 1 1 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-place-slot--interactive { transition: none; }
+  .tmw-place-slot--interactive:active { transform: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   THE RESULT (PART 12)
+   --------------------------------------------------------------------------- */
+
+.tmw-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.tmw-result-actions .btn-primary { flex: 1 1 12rem; }
+.tmw-result-actions .btn-secondary { flex: 1 1 10rem; }
+
+/* The three final courts, behind a disclosure rather than under the podium.
+   The payoff viewport is the payoff; three full court panels the player has
+   just spent six rounds looking at are a receipt, not a reveal. */
+.tmw-final-courts-disclosure {
+  margin-top: 1rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+}
+
+.tmw-final-courts-disclosure > summary {
+  min-height: var(--pk-tap-min, 44px);
+  display: flex;
+  align-items: center;
+  padding: 0.6rem 0.9rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.tmw-final-courts-disclosure > summary::-webkit-details-marker { display: none; }
+
+.tmw-final-courts-disclosure > summary::after {
+  content: "";
+  margin-left: auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.tmw-final-courts-disclosure[open] > summary::after { transform: rotate(-135deg); }
+
+.tmw-final-courts-disclosure > summary:hover { color: var(--text-primary); }
+
+.tmw-final-courts-disclosure > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.tmw-final-courts-disclosure .tmw-board-grid { padding: 0.75rem; }
+
+/* THE OVERLAY ON A SHORT LAPTOP (PART 6: "the primary action must remain in
+   view at common laptop heights").
+   ---------------------------------------------------------------------------
+   `max-height: min(90vh, 46rem)` on a 768px-tall laptop is ~690px, and the
+   header plus a full-height pool plus the placement column exceeded it -- so
+   the Draft button sat below the panel's own fold and a player had to scroll
+   INSIDE the dialog to commit a pick under a clock. The two columns now own
+   their own scroll and the action row is sticky, so the panel never grows past
+   its box and the primary action is always the last thing in view. */
+@media (min-height: 30rem) {
+  .tmw-overlay {
+    max-height: min(92vh, 46rem);
+  }
+}
+
+@media (max-height: 44rem) {
+  .tmw-overlay {
+    max-height: 96vh;
+  }
+  .tmw-overlay-head {
+    padding: 0.45rem 0.9rem;
+  }
+  /* The ceremony's clock is large by design; on a short screen the header is
+     the thing that gives way, not the controls. */
+  .tmw-overlay-head .ar-timer-value {
+    font-size: 1.75rem;
+  }
+}
+
+.tmw-overlay-head-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+/* THE POOL SCROLLS INSIDE ITSELF. Without this the list grows the dialog and
+   pushes the placement column -- and therefore the Draft button -- past the
+   bottom of the panel. */
+.tmw-overlay-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* A SELECTED CANDIDATE IS UNMISTAKABLE. It is the left half of a two-step
+   decision, and the right half only makes sense once you can see which player
+   it is about. */
+.tmw-candidate[data-selected="true"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+  box-shadow: inset 3px 0 0 0 var(--peak-accent);
+}
+
+.tmw-candidate[data-selected="true"] .tmw-candidate-name {
+  color: var(--peak-accent-text, var(--peak-accent));
+}

@@ -165,6 +165,14 @@ async def _live_match(repo: MemoryArenaRepository, seat_count: int = 2):
     return await repo.get_match(m.match_id)
 
 
+#: An instant past BOTH the 30-second turn deadline and the action grace
+#: window. `clock.enforce` deliberately holds off for `ACTION_GRACE_SECONDS`
+#: after a deadline so a command already in flight -- from a player whose
+#: countdown had not yet reached zero -- can still land rather than being swept.
+#: Tests that want the timeout to actually fire must clear both.
+SWEPT_AT = NOW + timedelta(seconds=31 + clock.ACTION_GRACE_SECONDS)
+
+
 def _cmd(match_id: str, key: str, **kw) -> CommandRequest:
     """Build a CommandRequest from a short, readable test label.
 
@@ -385,7 +393,14 @@ async def test_the_turn_clock_actually_fires():
     repo = MemoryArenaRepository()
     m = await _live_match(repo)
     out = await clock.enforce(
-        repo, m.match_id, timeout_reducer, NOW + timedelta(seconds=31)
+        repo,
+        m.match_id,
+        timeout_reducer,
+        # Past the deadline AND past the action grace window. See
+        # `clock.ACTION_GRACE_SECONDS`: a turn is not swept the instant its
+        # deadline passes, because a command already in flight from a player
+        # whose countdown had not yet reached zero must still be able to land.
+        SWEPT_AT,
     )
     assert out is not None and out.accepted
     turn = (await repo.get_open_turn(m.match_id))
@@ -400,6 +415,24 @@ async def test_the_clock_does_not_fire_early():
     assert await clock.enforce(
         repo, m.match_id, timeout_reducer, NOW + timedelta(seconds=29)
     ) is None
+    assert (await repo.get_match(m.match_id)).status == MATCH_STATUS_ACTIVE
+
+
+@pytest.mark.asyncio
+async def test_the_clock_holds_off_through_the_action_grace_window():
+    """THE FIX FOR A DESTROYED HUMAN ACTION, at the foundation level.
+
+    A player's countdown is seeded from a poll and their request spends a round
+    trip in flight, so "one millisecond past the deadline" on the server is a
+    button that still read a positive number when it was pressed. Sweeping
+    there is what awarded a lot to a bot while telling the player their move was
+    not accepted. The window is bounded so an abandoned turn still resolves --
+    the test above asserts that half.
+    """
+    repo = MemoryArenaRepository()
+    m = await _live_match(repo)
+    inside = NOW + timedelta(seconds=30 + clock.ACTION_GRACE_SECONDS - 0.5)
+    assert await clock.enforce(repo, m.match_id, timeout_reducer, inside) is None
     assert (await repo.get_match(m.match_id)).status == MATCH_STATUS_ACTIVE
 
 
@@ -467,7 +500,7 @@ async def test_two_concurrent_sweeps_fire_one_timeout():
     """
     repo = MemoryArenaRepository()
     m = await _live_match(repo)
-    late = NOW + timedelta(seconds=31)
+    late = SWEPT_AT
     a, b = await asyncio.gather(
         clock.enforce(repo, m.match_id, timeout_reducer, late),
         clock.enforce(repo, m.match_id, timeout_reducer, late),
@@ -599,7 +632,7 @@ def test_a_client_cannot_issue_a_server_command():
 async def test_results_are_written_once_and_carry_the_rated_flag():
     repo = MemoryArenaRepository()
     m = await _live_match(repo)
-    await clock.enforce(repo, m.match_id, timeout_reducer, NOW + timedelta(seconds=31))
+    await clock.enforce(repo, m.match_id, timeout_reducer, SWEPT_AT)
     results = await repo.get_results(m.match_id)
     assert [r.placement for r in results] == [1, 2]
     assert all(r.rated for r in results)  # public_queue -> rated
@@ -610,7 +643,7 @@ async def test_results_are_written_once_and_carry_the_rated_flag():
 async def test_a_second_completion_cannot_rewrite_a_settled_result():
     repo = MemoryArenaRepository()
     m = await _live_match(repo)
-    await clock.enforce(repo, m.match_id, timeout_reducer, NOW + timedelta(seconds=31))
+    await clock.enforce(repo, m.match_id, timeout_reducer, SWEPT_AT)
     before = await repo.get_results(m.match_id)
 
     # Force another completion attempt with inverted placements.

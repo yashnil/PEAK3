@@ -18,6 +18,7 @@ import {
   buildDailyGridShareText,
   buildShareGrid,
   cellGrade,
+  optimalCellState,
   cellShortTitle,
   clearProgress,
   elapsedMs,
@@ -360,6 +361,56 @@ describe("daily-grid result grading", () => {
     const missed = cells.find((c) => !c.matched_optimal)!;
     expect(cellGrade(matched)).toBe("best");
     expect(cellGrade(missed)).not.toBe("best");
+  });
+});
+
+describe("optimalCellState", () => {
+  const cells = gridResult().cells;
+  const same = cells.find((c) => c.user_player_season.id === c.optimal_player_season.id)!;
+  const different = cells.find((c) => c.user_player_season.id !== c.optimal_player_season.id)!;
+
+  it("calls a square matched only when the SAME season is in it", () => {
+    expect(optimalCellState(same)).toBe("matched");
+    expect(optimalCellState(different)).toBe("replacement");
+  });
+
+  it("never reads matched_optimal as 'you played this'", () => {
+    // THE BUG THIS EXISTS TO PREVENT. `matched_optimal` is
+    // `points_left === 0`, and `points_left` floors at zero — so a square the
+    // player BEAT carries `matched_optimal: true` while naming somebody else
+    // entirely. Labelling that "Matched", under a different player's name,
+    // reads as a bug in the comparison.
+    const beaten = {
+      ...different,
+      user_points: different.optimal_points + 12,
+      points_left: 0,
+      matched_optimal: true,
+      beat_optimal: true,
+    };
+    expect(beaten.matched_optimal).toBe(true);
+    expect(optimalCellState(beaten)).toBe("beat");
+  });
+
+  it("calls an equal-scoring swap a replacement, not a match", () => {
+    // The other half of the same trap: a different season that happens to
+    // score the same also carries `matched_optimal: true`. The optimal board
+    // really does play somebody else there, so it is a swap.
+    const equal = {
+      ...different,
+      user_points: different.optimal_points,
+      points_left: 0,
+      matched_optimal: true,
+      beat_optimal: false,
+    };
+    expect(optimalCellState(equal)).toBe("replacement");
+  });
+
+  it("prefers the beat verdict over the identity check", () => {
+    // Equal identities score equally, so `user_points > optimal_points` can
+    // never hold on a genuinely matched square — but the order is asserted
+    // rather than assumed, because the two flags come from the server.
+    const contradictory = { ...same, beat_optimal: true };
+    expect(optimalCellState(contradictory)).toBe("beat");
   });
 });
 

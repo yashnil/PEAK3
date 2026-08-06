@@ -1,10 +1,9 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getMethodology, getPeakWindowBoard, getSeasonBoard } from "@/lib/api";
 import type { Methodology, RankingBoardData, RankingBoardId, RankingRow } from "@/types";
 import RankingsTable, { ComponentLegend } from "@/components/rankings/RankingsTable";
-import RankingsDetail from "@/components/rankings/RankingsDetail";
-import ScoreExplainModal from "@/components/rankings/ScoreExplainModal";
+import RankingsAnalysis from "@/components/rankings/RankingsAnalysis";
 import RankingsProvenance from "@/components/rankings/RankingsProvenance";
 import {
   boardHeadingFor,
@@ -123,11 +122,22 @@ export default function RankingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<RankingSortKey>(DEFAULT_SORT_KEY);
   const [sortDirection, setSortDirection] = useState<SortDirection>(DEFAULT_SORT_DIRECTION);
-  const [openRow, setOpenRow] = useState<RankingRow | null>(null);
-  // WHICH ROW THE DETAIL PANEL IS SHOWING. Held as a row_id rather than a row
-  // object so a refetch (a different window, a new search) re-resolves it
-  // against the live data instead of pinning a stale copy on screen.
+  // WHICH ROW THE ANALYSIS DRAWER IS SHOWING, or `null` for "closed".
+  //
+  // NULL IS THE INITIAL STATE AND IT IS LOAD-BEARING. This used to fall back to
+  // `sortedRows[0]`, so the page opened with the top-ranked player selected and
+  // a radar chart drawn beside a permanently-reserved column. Nobody had asked
+  // for that analysis, and the table lost the width it needed to be compared
+  // across. There is no "selected but not shown" state now: `selectedRowId` is
+  // set only by a deliberate row activation and cleared by closing.
+  //
+  // Held as a row_id rather than a row object so a refetch (a different window,
+  // a new search) re-resolves it against the live data instead of pinning a
+  // stale copy on screen.
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  // The row that opened the drawer, so focus returns exactly where it came
+  // from rather than to the top of the document.
+  const returnFocusTo = useRef<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
@@ -214,18 +224,54 @@ export default function RankingsPage() {
   );
   const shownRows = useMemo(() => sortedRows.slice(0, visible), [sortedRows, visible]);
 
-  // THE TOP-RANKED ROW IS THE DEFAULT, resolved from the live rows every
-  // render rather than latched on load. A board switch, a window switch or a
-  // search all change what "the top row" means, and a detail panel still
-  // showing the previous board's leader would be showing a row that is no
-  // longer in the list beside it.
+  // NO FALLBACK. An unresolvable id -- a board switch while the drawer is
+  // open, a search that excludes the open row -- closes the analysis rather
+  // than silently substituting a different player's, which is what the old
+  // `?? sortedRows[0]` did on every single load.
   const selectedRow = useMemo(() => {
-    if (!sortedRows.length) return null;
-    const match = selectedRowId
-      ? sortedRows.find((row) => row.row_id === selectedRowId)
-      : null;
-    return match ?? sortedRows[0];
+    if (!selectedRowId) return null;
+    return sortedRows.find((row) => row.row_id === selectedRowId) ?? null;
   }, [sortedRows, selectedRowId]);
+
+  const selectedIndex = useMemo(
+    () =>
+      selectedRowId ? sortedRows.findIndex((row) => row.row_id === selectedRowId) : -1,
+    [sortedRows, selectedRowId],
+  );
+
+  /** Open the analysis for a row, remembering where to send focus back. */
+  const openAnalysis = useCallback((row: RankingRow) => {
+    returnFocusTo.current = row.row_id;
+    setSelectedRowId(row.row_id);
+  }, []);
+
+  /** Close, and return focus to the row that opened it (PART 22). */
+  const closeAnalysis = useCallback(() => {
+    const rowId = returnFocusTo.current;
+    setSelectedRowId(null);
+    returnFocusTo.current = null;
+    if (!rowId) return;
+    // After the drawer unmounts, so the row element is focusable again.
+    window.setTimeout(() => {
+      // `preventScroll`: the row is already where the reader left it, and the
+      // default scroll-into-view would start a smooth scroll (see
+      // `scroll-behavior` in globals.css) that moves the list under them at the
+      // exact moment they are looking for their place in it.
+      document
+        .querySelector<HTMLElement>(`[data-row-id="${CSS.escape(rowId)}"]`)
+        ?.focus({ preventScroll: true });
+    }, 0);
+  }, []);
+
+  const stepAnalysis = useCallback(
+    (direction: -1 | 1) => {
+      const next = sortedRows[selectedIndex + direction];
+      if (!next) return;
+      returnFocusTo.current = next.row_id;
+      setSelectedRowId(next.row_id);
+    },
+    [sortedRows, selectedIndex],
+  );
 
   const boardHeading = boardHeadingFor(board, peakWindow);
   const boardLabel = boardShortLabelFor(board, peakWindow);
@@ -394,15 +440,16 @@ export default function RankingsPage() {
             <h2 className="rankings-board-heading" data-testid="rankings-board-heading">
               {boardHeading}
             </h2>
-            <div className="rankings-split">
-              <div className="rankings-split-list">
+            {/* FULL WIDTH. There is no reserved analysis column: the table
+                gets the whole measure, which is what makes the component
+                figures comparable down the page. */}
+            <div className="rankings-board">
             <RankingsTable
               rows={shownRows}
               sortKey={sortKey}
               sortDirection={sortDirection}
               onSort={handleSort}
               showComponents={showComponents}
-              onOpenRow={setOpenRow}
               caption={`${boardHeading} — ranked by PEAK3 score. Select a row to see how the score was built.`}
               emptyMessage={
                 debouncedSearch
@@ -411,18 +458,8 @@ export default function RankingsPage() {
               }
               labelHeading={board === "seasons" ? "Season" : "Window"}
               selectedRowId={selectedRow?.row_id ?? null}
-              onSelectRow={(row) => setSelectedRowId(row.row_id)}
+              onSelectRow={openAnalysis}
             />
-              </div>
-              <div className="rankings-split-detail">
-                <RankingsDetail
-                  row={selectedRow}
-                  boardLabel={boardLabel}
-                  windowLabel={board === "peakWindows" ? peakWindow.toUpperCase() : null}
-                  populationNoun={board === "seasons" ? "scored season" : "peak window"}
-                  onExplain={setOpenRow}
-                />
-              </div>
             </div>
 
             {sortedRows.length > shownRows.length && (
@@ -448,14 +485,30 @@ export default function RankingsPage() {
         )}
       </div>
 
-      <ScoreExplainModal
-        row={openRow}
+      {/* THE ANALYSIS. One destination, and the only place the chart or the
+          derivation exists. Rendered outside the list's own layout so it
+          overlays rather than displaces -- which is what preserves scroll
+          position, the sort, the search text and the duration filter with no
+          state to serialise and restore.
+
+          THERE IS NO SECOND DIALOG. `ScoreExplainModal` used to sit here,
+          opened from a `ƒ` cell in every row: two dialogs answering one
+          question, and on a phone the second one was reached through a glyph.
+          Its contents are now `ScoreDerivation`'s sections, rendered inside
+          this drawer behind three disclosures. */}
+      <RankingsAnalysis
+        row={selectedRow}
         board={board}
         boardLabel={boardLabel}
+        windowLabel={board === "peakWindows" ? peakWindow.toUpperCase() : null}
+        populationNoun={board === "seasons" ? "scored season" : "peak window"}
+        populationNounPlural={board === "seasons" ? "scored seasons" : "peak windows"}
         boardRowCount={data?.meta.total_available ?? rows.length}
-        populationNoun={board === "seasons" ? "scored seasons" : "peak windows"}
         methodology={methodology}
-        onClose={() => setOpenRow(null)}
+        onClose={closeAnalysis}
+        onNavigate={stepAnalysis}
+        hasPrevious={selectedIndex > 0}
+        hasNext={selectedIndex >= 0 && selectedIndex < sortedRows.length - 1}
       />
     </div>
   );

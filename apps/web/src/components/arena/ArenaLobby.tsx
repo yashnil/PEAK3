@@ -13,13 +13,18 @@ import {
   type QueueStatus,
 } from "@/lib/arena-lobby-api";
 import {
-  ENTRY_PATHS,
   HUMAN_PREFERENCE_SECONDS,
-  offerableModes,
+  entryPath,
   seatLabel,
   type EntryPathId,
   type OfferableMode,
 } from "@/lib/arena-modes";
+import {
+  ARENA_COMING_LATER,
+  arenaCapability,
+  arenaHeadline,
+  type ArenaCapability,
+} from "@/lib/arena-capability";
 import HowToPlay from "@/components/arena/HowToPlay";
 
 /**
@@ -45,6 +50,26 @@ import HowToPlay from "@/components/arena/HowToPlay";
  * "Unrated" on the control they are about to press, so a match's status is
  * never a discovery made afterwards. Once a match exists the server's own
  * `rated` field is what any screen displays.
+ *
+ * WHAT THE CLOSED-ALPHA PASS CHANGED, AND WHY IT WAS A PRODUCT DEFECT.
+ * This component asked readiness ONE question -- `arena_enabled` -- and
+ * answered everything else with a `disabled` flag per control. Two consequences,
+ * both found by manual review:
+ *
+ *   1. With the Arena flags absent from an environment, the whole page was one
+ *      panel reading "Multiplayer is not open yet ... Three-Man Weave and The
+ *      $20 Showdown are in closed alpha." True about human matchmaking, false
+ *      about the two modes a reviewer was there to play, and there was no way
+ *      past it.
+ *   2. Even with the flags right, a closed alpha rendered TWO OF THREE controls
+ *      on every card greyed out, under a heading promising "live games against
+ *      other people". Four dead buttons on a two-game page.
+ *
+ * The posture is now derived once (`lib/arena-capability.ts`) and the page is
+ * shaped by it: `practice_only` renders playable cards with one primary
+ * action, and says what is held back once, at the end, instead of on every
+ * card. The wall remains for the states that really are walls -- Arena off, no
+ * modes, no way in -- and each of those now says which one it is.
  *
  * WHAT THIS COMPONENT DOES NOT DO: pair players, decide when bots may fill, or
  * compute whether a match counts. All three are the matchmaker's, and two are
@@ -83,10 +108,15 @@ export default function ArenaLobby() {
       );
   }, []);
 
-  const offerable = useMemo(
-    () => (readiness ? offerableModes(readiness.modes) : []),
+  // ONE DERIVED POSTURE, not a boolean per control. See `arena-capability.ts`
+  // for why: the lobby used to ask only `arena_enabled` and answer everything
+  // else with per-button `disabled` flags, which is how a closed alpha whose
+  // whole point is bot practice came to render as "Multiplayer is not open yet".
+  const capability: ArenaCapability | null = useMemo(
+    () => (readiness ? arenaCapability(readiness) : null),
     [readiness],
   );
+  const offerable = useMemo(() => capability?.modes ?? [], [capability]);
 
   const go = useCallback(
     (target: OfferableMode, matchId: string) => {
@@ -224,30 +254,31 @@ export default function ArenaLobby() {
 
   if (error && !readiness) {
     return (
-      <LobbyShell>
+      <LobbyShell capability={null}>
         <p className="ar-notice" role="alert" data-testid="lobby-error">
           {error}
         </p>
       </LobbyShell>
     );
   }
-  if (!readiness) {
+  if (!readiness || !capability) {
     return (
-      <LobbyShell>
+      <LobbyShell capability={null}>
         <p className="ar-notice" data-testid="lobby-loading">
           Loading the Arena…
         </p>
       </LobbyShell>
     );
   }
-  if (!readiness.arena_enabled) {
+
+  // THE ONLY REMAINING WALL, and it is a real one: the Arena is off, is
+  // serving no mode this build can route to, or has no way in at all. It is
+  // NOT reached merely because public matchmaking is closed — that used to be
+  // the case, and it is what made a playable closed alpha read as unavailable.
+  if (capability.posture === "unavailable") {
     return (
-      <LobbyShell>
-        <ClosedAlpha
-          testId="lobby-disabled"
-          headline="Multiplayer is not open yet"
-          body="Three-Man Weave and The $20 Showdown are in closed alpha. Everything else in the Arena is playable now."
-        />
+      <LobbyShell capability={capability}>
+        <Unavailable reason={capability.unavailableReason} />
       </LobbyShell>
     );
   }
@@ -258,12 +289,12 @@ export default function ArenaLobby() {
 
   if (queueMode) {
     return (
-      <LobbyShell>
+      <LobbyShell capability={capability}>
         <QueuePanel
           mode={queueMode}
           status={queue}
           onCancel={() => void cancelSearch()}
-          onFillNow={readiness.bots_enabled ? () => void fillNow() : undefined}
+          onFillNow={capability.practiceAvailable ? () => void fillNow() : undefined}
         />
       </LobbyShell>
     );
@@ -271,7 +302,7 @@ export default function ArenaLobby() {
 
   if (room && roomMode) {
     return (
-      <LobbyShell>
+      <LobbyShell capability={capability}>
         <RoomPanel
           mode={roomMode}
           room={room}
@@ -279,7 +310,7 @@ export default function ArenaLobby() {
             setRoom(null);
             setRoomMode(null);
           }}
-          onFill={readiness.bots_enabled ? () => void fillRoom() : undefined}
+          onFill={capability.practiceAvailable ? () => void fillRoom() : undefined}
         />
       </LobbyShell>
     );
@@ -288,41 +319,39 @@ export default function ArenaLobby() {
   // ---- the catalogue ------------------------------------------------------
 
   return (
-    <LobbyShell>
+    <LobbyShell capability={capability}>
       {error ? (
         <p className="ar-notice" role="alert" data-testid="lobby-error">
           {error}
         </p>
       ) : null}
 
-      {offerable.length === 0 ? (
-        <ClosedAlpha
-          testId="lobby-no-modes"
-          headline="No multiplayer games are available"
-          body="The Arena is reachable but is not serving a game right now. Try again shortly."
-        />
-      ) : (
-        <ul className="ar-grid" data-testid="lobby-mode-grid">
-          {offerable.map((mode) => (
-            <li key={mode.id}>
-              <GameCard
-                mode={mode}
-                highlighted={highlighted === mode.id}
-                readiness={readiness}
-                pending={pending}
-                onStart={(path) => void start(mode, path)}
-                joinOpen={joinOpenFor === mode.id}
-                onToggleJoin={() =>
-                  setJoinOpenFor((current) => (current === mode.id ? null : mode.id))
-                }
-                joinCode={joinCode}
-                onJoinCode={setJoinCode}
-                onJoinSubmit={() => void joinByCode()}
-              />
-            </li>
-          ))}
-        </ul>
-      )}
+      <ul className="ar-grid" data-testid="lobby-mode-grid">
+        {capability.modes.map((mode) => (
+          <li key={mode.id}>
+            <GameCard
+              mode={mode}
+              highlighted={highlighted === mode.id}
+              capability={capability}
+              pending={pending}
+              onStart={(path) => void start(mode, path)}
+              joinOpen={joinOpenFor === mode.id}
+              onToggleJoin={() =>
+                setJoinOpenFor((current) => (current === mode.id ? null : mode.id))
+              }
+              joinCode={joinCode}
+              onJoinCode={setJoinCode}
+              onJoinSubmit={() => void joinByCode()}
+            />
+          </li>
+        ))}
+      </ul>
+
+      {/* WHAT IS HELD BACK, SAID ONCE. It used to be said on every card, as a
+          greyed-out button with a sentence beside it — so a two-game closed
+          alpha rendered four dead controls, and the page's dominant impression
+          was of things that do not work. */}
+      {capability.posture === "practice_only" ? <ComingLater /> : null}
     </LobbyShell>
   );
 }
@@ -331,39 +360,98 @@ export default function ArenaLobby() {
 /* Chrome                                                              */
 /* ------------------------------------------------------------------ */
 
-function LobbyShell({ children }: { children: React.ReactNode }) {
+function LobbyShell({
+  capability,
+  children,
+}: {
+  /** `null` while readiness is still in flight or unreachable, which is the one
+   *  state with no honest sentence to write about what is playable. */
+  capability: ArenaCapability | null;
+  children: React.ReactNode;
+}) {
+  // THE HEADING HAS TO MATCH THE PAGE. It said "Live games against other
+  // people" in every configuration, including the one where live games against
+  // other people are exactly what is not open — so the first sentence a
+  // reviewer read was contradicted by every control below it.
+  const headline = capability
+    ? arenaHeadline(capability)
+    : { title: "Multiplayer", intro: "" };
   return (
-    <div className="ar-lobby" data-testid="arena-lobby">
+    <div className="ar-lobby" data-testid="arena-lobby" data-posture={capability?.posture ?? "loading"}>
       <header className="ar-lobby-head">
         <p className="ar-eyebrow">PEAK3 Arena</p>
-        <h1 className="ar-lobby-title">Multiplayer</h1>
-        <p className="ar-lobby-intro">
-          Live games against other people, decided by the same open five-component
-          formula as the rest of PEAK3 — with a full receipt at the end.
-        </p>
+        <h1 className="ar-lobby-title">{headline.title}</h1>
+        {capability?.posture === "practice_only" ? (
+          <p className="ar-alpha-line" data-testid="lobby-alpha-line">
+            <span className="ar-badge ar-badge-alpha">Closed alpha</span>
+            <span>Bot practice is open. Live matchmaking is not.</span>
+          </p>
+        ) : null}
+        {headline.intro ? <p className="ar-lobby-intro">{headline.intro}</p> : null}
       </header>
       {children}
     </div>
   );
 }
 
-function ClosedAlpha({
-  testId,
-  headline,
-  body,
+/** The genuine unavailable states, and only those.
+ *
+ *  Each reason gets its own sentence because they send a reader to different
+ *  places: a disabled Arena is a configuration question, "no modes" is a build
+ *  or registry question, and "no way in" is an operational one. The previous
+ *  single wall answered all three with the same paragraph — and answered a
+ *  fourth situation, a perfectly playable closed alpha, with it as well. */
+function Unavailable({
+  reason,
 }: {
-  testId: string;
-  headline: string;
-  body: string;
+  reason: ArenaCapability["unavailableReason"];
 }) {
+  const copy =
+    reason === "no_modes"
+      ? {
+          testId: "lobby-no-modes",
+          headline: "No multiplayer games are available",
+          body: "The Arena is reachable but is not serving a game right now. Try again shortly.",
+        }
+      : reason === "no_entry_paths"
+        ? {
+            testId: "lobby-no-entry-paths",
+            headline: "Nothing is open right now",
+            body: "The Arena is serving its games, but every way in — public matchmaking, private rooms and PEAK3 Bot — is currently closed. Try again shortly.",
+          }
+        : {
+            testId: "lobby-disabled",
+            headline: "Multiplayer is not open yet",
+            body: "Three-Man Weave and The $20 Showdown are in closed alpha and this build is not serving them. Everything else in the Arena is playable now.",
+          };
   return (
-    <section className="ar-panel ar-panel-quiet" data-testid={testId}>
+    <section className="ar-panel ar-panel-quiet" data-testid={copy.testId}>
       <span className="ar-badge ar-badge-alpha">Closed alpha</span>
-      <h2 className="ar-panel-title">{headline}</h2>
-      <p className="ar-panel-body">{body}</p>
+      <h2 className="ar-panel-title">{copy.headline}</h2>
+      <p className="ar-panel-body">{copy.body}</p>
       <a className="ar-btn" href="/arena">
         Browse every PEAK3 game
       </a>
+    </section>
+  );
+}
+
+/** What closed alpha is holding back — one panel, at the end, after the games
+ *  a reader can actually play. */
+function ComingLater() {
+  return (
+    <section className="ar-later" data-testid="lobby-coming-later" aria-labelledby="ar-later-title">
+      <h2 className="ar-later-title" id="ar-later-title">
+        Coming later in the alpha
+      </h2>
+      <ul className="ar-later-list">
+        {ARENA_COMING_LATER.map((item) => (
+          <li key={item.title}>
+            <span className="ar-later-name">{item.title}</span>
+            <span className="ar-later-detail">{item.detail}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -375,7 +463,7 @@ function ClosedAlpha({
 function GameCard({
   mode,
   highlighted,
-  readiness,
+  capability,
   pending,
   onStart,
   joinOpen,
@@ -386,7 +474,7 @@ function GameCard({
 }: {
   mode: OfferableMode;
   highlighted: boolean;
-  readiness: ArenaReadiness;
+  capability: ArenaCapability;
   pending: Pending;
   onStart: (path: EntryPathId) => void;
   joinOpen: boolean;
@@ -396,21 +484,39 @@ function GameCard({
   onJoinSubmit: () => void;
 }) {
   const busyFor = pending?.modeId === mode.id ? pending.path : null;
+  const alpha = capability.posture === "practice_only";
 
   /**
-   * Why a path is unavailable, as words. A greyed-out control with no reason
-   * beside it reads as broken; the brief calls this out as a defect in its own
-   * right, and it is the same rule the bid button follows in the auction room.
+   * WHAT A CARD OFFERS, AND WHY THE LIST IS NOT FIXED.
+   *
+   * It used to be: all three entry paths, always, with `disabled` and a reason
+   * beside the ones that were closed. That rule -- "a greyed-out control with
+   * no reason beside it reads as broken" -- is right, and it is why the reasons
+   * were there. But it was applied to the wrong question. In a closed alpha
+   * TWO OF THE THREE controls on every card are permanently closed, so a
+   * two-game lobby drew four dead buttons, and the page's dominant impression
+   * was of a product that does not work. A capability that is not coming back
+   * this week is not a disabled control; it is not a control.
+   *
+   * So a path that is unavailable for a POSTURE reason is not rendered here at
+   * all -- `ComingLater` says once, at the end, what the alpha is holding back.
+   * A path that is unavailable for a TRANSIENT reason keeps the old treatment,
+   * because "PEAK3 Bot is offline right now" genuinely is a control that should
+   * be back shortly and a reader needs to know why it is not.
    */
-  const blocked = (path: EntryPathId): string | null => {
-    if (path === "public_queue" && !readiness.public_queue_enabled) {
-      return "Public matchmaking is paused.";
-    }
-    if (path === "practice" && !readiness.bots_enabled) {
-      return "PEAK3 Bot is offline right now.";
-    }
-    return null;
-  };
+  const paths: { id: EntryPathId; primary: boolean; reason: string | null }[] = [];
+  if (capability.practiceAvailable) {
+    paths.push({ id: "practice", primary: true, reason: null });
+  } else if (capability.publicQueueAvailable || capability.privateRoomAvailable) {
+    // Bots are off while other doors are open: transient, and worth saying.
+    paths.push({ id: "practice", primary: true, reason: "PEAK3 Bot is offline right now." });
+  }
+  if (capability.publicQueueAvailable) {
+    paths.push({ id: "public_queue", primary: false, reason: null });
+  }
+  if (capability.privateRoomAvailable) {
+    paths.push({ id: "private_room", primary: false, reason: null });
+  }
 
   return (
     <article
@@ -423,7 +529,16 @@ function GameCard({
       <div className="ar-card-head">
         <div className="ar-card-badges">
           <span className="ar-badge">{mode.kindBadge}</span>
-          <span className="ar-badge ar-badge-alpha">Closed alpha</span>
+          {alpha ? (
+            // PLAYABLE, and the badge says so. "Closed alpha" on a card whose
+            // primary button starts a match reads as "you cannot play this",
+            // which was the single most misleading thing on the page.
+            <span className="ar-badge ar-badge-play" data-testid={`lobby-${mode.id}-playable`}>
+              Playable vs bots
+            </span>
+          ) : (
+            <span className="ar-badge ar-badge-alpha">Closed alpha</span>
+          )}
         </div>
         <h2 className="ar-card-title">{mode.name}</h2>
         <p className="ar-card-tagline">{mode.tagline}</p>
@@ -438,29 +553,37 @@ function GameCard({
       </ul>
 
       <div className="ar-actions">
-        {ENTRY_PATHS.map((path) => {
-          const reason = blocked(path.id);
-          const primary = path.id === "practice";
+        {paths.map(({ id, primary, reason }) => {
+          const meta = entryPath(id);
+          // "Play vs bots" rather than "Play bots" on the card whose whole job
+          // is to say what a reviewer can do right now.
+          const label = id === "practice" && alpha ? "Play vs bots" : meta.name;
           return (
-            <div className="ar-action" key={path.id}>
+            <div className="ar-action" key={id}>
               <button
                 type="button"
                 className={primary ? "ar-btn ar-btn-primary" : "ar-btn"}
-                data-testid={`lobby-${mode.id}-${path.id}`}
+                data-testid={`lobby-${mode.id}-${id}`}
                 disabled={Boolean(reason) || busyFor !== null}
-                onClick={() => (path.id === "private_room" ? onToggleJoin() : onStart(path.id))}
-                aria-describedby={`${mode.id}-${path.id}-note`}
-                aria-expanded={path.id === "private_room" ? joinOpen : undefined}
+                onClick={() => (id === "private_room" ? onToggleJoin() : onStart(id))}
+                aria-describedby={`${mode.id}-${id}-note`}
+                aria-expanded={id === "private_room" ? joinOpen : undefined}
               >
-                {busyFor === path.id ? "Starting…" : path.name}
+                {busyFor === id ? "Starting…" : label}
               </button>
-              <span className="ar-action-note" id={`${mode.id}-${path.id}-note`}>
-                {reason ?? path.description}
+              <span className="ar-action-note" id={`${mode.id}-${id}-note`}>
+                {reason ?? meta.description}
               </span>
             </div>
           );
         })}
       </div>
+
+      {alpha ? (
+        <p className="ar-card-later" data-testid={`lobby-${mode.id}-matchmaking-note`}>
+          Live matchmaking against another player comes later in the alpha.
+        </p>
+      ) : null}
 
       {/* ONE compact create/join interaction, opened from the Play With Friends
           button rather than living permanently on the card. */}

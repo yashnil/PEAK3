@@ -2,9 +2,17 @@
  * NBA Fact of the Day, on the homepage.
  *
  * The browser-level rules: the panel is between the hero and the game
- * catalogue, it is headed as NBA trivia rather than as a PEAK3 insight, its
- * evidence disclosure works, and the same date really does produce the same
- * fact for everyone.
+ * catalogue, it is headed as NBA trivia rather than as a PEAK3 insight, it has
+ * a real focal point, it shows NO SOURCE-ROW TABLE, and the same date really
+ * does produce the same fact for everyone.
+ *
+ * WHAT THE DISCLOSURE TESTS BECAME. Three tests here used to drive a
+ * `<details>` labelled "Show source rows" — that it opened, that it worked from
+ * the keyboard, that both states were axe-clean. They were good tests of a
+ * control the manual review asked to remove: a card whose most prominent
+ * interaction is an invitation to read a four-column database. The assertions
+ * are now that the control and the table are absent, and that the panel has no
+ * interactive element left to get wrong.
  */
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
@@ -37,55 +45,42 @@ test.describe("NBA Fact of the Day", () => {
     await expect(page.getByTestId("fotd-text")).not.toContainText(/PEAK3/i);
   });
 
-  test("discloses the rows the fact was computed from", async ({ page }) => {
-    // `domcontentloaded` ON PURPOSE, and NOT raised to `load`. This disclosure
-    // is native `<details>`, so it is operable the moment the markup exists --
-    // which is the property the test is here to hold. Waiting for hydration
-    // first would test a slower page instead of a correct control, and would
-    // stop catching the regression that put a React handler back in the way.
+  test("shows no source-row table, and offers no way to open one", async ({ page }) => {
+    // `domcontentloaded` ON PURPOSE. The panel is server-rendered and now ships
+    // no client behaviour at all, so everything below is true before hydration.
     await page.goto("/", { waitUntil: "domcontentloaded" });
+    const panel = page.getByTestId("nba-fact-of-the-day");
+    await expect(panel).toBeVisible({ timeout: 20_000 });
 
-    const details = page.getByTestId("fotd-details");
-    const summary = page.getByTestId("fotd-evidence-toggle");
-    const evidence = page.getByTestId("fotd-evidence");
-
-    await expect(summary).toBeVisible({ timeout: 20_000 });
-    await expect(details).not.toHaveAttribute("open", /.*/);
-    await expect(evidence).toBeHidden();
-    // THE ACCESSIBLE NAME, not `textContent`. Both labels are in the markup and
-    // CSS shows one; `display: none` is also what removes the other from the
-    // accessibility tree, so this is the assertion that proves the swap works
-    // for a screen reader rather than only for a sighted reader.
-    await expect(summary).toHaveAccessibleName("Show source rows");
-
-    await summary.click();
-
-    await expect(details).toHaveAttribute("open", /.*/);
-    await expect(evidence).toBeVisible();
-    await expect(evidence.locator("tbody tr").first()).toBeVisible();
-    await expect(summary).toHaveAccessibleName("Hide source rows");
-
-    await summary.click();
-    await expect(details).not.toHaveAttribute("open", /.*/);
-    await expect(evidence).toBeHidden();
+    await expect(page.getByTestId("fotd-details")).toHaveCount(0);
+    await expect(page.getByTestId("fotd-evidence")).toHaveCount(0);
+    await expect(page.getByTestId("fotd-evidence-toggle")).toHaveCount(0);
+    await expect(panel.locator("details")).toHaveCount(0);
+    await expect(panel.locator("table")).toHaveCount(0);
+    await expect(panel).not.toContainText(/source rows/i);
   });
 
-  test("opens from the keyboard with Enter and with Space", async ({ page }) => {
+  test("leads with a featured value and a supporting sentence", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
-    const details = page.getByTestId("fotd-details");
-    const summary = page.getByTestId("fotd-evidence-toggle");
-    await expect(summary).toBeVisible({ timeout: 20_000 });
+    const panel = page.getByTestId("nba-fact-of-the-day");
+    await expect(panel).toBeVisible({ timeout: 20_000 });
 
-    await summary.focus();
-    await expect(summary).toBeFocused();
-
-    await page.keyboard.press("Enter");
-    await expect(details).toHaveAttribute("open", /.*/);
-    await page.keyboard.press("Enter");
-    await expect(details).not.toHaveAttribute("open", /.*/);
-
-    await page.keyboard.press(" ");
-    await expect(details).toHaveAttribute("open", /.*/);
+    // Not every fact carries a feature, so this asserts the SHAPE when one
+    // does rather than requiring today's fact to have one.
+    const feature = page.getByTestId("fotd-feature");
+    if (await feature.count()) {
+      await expect(feature).toContainText(/\S/);
+      const featureBox = (await feature.boundingBox())!;
+      const headlineBox = (await page.getByTestId("fotd-text").boundingBox())!;
+      // A focal point, set apart from the prose rather than inside it.
+      expect(featureBox.width).toBeGreaterThan(0);
+      expect(headlineBox.width).toBeGreaterThan(0);
+    }
+    // The court motif is decorative and must stay out of the accessibility tree.
+    const motif = panel.locator("svg.fotd-motif");
+    if (await motif.count()) {
+      await expect(motif.first()).toHaveAttribute("aria-hidden", "true");
+    }
   });
 
   test("shows the same fact to every visitor on the same day", async ({ page, browser }) => {
@@ -106,28 +101,22 @@ test.describe("NBA Fact of the Day", () => {
     }
   });
 
-  test("has no serious accessibility violations, closed or open", async ({ page }) => {
+  test("has no serious accessibility violations", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await page.getByTestId("nba-fact-of-the-day").waitFor({ timeout: 20_000 });
 
-    async function scan(state: string) {
-      const results = await new AxeBuilder({ page })
-        .include('[data-testid="nba-fact-of-the-day"]')
-        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-        .analyze();
-      const serious = results.violations.filter((v) =>
-        ["serious", "critical"].includes(v.impact ?? ""),
-      );
-      expect(serious.map((v) => v.id), `violations with the disclosure ${state}`).toEqual([]);
-    }
-
-    // Both states: the closed one hides the table from the accessibility tree
-    // entirely, so a contrast or structure problem inside it is only reachable
-    // once it is open.
-    await scan("closed");
-    await page.getByTestId("fotd-evidence-toggle").click();
-    await expect(page.getByTestId("fotd-evidence")).toBeVisible();
-    await scan("open");
+    // ONE STATE NOW, because there is only one. The card used to have a closed
+    // and an open state and both had to be scanned, since a contrast or
+    // structure problem inside the evidence table was unreachable until it was
+    // opened. The table is gone.
+    const results = await new AxeBuilder({ page })
+      .include('[data-testid="nba-fact-of-the-day"]')
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+    const serious = results.violations.filter((v) =>
+      ["serious", "critical"].includes(v.impact ?? ""),
+    );
+    expect(serious.map((v) => v.id)).toEqual([]);
   });
 });
 

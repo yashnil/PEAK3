@@ -108,7 +108,36 @@ const GROUP_LABEL_CLASS = "text-[11px] font-bold uppercase tracking-[0.18em]";
  * island and the vignette's rotation, both small, both hydrating over markup
  * that was already rendered on the server.
  */
-export default async function HomePage() {
+/**
+ * `?fact=YYYY-MM-DD` — the fact card for a specific day.
+ *
+ * WHY THIS EXISTS, AND WHY IT COSTS NOTHING. `GET /api/v1/nba-facts/today`
+ * already accepts `?on=` and its own docstring gives the reason: "makes the
+ * selection testable and cacheable: the same date always returns the same
+ * fact". The homepage had no way to use it, so the card could only ever be
+ * reviewed on whatever day the reviewer happened to be looking — and a
+ * screenshot review of a DAILY card that can only see one day is not a review
+ * of the card.
+ *
+ * Client-side interception cannot substitute: the fact is fetched by this
+ * server component, so nothing a browser does can reach it.
+ *
+ * No new disclosure — the API parameter is already public and unauthenticated,
+ * and this forwards to it. No new cost either: `loadNbaFactOfTheDay` uses
+ * `cache: "no-store"`, so this page is already dynamically rendered.
+ * A malformed value is ignored rather than 400ing the homepage.
+ */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = (await searchParams) ?? {};
+  const requested = Array.isArray(params.fact) ? params.fact[0] : params.fact;
+  const factDate = requested && ISO_DATE.test(requested) ? requested : undefined;
+
   const [readinessResult, modelData, arenaCatalogue, nbaFact] = await Promise.all([
     getCourtBuilderReadiness().then(
       (r) => r.courtbuilder_enabled,
@@ -119,7 +148,7 @@ export default async function HomePage() {
     // homepage down when the Arena is unreachable.
     getArenaCatalogue(),
     // Fail-closed too: no fact means no panel, never a broken homepage.
-    loadNbaFactOfTheDay(),
+    loadNbaFactOfTheDay(factDate),
   ]);
   const courtBuilderEnabled = readinessResult;
 

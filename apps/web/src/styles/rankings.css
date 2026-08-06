@@ -151,27 +151,21 @@
    meant open, read, close, open. Here it is a panel that swaps in place.
    --------------------------------------------------------------------------- */
 
-.rankings-split {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-}
+/* THE BOARD IS FULL WIDTH. There is no reserved analysis column.
+   ---------------------------------------------------------------------------
+   This used to be `.rankings-split`, a two-column grid whose right track was
+   `minmax(21rem, 0.9fr)` -- a third of the page held open for a player-analysis
+   panel that the page opened with ALREADY FILLED, because `selectedRow` fell
+   back to `sortedRows[0]`. Three findings came out of that one decision: a
+   chart appeared before anyone asked for an analysis, the table lost the width
+   its component columns needed to be compared down the page, and the chart read
+   as decoration beside a list rather than as part of a player's analysis.
 
-@media (min-width: 1024px) {
-  .rankings-split {
-    grid-template-columns: minmax(0, 1.7fr) minmax(21rem, 0.9fr);
-  }
-  .rankings-split-detail {
-    /* Sticky so the profile stays beside the row being scanned rather than
-       scrolling away at row eleven. `top` clears the fixed header. */
-    position: sticky;
-    top: 4.5rem;
-  }
-}
-
-.rankings-split-list {
+   Analysis is a destination now (`.rk-analysis`), so the board keeps the whole
+   measure and the chart is mounted only while the drawer is open. */
+.rankings-board {
   min-width: 0;
+  width: 100%;
 }
 
 .rk-detail {
@@ -355,14 +349,6 @@
   font-weight: 600;
 }
 
-.rk-detail-explain {
-  align-self: flex-start;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  color: var(--peak-accent-text);
-  text-decoration: underline;
-}
-
 /* THE SELECTED ROW IS MARKED, NOT TINTED — and the marker touches NO
    BACKGROUND AT ALL.
    ---------------------------------------------------------------------------
@@ -378,4 +364,346 @@
    accompaniment to one. */
 .rankings-row[data-selected="true"] {
   box-shadow: inset 3px 0 0 0 var(--peak-accent);
+}
+
+/* ==========================================================================
+   THE PLAYER-ANALYSIS DRAWER
+   ==========================================================================
+   Opened by activating a row; the only place the composite chart exists.
+
+   A DRAWER RATHER THAN A ROUTE, deliberately. The ranking list stays mounted
+   behind it, which is what preserves scroll position, the active sort, the
+   search text and the duration filter for free -- a dedicated route would have
+   to serialise and restore all four, and each one is a thing that can be got
+   wrong. The cost is that browser Back does not close it, so Escape, the scrim
+   and an explicit Close all do, and the close control is the first focusable
+   element inside.
+   ========================================================================== */
+
+.rk-analysis-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.55);
+  /* THE SCRIM ANIMATES ITS OWN BACKGROUND, NOT ITS OPACITY.
+     `opacity` on a parent applies to every descendant, so fading the scrim in
+     also faded the PANEL and every character in it: axe measured the drawer's
+     eyebrow at 2.52:1 against a partially-composited background mid-animation,
+     even after the panel's own fade had been removed. Animating the background
+     colour's alpha leaves the child at full opacity for the whole transition,
+     which is both the accessible answer and the one that looks better -- text
+     should never be semi-transparent, only the sheet behind it. */
+  animation: rk-analysis-fade 160ms ease-out;
+}
+
+.rk-analysis {
+  display: flex;
+  flex-direction: column;
+  width: min(34rem, 100%);
+  max-height: 100dvh;
+  background: var(--bg-page);
+  border-left: 1px solid var(--border-default, var(--border-subtle));
+  box-shadow: -24px 0 48px -24px rgba(0, 0, 0, 0.6);
+  /* SLIDES IN, NEVER FADES IN. A panel that animates its own opacity makes
+     every piece of text inside it transiently low-contrast: axe measured the
+     eyebrow at 2.22:1 against a partially-composited background mid-fade. The
+     scrim behind it fades (it has no text); the panel only translates. */
+  animation: rk-analysis-in 200ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* MOBILE IS A FULL-WIDTH SHEET, never a compressed column beside the table
+   (PART 22). Below this width the drawer takes the whole viewport. */
+@media (max-width: 640px) {
+  .rk-analysis-scrim {
+    justify-content: stretch;
+  }
+  .rk-analysis {
+    width: 100%;
+    border-left: 0;
+  }
+}
+
+.rk-analysis-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+}
+
+.rk-analysis-eyebrow {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.rk-analysis-close {
+  display: inline-grid;
+  place-items: center;
+  width: var(--pk-tap-min, 44px);
+  height: var(--pk-tap-min, 44px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-md, 10px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rk-analysis-close:hover {
+  color: var(--text-primary);
+  border-color: var(--peak-accent);
+}
+
+.rk-analysis-close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.rk-analysis-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.9rem 1rem;
+}
+
+/* Inside the drawer the detail panel is the whole surface, so it drops the
+   card chrome it needed as a standing column. */
+.rk-analysis .rk-detail {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.rk-analysis-nav {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+}
+
+.rk-analysis-step {
+  flex: 1;
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-default, var(--border-subtle));
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.rk-analysis-step:hover:not(:disabled) { border-color: var(--peak-accent); }
+.rk-analysis-step:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.rk-analysis-step:disabled { opacity: 0.45; cursor: not-allowed; }
+
+@keyframes rk-analysis-in {
+  from { transform: translateX(16px); }
+  to { transform: none; }
+}
+
+@keyframes rk-analysis-fade {
+  from { background: rgba(0, 0, 0, 0); }
+  to { background: rgba(0, 0, 0, 0.55); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rk-analysis,
+  .rk-analysis-scrim {
+    animation: none;
+  }
+}
+
+/* ==========================================================================
+   THE DERIVATION, AS DISCLOSURES INSIDE THE ANALYSIS
+   ==========================================================================
+   THERE IS NO `ƒ` CONTROL ANY MORE, and the rule it was drawn under is worth
+   keeping written down because it is the reason it went.
+
+   The derivation used to open from the PLAYER NAME, the widest thing in a row:
+   at 1440px a mid-row tap landed on empty table and opened the analysis, at
+   390px the identical gesture opened a different dialog. That was fixed by
+   moving it into its own bounded 44px cell headed `ƒ` — two controls, two
+   boxes, neither containing the other.
+
+   That fix was correct about geometry and wrong about the product. The row
+   still offered two destinations for one question: the drawer showed the shape
+   of a peak and would not say where the number came from, the modal showed the
+   derivation and had no chart. `ƒ` is a glyph, and a column of glyphs is a
+   column of things a reader must first decode.
+
+   So the column is gone, header and cells, the table has that width back, and
+   the derivation is three `<details>` below the summary in the one drawer.
+   NATIVE DISCLOSURE, not a hook: the browser owns the state, so it works before
+   hydration and with JavaScript off, it is keyboard-operable with no handler of
+   ours, and it reports itself to assistive technology without a hand-written
+   `aria-expanded` to contradict later. */
+
+.rk-folds {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.rk-fold {
+  border: 1px solid var(--border-default, var(--border-subtle));
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.rk-fold[open] {
+  border-color: var(--peak-accent-dim, var(--border-default));
+  background: var(--bg-elevated);
+}
+
+.rk-fold-summary {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  /* The 44px tap floor, met by padding rather than a fixed height, so the
+     two-line summary grows instead of clipping at 200% zoom. */
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.7rem 2.2rem 0.7rem 0.9rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+/* The default marker is a filled triangle glued to the text baseline; this
+   draws the affordance as a rotating caret on the right instead, where a
+   reader's eye already is after the title. */
+.rk-fold-summary::-webkit-details-marker { display: none; }
+
+.rk-fold-summary::after {
+  content: "";
+  position: absolute;
+  right: 0.9rem;
+  top: 1.15rem;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(45deg);
+  transition: transform 140ms ease;
+}
+
+.rk-fold[open] > .rk-fold-summary::after {
+  transform: rotate(-135deg);
+}
+
+.rk-fold-summary:hover .rk-fold-title { color: var(--peak-accent-text, var(--peak-accent)); }
+
+.rk-fold-summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.rk-fold-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.rk-fold-hint {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.rk-fold-body {
+  padding: 0 0.9rem 0.9rem;
+}
+
+/* THE ARITHMETIC TABLE. Five columns of numbers that must line up down the
+   page, so every numeric cell is tabular and right-aligned and the component
+   column is the only left-aligned one. */
+.rk-formula-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.rk-formula-table caption {
+  caption-side: top;
+  margin-bottom: 0.5rem;
+  text-align: left;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.rk-formula-table th,
+.rk-formula-table td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.rk-formula-table thead th {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.rk-formula-table tbody th,
+.rk-formula-table thead th:first-child {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: normal;
+}
+
+.rk-formula-swatch {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.4rem;
+  border-radius: 999px;
+  vertical-align: baseline;
+}
+
+.rk-formula-table tfoot th {
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.rk-formula-table tfoot tr:first-child th,
+.rk-formula-table tfoot tr:first-child td {
+  border-top: 2px solid var(--divider-strong, var(--border-default));
+}
+
+.rk-formula-strong {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.rk-formula-total {
+  font-weight: 700;
+  color: var(--peak-accent-text, var(--peak-accent));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rk-fold-summary::after {
+    transition: none;
+  }
 }

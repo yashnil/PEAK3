@@ -12,16 +12,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadNbaFactOfTheDay } from "@/components/home/home-data";
 
 const FACT = {
-  fact_id: "franchise_tenure-abc123",
-  text: "John Stockton played all 19 of his recorded seasons for one franchise.",
-  category: "franchise_tenure",
-  era: "1980s",
-  source_label: "Basketball-Reference per-season totals (1979-80 onward)",
-  player_slug: "john-stockton",
-  team_code: "UTA",
-  evidence: [
-    { player: "John Stockton", team: "UTA", season: "1984-85", games_played: 82 },
-  ],
+  fact_id: "rules-abc123",
+  headline: "Basketball invented the shot clock because one game finished 19-18.",
+  body: "Four years later the NBA adopted a 24-second clock, and scoring jumped 13.6 points a game in a single season.",
+  text: "Basketball invented the shot clock because one game finished 19-18.",
+  category: "rules",
+  era: "1950s",
+  geography: "usa",
+  feature: "24 seconds",
+  feature_label: "the new clock",
+  source_label: "Editorial — checked against a named published source",
+  player_slug: null,
+  team_code: null,
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -48,7 +50,7 @@ describe("loadNbaFactOfTheDay", () => {
     fetchMock.mockResolvedValue(jsonResponse(FACT));
     const fact = await loadNbaFactOfTheDay();
     expect(fact?.fact_id).toBe(FACT.fact_id);
-    expect(fact?.evidence).toHaveLength(1);
+    expect(fact?.headline).toBe(FACT.headline);
   });
 
   it("never caches the response", async () => {

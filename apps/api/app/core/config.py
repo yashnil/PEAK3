@@ -422,6 +422,29 @@ class Settings(BaseSettings):
     # keeps for the same reason.
     ARENA_LEADERBOARD_ENABLED: bool = False
 
+    # LOCAL REVIEW ONLY: let bot practice run on the signed anon-cookie subject
+    # instead of a Supabase account.
+    #
+    # WHY THIS EXISTS. Every arena route requires a real `auth.uid()`, for a
+    # reason recorded in arena.py: an anon subject can be discarded by clearing
+    # a cookie, and in a three-seat match that means abandoning two other people
+    # mid-clock. That reason does not apply to PRACTICE -- it involves nobody
+    # else -- and arena.py's own docstring says so ("the one path where this
+    # could later be relaxed"). Without this, reviewing bot practice on a laptop
+    # requires a hosted Supabase project, which is exactly the coupling this
+    # repository avoids everywhere else (see `PEAK3_TEST_*` and
+    # docs/implementation/LOCAL_DEV.md).
+    #
+    # WHAT IT DOES NOT DO. It does not touch the public queue, private rooms,
+    # ratings, the leaderboard, or match history, all of which still require an
+    # account. It cannot widen access to a match: every match-scoped route is
+    # gated by `_seat_or_403`, which reads the caller's seat row rather than
+    # anything on the request. And it REFUSES TO START outside DEBUG (validated
+    # below) -- a deployed API cannot be talked into this by an environment
+    # variable, so hosted authorization is unchanged by construction rather than
+    # by convention.
+    ARENA_ANONYMOUS_PRACTICE_ENABLED: bool = False
+
     # Human-facing readiness classification. Does not itself gate behavior --
     # the booleans above do -- but is surfaced on /api/v1/arena/readiness and
     # must be kept consistent with them (validated below).
@@ -475,6 +498,32 @@ class Settings(BaseSettings):
                 "PEAK3_ARENA_READINESS_LEVEL is 'disabled' but an arena rating "
                 "capability flag is enabled."
             )
+        if self.ARENA_ANONYMOUS_PRACTICE_ENABLED:
+            if not self.DEBUG:
+                # A HARD STARTUP ERROR, not a warning that is ignored and not a
+                # silent downgrade to False. The whole value of this switch is
+                # that a deployed API cannot have it; a deployment that sets it
+                # is a deployment whose author believed something untrue about
+                # its own authorization, and it should stop rather than serve.
+                raise ValueError(
+                    "PEAK3_ARENA_ANONYMOUS_PRACTICE_ENABLED is set with "
+                    "PEAK3_DEBUG=False. Anonymous bot practice is a LOCAL "
+                    "review affordance and must never be enabled on a deployed "
+                    "API -- signed-in closed-alpha accounts already reach bot "
+                    "practice there. Unset it, or set PEAK3_DEBUG=true if this "
+                    "really is a developer machine."
+                )
+            if not self.ARENA_ENABLED:
+                raise ValueError(
+                    "PEAK3_ARENA_ANONYMOUS_PRACTICE_ENABLED is set but "
+                    "PEAK3_ARENA_ENABLED is not."
+                )
+            if not self.ARENA_BOTS_ENABLED:
+                raise ValueError(
+                    "PEAK3_ARENA_ANONYMOUS_PRACTICE_ENABLED is set but "
+                    "PEAK3_ARENA_BOTS_ENABLED is not. Practice IS a bot match, "
+                    "so this combination grants access to nothing."
+                )
         return self
 
     @model_validator(mode="after")

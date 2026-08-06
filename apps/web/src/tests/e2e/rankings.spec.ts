@@ -29,37 +29,45 @@ async function gotoRankings(page: Page): Promise<void> {
   await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
 }
 
-/** Wait for the explanation modal's entrance animation to finish.
+/** Open the unified player analysis.
  *
- *  Needed because `toBeVisible()` ignores opacity: it resolves the instant the
- *  panel mounts at `initial={{ opacity: 0 }}`, while the panel is still fading
- *  in over 180ms (see ScoreExplainModal). Anything that samples rendered
- *  colours in that window sees modal text blended with the rankings table
- *  behind it. That made the axe check below fail intermittently -- roughly two
- *  runs in three inside the full suite, and never in isolation, because a
- *  warm/idle machine mounts and analyses faster than the animation completes.
- *  The reported "serious: color-contrast" was real; it just described a frame
- *  no user ever interacts with. */
-/** Open the explain modal.
- *
- * A ROW CLICK NO LONGER DOES THIS. Selecting a row and explaining a row became
- * two different actions when the composite chart moved out of the modal and
- * into a standing detail panel: click the row to swap the panel, click the
- * player's name to read the full derivation. Comparing twenty peaks used to
- * mean opening and closing twenty dialogs. */
-async function openExplainModal(page: Page): Promise<void> {
-  await page
-    .locator('[data-testid="rankings-row"]')
-    .first()
-    .getByRole("button", { name: /Explain the PEAK3 score/i })
-    .click();
+ * ONE DESTINATION. A row click, the rank and the player name all open this, and
+ * there is nothing else in a row to open: the `ƒ` cell that used to open a
+ * separate `ScoreExplainModal` is gone, header and cells, and the derivation is
+ * three `<details>` inside this drawer. */
+async function openAnalysis(page: Page, index = 0): Promise<void> {
+  await page.locator('[data-testid="rankings-row"]').nth(index).click();
+  await expect(page.getByTestId("rankings-analysis")).toBeVisible({ timeout: 15_000 });
 }
 
-async function waitForModalOpaque(page: Page): Promise<void> {
+/** Expand one of the derivation disclosures.
+ *
+ *  `<details>` content is present in the DOM but NOT visible while closed, so
+ *  every assertion about the derivation has to open its section first. That is
+ *  the progressive disclosure working, not a test inconvenience: the first view
+ *  of the drawer is the player, and the algebra is below it. */
+async function openFold(page: Page, testId: string): Promise<void> {
+  const fold = page.getByTestId(testId);
+  await fold.locator("summary").click();
+  await expect(fold).toHaveAttribute("open", "");
+}
+
+/** Wait for the drawer's entrance to finish before sampling rendered colours.
+ *
+ *  `toBeVisible()` resolves the instant the panel mounts, while the scrim is
+ *  still animating its background alpha. Anything that samples colours in that
+ *  window measures drawer text against a partially-composited background --
+ *  which is exactly how an earlier pass got a "serious: color-contrast" report
+ *  describing a frame no user ever interacts with. */
+async function waitForDrawerSettled(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
-      const el = document.querySelector('[data-testid="score-explain-modal"]');
-      return !!el && getComputedStyle(el).opacity === "1";
+      const panel = document.querySelector('[data-testid="rankings-analysis"]');
+      const scrim = document.querySelector('[data-testid="rankings-analysis-scrim"]');
+      if (!panel || !scrim) return false;
+      return [...panel.getAnimations(), ...scrim.getAnimations()].every(
+        (a) => a.playState === "finished" || a.playState === "idle",
+      );
     },
     undefined,
     { timeout: 10_000 },
@@ -217,49 +225,99 @@ test.describe("Rankings — sorting", () => {
   });
 });
 
-test.describe("Rankings — explanation modal", () => {
-  test("clicking a row opens a same-page modal with a real component breakdown", async ({ page }) => {
+test.describe("Rankings — the unified analysis", () => {
+  test("the ƒ column is gone, header and cells", async ({ page }) => {
+    await gotoRankings(page);
+    // The header cell and every row control that lived under it.
+    await expect(page.getByTestId("rankings-explain")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /Explain the PEAK3 score/i }),
+    ).toHaveCount(0);
+    const table = await page.getByTestId("rankings-table").innerText();
+    expect(table, "no ƒ glyph may remain anywhere in the table").not.toContain("ƒ");
+
+    // Header and body agree on the column count, which is what proves the cell
+    // was removed from both rather than merely hidden in one.
+    const headerCells = await page.locator("thead th").count();
+    const bodyCells = await page
+      .getByTestId("rankings-row")
+      .first()
+      .locator("td")
+      .count();
+    expect(bodyCells).toBe(headerCells);
+  });
+
+  test("a row click opens ONE dialog carrying both the chart and the derivation", async ({
+    page,
+  }) => {
     await gotoRankings(page);
     const urlBefore = page.url();
 
-    await openExplainModal(page);
-    const modal = page.locator('[data-testid="score-explain-modal"]');
-    await expect(modal).toBeVisible({ timeout: 15_000 });
+    await openAnalysis(page);
+    const panel = page.getByTestId("rankings-analysis");
 
     // Same page: no navigation, no reload.
     expect(page.url()).toBe(urlBefore);
 
-    // The regression that matters: this board used to publish no components at
-    // all, so the breakdown rendered as "not available".
-    await expect(page.locator('[data-testid="component-breakdown"]')).toBeVisible();
-    await expect(page.locator('[data-testid="score-explain-components-unavailable"]')).toHaveCount(0);
-    await expect(page.locator('[data-testid="score-explain-summary"]')).toBeVisible();
+    // There is no second dialog to open.
+    await expect(page.getByTestId("score-explain-modal")).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+
+    // The player first: chart and exact values, above the disclosures.
+    await expect(panel.getByTestId("rankings-composite-chart")).toBeVisible();
+    await expect(panel.getByTestId("rk-detail-table")).toBeVisible();
+
+    // Then the derivation, in the same drawer.
+    for (const fold of ["rk-fold-breakdown", "rk-fold-calculation", "rk-fold-source"]) {
+      await expect(panel.getByTestId(fold)).toBeVisible();
+      await expect(panel.getByTestId(fold)).not.toHaveAttribute("open", "");
+    }
   });
 
-  test("the modal is not mostly 'not available'", async ({ page }) => {
+  test("the score breakdown carries a real component breakdown", async ({ page }) => {
     await gotoRankings(page);
-    await openExplainModal(page);
-    const modal = page.locator('[data-testid="score-explain-modal"]');
-    await expect(modal).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('[data-testid="score-explain-component-cards"]')).toBeVisible();
+    await openAnalysis(page);
+    await openFold(page, "rk-fold-breakdown");
 
-    const text = (await modal.innerText()).toLowerCase();
+    // The regression that matters: this board used to publish no components at
+    // all, so the breakdown rendered as "not available".
+    await expect(page.getByTestId("component-breakdown")).toBeVisible();
+    await expect(page.getByTestId("score-explain-components-unavailable")).toHaveCount(0);
+    await expect(page.getByTestId("score-explain-component-cards")).toBeVisible();
+
+    await openFold(page, "rk-fold-calculation");
+    await expect(page.getByTestId("score-explain-summary")).toBeVisible();
+  });
+
+  test("the analysis is not mostly 'not available'", async ({ page }) => {
+    await gotoRankings(page);
+    await openAnalysis(page);
+    for (const fold of ["rk-fold-breakdown", "rk-fold-calculation", "rk-fold-source"]) {
+      await openFold(page, fold);
+    }
+    const text = (await page.getByTestId("rankings-analysis").innerText()).toLowerCase();
     const occurrences = text.split("not available").length - 1;
-    expect(occurrences, "the modal should not be padded with unavailable blocks").toBeLessThanOrEqual(2);
+    expect(
+      occurrences,
+      "the analysis should not be padded with unavailable blocks",
+    ).toBeLessThanOrEqual(2);
   });
 
   test("Michael Jordan's row explains the score with percentiles and weights", async ({ page }) => {
     await gotoRankings(page);
     // The #1 1Y window is Jordan 1990-91 — a stable anchor for asserting real
     // content rather than mere presence.
-    const jordan = page.locator('[data-testid="rankings-row"]', { hasText: "Michael Jordan" }).first();
+    const jordan = page
+      .locator('[data-testid="rankings-row"]', { hasText: "Michael Jordan" })
+      .first();
     await jordan.waitFor({ timeout: 20_000 });
-    await jordan.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
+    await jordan.click();
 
-    const modal = page.locator('[data-testid="score-explain-modal"]');
-    await expect(modal).toBeVisible({ timeout: 15_000 });
-    await expect(modal).toContainText("Michael Jordan");
+    const panel = page.getByTestId("rankings-analysis");
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+    await expect(panel).toContainText("Michael Jordan");
 
+    await openFold(page, "rk-fold-breakdown");
     // Every one of the five components must carry a value AND a percentile.
     for (const key of [
       "statistical_impact",
@@ -268,63 +326,119 @@ test.describe("Rankings — explanation modal", () => {
       "postseason_individual_value",
       "team_achievement",
     ]) {
-      await expect(page.locator(`[data-testid="score-explain-component-${key}"]`)).toContainText(
+      await expect(page.getByTestId(`score-explain-component-${key}`)).toContainText(
         /percentile/i,
       );
     }
     // The real official weight, served from peak3.OFFICIAL_WEIGHTS.
-    await expect(modal).toContainText("38");
+    await expect(panel).toContainText("38");
+  });
+
+  test("the arithmetic ends in the raw index and the calibrated score", async ({ page }) => {
+    await gotoRankings(page);
+    await openAnalysis(page);
+    await openFold(page, "rk-fold-calculation");
+
+    const table = page.getByTestId("rk-formula-table");
+    await expect(table).toBeVisible();
+    // Five component rows, each with its weight and its contribution.
+    for (const key of [
+      "statistical_impact",
+      "traditional_production",
+      "individual_recognition",
+      "postseason_individual_value",
+      "team_achievement",
+    ]) {
+      await expect(table.getByTestId(`rk-formula-row-${key}`)).toBeVisible();
+    }
+    await expect(table.getByTestId("rk-formula-sum")).toBeVisible();
+    await expect(table.getByTestId("rk-formula-index")).toBeVisible();
+    await expect(table.getByTestId("rk-formula-total")).toBeVisible();
+
+    // The sum of the five contributions, plus the teammate modifier, must equal
+    // the raw index the model publishes — read from the rendered cells, so a
+    // presentation that quietly showed a different number would fail here.
+    const cells = await table.evaluate((el) => {
+      const num = (id: string) => {
+        const row = el.querySelector(`[data-testid="${id}"]`);
+        const cell = row?.querySelector("td");
+        return cell ? parseFloat((cell.textContent ?? "").replace("−", "-").replace("+", "")) : NaN;
+      };
+      const contributions = [...el.querySelectorAll("tbody tr")].map((tr) => {
+        const tds = tr.querySelectorAll("td");
+        return parseFloat(tds[tds.length - 1].textContent ?? "");
+      });
+      return { contributions, sum: num("rk-formula-sum"), index: num("rk-formula-index") };
+    });
+    const added = cells.contributions.reduce((a, b) => a + b, 0);
+    expect(Math.abs(added - cells.sum)).toBeLessThan(0.02);
+    expect(Math.abs(cells.index - cells.sum)).toBeLessThan(1);
   });
 
   test("a component segment is focusable and updates the detail panel", async ({ page }) => {
     await gotoRankings(page);
-    await openExplainModal(page);
-    await expect(page.locator('[data-testid="component-breakdown"]')).toBeVisible({ timeout: 15_000 });
+    await openAnalysis(page);
+    await openFold(page, "rk-fold-breakdown");
+    await expect(page.getByTestId("component-breakdown")).toBeVisible({ timeout: 15_000 });
 
     const segments = page.locator('[data-testid="component-breakdown"] button');
     await expect(segments.first()).toBeVisible();
     await segments.first().click();
-    const detail = page.locator('[data-testid="component-detail"]');
+    const detail = page.getByTestId("component-detail");
     await expect(detail).toBeVisible();
     const first = await detail.innerText();
 
     await segments.last().click();
     await expect.poll(async () => detail.innerText(), { timeout: 10_000 }).not.toBe(first);
-    await expect(page.locator('[data-testid="component-detail-why"]')).toBeVisible();
+    await expect(page.getByTestId("component-detail-why")).toBeVisible();
   });
 
-  test("comparison rails let you pivot to another row without leaving the modal", async ({ page }) => {
+  test("comparison rails pivot to another row without leaving the drawer", async ({ page }) => {
     await gotoRankings(page);
     await page.locator('[data-testid="pool-tab-seasons"]').click();
     await page.locator('[data-testid="rankings-row"]').first().waitFor({ timeout: 20_000 });
-    await openExplainModal(page);
+    await openAnalysis(page);
+    await openFold(page, "rk-fold-source");
 
-    const modal = page.locator('[data-testid="score-explain-modal"]');
-    await expect(modal).toBeVisible({ timeout: 15_000 });
-    const comparisons = page.locator('[data-testid="score-explain-comparisons"]');
+    const panel = page.getByTestId("rankings-analysis");
+    const comparisons = page.getByTestId("score-explain-comparisons");
     await expect(comparisons).toBeVisible({ timeout: 15_000 });
 
-    const before = await modal.innerText();
+    const before = await panel.innerText();
     await comparisons.locator("button").first().click();
     // Still open, now showing a different row, with a way back.
-    await expect(modal).toBeVisible();
-    await expect(page.locator('[data-testid="score-explain-back"]')).toBeVisible({ timeout: 10_000 });
-    await expect.poll(async () => modal.innerText(), { timeout: 10_000 }).not.toBe(before);
+    await expect(panel).toBeVisible();
+    await expect(page.getByTestId("rankings-analysis-back")).toBeVisible({ timeout: 10_000 });
+    await expect.poll(async () => panel.innerText(), { timeout: 10_000 }).not.toBe(before);
   });
 
-  test("Escape and the close button both dismiss the modal", async ({ page }) => {
+  test("Previous and Next walk the board without closing", async ({ page }) => {
     await gotoRankings(page);
-    const modal = page.locator('[data-testid="score-explain-modal"]');
+    await openAnalysis(page, 1);
+    const name = page.getByTestId("rk-detail-name");
+    const first = await name.innerText();
 
-    await openExplainModal(page);
-    await expect(modal).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId("rankings-analysis-next").click();
+    await expect.poll(async () => name.innerText(), { timeout: 10_000 }).not.toBe(first);
+    // The derivation follows the player, not only the chart.
+    await openFold(page, "rk-fold-calculation");
+    await expect(page.getByTestId("rk-formula-table")).toBeVisible();
+
+    await page.getByTestId("rankings-analysis-prev").click();
+    await expect.poll(async () => name.innerText(), { timeout: 10_000 }).toBe(first);
+  });
+
+  test("Escape and the close button both dismiss the analysis", async ({ page }) => {
+    await gotoRankings(page);
+    const panel = page.getByTestId("rankings-analysis");
+
+    await openAnalysis(page);
     await page.keyboard.press("Escape");
-    await expect(modal).toHaveCount(0);
+    await expect(panel).toHaveCount(0);
 
-    await openExplainModal(page);
-    await expect(modal).toBeVisible({ timeout: 15_000 });
-    await page.locator('[data-testid="score-explain-close"]').click();
-    await expect(modal).toHaveCount(0);
+    await openAnalysis(page);
+    await page.getByTestId("rankings-analysis-close").click();
+    await expect(panel).toHaveCount(0);
   });
 
   test("a row is reachable and openable by keyboard alone", async ({ page }) => {
@@ -332,11 +446,22 @@ test.describe("Rankings — explanation modal", () => {
     const trigger = page
       .locator('[data-testid="rankings-row"]')
       .first()
-      .getByRole("button", { name: /Explain the PEAK3 score/i });
+      .getByTestId("rankings-open-analysis");
     await trigger.focus();
     await expect(trigger).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(page.locator('[data-testid="score-explain-modal"]')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("rankings-analysis")).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("the disclosures are operable by keyboard", async ({ page }) => {
+    await gotoRankings(page);
+    await openAnalysis(page);
+    const fold = page.getByTestId("rk-fold-calculation");
+    await fold.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    await expect(fold).toHaveAttribute("open", "");
+    await page.keyboard.press("Enter");
+    await expect(fold).not.toHaveAttribute("open", "");
   });
 });
 
@@ -353,12 +478,18 @@ test.describe("Rankings — accessibility", () => {
     ).toEqual([]);
   });
 
-  test("the open modal has no critical/serious violations", async ({ page }) => {
+  test("the open analysis has no critical/serious violations, every fold expanded", async ({
+    page,
+  }) => {
     await gotoRankings(page);
-    await openExplainModal(page);
-    await expect(page.locator('[data-testid="score-explain-modal"]')).toBeVisible({ timeout: 15_000 });
-    await expect(page.locator('[data-testid="component-breakdown"]')).toBeVisible();
-    await waitForModalOpaque(page);
+    await openAnalysis(page);
+    // Audited with the derivation OPEN, because a disclosure that hides a
+    // contrast failure has only postponed it.
+    for (const fold of ["rk-fold-breakdown", "rk-fold-calculation", "rk-fold-source"]) {
+      await openFold(page, fold);
+    }
+    await expect(page.getByTestId("component-breakdown")).toBeVisible();
+    await waitForDrawerSettled(page);
 
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
     const serious = results.violations.filter(
@@ -366,7 +497,14 @@ test.describe("Rankings — accessibility", () => {
     );
     expect(
       serious.map((v) => `${v.impact}: ${v.id}`),
-      "the explanation modal must stay axe-clean",
+      // NAMES THE NODES, not just the rule. "serious: color-contrast" on a
+      // drawer with fifty elements in it is a rule id and a search; the
+      // selector and the measured ratio are the diagnosis.
+      `the player analysis must stay axe-clean:\n${serious
+        .flatMap((v) =>
+          v.nodes.map((n) => `  ${v.id} @ ${n.target.join(" ")} — ${n.failureSummary}`),
+        )
+        .join("\n")}`,
     ).toEqual([]);
   });
 });
@@ -380,36 +518,47 @@ test.describe("Rankings — mobile", () => {
     expect(bodyWidth).toBeLessThanOrEqual(viewportWidth + 4);
   });
 
-  test("@mobile the modal fits the viewport", async ({ page }) => {
+  test("@mobile the analysis is a full-width sheet that fits the viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoRankings(page);
-    await openExplainModal(page);
-    const modal = page.locator('[data-testid="score-explain-modal"]');
-    await expect(modal).toBeVisible({ timeout: 15_000 });
-    const box = await modal.boundingBox();
-    expect(box, "modal must have a real box").toBeTruthy();
+    await openAnalysis(page);
+    const panel = page.getByTestId("rankings-analysis");
+    const box = await panel.boundingBox();
+    expect(box, "the drawer must have a real box").toBeTruthy();
     expect(box!.width).toBeLessThanOrEqual(390);
+    // A full-width SHEET, not a squeezed column beside the table.
+    expect(box!.width).toBeGreaterThanOrEqual(370);
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(394);
+
+    // The same unified content, at 390px: the derivation is here too.
+    await openFold(page, "rk-fold-calculation");
+    await expect(page.getByTestId("rk-formula-table")).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow, "the arithmetic table must scroll inside its own box").toBeLessThanOrEqual(1);
   });
 });
 
 /**
- * Phase 12A: the modal has to explain THIS row, not the formula in general.
- * The old modal produced near-identical prose for every player-season, which is
- * exactly what made a surprising Playoff Rate Impact unexplainable.
+ * Phase 12A: the analysis has to explain THIS row, not the formula in general.
+ * The old surface produced near-identical prose for every player-season, which
+ * is exactly what made a surprising Playoff Rate Impact unexplainable.
+ *
+ * The receipts now live inside "How this score was calculated", beside the
+ * arithmetic they justify.
  */
 test.describe("Rankings — row-specific receipts", () => {
-  async function openFirstRow(page: import("@playwright/test").Page) {
+  async function openReceipts(page: Page, index = 0) {
     await page.goto("/rankings", { waitUntil: "load" });
-    const row = page.getByTestId("rankings-row").first();
-    await expect(row).toBeVisible({ timeout: 20_000 });
-    await row.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
-    await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("rankings-row").first()).toBeVisible({ timeout: 20_000 });
+    await openAnalysis(page, index);
+    await openFold(page, "rk-fold-calculation");
   }
 
   test("shows per-component receipts built from this row's own numbers", async ({ page }) => {
-    await openFirstRow(page);
+    await openReceipts(page);
 
     const receipts = page.getByTestId("score-explain-receipts");
     await expect(receipts).toBeVisible({ timeout: 15_000 });
@@ -425,7 +574,7 @@ test.describe("Rankings — row-specific receipts", () => {
   });
 
   test("explains what Playoff Rate Impact actually measures", async ({ page }) => {
-    await openFirstRow(page);
+    await openReceipts(page);
     const note = page.getByTestId("score-explain-receipt-note-postseason_individual_value");
     await expect(note).toBeVisible({ timeout: 15_000 });
     // Whatever the row, the note must resolve the "why is this number like
@@ -436,49 +585,37 @@ test.describe("Rankings — row-specific receipts", () => {
   });
 
   test("two different rows produce different receipts", async ({ page }) => {
-    await openFirstRow(page);
+    await openReceipts(page);
     const first = await page.getByTestId("score-explain-receipts").innerText();
-    await page.getByTestId("score-explain-close").click();
+    await page.getByTestId("rankings-analysis-close").click();
+    await expect(page.getByTestId("rankings-analysis")).toHaveCount(0);
 
-    const second = page.getByTestId("rankings-row").nth(3);
-    await second.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
-    await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
+    await openAnalysis(page, 3);
+    await openFold(page, "rk-fold-calculation");
     await expect(page.getByTestId("score-explain-receipts")).toBeVisible();
     const other = await page.getByTestId("score-explain-receipts").innerText();
 
     expect(other).not.toEqual(first);
   });
 
-  test("the modal stays accessible with the new sections", async ({ page }) => {
-    await openFirstRow(page);
+  test("the analysis stays accessible with every section expanded", async ({ page }) => {
+    await openReceipts(page);
     await expect(page.getByTestId("score-explain-receipts")).toBeVisible({ timeout: 15_000 });
+    await openFold(page, "rk-fold-breakdown");
+    await openFold(page, "rk-fold-source");
 
     // WAIT FOR THE ENTRANCE TRANSITION TO SETTLE BEFORE AUDITING.
     //
     // `toBeVisible` resolves as soon as the element has a box, which is true
-    // part-way through the dialog's opacity ramp. Auditing there measures a
-    // frame nobody looks at: axe read `--text-muted` (#838799) composited at
-    // ~94.5% opacity over #191c23 as #7d8193, scored it 4.41:1 and reported a
-    // serious colour-contrast violation. At rest the same pair is 4.78:1 and
-    // passes AA -- the product was never out of compliance, the audit was
-    // simply early. It surfaced as an intermittent failure because whether the
-    // scan lands mid-ramp depends on machine load.
-    //
-    // Asserting settled opacity is STRICTER than what was here before, not
-    // looser: it audits the state a user actually reads, and a genuine
-    // contrast regression at rest still fails exactly as it did.
-    await expect
-      .poll(
-        async () =>
-          page
-            .getByTestId("score-explain-modal")
-            .evaluate((el) => getComputedStyle(el).opacity),
-        { timeout: 5_000 },
-      )
-      .toBe("1");
+    // part-way through the drawer's entrance. Auditing there measures a frame
+    // nobody looks at: an earlier pass read `--text-muted` composited against a
+    // partially-faded scrim, scored it 4.41:1 and reported a serious
+    // colour-contrast violation. At rest the same pair passes AA -- the product
+    // was never out of compliance, the audit was simply early.
+    await waitForDrawerSettled(page);
 
     const results = await new AxeBuilder({ page })
-      .include('[data-testid="score-explain-modal"]')
+      .include('[data-testid="rankings-analysis"]')
       .analyze();
     const serious = results.violations.filter(
       (v) => v.impact === "critical" || v.impact === "serious",
@@ -522,27 +659,31 @@ test.describe("Rankings — season finalization", () => {
     if (!(await row.count())) {
       test.skip(true, "no 2025-26 row on the default board");
     }
-    await row.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
+    await row.click();
 
-    const modal = page.getByTestId("score-explain-modal");
-    await expect(modal).toBeVisible({ timeout: 15_000 });
-    const text = await modal.innerText();
+    const panel = page.getByTestId("rankings-analysis");
+    await expect(panel).toBeVisible({ timeout: 15_000 });
+    for (const fold of ["rk-fold-breakdown", "rk-fold-calculation", "rk-fold-source"]) {
+      await openFold(page, fold);
+    }
+    const text = await panel.innerText();
     expect(text).not.toContain("in progress");
     expect(text).not.toMatch(/still being played|provisional/i);
   });
 
-  test("the modal names the two renamed components", async ({ page }) => {
+  test("the analysis names the two renamed components", async ({ page }) => {
     await page.goto("/rankings", { waitUntil: "load" });
-    const row = page.getByTestId("rankings-row").first();
-    await expect(row).toBeVisible({ timeout: 20_000 });
-    await row.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
-    await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("rankings-row").first()).toBeVisible({ timeout: 20_000 });
+    await openAnalysis(page);
+    for (const fold of ["rk-fold-breakdown", "rk-fold-calculation", "rk-fold-source"]) {
+      await openFold(page, fold);
+    }
 
-    const modal = await page.getByTestId("score-explain-modal").innerText();
-    expect(modal).toContain("Playoff Rate Impact");
-    expect(modal).toContain("Team Result");
-    expect(modal).not.toContain("Postseason Value");
-    expect(modal).not.toContain("Team Achievement");
+    const text = await page.getByTestId("rankings-analysis").innerText();
+    expect(text).toContain("Playoff Rate Impact");
+    expect(text).toContain("Team Result");
+    expect(text).not.toContain("Postseason Value");
+    expect(text).not.toContain("Team Achievement");
   });
 });
 
@@ -570,17 +711,25 @@ test.describe("Rankings — model version", () => {
     expect(provenance).not.toContain("preview");
   });
 
-  test("the modal explains why this season is the one on the board", async ({ page }) => {
+  test("the analysis explains why this season is the one on the board", async ({ page }) => {
     await page.goto("/rankings", { waitUntil: "load" });
     await expect(page.getByTestId("rankings-row").first()).toBeVisible({ timeout: 20_000 });
 
     // LeBron's 1Y row is the canonical case: 2008-09 beat his 2012-13 title
     // season by 0.16, so the "why this season?" panel must be present.
+    // WAIT FOR THE FILTER TO LAND BEFORE OPENING ANYTHING. The search runs
+    // behind a 250 ms debounce and then a refetch, so a row clicked from the
+    // UNFILTERED list leaves the board a moment later — which correctly closes
+    // the drawer, and made this a test about a race rather than about the
+    // panel. The same wait the scroll-preservation test already documents.
+    const rows = page.getByTestId("rankings-row");
+    const unfiltered = await rows.count();
     await page.getByTestId("rankings-search").fill("LeBron");
-    const row = page.getByTestId("rankings-row").first();
-    await expect(row).toBeVisible({ timeout: 15_000 });
-    await row.getByRole("button", { name: /Explain the PEAK3 score/i }).click();
-    await expect(page.getByTestId("score-explain-modal")).toBeVisible({ timeout: 15_000 });
+    await expect.poll(async () => rows.count(), { timeout: 15_000 }).toBeLessThan(
+      unfiltered,
+    );
+    await openAnalysis(page);
+    await openFold(page, "rk-fold-source");
 
     const panel = page.getByTestId("score-explain-anchor-selection");
     if (!(await panel.count())) {
@@ -751,24 +900,52 @@ test.describe("Rankings — provenance", () => {
   });
 });
 
-test.describe("Rankings — the selected-player composite profile", () => {
-  test("defaults to the top-ranked row and draws all six axes", async ({ page }) => {
+test.describe("Rankings — the player analysis, and only on request", () => {
+  // THE DEFECT THESE REPLACE. The page used to resolve its selection as
+  // `match ?? sortedRows[0]`, so it opened with the top-ranked player selected,
+  // a radar chart drawn, and a third of the width held open for a panel nobody
+  // had asked for. The old tests here asserted that default as the intended
+  // behaviour ("defaults to the top-ranked row", "a reader lands on the page
+  // already looking at something"), which is exactly the product decision
+  // manual acceptance rejected: the chart should appear only after a reader
+  // asks to analyse someone, and it should arrive with the whole analysis.
+
+  test("opens with no analysis and no chart at all", async ({ page }) => {
     await gotoRankings(page);
+    await expect(page.locator('[data-testid="rankings-row"]').first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.locator('[data-testid="rankings-analysis"]')).toHaveCount(0);
+    // Not merely hidden: the chart is not constructed on a load that never
+    // opens an analysis.
+    await expect(page.locator('[data-testid="rankings-composite-chart"]')).toHaveCount(0);
+    await expect(page.locator(".rk-chart-svg")).toHaveCount(0);
+    for (const row of await page.locator('[data-testid="rankings-row"]').all()) {
+      await expect(row).toHaveAttribute("data-selected", "false");
+    }
+  });
 
-    const detail = page.locator('[data-testid="rankings-detail"]');
-    await expect(detail).toBeVisible({ timeout: 20_000 });
+  test("the table uses the full width, with no reserved analysis column", async ({ page }) => {
+    await gotoRankings(page);
+    await expect(page.locator(".rankings-split")).toHaveCount(0);
+    const board = page.locator(".rankings-board");
+    await expect(board).toBeVisible();
+  });
 
-    // The default is the board's own leader, not an empty panel waiting for a
-    // click. A reader lands on the page already looking at something.
-    const topRowName = (
-      await page
-        .locator('[data-testid="rankings-row"]')
-        .first()
-        .getByRole("button", { name: /Explain the PEAK3 score/i })
-        .innerText()
+  test("clicking a row opens the whole analysis, chart included", async ({ page }) => {
+    await gotoRankings(page);
+    const third = page.locator('[data-testid="rankings-row"]').nth(2);
+    const name = (
+      await third.getByTestId("rankings-open-analysis").innerText()
     ).trim();
-    await expect(page.locator('[data-testid="rk-detail-name"]')).toHaveText(topRowName);
+    await third.click();
 
+    const panel = page.locator('[data-testid="rankings-analysis"]');
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    await expect(panel.locator('[data-testid="rk-detail-name"]')).toHaveText(name);
+
+    // The chart, all six axes, and the exact values as a table -- together.
+    await expect(panel.locator('[data-testid="rankings-composite-chart"]')).toBeVisible();
     for (const key of [
       "statistical_impact",
       "traditional_production",
@@ -779,51 +956,62 @@ test.describe("Rankings — the selected-player composite profile", () => {
     ]) {
       await expect(page.locator(`[data-testid="rk-chart-label-${key}"]`)).toBeAttached();
     }
-  });
-
-  test("selecting a different row swaps the panel in place", async ({ page }) => {
-    await gotoRankings(page);
-    const before = await page.locator('[data-testid="rk-detail-name"]').innerText();
-
-    const third = page.locator('[data-testid="rankings-row"]').nth(2);
-    const scrollBefore = await page.evaluate(() => window.scrollY);
-    await third.click();
-
-    await expect
-      .poll(async () => page.locator('[data-testid="rk-detail-name"]').innerText(), {
-        timeout: 10_000,
-      })
-      .not.toBe(before);
-    await expect(third).toHaveAttribute("data-selected", "true");
-    // The panel swaps; the reader's place in the list does not move.
-    expect(Math.abs((await page.evaluate(() => window.scrollY)) - scrollBefore)).toBeLessThan(80);
-  });
-
-  test("is selectable by keyboard", async ({ page }) => {
-    await gotoRankings(page);
-    const second = page.locator('[data-testid="rankings-row"]').nth(1);
-    const select = second.getByRole("button", { name: /Show the component profile/i });
-    await select.focus();
-    await page.keyboard.press("Enter");
-    await expect(select).toHaveAttribute("aria-pressed", "true");
-    await expect(second).toHaveAttribute("data-selected", "true");
-  });
-
-  test("gives every charted value as a table as well", async ({ page }) => {
-    await gotoRankings(page);
-    // NOT a fallback: a radar is good at shape and bad at exact values, so the
-    // numbers live in a table for everybody rather than only for a reader who
-    // cannot see the chart.
-    const table = page.locator('[data-testid="rk-detail-table"]');
+    const table = panel.locator('[data-testid="rk-detail-table"]');
     await expect(table).toBeVisible();
     await expect(table.locator("tbody tr")).toHaveCount(6);
-    await expect(page.locator('[data-testid="rk-detail-row-data_completeness"]')).toBeVisible();
+  });
+
+  test("opens from the keyboard, closes on Escape, and returns focus", async ({ page }) => {
+    await gotoRankings(page);
+    const select = page.locator('[data-testid="rankings-select-2"]');
+    await select.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.locator('[data-testid="rankings-analysis"]')).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator('[data-testid="rankings-analysis"]')).toHaveCount(0);
+    await expect(select).toBeFocused();
+  });
+
+  test("preserves scroll position and the search across an open and close", async ({ page }) => {
+    await gotoRankings(page);
+    const rows = page.locator('[data-testid="rankings-row"]');
+    const unfiltered = await rows.count();
+
+    await page.getByTestId("rankings-search").fill("james");
+    // WAIT FOR THE FILTER TO LAND before opening anything. The search runs
+    // behind a 250 ms debounce and then a refetch; clicking a row from the
+    // UNFILTERED list means the row can leave the board a moment later, which
+    // correctly closes the drawer -- and would make this a test about a race
+    // rather than about what survives an open and close.
+    await expect.poll(async () => rows.count(), { timeout: 10_000 }).toBeLessThan(
+      unfiltered,
+    );
+
+    await page.mouse.wheel(0, 400);
+    // And for the smooth scroll to settle, so "the list did not move" is
+    // measured against a resting position rather than a moving one.
+    await expect
+      .poll(async () => page.evaluate(() => window.scrollY), { timeout: 5_000 })
+      .toBeGreaterThan(0);
+    const scrollBefore = await page.evaluate(() => window.scrollY);
+
+    await rows.first().click();
+    await expect(page.locator('[data-testid="rankings-analysis"]')).toBeVisible();
+    await page.getByTestId("rankings-analysis-close").click();
+    await expect(page.locator('[data-testid="rankings-analysis"]')).toHaveCount(0);
+
+    await expect(page.getByTestId("rankings-search")).toHaveValue("james");
+    expect(
+      Math.abs((await page.evaluate(() => window.scrollY)) - scrollBefore),
+    ).toBeLessThan(120);
   });
 
   test("the chart does not clip or trap scrolling at 200% zoom", async ({ page }) => {
     await gotoRankings(page);
     // 200% zoom, emulated by halving the viewport against the same CSS pixels.
     await page.setViewportSize({ width: 640, height: 480 });
+    await page.locator('[data-testid="rankings-row"]').first().click();
     await expect(page.locator('[data-testid="rankings-composite-chart"]')).toBeVisible();
 
     const overflow = await page.evaluate(
@@ -836,9 +1024,54 @@ test.describe("Rankings — the selected-player composite profile", () => {
     expect(box!.width).toBeGreaterThan(0);
   });
 
-  test("has no serious accessibility violations with the panel open", async ({ page }) => {
+  // -- one destination, at the width where two used to collide ---------------
+
+  test("@mobile every path in a row opens the ONE analysis at 390px", async ({ page }) => {
+    // THE DEFECT THIS REPLACES, IN TWO STAGES. The derivation first opened from
+    // the player's NAME, the widest thing in a row: at 1440px a mid-row tap
+    // landed on empty table and opened the analysis, at 390px the same gesture
+    // opened a different dialog. That was fixed by giving the derivation its own
+    // bounded `ƒ` cell — and then fixed properly, by there being only one thing
+    // in a row to open at all.
     await gotoRankings(page);
-    await expect(page.locator('[data-testid="rankings-detail"]')).toBeVisible();
+    const first = page.locator('[data-testid="rankings-row"]').first();
+    await expect(first).toBeVisible({ timeout: 20_000 });
+
+    // No second target to collide with.
+    await expect(first.getByTestId("rankings-explain")).toHaveCount(0);
+
+    await first.getByTestId("rankings-open-analysis").click();
+    await expect(page.getByTestId("rankings-analysis")).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+    await expect(page.locator('[data-testid="score-explain-modal"]')).toHaveCount(0);
+
+    // And the derivation is HERE, not somewhere else.
+    await openFold(page, "rk-fold-calculation");
+    await expect(page.getByTestId("rk-formula-table")).toBeVisible();
+  });
+
+  test("@mobile the disclosures meet the tap floor", async ({ page }) => {
+    await gotoRankings(page);
+    await openAnalysis(page);
+    for (const fold of ["rk-fold-breakdown", "rk-fold-calculation", "rk-fold-source"]) {
+      const box = (await page.getByTestId(fold).locator("summary").boundingBox())!;
+      expect(box, `${fold} summary must have a box`).toBeTruthy();
+      expect(box.height, `${fold} summary is below the 44px tap floor`).toBeGreaterThanOrEqual(
+        40,
+      );
+    }
+  });
+
+  test("@mobile has no serious accessibility violations with a row open", async ({ page }) => {
+    await gotoRankings(page);
+    await expect(page.locator('[data-testid="rankings-row"]').first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await page.locator('[data-testid="rankings-row"]').first().getByTestId(
+      "rankings-open-analysis",
+    ).click();
+    await expect(page.getByTestId("rankings-analysis")).toBeVisible();
+
     const results = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
       .analyze();
@@ -847,7 +1080,31 @@ test.describe("Rankings — the selected-player composite profile", () => {
     );
     expect(
       serious,
-      `serious/critical axe violations: ${serious.map((v) => v.id).join(", ")}`,
+      `serious/critical axe violations at 390px: ${serious.map((v) => v.id).join(", ")}`,
     ).toEqual([]);
+  });
+
+  test("has no serious accessibility violations, closed or open", async ({ page }) => {
+    await gotoRankings(page);
+    await expect(page.locator('[data-testid="rankings-row"]').first()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    for (const stage of ["closed", "open"] as const) {
+      if (stage === "open") {
+        await page.locator('[data-testid="rankings-row"]').first().click();
+        await expect(page.locator('[data-testid="rankings-analysis"]')).toBeVisible();
+      }
+      const results = await new AxeBuilder({ page })
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+        .analyze();
+      const serious = results.violations.filter((v) =>
+        ["serious", "critical"].includes(v.impact ?? ""),
+      );
+      expect(
+        serious,
+        `serious/critical axe violations (${stage}): ${serious.map((v) => v.id).join(", ")}`,
+      ).toEqual([]);
+    }
   });
 });

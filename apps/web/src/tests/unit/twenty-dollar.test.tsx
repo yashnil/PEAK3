@@ -115,6 +115,7 @@ function privateState(
     market_skips: 5,
     pass_consumes_skip: true,
     can_pass: true,
+    timeout_outcome: "skip_used" as const,
     can_acquire_candidate: true,
     bid_blocked_reason: null,
     ...overrides,
@@ -175,7 +176,6 @@ describe("the candidate's score is hidden until the lot resolves", () => {
         fits={["PG"]}
         seatNames={["You", "Rival"]}
         yourSeat={0}
-        secondsRemaining={20}
       />,
     );
     expect(html()).not.toContain(String(HIDDEN_SCORE));
@@ -190,7 +190,6 @@ describe("the candidate's score is hidden until the lot resolves", () => {
         fits={["PG"]}
         seatNames={["You", "Rival"]}
         yourSeat={0}
-        secondsRemaining={null}
       />,
     );
     expect(screen.getByTestId("td-candidate-name")).toHaveTextContent("Chris Paul");
@@ -206,6 +205,48 @@ describe("the candidate's score is hidden until the lot resolves", () => {
     expect(screen.getByTestId("td-reveal-verdict")).toHaveTextContent("$5");
     expect(screen.getByTestId("td-reveal-verdict")).toHaveTextContent("PG");
   });
+
+  it("says unsold, not sold, when nobody bid", () => {
+    // The eyebrow was hardcoded to "sold" and contradicted the verdict three
+    // lines below it.
+    render(
+      <LotReveal
+        lot={{ ...SETTLED_LOT, winner_seat: null, price: 0 }}
+        seatNames={["You", "Rival"]}
+        yourSeat={0}
+      />,
+    );
+    expect(screen.getByTestId("td-reveal-lot")).toHaveTextContent(/unsold/i);
+    expect(screen.getByTestId("td-reveal-verdict")).toHaveTextContent(/Nobody bid/i);
+  });
+
+  it("says sold when a seat took it", () => {
+    render(<LotReveal lot={SETTLED_LOT} seatNames={["You", "Rival"]} yourSeat={0} />);
+    expect(screen.getByTestId("td-reveal-lot")).toHaveTextContent(/· sold/i);
+    expect(screen.getByTestId("td-reveal-lot")).not.toHaveTextContent(/unsold/i);
+  });
+
+  /**
+   * THE SCORE IS THE PAYOFF, so it must not be the thing you scroll for.
+   * The component silhouette rendered inline and was most of the panel's
+   * height; a review frame showed the revealed score cut off by the bottom of
+   * the viewport. PART 19 asks for a "view breakdown" action after settlement
+   * rather than a chart appended under the live controls, which is also what
+   * keeps the number itself on screen.
+   */
+  it("keeps the chart behind a disclosure so the score is what you see first", () => {
+    render(<LotReveal lot={SETTLED_LOT} seatNames={["You", "Rival"]} yourSeat={0} />);
+    const toggle = screen.getByTestId("td-reveal-breakdown-toggle");
+    expect(toggle).toBeInTheDocument();
+    expect(toggle.closest("details")).not.toHaveAttribute("open");
+    // The score outranks the chart in the DOM, which is what a screen reader
+    // and a viewport agree on.
+    expect(
+      screen
+        .getByTestId("td-reveal-score")
+        .compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -220,13 +261,15 @@ describe("the standing bid and the turn are on the block", () => {
         fits={["PG"]}
         seatNames={["You", "Rival"]}
         yourSeat={0}
-        secondsRemaining={18}
       />,
     );
     const indicator = screen.getByTestId("td-turn-indicator");
     expect(indicator).toHaveAttribute("data-your-turn", "true");
     expect(indicator).toHaveTextContent(/your move/i);
-    expect(screen.getByTestId("td-turn-clock")).toHaveTextContent("18s");
+    // THE COUNTDOWN IS NO LONGER ON THIS CARD. It lives in `ArenaTimer` beside
+    // the controls so that a tick rerenders four characters rather than the
+    // whole board; `arena-timer.test.tsx` covers it there.
+    expect(screen.queryByTestId("td-turn-clock")).toBeNull();
   });
 
   it("names the opponent when the clock is theirs, and shows no countdown", () => {
@@ -236,13 +279,11 @@ describe("the standing bid and the turn are on the block", () => {
         fits={["PG"]}
         seatNames={["You", "Rival"]}
         yourSeat={0}
-        secondsRemaining={null}
       />,
     );
     const indicator = screen.getByTestId("td-turn-indicator");
     expect(indicator).toHaveAttribute("data-your-turn", "false");
     expect(indicator).toHaveTextContent("Rival");
-    expect(screen.queryByTestId("td-turn-clock")).toBeNull();
   });
 
   it("shows the standing bid and who holds it", () => {
@@ -252,7 +293,6 @@ describe("the standing bid and the turn are on the block", () => {
         fits={["PG"]}
         seatNames={["You", "Rival"]}
         yourSeat={0}
-        secondsRemaining={12}
       />,
     );
     expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$6");
@@ -266,7 +306,6 @@ describe("the standing bid and the turn are on the block", () => {
         fits={["PG"]}
         seatNames={["You", "Rival"]}
         yourSeat={0}
-        secondsRemaining={20}
       />,
     );
     expect(screen.getByTestId("td-standing-holder")).toHaveTextContent(/no bid yet/i);
@@ -317,6 +356,53 @@ describe("bid controls are a stepper, not a slider", () => {
       />,
     );
     expect(document.querySelector('input[type="range"]')).toBeNull();
+  });
+
+  /**
+   * ONE COMMAND IN FLIGHT, ONE CONTROL SAYING SO.
+   *
+   * `busy` is a single board-wide flag and both action buttons were reading
+   * it, so pressing Bid put "Submitting…" on the PASS button too — a review
+   * frame caught the screen claiming to be submitting a bid and a pass at the
+   * same moment. Which control was pressed is now remembered locally; the
+   * disabled state still comes from `busy`, because only one command may be
+   * in flight either way.
+   */
+  it("names only the command that was actually pressed as submitting", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const props = {
+      publicState: publicState(),
+      privateState: privateState(),
+      seatNames: ["You", "Rival"],
+      onSubmit,
+    };
+    const { rerender } = render(<BidControls {...props} busy={false} />);
+
+    await user.click(screen.getByTestId("td-submit-bid"));
+    rerender(<BidControls {...props} busy={true} />);
+
+    expect(screen.getByTestId("td-submit-bid")).toHaveTextContent(/Submitting \$\d+ bid/);
+    expect(screen.getByTestId("td-pass")).not.toHaveTextContent(/Submitting/);
+    expect(screen.getByTestId("td-pass")).toBeDisabled();
+  });
+
+  it("names the pass as submitting when the pass is what was pressed", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn();
+    const props = {
+      publicState: publicState(),
+      privateState: privateState(),
+      seatNames: ["You", "Rival"],
+      onSubmit,
+    };
+    const { rerender } = render(<BidControls {...props} busy={false} />);
+
+    await user.click(screen.getByTestId("td-pass"));
+    rerender(<BidControls {...props} busy={true} />);
+
+    expect(screen.getByTestId("td-pass")).toHaveTextContent("Submitting…");
+    expect(screen.getByTestId("td-submit-bid")).not.toHaveTextContent(/Submitting/);
   });
 
   it("opens at the server's minimum and steps in whole dollars", async () => {

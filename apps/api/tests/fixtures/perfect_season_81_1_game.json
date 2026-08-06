@@ -1,0 +1,552 @@
+{
+  "owner_sub": "fixture-owner",
+  "payload": {
+    "board": {
+      "board_generator_version": "perfect_season_board_v2",
+      "board_id": "practice-apex_1y-perfect_season-431465972",
+      "board_type": "practice",
+      "card_pool_version": "v3",
+      "duration_years": 1,
+      "eligibility_ruleset_version": "perfect_season_eligibility_v2",
+      "experimental_team_year_data_version": "courtbuilder_team_year.experimental.v3",
+      "interim_team_data_version": null,
+      "metadata": {
+        "attempts": 1,
+        "coverage_mode": "experimental_limited_rosters",
+        "data_version": "courtbuilder_team_year.experimental.v3",
+        "duration_years": 1,
+        "formula_version": "peak3_official_weights_v1 (statistical_impact=0.38, traditional_production=0.21, recognition=0.20, postseason=0.18, team_achievement=0.03)",
+        "open_pool_enabled": false,
+        "rollable_team_season_count": 1314,
+        "team_spin_enabled": true,
+        "team_year_enabled": true
+      },
+      "mode": "apex_1y",
+      "seed": 431465972,
+      "spins": [
+        {
+          "candidate_player_slugs": [
+            "adam-keefe",
+            "bryon-russell",
+            "greg-foster",
+            "greg-ostertag",
+            "howard-eisley",
+            "jacque-vaughn",
+            "jeff-hornacek",
+            "john-stockton",
+            "karl-malone",
+            "shandon-anderson",
+            "thurl-bailey",
+            "todd-fuller"
+          ],
+          "era_label": "1998-99",
+          "franchise_display_name": "Utah Jazz",
+          "round_number": 1,
+          "spin_id": "utah-jazz-199899",
+          "spin_type": "team_year",
+          "team_id": "UTA"
+        },
+        {
+          "candidate_player_slugs": [
+            "al-jefferson",
+            "allan-ray",
+            "brian-scalabrine",
+            "delonte-west",
+            "gerald-green",
+            "kendrick-perkins",
+            "kevinn-pinkney",
+            "leon-powe",
+            "michael-olowokandi",
+            "paul-pierce",
+            "rajon-rondo",
+            "ryan-gomes",
+            "sebastian-telfair",
+            "tony-allen",
+            "wally-szczerbiak"
+          ],
+          "era_label": "2006-07",
+          "franchise_display_name": "Boston Celtics",
+          "round_number": 2,
+          "spin_id": "boston-celtics-200607",
+          "spin_type": "team_year",
+          "team_id": "BOS"
+        },
+        {
+          "candidate_player_slugs": [
+            "aaron-gordon",
+            "braxton-key",
+            "christian-braun",
+            "collin-gillespie",
+            "deandre-jordan",
+            "jalen-pickett",
+            "jamal-murray",
+            "julian-strawther",
+            "justin-holiday",
+            "kentavious-caldwell-pope",
+            "michael-porter-jr",
+            "nikola-jokic",
+            "peyton-watson",
+            "reggie-jackson",
+            "zeke-nnaji"
+          ],
+          "era_label": "2023-24",
+          "franchise_display_name": "Denver Nuggets",
+          "round_number": 3,
+          "spin_id": "denver-nuggets-202324",
+          "spin_type": "team_year",
+          "team_id": "DEN"
+        },
+        {
+          "candidate_player_slugs": [
+            "aaron-williams",
+            "alonzo-mourning",
+            "anthony-goldwire",
+            "brandon-armstrong",
+            "brian-scalabrine",
+            "doug-overton",
+            "hubert-davis",
+            "jason-collins",
+            "jason-kidd",
+            "kenyon-martin",
+            "kerry-kittles",
+            "lucious-harris",
+            "mikki-moore",
+            "richard-jefferson",
+            "robert-pack",
+            "rodney-rogers",
+            "tamar-slay",
+            "zoran-planinic"
+          ],
+          "era_label": "2003-04",
+          "franchise_display_name": "New Jersey Nets",
+          "round_number": 4,
+          "spin_id": "new-jersey-nets-200304",
+          "spin_type": "team_year",
+          "team_id": "NJN"
+        },
+        {
+          "candidate_player_slugs": [
+            "carlos-clark",
+            "cedric-maxwell",
+            "danny-ainge",
+            "dennis-johnson",
+            "gerald-henderson",
+            "greg-kite",
+            "kevin-mchale",
+            "larry-bird",
+            "m-l-carr",
+            "quinn-buckner",
+            "robert-parish",
+            "scott-wedman"
+          ],
+          "era_label": "1983-84",
+          "franchise_display_name": "Boston Celtics",
+          "round_number": 5,
+          "spin_id": "boston-celtics-198384",
+          "spin_type": "team_year",
+          "team_id": "BOS"
+        },
+        {
+          "candidate_player_slugs": [
+            "bernard-toone",
+            "bobby-jones",
+            "caldwell-jones",
+            "clint-richardson",
+            "darryl-dawkins",
+            "doug-collins",
+            "eric-money",
+            "henry-bibby",
+            "jim-spanarkel",
+            "julius-erving",
+            "lionel-hollins",
+            "maurice-cheeks",
+            "steve-mix"
+          ],
+          "era_label": "1979-80",
+          "franchise_display_name": "Philadelphia 76ers",
+          "round_number": 6,
+          "spin_id": "philadelphia-76ers-197980",
+          "spin_type": "team_year",
+          "team_id": "PHI"
+        },
+        {
+          "candidate_player_slugs": [
+            "c-j-miles",
+            "chris-boucher",
+            "danny-green",
+            "delon-wright",
+            "eric-moreland",
+            "fred-vanvleet",
+            "greg-monroe",
+            "jeremy-lin",
+            "jodie-meeks",
+            "jonas-valanciunas",
+            "jordan-loyd",
+            "kawhi-leonard",
+            "kyle-lowry",
+            "lorenzo-brown",
+            "malachi-richardson",
+            "malcolm-miller",
+            "marc-gasol",
+            "norman-powell",
+            "og-anunoby",
+            "pascal-siakam",
+            "patrick-mccaw",
+            "serge-ibaka"
+          ],
+          "era_label": "2018-19",
+          "franchise_display_name": "Toronto Raptors",
+          "round_number": 7,
+          "spin_id": "toronto-raptors-201819",
+          "spin_type": "team_year",
+          "team_id": "TOR"
+        },
+        {
+          "candidate_player_slugs": [
+            "anderson-varejao",
+            "andre-iguodala",
+            "andrew-bogut",
+            "brandon-rush",
+            "draymond-green",
+            "festus-ezeli",
+            "harrison-barnes",
+            "ian-clark",
+            "james-michael-mcadoo",
+            "jason-thompson",
+            "klay-thompson",
+            "leandro-barbosa",
+            "marreese-speights",
+            "shaun-livingston",
+            "stephen-curry"
+          ],
+          "era_label": "2015-16",
+          "franchise_display_name": "Golden State Warriors",
+          "round_number": 8,
+          "spin_id": "golden-state-warriors-201516",
+          "spin_type": "team_year",
+          "team_id": "GSW"
+        }
+      ]
+    },
+    "challenge_date": null,
+    "challenge_kind": "free_play",
+    "created_at": "2026-08-04T05:08:10.057282+00:00",
+    "current_round": 8,
+    "duration_years": 1,
+    "game_id": "e564b8d3-4c1f-4d09-8f8c-16e83ecd1104",
+    "last_action_at": "2026-08-04T05:10:08.155772+00:00",
+    "last_respin_keys": {
+      "season": [
+        "e564b8d3-4c1f-4d09-8f8c-16e83ecd1104:r3:season:0",
+        "e564b8d3-4c1f-4d09-8f8c-16e83ecd1104:r5:season:1"
+      ],
+      "team": [
+        "e564b8d3-4c1f-4d09-8f8c-16e83ecd1104:r2:team:0",
+        "e564b8d3-4c1f-4d09-8f8c-16e83ecd1104:r7:team:1"
+      ]
+    },
+    "last_undo_key": null,
+    "mode": "apex_1y",
+    "owner_sub": "fixture-owner",
+    "pending_selection_exact_season_key": null,
+    "pending_selection_peak_window_id": null,
+    "pending_selection_spin_id": null,
+    "respin_history": [
+      {
+        "from_season": "2006-07",
+        "from_team": "Indiana Pacers",
+        "kind": "team",
+        "round": 2,
+        "to_season": "2006-07",
+        "to_team": "Boston Celtics"
+      },
+      {
+        "from_season": "1994-95",
+        "from_team": "Denver Nuggets",
+        "kind": "season",
+        "round": 3,
+        "to_season": "2023-24",
+        "to_team": "Denver Nuggets"
+      },
+      {
+        "from_season": "1992-93",
+        "from_team": "Boston Celtics",
+        "kind": "season",
+        "round": 5,
+        "to_season": "1983-84",
+        "to_team": "Boston Celtics"
+      },
+      {
+        "from_season": "2018-19",
+        "from_team": "Phoenix Suns",
+        "kind": "team",
+        "round": 7,
+        "to_season": "2018-19",
+        "to_team": "Toronto Raptors"
+      }
+    ],
+    "respin_policy_debug": [
+      {
+        "allowed_pool_size": 28,
+        "exclusion_radius": 0,
+        "from_season": "2006-07",
+        "from_team": "Indiana Pacers",
+        "history_depth": 2,
+        "kind": "team",
+        "min_respin_pool": 8,
+        "policy_version": "perfect_season_respin_policy_v1",
+        "relaxation_tier": "same_season_depth_2",
+        "relaxed": false,
+        "round": 2,
+        "tier_index": 0,
+        "to_season": "2006-07",
+        "to_team": "Boston Celtics"
+      },
+      {
+        "allowed_pool_size": 42,
+        "exclusion_radius": 2,
+        "from_season": "1994-95",
+        "from_team": "Denver Nuggets",
+        "history_depth": 0,
+        "kind": "season",
+        "min_respin_pool": 8,
+        "policy_version": "perfect_season_respin_policy_v1",
+        "relaxation_tier": "same_team_radius_2",
+        "relaxed": false,
+        "round": 3,
+        "tier_index": 0,
+        "to_season": "2023-24",
+        "to_team": "Denver Nuggets"
+      },
+      {
+        "allowed_pool_size": 42,
+        "exclusion_radius": 2,
+        "from_season": "1992-93",
+        "from_team": "Boston Celtics",
+        "history_depth": 0,
+        "kind": "season",
+        "min_respin_pool": 8,
+        "policy_version": "perfect_season_respin_policy_v1",
+        "relaxation_tier": "same_team_radius_2",
+        "relaxed": false,
+        "round": 5,
+        "tier_index": 0,
+        "to_season": "1983-84",
+        "to_team": "Boston Celtics"
+      },
+      {
+        "allowed_pool_size": 27,
+        "exclusion_radius": 0,
+        "from_season": "2018-19",
+        "from_team": "Phoenix Suns",
+        "history_depth": 2,
+        "kind": "team",
+        "min_respin_pool": 8,
+        "policy_version": "perfect_season_respin_policy_v1",
+        "relaxation_tier": "same_season_depth_2",
+        "relaxed": false,
+        "round": 7,
+        "tier_index": 0,
+        "to_season": "2018-19",
+        "to_team": "Toronto Raptors"
+      }
+    ],
+    "season_respins_used": 2,
+    "simulation_result": {
+      "best_pick": "Stephen Curry",
+      "decisive_factors": [
+        "4 starters graded as genuine all-time peaks (80+ PEAK3)",
+        "Strong team context around this roster",
+        "Starters are placed at flexible, natural positions"
+      ],
+      "expected_wins": 82.0,
+      "expected_wins_high": 82.0,
+      "expected_wins_low": 77.0,
+      "experimental_notice": "The 82-0 Peak Season simulator is an early, uncalibrated (v0) experimental model for comparing constructed historical rosters. It is not a scientific claim that a hypothetical roster would literally win a given number of NBA games, and it is not the canonical PEAK3 individual score. Team-year (exact-season) lineups use each player's real, single-season PEAK3 score -- never a career-peak substitute. If any selected card's exact-season score is unavailable (below the model's minutes threshold for that season), the PEAK3 Lineup Score is reported as unavailable rather than approximated. The projected record, however, still accounts for that card using a conservative provisional impact based on its real games/minutes sample -- never a neutral placeholder.",
+      "fit_components": {
+        "bench_strength": 60.6,
+        "creation_coverage": 96.94,
+        "positional_fit": 80.0,
+        "postseason_pedigree": 83.66,
+        "scoring_coverage": 94.17,
+        "talent_core": 83.36,
+        "team_context_depth": 87.09
+      },
+      "is_perfect_season": false,
+      "lineup_model_version": "perfect_season_lineup_fit_v2",
+      "lineup_peak_score": 77.3,
+      "losses": 1,
+      "peak_picks_recap": [
+        {
+          "matched": true,
+          "peak_pick_player_name": "Karl Malone",
+          "peak_pick_score": 78.0,
+          "picked_player_name": "Karl Malone",
+          "picked_score": 78.0,
+          "round_number": 1,
+          "slot_type": "PF"
+        },
+        {
+          "matched": true,
+          "peak_pick_player_name": "Paul Pierce",
+          "peak_pick_score": 49.5,
+          "picked_player_name": "Paul Pierce",
+          "picked_score": 49.5,
+          "round_number": 2,
+          "slot_type": "bench_1"
+        },
+        {
+          "matched": true,
+          "peak_pick_player_name": "Nikola Jokic",
+          "peak_pick_score": 92.0,
+          "picked_player_name": "Nikola Jokic",
+          "picked_score": 92.0,
+          "round_number": 3,
+          "slot_type": "C"
+        },
+        {
+          "matched": true,
+          "peak_pick_player_name": "Jason Kidd",
+          "peak_pick_score": 58.7,
+          "picked_player_name": "Jason Kidd",
+          "picked_score": 58.7,
+          "round_number": 4,
+          "slot_type": "bench_3"
+        },
+        {
+          "matched": true,
+          "peak_pick_player_name": "Larry Bird",
+          "peak_pick_score": 88.6,
+          "picked_player_name": "Larry Bird",
+          "picked_score": 88.6,
+          "round_number": 5,
+          "slot_type": "SF"
+        },
+        {
+          "matched": true,
+          "peak_pick_player_name": "Julius Erving",
+          "peak_pick_score": 73.6,
+          "picked_player_name": "Julius Erving",
+          "picked_score": 73.6,
+          "round_number": 6,
+          "slot_type": "bench_2"
+        },
+        {
+          "matched": true,
+          "peak_pick_player_name": "Kawhi Leonard",
+          "peak_pick_score": 84.0,
+          "picked_player_name": "Kawhi Leonard",
+          "picked_score": 84.0,
+          "round_number": 7,
+          "slot_type": "SG"
+        },
+        {
+          "matched": true,
+          "peak_pick_player_name": "Stephen Curry",
+          "peak_pick_score": 93.9,
+          "picked_player_name": "Stephen Curry",
+          "picked_score": 93.9,
+          "round_number": 8,
+          "slot_type": "PG"
+        }
+      ],
+      "simulator_version": "perfect_season_simulator_v1",
+      "structural_weakness": "thin bench depth",
+      "structural_weakness_detail": "PEAK3 grades the bench on the same 0-100 all-time-peak scale as the starters -- a bench in the 40s-50s is a normal, solid real-season bench, not a weak one. It just isn't at the same all-time-peak tier as this lineup's elite starters.",
+      "weakness_framing": "ceiling_limiter",
+      "wins": 81
+    },
+    "slots": [
+      {
+        "exact_player_season_key": "stephen-curry-gsw-201516",
+        "peak_window_id": null,
+        "resolved_via_spin_id": "golden-state-warriors-201516",
+        "role_fit": "primary",
+        "role_fit_severity": null,
+        "round_number": 8,
+        "slot_type": "PG"
+      },
+      {
+        "exact_player_season_key": "kawhi-leonard-tor-201819",
+        "peak_window_id": null,
+        "resolved_via_spin_id": "toronto-raptors-201819",
+        "role_fit": "off_position",
+        "role_fit_severity": "mild",
+        "round_number": 7,
+        "slot_type": "SG"
+      },
+      {
+        "exact_player_season_key": "larry-bird-bos-198384",
+        "peak_window_id": null,
+        "resolved_via_spin_id": "boston-celtics-198384",
+        "role_fit": "natural",
+        "role_fit_severity": null,
+        "round_number": 5,
+        "slot_type": "SF"
+      },
+      {
+        "exact_player_season_key": "karl-malone-uta-199899",
+        "peak_window_id": null,
+        "resolved_via_spin_id": "utah-jazz-199899",
+        "role_fit": "primary",
+        "role_fit_severity": null,
+        "round_number": 1,
+        "slot_type": "PF"
+      },
+      {
+        "exact_player_season_key": "nikola-jokic-den-202324",
+        "peak_window_id": null,
+        "resolved_via_spin_id": "denver-nuggets-202324",
+        "role_fit": "primary",
+        "role_fit_severity": null,
+        "round_number": 3,
+        "slot_type": "C"
+      },
+      {
+        "exact_player_season_key": "paul-pierce-bos-200607",
+        "peak_window_id": null,
+        "resolved_via_spin_id": "boston-celtics-200607",
+        "role_fit": "bench",
+        "role_fit_severity": null,
+        "round_number": 2,
+        "slot_type": "bench_1"
+      },
+      {
+        "exact_player_season_key": "julius-erving-phi-197980",
+        "peak_window_id": null,
+        "resolved_via_spin_id": "philadelphia-76ers-197980",
+        "role_fit": "bench",
+        "role_fit_severity": null,
+        "round_number": 6,
+        "slot_type": "bench_2"
+      },
+      {
+        "exact_player_season_key": "jason-kidd-njn-200304",
+        "peak_window_id": null,
+        "resolved_via_spin_id": "new-jersey-nets-200304",
+        "role_fit": "bench",
+        "role_fit_severity": null,
+        "round_number": 4,
+        "slot_type": "bench_3"
+      }
+    ],
+    "state_version": 23,
+    "status": "result_ready",
+    "team_respins_used": 2,
+    "undo_snapshot": {
+      "expires_at": "2026-08-04T05:10:17.379645+00:00",
+      "kind": "swap",
+      "pending_selection_exact_season_key": null,
+      "pending_selection_peak_window_id": null,
+      "pending_selection_spin_id": null,
+      "round_before": null,
+      "slot_a": "bench_3",
+      "slot_b": "PG",
+      "slot_type": null,
+      "state_version_after": 22,
+      "status_before": null
+    }
+  },
+  "status": "result_ready",
+  "updated_at": "2026-08-04 05:10:08.156180+00:00"
+}

@@ -183,6 +183,116 @@ test.describe("the multiplayer lobby", () => {
   });
 });
 
+/**
+ * CLOSED ALPHA, in a real browser: bots seat, the public queue does not.
+ *
+ * WHY THE READINESS RESPONSE IS REWRITTEN HERE RATHER THAN THE ENVIRONMENT.
+ * `scripts/ci/e2e-tests.sh` starts ONE API for the whole suite, with
+ * `PEAK3_ARENA_PUBLIC_QUEUE_ENABLED=true`, because most of these tests are
+ * about matchmaking. Restarting it per describe-block to flip one flag would
+ * make every other test in this file wait on it. So this block intercepts the
+ * readiness response and closes the queue in it — which is exactly the input
+ * the lobby derives its posture from, and the server-side half of the same
+ * posture is covered deterministically in
+ * `apps/api/tests/test_arena_local_practice.py`.
+ *
+ * THE DEFECT UNDER TEST. In this posture the page used to render one panel
+ * reading "Multiplayer is not open yet", with both playable games behind it.
+ */
+test.describe("closed alpha — the queue is shut and both games are still playable", () => {
+  async function closeTheQueue(page: import("@playwright/test").Page) {
+    await page.route("**/api/v1/arena/readiness", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      await route.fulfill({
+        response,
+        json: { ...body, public_queue_enabled: false, bots_enabled: true },
+      });
+    });
+  }
+
+  test("offers both bot-practice modes instead of a wall", async ({ page }) => {
+    await closeTheQueue(page);
+    await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("lobby-mode-grid")).toBeVisible();
+
+    await expect(page.getByTestId("lobby-disabled")).toHaveCount(0);
+    await expect(page.getByTestId("lobby-no-modes")).toHaveCount(0);
+    for (const id of ["three_man_weave", "twenty_dollar"]) {
+      const play = page.getByTestId(`lobby-${id}-practice`);
+      await expect(play).toBeVisible();
+      await expect(play).toBeEnabled();
+      await expect(play).toContainText(/play vs bots/i);
+      await expect(page.getByTestId(`lobby-${id}-playable`)).toBeVisible();
+    }
+    await expect(page.getByTestId("arena-lobby")).toHaveAttribute(
+      "data-posture",
+      "practice_only",
+    );
+  });
+
+  test("public matchmaking is unavailable, and said once rather than per card", async ({
+    page,
+  }) => {
+    await closeTheQueue(page);
+    await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("lobby-mode-grid")).toBeVisible();
+
+    await expect(page.getByTestId("lobby-twenty_dollar-public_queue")).toHaveCount(0);
+    await expect(page.getByTestId("lobby-three_man_weave-public_queue")).toHaveCount(0);
+    const later = page.getByTestId("lobby-coming-later");
+    await expect(later).toBeVisible();
+    await expect(later).toContainText(/public matchmaking/i);
+    await expect(later).toContainText(/ratings/i);
+    await expect(later).toContainText(/arena leaderboard/i);
+
+    const text = await page.getByTestId("arena-lobby").innerText();
+    expect(text).not.toMatch(/Multiplayer is not open yet/i);
+  });
+
+  test("bot practice actually starts from the closed-alpha lobby", async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await signInAs(context, page, uniqueSub("closed-alpha"));
+      await closeTheQueue(page);
+      await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+      await page.getByTestId("lobby-twenty_dollar-practice").click();
+      await page.waitForURL(/\/arena\/twenty-dollar\/[0-9a-f-]{36}/, { timeout: 30_000 });
+      await expectNotAGeneric404(page);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("has no serious accessibility violations", async ({ page }) => {
+    await closeTheQueue(page);
+    await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+    await page.getByTestId("lobby-mode-grid").waitFor();
+    await axeClean(page, "the closed-alpha multiplayer lobby");
+  });
+
+  test("@mobile fits a phone without horizontal overflow", async ({ page }) => {
+    await closeTheQueue(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+    await page.getByTestId("lobby-mode-grid").waitFor();
+    await expect(page.getByTestId("lobby-twenty_dollar-practice")).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow, "the closed-alpha lobby overflows a 390px viewport").toBeLessThanOrEqual(1);
+  });
+
+  test("is operable by keyboard", async ({ page }) => {
+    await closeTheQueue(page);
+    await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+    const play = page.getByTestId("lobby-three_man_weave-practice");
+    await play.focus();
+    await expect(play).toBeFocused();
+  });
+});
+
 test.describe("Three-Man Weave", () => {
   test("bot practice starts and renders the dynamic match route, not a 404", async ({
     browser,
@@ -256,10 +366,32 @@ test.describe("Three-Man Weave", () => {
       // asserts the reel cannot land anywhere else without racing it.
       const roll = page.getByTestId("tmw-roll");
       await expect(roll).toBeVisible({ timeout: 20_000 });
-      await expect(page.getByTestId("tmw-roll-franchise")).toHaveAttribute(
-        "data-final-value",
-        /.+/,
-      );
+      const franchiseReel = page.getByTestId("tmw-roll-franchise");
+      await expect(franchiseReel).toHaveAttribute("data-final-value", /.+/);
+
+      // IT ACTUALLY SPINS, and that is asserted rather than assumed. Manual
+      // acceptance called this "effectively a static result banner": the reel
+      // MECHANICS were right (a 52-row travel, an easing curve, a settle
+      // overshoot) and the presentation gave none of it away -- no window, no
+      // payline, and a type-weight jump at the landing that read as "a label
+      // appeared" rather than "a wheel stopped".
+      //
+      // Two things prove motion here. A moving reel renders a STRIP of rows,
+      // which a static banner has no reason to contain; and the strip's own
+      // transform is not the identity while it travels.
+      const strip = page.locator('[data-testid="tmw-roll-franchise"].spin-reel-strip');
+      if ((await strip.count()) > 0) {
+        await expect(strip).toHaveAttribute("data-stage", /armed|spinning|settling/);
+        expect(
+          await strip.locator(".spin-reel-row").count(),
+          "the reel rendered no rows, so there is nothing to travel",
+        ).toBeGreaterThan(10);
+        const transform = await strip
+          .locator(".spin-reel-track")
+          .evaluate((node) => getComputedStyle(node).transform);
+        expect(transform, "the reel strip is not translated").not.toBe("none");
+      }
+
       await expect(roll).toHaveAttribute("data-revealed", "true", { timeout: 15_000 });
 
       // All three rosters are on screen, and no bot is a numbered placeholder.
@@ -293,10 +425,41 @@ test.describe("Three-Man Weave", () => {
       await page.getByTestId("tmw-pick-search").fill("");
       await expect.poll(async () => list.locator("button").count()).toBe(before);
 
-      // Draft, and the score is revealed the instant the pick lands.
+      // DIRECT PLACEMENT. Selecting a candidate lights up its legal slots on
+      // the roster; clicking one stages the player there; the primary button
+      // names the whole decision. The previous flow was a `<select>` and a
+      // button that read "Draft <name>" with the slot left implicit.
       const candidate = list.locator('button:not([disabled])').first();
       await candidate.click();
-      await page.getByTestId("tmw-confirm-pick").click();
+
+      const legalSlot = page
+        .locator('[data-testid^="tmw-place-"][data-legal="true"]')
+        .first();
+      await expect(legalSlot).toBeVisible();
+      // A legal destination is a REAL BUTTON, not a div that happens to have a
+      // click handler -- so the keyboard and the accessibility tree agree with
+      // what the eye sees.
+      expect(await legalSlot.evaluate((node) => node.tagName)).toBe("BUTTON");
+      await legalSlot.click();
+
+      const confirm = page.getByTestId("tmw-confirm-pick");
+      await expect(confirm).toContainText(/Draft .+ at /);
+      // A REAL BUTTON, NOT TEXT. `btn-primary` was defined in no stylesheet, so
+      // under Tailwind Preflight this control painted with no background, no
+      // border and no padding.
+      const styles = await confirm.evaluate((node) => {
+        const computed = getComputedStyle(node);
+        return {
+          background: computed.backgroundColor,
+          minHeight: parseFloat(computed.minHeight),
+          padding: parseFloat(computed.paddingLeft),
+        };
+      });
+      expect(styles.background).not.toBe("rgba(0, 0, 0, 0)");
+      expect(styles.minHeight).toBeGreaterThanOrEqual(40);
+      expect(styles.padding).toBeGreaterThan(4);
+
+      await confirm.click();
 
       await expect(page.getByTestId("tmw-identity-lock")).toContainText(/\S/, {
         timeout: 20_000,
@@ -417,11 +580,20 @@ test.describe("The $20 Showdown", () => {
       await expect(submit).toBeEnabled({ timeout: 30_000 });
 
       // THE TIMER DEFECT: a turn must never arrive already expired. The
-      // countdown is the server's, and it is close to a full window.
-      const clock = page.getByTestId("td-turn-clock");
+      // countdown is the server's, converted to a local monotonic deadline the
+      // instant the response lands, and it lives in `ArenaTimer` -- which also
+      // means a tick no longer rerenders the whole board.
+      const clock = page.getByTestId("td-timer-value");
       await expect(clock).toBeVisible();
       const seconds = Number((await clock.innerText()).replace(/\D/g, ""));
       expect(seconds).toBeGreaterThan(5);
+
+      // AND IT SAYS WHAT EXPIRY WILL COST, before it costs it. Four outcomes
+      // with genuinely different consequences; a countdown that does not name
+      // which is coming is a countdown a player cannot act on.
+      await expect(page.getByTestId("td-timer-consequence")).toContainText(
+        /market skip|automatic|concedes|for free/i,
+      );
 
       await submit.click();
 

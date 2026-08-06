@@ -46,6 +46,9 @@ export default function ShowdownResult({
   const winner = receipt.settlement?.winner_seat ?? null;
   const drawn = receipt.settlement?.outcome === "draw";
   const youWon = winner !== null && winner === yourSeat;
+  const totals = receipt.seats.map((seat) => seat.roster_total);
+  const margin =
+    totals.length === 2 ? Math.abs(totals[0] - totals[1]) : null;
 
   function nameOf(seat: number): string {
     return seat === yourSeat ? "You" : (seatNames[seat] ?? `Seat ${seat + 1}`);
@@ -68,6 +71,14 @@ export default function ShowdownResult({
               ? "Match complete"
               : `${nameOf(winner)} ${winner === yourSeat ? "win" : "wins"}`}
         </h2>
+        {/* THE MARGIN, NOT ONLY THE TOTALS (PART 20). Two numbers side by side
+            make a reader do the subtraction; a match decided by 0.4 and one
+            decided by 40 are different stories and should read differently. */}
+        {margin !== null ? (
+          <p className="td-result-margin" data-testid="td-result-margin">
+            {drawn ? "Level on PEAK3" : `by ${margin.toFixed(2)} PEAK3`}
+          </p>
+        ) : null}
         <p className="td-result-basis">
           Decided on the sum of five career-best 1Y PEAK3 seasons.
         </p>

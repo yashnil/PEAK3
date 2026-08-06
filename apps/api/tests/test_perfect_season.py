@@ -2292,6 +2292,35 @@ def test_public_leaderboard_read_works_and_is_sorted(leaderboard_client: TestCli
     assert wins == sorted(wins, reverse=True)
 
 
+def test_a_board_row_carries_the_public_receipt_for_its_run(leaderboard_client: TestClient):
+    """A row asserts a record and a score. `game_id` is what lets a reader check
+    it, and it is safe to publish for a reason that predates this: it is already
+    the share link every player sends, and
+    `GET /perfect-season/games/{game_id}/shared-result` deliberately takes no
+    identity because there is nothing there for ownership to protect."""
+    token = _mint_test_jwt("receipt-user")
+    _ensure_handle(leaderboard_client, token)
+    state = _play_full_scored_game_as(leaderboard_client, token, seed=909)
+    submitted = leaderboard_client.post(
+        f"/api/v1/perfect-season/games/{state['game_id']}/submit",
+        json={"game_id": state["game_id"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["game_id"] == state["game_id"]
+
+    board = leaderboard_client.get("/api/v1/perfect-season/leaderboard").json()
+    row = next(r for r in board["runs"] if r["game_id"] == state["game_id"])
+    # And the receipt it names actually resolves, publicly.
+    shared = leaderboard_client.get(
+        f"/api/v1/perfect-season/games/{row['game_id']}/shared-result"
+    )
+    assert shared.status_code == 200
+
+    # The one thing a public row must never carry.
+    assert "owner_sub" not in row
+
+
 def test_the_mode_written_is_the_mode_the_board_queries(leaderboard_client: TestClient):
     """A submitted run is found under the SAME canonical mode identifier it
     was written with, and is not found under a different one.

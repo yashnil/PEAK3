@@ -398,6 +398,37 @@ export function cellGrade(cell: ResultCell): CellGrade {
   return "weak";
 }
 
+/** What one square of the OPTIMAL board should say about the player's answer.
+ *
+ *  A different question from `cellGrade`, which reads the player's board and
+ *  asks how many points a square left behind. This reads the best legal grid
+ *  and asks whether the player already put that player-season there.
+ *
+ *  WHY IT IS NOT `matched_optimal`, WHICH IS THE OBVIOUS THING TO USE AND IS
+ *  WRONG HERE. `matched_optimal` is `points_left === 0`, and `points_left` is
+ *  `max(0, optimal - user)` — so it means "scored at least as much", not
+ *  "played the same person". Two consequences, both of which would put a wrong
+ *  label under a player's face:
+ *
+ *    * A square the player BEAT has `points_left === 0` and therefore
+ *      `matched_optimal === true`, while naming somebody else entirely.
+ *      Labelling that square "Matched" next to a different name reads as a bug.
+ *    * A square where a different player-season happened to score the same
+ *      is also `matched_optimal === true`. It is a real swap and the optimal
+ *      board really does use somebody else there.
+ *
+ *  So identity decides, and `beat_optimal` is checked first because it is the
+ *  more specific claim — a beaten square is always a different identity (equal
+ *  identities score equally, so `user_points > optimal_points` cannot hold).
+ */
+export type OptimalCellState = "matched" | "beat" | "replacement";
+
+export function optimalCellState(cell: ResultCell): OptimalCellState {
+  if (cell.beat_optimal) return "beat";
+  if (cell.user_player_season.id === cell.optimal_player_season.id) return "matched";
+  return "replacement";
+}
+
 /** Highest arena_points. Ties break on the square's `quality_points` (the
  *  locked season's own prime_score, which is where the score is revealed now
  *  that the card carries none), then reading order, so the recap is stable. */

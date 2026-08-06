@@ -729,13 +729,67 @@ def submit_action(
     return state, None, None
 
 
-def timeout_active_seat(state: dict, pool: Optional[CandidatePool] = None) -> dict:
-    """The clock expired on whoever was on it. Exactly a pass, for that seat only.
+#: What a timeout actually did, recorded on the action and published so the UI
+#: can say it in words. Four outcomes, four different consequences -- naming
+#: them is the whole point, because the reported defect was a player who could
+#: not tell which had happened to them.
+TIMEOUT_SKIP_USED = "skip_used"
+TIMEOUT_AUTO_OPEN = "auto_open"
+TIMEOUT_FREE_PASS = "free_pass"
+TIMEOUT_CONCEDED = "conceded"
 
-    Never a forfeit: a slow connection must not cost a roster slot. And never
-    applied to the other seat -- they were not on the clock, and a timeout that
-    passed both would resolve lots nobody actually declined. That was possible
-    in v1, where one shared deadline covered a simultaneous round.
+
+def timeout_outcome(state: dict, seat_index: int, pool: Optional[CandidatePool] = None) -> str:
+    """What an expiry WOULD do to this seat right now.
+
+    Published as its own function and projected, so the control can state the
+    consequence BEFORE the clock runs out -- "Timeout will use 1 market skip"
+    versus "Timeout concedes this auction" are different warnings and a player
+    is entitled to the right one. Computed from the live lot, so it is the same
+    answer `timeout_active_seat` will reach a moment later.
+    """
+    pool = pool or warm_pool()
+    if state.get("high_bidder") is not None or int(state.get("current_bid") or 0) > 0:
+        # A live auction. Stepping out is ordinary concession and always free.
+        return TIMEOUT_CONCEDED
+    if not pass_consumes_skip(state, seat_index, pool):
+        # Either the candidate cannot legally fit or the roster is done. There
+        # was no decision to make, so there is nothing to charge for.
+        return TIMEOUT_FREE_PASS
+    if market_skips(state, seat_index) > 0:
+        return TIMEOUT_SKIP_USED
+    return TIMEOUT_AUTO_OPEN
+
+
+def timeout_active_seat(state: dict, pool: Optional[CandidatePool] = None) -> dict:
+    """The clock expired on whoever was on it, for that seat only.
+
+    NEVER A FORFEIT, and never applied to the other seat -- they were not on
+    the clock, and a timeout that passed both would resolve lots nobody
+    actually declined. That was possible in v1, where one shared deadline
+    covered a simultaneous round.
+
+    WHAT AN EXPIRY COSTS, AND WHY IT NOW COSTS SOMETHING. A timeout used to be
+    a free pass in every situation, which produced the reported "I used a skip
+    and the counter still says five": a player who let the clock run on a
+    candidate they could have bought paid nothing, so the counter was correct
+    and inexplicable at the same time. Worse, it made waiting strictly better
+    than skipping -- the exact dominant-waiting strategy the skip economy
+    exists to remove -- because an expired clock declined a player for free
+    while pressing the button cost one.
+
+    The four outcomes, matching `timeout_outcome`:
+
+      * CONCEDED. A bid stands; stepping out of a live auction is free, exactly
+        as a deliberate pass is. Latency must never cost money.
+      * SKIP USED. Nothing bid, the candidate fits, skips remain: this is the
+        same decision as pressing Skip and is charged the same.
+      * AUTO OPEN. Nothing bid, the candidate fits, NO skips remain. Passing is
+        not a legal move in that position (`may_pass`), so the clock cannot
+        produce one; the seat opens at `MIN_OPENING_BID`, which the reserve
+        rule guarantees they are holding. A silent illegal pass here would have
+        been a rule the timeout path quietly broke.
+      * FREE PASS. No legal fit, or a finished roster. There was no decision.
     """
     pool = pool or warm_pool()
     if state["phase"] != PHASE_AUCTION:
@@ -743,17 +797,48 @@ def timeout_active_seat(state: dict, pool: Optional[CandidatePool] = None) -> di
     active = state.get("active_seat")
     if active is None:
         return state
-    _apply_pass(state, active, pool, timed_out=True)
+
+    outcome = timeout_outcome(state, active, pool)
+    if outcome == TIMEOUT_AUTO_OPEN:
+        value = rules.minimum_bid(int(state.get("current_bid") or 0))
+        _apply_bid(state, active, value, pool, timed_out=True)
+        return state
+    _apply_pass(
+        state,
+        active,
+        pool,
+        timed_out=True,
+        charge_skip=(outcome == TIMEOUT_SKIP_USED),
+    )
     return state
 
 
-def _apply_bid(state: dict, seat_index: int, value: int, pool: CandidatePool) -> None:
+def _apply_bid(
+    state: dict,
+    seat_index: int,
+    value: int,
+    pool: CandidatePool,
+    *,
+    timed_out: bool = False,
+) -> None:
     state["current_bid"] = value
     state["high_bidder"] = seat_index
     state["lot_bids"][seat_index] = value
     state["lot_actions"].append(
-        {"seat_index": seat_index, "action": COMMAND_BID, "amount": value}
+        {
+            "seat_index": seat_index,
+            "action": COMMAND_BID,
+            "amount": value,
+            # A BID THE CLOCK MADE, not the player. Recorded so the feed can say
+            # "Time expired -- automatic $1 opening bid" rather than showing an
+            # ordinary bid the player never chose to make.
+            "timed_out": bool(timed_out),
+            "auto_opened": bool(timed_out),
+        }
     )
+    if timed_out:
+        state.setdefault("lot_timeouts", [False] * len(state["seats"]))
+        state["lot_timeouts"][seat_index] = True
     nxt = _next_actor(state, (seat_index + 1) % len(state["seats"]))
     if nxt is None or nxt == seat_index:
         # Nobody live is left to answer. Brief rule 7: a seat that already
@@ -765,16 +850,26 @@ def _apply_bid(state: dict, seat_index: int, value: int, pool: CandidatePool) ->
 
 
 def _apply_pass(
-    state: dict, seat_index: int, pool: CandidatePool, *, timed_out: bool
+    state: dict,
+    seat_index: int,
+    pool: CandidatePool,
+    *,
+    timed_out: bool,
+    charge_skip: Optional[bool] = None,
 ) -> None:
     # CHARGED BEFORE THE PASS IS APPLIED, because `pass_consumes_skip` reads
     # the live lot -- once `passed` is set and the lot may resolve, the
     # conditions it tests have already moved.
     #
-    # A TIMEOUT IS NOT A VOLUNTARY SKIP. An expired clock is a lost connection
-    # or a distracted player, and charging it would make latency part of the
-    # strategy -- the same reason a timeout has never been a forfeit here.
-    charged = not timed_out and pass_consumes_skip(state, seat_index, pool)
+    # `charge_skip` lets the TIMEOUT path state the answer it already computed
+    # (`timeout_outcome`) rather than have it re-derived here from a state that
+    # has not moved yet but soon will. A deliberate pass passes None and the
+    # rule below decides, which is the only path that may charge implicitly.
+    charged = (
+        pass_consumes_skip(state, seat_index, pool)
+        if charge_skip is None
+        else bool(charge_skip)
+    )
     if charged:
         seat = state["seats"][seat_index]
         seat["market_skips"] = max(0, int(seat.get("market_skips", 0)) - 1)
@@ -1136,6 +1231,12 @@ def project(
         # a player can tell an ordinary concession (free) from a genuine skip.
         "pass_consumes_skip": pass_consumes_skip(state, seat_index, pool),
         "can_pass": may_pass(state, seat_index, pool),
+        # WHAT THE CLOCK WILL DO IF IT REACHES ZERO, named before it does.
+        # One of `skip_used` / `auto_open` / `free_pass` / `conceded`. The four
+        # have genuinely different costs, and a timer that counts down without
+        # saying which one is coming is the defect PART 16 names: "the timer
+        # does not clearly explain the consequence of expiration".
+        "timeout_outcome": timeout_outcome(state, seat_index, pool),
     }
 
     return public, private, legal_commands(state, seat_index, pool)

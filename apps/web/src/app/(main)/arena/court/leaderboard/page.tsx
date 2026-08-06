@@ -2,11 +2,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CalendarDays, Swords, Trophy } from "lucide-react";
-import { getLeaderboard, getDailyChallenge } from "@/lib/perfect-season-api";
-import { COURT_MODE_LABELS, CourtMode, DailyChallenge, PerfectSeasonRunPublic } from "@/types/perfect-season";
+import { getDailyChallenge } from "@/lib/perfect-season-api";
+import { DailyChallenge } from "@/types/perfect-season";
 import { EmptyState } from "@/components/ui";
-
-const MODES: CourtMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
+import PeakSeasonLeaderboard from "@/components/court/PeakSeasonLeaderboard";
 
 /**
  * Arena Leaderboards.
@@ -15,17 +14,19 @@ const MODES: CourtMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
  * mode's standing, not just 82-0's. What is actually real today, per
  * `SCORE_RECONCILIATION.md` §5, decides what each section shows:
  *
- *   - 82-0 ALL-TIME: real, functional (Phase 6G Part E). The table below,
- *     unchanged in substance from the page this replaces.
- *   - 82-0 DAILY: the leaderboard endpoint carries no field distinguishing a
- *     daily submission from a free-play one (`game_type` is a hardcoded
- *     literal, `"peak_season"`, for every row — verified against
- *     `apps/api/app/repositories/leaderboard_protocols.py:46`) and
- *     `SCORE_RECONCILIATION.md` §5 states outright that "82-0 is an all-time
- *     board per mode; no daily reset applies." So this section is NOT a
- *     second, fabricated leaderboard split the data cannot support — it is
- *     today's real daily-challenge status (`GET /perfect-season/daily`) and
- *     a link to play it, honestly labeled as what it is.
+ *   - 82-0: real, functional (Phase 6G Part E), and now a finished board
+ *     rather than a debug table — `PeakSeasonLeaderboard` owns the modes, the
+ *     all-time/today window, pagination, "Your best", the receipt link, and
+ *     the four states this page used to collapse into two. The collapse was
+ *     the defect: a `catch` here set `enabled = false`, so a connection
+ *     failure and a disabled capability rendered the identical sentence,
+ *     "The global leaderboard isn't enabled yet."
+ *   - 82-0 DAILY STATUS: NOT a second leaderboard. The board's own "Submitted
+ *     today" window is the same query filtered to the current application day
+ *     (`nba_peak.daily_key.day_start_utc`), which is all the data supports —
+ *     `SCORE_RECONCILIATION.md` §5: "82-0 is an all-time board per mode; no
+ *     daily reset applies." The section below is today's real daily-challenge
+ *     STATUS (`GET /perfect-season/daily`) and a link to play it.
  *   - RUN THE TABLE: deferred. SYNTHESIS_CONTRACT.md §9: "RTT deferred (its
  *     score contract is explicitly NOT defined this pass)." Said plainly,
  *     not silently omitted.
@@ -37,36 +38,7 @@ const MODES: CourtMode[] = ["apex_1y", "prime_3y", "foundation_5y"];
  * Entirely separate from the PEAK Index (`/rankings`), which is untouched.
  */
 export default function ArenaLeaderboardsPage() {
-  const [mode, setMode] = useState<CourtMode>("apex_1y");
-  const [runs, setRuns] = useState<PerfectSeasonRunPublic[] | null>(null);
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [loading, setLoading] = useState(true);
   const [daily, setDaily] = useState<DailyChallenge | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    // launch-polish IMPLEMENTATION_CONTRACT.md §7: no respin filter -- the
-    // "No-respin runs only" toggle that used to live here is removed, not
-    // defaulted off. Respins are normal Standard 82-0 play; a run that used
-    // one is still shown, with a "respins used" badge per row below (kept
-    // as metadata, same as before) rather than being hidden from the board.
-    getLeaderboard({ mode, limit: 50 })
-      .then((r) => {
-        if (cancelled) return;
-        setEnabled(r.leaderboard_enabled);
-        setRuns(r.runs);
-      })
-      .catch(() => {
-        if (!cancelled) setEnabled(false);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [mode]);
 
   // Today's daily status is read once, independent of the mode tabs above —
   // it answers "is there a daily to play right now," not "what did this
@@ -98,82 +70,24 @@ export default function ArenaLeaderboardsPage() {
       </div>
 
       {/* ---------------------------------------------------------------
-          82-0 ALL-TIME — the real, functional leaderboard.
+          82-0 — the real, functional leaderboard.
+
+          THE COMPONENT OWNS ITS OWN STATES. This page used to hold the runs,
+          the enabled flag and the loading flag itself, and its `catch` set
+          `enabled = false` -- so a network failure rendered "The global
+          leaderboard isn't enabled yet.", which is a sentence about
+          configuration told to somebody with a connection problem. Loading,
+          disabled, failed and empty are now four states with four different
+          next actions, and retry retries rather than meaning "reload the page".
           --------------------------------------------------------------- */}
       <section className="flex flex-col gap-3" aria-labelledby="leaderboard-82-0-heading">
         <div className="flex items-center gap-2">
           <Trophy size={16} aria-hidden="true" style={{ color: "var(--peak-accent-text)" }} />
           <h2 id="leaderboard-82-0-heading" className="text-sm font-bold uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
-            82-0 · All-Time
+            82-0 · PEAK Season
           </h2>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {MODES.map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className="text-xs font-semibold uppercase tracking-wide rounded-full px-3 py-1.5"
-              style={
-                m === mode
-                  ? { background: "var(--peak-accent, #f5c842)", color: "var(--text-inverse)" }
-                  : { background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }
-              }
-            >
-              {COURT_MODE_LABELS[m] ?? m}
-            </button>
-          ))}
-        </div>
-
-        {enabled === false && (
-          <div className="rounded-lg p-4 text-sm text-center" style={{ background: "var(--bg-surface)", color: "var(--text-muted)" }}>
-            The global leaderboard isn&apos;t enabled yet.
-          </div>
-        )}
-
-        {enabled && !loading && runs && runs.length === 0 && (
-          <div className="rounded-lg p-4 text-sm text-center" style={{ background: "var(--bg-surface)", color: "var(--text-muted)" }}>
-            No runs submitted yet for this mode.
-          </div>
-        )}
-
-        {enabled && runs && runs.length > 0 && (
-          <div data-testid="leaderboard-table" className="rounded-xl overflow-hidden border" style={{ borderColor: "var(--border-default)" }}>
-            {runs.map((r, i) => (
-              <div
-                key={r.id}
-                data-testid="leaderboard-row"
-                className="flex items-center justify-between px-3 py-2 text-sm"
-                style={{
-                  background: i % 2 === 0 ? "var(--bg-surface)" : "var(--bg-elevated)",
-                  color: "var(--text-primary)",
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-6 text-right font-mono text-xs" style={{ color: "var(--text-muted)" }}>
-                    {i + 1}
-                  </span>
-                  <span className="font-semibold">{r.display_name}</span>
-                  {(r.team_respins_used > 0 || r.season_respins_used > 0) && (
-                    <span
-                      className="text-[9px] uppercase font-semibold rounded px-1.5 py-0.5"
-                      style={{ background: "var(--pk-surface-inset, var(--bg-elevated))", color: "var(--text-muted)" }}
-                      title={`${r.team_respins_used} team respins, ${r.season_respins_used} season respins`}
-                    >
-                      respins used
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-secondary)" }}>
-                  <span className="font-bold" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
-                    {r.wins}-{r.losses}
-                  </span>
-                  <span>{r.lineup_score.toFixed(1)} score</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <PeakSeasonLeaderboard />
       </section>
 
       {/* ---------------------------------------------------------------

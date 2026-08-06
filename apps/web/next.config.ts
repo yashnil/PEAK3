@@ -118,6 +118,15 @@ function assertDeployableEnv() {
 }
 
 const nextConfig: NextConfig = {
+  // NEXT'S DEV INDICATOR IS OFF.
+  //
+  // It is a floating disc at the bottom-left of every dev-server page. The
+  // UX-polish capture pass found it sitting on top of product content in five
+  // of thirty-eight review screenshots -- a component icon, a section heading,
+  // a component bar at 390px -- and a review frame showing a development
+  // overlay is not evidence of what ships. No effect on a production build,
+  // where it never renders at all.
+  devIndicators: false,
   async headers() {
     return [
       {

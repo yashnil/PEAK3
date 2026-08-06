@@ -562,9 +562,25 @@
 /* ---------------------------------------------------------------------------
    NBA Fact of the Day.
 
-   Sits between the hero and the game catalogue. Compact by design: one
-   paragraph and two controls, so it reads as a reason to come back rather than
-   as a section competing with the games below it.
+   WHAT THIS REPLACES. A heading, two tiny tags, one paragraph, and — as the
+   card's most prominent interaction — a `<details>` reading "Show source rows"
+   that opened a four-column table of (player, season, team, games). Two
+   findings in the manual review, one cause between them: "visually weak" and
+   "too dull to deserve homepage prominence". The design was one type size and
+   one call to action, and the call to action was an invitation to audit it.
+
+   THE CARD NOW HAS A FOCAL POINT. Every published fact carries a `feature` --
+   the number, name or date it turns on -- and that is set large against a
+   court-line motif on the left, with the headline and its supporting sentence
+   beside it. Three type sizes instead of one, and something to look at.
+
+   EVERY SOURCE-ROW RULE IS DELETED, not hidden. `.fotd-evidence`,
+   `.fotd-source`, `.fotd-provenance` and the disclosure-marker rules are gone
+   because the markup is gone; the rows themselves are still in the payload and
+   still re-derived by the model tests.
+
+   THE MOTIF IS `currentColor`. Light and dark are one declaration rather than a
+   media query somebody has to remember to update.
    --------------------------------------------------------------------------- */
 
 .fotd {
@@ -576,12 +592,26 @@
   max-width: 64rem;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.9rem 1.1rem;
+  gap: 0.75rem;
+  padding: 1.15rem 1.35rem;
   border: 1px solid var(--border-subtle);
   border-left: 3px solid var(--peak-accent);
-  border-radius: 0.6rem;
+  border-radius: 0.75rem;
   background: var(--bg-elevated);
+  /* A TASTEFUL ENTRANCE, AND IT MOVES ONLY THE PANEL. Never `opacity` on a
+     container: that applies to every descendant and drags text below AA
+     mid-transition, which is the exact contrast defect an earlier pass in this
+     repository had to chase down three times. This translates. */
+  animation: fotd-rise 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+@keyframes fotd-rise {
+  from { transform: translateY(6px); }
+  to { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fotd-inner { animation: none; }
 }
 
 .fotd-head {
@@ -602,11 +632,12 @@
 
 .fotd-tags {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.3rem;
 }
 
 .fotd-tag {
-  padding: 0.1rem 0.4rem;
+  padding: 0.1rem 0.45rem;
   border-radius: 0.25rem;
   border: 1px solid var(--border-subtle);
   font-size: 0.5625rem;
@@ -616,10 +647,134 @@
   color: var(--text-muted);
 }
 
-.fotd-text {
-  font-size: clamp(0.9rem, 2.2vw, 1.05rem);
-  line-height: 1.5;
+.fotd-body {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+/* THE FOCAL POINT. Fixed-width so the copy beside it starts at the same place
+   whatever the featured value is -- a card whose text origin moved with the
+   length of a number would flicker between days. */
+.fotd-feature {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  width: 8.5rem;
+  min-height: 6.25rem;
+  padding: 0.5rem;
+  color: var(--peak-accent-text);
+}
+
+.fotd-motif {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Low enough to sit behind the value, high enough to be visible in both
+     themes. It carries no text, so opacity here costs no contrast. */
+  opacity: 0.16;
+  pointer-events: none;
+  /* AND IT FADES WHERE THE LABEL IS. The motif's densest region — the top edge
+     of the key, and the arc crossing it — sits at exactly the height a
+     two-line `feature_label` occupies, and that label is 9px uppercase at
+     0.12em tracking in `--text-muted`. A one-line label ("first-place votes")
+     cleared it; "straight titles, from the start" was read through the
+     rectangle and the arc at once, in both themes.
+
+     A mask rather than a smaller motif or a shorter label: the composition is
+     a number standing on a court, and cropping the court to avoid the text
+     would lose the thing the frame is for. The lower band drops to a quarter
+     strength rather than to nothing, so the baseline and the key are still
+     there — just no longer competing with type at the size type stops
+     winning. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 58%,
+    rgb(0 0 0 / 25%) 74%,
+    rgb(0 0 0 / 25%) 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    #000 0%,
+    #000 58%,
+    rgb(0 0 0 / 25%) 74%,
+    rgb(0 0 0 / 25%) 100%
+  );
+}
+
+.fotd-feature-value {
+  position: relative;
+  font-family: var(--font-display, inherit);
+  font-size: clamp(1.5rem, 1rem + 2.2vw, 2.25rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.fotd-feature-label {
+  position: relative;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.fotd-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.fotd-headline {
+  font-family: var(--font-display, inherit);
+  font-size: clamp(1.05rem, 0.9rem + 1vw, 1.375rem);
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
+  text-wrap: balance;
+}
+
+.fotd-support {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* A phone gets the motif above the copy rather than beside it: at 390px a
+   fixed 8.5rem column leaves the headline about eleven characters wide. */
+@media (max-width: 40rem) {
+  .fotd-body {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .fotd-feature {
+    width: 100%;
+    min-height: 5rem;
+    align-items: flex-start;
+    padding-left: 0;
+  }
+  .fotd-feature-value,
+  .fotd-feature-label {
+    text-align: left;
+  }
+  .fotd-motif {
+    width: 7rem;
+    left: auto;
+    right: 0;
+  }
 }
 
 .fotd-actions {
@@ -628,106 +783,21 @@
   gap: 0.75rem;
 }
 
-/* THE DISCLOSURE IS NATIVE `<details>`, so the open/closed state is the
-   browser's and there is no hydration window in which the control is inert.
-   These rules only make a `<summary>` look like the control it replaced. */
-.fotd-source,
 .fotd-link {
   font-size: 0.6875rem;
   font-weight: 700;
   color: var(--text-secondary);
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-.fotd-source {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  width: fit-content;
-  cursor: pointer;
-  /* The default UA marker is replaced with one that follows the accent, but
-     the element keeps its native disclosure semantics either way. */
-  list-style: none;
-}
-
-.fotd-source::-webkit-details-marker {
-  display: none;
-}
-
-.fotd-source::before {
-  content: "";
-  width: 0;
-  height: 0;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid currentColor;
-  transition: transform 120ms ease;
-}
-
-.fotd-details[open] > .fotd-source::before {
-  transform: rotate(90deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fotd-source::before {
-    transition: none;
-  }
-}
-
-/* The label follows the state without a hook. `display: none` also removes the
-   inactive text from the accessibility tree, so the summary's accessible name
-   is exactly one of the two. */
-.fotd-source-open,
-.fotd-details[open] > .fotd-source .fotd-source-closed {
-  display: none;
-}
-
-.fotd-details[open] > .fotd-source .fotd-source-open {
-  display: inline;
-}
-
-.fotd-source:hover,
 .fotd-link:hover,
-.fotd-source:focus-visible,
 .fotd-link:focus-visible {
   color: var(--peak-accent-text);
 }
 
-.fotd-source:focus-visible {
+.fotd-link:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   border-radius: 0.2rem;
-}
-
-.fotd-evidence {
-  width: 100%;
-  margin-top: 0.4rem;
-  border-collapse: collapse;
-  font-size: 0.6875rem;
-}
-
-.fotd-evidence caption {
-  text-align: left;
-  padding-bottom: 0.25rem;
-  font-size: 0.625rem;
-  color: var(--text-muted);
-}
-
-.fotd-evidence th,
-.fotd-evidence td {
-  padding: 0.2rem 0.35rem;
-  border-bottom: 1px solid var(--divider-strong);
-  text-align: left;
-  color: var(--text-secondary);
-}
-
-.fotd-evidence thead th {
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-.fotd-provenance {
-  margin-top: 0.3rem;
-  font-size: 0.5625rem;
-  color: var(--text-muted);
 }

@@ -569,6 +569,7 @@ def _run_to_public(run: PerfectSeasonRun) -> PerfectSeasonRunPublic:
         display_name=run.display_name,
         mode=run.mode,
         game_type=run.game_type,
+        game_id=run.game_id,
         seed=run.seed,
         wins=run.wins,
         losses=run.losses,

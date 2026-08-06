@@ -29,20 +29,22 @@ index taken from the request. There is no route here that accepts a
 client-supplied seat index on a mutation, so possessing a match id is worth a
 403 and nothing more.
 
-WHY EVERY ROUTE REQUIRES A REAL ACCOUNT
-----------------------------------------
+WHY EVERY ROUTE THAT INVOLVES ANOTHER PERSON REQUIRES A REAL ACCOUNT
+-------------------------------------------------------------------
 Unlike RUN THE TABLE and Peak Duel Daily, whose owners are usually anon-cookie
-subjects, every seat here is a Supabase `auth.uid()`. An anon subject can be
-discarded by clearing a cookie, and in a three-seat match that means abandoning
-two other people mid-clock -- and, in a public match, walking away from a rated
-result. Head-to-head made the identical call for the identical reason
-(`head_to_head_protocols.py:60-65`: "a head-to-head that one side could win by
-clearing their cookies is not a head-to-head").
+subjects, a seat in a shared match is a Supabase `auth.uid()`. An anon subject
+can be discarded by clearing a cookie, and in a three-seat match that means
+abandoning two other people mid-clock -- and, in a public match, walking away
+from a rated result. Head-to-head made the identical call for the identical
+reason (`head_to_head_protocols.py:60-65`: "a head-to-head that one side could
+win by clearing their cookies is not a head-to-head").
 
-Practice is the one path where this could later be relaxed, since it involves
-nobody else. It is NOT relaxed here: a practice match still writes durable rows
-and still needs an owner that survives a cookie clear, and one identity rule for
-the whole subsystem is easier to reason about than three.
+PRACTICE IS THE ONE PATH WHERE THAT ARGUMENT DOES NOT APPLY, because it involves
+nobody else -- and it is now relaxed, but only under a switch a deployed API
+cannot hold. See "Identity" below: `ARENA_ANONYMOUS_PRACTICE_ENABLED` is refused
+at startup outside DEBUG, so hosted authorization is unchanged by construction
+rather than by convention. The queue, private rooms, match history and ratings
+still require an account in every configuration.
 
 THE CLOCK RUNS ON READS, NOT JUST WRITES
 -----------------------------------------
@@ -54,12 +56,13 @@ why lazy enforcement is sufficient and why the alternative was rejected.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response
 
-from app.core.auth import RequiredAuth
+from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, resolve_owner_sub
 from app.core.config import settings
 from app.core.dependencies import ArenaRatingRepoDep, ArenaRepoDep, ProfileRepoDep
 from app.core.rate_limit import RateLimitRule, client_key, limiter
@@ -126,9 +129,99 @@ def _require_enabled() -> None:
         )
 
 
-def _require_access(auth: RequiredAuth) -> None:
+# ---------------------------------------------------------------------------
+# Identity
+#
+# WHY THIS EXISTS ALONGSIDE `_require_access`, AND WHAT IT DOES NOT CHANGE.
+#
+# Every route here required a real Supabase `auth.uid()`, for the reason at the
+# top of this file: an anon subject can be discarded by clearing a cookie, and
+# in a three-seat match that means abandoning two other people mid-clock. That
+# argument is exactly correct for the queue, for private rooms, for ratings and
+# for match history. It has never applied to PRACTICE, which involves nobody
+# else, and this file's own docstring already said so.
+#
+# The consequence was not theoretical. Reviewing bot practice on a laptop
+# required a hosted Supabase project, so the local Multiplayer page could not be
+# played at all -- which is one half of why the review found it walled off.
+#
+# So identity now has THREE kinds rather than two:
+#
+#   account            a verified Supabase JWT for a real user. Unchanged: the
+#                      allowlist applies, every route is open to it.
+#   supabase_anonymous a verified JWT from a Supabase ANONYMOUS session. Refused
+#                      everywhere, exactly as before.
+#   local_practice     the same signed `peak3_anon` cookie RUN THE TABLE,
+#                      CourtBuilder and Daily Grid already own their guests
+#                      with. Reachable ONLY when
+#                      `ARENA_ANONYMOUS_PRACTICE_ENABLED` is set, which config
+#                      refuses to accept outside DEBUG -- so a deployed API
+#                      cannot mint one.
+#
+# The third kind may start a practice match and act inside a match it holds a
+# seat in. It may not queue, open or join a room, read match history, or touch
+# ratings. And it cannot widen access to anyone else's match: every
+# match-scoped route still goes through `_seat_or_403`, which reads the caller's
+# seat row and never a field of the request.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ArenaIdentity:
+    sub: str
+    kind: Literal["account", "supabase_anonymous", "local_practice"]
+
+    @property
+    def is_account(self) -> bool:
+        return self.kind == "account"
+
+
+async def arena_identity(
+    response: Response,
+    auth: OptionalAuth,
+    peak3_anon: Optional[str] = Cookie(None, alias=ANON_COOKIE_NAME),
+) -> ArenaIdentity:
+    """The caller, as one of the three kinds above.
+
+    A MISSING TOKEN IS STILL A 401 unless local practice is enabled, so this is
+    `RequiredAuth` in every configuration a deployment can have.
+    """
+    if auth is not None:
+        return ArenaIdentity(
+            sub=auth.sub,
+            kind="supabase_anonymous" if auth.is_anonymous else "account",
+        )
+    if settings.ARENA_ANONYMOUS_PRACTICE_ENABLED:
+        # Mints and sets the signed cookie when the caller has none -- the same
+        # shared path every other guest-friendly route in this API uses.
+        sub = resolve_owner_sub(None, peak3_anon, response, settings.SIGNING_SECRET)
+        return ArenaIdentity(sub=sub, kind="local_practice")
+    raise HTTPException(
+        status_code=401,
+        detail={
+            "error_code": "authentication_required",
+            "message": (
+                "You are not signed in, or your session has expired. "
+                "Sign in again to continue."
+            ),
+        },
+    )
+
+
+ArenaAuth = Annotated[ArenaIdentity, Depends(arena_identity)]
+
+
+def _require_practice_access(identity: ArenaIdentity) -> None:
+    """Gate for starting practice, and for acting inside a match you hold.
+
+    A local-practice subject is admitted here and nowhere else. An account is
+    checked against the alpha allowlist exactly as `_require_access` does; a
+    Supabase anonymous session is refused exactly as it was.
+    """
     _require_enabled()
-    if auth.is_anonymous:
+    if identity.kind == "local_practice":
+        return
+    if identity.kind == "supabase_anonymous":
         raise HTTPException(
             status_code=403,
             detail=_error(
@@ -136,7 +229,35 @@ def _require_access(auth: RequiredAuth) -> None:
             ),
         )
     allowlist = settings.ARENA_ALPHA_ALLOWLIST
-    if allowlist and auth.sub not in allowlist:
+    if allowlist and identity.sub not in allowlist:
+        raise HTTPException(
+            status_code=403,
+            detail=_error(
+                "The Arena is in closed alpha; this account is not on the allowlist.",
+                "not_in_alpha_allowlist",
+            ),
+        )
+
+
+def _require_account_access(identity: ArenaIdentity) -> None:
+    """Gate for everything that is not practice: the queue, rooms, history.
+
+    Identical in effect to `_require_access`, expressed against the identity
+    type so a local-practice subject is refused with the SAME code a Supabase
+    anonymous session gets -- "this needs an account" is the true answer for
+    both, and inventing a second code would make the client branch on a
+    distinction the player does not have.
+    """
+    _require_enabled()
+    if not identity.is_account:
+        raise HTTPException(
+            status_code=403,
+            detail=_error(
+                "The Arena requires a signed-in account.", "arena_requires_account"
+            ),
+        )
+    allowlist = settings.ARENA_ALPHA_ALLOWLIST
+    if allowlist and identity.sub not in allowlist:
         raise HTTPException(
             status_code=403,
             detail=_error(
@@ -348,12 +469,19 @@ async def readiness() -> ArenaReadinessResponse:
 @router.post(f"{BASE}/matches/practice", response_model=ArenaMatchView)
 async def start_practice(
     body: CreateMatchRequest,
-    auth: RequiredAuth,
+    identity: ArenaAuth,
     repo: ArenaRepoDep,
     profile_repo: ProfileRepoDep,
 ) -> ArenaMatchView:
-    """Practice against bots. Starts immediately. Always UNRATED."""
-    _require_access(auth)
+    """Practice against bots. Starts immediately. Always UNRATED.
+
+    THE ONE ENTRY PATH A LOCAL-PRACTICE SUBJECT MAY USE. Nobody else is seated,
+    nothing is rated, and no other player's match can be reached from here --
+    the match id it returns is the only one that subject will ever hold a seat
+    in. See "Identity" above for why that is a different question from the one
+    the queue and private rooms answer.
+    """
+    _require_practice_access(identity)
     if not settings.ARENA_BOTS_ENABLED:
         # Practice IS a bot match; with bots off there is nothing to start.
         raise HTTPException(
@@ -361,28 +489,28 @@ async def start_practice(
             detail=_error("Bot practice is not currently enabled.", "bots_disabled"),
         )
     mode = _mode_or_404(body.mode)
-    name = await _display_name(profile_repo, auth.sub)
-    match = await mm.start_practice(repo, mode, auth.sub, name, _now())
-    seat = await repo.get_seat_for_sub(match.match_id, auth.sub)
+    name = await _display_name(profile_repo, identity.sub)
+    match = await mm.start_practice(repo, mode, identity.sub, name, _now())
+    seat = await repo.get_seat_for_sub(match.match_id, identity.sub)
     return await _build_view(repo, mode, match, seat)
 
 
 @router.post(f"{BASE}/matches/private", response_model=ArenaMatchView)
 async def create_private(
     body: CreateMatchRequest,
-    auth: RequiredAuth,
+    identity: ArenaAuth,
     repo: ArenaRepoDep,
     profile_repo: ProfileRepoDep,
 ) -> ArenaMatchView:
     """Open a private room. Always UNRATED, and never auto-filled with bots."""
-    _require_access(auth)
+    _require_account_access(identity)
     mode = _mode_or_404(body.mode)
-    name = await _display_name(profile_repo, auth.sub)
+    name = await _display_name(profile_repo, identity.sub)
     try:
-        match = await mm.create_private_room(repo, mode, auth.sub, name, _now())
+        match = await mm.create_private_room(repo, mode, identity.sub, name, _now())
     except SeatUnavailable as exc:
         raise HTTPException(status_code=503, detail=_error(str(exc), "room_unavailable"))
-    seat = await repo.get_seat_for_sub(match.match_id, auth.sub)
+    seat = await repo.get_seat_for_sub(match.match_id, identity.sub)
     return await _build_view(repo, mode, match, seat)
 
 
@@ -390,7 +518,7 @@ async def create_private(
 async def join_private(
     body: JoinRoomRequest,
     request: Request,
-    auth: RequiredAuth,
+    identity: ArenaAuth,
     repo: ArenaRepoDep,
     profile_repo: ProfileRepoDep,
 ) -> ArenaMatchView:
@@ -401,7 +529,7 @@ async def join_private(
     into a second seat -- the storage layer's uniqueness refuses that, not an
     if-statement here.
     """
-    _require_access(auth)
+    _require_account_access(identity)
     _limit_room_joins(request)
     code = body.room_code.strip().upper()
     existing = await repo.find_match_by_room_code(code)
@@ -411,24 +539,24 @@ async def join_private(
             detail=_error("No open room with that code.", "room_not_found"),
         )
     mode = _mode_or_404(existing.mode)
-    name = await _display_name(profile_repo, auth.sub)
+    name = await _display_name(profile_repo, identity.sub)
     try:
-        match = await mm.join_private_room(repo, mode, code, auth.sub, name, _now())
+        match = await mm.join_private_room(repo, mode, code, identity.sub, name, _now())
     except SeatUnavailable as exc:
         raise HTTPException(status_code=409, detail=_error(str(exc), "seat_unavailable"))
-    seat = await repo.get_seat_for_sub(match.match_id, auth.sub)
+    seat = await repo.get_seat_for_sub(match.match_id, identity.sub)
     return await _build_view(repo, mode, match, seat)
 
 
 @router.post(f"{BASE}/queue/{{mode}}/join", response_model=QueueStatusResponse)
 async def join_queue(
     mode: str,
-    auth: RequiredAuth,
+    identity: ArenaAuth,
     repo: ArenaRepoDep,
     profile_repo: ProfileRepoDep,
 ) -> QueueStatusResponse:
     """Join the public queue. Matches created from it are RATED."""
-    _require_access(auth)
+    _require_account_access(identity)
     if not settings.ARENA_PUBLIC_QUEUE_ENABLED:
         raise HTTPException(
             status_code=403,
@@ -437,14 +565,14 @@ async def join_queue(
     mode_impl = _mode_or_404(mode)
     now = _now()
     try:
-        entry = await mm.join_queue(repo, mode_impl, auth.sub, now)
+        entry = await mm.join_queue(repo, mode_impl, identity.sub, now)
     except ActiveQueueEntryExists as exc:
         raise HTTPException(
             status_code=409, detail=_error(str(exc), "already_in_queue")
         )
 
-    name = await _display_name(profile_repo, auth.sub)
-    match = await mm.try_match(repo, mode_impl, entry, {auth.sub: name}, now)
+    name = await _display_name(profile_repo, identity.sub)
+    match = await mm.try_match(repo, mode_impl, entry, {identity.sub: name}, now)
     if match is not None:
         return QueueStatusResponse(status="matched", mode=mode, match_id=match.match_id)
     return QueueStatusResponse(
@@ -456,19 +584,19 @@ async def join_queue(
 @router.get(f"{BASE}/queue/{{mode}}/status", response_model=QueueStatusResponse)
 async def queue_status(
     mode: str,
-    auth: RequiredAuth,
+    identity: ArenaAuth,
     repo: ArenaRepoDep,
     profile_repo: ProfileRepoDep,
 ) -> QueueStatusResponse:
     """Poll while waiting. This is also where a lapsed window turns into a bot
     fill -- the waiting player's own poll is what completes their match, which
     is the same lazy discipline the clock uses and for the same reason."""
-    _require_access(auth)
+    _require_account_access(identity)
     mode_impl = _mode_or_404(mode)
     now = _now()
-    entry = await repo.get_queue_entry(auth.sub, mode)
+    entry = await repo.get_queue_entry(identity.sub, mode)
     if entry is None:
-        for m in await repo.list_matches_for_sub(auth.sub, limit=5):
+        for m in await repo.list_matches_for_sub(identity.sub, limit=5):
             if m.mode == mode and m.is_live():
                 return QueueStatusResponse(
                     status="matched", mode=mode, match_id=m.match_id
@@ -476,8 +604,8 @@ async def queue_status(
         return QueueStatusResponse(status="not_in_queue", mode=mode)
 
     if settings.ARENA_PUBLIC_QUEUE_ENABLED:
-        name = await _display_name(profile_repo, auth.sub)
-        match = await mm.try_match(repo, mode_impl, entry, {auth.sub: name}, now)
+        name = await _display_name(profile_repo, identity.sub)
+        match = await mm.try_match(repo, mode_impl, entry, {identity.sub: name}, now)
         if match is not None:
             return QueueStatusResponse(
                 status="matched", mode=mode, match_id=match.match_id
@@ -599,7 +727,7 @@ def _require_bots_enabled() -> None:
 @router.post(f"{BASE}/queue/{{mode}}/fill-now", response_model=QueueStatusResponse)
 async def fill_queue_now(
     mode: str,
-    auth: RequiredAuth,
+    identity: ArenaAuth,
     repo: ArenaRepoDep,
     profile_repo: ProfileRepoDep,
 ) -> QueueStatusResponse:
@@ -622,14 +750,14 @@ async def fill_queue_now(
     button must not change what the match is worth, or the button becomes a way
     to farm unrated matches out of a rated queue.
     """
-    _require_access(auth)
+    _require_account_access(identity)
     _require_bots_enabled()
     mode_impl = _mode_or_404(mode)
     now = _now()
 
-    name = await _display_name(profile_repo, auth.sub)
+    name = await _display_name(profile_repo, identity.sub)
     match = await mm.fill_queue_with_bots_now(
-        repo, mode_impl, auth.sub, {auth.sub: name}, now
+        repo, mode_impl, identity.sub, {identity.sub: name}, now
     )
     if match is not None:
         return QueueStatusResponse(status="matched", mode=mode, match_id=match.match_id)
@@ -639,7 +767,7 @@ async def fill_queue_now(
     # `queue_status` resolves a vanished entry rather than with a second
     # bookkeeping mechanism -- which is also what makes a double-click return
     # the FIRST match instead of seating a second set of bots.
-    for m in await repo.list_matches_for_sub(auth.sub, limit=5):
+    for m in await repo.list_matches_for_sub(identity.sub, limit=5):
         if m.mode == mode and m.is_live():
             return QueueStatusResponse(status="matched", mode=mode, match_id=m.match_id)
     return QueueStatusResponse(status="not_in_queue", mode=mode)
@@ -648,7 +776,7 @@ async def fill_queue_now(
 @router.post(f"{BASE}/matches/{{match_id}}/fill-bots", response_model=ArenaMatchView)
 async def fill_room_with_bots(
     match_id: str,
-    auth: RequiredAuth,
+    identity: ArenaAuth,
     repo: ArenaRepoDep,
     profile_repo: ProfileRepoDep,
 ) -> ArenaMatchView:
@@ -669,7 +797,7 @@ async def fill_room_with_bots(
     a host-filled room is the same private room with its seats resolved, not a
     fourth way into the arena.
     """
-    _require_access(auth)
+    _require_account_access(identity)
     _require_bots_enabled()
     match = await _match_or_404(repo, match_id)
 
@@ -681,7 +809,7 @@ async def fill_room_with_bots(
                 "not_a_private_room",
             ),
         )
-    if match.created_by != auth.sub:
+    if match.created_by != identity.sub:
         # 403 and not 404: the caller may well be a guest who legitimately holds
         # a seat here, so "this is not yours to do" is the honest answer rather
         # than pretending the room does not exist.
@@ -696,7 +824,7 @@ async def fill_room_with_bots(
     mode_impl = _mode_or_404(match.mode)
     try:
         match = await mm.fill_private_room_with_bots(
-            repo, mode_impl, match, auth.sub, _now()
+            repo, mode_impl, match, identity.sub, _now()
         )
     except SeatUnavailable as exc:
         # Also what a double-click gets: the first press consumed the seats.
@@ -704,14 +832,14 @@ async def fill_room_with_bots(
             status_code=409, detail=_error(str(exc), "no_empty_seats")
         )
 
-    _, seat = await _seat_or_403(repo, match_id, auth.sub)
+    _, seat = await _seat_or_403(repo, match_id, identity.sub)
     return await _build_view(repo, mode_impl, match, seat)
 
 
 @router.post(f"{BASE}/queue/{{mode}}/cancel")
-async def cancel_queue(mode: str, auth: RequiredAuth, repo: ArenaRepoDep) -> dict:
-    _require_access(auth)
-    return {"cancelled": await repo.cancel_queue_entry(auth.sub, mode)}
+async def cancel_queue(mode: str, identity: ArenaAuth, repo: ArenaRepoDep) -> dict:
+    _require_account_access(identity)
+    return {"cancelled": await repo.cancel_queue_entry(identity.sub, mode)}
 
 
 # ---------------------------------------------------------------------------
@@ -720,9 +848,9 @@ async def cancel_queue(mode: str, auth: RequiredAuth, repo: ArenaRepoDep) -> dic
 
 
 @router.get(f"{BASE}/matches", response_model=MatchHistoryResponse)
-async def list_matches(auth: RequiredAuth, repo: ArenaRepoDep) -> MatchHistoryResponse:
-    _require_access(auth)
-    matches = await repo.list_matches_for_sub(auth.sub, limit=20)
+async def list_matches(identity: ArenaAuth, repo: ArenaRepoDep) -> MatchHistoryResponse:
+    _require_account_access(identity)
+    matches = await repo.list_matches_for_sub(identity.sub, limit=20)
     return MatchHistoryResponse(
         matches=[
             MatchSummary(
@@ -738,7 +866,7 @@ async def list_matches(auth: RequiredAuth, repo: ArenaRepoDep) -> MatchHistoryRe
 @router.get(f"{BASE}/matches/{{match_id}}", response_model=ArenaMatchView)
 async def get_match(
     match_id: str,
-    auth: RequiredAuth,
+    identity: ArenaAuth,
     repo: ArenaRepoDep,
     rating_repo: ArenaRatingRepoDep,
 ) -> ArenaMatchView:
@@ -748,9 +876,14 @@ async def get_match(
     client needs to render is here, and `state_version` is what it echoes back
     on its next command. A future Supabase Broadcast hint would trigger exactly
     this call and change nothing else.
+
+    `_require_practice_access` rather than the account gate, because THE GATE ON
+    THIS ROUTE HAS ALWAYS BEEN `_seat_or_403`: it reads the caller's seat row and
+    never a field of the request, so a caller who holds no seat gets a 403 here
+    regardless of what kind of identity they carry.
     """
-    _require_access(auth)
-    match, seat = await _seat_or_403(repo, match_id, auth.sub)
+    _require_practice_access(identity)
+    match, seat = await _seat_or_403(repo, match_id, identity.sub)
     mode = mode_registry.get(match.mode) if mode_registry.has(match.mode) else None
     match = await _advance(repo, mode, match_id, rating_repo)
     await repo.touch_seat(match_id, seat.seat_index, _now())
@@ -761,7 +894,7 @@ async def get_match(
 async def submit_command(
     match_id: str,
     body: SubmitCommandRequest,
-    auth: RequiredAuth,
+    identity: ArenaAuth,
     repo: ArenaRepoDep,
     rating_repo: ArenaRatingRepoDep,
 ) -> SubmitCommandResponse:
@@ -775,9 +908,12 @@ async def submit_command(
     The clock runs FIRST. A command that arrives after its turn expired must lose
     to the timeout rather than beat it by virtue of being the request that
     happened to trigger the sweep.
+
+    Seat-gated, so the practice gate is sufficient here for the same reason it is
+    on the poll: `actor_seat_index` comes off the seat row, never off the body.
     """
-    _require_access(auth)
-    match, seat = await _seat_or_403(repo, match_id, auth.sub)
+    _require_practice_access(identity)
+    match, seat = await _seat_or_403(repo, match_id, identity.sub)
 
     try:
         validate_client_command(body.command_type)
@@ -795,7 +931,7 @@ async def submit_command(
         idempotency_key=body.idempotency_key,
         command_type=body.command_type,
         payload=body.payload,
-        actor_sub=auth.sub,
+        actor_sub=identity.sub,
         # From the SEAT ROW, never from the request. There is no request field
         # that can disagree.
         actor_seat_index=seat.seat_index,
@@ -822,7 +958,7 @@ async def submit_command(
 @router.get(f"{BASE}/matches/{{match_id}}/events", response_model=ArenaEventsResponse)
 async def get_events(
     match_id: str,
-    auth: RequiredAuth,
+    identity: ArenaAuth,
     repo: ArenaRepoDep,
     after_seq: int = Query(-1, ge=-1),
     limit: int = Query(200, ge=1, le=500),
@@ -833,8 +969,8 @@ async def get_events(
     None on this path -- None is the server view and returns 'server'-visibility
     rows, which no client may see.
     """
-    _require_access(auth)
-    _match, seat = await _seat_or_403(repo, match_id, auth.sub)
+    _require_practice_access(identity)
+    _match, seat = await _seat_or_403(repo, match_id, identity.sub)
     events = await repo.list_events(
         match_id, after_seq=after_seq, for_seat=seat.seat_index, limit=limit
     )
@@ -855,7 +991,7 @@ async def get_events(
 
 @router.get(f"{BASE}/matches/{{match_id}}/results", response_model=ArenaResultsResponse)
 async def get_results(
-    match_id: str, auth: RequiredAuth, repo: ArenaRepoDep
+    match_id: str, identity: ArenaAuth, repo: ArenaRepoDep
 ) -> ArenaResultsResponse:
     """Final results. Participant-only, and empty until the match completes.
 
@@ -864,8 +1000,8 @@ async def get_results(
     settlement on a GET; that shape is deliberately not repeated here, the same
     call `head_to_head.py:48-51` records.
     """
-    _require_access(auth)
-    match, _seat = await _seat_or_403(repo, match_id, auth.sub)
+    _require_practice_access(identity)
+    match, _seat = await _seat_or_403(repo, match_id, identity.sub)
     seats = {s.seat_index: s for s in await repo.get_seats(match_id)}
     results = await repo.get_results(match_id)
     return ArenaResultsResponse(

@@ -16,6 +16,7 @@ from nba_peak.twenty_dollar.config import (
     MARKET_CLOSEOUT,
     MARKET_SKIPS_PER_SEAT,
     MARKET_STANDARD,
+    MIN_OPENING_BID,
     QUALIFIED_POOL_SIZE,
     SEAT_COUNT,
     STANDARD_MARKET_LOTS,
@@ -546,15 +547,89 @@ class TestMarketSkips:
         state["seats"][seat_index]["budget"] = 0
         assert not S.pass_consumes_skip(state, seat_index, pool)
 
-    def test_a_timeout_never_costs_a_skip(self, pool):
-        """An expired clock is a lost connection, not a judgement. Charging it
-        would make latency part of the strategy."""
+    def test_a_timeout_on_a_fitting_candidate_costs_a_skip(self, pool):
+        """PART 16. An expiry on a candidate you could have bought IS the same
+        decision as pressing Skip, and is charged the same.
+
+        THE RULE THIS REPLACES, and why it was wrong. A timeout used to be free
+        in every situation. That made waiting strictly better than skipping --
+        the dominant-waiting strategy the whole skip economy exists to remove --
+        and it produced the reported "I used a skip and it still says five",
+        because the counter was simultaneously correct and inexplicable.
+
+        Latency is still protected everywhere it matters: a live auction is
+        conceded for free (below), an unusable candidate is passed for free,
+        and no timeout is ever a forfeit.
+        """
         state = S.initial_state(seed=89)
         first = state["active_seat"]
         assert S.pass_consumes_skip(state, first, pool)
+        assert S.timeout_outcome(state, first, pool) == S.TIMEOUT_SKIP_USED
         S.timeout_active_seat(state, pool)
-        assert S.market_skips(state, first) == MARKET_SKIPS_PER_SEAT
-        assert state["lot_actions"][-1]["consumed_skip"] is False
+        assert S.market_skips(state, first) == MARKET_SKIPS_PER_SEAT - 1
+        assert state["lot_actions"][-1]["consumed_skip"] is True
+        assert state["lot_actions"][-1]["timed_out"] is True
+
+    def test_a_timeout_conceding_a_live_auction_is_free(self, pool):
+        """Being outbid is not a decision to decline anyone."""
+        state = S.initial_state(seed=89)
+        opener = state["active_seat"]
+        state, code, _msg = S.submit_action(state, opener, S.COMMAND_BID, 1, pool)
+        assert code is None
+        responder = state["active_seat"]
+        assert responder != opener
+        before = S.market_skips(state, responder)
+        assert S.timeout_outcome(state, responder, pool) == S.TIMEOUT_CONCEDED
+        S.timeout_active_seat(state, pool)
+        assert S.market_skips(state, responder) == before
+
+    def test_a_timeout_with_no_skips_left_opens_at_the_minimum(self, pool):
+        """A seat out of skips has no legal pass, so the clock cannot make one.
+
+        `may_pass` already refuses a voluntary pass in this position. Before
+        this rule the timeout path produced exactly that illegal move anyway,
+        silently -- a rule the clock quietly broke. The reserve invariant
+        guarantees the dollar is there.
+        """
+        state = S.initial_state(seed=97)
+        first = state["active_seat"]
+        state["seats"][first]["market_skips"] = 0
+        assert S.pass_consumes_skip(state, first, pool)
+        assert not S.may_pass(state, first, pool)
+        assert S.timeout_outcome(state, first, pool) == S.TIMEOUT_AUTO_OPEN
+
+        S.timeout_active_seat(state, pool)
+        opening = state["lot_actions"][-1]
+        assert opening["action"] == S.COMMAND_BID
+        assert opening["amount"] == MIN_OPENING_BID
+        assert opening["auto_opened"] is True
+        assert opening["timed_out"] is True
+        assert S.market_skips(state, first) == 0
+
+    def test_a_timeout_on_an_unusable_candidate_is_free(self, pool):
+        """No legal fit means there was nothing to decline."""
+        state = S.initial_state(seed=89)
+        first = state["active_seat"]
+        # A seat with nothing left to spend cannot acquire anyone, so the
+        # candidate does not fit and the pass is free.
+        state["seats"][first]["budget"] = 0
+        assert not S.pass_consumes_skip(state, first, pool)
+        assert S.timeout_outcome(state, first, pool) == S.TIMEOUT_FREE_PASS
+        before = S.market_skips(state, first)
+        S.timeout_active_seat(state, pool)
+        assert S.market_skips(state, first) == before
+
+    def test_the_projection_names_the_timeout_consequence_in_advance(self, pool):
+        """A countdown that does not say what expiry costs is a countdown a
+        player cannot act on. PART 16 requires the warning BEFORE zero."""
+        state = S.initial_state(seed=89)
+        _public, private, _legal = S.project(state, state["active_seat"], pool)
+        assert private["timeout_outcome"] in {
+            S.TIMEOUT_SKIP_USED,
+            S.TIMEOUT_AUTO_OPEN,
+            S.TIMEOUT_FREE_PASS,
+            S.TIMEOUT_CONCEDED,
+        }
 
     def test_a_seat_with_no_skips_left_cannot_decline_a_fitting_candidate(self, pool):
         state = S.initial_state(seed=97)

@@ -258,8 +258,36 @@ class ArenaTurn:
     def is_open(self) -> bool:
         return self.resolved_at is None
 
-    def is_overdue_at(self, now: datetime) -> bool:
-        return self.resolved_at is None and now > _utc(self.deadline_at)
+    def is_overdue_at(self, now: datetime, grace_seconds: float = 0.0) -> bool:
+        """Has this turn expired, allowing for the action grace window?
+
+        THE GRACE WINDOW IS THE FIX FOR A DESTROYED HUMAN ACTION, and it is
+        modelled here rather than at the call site so every path -- a poll, a
+        command, the overdue sweep -- agrees on when a turn is dead. Two
+        readers that disagreed by even a millisecond would reintroduce the race
+        this exists to close.
+
+        WHAT WENT WRONG WITHOUT IT. `submit_command` runs the clock before
+        applying a command, deliberately, so a late action loses to the timeout
+        rather than beating it by being the request that happened to trigger
+        the sweep. With a zero-width window, "late" included a bid the player
+        pressed while their countdown still read a positive number: the client
+        seeds that countdown from a poll, so it could be up to one poll
+        interval stale, and the request then spent a network round trip in
+        flight. A reproduction against the real repository showed a `$2` bid
+        submitted 120 ms past the deadline being swept, the lot awarded to the
+        bot at `$1`, and the human's command rejected as `stale_state_version`.
+
+        The grace is a property of the SERVER's clock, not a client's claim
+        about when it clicked -- there is no timestamp in the request body that
+        could be moved. It cannot be used to act twice, because the turn is
+        still resolved the moment any action lands. And it does not extend the
+        visible clock: `seconds_remaining` is still measured to `deadline_at`,
+        so a player never sees a number that includes it.
+        """
+        if self.resolved_at is not None:
+            return False
+        return (now - _utc(self.deadline_at)).total_seconds() > grace_seconds
 
 
 @dataclass

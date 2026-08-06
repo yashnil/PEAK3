@@ -1,10 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import type {
-  ArenaSeatPublic,
-  TmwPublicState,
-  TmwSlotType,
-} from "@/types/three-man-weave";
+import type { ArenaSeatPublic, TmwPublicState } from "@/types/three-man-weave";
 import { edgeBandFor, edgeQualifier } from "@/lib/three-man-weave-state";
 import SeatCourt from "./SeatCourt";
 
@@ -24,6 +20,12 @@ import SeatCourt from "./SeatCourt";
  * and the tab strip itself carries each seat's count and edge band so the
  * hidden two are still summarised rather than simply gone.
  *
+ * ROSTER MOVES NOW LIVE IN THE PICK OVERLAY, not here. A player used to have
+ * to close the overlay, find their card on the board behind it and open a
+ * second dialog — a flow manual acceptance found nobody discovered. The slots
+ * inside the draft room are the movement control now (`PlacementBoard`), which
+ * is also the only place a move can be previewed against a staged pick.
+ *
  * THE ACTIVE TAB FOLLOWS THE CLOCK, and stops following it the moment the
  * player touches a tab. Auto-switching is right until it fights someone: a
  * player who deliberately opened their opponent's roster to plan a pick should
@@ -35,16 +37,12 @@ export default function RosterBoard({
   yourSeatIndex,
   currentTurnSeatIndex,
   justPickedSlug,
-  secondsRemaining,
-  onMoveRequest,
 }: {
   state: TmwPublicState;
   seats: ArenaSeatPublic[];
   yourSeatIndex: number | null;
   currentTurnSeatIndex: number | null;
   justPickedSlug?: string | null;
-  secondsRemaining: number | null;
-  onMoveRequest?: (slot: TmwSlotType) => void;
 }) {
   const [tab, setTab] = useState<number>(yourSeatIndex ?? 0);
   const [pinned, setPinned] = useState(false);
@@ -68,10 +66,6 @@ export default function RosterBoard({
         isOnTurn={!state.is_complete && currentTurnSeatIndex === seatIndex}
         justPickedSlug={justPickedSlug}
         edge={edgeBandFor(state, seatIndex)}
-        secondsRemaining={
-          currentTurnSeatIndex === seatIndex ? secondsRemaining : null
-        }
-        onMoveRequest={isYou ? onMoveRequest : undefined}
       />
     );
   }

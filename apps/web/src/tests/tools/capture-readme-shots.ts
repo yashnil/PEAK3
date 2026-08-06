@@ -160,9 +160,9 @@ test("capture rankings", async ({ page }) => {
   await page.screenshot({ path: `${OUT}/rankings.png` });
 });
 
-test("capture rankings explain modal", async ({ page }) => {
-  // Taller than the other shots: the explain panel is long, and at 900px the
-  // first capture cut off the "what raises or lowers it" section mid-sentence.
+test("capture the unified player analysis", async ({ page }) => {
+  // Taller than the other shots: the analysis is long, and at 900px the first
+  // capture cut off the "what raises or lowers it" section mid-sentence.
   await page.setViewportSize({ width: 1280, height: 1150 });
   await page.goto("/rankings", { waitUntil: "load" });
   await assertExternalAssetsOff(page);
@@ -170,8 +170,12 @@ test("capture rankings explain modal", async ({ page }) => {
     timeout: 20_000,
   });
   await page.locator('[data-testid="rankings-row"]').first().click();
-  const modal = page.getByRole("dialog");
-  await expect(modal).toBeVisible({ timeout: 15_000 });
+  const panel = page.getByRole("dialog");
+  await expect(panel).toBeVisible({ timeout: 15_000 });
+  // The score breakdown expanded, so the README frame shows both halves of the
+  // unified analysis rather than only the chart.
+  await page.getByTestId("rk-fold-breakdown").locator("summary").click();
+  await expect(page.getByTestId("component-breakdown")).toBeVisible();
   await settle(page);
   await page.screenshot({ path: `${OUT}/rankings-explain.png` });
 });

@@ -346,11 +346,20 @@ export function slotAbbrev(slot: TmwSlotType | string): string {
 // The live edge
 // ---------------------------------------------------------------------------
 
+/**
+ * The band, as a phrase rather than a bare word.
+ *
+ * WHY NOT "LEADING" / "LEVEL". These render as a small uppercase label directly
+ * above a roster court, and the review capture showed the result: a court
+ * captioned "LEVEL", which reads as a level NUMBER rather than as a standing
+ * against the other two seats. Every label now names what it is level with, so
+ * it cannot be read as anything else.
+ */
 export const TMW_EDGE_LABELS: Record<TmwEdgeBand, string> = {
-  leading: "Leading",
-  close_behind: "Close behind",
+  leading: "Leading the field",
+  close_behind: "Just behind",
   needs_a_response: "Needs a response",
-  level: "Level",
+  level: "Level with the field",
 };
 
 /**

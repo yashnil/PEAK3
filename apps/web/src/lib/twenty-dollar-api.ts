@@ -258,7 +258,16 @@ export interface TwentyDollarPrivateState {
   /** False in exactly one situation: the pass would cost a skip and there are
    * none left, so the only legal move is to open at the minimum. */
   can_pass: boolean;
+  /**
+   * WHAT THE CLOCK WILL DO IF IT REACHES ZERO, computed server-side from the
+   * live lot. The four outcomes have genuinely different costs, and a countdown
+   * that does not say which is coming is a countdown a player cannot act on
+   * (PART 16). @see `nba_peak/twenty_dollar/state.py::timeout_outcome`.
+   */
+  timeout_outcome: TimeoutOutcome;
 }
+
+export type TimeoutOutcome = "skip_used" | "auto_open" | "free_pass" | "conceded";
 
 export interface ArenaSeatMeta {
   seat_index: number;
@@ -291,9 +300,27 @@ export interface TwentyDollarMatchView {
 
 export interface SubmitCommandResult {
   accepted: boolean;
+  /** True when this key had already been recorded and NOTHING was applied. */
   replayed: boolean;
   rejection_code?: string | null;
-  rejection_message?: string | null;
+  /**
+   * THE FIELD IS `message`, AND THAT IS THE WHOLE POINT OF THIS COMMENT.
+   *
+   * `apps/api/app/models/arena.py::SubmitCommandResponse` declares
+   * `{accepted, replayed, rejection_code, message, match}` and
+   * `arena.py::submit_command` fills it with `outcome.rejection_message`. This
+   * interface used to declare the field as `rejection_message`, so
+   * `result.rejection_message` was ALWAYS `undefined` and the game room's
+   * `|| "That move was not accepted."` fallback fired on every single
+   * rejection — including the reported Curry bid, where the server had
+   * actually said "This match has moved on (you sent version 1, it is now 2)".
+   *
+   * A field that does not exist is not a type error in TypeScript when it is
+   * declared optional, which is why this went unnoticed. `explainRejection`
+   * consumes it, and `tests/unit/arena-rejection.test.ts` asserts against the
+   * real API model's field name.
+   */
+  message?: string | null;
   match: TwentyDollarMatchView;
 }
 
@@ -435,3 +462,41 @@ export function bidBlockedLabel(
 
 /** Slot order for display. The server publishes it; this is the fallback. */
 export const SLOT_ORDER = ["PG", "SG", "SF", "PF", "C"] as const;
+
+/**
+ * What expiry will cost this seat, in words, BEFORE the clock reaches zero.
+ *
+ * PART 16 requires the timer to state its consequence, and the four outcomes
+ * are genuinely different: a market skip is spent, an automatic opening bid is
+ * placed, a free pass is taken, or a live auction is conceded. A player shown
+ * the wrong one has been warned about the wrong thing.
+ *
+ * Reads `timeout_outcome`, which the server computes from the live lot — never
+ * re-derived here, because a second copy of the rule is a second thing that can
+ * disagree with the first.
+ */
+export function timeoutConsequence(
+  privateState: TwentyDollarPrivateState,
+  seatNames: string[] = [],
+  publicState?: TwentyDollarPublicState,
+): string {
+  switch (privateState.timeout_outcome) {
+    case "skip_used": {
+      const left = Math.max(0, privateState.market_skips - 1);
+      return `Timeout uses 1 market skip — ${left} would remain.`;
+    }
+    case "auto_open":
+      return `Timeout opens automatically at ${formatDollars(privateState.minimum_bid)} — you have no skips left.`;
+    case "conceded": {
+      const holder = publicState?.high_bidder ?? null;
+      const who =
+        holder === null || holder === privateState.seat_index
+          ? "the other seat"
+          : (seatNames[holder] ?? "the other seat");
+      return `Timeout concedes this auction to ${who}. No skip is used.`;
+    }
+    case "free_pass":
+    default:
+      return "Timeout passes for free — this player cannot fit your roster.";
+  }
+}

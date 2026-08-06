@@ -645,23 +645,46 @@ describe("ThemeToggle", () => {
     __resetThemeStoreForTests();
   });
 
-  it("icon variant starts on dark (the new default) and cycles dark -> light -> system -> dark on click", async () => {
+  it("icon variant flips the document theme on EVERY click, in both directions", async () => {
     const user = userEvent.setup();
     render(<ThemeToggle />);
     const button = screen.getByTestId("theme-toggle");
-    // Launch-polish IMPLEMENTATION_CONTRACT.md §2: with nothing stored, a
-    // fresh mount's preference IS "dark" now (not "system"), so the cycle
-    // that `nextThemePreference` always defined (system -> dark -> light ->
-    // system) is experienced starting from dark: dark -> light -> system ->
-    // dark. The accessible name states BOTH the current state and where the
-    // next click goes, so a screen-reader user never clicks blind.
+    // ONE CLICK, BOTH DIRECTIONS. The toggle used to cycle through "System",
+    // which on a light-mode OS resolves straight back to light -- so Light ->
+    // Dark cost two clicks while Dark -> Light cost one. It now always names
+    // the appearance you are not in, so the accessible name alternates between
+    // exactly two sentences and `data-theme` changes on every single click.
     expect(button).toHaveAccessibleName(/Arena Night\.\s*Switch to Arena Day/);
     await user.click(button);
-    expect(button).toHaveAccessibleName(/Arena Day\.\s*Switch to System/);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(button).toHaveAccessibleName(/Arena Day\.\s*Switch to Arena Night/);
     await user.click(button);
-    expect(button).toHaveAccessibleName(/System.*Switch to Arena Night/);
-    await user.click(button);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(button).toHaveAccessibleName(/Arena Night\.\s*Switch to Arena Day/);
+    await user.click(button);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+  });
+
+  it("icon variant reports the current appearance through aria-pressed", async () => {
+    const user = userEvent.setup();
+    render(<ThemeToggle />);
+    const button = screen.getByTestId("theme-toggle");
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    await user.click(button);
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    await user.click(button);
+    expect(button).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("icon variant flips on Enter and on Space, not only on pointer", async () => {
+    const user = userEvent.setup();
+    render(<ThemeToggle />);
+    const button = screen.getByTestId("theme-toggle");
+    button.focus();
+    await user.keyboard("{Enter}");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    await user.keyboard(" ");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
 
   it("icon variant meets the 44px tap-target floor", () => {
