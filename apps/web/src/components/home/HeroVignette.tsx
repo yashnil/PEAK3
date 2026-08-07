@@ -132,9 +132,12 @@ export default function HeroVignette({ windows }: HeroVignetteProps) {
                     >
                       {w.primeScore.toFixed(1)}
                     </p>
+                    {/* PROMOTED, --text-muted -> --text-secondary. It is the
+                        unit on a number set at 30px — "30.0" means nothing
+                        without it. */}
                     <p
                       className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
-                      style={{ color: "var(--text-muted)" }}
+                      style={{ color: "var(--text-secondary)" }}
                     >
                       PEAK3
                     </p>
@@ -150,15 +153,19 @@ export default function HeroVignette({ windows }: HeroVignetteProps) {
                       <div key={key}>
                         <div className="flex items-baseline justify-between gap-2">
                           <span
-                            className="text-[10px] font-semibold uppercase tracking-[0.08em]"
+                            className="text-[11px] font-semibold uppercase tracking-[0.08em]"
                             style={{ color: "var(--text-secondary)" }}
                           >
                             {componentLabel(key)}
                           </span>
+                          {/* PROMOTED AND ENLARGED. This is the component's
+                              actual contribution, i.e. the number the bar
+                              beside it is a picture of. The bar is the
+                              decoration; the value is the data. */}
                           <span
-                            className="text-[10px]"
+                            className="text-[11px]"
                             style={{
-                              color: "var(--text-muted)",
+                              color: "var(--text-secondary)",
                               fontVariantNumeric: "tabular-nums",
                             }}
                           >

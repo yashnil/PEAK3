@@ -89,14 +89,14 @@ export default function DailyPage() {
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="card-elevated max-w-md p-8 text-center space-y-4">
           <p className="text-[var(--incorrect)]" role="alert">{error}</p>
-          <p className="text-sm text-[var(--text-muted)]">
+          <p className="text-sm text-[var(--text-secondary)]">
             Make sure the PEAK3 Arena API is running at{" "}
             <code className="text-xs">localhost:8000</code>.
           </p>
           <button
             type="button"
             onClick={() => setReloadToken((t) => t + 1)}
-            className="rounded-lg border border-[var(--border-default)] px-4 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
+            className="pk-lift pk-press rounded-lg border border-[var(--border-default)] px-4 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
           >
             Try again
           </button>
@@ -111,34 +111,46 @@ export default function DailyPage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <div className="card-elevated max-w-md p-8 text-center space-y-4">
-          <h1 className="font-display text-2xl font-bold">Already completed!</h1>
+          {/* This IS the result screen for a player returning after finishing:
+              the verdict deserves display scale and the accent, not the same
+              weight as the sentence beneath it. */}
+          <h1 className="font-display text-3xl font-extrabold text-[var(--peak-accent-text)] sm:text-4xl">
+            Already completed!
+          </h1>
           <p className="text-[var(--text-secondary)]">
             You finished today&apos;s challenge.
           </p>
           {completion && (
             <div className="grid grid-cols-2 gap-3">
-              <div className="card-surface p-3 text-center">
-                <p className="text-xl font-bold score-number text-[var(--peak-accent-text)]">
+              {/* RECALLED, not resolved — these two numbers were earned
+                  earlier today and read out of local storage, so they are
+                  displayed rather than counted up. The captions move off the
+                  10px muted tier for the usual reason: they are the only thing
+                  that says which number is which. */}
+              <div className="card-surface pk-depth pk-crown p-3 text-center">
+                <p className="font-display text-xl font-bold score-number text-[var(--peak-accent-text)]">
                   {completion.correct}/{completion.total}
                 </p>
-                <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Correct</p>
+                <p className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Correct</p>
               </div>
-              <div className="card-surface p-3 text-center">
-                <p className="text-xl font-bold score-number text-[var(--peak-accent-text)]">
+              <div className="card-surface pk-depth pk-crown p-3 text-center">
+                <p className="font-display text-xl font-bold score-number text-[var(--peak-accent-text)]">
                   {completion.arena_points.toLocaleString()}
                 </p>
-                <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Points</p>
+                <p className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Points</p>
               </div>
             </div>
           )}
-          <p className="text-sm text-[var(--text-muted)]" data-testid="daily-duel-countdown">
+          {/* WAS `--text-muted`. When the next board arrives is the reason a
+              player would come back; it is the point of this screen. */}
+          <p className="text-sm text-[var(--text-secondary)]" data-testid="daily-duel-countdown">
             {secondsLeft === null
               ? "New daily board at midnight PT."
               : `New daily board at midnight PT — next one in ${formatCountdown(secondsLeft)}.`}
           </p>
           <a
             href="/play/endless"
-            className="block rounded-lg bg-[var(--peak-accent)] py-3 text-sm font-semibold text-[var(--text-inverse)] hover:bg-[var(--peak-accent-dim)]"
+            className="pk-lift pk-press pk-sheen block rounded-lg bg-[var(--peak-accent)] py-3 text-sm font-semibold text-[var(--text-inverse)] hover:bg-[var(--peak-accent-dim)]"
           >
             Play Endless Mode
           </a>
@@ -157,7 +169,7 @@ export default function DailyPage() {
             Daily Challenge · {today}
           </p>
           <h1 className="mt-1 font-display text-2xl font-bold">Peak Duel</h1>
-          <p className="text-sm text-[var(--text-muted)]">
+          <p className="text-sm text-[var(--text-secondary)]">
             10 matchups · {years}-year windows
           </p>
         </div>

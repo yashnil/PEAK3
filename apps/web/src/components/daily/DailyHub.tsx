@@ -190,8 +190,8 @@ export default function DailyHub() {
           plenty of players arrive here for it specifically. */}
       <section className="mt-6" aria-label="Play any time">
         <p
-          className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em]"
-          style={{ color: "var(--text-muted)" }}
+          className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em]"
+          style={{ color: "var(--text-secondary)" }}
         >
           Play any time
         </p>

@@ -85,7 +85,10 @@ export default function LeaderboardPreview() {
     return (
       <section className="px-4 py-14" aria-labelledby="leaderboard-preview-heading">
         <div className="mx-auto max-w-5xl">
-          <h2 id="leaderboard-preview-heading" className="font-display text-xl font-bold">
+          <h2
+            id="leaderboard-preview-heading"
+            className="home-section-title font-display text-2xl font-bold"
+          >
             Leaderboards
           </h2>
           <EmptyState
@@ -103,7 +106,10 @@ export default function LeaderboardPreview() {
     <section className="px-4 py-14" aria-labelledby="leaderboard-preview-heading">
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 id="leaderboard-preview-heading" className="font-display text-xl font-bold">
+          <h2
+            id="leaderboard-preview-heading"
+            className="home-section-title font-display text-2xl font-bold"
+          >
             Leaderboards
           </h2>
           <Link
@@ -119,11 +125,21 @@ export default function LeaderboardPreview() {
 
         <div className="mt-5 grid gap-3 md:grid-cols-2">
           {/* 82-0 all-time top rows */}
+          {/* `.home-lb-panel` REPLACES `rounded-xl border` PLUS TWO INLINE
+              COLOURS. The panel had no shadow and no rim, so beside the mode
+              cards above — which now read as objects — it read as a table
+              cell; and in Arena Day a `--bg-surface` fill inside a
+              `--border-default` hairline on a `--bg-page` section is close to
+              invisible. The class composes `--pk-grad-raised`, `--pk-rim` and
+              `--pk-elev-2`, the same stack every other card on this page uses.
+              `.pk-reveal` staggers the two panels by one beat. */}
           <div
-            className="rounded-xl border p-4"
-            style={{ borderColor: "var(--border-default)", background: "var(--bg-surface)" }}
+            className="home-lb-panel pk-reveal p-4"
+            style={{ "--pk-reveal-index": 0 } as React.CSSProperties}
           >
-            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+            {/* PROMOTED, --text-muted -> --text-secondary. This is the panel's
+                own title. */}
+            <p className="home-eyebrow" style={{ color: "var(--text-secondary)" }}>
               82-0 · All-Time
             </p>
             {topRuns === null ? (
@@ -154,7 +170,9 @@ export default function LeaderboardPreview() {
                 </div>
               </div>
             ) : topRuns.length === 0 ? (
-              <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
+              /* PROMOTED. An empty state is the only thing in the panel when
+                 it shows, so it is the panel's content, not a note about it. */
+              <p className="mt-3 text-xs" style={{ color: "var(--text-secondary)" }}>
                 No runs submitted yet.
               </p>
             ) : (
@@ -186,10 +204,10 @@ export default function LeaderboardPreview() {
 
           {/* Daily status + personal best (authenticated state) */}
           <div
-            className="rounded-xl border p-4"
-            style={{ borderColor: "var(--border-default)", background: "var(--bg-surface)" }}
+            className="home-lb-panel pk-reveal p-4"
+            style={{ "--pk-reveal-index": 1 } as React.CSSProperties}
           >
-            <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+            <p className="home-eyebrow" style={{ color: "var(--text-secondary)" }}>
               82-0 · Today
             </p>
             <p className="mt-2 text-sm" style={{ color: "var(--text-primary)" }}>
@@ -202,7 +220,7 @@ export default function LeaderboardPreview() {
 
             {supabaseEnabled && user ? (
               <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--border-subtle)" }}>
-                <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                <p className="home-eyebrow" style={{ color: "var(--text-secondary)" }}>
                   Your personal best
                 </p>
                 {personalBest?.best_lineup_score !== null && personalBest?.best_lineup_score !== undefined ? (
@@ -222,13 +240,15 @@ export default function LeaderboardPreview() {
                     </span>
                   </p>
                 ) : (
-                  <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                  <p className="mt-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                     No scored runs saved yet.
                   </p>
                 )}
               </div>
             ) : (
-              <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
+              /* PROMOTED. This is an offer to a signed-out visitor — the one
+                 sentence in the panel that asks them to do something. */
+              <p className="mt-3 text-xs" style={{ color: "var(--text-secondary)" }}>
                 Sign in to track your own personal best.
               </p>
             )}

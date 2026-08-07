@@ -92,16 +92,36 @@ export function Footer() {
   const year = new Date().getFullYear();
 
   return (
-    <footer className="border-t border-[var(--border-subtle)] mt-24">
+    /* THE FOOTER IS A SURFACE, NOT THE PAGE WITH A LINE ABOVE IT.
+       It was `border-t` and nothing else, so it was painted in exactly the
+       page's own colour — which works on Arena Night, where the shadow of the
+       content above does some of the separating, and does not on Arena Day,
+       where a hairline on cream is the entire signal that the document has
+       ended and the chrome has begun. A one-tier fill plus the lit rim is the
+       same treatment the header at the other end of the page now carries, so
+       the two book-ends read as the same material. */
+    <footer
+      className="border-t border-[var(--border-subtle)] mt-24"
+      style={{
+        background: "var(--bg-elevated)",
+        boxShadow: "var(--pk-rim)",
+      }}
+    >
       <div className="mx-auto max-w-7xl px-4 py-12">
         <nav aria-label="Footer" className="grid gap-8 sm:grid-cols-3">
           {FOOTER_COLUMNS.map((column) => {
             const headingId = `footer-heading-${column.id}`;
             return (
               <div key={column.id}>
+                {/* PROMOTED, --text-secondary -> --text-primary. A column
+                    heading and the links under it were the SAME ink, so the
+                    footer read as three undifferentiated lists — the heading
+                    was distinguished only by being uppercase and bold, which
+                    is a shape difference, not a hierarchy. The links keep
+                    `--text-secondary`; only the headings moved up. */}
                 <h2
                   id={headingId}
-                  className="font-display text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]"
+                  className="font-display text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]"
                 >
                   {column.title}
                 </h2>

@@ -1,6 +1,8 @@
 "use client";
 
 import { StreakState } from "@/lib/progression-api";
+// See its own docstring for why a result number is not `AnimatedNumber`.
+import { ResultNumber } from "@/components/game/result-number";
 
 interface Props {
   streak: StreakState;
@@ -42,12 +44,21 @@ export function StreakCard({ streak, compact = false }: Props) {
   }
 
   return (
+    /* A LIVE streak is a reward, so it gets the spotlight ring; a dead one
+       gets the ordinary raised surface and nothing else. One or the other,
+       never both: `.pk-depth` is declared after `.pk-spotlight` in globals.css
+       and would overwrite its `box-shadow` outright. */
     <div
-      className="rounded-xl border p-4 space-y-3"
-      style={{ background: "var(--bg-surface)", borderColor: "var(--border-subtle)" }}
+      className={`pk-crown rounded-xl border p-4 space-y-3 ${
+        streak.current_streak > 0 ? "pk-spotlight" : "pk-depth"
+      }`}
+      style={{
+        background: "var(--bg-surface)",
+        borderColor: streak.current_streak > 0 ? undefined : "var(--border-subtle)",
+      }}
     >
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
+        <h3 className="font-display text-sm font-bold" style={{ color: "var(--text-primary)" }}>
           Daily Streak
         </h3>
         {hasReserve && (
@@ -64,39 +75,45 @@ export function StreakCard({ streak, compact = false }: Props) {
 
       <div className="flex items-end gap-4">
         <div>
+          {/* The streak counts to itself. The `aria-label` on the wrapper
+              still carries the full sentence, and `ResultNumber`'s own
+              screen-reader sibling carries the exact figure from the first
+              paint, so nothing is behind the animation. */}
           <div
-            className="text-3xl font-bold tabular-nums"
+            className="font-display text-3xl font-bold"
             aria-label={`Current streak: ${streak.current_streak} days`}
-            style={{ color: streak.current_streak > 0 ? "var(--peak-accent-text)" : "var(--text-muted)" }}
+            style={{ color: streak.current_streak > 0 ? "var(--peak-accent-text)" : "var(--text-secondary)" }}
           >
-            {streak.current_streak}
+            <ResultNumber value={streak.current_streak} />
           </div>
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+          {/* WAS `--text-muted`. Two numbers stacked beside each other need
+              the two words that tell them apart. */}
+          <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
             current
           </div>
         </div>
         <div className="mb-1">
           <div
-            className="text-lg font-semibold tabular-nums"
+            className="font-display text-lg font-semibold"
             aria-label={`Longest streak: ${streak.longest_streak} days`}
             style={{ color: "var(--text-secondary)" }}
           >
-            {streak.longest_streak}
+            <ResultNumber value={streak.longest_streak} />
           </div>
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+          <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
             best
           </div>
         </div>
       </div>
 
       {streak.current_streak === 0 && (
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+        <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
           Complete today&apos;s Daily board to start a streak.
         </p>
       )}
 
       {!hasReserve && streak.current_streak > 0 && streak.current_streak < 7 && (
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+        <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
           Reach a 7-day streak to earn a reserve day.
         </p>
       )}

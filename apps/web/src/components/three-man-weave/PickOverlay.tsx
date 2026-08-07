@@ -417,7 +417,13 @@ export default function PickOverlay({
                       data-testid={`tmw-candidate-${candidate.player_slug}`}
                       data-fit={candidate.fit.state}
                       data-selected={isSelected ? "true" : "false"}
-                      className="tmw-candidate"
+                      /* A candidate row is a card you are choosing between
+                         under a clock, so it responds to the pointer AND to
+                         the press. No `.pk-reveal` here on purpose: this list
+                         re-filters on every keystroke in the search box, and a
+                         staggered re-entry on each one would be strobing, not
+                         choreography. */
+                      className="tmw-candidate pk-lift pk-press"
                       onClick={() => {
                         // Selecting a candidate always cancels a move in
                         // progress: the two are different intentions and the

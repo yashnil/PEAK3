@@ -33,9 +33,44 @@
  * (violet). Fills are stable across themes; inks are re-derived. Colour is
  * never the only signal — every seat-coloured surface also carries the seat's
  * name in text.
+ *
+ * GAME-FEEL PASS (ADDITIVE)
+ * -------------------------
+ * An auction room is a room with a hammer in it, and this one read as a
+ * three-column form. What changed, and why each one is a defect rather than a
+ * preference:
+ *
+ *  * THE TURN DOT FADED ITS OWN OPACITY. `td-pulse` animated `opacity` from 1
+ *    to 0.35 — the exact pattern Three-Man Weave's on-clock badge was rebuilt
+ *    away from after axe measured it at 4.13:1 mid-fade. The dot carries no
+ *    text of its own, so it was not a contrast failure here, but it was a
+ *    second, different answer to a question the app had already answered. The
+ *    dot now wears `.pk-turn-pulse`, the shared ring, coloured from the seat's
+ *    own fill. `td-pulse` is deleted.
+ *  * DEPTH IS COMPOSED WHERE A SURFACE OWNS ITS OWN STATES, and taken from the
+ *    `.pk-depth*` utilities where nothing conflicts. globals.css is imported
+ *    AFTER this file (its `@import`s sit at the top), so an equal-specificity
+ *    utility WINS over a rule here — `.pk-depth` on `.td-seat` would have
+ *    erased the active-seat ring. `.td-candidate` takes `.pk-depth-decision`
+ *    outright, because the lot under the hammer IS the thing being acted on
+ *    and it owns no competing state.
+ *  * FIVE `--text-muted` VALUES MOVED UP A TIER. The unopened `$0` at 4rem,
+ *    the sealed-score rule, the held clock's window length, the `/5` in a
+ *    roster count and an empty roster slot are all things a bidder reads while
+ *    deciding. Disabled controls and the decorative "vs" stay muted — those
+ *    genuinely are tertiary, and SHARED-04 explicitly wants a disabled control
+ *    neutral rather than loud.
+ *  * ONE SHEEN, ON ONE CONTROL. `.pk-sheen` is on the primary bid button and
+ *    nowhere else in the mode. It is the effect in the set that becomes noise
+ *    the moment a second element has it.
  */
 
 .td-game {
+  /* THE ROOM IS LIT. `.pk-atmosphere` is applied on the element; the grid is
+     opened out from its 48px default because the auction's three columns are
+     already a strong lattice and a tight floor grid behind them reads as
+     moiré rather than as a room. */
+  --pk-court-grid-size: 80px;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -51,6 +86,7 @@
    ========================================================================== */
 
 .td-turn {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.55rem;
@@ -58,11 +94,14 @@
   border: 1px solid var(--border-edge);
   border-left-width: 4px;
   border-radius: var(--pk-r-md, 10px);
-  background: var(--bg-elevated);
+  background: var(--pk-grad-raised);
+  /* A lit top edge and a shadow, so the room's one turn statement reads as a
+     board above the table rather than as a tinted strip in it. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
   font-family: var(--font-display);
   font-size: 0.9375rem;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: var(--pk-track-tight);
   color: var(--text-primary);
 }
 
@@ -81,9 +120,14 @@
   background: var(--peak-accent-bg);
 }
 
+/* THE DOT BREATHES AS A RING, NOT AS AN OPACITY FADE. `.pk-turn-pulse` is on
+   the element; this supplies the one variable the primitive asks for. The old
+   `td-pulse` keyframe dropped the dot to 35% opacity, which is the same
+   pattern the on-clock badge in Three-Man Weave was rebuilt away from, and
+   which also made the dot briefly ambiguous with its own inactive state. */
 .td-turn[data-seat="a"] .td-turn-dot {
   background: var(--seat-a-fill);
-  animation: td-pulse 1.8s ease-in-out infinite;
+  --pk-pulse-color: var(--seat-a-fill);
 }
 
 .td-turn[data-seat="b"] {
@@ -92,6 +136,7 @@
 
 .td-turn[data-seat="b"] .td-turn-dot {
   background: var(--seat-b-fill);
+  --pk-pulse-color: var(--seat-b-fill);
 }
 
 .td-turn[data-phase="pending"],
@@ -169,24 +214,36 @@
    The stage (S20-04)
    ========================================================================== */
 
+/* THE LOT UNDER THE HAMMER IS THE DECISION SURFACE, and it takes
+   `.pk-depth-decision` outright: the warm gradient, the strong rim and the
+   accent edge that globals reserves for "the thing the player is meant to act
+   on". It can take the utility wholesale because, unlike the seat cards, it
+   owns no competing state of its own — a lot is either on the block or gone.
+   The background, border-colour and box-shadow below are therefore
+   deliberately absent rather than overridden. */
 .td-candidate {
-  background: var(--bg-elevated);
+  position: relative;
   border: 1px solid var(--border-subtle);
   border-radius: var(--pk-r-lg, 14px);
   padding: 1.1rem 1.25rem 1rem;
 }
 
 .td-stage-lot {
+  font-family: var(--font-display);
   font-size: 0.6875rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: var(--pk-track-eyebrow);
   text-transform: uppercase;
   color: var(--text-secondary);
 }
 
+/* "OF 24 · STANDARD MARKET" IS ORIENTATION, NOT METADATA. How many lots are
+   left is half of every bidding decision in the mode — spend now or wait —
+   and it was set in the faintest ink the theme has. It stays lighter than the
+   lot number beside it by WEIGHT, which is what the weight was for. */
 .td-stage-lot-of {
   font-weight: 500;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .td-stage-identity {
@@ -204,8 +261,10 @@
   font-family: var(--font-display);
   font-size: clamp(1.35rem, 3.6vw, 2rem);
   font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.015em;
+  /* Display steps, from the tokens — this is the largest identity on the
+     board and it should be set like one. */
+  line-height: var(--pk-leading-heading);
+  letter-spacing: var(--pk-track-display);
   color: var(--text-primary);
 }
 
@@ -266,8 +325,13 @@
   color: var(--peak-accent-text);
 }
 
+/* A REAL, READABLE ZERO. The floor being open is a fact, not an absence, and
+   the muted tier at `clamp(2.75rem, 9vw, 4rem)` is the same visual as the em
+   dash this rendered before it — a big grey shape that reviewers read as a
+   loading skeleton. It stays quieter than an OPENED bid, which is gold, but
+   it is now clearly a value. */
 .td-stage-bid[data-opened="false"] .td-stage-bid-amount {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .td-stage-bid-holder {
@@ -283,10 +347,13 @@
   color: var(--text-secondary);
 }
 
+/* THIS SENTENCE IS THE MODE'S CENTRAL RULE. "The PEAK3 score is sealed until
+   this lot sells" is why the auction is a game rather than a lookup; a player
+   who has not read it is playing a different game. Not tertiary. */
 .td-candidate-hint {
   margin-top: 0.75rem;
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-align: center;
 }
 
@@ -308,6 +375,7 @@
 
 .td-clock-held,
 .td-clock-elapsed {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -316,6 +384,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--pk-r-lg, 14px);
   background: var(--bg-elevated);
+  box-shadow: var(--pk-rim);
 }
 
 .td-clock-held-label,
@@ -338,8 +407,12 @@
   color: var(--text-primary);
 }
 
+/* THE WINDOW LENGTH, WHILE THE CLOCK IS HELD. It is deliberately quieter than
+   a RUNNING countdown — it is not counting, and pretending otherwise would be
+   the defect this whole panel was rebuilt to fix — but "25s" at 2rem in the
+   faintest ink reads as disabled rather than as pending. */
 .td-clock-held-value {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .td-clock-held-sub {
@@ -413,9 +486,15 @@
    ========================================================================== */
 
 .td-bid {
+  position: relative;
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
   border-radius: var(--pk-r-lg, 14px);
+  /* Raised, but NOT `.pk-depth-decision`: the stage above already carries the
+     decision treatment, and two accent-edged surfaces stacked on one screen
+     is two primaries. Composed rather than classed so the mobile dock's
+     upward shadow at the bottom of this file still wins. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
   padding: 0.9rem 1rem 1rem;
   display: flex;
   flex-direction: column;
@@ -551,9 +630,32 @@
   box-shadow: 0 1px 0 rgb(0 0 0 / 0.25), 0 6px 18px -10px var(--peak-accent);
 }
 
-.td-btn-primary:hover:not(:disabled) {
+/* THE GOLD GLOW SURVIVES THE HOVER. `.pk-lift:hover` is a neutral rim-plus-
+   elevation shadow defined later in the cascade, so without this the mode's
+   primary control would LOSE its accent glow at the exact moment the pointer
+   is on it. Lift is still doing its job — the transform comes from the
+   utility and is not restated here. */
+.td-btn-primary:hover:not(:disabled),
+.td-btn-primary.pk-lift:hover,
+.td-btn-primary.pk-lift:focus-visible {
   background: var(--peak-accent-dim);
   border-color: var(--peak-accent-dim);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 8px 22px -8px var(--peak-accent);
+}
+
+/* A DISABLED BUTTON DOES NOT RISE. `.pk-lift` does not exclude `:disabled`,
+   and the bid control is disabled for most of every lot. */
+.td-btn.pk-lift:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* `.pk-sheen` clips to its host, which needs a paint containment box. This is
+   the ONE element in the mode carrying it. */
+.td-btn-primary.pk-sheen {
+  overflow: hidden;
 }
 
 /* The alternate action is a real button too, just outlined — S20-05's "strong
@@ -695,10 +797,16 @@
    ========================================================================== */
 
 .td-seat {
+  position: relative;
   border: 1px solid var(--border-subtle);
   border-left: 4px solid var(--border-edge);
   border-radius: var(--pk-r-lg, 14px);
   background: var(--bg-elevated);
+  /* Composed rather than `.pk-depth`, because `[data-active="true"]` below
+     owns this element's background AND its box-shadow, and the utility is a
+     single declaration defined later in the cascade — it would have replaced
+     the active-seat ring with a generic elevation. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
   padding: 0.8rem 0.9rem;
 }
 
@@ -714,17 +822,30 @@
    surface and the words "On the clock" inside it. */
 .td-seat[data-active="true"] {
   background: var(--bg-surface);
-  box-shadow: 0 0 0 1px var(--border-edge), 0 10px 24px -18px rgb(0 0 0 / 0.8);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 0 1px var(--border-edge),
+    0 10px 24px -18px rgb(0 0 0 / 0.8);
 }
 
+/* THE ACTIVE SEAT IS LIT FROM ACROSS THE ROOM. A 1px ring alone was the
+   "signalled by a single border colour" finding; the outer bloom is what makes
+   it readable from the other side of a 1440px board. Still never colour
+   alone — the words "On the clock" are inside the card. */
 .td-seat[data-active="true"][data-seat="a"] {
   border-left-color: var(--seat-a-fill);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--seat-a-fill) 45%, transparent);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 0 1px color-mix(in srgb, var(--seat-a-fill) 45%, transparent),
+    0 0 28px -8px color-mix(in srgb, var(--seat-a-fill) 60%, transparent);
 }
 
 .td-seat[data-active="true"][data-seat="b"] {
   border-left-color: var(--seat-b-fill);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--seat-b-fill) 45%, transparent);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 0 1px color-mix(in srgb, var(--seat-b-fill) 45%, transparent),
+    0 0 28px -8px color-mix(in srgb, var(--seat-b-fill) 60%, transparent);
 }
 
 .td-seat-head {
@@ -738,6 +859,7 @@
   font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 700;
+  letter-spacing: var(--pk-track-tight);
   color: var(--text-primary);
 }
 
@@ -759,6 +881,15 @@
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  /* The badge wears `.pk-turn-pulse`; this is the colour it breathes in. It
+     defaults to the brand gold, which is correct for seat A and wrong for
+     seat B, so the seat rules below re-point it. */
+  --pk-pulse-color: var(--seat-a-fill);
+}
+
+.td-seat[data-seat="b"] .td-seat-live {
+  background: var(--seat-b-fill);
+  --pk-pulse-color: var(--seat-b-fill);
 }
 
 .td-opener {
@@ -792,14 +923,16 @@
   font-size: 1.5rem;
   font-weight: 800;
   line-height: 1;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--pk-track-heading);
   color: var(--text-primary);
 }
 
+/* THE DENOMINATOR IS PART OF THE NUMBER. "3/5" says something "3" does not,
+   and the "/5" was set two tiers below the digit it belongs to. */
 .td-stat-of {
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .td-stat-label {
@@ -933,9 +1066,11 @@
   color: var(--text-secondary);
 }
 
+/* An unfilled roster slot is what a bidder is shopping FOR. Same call as
+   `.tmw-slot-open` in the draft room, for the same reason. */
 .td-slot-empty {
   font-size: 0.875rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .td-slot-price {
@@ -949,9 +1084,16 @@
    ========================================================================== */
 
 .td-reveal {
+  position: relative;
   border: 1px solid var(--peak-accent);
   border-radius: var(--pk-r-lg, 14px);
   background: var(--bg-elevated);
+  /* The payoff panel is lit: a strong rim and a warm bloom, because this is
+     the moment the sealed number becomes visible. */
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 34px -14px var(--pk-glow-strong),
+    var(--pk-elev-3);
   padding: 1rem 1.1rem;
   text-align: center;
 }
@@ -989,7 +1131,8 @@
   font-family: var(--font-display);
   font-size: 2.5rem;
   font-weight: 800;
-  line-height: 1.1;
+  line-height: var(--pk-leading-display);
+  letter-spacing: var(--pk-track-display);
   color: var(--peak-accent-text);
 }
 
@@ -1057,15 +1200,22 @@
 }
 
 .td-intro-card {
+  position: relative;
   width: min(28rem, 100%);
   max-height: calc(100vh - 2rem);
   overflow-y: auto;
   padding: 1.5rem 1.4rem;
   border: 1px solid var(--border-edge);
   border-radius: var(--pk-r-lg, 14px);
-  background: var(--bg-elevated);
+  /* The warm decision gradient, because this card IS the thing being acted on
+     — it is a dialog with exactly one button. Composed rather than classed so
+     the deep drop shadow that lifts it off the scrim survives; `.pk-depth-
+     decision` is one box-shadow declaration and would have flattened it. */
+  background: var(--pk-grad-decision);
   text-align: center;
-  box-shadow: 0 24px 60px -30px rgb(0 0 0 / 0.9);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 24px 60px -30px rgb(0 0 0 / 0.9);
 }
 
 .td-intro-eyebrow {
@@ -1080,7 +1230,8 @@
   font-family: var(--font-display);
   font-size: clamp(1.6rem, 6vw, 2.25rem);
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--pk-track-display);
+  line-height: var(--pk-leading-display);
   color: var(--text-primary);
 }
 
@@ -1423,16 +1574,22 @@
 }
 
 .td-result-head {
+  position: relative;
   padding: 1.5rem 1.25rem 1.25rem;
   border: 1px solid var(--border-edge);
   border-radius: var(--pk-r-lg, 14px);
   background: var(--bg-elevated);
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
   text-align: center;
 }
 
 .td-result-head[data-tier="win"] {
   border-color: var(--peak-accent);
   background: var(--peak-accent-bg);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 44px -18px var(--pk-glow-strong),
+    var(--pk-elev-3);
 }
 
 .td-result-eyebrow {
@@ -1448,7 +1605,11 @@
   font-family: var(--font-display);
   font-size: clamp(2.5rem, 11vw, 4.5rem);
   font-weight: 800;
-  line-height: 1;
+  line-height: var(--pk-leading-display);
+  /* WON / LOST / DREW is three or four capitals at 4.5rem. Positive tracking
+     is right for that — it is closer to a word mark than to a headline — but
+     it is the one deliberate exception to the display token in this file, and
+     it is stated rather than left looking like an oversight. */
   letter-spacing: 0.02em;
   color: var(--text-primary);
 }
@@ -1501,11 +1662,22 @@
 }
 
 .td-result-seat {
+  position: relative;
   border: 1px solid var(--border-subtle);
   border-top: 3px solid var(--border-edge);
   border-radius: var(--pk-r-lg, 14px);
   background: var(--bg-elevated);
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
   padding: 0.85rem 0.95rem;
+}
+
+/* THE WINNING TEAM CARD IS RAISED. Never colour alone — the card also carries
+   the word "Winner" and `data-winner`. */
+.td-result-seat[data-winner="true"] {
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 36px -16px var(--pk-glow-strong),
+    var(--pk-elev-3);
 }
 
 .td-result-seat[data-seat="a"] { border-top-color: var(--seat-a-fill); }
@@ -1619,10 +1791,12 @@
 }
 
 .td-callout {
+  position: relative;
   padding: 0.75rem 0.9rem;
   border: 1px solid var(--border-subtle);
   border-radius: var(--pk-r-md, 10px);
   background: var(--bg-elevated);
+  box-shadow: var(--pk-rim), var(--pk-elev-1);
 }
 
 .td-callout[data-kind="bargain"] { border-left: 3px solid var(--comp-team); }
@@ -1854,10 +2028,10 @@
   }
 }
 
-@keyframes td-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-}
+/* `td-pulse` used to live here: an opacity fade on the turn dot. It is gone,
+   replaced by `.pk-turn-pulse` in globals — one ring animation for the whole
+   product, coloured per seat through `--pk-pulse-color`, animating a
+   box-shadow so it never touches an element's own contrast. */
 
 @keyframes td-spin {
   to { transform: rotate(360deg); }
@@ -1895,9 +2069,11 @@
  * `useShowdownPhase`.
  */
 @media (prefers-reduced-motion: reduce) {
+  /* The turn dot is no longer listed here: it wears `.pk-turn-pulse`, whose
+     own reduced-motion form (in globals) stops the breathing and leaves a
+     static lit ring — the state, without the movement. */
   .td-enter,
   .td-land,
-  .td-turn[data-seat="a"] .td-turn-dot,
   .td-clock-elapsed-fill,
   .td-pending-mark {
     animation: none;

@@ -30,9 +30,12 @@ export default function DecisionReplay({ history }: Props) {
 
       {history.map((rh) => (
         <div key={rh.round} className="flex flex-col gap-1.5">
+          {/* WAS `--text-muted`. It says which round, whether it was
+              reframed, and what role the pick was made for — the entire
+              context for the three offers listed under it. */}
           <div
             className="text-[11px] font-medium uppercase tracking-wide"
-            style={{ color: "var(--text-muted)" }}
+            style={{ color: "var(--text-secondary)" }}
           >
             Round {rh.round}
             {rh.reframed ? " · reframed" : ""} · drafted as{" "}
@@ -68,8 +71,8 @@ export default function DecisionReplay({ history }: Props) {
                     {offer.player_name}
                   </span>
                   <span
-                    className="shrink-0 tabular-nums text-xs ml-2"
-                    style={{ color: "var(--text-muted)" }}
+                    className="score-number shrink-0 text-xs ml-2"
+                    style={{ color: "var(--text-secondary)" }}
                   >
                     {offer.individual_peak_score.toFixed(1)}
                   </span>

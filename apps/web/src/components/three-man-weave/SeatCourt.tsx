@@ -119,7 +119,11 @@ export default function SeatCourt({
       data-interactive={interactive ? "true" : "false"}
       data-edge={edge ?? "none"}
       aria-labelledby={`tmw-seat-heading-${roster.seat_index}`}
-      className="tmw-seat"
+      /* `.pk-crown` draws the lit top hairline that separates "a panel" from
+         "an object catching the room's light". The rest of this card's depth
+         is composed in the partial rather than taken from `.pk-depth`, because
+         the on-turn and is-you states own its background and shadow. */
+      className="tmw-seat pk-crown"
     >
       <header className="tmw-seat-head">
         <div className="tmw-seat-identity">
@@ -143,8 +147,15 @@ export default function SeatCourt({
 
         <div className="tmw-seat-meters">
           {isOnTurn ? (
+            /* THE ONE BREATHING THING IN THE ROOM. `.pk-turn-pulse` is the
+               shared active-turn ring; the partial hands it this seat's fill
+               through `--pk-pulse-color`, so the same primitive says "your
+               turn" in gold, blue or emerald depending on whose it is. The
+               WORDS stay, because turn state is never colour or motion alone,
+               and under `prefers-reduced-motion` the ring simply stops
+               breathing and stays lit. */
             <span
-              className="tmw-seat-onclock"
+              className="tmw-seat-onclock pk-turn-pulse"
               data-testid={`tmw-seat-onclock-${roster.seat_index}`}
             >
               On the clock
@@ -299,7 +310,11 @@ function SlotCard({
     <button
       type="button"
       {...shared}
-      className="tmw-slot tmw-slot--interactive"
+      /* LIFT AND PRESS, THE PAIR. A card that rises to the pointer and then
+         does nothing when it is clicked feels broken in a way people cannot
+         name, and this one is genuinely grabbable, so both halves are here.
+         Both fold to nothing under `prefers-reduced-motion`. */
+      className="tmw-slot tmw-slot--interactive pk-lift pk-press"
       // Kept `true` for the whole drag rather than flipped off once the card is
       // in hand: mutating `draggable` on the element mid-gesture is exactly the
       // kind of thing browsers disagree about, and picking a DIFFERENT card up

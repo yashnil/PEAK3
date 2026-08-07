@@ -239,8 +239,13 @@ export function PlayMenu({ pathname, search = "", availability, className }: Pla
         data-open={open ? "true" : "false"}
         onClick={() => (open ? close(false) : openWith("first"))}
         onKeyDown={onTriggerKeyDown}
+        /* `.pk-press` for the same reason every other nav control gained it:
+           the trigger tinted on hover and did nothing on the press that
+           actually opens the panel. The frozen `bg-[var(--bg-surface)]`
+           active string below is untouched — `play-routing.spec.ts` and
+           `nav-components.test.tsx` both assert it literally. */
         className={cn(
-          "pk-nav-link px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+          "pk-nav-link pk-press px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
           sectionActive
             ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
             : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]",

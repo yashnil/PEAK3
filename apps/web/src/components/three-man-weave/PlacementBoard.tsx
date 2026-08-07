@@ -1,5 +1,7 @@
 "use client";
 
+import type { CSSProperties } from "react";
+
 import type { TmwPick, TmwRoster, TmwSlotType } from "@/types/three-man-weave";
 import { TMW_SLOT_LABELS, TMW_SLOT_TYPES } from "@/types/three-man-weave";
 import { slotAbbrev } from "@/lib/three-man-weave-state";
@@ -82,7 +84,7 @@ export default function PlacementBoard({
 
   return (
     <ul className="tmw-place-slots" data-testid="tmw-place-slots" data-mode={mode}>
-      {TMW_SLOT_TYPES.map((slotType) => {
+      {TMW_SLOT_TYPES.map((slotType, index) => {
         const occupant: TmwPick | null = roster?.slots[slotType] ?? null;
         const isLegal = legal.has(slotType);
         const isStaged = stagedSlot === slotType;
@@ -147,12 +149,25 @@ export default function PlacementBoard({
         };
 
         return (
-          <li key={slotType} className="tmw-place-row">
+          /* THE BOARD ASSEMBLES, TOP DOWN. Six slots appearing at once is a
+             form rendering; six slots landing in order is a board being set.
+             `.pk-reveal` takes an INDEX rather than a delay, so the rhythm is
+             globals' decision and matches every other staggered list in the
+             app; it caps itself, and it is neutralised entirely under
+             `prefers-reduced-motion`. Nothing here waits on it -- the slots are
+             fully interactive from the first frame. */
+          <li
+            key={slotType}
+            className="tmw-place-row pk-reveal"
+            style={{ "--pk-reveal-index": index } as CSSProperties}
+          >
             {interactive ? (
               <button
                 type="button"
                 {...shared}
-                className="tmw-place-slot tmw-place-slot--interactive"
+                /* Lift and press on a real target. The `data-legal` ring is
+                   re-asserted over `.pk-lift`'s hover shadow in the partial. */
+                className="tmw-place-slot tmw-place-slot--interactive pk-lift pk-press"
                 aria-pressed={isStaged || isSource}
                 aria-label={
                   startsMove

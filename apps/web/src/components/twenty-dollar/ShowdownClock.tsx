@@ -139,7 +139,7 @@ export default function ShowdownClock({
 
   return (
     <div className="td-clock" data-testid="td-clock" data-mode="held">
-      <div className="td-clock-held" data-testid="td-timer">
+      <div className="td-clock-held pk-crown" data-testid="td-timer">
         {/* EVERY LABEL HERE IS IN THE TIME DOMAIN. `TurnBanner` directly above
             already names the seat, and this panel's first draft repeated it
             word for word — "PEAK3 Bot is deciding" under "PEAK3 Bot is
@@ -185,7 +185,7 @@ function ElapsedClock() {
   }, []);
 
   return (
-    <div className="td-clock-elapsed" data-testid="td-timer">
+    <div className="td-clock-elapsed pk-crown" data-testid="td-timer">
       {/* "Time elapsed", not "PEAK3 Bot is deciding" — the banner above says
           who, and this said the same sentence again, verbatim. */}
       <span className="td-clock-elapsed-label">Time elapsed</span>

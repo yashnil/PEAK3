@@ -11,6 +11,10 @@ import {
 } from "@/lib/game-state";
 import { submitAnswer } from "@/lib/api";
 import { getProgressRepository } from "@/lib/progress";
+// Deep import rather than the `@/components/ui` barrel — see the note in
+// `result-number.tsx`. The barrel reaches `lucide-react` through `ThemeToggle`
+// and costs this route ~74 kB of First Load JS for one number component.
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { DuelCardComponent } from "./duel-card";
 import { RevealPanel } from "./reveal-panel";
 import { ChallengeSummary } from "./challenge-summary";
@@ -168,14 +172,25 @@ export function GameEngine({
             </>
           )}
         </div>
-        <div className="flex items-center gap-4 text-xs text-[var(--text-muted)]">
+        <div className="flex items-center gap-4 text-xs">
           {state.current_streak > 0 && (
             <span className="text-[var(--peak-accent-text)] font-semibold">
               🔥 {state.current_streak}
             </span>
           )}
-          <span className="score-number font-medium text-[var(--text-primary)]">
-            {state.total_arena_points.toLocaleString()} pts
+          {/* The running total RESOLVES every time an answer lands, so it
+              tweens to its new value rather than jumping. `AnimatedNumber`
+              (not `ResultNumber`) on purpose: this figure is already on screen
+              before the first answer, and a HUD that counts up from zero on
+              mount would be announcing a result that has not happened yet.
+              `.pk-counting` lights the digits only while they resolve. */}
+          <span className="font-semibold text-[var(--text-primary)]">
+            <AnimatedNumber
+              value={state.total_arena_points}
+              className="pk-counting"
+              format={(n) => Math.round(n).toLocaleString()}
+            />{" "}
+            pts
           </span>
         </div>
       </div>

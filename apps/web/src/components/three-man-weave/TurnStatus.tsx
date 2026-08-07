@@ -105,7 +105,20 @@ export default function TurnStatus({
 
   return (
     <section
-      className="tmw-turnbar"
+      /* THE LIVE PANEL IS SPOTLIT, IN THE ACTIVE SEAT'S COLOUR. `.pk-spotlight`
+         is the shared "this is where the game is" treatment -- deliberately a
+         different thing from the focus ring, which is about where the KEYBOARD
+         is, and which is frequently on a different element at the same moment.
+         The ring's colour comes from `--pk-spotlight`, which `.tmw-turnbar`
+         re-scopes from the seat's own fill, so a blue seat's turn does not
+         light the room gold.
+
+         It is applied only while a turn is genuinely open: a spotlight that
+         never goes out is a border. `.pk-crown` adds the lit top hairline that
+         makes the bar read as a mounted board. */
+      className={`tmw-turnbar pk-crown${
+        currentTurnSeatIndex !== null && !complete ? " pk-spotlight" : ""
+      }`}
       data-testid="tmw-turnbar"
       data-yours={yourTurn ? "true" : "false"}
       data-seat-accent={currentTurnSeatIndex === null ? undefined : seatAccent(currentTurnSeatIndex)}

@@ -1,5 +1,7 @@
 "use client";
 
+import type { CSSProperties } from "react";
+
 import {
   formatDollars,
   lastActionLabel,
@@ -9,6 +11,10 @@ import {
   type TwentyDollarPublicState,
 } from "@/lib/twenty-dollar-api";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
+// Deep import, not the `@/components/ui` barrel: the barrel re-exports
+// `ThemeToggle`, which reaches `lucide-react`, and paying for that whole
+// dependency to render one number costs a route ~15 kB of First Load JS.
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import ComponentSilhouette from "./ComponentSilhouette";
 
 /**
@@ -78,16 +84,27 @@ export function TurnBanner({
               ? "Your move"
               : `${who ?? "Opponent"} is deciding`;
 
+  // THE DOT BREATHES ONLY WHILE SOMEBODY IS ACTUALLY ON THE CLOCK. During the
+  // intro, a lot reveal or a settlement there is no open turn, and a ring that
+  // pulses through those beats is decoration pretending to be state.
+  const live = activeSeat !== null && (phase === "decide" || phase === "handoff");
+
   return (
     <p
-      className="td-turn"
+      className="td-turn pk-crown"
       data-testid="td-turn-indicator"
       data-your-turn={yours ? "true" : "false"}
       data-phase={phase}
       data-seat={activeSeat === null ? "none" : yours ? "a" : "b"}
       aria-live="polite"
     >
-      <span className="td-turn-dot" aria-hidden="true" />
+      {/* `.pk-turn-pulse` is the shared active-turn ring; the partial gives it
+          the seat's own fill through `--pk-pulse-color`. The WORDS beside it
+          carry the same fact, so nothing here is motion-only or colour-only. */}
+      <span
+        className={live ? "td-turn-dot pk-turn-pulse" : "td-turn-dot"}
+        aria-hidden="true"
+      />
       <span className="td-turn-text">{label}</span>
     </p>
   );
@@ -137,13 +154,25 @@ export function AuctionStage({
   const last = lastActionLabel(publicState, yourSeat, seatNames);
 
   return (
+    /* THE LOT ON THE BLOCK IS THE DECISION SURFACE. `.pk-depth-decision` is
+       globals' treatment for exactly that — the warm gradient, the strong rim,
+       the accent edge — and `.pk-crown-accent` puts the gold hairline along its
+       top. It is the only element in the room carrying either.
+
+       `.td-enter` stays and is not replaced by `.pk-reveal`: it is keyed on the
+       lot index, which is what restarts it on every new candidate, and the
+       inner regions below stagger underneath it. */
     <article
       key={publicState.lot_index}
-      className="td-candidate td-enter"
+      className="td-candidate td-enter pk-depth-decision pk-crown pk-crown-accent"
       data-testid="td-candidate"
       data-lot={publicState.lot_index}
     >
-      <p className="td-stage-lot" data-testid="td-lot-number">
+      <p
+        className="td-stage-lot pk-reveal"
+        data-testid="td-lot-number"
+        style={{ "--pk-reveal-index": 0 } as CSSProperties}
+      >
         Lot {publicState.lot_index + 1}
         <span className="td-stage-lot-of">
           {" "}
@@ -160,7 +189,13 @@ export function AuctionStage({
         </span>
       </p>
 
-      <div className="td-stage-identity">
+      {/* IDENTITY, THEN VALUE, THEN VERDICT. The three regions arrive in the
+          order a bidder reads them rather than all at once — who is on the
+          block, what it currently costs, and what the rule is. */}
+      <div
+        className="td-stage-identity pk-reveal"
+        style={{ "--pk-reveal-index": 1 } as CSSProperties}
+      >
         <PlayerAvatar name={candidate.player_name} size={72} imageUrl={candidate.headshot_url} />
         <div className="td-stage-who">
           <h2 className="td-candidate-name" data-testid="td-candidate-name">
@@ -189,7 +224,12 @@ export function AuctionStage({
       {/* THE NUMBER THE WHOLE DECISION TURNS ON. It was 1.75rem in a footer
           row headed "Standing bid"; it is now the largest thing on the stage,
           which is what S20-04 asks for and what an auction house does. */}
-      <div className="td-stage-bid" data-testid="td-standing-bid" data-opened={opened ? "true" : "false"}>
+      <div
+        className="td-stage-bid pk-reveal"
+        data-testid="td-standing-bid"
+        data-opened={opened ? "true" : "false"}
+        style={{ "--pk-reveal-index": 2 } as CSSProperties}
+      >
         <p className="td-stage-bid-label">Current bid</p>
         {/* A REAL ZERO, NOT A PLACEHOLDER GLYPH. This rendered an em dash at
             `clamp(2.75rem, 9vw, 4rem)`, which paints as a thick grey horizontal
@@ -197,8 +237,19 @@ export function AuctionStage({
             loading skeleton, which is exactly what a dash at display size looks
             like. `$0` is both true and unmistakably a value; the line beneath
             carries the nuance. */}
-        <p className="td-stage-bid-amount pk-numeral" data-testid="td-standing-amount">
-          {formatDollars(opened ? publicState.current_bid : 0)}
+        {/* IT CLIMBS RATHER THAN JUMPING. A standing bid moving from $6 to $7
+            is the whole drama of an auction, and a number that simply swaps
+            characters does not read as a raise. `AnimatedNumber` settles on
+            the server's own value exactly — never on an interpolation — and
+            publishes that value to assistive tech from the first paint, so
+            nobody is waiting on a tween to learn the price. `.pk-counting` is
+            the ink treatment that goes with it; the `[data-opened="false"]`
+            rule in the partial still wins for an unopened floor. */}
+        <p className="td-stage-bid-amount pk-numeral pk-counting" data-testid="td-standing-amount">
+          <AnimatedNumber
+            value={opened ? publicState.current_bid : 0}
+            format={formatDollars}
+          />
         </p>
         <p className="td-stage-bid-holder" data-testid="td-standing-holder">
           {opened
@@ -308,7 +359,7 @@ export function SeatCard({
   const pct = Math.max(0, Math.min(100, (seat.budget / startingBudget) * 100));
   return (
     <div
-      className="td-seat"
+      className="td-seat pk-crown"
       data-testid={`td-budget-${seat.seat_index}`}
       data-active={isActive ? "true" : "false"}
       data-seat={isYou ? "a" : "b"}
@@ -334,7 +385,14 @@ export function SeatCard({
             active seat ON the seat, and without it the card would carry the
             state in colour alone. */}
         {isActive ? (
-          <span className="td-seat-live" data-testid={`td-seat-live-${seat.seat_index}`}>
+          // The same ring the draft room's on-clock badge wears, in this
+          // seat's own colour. The words stay — this is the only thing that
+          // names the active seat ON the seat, and it must not become a
+          // motion-only or colour-only signal.
+          <span
+            className="td-seat-live pk-turn-pulse"
+            data-testid={`td-seat-live-${seat.seat_index}`}
+          >
             On the clock
           </span>
         ) : null}
@@ -505,16 +563,33 @@ export function LotReveal({
   const won = lot.winner_seat;
   const slot = (lot.slot_options ?? [])[0];
   return (
+    /* THE REVEAL IS THE PAYOFF OF THE WHOLE LOT, so it lands in three beats
+       rather than as one block: IDENTITY (who this actually was), then VALUE
+       (the sealed PEAK3 score), then VERDICT (who got them, and for how much).
+       That is the order the sentence would be spoken in.
+
+       `.pk-reveal` staggers by INDEX and globals owns the rhythm, so this
+       matches the podium in Three-Man Weave rather than inventing a second
+       cadence. Every beat is readable from the first frame, and the whole
+       sequence collapses under `prefers-reduced-motion`; the `aria-live`
+       region announces the panel's text regardless of what is animating. */
     <section
-      className="td-reveal td-enter"
+      className="td-reveal td-enter pk-crown pk-crown-accent"
       data-testid="td-lot-reveal"
       data-queued={queued}
       aria-live="polite"
     >
-      <p className="td-reveal-lot" data-testid="td-reveal-lot">
+      <p
+        className="td-reveal-lot pk-reveal"
+        data-testid="td-reveal-lot"
+        style={{ "--pk-reveal-index": 0 } as CSSProperties}
+      >
         Lot {lot.lot_index + 1} · {won === null ? "unsold" : "sold"}
       </p>
-      <div className="td-reveal-identity">
+      <div
+        className="td-reveal-identity pk-reveal"
+        style={{ "--pk-reveal-index": 1 } as CSSProperties}
+      >
         <PlayerAvatar name={lot.candidate.player_name} size={44} imageUrl={lot.candidate.headshot_url} />
         <div>
           <h3 className="td-reveal-name">{lot.candidate.player_name}</h3>
@@ -524,8 +599,15 @@ export function LotReveal({
           </p>
         </div>
       </div>
-      <p className="td-reveal-score pk-numeral" data-testid="td-reveal-score">
-        {lot.candidate.prime_score.toFixed(2)}
+      {/* THE SEALED NUMBER, COUNTING UP TO ITSELF. This is the one figure the
+          entire lot was bid blind against; it earns the count-up more than
+          anything else in the mode. */}
+      <p
+        className="td-reveal-score pk-numeral pk-counting pk-reveal"
+        data-testid="td-reveal-score"
+        style={{ "--pk-reveal-index": 2 } as CSSProperties}
+      >
+        <AnimatedNumber value={lot.candidate.prime_score} precision={2} />
         <span className="td-reveal-score-label"> PEAK3</span>
       </p>
       {/* THE BREAKDOWN IS BEHIND A DISCLOSURE. The silhouette rendering inline
@@ -537,7 +619,11 @@ export function LotReveal({
           <ComponentSilhouette componentIndex={lot.candidate.component_index} />
         </details>
       ) : null}
-      <p className="td-reveal-verdict" data-testid="td-reveal-verdict">
+      <p
+        className="td-reveal-verdict pk-reveal"
+        data-testid="td-reveal-verdict"
+        style={{ "--pk-reveal-index": 3 } as CSSProperties}
+      >
         {won === null
           ? "Nobody bid. The lot leaves the board."
           : `${won === yourSeat ? "You take" : `${seatNames[won] ?? `Seat ${won + 1}`} takes`} it for ${formatDollars(lot.price)}${slot ? ` at ${slot}` : ""}.`}

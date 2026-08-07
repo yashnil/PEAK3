@@ -1,10 +1,15 @@
 "use client";
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import type { SeatPublic, TwentyDollarPublicState } from "@/lib/twenty-dollar-api";
 import { formatDollars } from "@/lib/twenty-dollar-api";
 import type { TwentyDollarReceiptData } from "./TwentyDollarReceipt";
 import Celebration from "@/components/shared/Celebration";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
+// Deep import, not the `@/components/ui` barrel: the barrel re-exports
+// `ThemeToggle`, which reaches `lucide-react`, and paying for that whole
+// dependency to render one number costs a route ~15 kB of First Load JS.
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 
 /**
  * The result state (S20-15). It REPLACES the auction rather than following it.
@@ -132,25 +137,51 @@ export default function ShowdownResult({
     >
       <Celebration active={youWon} testId="td-celebration" />
 
-      <header className="td-result-head td-enter" data-tier={outcome}>
-        <p className="td-result-eyebrow">
+      {/* THE HERO LANDS IN THE ORDER IT WOULD BE SAID: what this was, the
+          verdict in a word, the margin, the sentence, then the head-to-head
+          bar. Same `.pk-reveal` index rhythm as the lot reveal and the draft
+          podium; every line is present and readable from the first frame. */}
+      <header className="td-result-head td-enter pk-crown pk-crown-accent" data-tier={outcome}>
+        <p
+          className="td-result-eyebrow pk-reveal"
+          style={{ "--pk-reveal-index": 0 } as CSSProperties}
+        >
           Auction closed · {receipt.rounds_played} lots · {formatDollars(receipt.starting_budget)} each
         </p>
         {/* THE WORD, NOT THE COLOUR. `WON` / `LOST` / `DREW` survives
             greyscale, a screenshot and a colour-blind reader. */}
-        <h2 className="td-result-headline" data-testid="td-result-headline">
+        <h2
+          className="td-result-headline pk-reveal"
+          data-testid="td-result-headline"
+          style={{ "--pk-reveal-index": 1 } as CSSProperties}
+        >
           {drawn ? "DREW" : youWon ? "WON" : "LOST"}
         </h2>
-        <p className="td-result-margin pk-numeral" data-testid="td-result-margin">
-          {drawn ? "Level on PEAK3" : `by ${margin.toFixed(2)} PEAK3`}
+        <p
+          className="td-result-margin pk-numeral pk-reveal"
+          data-testid="td-result-margin"
+          style={{ "--pk-reveal-index": 2 } as CSSProperties}
+        >
+          {drawn ? (
+            "Level on PEAK3"
+          ) : (
+            <>
+              by <AnimatedNumber value={margin} precision={2} /> PEAK3
+            </>
+          )}
         </p>
-        <p className="td-result-response" data-testid="td-result-response">
+        <p
+          className="td-result-response pk-reveal"
+          data-testid="td-result-response"
+          style={{ "--pk-reveal-index": 3 } as CSSProperties}
+        >
           {responseLine(outcome, margin, fingerprint)}
         </p>
 
         {/* HEAD-TO-HEAD, as one bar with both totals on it. */}
         <div
-          className="td-result-bar"
+          className="td-result-bar pk-reveal"
+          style={{ "--pk-reveal-index": 4 } as CSSProperties}
           data-testid="td-result-bar"
           role="img"
           aria-label={`You ${yourTotal.toFixed(2)} PEAK3, opponent ${theirTotal.toFixed(2)} PEAK3.`}
@@ -176,7 +207,10 @@ export default function ShowdownResult({
           return (
             <article
               key={index}
-              className="td-result-seat"
+              className="td-result-seat pk-crown pk-reveal"
+              // Continues the hero's count, so the team cards arrive after the
+              // verdict rather than beside it.
+              style={{ "--pk-reveal-index": 5 + index } as CSSProperties}
               data-testid={`td-result-seat-${index}`}
               data-winner={winner === index ? "true" : "false"}
               data-seat={index === yourSeat ? "a" : "b"}
@@ -188,8 +222,23 @@ export default function ShowdownResult({
                     Winner
                   </span>
                 ) : null}
-                <span className="td-result-total pk-numeral" data-testid={`td-result-total-${index}`}>
-                  {seat.roster_total.toFixed(2)}
+                {/* THE FINAL SCORE RESOLVES. It is the number the whole
+                    auction was for, and it is the server's own value exactly
+                    at the final frame -- `AnimatedNumber` never settles on an
+                    interpolation, and it hands the true value to assistive
+                    tech from the first paint. */}
+                {/* `.pk-counting` on the WINNER only. It is an accent-ink
+                    treatment, and painting both totals gold would spend the
+                    one colour that says which of them won. */}
+                <span
+                  className={
+                    winner === index
+                      ? "td-result-total pk-numeral pk-counting"
+                      : "td-result-total pk-numeral"
+                  }
+                  data-testid={`td-result-total-${index}`}
+                >
+                  <AnimatedNumber value={seat.roster_total} precision={2} />
                 </span>
               </header>
               <p className="td-result-money pk-numeral" data-testid={`td-result-money-${index}`}>
@@ -246,7 +295,12 @@ export default function ShowdownResult({
           grey labels. Each one is the most interesting fact of a whole match. */}
       <div className="td-result-facts" data-testid="td-result-facts">
         {receipt.best_bargain ? (
-          <article className="td-callout" data-kind="bargain" data-testid="td-callout-bargain">
+          <article
+            className="td-callout pk-crown pk-reveal"
+            style={{ "--pk-reveal-index": 7 } as CSSProperties}
+            data-kind="bargain"
+            data-testid="td-callout-bargain"
+          >
             <p className="td-callout-tag">Steal of the night</p>
             <p className="td-callout-headline pk-numeral">
               {receipt.best_bargain.prime_score.toFixed(1)}
@@ -258,7 +312,12 @@ export default function ShowdownResult({
           </article>
         ) : null}
         {receipt.biggest_overpay ? (
-          <article className="td-callout" data-kind="overpay" data-testid="td-callout-overpay">
+          <article
+            className="td-callout pk-crown pk-reveal"
+            style={{ "--pk-reveal-index": 8 } as CSSProperties}
+            data-kind="overpay"
+            data-testid="td-callout-overpay"
+          >
             <p className="td-callout-tag">Biggest overpay</p>
             <p className="td-callout-headline pk-numeral">
               {formatDollars(receipt.biggest_overpay.price)}
@@ -270,7 +329,12 @@ export default function ShowdownResult({
           </article>
         ) : null}
         {receipt.most_decisive ? (
-          <article className="td-callout" data-kind="decisive" data-testid="td-callout-decisive">
+          <article
+            className="td-callout pk-crown pk-reveal"
+            style={{ "--pk-reveal-index": 8 } as CSSProperties}
+            data-kind="decisive"
+            data-testid="td-callout-decisive"
+          >
             <p className="td-callout-tag">Decisive lot</p>
             <p className="td-callout-headline pk-numeral">
               {formatDollars(receipt.most_decisive.price)}
@@ -282,19 +346,31 @@ export default function ShowdownResult({
         ) : null}
       </div>
 
-      <footer className="td-result-actions">
+      <footer
+        className="td-result-actions pk-reveal"
+        style={{ "--pk-reveal-index": 8 } as CSSProperties}
+      >
         <button
           type="button"
-          className="btn-primary"
+          className="btn-primary pk-lift pk-press"
           data-testid="td-play-again"
           onClick={onPlayAgain}
         >
           Play again
         </button>
-        <Link href="/arena" className="btn-secondary" data-testid="td-back-to-arena">
+        <Link
+          href="/arena"
+          className="btn-secondary pk-lift pk-press"
+          data-testid="td-back-to-arena"
+        >
           Back to Arena
         </Link>
-        <button type="button" className="btn-secondary" data-testid="td-share" onClick={onCopy}>
+        <button
+          type="button"
+          className="btn-secondary pk-lift pk-press"
+          data-testid="td-share"
+          onClick={onCopy}
+        >
           {copied ? "Copied" : "Copy result"}
         </button>
       </footer>

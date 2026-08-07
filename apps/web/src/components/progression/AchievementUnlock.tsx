@@ -49,28 +49,39 @@ export function AchievementUnlock({ achievementKeys, allAchievements, onDismiss 
       style={{ background: "rgba(0,0,0,0.6)" }}
       onClick={onDismiss}
     >
+      {/* THE reward moment of the whole progression system, and it used to be
+          a plain bordered box. `.pk-spotlight` is the one effect it gets — the
+          "this is where the game is right now" ring, which is exactly what an
+          unlock is — over `.pk-grad-decision`'s warmer fill. NOT stacked with
+          `.pk-depth`: `.pk-depth` is declared later in globals.css and would
+          simply overwrite the spotlight's `box-shadow`, so the two are a
+          choice, never a combination. */}
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="rounded-2xl border p-5 max-w-sm w-full space-y-3 outline-none"
+        className="pk-spotlight pk-crown pk-crown-accent rounded-2xl border p-5 max-w-sm w-full space-y-3 outline-none"
         style={{
-          background: "var(--bg-surface)",
-          borderColor: "var(--border-subtle)",
+          background: "var(--pk-grad-decision)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* The banner reads at the scale of the news it is announcing. */}
         <p
-          className="text-xs font-semibold tracking-widest uppercase text-center"
-          style={{ color: "var(--peak-accent-text)" }}
+          className="pk-reveal font-display text-base font-extrabold tracking-widest uppercase text-center"
+          style={{ color: "var(--peak-accent-text)", "--pk-reveal-index": 0 } as React.CSSProperties}
           aria-live="assertive"
         >
           Achievement Unlocked
         </p>
 
-        {achievements.map((a) => {
+        {achievements.map((a, i) => {
           const color = CATEGORY_COLORS[a.category] ?? "var(--text-secondary)";
           return (
-            <div key={a.key} className="flex items-center gap-3">
+            <div
+              key={a.key}
+              className="pk-reveal flex items-center gap-3"
+              style={{ "--pk-reveal-index": i + 1 } as React.CSSProperties}
+            >
               <div
                 className="w-10 h-10 rounded-full flex items-center justify-center text-lg"
                 // `color-mix`, not a hex-alpha suffix -- `color` is now a
@@ -94,9 +105,14 @@ export function AchievementUnlock({ achievementKeys, allAchievements, onDismiss 
         })}
 
         <button
+          type="button"
           onClick={onDismiss}
-          className="w-full py-2 rounded-lg text-sm font-semibold mt-1"
-          style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)" }}
+          className="pk-lift pk-press w-full py-2 rounded-lg text-sm font-semibold mt-1 border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+          style={{
+            background: "var(--bg-elevated)",
+            borderColor: "var(--border-default)",
+            color: "var(--text-primary)",
+          }}
         >
           Dismiss
         </button>

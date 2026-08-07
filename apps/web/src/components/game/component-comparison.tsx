@@ -25,10 +25,15 @@ export function ComponentComparison({ answer }: ComponentComparisonProps) {
         <p className="text-xs font-semibold text-[var(--correct)] text-right truncate">
           {winner.player_name}
         </p>
-        <p className="text-[10px] text-[var(--text-muted)] text-center uppercase tracking-wider w-28">
+        {/* WAS 10px `--text-muted`. It names the column between two player
+            names; 11px secondary is the same restraint at a size that can
+            actually be read. The `w-28` is unchanged, so nothing reflows. */}
+        <p className="text-[11px] font-semibold text-[var(--text-secondary)] text-center uppercase tracking-wider w-28">
           Component
         </p>
-        <p className="text-xs font-semibold text-[var(--text-muted)] truncate">
+        {/* WAS `--text-muted`. This is a player's NAME. The loser being quieter
+            than the winner is right; being the same tier as a caption is not. */}
+        <p className="text-xs font-semibold text-[var(--text-secondary)] truncate">
           {loser.player_name}
         </p>
       </div>
@@ -71,9 +76,15 @@ export function ComponentComparison({ answer }: ComponentComparisonProps) {
             </div>
 
             {/* Label */}
+            {/* The non-decisive tier WAS `--text-muted`. A component's name is
+                the only thing that says what the two bars beside it measure —
+                a row nobody can read is not a quiet row, it is a missing one.
+                The decisive/non-decisive distinction is preserved, it is just
+                expressed between "lane colour" and "secondary" now instead of
+                between "lane colour" and "barely there". */}
             <p
               className="text-[10px] font-medium text-center w-28 leading-tight"
-              style={{ color: isDecisive ? textColor : "var(--text-muted)" }}
+              style={{ color: isDecisive ? textColor : "var(--text-secondary)" }}
             >
               {componentLabel(key)}
             </p>
@@ -101,11 +112,15 @@ export function ComponentComparison({ answer }: ComponentComparisonProps) {
       {component_comparison["teammate_adjustment"] && (
         <div className="pt-1 border-t border-[var(--border-subtle)]">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 text-xs text-[var(--text-muted)]">
-            <p className="text-right font-mono">
+            {/* The two NUMBERS move up a tier; the label stays muted. This row
+                is deliberately the quietest thing in the breakdown, but a
+                figure a reader might want to compare is not the part to make
+                unreadable. */}
+            <p className="text-right font-mono text-[var(--text-secondary)]">
               {component_comparison["teammate_adjustment"].winner.toFixed(2)}
             </p>
             <p className="text-center w-28">Teammate Adj.</p>
-            <p className="font-mono">
+            <p className="font-mono text-[var(--text-secondary)]">
               {component_comparison["teammate_adjustment"].loser.toFixed(2)}
             </p>
           </div>

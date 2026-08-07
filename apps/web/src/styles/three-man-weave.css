@@ -21,13 +21,53 @@
    FIXED IN THIS PASS: two selectors that silently overrode themselves
    (`.tmw-place-slot` was declared twice, as was `.tmw-place-choice select`),
    the untokenised accent above, and eleven `var(--font-display)` references
-   that resolved to nothing because the token had never been defined. */
+   that resolved to nothing because the token had never been defined.
+
+   GAME-FEEL PASS (ADDITIVE)
+   -------------------------
+   This room read as three well-organised panels rather than as three people
+   competing. The changes are all in the "who is live, what just resolved, and
+   is this thing an object" register, and every one of them CONSUMES the
+   primitive layer at the bottom of globals.css rather than growing a fourth
+   local copy of it:
+
+     * DEPTH IS COMPOSED, NOT CLASSED, on the surfaces that already own a
+       box-shadow or a background state. `.pk-depth` is a single-declaration
+       utility: applying it to `.tmw-seat` would have replaced the on-turn
+       glow, because globals.css is imported AFTER this file (the `@import`s
+       sit at its top) and equal-specificity rules there win. So the panels
+       that carry their own states take `--pk-rim` / `--pk-elev-*` directly,
+       and the utility class is used only where nothing conflicts.
+     * THE ACTIVE-TURN PULSE IS ONE PRIMITIVE. `tmw-onclock-breathe` was a
+       hand-rolled duplicate of `.pk-turn-pulse` -- same idea, same box-shadow
+       trick, same reason for choosing a ring over an opacity fade. It is gone
+       and the badge sets `--pk-pulse-color` to its own seat's fill instead, so
+       there is now exactly ONE infinite ring animation definition in the app
+       and three seats express themselves through its colour variable.
+     * `--pk-spotlight` IS RE-SCOPED, NOT REPLACED. The global value is built
+       from the brand gold. This room has three seats and the live-panel ring
+       has to follow whoever is on the clock, so `.tmw-turnbar` redefines the
+       token from `--seat-fill`. The primitive stays one primitive.
+     * FOUR `--text-muted` VALUES MOVED UP A TIER. "Open" on an empty roster
+       slot, "Open" on a placement target, "Not filled" on a result card and
+       the no-legal-arrangement fit verdict are all things a drafter reads
+       while deciding. The separator glyphs and the disabled filter chip stay
+       muted, because those genuinely are tertiary. */
 
 /* ---------------------------------------------------------------------------
    The room
    --------------------------------------------------------------------------- */
 
 .tmw-room {
+  /* THE ROOM IS LIT, NOT FLAT. `.pk-atmosphere` (globals) paints the two
+     floodlights and the court grid behind the whole shell; it is applied on
+     the element rather than restated here so this room and the home hero are
+     literally the same lighting rig.
+
+     THE GRID IS WIDENED FROM THE 48px DEFAULT. Three dense courts sitting on
+     a 48px lattice reads as interference between two grids; at 72px the floor
+     stays a floor and the courts stay the thing you look at. */
+  --pk-court-grid-size: 72px;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -394,6 +434,16 @@
 .tmw-turnbar {
   --seat-fill: var(--peak-accent);
   --seat-ink: var(--peak-accent-text);
+  /* THE LIVE-PANEL RING FOLLOWS THE SEAT, NOT THE BRAND. `--pk-spotlight` is
+     defined globally from `--peak-accent`, which is correct for a single-
+     player surface and wrong here: this bar takes the colour of whoever is on
+     the clock, and a gold ring around a blue seat's turn says the wrong thing
+     twice. Re-scoping the token keeps ONE spotlight primitive in the app
+     instead of adding a second, seat-coloured one beside it. */
+  --pk-spotlight:
+    0 0 0 1px color-mix(in srgb, var(--seat-fill) 48%, transparent),
+    0 0 26px -6px color-mix(in srgb, var(--seat-fill) 60%, transparent);
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
   align-items: center;
@@ -402,7 +452,24 @@
   border: 1px solid var(--border-edge);
   border-left: 4px solid var(--seat-fill);
   border-radius: var(--pk-r-md, 10px);
-  background: var(--bg-elevated);
+  /* A lit top edge and a shadow beneath, so the room's status reads as a
+     board mounted above the courts rather than as a coloured strip. */
+  background: var(--pk-grad-raised);
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
+}
+
+/* `.pk-spotlight` sets a box-shadow AND a gold `border-color`. Both need
+   answering here, and neither is a fault in the primitive:
+     * its box-shadow is one declaration, so on its own it discards the rim
+       above and the bar goes flat at exactly the moment it matters most;
+     * its `border-color` is a shorthand, so it would also repaint the 4px
+       LEFT rail -- the thing that says which seat is on the clock -- in the
+       brand gold.
+   Composed here at a specificity that beats both. */
+.tmw-turnbar.pk-spotlight {
+  box-shadow: var(--pk-rim), var(--pk-spotlight);
+  border-color: color-mix(in srgb, var(--seat-fill) 40%, var(--border-edge));
+  border-left-color: var(--seat-fill);
 }
 
 .tmw-turnbar[data-seat-accent="1"] {
@@ -426,9 +493,11 @@
   display: flex;
   align-items: baseline;
   gap: 0.35rem;
+  font-family: var(--font-display);
   font-size: 0.6875rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  /* The eyebrow tracking token rather than a fourth hand-set value. */
+  letter-spacing: var(--pk-track-eyebrow);
   text-transform: uppercase;
   color: var(--text-secondary);
 }
@@ -467,7 +536,11 @@
   font-family: var(--font-display);
   font-size: clamp(1rem, 2.4vw, 1.35rem);
   font-weight: 800;
-  letter-spacing: 0.01em;
+  /* Display tracking and display leading, from the tokens. The +0.01em this
+     replaces was set before the face was Space Grotesk, which is already
+     comfortably spaced at this weight and reads loose when opened further. */
+  letter-spacing: var(--pk-track-heading);
+  line-height: var(--pk-leading-heading);
   color: var(--text-primary);
   overflow-wrap: anywhere;
 }
@@ -497,6 +570,9 @@
   border: 1px solid var(--border-edge);
   border-radius: var(--pk-r-md, 10px);
   background: var(--bg-surface);
+  /* Sits inside the turnbar, so it needs its own lit edge to keep reading as
+     a separate instrument rather than as a lighter patch of the bar. */
+  box-shadow: var(--pk-rim);
 }
 
 .tmw-bot-clock[data-seat-accent="1"] {
@@ -714,12 +790,23 @@
 .tmw-seat {
   --seat-fill: var(--seat-1-fill);
   --seat-ink: var(--seat-1-ink);
+  /* `position: relative` is for `.pk-crown`'s hairline, which the markup opts
+     into. The card's own `overflow: hidden` clips it to the rounded corner. */
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   border: 1px solid var(--border-edge);
   border-radius: var(--pk-r-lg, 14px);
   background: var(--bg-elevated);
+  /* THREE TEAMS, THREE OBJECTS. The rim is the single most effective thing
+     separating a card from a rectangle, and it is composed here rather than
+     taken from `.pk-depth` because the on-turn and is-you states below own
+     this element's background and shadow and would be overwritten by the
+     utility (globals.css is imported after this file). The TONE is
+     deliberately left at `--bg-elevated`: the seat header is `--bg-surface`
+     and switching the body to `--pk-grad-raised` would collapse the two. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
   overflow: hidden;
   transition:
     border-color 180ms ease,
@@ -763,6 +850,7 @@
 .tmw-seat[data-on-turn="true"] {
   border-color: var(--seat-fill);
   box-shadow:
+    var(--pk-rim-strong),
     0 0 0 1px var(--seat-fill),
     0 0 30px -8px var(--seat-fill);
   transform: translateY(-2px);
@@ -815,6 +903,9 @@
   font-family: var(--font-display);
   font-size: 0.875rem;
   font-weight: 700;
+  /* A team name is a dense UI label, not a hero -- the tight step, not the
+     display one. */
+  letter-spacing: var(--pk-track-tight);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -866,23 +957,18 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   white-space: nowrap;
-  /* THE PULSE IS A RING, NOT AN OPACITY FADE. Fading the badge halves the
-     contrast of its own text for half of every cycle -- axe caught the previous
-     version at 4.13:1 mid-fade. A box-shadow animates on the compositor and
-     never touches the text. The colour is the SEAT's, through a token: the
-     value here used to be a hardcoded `rgb(245 200 66 / 45%)` that could not
-     follow a theme and could not follow a seat. */
-  animation: tmw-onclock-breathe 2s ease-in-out infinite;
-}
+  /* THE PULSE IS A RING, NOT AN OPACITY FADE, and it is now the SHARED ring.
+     Fading the badge halves the contrast of its own text for half of every
+     cycle -- axe caught an early version at 4.13:1 mid-fade -- so this has
+     always animated a box-shadow instead, which runs on the compositor and
+     never touches the glyphs.
 
-@keyframes tmw-onclock-breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--seat-fill) 45%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--seat-fill) 0%, transparent);
-  }
+     `tmw-onclock-breathe` used to be a private keyframe here that reached the
+     same conclusion in the same way as globals' `.pk-turn-pulse`. The markup
+     now carries `.pk-turn-pulse` and this rule supplies only the one thing
+     the primitive asks a caller for: which colour it is breathing in. Three
+     seats, one animation definition. */
+  --pk-pulse-color: var(--seat-fill);
 }
 
 .tmw-seat-edge {
@@ -957,6 +1043,11 @@
   border: 1px solid var(--border-edge);
   border-radius: var(--pk-r-sm, 6px);
   background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  /* A LIT EDGE, NOT `.pk-depth`. The utility would make this opaque, and the
+     88% mix is the whole reason the court markings read as texture UNDER the
+     roster rather than as a picture beside it. The rim alone is what turns
+     the card into an object. */
+  box-shadow: var(--pk-rim);
   text-align: left;
 }
 
@@ -1018,11 +1109,15 @@
   white-space: nowrap;
 }
 
+/* "Open" IS A LABEL A DRAFTER READS, not metadata. Which of the six slots is
+   still empty -- on your board and on both opponents' -- is the single fact
+   that decides what to take next, and it was set in the faintest ink the
+   theme has. Secondary, not muted. */
 .tmw-slot-open {
   grid-column: 1 / -1;
   font-size: 0.6875rem;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .tmw-slot[data-just-picked="true"] {
@@ -1045,7 +1140,14 @@
   outline-offset: 2px;
 }
 
-.tmw-slot--interactive[data-picked-up="true"] {
+/* THE CARD IN HAND KEEPS ITS RING WHILE THE POINTER IS OVER IT. `.pk-lift`'s
+   hover shadow and this rule are both two-token selectors, and globals.css is
+   imported after this file, so the plain form would lose to the generic hover
+   at exactly the moment the specific state matters. The `.pk-lift` in the
+   selector is there to win, and for no other reason. */
+.tmw-slot--interactive[data-picked-up="true"],
+.tmw-slot--interactive.pk-lift[data-picked-up="true"]:hover,
+.tmw-slot--interactive.pk-lift[data-picked-up="true"]:focus-visible {
   cursor: grabbing;
   border-color: var(--seat-fill);
   box-shadow:
@@ -1075,6 +1177,14 @@
   }
   .tmw-seat[data-on-turn="true"] {
     transform: none;
+  }
+  /* `.pk-turn-pulse`'s own reduced-motion form leaves the badge with a static
+     lit ring, which is the information. Restated here only because the rule
+     above zeroes `animation` on this element for historical reasons and would
+     otherwise leave the badge with nothing at all. */
+  .tmw-seat-onclock.pk-turn-pulse {
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--seat-fill) 34%, transparent);
   }
 }
 
@@ -1455,10 +1565,25 @@
   outline-offset: 2px;
 }
 
-.tmw-candidate[aria-pressed="true"] {
+/* THE SELECTED CANDIDATE KEEPS ITS RING UNDER THE POINTER. `.pk-lift:hover`
+   is defined later in the cascade at the same specificity, so the plain form
+   would drop the accent ring from the one row the player has actually chosen.
+   The `.pk-lift` in the selector is a tie-break, nothing more. */
+.tmw-candidate[aria-pressed="true"],
+.tmw-candidate.pk-lift[aria-pressed="true"]:hover,
+.tmw-candidate.pk-lift[aria-pressed="true"]:focus-visible {
   border-color: var(--peak-accent);
   background: var(--peak-accent-bg);
   box-shadow: 0 0 0 1px var(--peak-accent);
+}
+
+/* A DISABLED CANDIDATE MUST NOT LIFT. `.pk-lift`'s hover rule does not exclude
+   `:disabled`, and a row that rises to the pointer and then refuses the click
+   is offering an interaction it cannot honour -- the same rule this file
+   applies to every other control. */
+.tmw-candidate.pk-lift:disabled:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 .tmw-candidate:disabled {
@@ -1515,8 +1640,13 @@
   color: var(--peak-accent-text);
 }
 
+/* A VERDICT, NOT A FOOTNOTE. "No legal arrangement" is the rule that stops a
+   pick landing; a drafter scanning a pool needs to read it at a glance, and
+   de-emphasis was being spelled as near-invisibility. It is still the quietest
+   of the three fit states -- it is neutral ink where the other two are
+   coloured -- but it is now legible ink. */
 .tmw-candidate-fit[data-fit="no_legal_arrangement"] {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* THE EMPTY STATE ANSWERS THE ACTUAL QUESTION (TMW-11). Three different facts,
@@ -1608,8 +1738,13 @@
 }
 
 /* A LEGAL DESTINATION LIGHTS UP STRONGLY (TMW-11); an illegal one steps back
-   by fill and border style rather than merely fading. */
-.tmw-place-slot[data-legal="true"] {
+   by fill and border style rather than merely fading.
+   The `.pk-lift` forms exist only to outrank `.pk-lift:hover`'s generic
+   shadow, which is defined later in the cascade and would otherwise erase the
+   accent ring on the one slot the player is pointing at. */
+.tmw-place-slot[data-legal="true"],
+.tmw-place-slot.pk-lift[data-legal="true"]:hover,
+.tmw-place-slot.pk-lift[data-legal="true"]:focus-visible {
   border-color: var(--peak-accent);
   background: var(--peak-accent-bg);
   box-shadow: 0 0 0 1px var(--peak-accent);
@@ -1655,8 +1790,9 @@
   font-size: 0.8125rem;
 }
 
+/* The placement board's "Open" is the target a player is looking FOR. */
 .tmw-place-open {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .tmw-place-move,
@@ -1821,8 +1957,11 @@
   font-family: var(--font-display);
   font-size: clamp(1.75rem, 6vw, 3rem);
   font-weight: 800;
-  letter-spacing: -0.02em;
-  line-height: 1.05;
+  /* The display steps, from the tokens. The hand-set -0.02em/1.05 pair this
+     replaces predates the face being Space Grotesk and was within a
+     rounding error of the token values anyway. */
+  letter-spacing: var(--pk-track-display);
+  line-height: var(--pk-leading-display);
   color: var(--text-primary);
 }
 
@@ -1858,12 +1997,18 @@
 .tmw-result-card {
   --seat-fill: var(--seat-1-fill);
   --seat-ink: var(--seat-1-ink);
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   border: 1px solid var(--border-edge);
   border-radius: var(--pk-r-lg, 14px);
   background: var(--bg-elevated);
+  /* Same reasoning as `.tmw-seat`: the placement states below own this
+     element's background and shadow, so the depth is composed from the tokens
+     rather than taken from `.pk-depth`, which would be overwritten for first
+     place and would flatten the podium's one elevated card. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
   overflow: hidden;
 }
 
@@ -1885,7 +2030,9 @@
   background:
     linear-gradient(180deg, var(--peak-accent-bg), transparent 45%),
     var(--bg-elevated);
-  box-shadow: 0 10px 34px -14px var(--seat-1-fill);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 10px 34px -14px var(--seat-1-fill);
   transform: translateY(-6px);
 }
 
@@ -2037,10 +2184,12 @@
   color: var(--peak-accent-text);
 }
 
+/* "Not filled" on a final roster is a result, not metadata: it is the reason
+   a card scored what it scored. */
 .tmw-result-slot-open {
   grid-column: 2 / -1;
   font-size: 0.6875rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .tmw-result-unranked-note,

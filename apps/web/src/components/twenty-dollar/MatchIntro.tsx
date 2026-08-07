@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
 
 import { formatDollars } from "@/lib/twenty-dollar-api";
 
@@ -70,13 +70,36 @@ export default function MatchIntro({
       aria-modal="true"
       aria-labelledby="td-intro-title"
     >
+      {/* THE CARD ASSEMBLES IN READING ORDER: what kind of match, what it is
+          called, WHO you are playing, the three rules, the basis, the button.
+          `.pk-reveal` takes an index and globals owns the rhythm, so this
+          matches the lot reveal and the result screen rather than inventing a
+          third cadence. `.td-enter` on the card itself is unchanged.
+
+          NOTHING WAITS ON THIS. The dismiss button is focused on mount and is
+          pressable from the first frame; the stagger is decoration over a
+          fully-formed dialog, and it disappears under `prefers-reduced-motion`
+          without changing what the intro says or how long it lives (which is
+          `useShowdownPhase`'s decision, not this file's). */}
       <div className="td-intro-card td-enter">
-        <p className="td-intro-eyebrow">{rated ? "Rated match" : "Practice match"}</p>
-        <h2 className="td-intro-title" id="td-intro-title">
+        <p
+          className="td-intro-eyebrow pk-reveal"
+          style={{ "--pk-reveal-index": 0 } as CSSProperties}
+        >
+          {rated ? "Rated match" : "Practice match"}
+        </p>
+        <h2
+          className="td-intro-title pk-reveal"
+          id="td-intro-title"
+          style={{ "--pk-reveal-index": 1 } as CSSProperties}
+        >
           The $20 Showdown
         </h2>
 
-        <div className="td-intro-versus">
+        <div
+          className="td-intro-versus pk-reveal"
+          style={{ "--pk-reveal-index": 2 } as CSSProperties}
+        >
           <span className="td-intro-side" data-seat="a">
             You
           </span>
@@ -88,7 +111,10 @@ export default function MatchIntro({
           </span>
         </div>
 
-        <ol className="td-intro-rules">
+        <ol
+          className="td-intro-rules pk-reveal"
+          style={{ "--pk-reveal-index": 3 } as CSSProperties}
+        >
           <li>
             <span className="td-intro-rule-value pk-numeral">
               {formatDollars(startingBudget)}
@@ -110,15 +136,19 @@ export default function MatchIntro({
           </li>
         </ol>
 
-        <p className="td-intro-basis">
+        <p
+          className="td-intro-basis pk-reveal"
+          style={{ "--pk-reveal-index": 4 } as CSSProperties}
+        >
           Highest total across five career-best PEAK3 seasons wins.
         </p>
 
         <button
           type="button"
           ref={buttonRef}
-          className="btn-primary td-intro-go"
+          className="btn-primary td-intro-go pk-reveal pk-lift pk-press"
           data-testid="td-intro-start"
+          style={{ "--pk-reveal-index": 5 } as CSSProperties}
           onClick={onDismiss}
         >
           Open lot 1

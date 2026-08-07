@@ -1,5 +1,8 @@
 "use client";
-import { AnimatedNumber } from "@/components/ui";
+// Deep import, not the `@/components/ui` barrel: the barrel re-exports
+// `ThemeToggle`, which reaches `lucide-react`, and paying for that whole
+// dependency to render one number costs a route ~15 kB of First Load JS.
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { RunPublicState } from "@/types/run-the-table";
 import { ladderProgress, ScoutIntel } from "@/lib/run-the-table-state";
 import { componentTextColor } from "@/lib/utils";

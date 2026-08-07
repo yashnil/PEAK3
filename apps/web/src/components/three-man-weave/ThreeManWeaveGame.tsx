@@ -320,7 +320,12 @@ export default function ThreeManWeaveGame({
 
   return (
     <div
-      className="ar-room tmw-room"
+      // `.pk-atmosphere` is the arena's lighting rig as a class: two
+      // floodlights and the court grid, defined once in globals.css. The room
+      // is where it belongs -- a draft happens IN a building, and every panel
+      // below now sits on a lit floor rather than on a flat page. The grid
+      // pitch is widened for this room in `three-man-weave.css`.
+      className="ar-room tmw-room pk-atmosphere"
       data-testid="tmw-room"
       // The server's own phase, on the room, so a browser test can assert what
       // is on screen AGAINST what the server said rather than against a timer.

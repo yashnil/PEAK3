@@ -1,5 +1,12 @@
 "use client";
 import { LineupEvaluation, ReceiptItem, SynergyItem } from "@/types/draft";
+// See its own docstring for why a result number is not `AnimatedNumber`.
+import { ResultNumber } from "@/components/game/result-number";
+
+/** The receipt's own display format, kept in one place so the counting number
+ *  and the value it lands on are formatted by the same function. One decimal
+ *  at most, and no trailing `.0` — exactly what this screen printed before. */
+const oneDecimal = (n: number) => String(Math.round(n * 10) / 10);
 
 // Theme-aware tokens (P3-G2), not literal hex: this map used to feed both a
 // text `color` AND a `${color}08`/`${color}30` hex-alpha-suffix background/
@@ -94,20 +101,23 @@ export default function DraftReceipt({ evaluation, onShare }: Props) {
         hypothesis, not a prediction of game outcomes or objective truth.
       </div>
 
-      {/* Main score */}
-      <div className="flex items-end gap-4">
+      {/* Main score. A raised plate with an accent crown rather than bare text
+          on the page: this number is the whole result of the draft, and it was
+          rendering with less chrome than the disclaimer above it. */}
+      <div className="pk-reveal pk-depth pk-crown pk-crown-accent flex items-end gap-4 rounded-xl p-3" style={{ "--pk-reveal-index": 0 } as React.CSSProperties}>
         <div>
+          {/* WAS `--text-muted`. It is the name of the 48px number under it. */}
           <div
             className="text-xs font-semibold uppercase tracking-wider"
-            style={{ color: "var(--text-muted)" }}
+            style={{ color: "var(--text-secondary)" }}
           >
             Lineup Peak Rating
           </div>
           <div
-            className="text-5xl font-bold tabular-nums"
+            className="font-display text-5xl font-bold"
             style={{ color: "var(--peak-accent-text)" }}
           >
-            {ratingDisplay}
+            <ResultNumber value={ratingDisplay} format={oneDecimal} />
           </div>
         </div>
 
@@ -133,27 +143,29 @@ export default function DraftReceipt({ evaluation, onShare }: Props) {
       </div>
 
       {/* Component scores */}
-      <div className="grid grid-cols-2 gap-2">
+      <div
+        className="pk-reveal grid grid-cols-2 gap-2"
+        style={{ "--pk-reveal-index": 1 } as React.CSSProperties}
+      >
         {[
           { label: "Talent", value: talent_score, color: "var(--peak-accent-text, #f5c842)" },
           { label: "Coverage", value: coverage_score, color: "var(--accent-blue)" },
         ].map(({ label, value, color }) => (
           <div
             key={label}
-            className="rounded-lg p-3 border"
-            style={{
-              background: "var(--bg-elevated)",
-              borderColor: "var(--border-subtle)",
-            }}
+            className="pk-depth pk-crown rounded-lg p-3 border"
+            style={{ borderColor: "var(--border-subtle)" }}
           >
-            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+            {/* WAS `--text-muted`. Two words, and they are the only way to
+                tell the two tiles apart. */}
+            <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
               {label}
             </div>
             <div
-              className="text-xl font-bold tabular-nums"
+              className="font-display text-xl font-bold"
               style={{ color }}
             >
-              {Math.round(value * 10) / 10}
+              <ResultNumber value={value} format={oneDecimal} />
             </div>
           </div>
         ))}
@@ -190,8 +202,9 @@ export default function DraftReceipt({ evaluation, onShare }: Props) {
       {/* Share */}
       {onShare && (
         <button
+          type="button"
           onClick={onShare}
-          className="py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
+          className="pk-lift pk-press py-2.5 rounded-lg text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
           style={{
             background: "var(--border-default)",
             color: "var(--text-primary)",

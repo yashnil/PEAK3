@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import type { ArenaResultView, TmwRoster, TmwSlotType } from "@/types/three-man-weave";
 import { TMW_SLOT_LABELS, TMW_SLOT_TYPES } from "@/types/three-man-weave";
 import {
@@ -16,6 +17,10 @@ import {
 } from "@/lib/three-man-weave-state";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import Celebration from "@/components/shared/Celebration";
+// Deep import, not the `@/components/ui` barrel: the barrel re-exports
+// `ThemeToggle`, which reaches `lucide-react`, and paying for that whole
+// dependency to render one number costs a route ~15 kB of First Load JS.
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 
 /**
  * THE FINISH. A competitive result, not an analytics report.
@@ -104,8 +109,23 @@ export default function PodiumReceipt({
           entirely under reduced motion, and nothing below waits for it. */}
       <Celebration active={won} testId="tmw-celebration" />
 
-      <header className="tmw-result-head" data-tier={tierOf(placement)}>
-        <p className="tmw-result-badge" data-testid="tmw-your-placement">
+      {/* THE FINISH LANDS IN THE ORDER A PERSON READS IT: placement, then the
+          sentence, then the number, then the podium, then the way out.
+          `.pk-reveal` takes an index and globals decides the rhythm, so this
+          screen staggers at the same rate as every other revealed list in the
+          product. Every element is present and readable from the first frame --
+          the animation is decoration over an already-decided result, which is
+          what makes switching it off under `prefers-reduced-motion` honest
+          rather than a downgrade. */}
+      <header
+        className="tmw-result-head pk-crown pk-crown-accent"
+        data-tier={tierOf(placement)}
+      >
+        <p
+          className="tmw-result-badge pk-reveal"
+          data-testid="tmw-your-placement"
+          style={{ "--pk-reveal-index": 0 } as CSSProperties}
+        >
           <span className="tmw-result-badge-rank pk-numeral" aria-hidden="true">
             {placement ?? "—"}
           </span>
@@ -113,21 +133,34 @@ export default function PodiumReceipt({
             {placement === null ? "Complete" : ordinal(placement)}
           </span>
         </p>
-        <h2 className="tmw-result-line" data-testid="tmw-result-line">
+        <h2
+          className="tmw-result-line pk-reveal"
+          data-testid="tmw-result-line"
+          style={{ "--pk-reveal-index": 1 } as CSSProperties}
+        >
           {resultLine(band, seed || String(placement ?? "none"))}
         </h2>
-        <p className="tmw-result-headline" data-testid="tmw-outcome">
+        <p
+          className="tmw-result-headline pk-reveal"
+          data-testid="tmw-outcome"
+          style={{ "--pk-reveal-index": 2 } as CSSProperties}
+        >
           {outcomeHeadline(rows)}
           {winner && winner.score.kind === "scored" ? (
-            <span className="tmw-result-headline-score score-number">
-              {winner.score.text}
+            /* THE WINNING NUMBER RESOLVES RATHER THAN APPEARING. `AnimatedNumber`
+               settles on the server's own value exactly -- never on an
+               interpolation -- and publishes that value to assistive tech from
+               the first paint, so nobody waits on a tween to learn the score.
+               `.pk-counting` is the accompanying ink treatment. */
+            <span className="tmw-result-headline-score score-number pk-counting">
+              <AnimatedNumber value={winner.score.value} precision={1} />
             </span>
           ) : null}
         </p>
       </header>
 
       <ol className="tmw-result-rows" data-testid="tmw-result-rows">
-        {rows.map((row) => {
+        {rows.map((row, index) => {
           const roster = rosters.find(
             (entry) => entry.seat_index === row.result.seat_index,
           );
@@ -139,7 +172,10 @@ export default function PodiumReceipt({
               data-placement={row.result.placement}
               data-is-you={isYou}
               data-seat-accent={seatAccent(row.result.seat_index)}
-              className="tmw-result-card"
+              className="tmw-result-card pk-crown pk-reveal"
+              // Continues the header's count, so the podium arrives after the
+              // verdict rather than alongside it.
+              style={{ "--pk-reveal-index": 3 + index } as CSSProperties}
             >
               <div className="tmw-result-card-head">
                 <span className="tmw-result-rank pk-numeral" aria-hidden="true">
@@ -154,7 +190,9 @@ export default function PodiumReceipt({
                 <span className="tmw-result-score">
                   {row.score.kind === "scored" ? (
                     <>
-                      <strong className="score-number">{row.score.text}</strong>
+                      <strong className="score-number">
+                        <AnimatedNumber value={row.score.value} precision={1} />
+                      </strong>
                       <span className="tmw-result-score-label">
                         {RANKING_BASIS_LABEL}
                       </span>
@@ -219,16 +257,23 @@ export default function PodiumReceipt({
         </p>
       )}
 
-      <footer className="tmw-result-actions">
+      <footer
+        className="tmw-result-actions pk-reveal"
+        style={{ "--pk-reveal-index": 6 } as CSSProperties}
+      >
         <button
           type="button"
-          className="btn-primary"
+          className="btn-primary pk-lift pk-press"
           data-testid="tmw-play-again"
           onClick={onPlayAgain}
         >
           Play again
         </button>
-        <Link href="/arena" className="btn-secondary" data-testid="tmw-back-to-arena">
+        <Link
+          href="/arena"
+          className="btn-secondary pk-lift pk-press"
+          data-testid="tmw-back-to-arena"
+        >
           Back to Arena
         </Link>
       </footer>

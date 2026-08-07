@@ -141,7 +141,7 @@ export default function BidControls({
       <div className="td-stepper" role="group" aria-labelledby="td-bid-label">
         <button
           type="button"
-          className="td-step"
+          className="td-step pk-lift pk-press"
           data-testid="td-bid-minus"
           disabled={!canBid || pending || clamped <= min}
           onClick={() => step(-1)}
@@ -158,7 +158,7 @@ export default function BidControls({
         </output>
         <button
           type="button"
-          className="td-step"
+          className="td-step pk-lift pk-press"
           data-testid="td-bid-plus"
           disabled={!canBid || pending || clamped >= max}
           onClick={() => step(1)}
@@ -171,7 +171,7 @@ export default function BidControls({
       <div className="td-quick">
         <button
           type="button"
-          className="td-chip-btn"
+          className="td-chip-btn pk-lift pk-press"
           data-testid="td-bid-plus-1"
           disabled={!canBid || pending || clamped + 1 > max}
           onClick={() => step(1)}
@@ -180,7 +180,7 @@ export default function BidControls({
         </button>
         <button
           type="button"
-          className="td-chip-btn"
+          className="td-chip-btn pk-lift pk-press"
           data-testid="td-bid-plus-2"
           disabled={!canBid || pending || clamped + 2 > max}
           onClick={() => step(2)}
@@ -189,7 +189,7 @@ export default function BidControls({
         </button>
         <button
           type="button"
-          className="td-chip-btn"
+          className="td-chip-btn pk-lift pk-press"
           data-testid="td-bid-max"
           disabled={!canBid || pending || clamped >= max}
           onClick={() => setAmount(max)}
@@ -199,10 +199,16 @@ export default function BidControls({
       </div>
 
       <div className="td-bid-actions">
-        {/* A REAL FILLED PRIMARY, carrying the amount it will submit. */}
+        {/* A REAL FILLED PRIMARY, carrying the amount it will submit.
+            IT IS THE ONE ELEMENT IN THIS MODE WITH `.pk-sheen`. A specular
+            pass is the effect in the shared set that turns into noise the
+            moment a second control has it, so it goes on the single button
+            that commits money and nowhere else. Under
+            `prefers-reduced-motion` the pass is removed entirely rather than
+            shortened, because a fast sheen is a flash. */}
         <button
           type="button"
-          className="td-btn td-btn-primary"
+          className="td-btn td-btn-primary pk-lift pk-press pk-sheen"
           data-testid="td-submit-bid"
           disabled={!canBid || pending}
           data-loading={busy && sent !== "pass" ? "true" : "false"}
@@ -212,7 +218,7 @@ export default function BidControls({
         </button>
         <button
           type="button"
-          className="td-btn td-btn-decline"
+          className="td-btn td-btn-decline pk-lift pk-press"
           data-testid="td-pass"
           /* PASSING IS NOT ALWAYS AVAILABLE. `can_pass` is the server's own
              verdict: a seat out of market skips, facing a candidate it can

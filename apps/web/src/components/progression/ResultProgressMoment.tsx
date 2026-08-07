@@ -7,6 +7,27 @@ interface Props {
   achievementTitles?: Record<string, string>;
 }
 
+/**
+ * What the last game moved.
+ *
+ * This block is a REWARD — an achievement, a level, a personal best — and it
+ * was rendering as a two-row definition list in 12px grey on a flat panel,
+ * indistinguishable from the receipt rows around it. It now reads as a lit
+ * plate: `.pk-depth` for the raised surface, the ACCENT crown (`.pk-crown
+ * -accent`) along its top edge because this is the good news on the screen,
+ * and each row arriving on the shared `--pk-stagger` rhythm.
+ *
+ * ONE EFFECT, NOT A STACK. There is no spotlight ring here as well as the
+ * crown, and no pulse: `AchievementUnlock` is the surface that gets the
+ * spotlight, and two reward treatments competing on one receipt is how a game
+ * screen starts looking like a slot machine.
+ *
+ * NO COUNT-UP ON THE VALUES, DELIBERATELY. `+100` is asserted as exact text in
+ * `progression-components.test.tsx`, and every count-up component here carries
+ * a visually-hidden sibling with the authoritative value, which doubles the
+ * element's text content. The values are short enough that a count-up would be
+ * two frames of motion anyway.
+ */
 export function ResultProgressMoment({ moment, achievementTitles = {} }: Props) {
   // Pick the single most meaningful progression moment to surface
   // Priority: new achievement > new level > new personal record > streak advance > XP
@@ -52,19 +73,28 @@ export function ResultProgressMoment({ moment, achievementTitles = {} }: Props) 
 
   return (
     <div
-      className="rounded-lg border px-3 py-2.5 flex flex-col gap-1.5"
-      style={{ background: "var(--bg-elevated)", borderColor: "var(--border-subtle)" }}
+      className="pk-depth pk-crown pk-crown-accent rounded-lg border px-3 py-2.5 flex flex-col gap-1.5"
+      style={{ borderColor: "var(--border-subtle)" }}
       aria-label="Your progression this game"
       role="region"
     >
       {visible.map((line, i) => (
-        <div key={i} className="flex items-center justify-between gap-2">
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+        <div
+          key={i}
+          className="pk-reveal flex items-center justify-between gap-2"
+          style={{ "--pk-reveal-index": i } as React.CSSProperties}
+        >
+          {/* WAS `--text-muted`. It names the reward beside it — "Achievement",
+              "Level reached", "Streak" — which is the half of the row that
+              tells you what just happened. */}
+          <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
             {line.label}
           </span>
+          {/* The value carries the display face now: this is the payoff line
+              on the receipt, not a table cell. */}
           <span
-            className="text-xs font-semibold"
-            style={{ color: line.accent ? "var(--peak-accent)" : "var(--text-primary)" }}
+            className="font-display text-sm font-bold"
+            style={{ color: line.accent ? "var(--peak-accent-text)" : "var(--text-primary)" }}
           >
             {line.value}
           </span>

@@ -395,7 +395,9 @@ function AuctionRoom({
 
   if (complete && receipt) {
     return (
-      <div className="td-game ar-room" data-testid="td-game">
+      // The result state keeps the room's lighting: a match ends IN the
+      // building it was played in, not on a blank page.
+      <div className="td-game ar-room pk-atmosphere" data-testid="td-game">
         <ShowdownResult
           receipt={receipt}
           publicState={publicState}
@@ -416,7 +418,12 @@ function AuctionRoom({
   }
 
   return (
-    <div className="td-game ar-room" data-testid="td-game" data-phase={phase}>
+    /* `.pk-atmosphere` is globals' arena lighting -- two floodlights and the
+       court grid -- applied on the room shell so the auction happens somewhere
+       rather than on a flat page. The grid pitch is widened for this room in
+       `twenty-dollar.css`, because three dense columns over a tight lattice
+       reads as interference. */
+    <div className="td-game ar-room pk-atmosphere" data-testid="td-game" data-phase={phase}>
       <header className="ar-room-head">
         <div className="ar-room-meta">
           <h1 className="ar-room-title">The $20 Showdown</h1>
