@@ -110,7 +110,7 @@ export function Footer() {
                     <li key={item.href}>
                       <Link
                         href={item.href}
-                        className="text-sm text-[var(--text-muted)] hover:text-[var(--peak-accent-text)] focus-visible:text-[var(--peak-accent-text)] transition-colors"
+                        className="text-sm text-[var(--text-secondary)] hover:text-[var(--peak-accent-text)] focus-visible:text-[var(--peak-accent-text)] transition-colors"
                       >
                         {item.label}
                       </Link>
@@ -122,7 +122,7 @@ export function Footer() {
           })}
         </nav>
 
-        <div className="mt-10 border-t border-[var(--border-subtle)] pt-6 space-y-2 text-xs text-[var(--text-muted)]">
+        <div className="mt-10 border-t border-[var(--border-subtle)] pt-6 space-y-2 text-xs text-[var(--text-secondary)]">
           <p>
             PEAK3 Arena — open basketball analytics. Data sourced from Basketball Reference.
           </p>
