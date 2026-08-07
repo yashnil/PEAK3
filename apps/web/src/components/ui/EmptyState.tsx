@@ -45,21 +45,38 @@ export function EmptyState({
         background: "var(--pk-surface-inset, var(--bg-elevated))",
         border: "1px dashed var(--pk-surface-raised-border, var(--border-default))",
         borderRadius: "var(--pk-r-lg, 14px)",
+        // A recessed well, not a raised card. An empty state is a HOLE in the
+        // layout — something is missing here — and the depth vocabulary should
+        // say so rather than presenting absence as an object.
+        boxShadow: "var(--pk-well)",
       }}
     >
       {icon ? (
-        <span aria-hidden="true" style={{ color: "var(--text-muted)" }}>
+        <span aria-hidden="true" style={{ color: "var(--text-secondary)" }}>
           {icon}
         </span>
       ) : null}
       <p
         className="font-display font-bold"
-        style={{ color: "var(--text-primary)", fontSize: compact ? 13 : 15 }}
+        style={{
+          color: "var(--text-primary)",
+          fontSize: compact ? 14 : 16,
+          letterSpacing: "var(--pk-track-heading, -0.014em)",
+        }}
       >
         {title}
       </p>
       {description ? (
-        <p className="text-xs" style={{ color: "var(--text-secondary)", maxWidth: "48ch" }}>
+        <p
+          style={{
+            color: "var(--text-secondary)",
+            // 13px, not `text-xs`. This line is usually the only thing telling
+            // someone HOW to leave the empty state.
+            fontSize: 13,
+            lineHeight: 1.5,
+            maxWidth: "48ch",
+          }}
+        >
           {description}
         </p>
       ) : null}

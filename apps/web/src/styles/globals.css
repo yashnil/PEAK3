@@ -2655,11 +2655,26 @@ html, body {
    The digits themselves, while a score is counting. `AnimatedNumber`
    drives the VALUE; this is the accompanying treatment, so a counting
    score looks live rather than looking like a number that happens to
-   be changing. Tabular figures are already guaranteed by
-   `.pk-numeral`, so the width cannot move while this runs. */
+   be changing.
+
+   IT KEYS OFF `data-settled`, WHICH `AnimatedNumber` ALREADY EMITS,
+   rather than off a class the caller toggles on a timer. That matters:
+   a second timer racing the tween is how a "still counting" highlight
+   ends up stuck on a number that finished 300ms ago. There is one
+   clock here and the component owns it.
+
+   Applied permanently — the accent only appears while unsettled, and
+   the colour transitions back on landing. Tabular figures are already
+   guaranteed by `.pk-numeral` / `.score-number`, so nothing reflows
+   while this runs. Under reduced motion `AnimatedNumber` never
+   schedules a tween at all, so `data-settled` is "true" from the first
+   paint and this is inert without needing a media query. */
 .pk-counting {
-  color: var(--peak-accent-text);
   transition: color var(--pk-dur-slow) var(--pk-ease-decel);
+}
+
+.pk-counting[data-settled="false"] {
+  color: var(--peak-accent-text);
 }
 
 /* ================================================================
