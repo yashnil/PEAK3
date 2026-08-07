@@ -47,6 +47,7 @@ from app.services.three_man_weave.mode import (
 )
 
 from nba_peak.three_man_weave.config import PARTICIPANT_COUNT, ROSTER_SIZE, ROUNDS, RULESET_VERSION
+from nba_peak.three_man_weave.eligibility import get_index
 
 NOW = datetime(2026, 8, 4, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -884,7 +885,7 @@ def test_a_pick_and_its_rearrangement_commit_as_one_command(opening):
         if seat is None:
             break
         draft_state = D.DraftState.from_dict(state)
-        fits = D.candidate_fits(draft_state, seat)
+        fits = D.candidate_fits(draft_state, get_index(), seat)
         needy = [
             (slug, fit)
             for slug, fit in sorted(fits.items())
@@ -931,10 +932,11 @@ def test_a_pick_and_its_rearrangement_commit_as_one_command(opening):
 
 def test_a_pick_whose_arrangement_disagrees_with_its_slot_is_refused(opening):
     from nba_peak.three_man_weave import draft as D
+    from nba_peak.three_man_weave.eligibility import get_index
 
     seat = opening["current_seat"]
     draft_state = D.DraftState.from_dict(opening)
-    fits = D.candidate_fits(draft_state, seat)
+    fits = D.candidate_fits(draft_state, get_index(), seat)
     slug = sorted(fits)[0]
     landing = fits[slug].direct_slots[0]
     other = next(s for s in ("PG", "SG", "SF", "PF", "C", "bench_1") if s != landing)

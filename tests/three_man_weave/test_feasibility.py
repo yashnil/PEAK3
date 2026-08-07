@@ -6,6 +6,7 @@ import pytest
 from nba_peak.three_man_weave import draft as D
 from nba_peak.three_man_weave import feasibility as F
 from nba_peak.three_man_weave.config import MIN_ELIGIBLE_FOR_ROLL, ROUNDS, stream_rng
+from tests.three_man_weave.conftest import career_rights
 from nba_peak.three_man_weave.schemas import DraftPick, Roster
 
 
@@ -79,10 +80,12 @@ def test_the_identity_lock_is_applied_across_every_roll(index, fresh_rosters):
 def test_a_seat_with_no_legal_pick_rejects_the_roll(index):
     """A seat holding only C open cannot play a roll of pure guards, however
     many of them there are. This is the case a candidate count gets wrong."""
+    uta = sorted(index.eligible_slugs("UTA", "1990s"))
+    uta_rights = {slug: index.card_slot_rights(slug, "UTA", "1990s") for slug in uta}
     guards = [
         slug
-        for slug in sorted(index.eligible_slugs("UTA", "1990s"))
-        if F.is_legal(slug, "PG") and not F.is_legal(slug, "C")
+        for slug in uta
+        if F.is_legal(slug, "PG", uta_rights) and not F.is_legal(slug, "C", uta_rights)
     ]
     assert len(guards) >= 3, "fixture assumption: enough pure guards exist"
 
@@ -99,7 +102,7 @@ def test_a_seat_with_no_legal_pick_rejects_the_roll(index):
     )
     rosters = (Roster(seat_index=0), Roster(seat_index=1), seat_two)
     assert seat_two.open_slots() == ("C",)
-    assert F.legal_choices_for_seat(seat_two, guards) == ()
+    assert F.legal_choices_for_seat(seat_two, guards, career_rights(*guards)) == ()
 
     drafted = frozenset(index.eligible_slugs("UTA", "1990s")) - frozenset(guards)
     result = F.evaluate_roll("UTA", "1990s", index, rosters, drafted)
@@ -121,8 +124,9 @@ def test_legal_choices_are_relative_to_that_seats_open_slots():
         },
     )
     assert seat.open_slots() == ("C",)
-    assert F.legal_choices_for_seat(seat, ["john-stockton"]) == ()
-    assert F.legal_choices_for_seat(seat, ["hakeem-olajuwon"]) == ("hakeem-olajuwon",)
+    rights = career_rights("john-stockton", "hakeem-olajuwon")
+    assert F.legal_choices_for_seat(seat, ["john-stockton"], rights) == ()
+    assert F.legal_choices_for_seat(seat, ["hakeem-olajuwon"], rights) == ("hakeem-olajuwon",)
 
 
 # ---------------------------------------------------------------------------
@@ -153,12 +157,12 @@ def test_three_seats_needing_the_same_single_player_cannot_be_dealt(index):
     for roster in rosters:
         assert roster.open_slots() == ("C",)
 
-    centres = [
-        slug for slug in sorted(index.eligible_slugs("HOU", "1990s")) if F.is_legal(slug, "C")
-    ]
+    hou = sorted(index.eligible_slugs("HOU", "1990s"))
+    hou_rights = {slug: index.card_slot_rights(slug, "HOU", "1990s") for slug in hou}
+    centres = [slug for slug in hou if F.is_legal(slug, "C", hou_rights)]
     assert centres
     keep = centres[:1] + [
-        slug for slug in sorted(index.eligible_slugs("HOU", "1990s")) if not F.is_legal(slug, "C")
+        slug for slug in hou if not F.is_legal(slug, "C", hou_rights)
     ][:4]
     drafted = frozenset(index.eligible_slugs("HOU", "1990s")) - frozenset(keep)
 
@@ -177,20 +181,23 @@ def test_can_fill_open_slots_is_global_not_per_seat():
     """Two seats each needing the only remaining centre both pass in
     isolation and must fail together."""
     single_centre = ["shaquille-o-neal"]
-    assert F.can_fill_open_slots({0: ("C",)}, single_centre)
-    assert F.can_fill_open_slots({1: ("C",)}, single_centre)
-    assert not F.can_fill_open_slots({0: ("C",), 1: ("C",)}, single_centre)
+    rights = career_rights(*single_centre)
+    assert F.can_fill_open_slots({0: ("C",)}, single_centre, rights)
+    assert F.can_fill_open_slots({1: ("C",)}, single_centre, rights)
+    assert not F.can_fill_open_slots({0: ("C",), 1: ("C",)}, single_centre, rights)
 
 
 def test_can_fill_open_slots_is_trivially_true_with_nothing_open():
-    assert F.can_fill_open_slots({}, [])
-    assert F.can_fill_open_slots({0: ()}, [])
+    assert F.can_fill_open_slots({}, [], {})
+    assert F.can_fill_open_slots({0: ()}, [], {})
 
 
 def test_can_complete_all_rosters_wraps_real_rosters(index, fresh_rosters):
-    pool = D.undrafted_pool(D.create_match(1), index)
-    assert F.can_complete_all_rosters(fresh_rosters, pool)
-    assert not F.can_complete_all_rosters(fresh_rosters, pool[:5])
+    state = D.create_match(1)
+    pool = D.undrafted_pool(state, index)
+    rights = state.slot_rights(index, include_pool=True)
+    assert F.can_complete_all_rosters(fresh_rosters, pool, rights)
+    assert not F.can_complete_all_rosters(fresh_rosters, pool[:5], rights)
 
 
 # ---------------------------------------------------------------------------

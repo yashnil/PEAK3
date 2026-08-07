@@ -471,7 +471,7 @@ def test_an_unscoreable_roster_places_last_and_is_not_grouped_with_a_real_zero()
     assert table[0] == (3, "loss"), "None must not tie with a real 0.0"
 
 
-def test_outcomes_stay_inside_the_columns_check_vocabulary():
+def test_outcomes_stay_inside_the_columns_check_vocabulary(index):
     for scores in ([70.0, 70.0, 70.0], [80.0, 60.0, 60.0], [80.0, 70.0, 60.0]):
         table = placements([(index, _evaluation(s)) for index, s in enumerate(scores)])
         assert {outcome for _place, outcome in table.values()} <= {"win", "loss", "draw"}

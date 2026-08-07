@@ -90,7 +90,7 @@ from nba_peak.three_man_weave.evaluation import (
     evaluate_roster,
     placements,
 )
-from nba_peak.three_man_weave.positions import canonical_positions
+from nba_peak.three_man_weave.positions import card_starter_positions
 
 MODE_NAME = "three_man_weave"
 
@@ -296,7 +296,7 @@ class ThreeManWeaveMode:
             )
 
         try:
-            new_state = D.rearrange(state, seat_index, placements_payload)
+            new_state = D.rearrange(state, get_index(), seat_index, placements_payload)
         except D.DraftError as exc:
             return _reject(exc.code, exc.message)
 
@@ -365,6 +365,7 @@ class ThreeManWeaveMode:
         try:
             state = D.apply_pick(
                 state,
+                get_index(),
                 player_slug,
                 slot_type,
                 seat_index=seat_index,
@@ -631,14 +632,14 @@ class ThreeManWeaveMode:
                 legal_commands = (COMMAND_REARRANGE,)
 
             if state.current_seat == seat_index and current_roll is not None:
-                fits = D.candidate_fits(state, seat_index)
+                fits = D.candidate_fits(state, get_index(), seat_index)
                 private_state["candidate_fits"] = {
                     slug: fit.as_dict() for slug, fit in sorted(fits.items())
                 }
                 # `legal_picks` is retained beside the fits: it is the strict
                 # "fits an open slot right now" answer, and a surface that only
                 # wants the simple case should not have to interpret a plan.
-                options = D.legal_picks(state, seat_index)
+                options = D.legal_picks(state, get_index(), seat_index)
                 private_state["legal_picks"] = {
                     slug: list(slots) for slug, slots in sorted(options.items())
                 }
@@ -717,6 +718,21 @@ class ThreeManWeaveMode:
             "formula_version": card.formula_version,
         }
 
+    def _card_positions(
+        self, player_slug: str, franchise_id: str, decade: str
+    ) -> frozenset[str]:
+        """The starting positions THIS card supports.
+
+        Read from the card's own season rather than from the identity's
+        career, so the labels a drafter reasons about are the same facts the
+        reducer enforces. When the two were allowed to differ, the panel
+        offered Russell Westbrook at small forward and the reducer agreed.
+        """
+        card = get_index().scoring_card(player_slug, franchise_id, decade)
+        if card is None:
+            return frozenset()
+        return card_starter_positions(player_slug, card.season)
+
     def _eligibility_public(self, player_slug: str, franchise_id: str, decade: str) -> dict:
         """The evidence that makes this pick legal for this roll.
 
@@ -754,9 +770,13 @@ class ThreeManWeaveMode:
             "player_slug": player_slug,
             "player_name": index.player_name(player_slug) or player_slug,
             "eligibility": self._eligibility_public(player_slug, franchise_id, decade),
-            # The positions they may legally start at -- a rule of the game and
-            # the thing a drafter reasons about, carrying no valuation.
-            "positions": sorted(canonical_positions(player_slug)),
+            # The positions they may legally start at ON THIS CARD -- a rule
+            # of the game and the thing a drafter reasons about, carrying no
+            # valuation. Season-grain, not career-grain: the card is what the
+            # roster will be scored on, so it is what legality follows.
+            "positions": sorted(
+                self._card_positions(player_slug, franchise_id, decade)
+            ),
         }
 
     def _player_public(self, player_slug: str, franchise_id: str, decade: str) -> dict:
@@ -770,7 +790,9 @@ class ThreeManWeaveMode:
             "player_slug": player_slug,
             "player_name": index.player_name(player_slug) or player_slug,
             "eligibility": self._eligibility_public(player_slug, franchise_id, decade),
-            "positions": sorted(canonical_positions(player_slug)),
+            "positions": sorted(
+                self._card_positions(player_slug, franchise_id, decade)
+            ),
             "scoring_card": self._scoring_card_public(player_slug, franchise_id, decade),
         }
 

@@ -16,25 +16,48 @@ It is drawn from `config.stream_rng(seed, "autopick:<turn_index>")`, a named
 stream per turn, so adding a future stream cannot shift the auto-picks a
 recorded match already made.
 
-THE POLICY
-----------
-Best available, feasibility-first:
+THE POLICY, AND WHY IT IS NOT "BEST AVAILABLE"
+-----------------------------------------------
+It used to be best available: rank every legal pick by its scoring card and
+take the top one. The surface said so in as many words -- "Timeout drafts the
+best available player for you" -- and that sentence is an instruction, not a
+warning. A player who knows nothing about the 1994 Spurs got the highest-rated
+Spur on the board by doing nothing at all, while a player who knew the roster
+had to find that same player inside 45 seconds and could only match it. Doing
+nothing was never worse and was sometimes better, which makes the timer a
+strategy rather than a penalty.
+
+The replacement is a LEGAL FALLBACK, deliberately below what an engaged player
+would take:
 
   1. Consider only legal picks for this seat (on the roll, undrafted, fitting
-     an open slot) -- `draft.legal_picks` already applies the identity lock.
-  2. Prefer picks that leave every roster in the match still completable. A
-     timed-out player must not be handed a choice that strands the match; if
-     no pick preserves completability the constraint is dropped rather than
-     failing to pick at all, because refusing to act would stall the match
-     outright.
-  3. Rank by the identity's scoring card for the drafted decade, highest
-     first. This is the number the roster is actually scored on, so "best
-     available" means best by the game's own measure rather than by a
-     separate heuristic.
-  4. Break exact ties with the seeded RNG, then by slug for total order.
-  5. Choose the slot the same way: among that identity's legal open slots,
-     prefer ones that keep the match completable, then take the first in
-     canonical `SLOT_TYPES` order.
+     an open slot) -- `draft.legal_picks` already applies the identity lock,
+     and its slots are season-anchored, so a fallback can never place someone
+     where their card does not support it.
+  2. Split them into picks that leave EVERY roster in the match still
+     completable and picks that do not. A timeout must not strand the match.
+  3. Among the completability-preserving picks, rank by scoring card and keep
+     only the LOWER-VALUE HALF -- `ceil(n/2)` of them, so a two-option pool
+     still has one to draw from and a one-option pool still resolves.
+  4. Draw from that half with the turn's seeded RNG. Deterministic from
+     (match seed, turn index), so a refresh, a retry or a second sweep
+     recomputes the identical answer and cannot reroll it.
+  5. If nothing preserves completability, take the LOWEST-valued legal option
+     rather than the highest. The match still advances -- refusing to act
+     would stall it outright -- and the seat that stopped playing still does
+     not profit from it.
+  6. Choose the slot the same way as before: among that identity's legal open
+     slots, prefer ones that keep the match completable, then take the first
+     in canonical `SLOT_TYPES` order.
+
+WHAT THIS GUARANTEES. Expected lineup value from timing out is bounded above
+by the median of the legal pool, while active play and the practice bots both
+select from the top of it. `tests/three_man_weave/test_autopick.py` asserts the
+gap over thousands of seeded states rather than trusting the argument.
+
+The scoring card is still read here, because "the lower-value half" has to be
+measured against something and the roster is graded on exactly that number.
+Nothing about the ordering is published before the timeout fires.
 """
 from __future__ import annotations
 
@@ -88,7 +111,7 @@ def _still_completable(
         for roster in state.rosters
     }
     pool = [slug for slug in undrafted_pool(state, index) if slug != player_slug]
-    return can_fill_open_slots(open_slots, pool)
+    return can_fill_open_slots(open_slots, pool, state.slot_rights(index, include_pool=True))
 
 
 def auto_pick(
@@ -108,7 +131,7 @@ def auto_pick(
     if seat is None or round_number is None or state.current_roll is None:
         return None
 
-    options = legal_picks(state, seat)
+    options = legal_picks(state, index, seat)
     if not options:
         return None
 
@@ -128,39 +151,48 @@ def auto_pick(
     # depends only on (state, seed) -- never on dict iteration order.
     jitter = {slug: rng.random() for slug in sorted(options)}
 
-    ranked = sorted(
-        options,
-        key=lambda slug: (-score_of(slug), jitter[slug], slug),
-    )
+    # ASCENDING. The fallback is drawn from the bottom of the board, so the
+    # total order is built bottom-first and every tie is still broken by the
+    # seeded jitter and then by slug.
+    ranked = sorted(options, key=lambda slug: (score_of(slug), jitter[slug], slug))
 
-    fallback: Optional[AutoPick] = None
+    # Which options keep every roster completable, and at which slot. Computed
+    # once here rather than inside the ranking, because it is the expensive
+    # part and the ranking has to see the whole pool either way.
+    preserving: list[tuple[str, str]] = []
+    for slug in ranked:
+        for slot in sorted(options[slug], key=SLOT_TYPES.index):
+            if _still_completable(state, index, seat, slug, slot):
+                preserving.append((slug, slot))
+                break
+
+    def built(slug: str, slot: str, preserved: bool) -> AutoPick:
+        return AutoPick(
+            autopick_version=AUTOPICK_VERSION,
+            seat_index=seat,
+            round_number=round_number,
+            player_slug=slug,
+            slot_type=slot,
+            scoring_score=score_of(slug),
+            preserved_completability=preserved,
+        )
+
+    if preserving:
+        # THE LOWER-VALUE HALF, rounded UP so a pool of one or two still has
+        # something to draw from. `preserving` is already ascending, so this is
+        # a prefix rather than a re-sort.
+        half = max(1, (len(preserving) + 1) // 2)
+        slug, slot = preserving[rng.randrange(half)]
+        return built(slug, slot, True)
+
+    # Nothing preserves completability: the match is already cornered. Take the
+    # LOWEST legal option so a seat that stopped playing still gains nothing,
+    # and let the match advance rather than stall.
     for slug in ranked:
         slots = sorted(options[slug], key=SLOT_TYPES.index)
-        for slot in slots:
-            if _still_completable(state, index, seat, slug, slot):
-                return AutoPick(
-                    autopick_version=AUTOPICK_VERSION,
-                    seat_index=seat,
-                    round_number=round_number,
-                    player_slug=slug,
-                    slot_type=slot,
-                    scoring_score=score_of(slug),
-                    preserved_completability=True,
-                )
-        if fallback is None and slots:
-            # Remember the best-ranked pick even though it strands someone, so
-            # a match that has already painted itself into a corner still
-            # advances instead of stalling on the timeout.
-            fallback = AutoPick(
-                autopick_version=AUTOPICK_VERSION,
-                seat_index=seat,
-                round_number=round_number,
-                player_slug=slug,
-                slot_type=slots[0],
-                scoring_score=score_of(slug),
-                preserved_completability=False,
-            )
-    return fallback
+        if slots:
+            return built(slug, slots[0], False)
+    return None
 
 
 __all__ = ["AutoPick", "auto_pick"]
