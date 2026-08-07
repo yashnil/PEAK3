@@ -2481,7 +2481,20 @@ html, body {
 
 /* A card that is itself a link/button gets a slightly larger move —
    the whole object is the target, so the response should read at the
-   scale of the object. */
+   scale of the object.
+
+   IT CARRIES ITS OWN TRANSITION rather than requiring `.pk-lift`
+   beside it. Written as a hover-only override it worked perfectly in
+   combination and snapped with no transition when used alone, which
+   is a trap nobody would find in review: the class name says "lift",
+   the element does lift, and only the easing is missing. */
+.pk-lift-lg {
+  transition:
+    transform var(--pk-dur-lift) var(--pk-ease-decel),
+    box-shadow var(--pk-dur-lift) var(--pk-ease-decel),
+    border-color var(--pk-dur-lift) var(--pk-ease-decel);
+}
+
 .pk-lift-lg:hover,
 .pk-lift-lg:focus-visible {
   transform: translateY(-4px);
@@ -2569,13 +2582,24 @@ html, body {
    A surface that reads as an object: lit top edge, volume gradient,
    shadow beneath. One class instead of the three-declaration stack
    that four partials had each written their own version of. */
+/* `background-image` + `background-color`, NEVER the `background`
+   shorthand. The shorthand resets every background longhand it does
+   not mention, which has two consequences that only show up in
+   combination: a `.pk-depth` element loses any background-image a
+   sibling class gave it (`.pk-atmosphere` and `.court-grid-bg` both
+   set one), and it is left with a transparent background-color that
+   only looks right because the gradient happens to be opaque. Naming
+   the longhands makes the class composable and gives it a real fill
+   underneath. */
 .pk-depth {
-  background: var(--pk-grad-raised);
+  background-image: var(--pk-grad-raised);
+  background-color: var(--bg-surface);
   box-shadow: var(--pk-rim), var(--pk-elev-2);
 }
 
 .pk-depth-decision {
-  background: var(--pk-grad-decision);
+  background-image: var(--pk-grad-decision);
+  background-color: var(--bg-elevated);
   box-shadow: var(--pk-rim-strong), var(--pk-elev-3);
   border-color: var(--peak-accent-edge);
 }
