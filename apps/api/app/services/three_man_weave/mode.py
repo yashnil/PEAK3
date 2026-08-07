@@ -99,6 +99,35 @@ MODE_NAME = "three_man_weave"
 TURN_SECONDS = 45.0
 
 PHASE_PICK = "pick"
+#: The franchise x decade ceremony, as a REAL SERVER TURN.
+#:
+#: The reveal used to be a 2,270 ms client `setTimeout` that gated the pick
+#: overlay while the server's 45-second deadline -- stamped when the turn
+#: opened -- was already running. A player leading a round therefore lost the
+#: ceremony's whole duration off a clock they could watch counting down behind
+#: an overlay that would not open. The first repair simply refused to show the
+#: ceremony on rounds the human led, which removed the race by removing the
+#: product requirement.
+#:
+#: This is the honest fix. A round opens a turn in `PHASE_REVEAL`: it belongs
+#: to NO seat, carries its own server deadline, and accepts no command. When it
+#: expires the foundation's own sweep fires a timeout, and this mode answers it
+#: by opening the pick turn with a FULL `TURN_SECONDS`. So the ceremony is
+#: server-authoritative, identical for bot-led and human-led rounds, costs the
+#: human nothing, and reconstructs correctly on reconnect because it is state
+#: rather than an animation a client happens to be part-way through.
+PHASE_REVEAL = "reveal"
+
+#: How long the ceremony holds, in seconds.
+#:
+#: Covers the spec's reveal animation plus its resolved hold (roughly 1.5-2.5s
+#: then 0.8-1.3s). `clock.enforce` charges no action-grace to a turn nobody can
+#: act on, so this is the whole wall-clock duration rather than a floor.
+#:
+#: Reduced motion does not shorten it: the ceremony still has to be READ, and
+#: cutting the hold would give a reduced-motion player less time to take in the
+#: same information. The client drops the movement, not the beat.
+REVEAL_SECONDS = 3.2
 
 COMMAND_PICK = "tmw_pick"
 #: Repositioning your OWN roster. Does not consume a turn -- see
@@ -144,7 +173,38 @@ class ThreeManWeaveMode:
         return TURN_SECONDS
 
     def initial_phase(self) -> str:
-        return PHASE_PICK
+        # Round 1 opens on the ceremony, exactly like every later round.
+        return PHASE_REVEAL
+
+    def phase_seconds(self, phase: str) -> float:
+        """How long a turn in this phase lasts.
+
+        The ceremony is not a decision, so it does not get the decision
+        window. Round one's turn is opened by MATCHMAKING rather than by this
+        reducer, and without this hook it was stamped with `turn_seconds` --
+        so the first reveal of every match ran for 45 seconds while rounds two
+        through six correctly ran for `REVEAL_SECONDS`.
+        """
+        return REVEAL_SECONDS if phase == PHASE_REVEAL else TURN_SECONDS
+
+    def phase_accepts_action(self, phase: str) -> bool:
+        """Whether a seat -- human or bot -- may play on a turn in this phase.
+
+        Read by `arena.bots.drive_pending_bots`. Without it the driver reads a
+        seatless turn as a SIMULTANEOUS one and lets every bot act, so the bots
+        would draft underneath the ceremony and the reveal would be over before
+        anybody saw it.
+        """
+        return phase != PHASE_REVEAL
+
+    def initial_turn_seat(self, snapshot: dict) -> Optional[int]:
+        """The ceremony belongs to no seat, so the first turn names none.
+
+        The foundation seats the first turn from this hook; returning None is
+        what makes `seconds_remaining` publish to EVERY seat, which is correct
+        here -- all three participants are watching the same reveal.
+        """
+        return None
 
     # -- optional foundation hooks ----------------------------------------
     def human_seat_index(self, seed: int) -> int:
@@ -223,8 +283,22 @@ class ThreeManWeaveMode:
             return _reject(REJECT_MATCH_COMPLETE, "The match is already complete")
 
         if command.command_type == COMMAND_TYPE_TIMEOUT:
+            # A timeout ON THE CEREMONY is not a forfeit -- it is the ceremony
+            # ending. Handled before `_reduce_timeout`, which would otherwise
+            # auto-pick for a seat that has not been given its turn yet.
+            if data.open_turn is not None and data.open_turn.phase == PHASE_REVEAL:
+                return self._open_pick_turn(data, state)
             return self._reduce_timeout(data, state)
         if command.command_type == COMMAND_PICK:
+            # NOBODY DRAFTS UNDER THE CEREMONY, human or bot. The bot driver is
+            # also stopped upstream by `phase_accepts_action`; this is the rule
+            # itself, so a command that arrives by any other route is refused
+            # rather than relying on the driver having been polite.
+            if data.open_turn is not None and data.open_turn.phase == PHASE_REVEAL:
+                return _reject(
+                    REJECT_NOT_YOUR_TURN,
+                    "The franchise and decade are still being revealed.",
+                )
             return self._reduce_pick(data, state)
         if command.command_type == COMMAND_REARRANGE:
             return self._reduce_rearrange(data, state)
@@ -406,6 +480,7 @@ class ThreeManWeaveMode:
             return self._complete(data, state, events, resolution)
 
         # A new round needs a roll, drawn against the state as it now stands.
+        opened_round = state.current_roll is None
         if state.current_roll is None:
             try:
                 state = self._open_round(state)
@@ -428,11 +503,55 @@ class ThreeManWeaveMode:
                 )
             )
 
+        # A ROUND THAT JUST OPENED GOES TO THE CEREMONY, NOT TO A SEAT.
+        # `opened_round` is true exactly when this command drew a new roll, so
+        # the reveal fires once per round and mid-round picks hand straight to
+        # the next seat.
+        if opened_round:
+            return ReducerOutput(
+                accepted=True,
+                snapshot=self._to_snapshot(state),
+                events=tuple(events),
+                resolve_turn=resolution,
+                open_turn=TurnDraft(
+                    phase=PHASE_REVEAL,
+                    seat_index=None,
+                    deadline_at=data.now + timedelta(seconds=REVEAL_SECONDS),
+                ),
+                status=MATCH_STATUS_ACTIVE,
+            )
+
         return ReducerOutput(
             accepted=True,
             snapshot=self._to_snapshot(state),
             events=tuple(events),
             resolve_turn=resolution,
+            open_turn=TurnDraft(
+                phase=PHASE_PICK,
+                seat_index=state.current_seat,
+                deadline_at=data.now + timedelta(seconds=TURN_SECONDS),
+            ),
+            status=MATCH_STATUS_ACTIVE,
+        )
+
+    def _open_pick_turn(self, data: ReducerInput, state: D.DraftState) -> ReducerOutput:
+        """End the ceremony and hand the first seat a FULL decision window.
+
+        THE POINT OF THE WHOLE PHASE. `data.now` is the instant the sweep fired,
+        so the pick deadline is `now + TURN_SECONDS` measured from the end of
+        the reveal -- not from when the round opened. A human leading a round
+        watches the same ceremony a bot-led round shows and then receives every
+        one of their 45 seconds. Nothing here consults a client.
+
+        The snapshot is unchanged: a ceremony ending is a clock transition, not
+        a game event, so no pick is made, no roll is redrawn, and a replay of
+        this command produces the identical turn.
+        """
+        return ReducerOutput(
+            accepted=True,
+            snapshot=self._to_snapshot(state),
+            events=(),
+            resolve_turn=TURN_RESOLUTION_ACTION,
             open_turn=TurnDraft(
                 phase=PHASE_PICK,
                 seat_index=state.current_seat,
@@ -724,6 +843,31 @@ class ThreeManWeaveMode:
             "formula_version": card.formula_version,
         }
 
+    @staticmethod
+    def _headshot(player_slug: str) -> Optional[str]:
+        """This identity's headshot URL, or None.
+
+        THE SAME PIPELINE 82-0 USES, not a second one: the committed manifest
+        `data/game/assets/player_assets.v3.json`, read through
+        `perfect_season.assets.get_player_headshot_url`, keyed on the same
+        `player_slug` this mode already speaks, and behind the same
+        `ENABLE_EXTERNAL_ASSET_URLS` gate. A mode that resolved its own images
+        would be a second source of truth for the one thing the licensing gate
+        exists to control.
+
+        None is an ordinary answer, not an error. The manifest resolves about a
+        fifth of this mode's pool -- resolution needs a current roster entry, so
+        historical players are largely absent -- and `PlayerAvatar` renders its
+        medallion for the rest without a layout shift.
+        """
+        from app.core.config import settings
+
+        if not settings.ENABLE_EXTERNAL_ASSET_URLS:
+            return None
+        from nba_peak.perfect_season.assets import get_player_headshot_url
+
+        return get_player_headshot_url(player_slug)
+
     def _card_positions(
         self, player_slug: str, franchise_id: str, decade: str
     ) -> frozenset[str]:
@@ -783,6 +927,7 @@ class ThreeManWeaveMode:
             "positions": sorted(
                 self._card_positions(player_slug, franchise_id, decade)
             ),
+            "headshot_url": self._headshot(player_slug),
         }
 
     def _player_public(self, player_slug: str, franchise_id: str, decade: str) -> dict:
@@ -799,6 +944,7 @@ class ThreeManWeaveMode:
             "positions": sorted(
                 self._card_positions(player_slug, franchise_id, decade)
             ),
+            "headshot_url": self._headshot(player_slug),
             "scoring_card": self._scoring_card_public(player_slug, franchise_id, decade),
         }
 

@@ -27,19 +27,25 @@ import {
  *     somewhere else;
  *   * the verdict, in a word, on every square.
  *
- * WHAT EACH SQUARE SHOWS (DG-02). Headshot, player name, season and team, the
- * points that square was worth, and the state treatment — for the optimal
- * player-season, because this is the optimal board. On a changed square the
- * player's own answer sits underneath in smaller type.
+ * WHAT EACH SQUARE SHOWS (DG-02). A portrait — a real photograph where the
+ * manifest resolves one, the medallion otherwise — the player name, the season
+ * and team, the points that square was worth, and the state treatment, all for
+ * the optimal player-season, because this is the optimal board. On a changed
+ * square the player's own answer sits underneath in smaller type.
  *
- * THE HEADSHOT IS `PlayerAvatar`, THE ONE PRIMITIVE (SHARED-03). No second
- * image component and no second fetcher. It is called with no `imageUrl`, so
- * what actually ships is the designed medallion: the ESPN manifest resolves
- * about 15% of identities and roughly none of the historical players a Daily
- * Grid board is mostly made of, and the API gate
- * (`PEAK3_ENABLE_EXTERNAL_ASSET_URLS`) is off pending a licensing review. The
- * medallion is the production path here, not the error path, and the avatar
- * reserves its box either way so a future real headshot cannot shift the grid.
+ * THE PORTRAIT IS `PlayerAvatar`, THE ONE PRIMITIVE (SHARED-03). No second
+ * image component and no second fetcher. It is fed the `headshot_url` the
+ * result route resolved from the committed asset manifest — the same lookup
+ * 82-0 uses, keyed on the same `player_slug`.
+ *
+ * WHAT ACTUALLY LANDS HERE IS MOSTLY THE MEDALLION, and that is the design
+ * rather than a shortfall: the manifest resolves 283 of the pool's 1,384
+ * distinct identities (20.4%) because resolution needs a current NBA roster
+ * entry, and a Daily Grid board is mostly historical. On top of that the API
+ * gate (`PEAK3_ENABLE_EXTERNAL_ASSET_URLS`) is off by default pending a
+ * licensing review, so with the shipped posture every square draws the
+ * medallion. The avatar reserves the same box in both branches, so a
+ * photograph arriving — or failing — cannot shift the grid by a pixel.
  *
  * COLOUR IS NEVER THE ONLY CARRIER. Every square states its verdict in a word,
  * carries it in its accessible name, and the legend below names all three — for
@@ -300,7 +306,11 @@ function OptimalCell({ cell }: { cell: ResultCell }) {
       <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-1.5">
         {/* No `alt`: the avatar sits directly beside the name in text and the
             square's own `aria-label` already names the player. */}
-        <PlayerAvatar name={optimal.player_name} size={AVATAR_PX} />
+        <PlayerAvatar
+          name={optimal.player_name}
+          size={AVATAR_PX}
+          imageUrl={optimal.headshot_url}
+        />
         <p
           className="min-w-0 text-[10px] font-semibold leading-tight"
           style={{ color: "var(--text-primary)" }}

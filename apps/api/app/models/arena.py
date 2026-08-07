@@ -147,6 +147,14 @@ class ArenaMatchView(BaseModel):
     # only place it is ever compared.
     current_turn_seat_index: Optional[int] = None
     seconds_remaining: Optional[float] = None
+    #: The open turn's phase, when there is one.
+    #:
+    #: `seconds_remaining` alone cannot tell a client WHAT is being counted.
+    #: A mode may open a turn nobody acts on -- Three-Man Weave's franchise x
+    #: decade reveal is one -- and a client that assumed every countdown was a
+    #: decision window would render a live pick panel over a ceremony, which is
+    #: the exact race this field exists to remove.
+    turn_phase: Optional[str] = None
     # The highest event seq this seat may see, so a client can poll
     # /events?after_seq=N without guessing.
     latest_event_seq: int = -1

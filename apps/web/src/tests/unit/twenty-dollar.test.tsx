@@ -868,6 +868,162 @@ describe("roster board", () => {
   });
 });
 
+/**
+ * SHARED-03: real player photographs, through the one shared primitive.
+ *
+ * The server resolves `headshot_url` from the committed asset manifest
+ * (`data/game/assets/player_assets.v3.json`) behind
+ * `PEAK3_ENABLE_EXTERNAL_ASSET_URLS`. Two branches matter and both are pinned
+ * here: the photograph when a URL arrives, and the designed medallion when one
+ * does not — which is 75% of this mode's pool even with the gate open, and all
+ * of it with the gate in its shipped position.
+ */
+describe("player imagery", () => {
+  const RESOLVED = "https://a.espncdn.com/i/headshots/nba/players/full/2779.png";
+
+  function avatarIn(el: HTMLElement): HTMLElement {
+    const avatar = el.querySelector('[data-testid="player-avatar"]');
+    expect(avatar).not.toBeNull();
+    return avatar as HTMLElement;
+  }
+
+  it("draws the photograph on the auction stage when the server sent one", () => {
+    render(
+      <AuctionStage
+        publicState={publicState({
+          candidate: {
+            player_slug: "chris-paul",
+            player_name: "Chris Paul",
+            anchor_season: "2008-09",
+            team: "NOH",
+            positions: ["PG"],
+            headshot_url: RESOLVED,
+          },
+        })}
+        fits={["PG"]}
+        seatNames={["You", "Rival"]}
+        yourSeat={0}
+      />,
+    );
+    const avatar = avatarIn(screen.getByTestId("td-candidate"));
+    expect(avatar.tagName).toBe("IMG");
+    expect(avatar).toHaveAttribute("src", RESOLVED);
+  });
+
+  it("still shows no score on a stage that now shows a face", () => {
+    // The photograph is identity. Adding it must not have added the thing the
+    // whole mode is built around concealing.
+    render(
+      <AuctionStage
+        publicState={publicState({
+          candidate: {
+            player_slug: "chris-paul",
+            player_name: "Chris Paul",
+            anchor_season: "2008-09",
+            team: "NOH",
+            positions: ["PG"],
+            headshot_url: RESOLVED,
+          },
+        })}
+        fits={["PG"]}
+        seatNames={["You", "Rival"]}
+        yourSeat={0}
+      />,
+    );
+    expect(html()).not.toContain(String(HIDDEN_SCORE));
+    expect(screen.getByTestId("td-candidate")).toHaveTextContent(/sealed until/i);
+  });
+
+  it("draws the medallion when the server sent null, which is the shipped default", () => {
+    render(
+      <AuctionStage
+        publicState={publicState()}
+        fits={["PG"]}
+        seatNames={["You", "Rival"]}
+        yourSeat={0}
+      />,
+    );
+    const avatar = avatarIn(screen.getByTestId("td-candidate"));
+    expect(avatar.tagName).toBe("DIV");
+    expect(avatar).toHaveTextContent("CP");
+  });
+
+  it("draws the photograph on a roster row", () => {
+    const withPhoto = seat(0, {
+      filled_slots: 1,
+      roster: [
+        {
+          player_slug: "chris-paul",
+          player_name: "Chris Paul",
+          anchor_season: "2008-09",
+          price: 4,
+          slot: "PG",
+          prime_score: 44.5,
+          autofilled: false,
+          headshot_url: RESOLVED,
+        },
+      ],
+      assignment: { PG: "chris-paul" },
+    });
+    render(<RosterBoard seat={withPhoto} slots={publicState().slots} label="Your five" />);
+    const avatar = avatarIn(screen.getByTestId("td-slot-0-PG"));
+    expect(avatar.tagName).toBe("IMG");
+    expect(avatar).toHaveAttribute("src", RESOLVED);
+  });
+
+  it("draws the photograph on the result screen's team cards", () => {
+    const state = publicState({
+      phase: "complete",
+      seats: [
+        seat(0, {
+          budget: 0,
+          filled_slots: 5,
+          roster: [
+            {
+              player_slug: "chris-paul",
+              player_name: "Chris Paul",
+              anchor_season: "2008-09",
+              price: 4,
+              slot: "PG",
+              prime_score: 44.5,
+              autofilled: false,
+              headshot_url: RESOLVED,
+            },
+          ],
+        }),
+        seat(1, { budget: 0, filled_slots: 5 }),
+      ],
+    });
+    render(
+      <ShowdownResult
+        receipt={RECEIPT}
+        publicState={state}
+        seatNames={["You", "Rival"]}
+        yourSeat={0}
+        onPlayAgain={vi.fn()}
+        onCopy={vi.fn()}
+        copied={false}
+      />,
+    );
+    const avatar = avatarIn(screen.getByTestId("td-result-seat-0"));
+    expect(avatar.tagName).toBe("IMG");
+    expect(avatar).toHaveAttribute("src", RESOLVED);
+  });
+
+  it("reveals a settled lot's face without changing the reveal's geometry", () => {
+    const lot: ResolvedLot = {
+      ...SETTLED_LOT,
+      candidate: { ...SETTLED_LOT.candidate, headshot_url: RESOLVED },
+    };
+    render(<LotReveal lot={lot} seatNames={["You", "Rival"]} yourSeat={0} />);
+    const avatar = avatarIn(screen.getByTestId("td-lot-reveal"));
+    expect(avatar.tagName).toBe("IMG");
+    // The same 44px box the medallion occupies, so the reveal does not jump
+    // between a resolved and an unresolved player.
+    expect(avatar).toHaveStyle({ width: "44px", height: "44px" });
+  });
+});
+
 describe("the settled tray", () => {
   it("shows the price and the revealed score for a settled lot", () => {
     render(

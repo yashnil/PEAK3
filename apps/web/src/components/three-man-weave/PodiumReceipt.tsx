@@ -179,7 +179,11 @@ export default function PodiumReceipt({
                         </span>
                         {pick ? (
                           <>
-                            <PlayerAvatar name={pick.player_name} size={30} />
+                            <PlayerAvatar
+                              name={pick.player_name}
+                              imageUrl={pick.headshot_url}
+                              size={30}
+                            />
                             <span className="tmw-result-slot-body">
                               <span className="tmw-result-slot-name">
                                 {pick.player_name}

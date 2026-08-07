@@ -2,7 +2,7 @@
 import { useState } from "react";
 
 /**
- * Player headshot-or-initials shell (Phase 6E Part B: fallback rendering
+ * Player photograph-or-initials shell (Phase 6E Part B: fallback rendering
  * hook for the asset-manifest strategy in data/game/assets/player_assets.v3.json).
  *
  * Renders a real `<img>` ONLY when `imageUrl` is a non-empty, safe URL
@@ -45,7 +45,7 @@ function initialsFromName(name: string): string {
 interface Props {
   name: string;
   size?: number;
-  /** Optional safe, already-license-checked headshot URL. Populated only when
+  /** Optional safe, already-license-checked photograph URL. Populated only when
    * the API is running with PEAK3_ENABLE_EXTERNAL_ASSET_URLS -- see the module
    * docstring. */
   imageUrl?: string | null;
@@ -68,26 +68,41 @@ interface Props {
  * `<img>` with its own fallback is how a product ends up with four different
  * broken-image behaviours. They import this.
  *
- * WHAT A READER SHOULD EXPECT TO SEE TODAY. The asset manifest resolves 526 of
- * 3,432 eligible identities (15.3%), and resolution requires a current ESPN
- * roster entry -- so Jokic resolves and Jordan, Magic, Bird, Kareem, Kobe,
- * Duncan and Hakeem do not, and Wilt, Russell and Shaq are absent from the
- * manifest entirely. On top of that every resolved entry carries
- * `license_status: "unknown_do_not_cache"`, and the API gate
- * (`PEAK3_ENABLE_EXTERNAL_ASSET_URLS`) defaults OFF pending a licensing review
- * nobody has done. In production this component therefore renders the
- * medallion for everyone, which is why the medallion is designed rather than a
- * grey placeholder: it is the shipping path, not the error path.
+ * WHAT A READER SHOULD EXPECT TO SEE. The committed manifest resolves a real
+ * photograph for a MINORITY of each surface's identities, because resolution
+ * needs a current ESPN/NBA roster entry:
+ *
+ *   * $20 Showdown, qualified pool ....... 125 / 500   (25.0%)
+ *   * Three-Man Weave, draftable ......... 283 / 1,379 (20.5%)
+ *   * Daily Grid, distinct identities .... 283 / 1,384 (20.4%)
+ *
+ * So Jokic resolves and Jordan, Magic, Bird, Kareem, Kobe, Duncan and Hakeem do
+ * not, and Wilt, Russell and Shaq are absent from the manifest entirely. On top
+ * of that every resolved entry carries `license_status: "unknown_do_not_cache"`
+ * and the API gate (`PEAK3_ENABLE_EXTERNAL_ASSET_URLS`) defaults OFF pending a
+ * licensing review nobody has done -- so with the shipped default this
+ * component draws the medallion for everyone. That is why the medallion is
+ * designed rather than a grey placeholder: for most identities, on most
+ * screens, it IS the product.
+ *
+ * NO NETWORK OF ITS OWN. This component never fetches, never probes and never
+ * falls back to a second provider. It renders the URL its caller was given by
+ * the API, or it renders the medallion. One image request per avatar, at most.
  */
 export default function PlayerAvatar({ name, size = 36, imageUrl, alt }: Props) {
-  const [imageFailed, setImageFailed] = useState(false);
+  // THE URL THAT FAILED, not a boolean. A boolean is sticky across a prop
+  // change, and these avatars are reused in place: a roster slot re-fills, a
+  // lot advances, a grid square swaps identity, all under a stable React key.
+  // With a flag, one 404 anywhere in a list would suppress every later
+  // photograph in that same position for the rest of the session.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const tint = PALETTE[hashString(name) % PALETTE.length];
 
-  if (imageUrl && !imageFailed) {
-    // Headshot providers are not known/configured yet (no image_source_url
-    // is populated anywhere in this codebase today, see module docstring),
-    // so next/image's static remote-domain allowlist can't be set up yet.
-    // Revisit once a licensed provider is approved and wired in.
+  if (imageUrl && failedUrl !== imageUrl) {
+    // A RAW `<img>`, NOT `next/image`. The manifest's providers are external
+    // hosts behind a licensing gate that may yet be revoked, and next/image
+    // needs a static remote-domain allowlist plus an optimiser round trip per
+    // URL. Revisit if and when a licensed provider is approved and pinned.
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
@@ -98,11 +113,17 @@ export default function PlayerAvatar({ name, size = 36, imageUrl, alt }: Props) 
         width={size}
         height={size}
         // NO LAYOUT SHIFT, EITHER WAY ROUND. `width`/`height` reserve the box
-        // before the bytes arrive, and the medallion fallback occupies exactly
-        // the same square -- so a headshot that 404s swaps one circle for
-        // another rather than resizing the row it sits in.
+        // before the bytes arrive, the inline `width`/`height` styles pin it
+        // against a stylesheet that might otherwise stretch it, and the
+        // medallion fallback occupies exactly the same square -- so an image
+        // that 404s swaps one circle for another rather than resizing the row
+        // it sits in.
         loading="lazy"
         decoding="async"
+        // SEND NO REFERRER. These are third-party hosts; the path a PEAK3
+        // player is on (a match id, a board date) is not theirs to log, and
+        // nothing about the request needs it.
+        referrerPolicy="no-referrer"
         style={{
           width: size,
           height: size,
@@ -111,7 +132,11 @@ export default function PlayerAvatar({ name, size = 36, imageUrl, alt }: Props) 
           border: `1.5px solid color-mix(in srgb, ${tint} 55%, transparent)`,
           flexShrink: 0,
         }}
-        onError={() => setImageFailed(true)}
+        // A 404, a DNS failure, a blocked host and a revoked URL all land
+        // here, and all of them mean the same thing: draw the medallion. The
+        // URL is recorded so a LATER, different URL in this same slot still
+        // gets its chance.
+        onError={() => setFailedUrl(imageUrl)}
       />
     );
   }

@@ -245,7 +245,7 @@ function SlotCard({
       </span>
       {pick ? (
         <>
-          <PlayerAvatar name={pick.player_name} size={30} />
+          <PlayerAvatar name={pick.player_name} imageUrl={pick.headshot_url} size={30} />
           <span className="tmw-slot-body">
             <span className="tmw-slot-name">{pick.player_name}</span>
             <span data-testid={`tmw-slot-season-${slotType}`} className="tmw-slot-meta">

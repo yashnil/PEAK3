@@ -19,9 +19,11 @@ import {
   eligibilityLine,
   hasTradedEvidence,
   identityLock,
+  isRevealing,
   isYourTurn,
   outcomeHeadline,
   phaseOf,
+  canPick,
   pickFeed,
   podium,
   rankingBasisLabel,
@@ -45,6 +47,10 @@ import type {
   TmwPlayer,
   TmwPublicState,
   TmwRoster,
+} from "@/types/three-man-weave";
+import {
+  TMW_TURN_PHASE_PICK,
+  TMW_TURN_PHASE_REVEAL,
 } from "@/types/three-man-weave";
 
 /** An UNDRAFTED candidate: no scoring card exists on this payload at all. */
@@ -162,6 +168,9 @@ function matchView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
     legal_commands: [],
     current_turn_seat_index: 0,
     seconds_remaining: 45,
+    // The open turn is a DECISION window by default. The ceremony is the other
+    // value of this field and is exercised explicitly wherever it matters.
+    turn_phase: TMW_TURN_PHASE_PICK,
     latest_event_seq: 2,
     room_code: null,
     ...overrides,
@@ -409,6 +418,30 @@ describe("phase", () => {
 
   it("reports picking with a roll on the board", () => {
     expect(phaseOf(matchView())).toBe("picking");
+  });
+
+  it("reports revealing while the server's open turn IS the ceremony", () => {
+    // THE ROLL IS ON THE BOARD DURING THE CEREMONY -- showing it is the point.
+    // So the phase cannot be read from the roll's absence any more; it is read
+    // from the turn the server actually has open.
+    const ceremony = matchView({ turn_phase: TMW_TURN_PHASE_REVEAL });
+    expect(ceremony.public_state.current_roll).not.toBeNull();
+    expect(phaseOf(ceremony)).toBe("revealing");
+    expect(isRevealing(ceremony)).toBe(true);
+    expect(isRevealing(matchView())).toBe(false);
+    expect(isRevealing(null)).toBe(false);
+  });
+
+  it("refuses to call a pick legal while the ceremony is running", () => {
+    // `project` derives `legal_commands` from the SNAPSHOT's `current_seat`,
+    // which during the reveal already names the seat that picks next -- so the
+    // server advertises `tmw_pick` while its own reducer would refuse it with
+    // `not_your_turn`. The turn phase is the authority on *when*.
+    const legal = ["tmw_pick", "tmw_rearrange"];
+    expect(canPick(matchView({ legal_commands: legal }))).toBe(true);
+    expect(
+      canPick(matchView({ legal_commands: legal, turn_phase: TMW_TURN_PHASE_REVEAL })),
+    ).toBe(false);
   });
 
   it("knows whose turn it is", () => {

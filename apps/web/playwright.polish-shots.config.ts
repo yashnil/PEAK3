@@ -34,10 +34,20 @@ import { defineConfig, devices } from "@playwright/test";
  * release, and a screenshot run must not be the thing that quietly turns them
  * on.
  *
- * PEAK3_ENABLE_EXTERNAL_ASSET_URLS stays FALSE, which is the honest posture for
- * a review sheet: it is the production default, no licensing review has
- * happened, and the frames must therefore show the medallion fallback that real
- * users will actually see rather than a headshot sheet that does not ship.
+ * PEAK3_ENABLE_EXTERNAL_ASSET_URLS is TRUE here, and ONLY here. The flag's
+ * default stays false in `apps/api/app/core/config.py` — that is a licensing
+ * decision, not an implementation one, and nothing in this file changes it for
+ * a deployment. What it changes is what a REVIEWER sees: this pass wired the
+ * committed asset manifest through to the $20 Showdown and the Daily Grid, and
+ * a review sheet captured with the gate shut would show nine medallions and
+ * prove nothing about that wiring either way.
+ *
+ * The frames are therefore a MIXTURE, on purpose, and that mixture is the
+ * finding: the manifest resolves 25.0% of the Showdown's offerable pool
+ * (125/500) and 20.4% of the Daily Grid's identities (283/1,384), because
+ * resolution needs a current NBA roster entry. Every other face in these
+ * captures is the designed medallion — which is exactly what production draws
+ * for everyone with the gate in its default position.
  *
  * Usage (from apps/web):
  *   npx playwright test --config=playwright.polish-shots.config.ts
@@ -77,7 +87,7 @@ export default defineConfig({
         `PEAK3_DAILY_GRID_DATE_ENUMERATION_LIMIT=100000 ` +
         `PEAK3_SUPABASE_JWT_SECRET=${JWT_SECRET} ` +
         `PEAK3_TEST_JWT_SECRET=${JWT_SECRET} ` +
-        `PEAK3_ENABLE_EXTERNAL_ASSET_URLS=false ` +
+        `PEAK3_ENABLE_EXTERNAL_ASSET_URLS=true ` +
         `uvicorn app.main:app --port ${API_PORT}`,
       url: `http://localhost:${API_PORT}/health/readiness`,
       reuseExistingServer: false,

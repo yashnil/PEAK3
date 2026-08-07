@@ -33,6 +33,9 @@ export interface ReceiptSeat {
     price: number;
     value_per_dollar: number;
     autofilled: boolean;
+    /** @see `CandidatePublic.headshot_url` in `lib/twenty-dollar-api`. Null for
+     *  most identities and for all of them with the API's default flag. */
+    headshot_url?: string | null;
   }>;
 }
 

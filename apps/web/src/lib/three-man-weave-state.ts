@@ -50,6 +50,7 @@ import {
   TMW_SLOT_LABELS,
   TMW_SLOT_TYPES,
   TMW_STARTER_SLOTS,
+  TMW_TURN_PHASE_REVEAL,
 } from "@/types/three-man-weave";
 
 // ---------------------------------------------------------------------------
@@ -58,12 +59,32 @@ import {
 
 export type TmwPhase = "waiting" | "revealing" | "picking" | "complete";
 
+/**
+ * IS THE FRANCHISE × DECADE CEREMONY RUNNING?
+ *
+ * Read from the server's own `turn_phase` and from nothing else. The ceremony
+ * used to be a client `setTimeout` that the room tried to keep out of the way
+ * of a server deadline already counting down; it is now a turn the server opens
+ * and closes, so this is a question about state rather than about an animation
+ * some client happens to be part-way through. That is what makes a reload
+ * mid-ceremony resolve to the same answer everywhere.
+ *
+ * TRUE FOR EVERY SEAT, including the one that picks next: nobody drafts under
+ * the ceremony, so there is no seat for which it is not running.
+ */
+export function isRevealing(match: TmwMatchView | null): boolean {
+  return !!match && match.turn_phase === TMW_TURN_PHASE_REVEAL;
+}
+
 /** Map the server's state onto a phase the UI can switch on. */
 export function phaseOf(match: TmwMatchView | null): TmwPhase {
   if (!match) return "waiting";
   const state = match.public_state;
   if (state?.is_complete || match.status === "completed") return "complete";
   if (match.status === "forming") return "waiting";
+  // The roll exists during the reveal -- that is the point of the ceremony --
+  // so the phase is read from the turn, not from the roll's absence.
+  if (isRevealing(match)) return "revealing";
   if (!state?.current_roll) return "revealing";
   return "picking";
 }
@@ -73,10 +94,19 @@ export function isYourTurn(match: TmwMatchView | null): boolean {
   return match.current_turn_seat_index === match.your_seat_index;
 }
 
-/** Can this seat act right now? The server's own `legal_commands` decides —
- * never a local re-derivation of the rules. */
+/**
+ * Can this seat act right now? The server's own `legal_commands` decides —
+ * never a local re-derivation of the rules.
+ *
+ * WITH ONE SUBTRACTION THE SERVER CANNOT MAKE FOR US. `project` derives
+ * `legal_commands` from the SNAPSHOT's `current_seat`, which during the reveal
+ * already names the seat that picks next — so `tmw_pick` is advertised while
+ * the ceremony is still running and the reducer would refuse it. The turn phase
+ * is the authority on *when*, so it is applied here rather than at each of the
+ * three call sites that ask this question.
+ */
 export function canPick(match: TmwMatchView | null): boolean {
-  return !!match && match.legal_commands.includes("tmw_pick");
+  return !!match && !isRevealing(match) && match.legal_commands.includes("tmw_pick");
 }
 
 // ---------------------------------------------------------------------------

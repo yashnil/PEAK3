@@ -165,6 +165,21 @@ class PlayerSeasonCard(PlayerSeasonIdentity):
     """
 
     prime_score: float = Field(..., description="PEAK3 calibrated 0-100 season score")
+    headshot_url: Optional[str] = Field(
+        None,
+        description=(
+            "This player's photograph from the committed asset manifest "
+            "(data/game/assets/player_assets.v3.json), resolved through "
+            "nba_peak.perfect_season.assets.get_player_headshot_url -- the same "
+            "one pipeline 82-0 uses, keyed on the same player_slug. Populated "
+            "ONLY when Settings.ENABLE_EXTERNAL_ASSET_URLS is on (default off, "
+            "a licensing decision) AND the manifest has a resolved entry: about "
+            "20% of the Daily Grid's identities do, since resolution needs a "
+            "current roster entry and the board is mostly historical. None is "
+            "the ordinary answer and the client draws its medallion instead, in "
+            "the same reserved box."
+        ),
+    )
 
 
 class PlayerSeasonSearchHit(PlayerSeasonIdentity):

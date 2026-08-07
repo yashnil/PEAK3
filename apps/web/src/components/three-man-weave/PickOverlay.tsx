@@ -430,7 +430,11 @@ export default function PickOverlay({
                         setSlot(options.length === 1 ? options[0] : null);
                       }}
                     >
-                      <PlayerAvatar name={candidate.player_name} size={34} />
+                      <PlayerAvatar
+                        name={candidate.player_name}
+                        imageUrl={candidate.headshot_url}
+                        size={34}
+                      />
                       <span className="tmw-candidate-body">
                         <span className="tmw-candidate-name">{candidate.player_name}</span>
                         <span className="tmw-candidate-meta">

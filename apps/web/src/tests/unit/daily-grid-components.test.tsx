@@ -1151,8 +1151,11 @@ describe("DailyGridGame — the best legal grid", () => {
  * "you played them on X" overlap — the one genuinely two-square fact the list
  * carried — survives on the square that is asking for the swap.
  *
- * AND WHAT DG-02 ADDED: a headshot per square, from the one shared avatar
- * primitive, plus the season and team beside the name.
+ * AND WHAT DG-02 ADDED: a portrait per square, from the one shared avatar
+ * primitive, plus the season and team beside the name. Both of that
+ * primitive's branches are covered here — the real photograph when the result
+ * payload carries a `headshot_url`, and the designed medallion when it does
+ * not, which is the default posture and the majority of identities either way.
  */
 describe("DailyGridGame — the optimal 3x3", () => {
   function seedCompleted() {
@@ -1324,7 +1327,7 @@ describe("DailyGridGame — the optimal 3x3", () => {
 
   // ---- DG-02 ----------------------------------------------------------------
 
-  it("gives every square a headshot from the one shared avatar primitive", async () => {
+  it("gives every square a portrait from the one shared avatar primitive", async () => {
     mockGetResult.mockResolvedValue(gridResult());
     seedCompleted();
     render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
@@ -1336,14 +1339,49 @@ describe("DailyGridGame — the optimal 3x3", () => {
     }
   });
 
-  it("renders the designed medallion, which is what actually ships", async () => {
-    // THE FALLBACK IS THE PRODUCTION PATH, not the error path. The ESPN
-    // manifest resolves ~15% of identities and roughly no historical players,
-    // and the API gate (PEAK3_ENABLE_EXTERNAL_ASSET_URLS) is off pending a
-    // licensing review — so no result payload carries an image URL and every
-    // square draws initials. It must therefore be a designed mark, sized, and
-    // out of the accessibility tree (the square's own aria-label names the
-    // player already).
+  it("renders a real photograph on a square whose identity the manifest resolved", async () => {
+    // THE OTHER BRANCH, and the one this pass wired up. When the API is
+    // running with PEAK3_ENABLE_EXTERNAL_ASSET_URLS the result payload carries
+    // the committed manifest's URL on the revealed card, and the square must
+    // draw it rather than falling through to initials.
+    const base = gridResult();
+    const cells = base.cells.map((cell) => ({
+      ...cell,
+      optimal_player_season: {
+        ...cell.optimal_player_season,
+        headshot_url: `https://a.espncdn.com/i/headshots/nba/players/full/${cell.row}${cell.col}.png`,
+      },
+    }));
+    mockGetResult.mockResolvedValue({
+      ...base,
+      cells,
+      best_cell: cells[0],
+      biggest_miss: cells[cells.length - 1],
+    });
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    const cell = within(grid).getAllByTestId("complete-optimal-cell")[0];
+    const avatar = within(cell).getByTestId("player-avatar");
+    expect(avatar.tagName).toBe("IMG");
+    expect(avatar).toHaveAttribute("src", expect.stringContaining("espncdn.com"));
+    // Same reserved box as the medallion, so which branch renders cannot move
+    // the grid, and no referrer is handed to a third-party host.
+    expect(avatar).toHaveStyle({ width: "28px", height: "28px" });
+    expect(avatar).toHaveAttribute("referrerpolicy", "no-referrer");
+    expect(avatar).toHaveAttribute("loading", "lazy");
+  });
+
+  it("renders the designed medallion, which is what ships by default", async () => {
+    // THE FALLBACK IS THE PRODUCTION PATH, not the error path. The manifest
+    // resolves 283 of the Daily Grid pool's 1,384 distinct identities (20.4%)
+    // and roughly no historical players, and the API gate
+    // (PEAK3_ENABLE_EXTERNAL_ASSET_URLS) is off pending a licensing review — so
+    // by default no result payload carries an image URL and every square draws
+    // initials. It must therefore be a designed mark, sized, and out of the
+    // accessibility tree (the square's own aria-label names the player
+    // already).
     mockGetResult.mockResolvedValue(gridResult());
     seedCompleted();
     render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);

@@ -332,6 +332,87 @@ class TwentyDollarMode:
             results=tuple(results),
         )
 
+    # -- player imagery ------------------------------------------------------
+
+    @staticmethod
+    def _headshot(player_slug: str) -> Optional[str]:
+        """This identity's photograph URL, or None.
+
+        THE SAME PIPELINE 82-0 USES, not a second one: the committed manifest
+        `data/game/assets/player_assets.v3.json`, read through
+        `perfect_season.assets.get_player_headshot_url`, keyed on the same
+        `player_slug` this mode already speaks, and behind the same
+        `ENABLE_EXTERNAL_ASSET_URLS` gate. A mode that resolved its own images
+        would be a second source of truth for the one thing the licensing gate
+        exists to control.
+
+        None is an ordinary answer, not an error. The manifest resolves 125 of
+        the 500 identities this mode can offer (25.0%) -- resolution needs a
+        current roster entry, so historical players are largely absent -- and
+        `PlayerAvatar` draws its medallion for the rest in exactly the same box,
+        so a missing photograph costs no layout.
+        """
+        from app.core.config import settings
+
+        if not settings.ENABLE_EXTERNAL_ASSET_URLS:
+            return None
+        from nba_peak.perfect_season.assets import get_player_headshot_url
+
+        return get_player_headshot_url(player_slug)
+
+    def _add_imagery(self, public: dict) -> dict:
+        """Attach `headshot_url` to every identity in an already-built
+        projection, and to nothing else.
+
+        DELIBERATELY A POST-PASS AT THE FOUNDATION BOUNDARY, not a change to
+        `state.project`. The rules package is pure -- no I/O, no settings read --
+        and the licensing gate lives in `app.core.config`; threading a flag into
+        the state machine so it could look up a file would give the pure module
+        both. This walks the keys the allowlist already emitted and adds one
+        field per identity, so it can add nothing the projection did not already
+        publish and cannot become a second place a snapshot field reaches a
+        client by default.
+
+        NO SCORE CROSSES HERE. The only key written is `headshot_url`, on the
+        live candidate, on rostered players (whose price and score are public
+        the moment a lot settles), on settled history lots and on the receipt.
+        The live candidate keeps exactly the identity fields
+        `Candidate.public_dict` allowed.
+
+        History records are rebuilt rather than mutated: `state.project`
+        shallow-copies them, so their nested `candidate` dict is still the one
+        inside the stored snapshot.
+        """
+        candidate = public.get("candidate")
+        if candidate:
+            candidate["headshot_url"] = self._headshot(candidate["player_slug"])
+
+        for seat in public.get("seats") or []:
+            for entry in seat.get("roster") or []:
+                entry["headshot_url"] = self._headshot(entry["player_slug"])
+
+        history = public.get("history") or []
+        public["history"] = [
+            {
+                **record,
+                "candidate": {
+                    **record["candidate"],
+                    "headshot_url": self._headshot(record["candidate"]["player_slug"]),
+                },
+            }
+            if record.get("candidate")
+            else record
+            for record in history
+        ]
+
+        receipt = public.get("receipt")
+        if receipt:
+            for seat_report in receipt.get("seats") or []:
+                for entry in seat_report.get("roster") or []:
+                    entry["headshot_url"] = self._headshot(entry["player_slug"])
+
+        return public
+
     # -- the hidden-information boundary ------------------------------------
 
     def project(
@@ -372,7 +453,9 @@ class TwentyDollarMode:
             # The receipt is built from the same settled snapshot the results
             # rows came from, so the two cannot disagree.
             public["receipt"] = receipt_builder.build(snapshot)
-        return public, private, commands
+        # LAST, so it decorates the receipt too and so nothing after it can
+        # add a key it has not seen.
+        return self._add_imagery(public), private, commands
 
 
 mode = TwentyDollarMode()

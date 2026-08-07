@@ -147,6 +147,133 @@ function uniqueSub(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 }
 
+// ---------------------------------------------------------------------------
+// Driving a match to its RESULT
+// ---------------------------------------------------------------------------
+/**
+ * A match is driven to completion through the API rather than the UI, then the
+ * finished room is loaded in the browser once per matrix cell.
+ *
+ * WHY. Reaching a Three-Man Weave result through the interface means eighteen
+ * picks, six ceremonies and up to twelve bot think windows -- minutes per
+ * frame, times five cells. The API path takes seconds and lands the browser on
+ * exactly the state the frames are ABOUT, which is the result screen, not the
+ * route to it. Nothing is faked: these are real commands against the real
+ * reducer, so the completed match is a real completed match.
+ */
+async function api(
+  token: string,
+  path: string,
+  init?: { method?: string; body?: unknown },
+): Promise<{ status: number; json: Record<string, unknown> }> {
+  const response = await fetch(`${API_BASE}/api/v1/arena${path}`, {
+    method: init?.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: init?.body ? JSON.stringify(init.body) : undefined,
+  });
+  let json: Record<string, unknown> = {};
+  try {
+    json = (await response.json()) as Record<string, unknown>;
+  } catch {
+    /* an empty body is a real answer for some routes */
+  }
+  return { status: response.status, json };
+}
+
+/** Only the fields the driver reads. The capture is a driver, not a client. */
+interface MatchView {
+  state_version?: number;
+  status?: string;
+  turn_phase?: string;
+  your_seat_index?: number;
+  current_turn_seat_index?: number | null;
+  public_state?: { phase?: string; current_bid?: number };
+  private_state?: {
+    legal_picks?: Record<string, string[]>;
+    is_your_turn?: boolean;
+    minimum_bid?: number;
+    max_bid?: number;
+    bid_blocked_reason?: string | null;
+  };
+}
+
+interface DrivenMatch {
+  matchId: string;
+  /** The seat the driver played, so a caller can say which result it is. */
+  seat: number;
+}
+
+/** Play a whole practice match of `mode` through the API. Returns its id. */
+async function driveToCompletion(
+  token: string,
+  mode: "three_man_weave" | "twenty_dollar",
+  pick: (view: MatchView) => { command_type: string; payload: unknown } | null,
+): Promise<DrivenMatch> {
+  const created = await api(token, "/matches/practice", {
+    method: "POST",
+    body: { mode },
+  });
+  const matchId = String(created.json.match_id ?? "");
+  expect(matchId, `practice ${mode} match was created`).toBeTruthy();
+  const seat = Number(created.json.your_seat_index ?? 0);
+
+  // Bounded: eighteen picks / thirty-six lots plus the ceremonies and bot
+  // turns between them. A mode that stopped advancing would hit this rather
+  // than spin, and the assertion afterwards says so.
+  for (let step = 0; step < 400; step += 1) {
+    const view = (await api(token, `/matches/${matchId}`)).json as MatchView;
+    if (view?.public_state?.phase === "complete" || view?.status === "completed") {
+      return { matchId, seat };
+    }
+    const move = pick(view);
+    if (move) {
+      await api(token, `/matches/${matchId}/commands`, {
+        method: "POST",
+        body: {
+          command_type: move.command_type,
+          payload: move.payload,
+          idempotency_key: `cap-${matchId}-${view.state_version}-${step}`,
+          expected_state_version: view.state_version,
+        },
+      });
+    } else {
+      // Not our turn, or a ceremony is holding. Polling is what advances the
+      // server's own clock -- the sweep runs on read.
+      await new Promise((r) => setTimeout(r, 700));
+    }
+  }
+  throw new Error(`${mode} match ${matchId} did not complete within the step budget`);
+}
+
+/** The Weave: take the first legal pick whenever this seat is on the clock. */
+function weaveMove(view: MatchView) {
+  if (view?.turn_phase === "reveal") return null;
+  if (view?.current_turn_seat_index !== view?.your_seat_index) return null;
+  const legal = view?.private_state?.legal_picks ?? {};
+  const slug = Object.keys(legal)[0];
+  if (!slug) return null;
+  return {
+    command_type: "tmw_pick",
+    payload: { player_slug: slug, slot_type: legal[slug][0] },
+  };
+}
+
+/** The Showdown: bid the minimum when affordable, otherwise decline. */
+function showdownMove(view: MatchView) {
+  const priv = view?.private_state ?? {};
+  const pub = view?.public_state ?? {};
+  if (!priv.is_your_turn) return null;
+  const minimum = Number(priv.minimum_bid ?? (Number(pub.current_bid ?? 0) + 1));
+  const max = Number(priv.max_bid ?? 0);
+  if (!priv.bid_blocked_reason && minimum <= max) {
+    return { command_type: "bid", payload: { amount: minimum } };
+  }
+  return { command_type: "pass", payload: {} };
+}
+
 /** The spec's §15 matrix, as data. */
 const MATRIX = [
   { key: "d900", viewport: DESKTOP, theme: "dark" as const },
@@ -314,4 +441,54 @@ test.describe("The $20 Showdown", () => {
       }
     });
   }
+});
+
+
+// ---------------------------------------------------------------------------
+// Result screens — the cells the first capture pass could not reach
+// ---------------------------------------------------------------------------
+test.describe("Result screens", () => {
+  test("weave + showdown results at every matrix cell", async ({ browser }) => {
+    test.setTimeout(900_000);
+    const sub = uniqueSub("shot-result");
+    const token = mintTestAccessToken(sub, `${sub}@shots.test`);
+
+    const weave = await driveToCompletion(token, "three_man_weave", weaveMove);
+    const showdown = await driveToCompletion(token, "twenty_dollar", showdownMove);
+
+    for (const cell of MATRIX) {
+      const context = await browser.newContext({ viewport: cell.viewport });
+      const page = await context.newPage();
+      try {
+        await signIn(context, page, sub);
+        await setTheme(page, cell.theme);
+
+        await page.goto(`/arena/three-man-weave/${weave.matchId}`, {
+          waitUntil: "domcontentloaded",
+        });
+        await expect(page.getByTestId("tmw-podium")).toBeVisible({ timeout: 40_000 });
+        await shot(page, `tmw-result-${cell.key}`, "Weave result: placement + three rosters", {
+          theme: cell.theme,
+        });
+        await shot(page, `tmw-result-full-${cell.key}`, "Weave result, stitched", {
+          fullPage: true,
+          theme: cell.theme,
+        });
+
+        await page.goto(`/arena/twenty-dollar/${showdown.matchId}`, {
+          waitUntil: "domcontentloaded",
+        });
+        await expect(page.getByTestId("td-result")).toBeVisible({ timeout: 40_000 });
+        await shot(page, `s20-result-${cell.key}`, "Showdown result: hero + two team cards", {
+          theme: cell.theme,
+        });
+        await shot(page, `s20-result-full-${cell.key}`, "Showdown result, stitched", {
+          fullPage: true,
+          theme: cell.theme,
+        });
+      } finally {
+        await context.close();
+      }
+    }
+  });
 });

@@ -367,20 +367,37 @@ test.describe("Three-Man Weave", () => {
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
 
-      // THE ROLL IS REVEALED, ONE WAY OR THE OTHER.
+      // THE CEREMONY IS THE SERVER'S REVEAL PHASE.
       //
-      // The full-focus ceremony is mounted only while NO human decision window
-      // is open -- that is the reveal/clock race fix (SHARED-01): a client
-      // ceremony may never spend a deadline the server has already started. The
-      // human's seat is drawn from the match seed, so when they lead round one
-      // the ceremony never mounts and the franchise x decade animates inside
-      // the live pick surface instead. Both are a real reveal; exactly one of
-      // them exists in any given match.
+      // It used to be a client `setTimeout` the room had to keep out of the way
+      // of a deadline the server had already started, and the first repair
+      // simply refused to mount it on rounds the human led. Neither is true now:
+      // the mode opens a turn in `phase="reveal"` that belongs to no seat and
+      // accepts no command, and the room mounts the ceremony for exactly as long
+      // as the server says that turn is open -- every round, every seat.
+      //
+      // ASSERTED AGAINST THE SERVER'S OWN PHASE, not against a timer: the room
+      // publishes it as `data-turn-phase`. The reveal is a few seconds long and
+      // the foundation's clock is swept lazily on reads, so a page that took
+      // longer than the window to load and hydrate can legitimately arrive after
+      // it -- hence the conditional. What is NOT conditional is the invariant:
+      // while the phase is `reveal`, the pick panel is shut.
+      const room = page.getByTestId("tmw-room");
       const roll = page.getByTestId("tmw-roll");
       const inlineRoll = page.getByTestId("tmw-overlay-roll");
       await expect(roll.or(inlineRoll).first()).toBeVisible({ timeout: 20_000 });
 
       const hasCeremony = (await roll.count()) > 0;
+      if (hasCeremony) {
+        // THE PICK PANEL MAY NOT OPEN OVER THE CEREMONY. This is the whole
+        // regression, in one assertion, read off the server's own phase.
+        await expect(room).toHaveAttribute("data-turn-phase", "reveal");
+        expect(
+          await page.getByTestId("tmw-pick-overlay").count(),
+          "the pick panel opened while the server was still revealing the roll",
+        ).toBe(0);
+      }
+
       if (hasCeremony) {
         // THE SPINNER IS AN EVENT, and it resolves to the server's own answer.
         // `data-final-value` carries that answer from the first frame, so this
@@ -415,6 +432,14 @@ test.describe("Three-Man Weave", () => {
       if (hasCeremony) {
         await expect(roll).toHaveAttribute("data-revealed", "true", { timeout: 15_000 });
       }
+
+      // AND THE HANDOFF IS THE SERVER'S TOO. The ceremony gives way to a pick
+      // turn because the reveal's deadline passed and the mode opened one --
+      // not because an animation finished. So the phase must leave `reveal` on
+      // its own, with nothing on this page doing anything.
+      await expect(room).not.toHaveAttribute("data-turn-phase", "reveal", {
+        timeout: 60_000,
+      });
 
       // All three rosters are on screen, and no bot is a numbered placeholder.
       await expect(page.getByTestId("tmw-courts")).toBeVisible();
@@ -525,11 +550,11 @@ test.describe("Three-Man Weave", () => {
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
       // WAIT FOR THE BOARD, NOT FOR THE CEREMONY. The round-opening ceremony is
-      // mounted only while no human decision window is open, so whether it is
-      // on screen at all depends on which seat the seeded draw gave the human;
-      // when the human leads round one it never mounts and the reveal happens
-      // inside the live pick surface instead. The turn-status region is present
-      // either way. See `ThreeManWeaveGame`'s docstring.
+      // the server's `reveal` turn and it is a few seconds long, so whether it
+      // is still on screen when this assertion runs depends on how long the page
+      // took to load -- not on anything this test controls. The turn-status
+      // region is present in either phase, and the accessibility sweep below
+      // covers whichever one is up. See `ThreeManWeaveGame`'s docstring.
       await expect(page.getByTestId("tmw-turnbar")).toBeVisible({ timeout: 15_000 });
       await axeClean(page, "the Three-Man Weave draft room");
     } finally {
@@ -814,6 +839,9 @@ test.describe("@mobile the draft board on a phone", () => {
   test("offers every roster as a tab rather than three crushed columns", async ({
     browser,
   }) => {
+    // A round now opens on a server-timed ceremony before the board is
+    // interactive, so this flow costs a few seconds more than the 30s default.
+    test.setTimeout(90_000);
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
@@ -822,6 +850,17 @@ test.describe("@mobile the draft board on a phone", () => {
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
+
+      // THE CEREMONY OWNS THE SCREEN FIRST, and that is the product working:
+      // a round opens on a server `reveal` turn and the full-focus overlay
+      // sits over the dimmed rosters until it expires. The tabs exist behind
+      // it and are deliberately not clickable, so this waits for the phase to
+      // leave `reveal` rather than racing it.
+      await expect(page.getByTestId("tmw-room")).not.toHaveAttribute(
+        "data-turn-phase",
+        "reveal",
+        { timeout: 30_000 },
+      );
 
       // Three tabs, every roster one tap away, and the active one readable.
       for (const seat of [0, 1, 2]) {

@@ -19,14 +19,17 @@ import ComponentSilhouette from "./ComponentSilhouette";
  * score, a legality or a winner — if a number is on screen it was on the wire.
  *
  * PLAYER IMAGERY (SHARED-03). Every player rendered here goes through the one
- * existing primitive, `components/court/PlayerAvatar`. There is no second
- * fetcher and no second fallback. Read that component's docstring before
- * assuming a headshot: the ESPN manifest resolves 15% of identities and
- * essentially no historical player, and the API gate
- * `PEAK3_ENABLE_EXTERNAL_ASSET_URLS` defaults OFF pending a licensing review —
- * so in production the medallion IS the shipping path, and the layouts below
- * are designed around a medallion rather than around a photograph that will
- * not arrive. `imageUrl` is threaded through anyway for the day it does.
+ * existing primitive, `components/court/PlayerAvatar`, fed the `headshot_url`
+ * the server resolved from the committed manifest. There is no second fetcher
+ * and no second fallback.
+ *
+ * A PHOTOGRAPH IS THE MINORITY CASE and the layouts are built for that: the
+ * manifest resolves 125 of the 500 identities this mode can offer (25.0%),
+ * because resolution needs a current roster entry. On top of that the API gate
+ * `PEAK3_ENABLE_EXTERNAL_ASSET_URLS` defaults OFF pending a licensing review,
+ * so with the shipped default every avatar below is the designed medallion.
+ * Both branches occupy the same reserved square, so which one arrives changes
+ * nothing about the board's geometry.
  */
 
 // ---------------------------------------------------------------------------
@@ -97,7 +100,8 @@ export function TurnBanner({
 /**
  * The lot under the hammer, in the order a bidder actually reads it (S20-04):
  *
- *   1. who is on the block — headshot, name, season, team, eligible positions
+ *   1. who is on the block — portrait (a photograph where the manifest has
+ *      one, the medallion otherwise), name, season, team, eligible positions
  *   2. CURRENT BID, as a large number
  *   3. who leads it
  *   4. the last meaningful action
@@ -157,7 +161,7 @@ export function AuctionStage({
       </p>
 
       <div className="td-stage-identity">
-        <PlayerAvatar name={candidate.player_name} size={72} />
+        <PlayerAvatar name={candidate.player_name} size={72} imageUrl={candidate.headshot_url} />
         <div className="td-stage-who">
           <h2 className="td-candidate-name" data-testid="td-candidate-name">
             {candidate.player_name}
@@ -441,7 +445,7 @@ export function RosterBoard({
             >
               <span className="td-slot-figure">
                 {entry ? (
-                  <PlayerAvatar name={entry.player_name} size={32} />
+                  <PlayerAvatar name={entry.player_name} size={32} imageUrl={entry.headshot_url} />
                 ) : (
                   <span className="td-slot-vacant" aria-hidden="true" />
                 )}
@@ -511,7 +515,7 @@ export function LotReveal({
         Lot {lot.lot_index + 1} · {won === null ? "unsold" : "sold"}
       </p>
       <div className="td-reveal-identity">
-        <PlayerAvatar name={lot.candidate.player_name} size={44} />
+        <PlayerAvatar name={lot.candidate.player_name} size={44} imageUrl={lot.candidate.headshot_url} />
         <div>
           <h3 className="td-reveal-name">{lot.candidate.player_name}</h3>
           <p className="td-reveal-season" data-testid="td-reveal-season">

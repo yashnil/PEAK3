@@ -109,6 +109,19 @@ export interface CandidatePublic {
   anchor_season: string;
   team: string | null;
   positions: string[];
+  /**
+   * This player's photograph, from the committed asset manifest.
+   *
+   * IDENTITY, NOT VALUATION — which is the only reason it is allowed on a LIVE
+   * lot at all. It says who is on the block, exactly as `player_name` does; it
+   * carries no score, no rank and no component.
+   *
+   * Null for most identities and for every identity when the API's
+   * `PEAK3_ENABLE_EXTERNAL_ASSET_URLS` gate is off, which is the shipped
+   * default. `PlayerAvatar` draws its medallion in the same reserved box, so
+   * null costs no layout. @see `components/court/PlayerAvatar`.
+   */
+  headshot_url?: string | null;
 }
 
 /** A candidate as it appears in a RESOLVED round, with everything revealed. */
@@ -137,6 +150,9 @@ export interface RosterEntry {
    *  number they were bought on. */
   prime_score: number;
   autofilled: boolean;
+  /** @see `CandidatePublic.headshot_url`. Null for most identities and for all
+   *  of them with the API's default flag posture. */
+  headshot_url?: string | null;
 }
 
 /**

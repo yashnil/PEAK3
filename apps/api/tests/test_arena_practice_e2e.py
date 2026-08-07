@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import anyio
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,10 +30,14 @@ from app.core.auth import AuthSubject, get_optional_auth, get_required_auth
 from app.core.config import settings
 from app.core.dependencies import _memory_arena_repo
 from app.main import app
+from app.repositories.arena_protocols import COMMAND_TYPE_TIMEOUT, CommandRequest
 from app.services.arena import bots as bot_service
+from app.services.arena import clock
 from app.services.arena.modes import registry as mode_registry
 from app.services.three_man_weave import mode as tmw_module
 from app.services.twenty_dollar import mode as td_module
+
+from nba_peak.three_man_weave.config import ROUNDS
 
 TMW = "three_man_weave"
 TWENTY = "twenty_dollar"
@@ -106,8 +111,33 @@ def _age_open_turn(match_id: str, seconds: float) -> None:
             turn.opened_at = turn.opened_at - timedelta(seconds=seconds)
 
 
+def _expire_ceremony(match_id: str) -> None:
+    """Let a Three-Man Weave franchise x decade REVEAL run out.
+
+    THE CEREMONY IS A TURN NOW, so a driver that only advanced a bot's think
+    delay stopped dead at the top of every round: the reveal belongs to no seat,
+    nobody may act on it, and it ends only when its own deadline passes. The
+    foundation's sweep is lazy -- it fires on a read -- so a test that wants the
+    next pick turn has to let the ceremony expire first, exactly as a real
+    client's polling does 3.2 seconds later.
+
+    ONLY THE REVEAL'S DEADLINE IS MOVED. Pulling a PICK turn's deadline back
+    would forfeit that seat to the auto-pick, which would quietly turn every
+    driver below into a test of the timeout path instead of the one it names.
+
+    Moved to an instant already past rather than shifted by a fixed amount, so
+    the helper works for a ceremony of ANY length -- see
+    `test_round_ones_ceremony_is_the_modes_own_length` for why that matters.
+    """
+    past = datetime.now(timezone.utc) - timedelta(seconds=1)
+    for turn in _memory_arena_repo._turns.get(match_id, []):
+        if turn.resolved_at is None and turn.phase == tmw_module.PHASE_REVEAL:
+            turn.deadline_at = past
+
+
 def _poll(client: TestClient, match_id: str) -> dict:
     _age_open_turn(match_id, 5.0)
+    _expire_ceremony(match_id)
     response = client.get(f"/api/v1/arena/matches/{match_id}")
     assert response.status_code == 200, response.text
     return response.json()
@@ -395,10 +425,22 @@ def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock():
     match_id = view["match_id"]
     you = view["your_seat_index"]
 
+    # THE TWO WAITS ARE COUNTED SEPARATELY, and that separation is the point.
+    # A seat other than yours holding the turn now means one of two completely
+    # different things: a bot is thinking, or the franchise x decade ceremony
+    # is running (which belongs to no seat at all). Adding them together would
+    # have let a bot regress all the way to needing a timeout while the total
+    # stayed under a ceiling loosened to accommodate six ceremonies -- so the
+    # budget this test exists to enforce is kept on the bot count alone.
     polls_waiting_on_bots = 0
+    polls_waiting_on_ceremony = 0
     for _ in range(400):
         if view["public_state"]["is_complete"]:
             break
+        if view.get("turn_phase") == tmw_module.PHASE_REVEAL:
+            polls_waiting_on_ceremony += 1
+            view = _poll(client, match_id)
+            continue
         if view["current_turn_seat_index"] != you:
             polls_waiting_on_bots += 1
             view = _poll(client, match_id)
@@ -413,7 +455,294 @@ def test_a_bot_never_holds_a_weave_turn_for_a_full_human_clock():
     assert view["public_state"]["is_complete"]
     # 12 bot picks in a 3-seat, 6-round draft. One poll each is the floor; a
     # generous ceiling still fails loudly if a bot ever needs a timeout.
+    # UNCHANGED from before the ceremony existed -- that is the guarantee.
     assert polls_waiting_on_bots <= 24, polls_waiting_on_bots
+    # Six rounds, six ceremonies. Each costs the poll that expires it plus the
+    # one that sees the pick turn; anything beyond that would mean a reveal was
+    # being re-entered rather than resolved once.
+    assert polls_waiting_on_ceremony <= 18, polls_waiting_on_ceremony
+    assert polls_waiting_on_ceremony >= 6, (
+        f"only {polls_waiting_on_ceremony} ceremony polls -- every round must "
+        "open on a reveal, including the ones the human leads"
+    )
+
+
+# ---------------------------------------------------------------------------
+# THE FRANCHISE x DECADE CEREMONY, THROUGH THE REAL ROUTES
+#
+# The mode's own suite (`test_three_man_weave_mode.py`) proves the reducer's
+# arithmetic. What can only be seen HERE is the wiring: that the foundation
+# opens the turn the mode asked for, that the bot driver leaves it alone, that
+# the route refuses a command against it, and that a reconnecting client can
+# reconstruct it from what the API sends.
+# ---------------------------------------------------------------------------
+
+
+def _open_turn(match_id: str):
+    """The match's currently open turn, straight out of the repository."""
+    turns = [t for t in _memory_arena_repo._turns.get(match_id, []) if t.resolved_at is None]
+    assert len(turns) == 1, f"expected exactly one open turn, found {len(turns)}"
+    return turns[0]
+
+
+def _weave_with_human_at_seat(client: TestClient, seat_index: int) -> dict:
+    """A practice match whose HUMAN sits at `seat_index`.
+
+    The seat is drawn from the match seed (`config.human_seat_index`), so it is
+    found by creating matches rather than by asking for one -- the same fact
+    `test_the_weave_seats_the_human_at_every_seat_across_matches` relies on.
+    """
+    for _ in range(80):
+        view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+        if view["your_seat_index"] == seat_index:
+            return view
+    raise AssertionError(f"no practice match seated the human at {seat_index}")
+
+
+def test_every_weave_round_opens_on_a_ceremony_that_belongs_to_no_seat():
+    """ROUND 1 AND EVERY LATER ROUND, observed live across a whole match.
+
+    The earlier repair showed the ceremony only on rounds a BOT led, so a test
+    that sampled a single round could pass while the product requirement had
+    been deleted for a third of them. This walks all six.
+    """
+    client = _client_as("user-a")
+    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    match_id = view["match_id"]
+    you = view["your_seat_index"]
+
+    # Round 1 opens on the ceremony, before anybody has done anything at all.
+    assert view["turn_phase"] == tmw_module.PHASE_REVEAL
+    assert view["current_turn_seat_index"] is None
+    assert view["public_state"]["current_round"] == 1
+
+    rounds_that_opened_on_a_ceremony = set()
+    for _ in range(400):
+        if view["public_state"]["is_complete"]:
+            break
+        if view["turn_phase"] == tmw_module.PHASE_REVEAL:
+            # A ceremony belongs to nobody, and always has a roll to show --
+            # showing it IS the ceremony.
+            assert view["current_turn_seat_index"] is None
+            assert view["public_state"]["current_roll"] is not None
+            rounds_that_opened_on_a_ceremony.add(view["public_state"]["current_round"])
+        if view["current_turn_seat_index"] != you:
+            view = _poll(client, match_id)
+            continue
+        legal = view["private_state"].get("legal_picks") or {}
+        slug = sorted(legal)[0]
+        view = _command(
+            client, match_id, view, "tmw_pick",
+            {"player_slug": slug, "slot_type": legal[slug][0]},
+        )["match"]
+
+    assert view["public_state"]["is_complete"]
+    assert rounds_that_opened_on_a_ceremony == set(range(1, ROUNDS + 1))
+
+
+def test_a_round_the_human_leads_gets_the_ceremony_AND_the_full_window():
+    """THE REGRESSION THAT MUST NEVER COME BACK, end to end.
+
+    Round 1's snake opens on seat A, so a match that seated the human at 0 is a
+    HUMAN-LED round -- the exact case the earlier fix had deleted the ceremony
+    from, on the grounds that showing it spent 2.3 seconds of a 45-second clock
+    that was already running.
+
+    BOTH halves are asserted, because either one alone was achievable before:
+    the ceremony PLAYS, and the pick window that follows it is FULL, measured
+    from the ceremony's end rather than from when the round opened.
+    """
+    client = _client_as("user-a")
+    view = _weave_with_human_at_seat(client, 0)
+    match_id = view["match_id"]
+
+    # The ceremony plays, for the human, on the round the human leads.
+    assert view["turn_phase"] == tmw_module.PHASE_REVEAL
+    assert view["current_turn_seat_index"] is None
+    assert view["public_state"]["current_seat"] == 0 == view["your_seat_index"]
+    ceremony_seq = _open_turn(match_id).turn_seq
+
+    # Now let it run out, exactly as a real client's polling does.
+    view = _poll(client, match_id)
+
+    assert view["turn_phase"] == tmw_module.PHASE_PICK
+    assert view["current_turn_seat_index"] == 0
+    turn = _open_turn(match_id)
+    assert turn.turn_seq != ceremony_seq, "the ceremony's own turn was reused"
+    # THE WHOLE POINT: the window is `TURN_SECONDS` long measured from the
+    # instant the ceremony ended. A window measured from when the ROUND opened
+    # would be short by the ceremony's entire duration.
+    assert (turn.deadline_at - turn.opened_at).total_seconds() == pytest.approx(
+        tmw_module.TURN_SECONDS, abs=0.5
+    )
+    assert view["seconds_remaining"] > tmw_module.TURN_SECONDS - 1
+
+
+def test_no_seat_can_act_while_a_weave_ceremony_is_open():
+    """Nobody drafts under the reveal -- not the human, and not the bots.
+
+    The bot half cannot be seen from the mode at all. Without
+    `phase_accepts_bot_action`, `drive_pending_bots` reads the ceremony's
+    `seat_index is None` as a SIMULTANEOUS turn and lets every bot seat play, so
+    a whole round would be drafted underneath a reveal nobody had seen.
+    """
+    from app.services.arena import bots as bot_module
+
+    client = _client_as("user-a")
+    view = _weave_with_human_at_seat(client, 0)
+    match_id = view["match_id"]
+    assert view["turn_phase"] == tmw_module.PHASE_REVEAL
+
+    # 1. THE HUMAN. A perfectly legal pick, refused for WHEN it arrived.
+    legal = view["private_state"].get("legal_picks") or {}
+    assert legal, "the projection still offers this seat its legal picks"
+    slug = sorted(legal)[0]
+    refused = _command(
+        client, match_id, view, "tmw_pick",
+        {"player_slug": slug, "slot_type": legal[slug][0]},
+    )
+    assert refused["accepted"] is False
+    assert refused["rejection_code"] == "not_your_turn"
+
+    # 2. THE BOTS. Driven directly, with every think delay long since elapsed,
+    #    so nothing except the phase is holding them back.
+    _age_open_turn(match_id, 120.0)
+    steps = anyio.run(
+        bot_module.drive_pending_bots,
+        _memory_arena_repo,
+        tmw_module.mode,
+        tmw_module.mode.reduce,
+        match_id,
+        datetime.now(timezone.utc),
+    )
+    assert steps == 0, "a bot drafted underneath the ceremony"
+
+    # 3. AND NOTHING MOVED: same version, same turn, same board.
+    after = client.get(f"/api/v1/arena/matches/{match_id}").json()
+    assert after["state_version"] == view["state_version"]
+    assert after["turn_phase"] == tmw_module.PHASE_REVEAL
+    assert after["public_state"]["rosters"] == view["public_state"]["rosters"]
+    assert after["public_state"]["current_roll"] == view["public_state"]["current_roll"]
+
+
+def test_replaying_the_ceremonys_timeout_applies_nothing_twice():
+    """The sweep's key is derived from `(match, turn_seq)`, never random.
+
+    Two clients polling in the same instant both fire the ceremony's timeout.
+    The second must be recognised as a REPLAY at the storage layer rather than
+    opening a second pick turn or moving the first one's deadline.
+    """
+    client = _client_as("user-a")
+    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    match_id = view["match_id"]
+    ceremony = _open_turn(match_id)
+    assert ceremony.phase == tmw_module.PHASE_REVEAL
+
+    key = clock.timeout_idempotency_key(match_id, ceremony.turn_seq)
+    now = datetime.now(timezone.utc)
+
+    def _fire():
+        return anyio.run(
+            _memory_arena_repo.apply_command,
+            CommandRequest(
+                match_id=match_id,
+                idempotency_key=key,
+                command_type=COMMAND_TYPE_TIMEOUT,
+                payload={"turn_seq": ceremony.turn_seq, "seat_index": None},
+                actor_sub=None,
+                actor_seat_index=None,
+                expected_state_version=None,
+                issued_at=now,
+            ),
+            clock.guard_timeout(tmw_module.mode.reduce, ceremony.turn_seq),
+            now,
+        )
+
+    first = _fire()
+    assert first.accepted and not first.replayed
+    opened = _open_turn(match_id)
+    assert opened.phase == tmw_module.PHASE_PICK
+
+    second = _fire()
+    assert second.replayed is True, "the identical key was applied a second time"
+    again = _open_turn(match_id)
+    assert again.turn_seq == opened.turn_seq, "the replay opened a second turn"
+    assert again.phase == tmw_module.PHASE_PICK
+    assert again.deadline_at == opened.deadline_at, "the replay moved the clock"
+
+
+def test_a_reconnect_mid_ceremony_reconstructs_it_for_every_seat():
+    """A reload during the reveal is answered by STATE, not by an animation.
+
+    THREE HUMAN SEATS, not one human and two bots, because the claim is about
+    every seat: `_build_view` publishes `seconds_remaining` when the open turn
+    names no seat, which is exactly the ceremony's shape, and that is what lets
+    all three participants count the same beat down. With bots in the other two
+    chairs there is nobody to ask.
+    """
+    host = _client_as("user-a")
+    room = host.post("/api/v1/arena/matches/private", json={"mode": TMW}).json()
+    match_id = room["match_id"]
+    for sub in ("user-b", "user-c"):
+        guest = _client_as(sub)
+        joined = guest.post(
+            "/api/v1/arena/matches/private/join", json={"room_code": room["room_code"]}
+        )
+        assert joined.status_code == 200, joined.text
+
+    window = (
+        _open_turn(match_id).deadline_at - _open_turn(match_id).opened_at
+    ).total_seconds()
+    seen_seats = set()
+    for sub in ("user-a", "user-b", "user-c"):
+        # A fresh client per seat: `_client_as` rewires the shared dependency
+        # overrides, so the identity is whoever asked most recently.
+        client = _client_as(sub)
+        view = client.get(f"/api/v1/arena/matches/{match_id}").json()
+        assert view["status"] == "active", sub
+        seen_seats.add(view["your_seat_index"])
+        # THE THREE FIELDS A RECONNECTING CLIENT NEEDS, for THIS seat.
+        assert view["turn_phase"] == tmw_module.PHASE_REVEAL, sub
+        assert view["current_turn_seat_index"] is None, sub
+        assert view["seconds_remaining"] is not None, sub
+        # Strictly inside the ceremony's own window: a client that read this as
+        # a full window would restart the reveal, and one that read it as zero
+        # would skip it.
+        assert 0 < view["seconds_remaining"] <= window, sub
+        # The roll is on the board throughout -- showing it IS the ceremony.
+        assert view["public_state"]["current_roll"] is not None, sub
+    assert seen_seats == {0, 1, 2}
+
+
+def test_round_ones_ceremony_is_the_modes_own_length():
+    """ROUND ONE'S CEREMONY IS NOT A 45-SECOND DECISION.
+
+    THE DEFECT THIS PINS. The FIRST turn of a match is not opened by the mode's
+    reducer -- `matchmaking._open_play` opens it. It asked the mode which PHASE
+    to open, via `initial_phase()`, and then stamped the deadline as
+    `now + mode.turn_seconds`: the DECISION window. So rounds two through six,
+    whose turns come from the mode's own `TurnDraft`, held the ceremony for
+    `REVEAL_SECONDS`, and round one held it for forty-five seconds -- a player
+    stared at the reveal for three quarters of a minute before the first panel
+    opened.
+
+    The seam that was missing is `modes.phase_seconds`: a mode may now say how
+    long a PHASE lasts, not only how long a decision does. This test is the
+    contract for it, and it is deliberately measured against the mode's own
+    constant rather than a literal, so changing `REVEAL_SECONDS` cannot leave a
+    stale number here.
+    """
+    client = _client_as("user-a")
+    view = client.post("/api/v1/arena/matches/practice", json={"mode": TMW}).json()
+    turn = _open_turn(view["match_id"])
+    assert turn.phase == tmw_module.PHASE_REVEAL
+    held = (turn.deadline_at - turn.opened_at).total_seconds()
+    assert held == pytest.approx(tmw_module.REVEAL_SECONDS, abs=0.5), held
+    # And emphatically NOT the decision window, which is what it used to be.
+    assert held < tmw_module.TURN_SECONDS / 2, (
+        f"round one held the ceremony for {held}s against a "
+        f"{tmw_module.TURN_SECONDS}s decision window"
+    )
 
 
 # ---------------------------------------------------------------------------

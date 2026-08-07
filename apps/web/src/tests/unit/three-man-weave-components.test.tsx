@@ -13,7 +13,7 @@
  */
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import SeatCourt from "@/components/three-man-weave/SeatCourt";
@@ -34,6 +34,31 @@ import type {
   TmwRoll,
   TmwRoster,
 } from "@/types/three-man-weave";
+import {
+  TMW_REVEAL_SECONDS,
+  TMW_TURN_PHASE_PICK,
+  TMW_TURN_PHASE_REVEAL,
+} from "@/types/three-man-weave";
+
+/** Installs a `matchMedia` stub whose `(prefers-reduced-motion: reduce)` answer
+ * is `reduced`. jsdom has no `matchMedia` at all, so without this every
+ * component under test reads the hook's "unavailable" fallback of `false`. */
+function mockMatchMedia(reduced: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: query.includes("prefers-reduced-motion") ? reduced : false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
@@ -215,10 +240,36 @@ function matchView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
     legal_commands: ["tmw_pick", "tmw_rearrange"],
     current_turn_seat_index: 0,
     seconds_remaining: 45,
+    turn_phase: TMW_TURN_PHASE_PICK,
     latest_event_seq: 3,
     room_code: null,
     ...overrides,
   };
+}
+
+/**
+ * THE MATCH AS THE SERVER SENDS IT DURING THE CEREMONY, field for field.
+ *
+ * Every one of these is what `_build_view` actually publishes while the reveal
+ * turn is open, and each is load-bearing:
+ *
+ *   * `turn_phase: "reveal"` — the only thing the room switches on;
+ *   * `current_turn_seat_index: null` — the ceremony belongs to no seat;
+ *   * `seconds_remaining` — published to EVERY seat when a turn names none, so
+ *     all three participants count the same beat down;
+ *   * `legal_commands` still containing `tmw_pick` — `project` derives it from
+ *     the snapshot's `current_seat`, which already names the seat that picks
+ *     next. A room that trusted `legal_commands` alone would open the pick
+ *     panel over the ceremony, which is the regression these tests hold shut.
+ */
+function ceremonyView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
+  return matchView({
+    turn_phase: TMW_TURN_PHASE_REVEAL,
+    current_turn_seat_index: null,
+    seconds_remaining: TMW_REVEAL_SECONDS,
+    legal_commands: ["tmw_pick", "tmw_rearrange"],
+    ...overrides,
+  });
 }
 
 function result(overrides: Partial<ArenaResultView> = {}): ArenaResultView {
@@ -265,8 +316,9 @@ function result(overrides: Partial<ArenaResultView> = {}): ArenaResultView {
 // THE REVEAL/CLOCK RACE (SHARED-01, TMW-06)
 // ---------------------------------------------------------------------------
 
-describe("the round-opening ceremony never overlaps a human clock", () => {
+describe("the ceremony is the server's reveal phase, and nothing else", () => {
   beforeEach(() => {
+    mockMatchMedia(false);
     getMatch.mockReset();
     getMatchResults.mockReset();
     submitCommand.mockReset();
@@ -274,30 +326,84 @@ describe("the round-opening ceremony never overlaps a human clock", () => {
     getMatchResults.mockResolvedValue({ results: [] });
   });
 
-  it("does not mount the ceremony when the human is already on the clock", async () => {
-    // THE DEFECT THIS ENCODES. The ceremony used to run a 2270ms client
-    // `setTimeout` and the pick overlay was gated on the callback it fired --
-    // while the server's 45-second deadline, stamped when the turn OPENED, was
-    // already running. The player lost ~2.3s plus up to one 2s poll of a clock
-    // that was visibly counting down behind an overlay that would not open.
-    render(<ThreeManWeaveGame initialMatch={matchView({ current_turn_seat_index: 0 })} />);
+  it("mounts the ceremony on a round the HUMAN leads, and holds the pick panel shut", () => {
+    // THE REGRESSION THIS EXISTS TO PREVENT, IN BOTH ITS FORMS.
+    //
+    // First form: the ceremony was a 2270ms client `setTimeout` gating the pick
+    // overlay while the server's 45-second deadline -- stamped when the turn
+    // opened -- was already running, so a player leading a round lost the whole
+    // ceremony off a clock counting down behind an overlay that would not open.
+    //
+    // Second form, the workaround: the room refused to mount the ceremony at
+    // all when `!yourTurn` was false, which removed the race by removing the
+    // product requirement. On every round the human led, there was no reveal.
+    //
+    // Neither is possible now. The reveal is a server turn; the room shows it
+    // whenever the server says it is open, and the pick panel is shut for
+    // exactly as long -- even though `legal_commands` already advertises
+    // `tmw_pick`, because the snapshot's `current_seat` names this seat.
+    render(<ThreeManWeaveGame initialMatch={ceremonyView({ your_seat_index: 0 })} />);
 
-    // No blocking ceremony...
+    expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
+    expect(screen.getByTestId("tmw-roll")).toBeInTheDocument();
+    expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
+    expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "reveal");
+  });
+
+  it("opens the pick panel only once the server's phase flips to pick", () => {
+    const { rerender } = render(
+      <ThreeManWeaveGame initialMatch={ceremonyView({ your_seat_index: 0 })} />,
+    );
+    expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
+
+    // The same match, one phase later: the sweep ended the ceremony and the
+    // mode opened the pick turn with a FULL window measured from that instant.
+    rerender(
+      <ThreeManWeaveGame
+        key="pick"
+        initialMatch={matchView({
+          turn_phase: TMW_TURN_PHASE_PICK,
+          current_turn_seat_index: 0,
+          seconds_remaining: 45,
+        })}
+      />,
+    );
     expect(screen.queryByTestId("tmw-ceremony-scrim")).toBeNull();
-    // ...and the decision surface is live on the very first frame.
     expect(screen.getByTestId("tmw-pick-overlay")).toBeInTheDocument();
-    // The roll is still revealed -- inside the live surface, where it costs
-    // nothing.
     expect(screen.getByTestId("tmw-overlay-roll")).toHaveTextContent("Toronto Raptors");
     expect(screen.getByTestId("tmw-overlay-roll")).toHaveTextContent("2010s");
   });
 
-  it("plays the full ceremony while a bot holds the clock, and blocks nothing", () => {
-    render(<ThreeManWeaveGame initialMatch={matchView({ current_turn_seat_index: 1 })} />);
+  it("plays the same ceremony on a round a bot leads", () => {
+    // Identical assertions to the human-led case, deliberately: the whole point
+    // of moving the reveal server-side is that the two are the same event.
+    render(
+      <ThreeManWeaveGame
+        initialMatch={ceremonyView({
+          public_state: publicState({ current_seat: 1 }),
+        })}
+      />,
+    );
     expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
     expect(screen.getByTestId("tmw-roll")).toBeInTheDocument();
-    // Nothing of the human's is open, because nothing of the human's is due.
     expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
+  });
+
+  it("resumes a reload mid-ceremony where the server says it is, not from the start", () => {
+    // A reload is a fresh mount with whatever `seconds_remaining` the server
+    // sends. With 0.3s of a 3.2s window left the ceremony is nearly over, so it
+    // must render RESOLVED -- not replay the reel it already finished, and not
+    // vanish either.
+    const nearlyDone = render(
+      <ThreeManWeaveGame initialMatch={ceremonyView({ seconds_remaining: 0.3 })} />,
+    );
+    expect(nearlyDone.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true");
+    expect(nearlyDone.queryByTestId("tmw-pick-overlay")).toBeNull();
+    nearlyDone.unmount();
+
+    // ...whereas a match that has only just opened the reveal is at its start.
+    const justOpened = render(<ThreeManWeaveGame initialMatch={ceremonyView()} />);
+    expect(justOpened.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "false");
   });
 
   it("has exactly one turn-status region and none of the three it replaced", () => {
@@ -1089,8 +1195,19 @@ describe("PodiumReceipt", () => {
 // ---------------------------------------------------------------------------
 
 describe("WeaveSpinner", () => {
+  beforeEach(() => {
+    mockMatchMedia(false);
+  });
+
   it("carries the server's answer from the first frame", () => {
-    render(<WeaveSpinner roll={ROLL} roundNumber={1} totalRounds={6} />);
+    render(
+      <WeaveSpinner
+        roll={ROLL}
+        roundNumber={1}
+        totalRounds={6}
+        revealSeconds={TMW_REVEAL_SECONDS}
+      />,
+    );
     // The reel cannot resolve to anything else: the value is decided before
     // the animation starts and is exposed as data from t=0.
     expect(screen.getByTestId("tmw-roll-franchise")).toHaveAttribute(
@@ -1104,10 +1221,16 @@ describe("WeaveSpinner", () => {
   });
 
   it("renders nothing at all when the room has closed it", () => {
-    // The room closes it whenever a human decision window is open, which is the
-    // whole of the clock-race fix -- so "closed" has to mean absent, not hidden.
+    // The room closes it whenever the server's turn phase is not `reveal`, so
+    // "closed" has to mean absent, not hidden.
     const { container } = render(
-      <WeaveSpinner open={false} roll={ROLL} roundNumber={1} totalRounds={6} />,
+      <WeaveSpinner
+        open={false}
+        roll={ROLL}
+        roundNumber={1}
+        totalRounds={6}
+        revealSeconds={TMW_REVEAL_SECONDS}
+      />,
     );
     expect(container).toBeEmptyDOMElement();
   });
@@ -1121,6 +1244,7 @@ describe("WeaveSpinner", () => {
         seats={SEATS}
         yourSeatIndex={0}
         showIntro
+        revealSeconds={TMW_REVEAL_SECONDS}
       />,
     );
     expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
@@ -1132,8 +1256,82 @@ describe("WeaveSpinner", () => {
   });
 
   it("says it is rolling when there is no roll yet", () => {
-    render(<WeaveSpinner roll={null} roundNumber={null} totalRounds={6} />);
+    render(
+      <WeaveSpinner
+        roll={null}
+        roundNumber={null}
+        totalRounds={6}
+        revealSeconds={TMW_REVEAL_SECONDS}
+      />,
+    );
     expect(screen.getByTestId("tmw-roll-rolling")).toBeInTheDocument();
+  });
+
+  it("fits its whole sequence inside the server's window", () => {
+    // THE CEREMONY'S LENGTH IS NOT THIS COMPONENT'S TO CHOOSE any more. Every
+    // stage boundary is a fraction of the window the server published, so the
+    // reel cannot still be spinning when the phase ends -- which is what would
+    // put a live pick panel on top of a moving wheel.
+    vi.useFakeTimers();
+    try {
+      render(
+        <WeaveSpinner
+          roll={ROLL}
+          roundNumber={1}
+          totalRounds={6}
+          revealSeconds={TMW_REVEAL_SECONDS}
+        />,
+      );
+      expect(screen.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "false");
+      // One millisecond before the window closes it has resolved...
+      act(() => {
+        vi.advanceTimersByTime(TMW_REVEAL_SECONDS * 1000 - 1);
+      });
+      expect(screen.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the SAME beat under prefers-reduced-motion, and drops only the movement", () => {
+    // REDUCED MOTION IS NOT A SHORTER CEREMONY. The pair still has to be READ,
+    // and the phase is the server's either way -- cutting the hold would give a
+    // reduced-motion player less time to take in the same information. So the
+    // schedule is identical and only the travel is removed: the reels show
+    // their value instead of spinning to it.
+    vi.useFakeTimers();
+    mockMatchMedia(true);
+    try {
+      render(
+        <WeaveSpinner
+          roll={ROLL}
+          roundNumber={1}
+          totalRounds={6}
+          revealSeconds={TMW_REVEAL_SECONDS}
+        />,
+      );
+      const section = screen.getByTestId("tmw-roll");
+      expect(section).toHaveAttribute("data-reduced-motion", "true");
+      // No strip to travel -- the answer is simply there.
+      expect(screen.getByTestId("tmw-roll-franchise")).toHaveAttribute(
+        "data-stage",
+        "reduced",
+      );
+      expect(screen.getByTestId("tmw-roll-franchise")).toHaveTextContent(
+        "Toronto Raptors",
+      );
+      // ...and the beat is NOT collapsed: a second in, it has not resolved.
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(section).toHaveAttribute("data-revealed", "false");
+      act(() => {
+        vi.advanceTimersByTime(TMW_REVEAL_SECONDS * 1000);
+      });
+      expect(section).toHaveAttribute("data-revealed", "true");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

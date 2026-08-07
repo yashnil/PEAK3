@@ -202,7 +202,16 @@ export default function ShowdownResult({
                     <li key={slot} className="td-result-slot" data-slot={slot}>
                       <span className="td-result-slot-figure">
                         {entry ? (
-                          <PlayerAvatar name={entry.player_name} size={30} />
+                          // The LIVE roster row, which is where the imagery
+                          // is: `SeatPublic.roster` carries `headshot_url`
+                          // alongside the price and the score, so the two team
+                          // cards and the board rosters draw the same face for
+                          // the same player.
+                          <PlayerAvatar
+                            name={entry.player_name}
+                            size={30}
+                            imageUrl={entry.headshot_url}
+                          />
                         ) : (
                           <span className="td-slot-vacant" aria-hidden="true" />
                         )}

@@ -6,7 +6,11 @@ import type {
   TmwMatchView,
   TmwSlotType,
 } from "@/types/three-man-weave";
-import { TMW_COMMAND_PICK, TMW_COMMAND_REARRANGE } from "@/types/three-man-weave";
+import {
+  TMW_COMMAND_PICK,
+  TMW_COMMAND_REARRANGE,
+  TMW_REVEAL_SECONDS,
+} from "@/types/three-man-weave";
 import {
   ArenaAPIError,
   commandIdempotencyKey,
@@ -21,6 +25,7 @@ import {
   canPick,
   connectionState,
   identityLock,
+  isRevealing,
   isYourTurn,
   phaseOf,
   seatLabel,
@@ -37,6 +42,22 @@ import WeaveSpinner from "./WeaveSpinner";
 
 /** How often to re-read the match while it is someone else's turn. */
 const POLL_MS = 2000;
+
+/**
+ * How often to re-read the match WHILE THE CEREMONY IS RUNNING.
+ *
+ * The reveal is 3.2 seconds and the ordinary poll is 2 seconds, so at the
+ * normal rate the handoff from ceremony to pick panel could be observed up to a
+ * full poll late -- a second of dimmed board with nothing happening on it. The
+ * faster rate is bounded twice over: it applies only while `turn_phase` is
+ * `reveal`, and that phase is at most a few seconds long by the server's own
+ * deadline. The interval reverts the moment the phase changes.
+ *
+ * It is also what ENDS the ceremony. The foundation's clock is swept lazily, on
+ * reads (`clock.enforce`), so the player waiting on the reveal is the one whose
+ * own polling fires its expiry.
+ */
+const REVEAL_POLL_MS = 400;
 
 /** The human decision window, in seconds. Matches the mode's own
  *  `turn_seconds`; used only to draw the timer's progress arc, never to decide
@@ -58,47 +79,42 @@ const TURN_SECONDS = 45;
  * (TMW-08) are all gone, and `TurnStatus` carries what they collectively said.
  *
  * ================================================================
- * THE REVEAL/CLOCK RACE, AND HOW IT WAS REMOVED (SHARED-01, TMW-06)
+ * THE REVEAL IS A SERVER PHASE (SHARED-01, TMW-06)
  * ================================================================
- * WHAT IT WAS. `WeaveSpinner` owned a client `setTimeout` for the 2270ms
- * ceremony and this component gated the pick overlay on the callback it fired.
- * The server stamps the 45-second turn deadline when the turn OPENS -- the same
- * reducer output that reveals the roll (`mode.py`, `_open_round` +
- * `open_turn`) -- so on the first pick of every round the player lost roughly
- * 2.3 seconds, plus up to one 2000ms poll, of a clock that was visibly counting
- * down behind an overlay that would not open. A ceremony cannot be allowed to
- * spend a decision window that is already running.
+ * WHAT THE DEFECT WAS. `WeaveSpinner` owned a client `setTimeout` for the
+ * ~2270ms ceremony and this component gated the pick overlay on the callback it
+ * fired, while the server had stamped the 45-second turn deadline when the turn
+ * OPENED. On the first pick of every round the player lost the whole ceremony,
+ * plus up to one 2000ms poll, off a clock that was visibly counting down behind
+ * an overlay that would not open.
  *
- * THE FIX IS A RULE, NOT A SHORTER TIMER:
+ * WHAT THE FIRST REPAIR WAS, AND WHY IT IS GONE. It gated the ceremony on
+ * `!yourTurn`: mount it only while no human decision window is open. That did
+ * remove the race, by removing the product requirement -- on every round the
+ * human led, the ceremony simply never played. It was a workaround for a client
+ * timer, and there is no client timer any more.
  *
- *     THE CEREMONY IS MOUNTED ONLY WHILE NO HUMAN DECISION WINDOW IS OPEN.
+ * WHAT IT IS NOW. The mode opens a real turn in `phase="reveal"`
+ * (`three_man_weave/mode.py`): it belongs to no seat, accepts no command from
+ * anybody -- human or bot -- and carries its own deadline. When it expires the
+ * foundation's sweep fires a timeout and the mode answers by opening the pick
+ * turn with a FULL `TURN_SECONDS` measured from the END of the reveal. So the
+ * rule this room follows is now a single line of state:
  *
- * `ceremonyOpen` is derived from the server's own turn state on every render,
- * so:
+ *     THE CEREMONY IS OPEN EXACTLY WHILE `turn_phase === "reveal"`.
  *
- *   * when a bot leads the round (two seats in three, and every round the snake
- *     hands to a bot) the full-focus ceremony plays over the dimmed board
- *     inside the bot's 4-10 second think window and costs nobody anything;
- *   * when the HUMAN leads the round the ceremony never mounts at all. The pick
- *     surface opens on the same frame the turn does, with zero client-side
- *     delay, and the franchise x decade reveal animates inside its own header
- *     (`PickOverlay`, `.tmw-overlay-title`) with every control live;
- *   * if a bot resolves faster than the ceremony (a short seeded think time,
- *     a fast poll), the arrival of the human's turn unmounts the ceremony on
- *     the very next render rather than making them wait it out.
+ * Which means, and each of these is a property the workaround did not have:
  *
- * Nothing downstream waits for `onRevealComplete`; it only records that the
- * ceremony for this roll has been shown.
- *
- * WHAT WOULD BE BETTER, AND WHY IT IS NOT HERE. A real server-side reveal
- * phase -- `deadline_at` stamped after the reveal rather than at `_open_round`,
- * with the phase reconstructible on reconnect -- is the correct end state and
- * is what SHARED-01 asks for. It requires moving the deadline in
- * `apps/api/app/services/three_man_weave/mode.py`, which is owned by the
- * correctness workstream in this pass. The rule above is not a smaller version
- * of that fix; it is a different one, and it is airtight against the specific
- * defect: a client ceremony can never overlap a running human clock, because
- * the two are mutually exclusive by construction.
+ *   * it plays on EVERY round, including round 1 and including the rounds the
+ *     human leads, because it no longer costs them a second of their clock;
+ *   * it is the same ceremony for all three seats -- `seconds_remaining` is
+ *     published to every seat when a turn names none, so all three count the
+ *     same beat down;
+ *   * a RELOAD MID-CEREMONY resumes it with the time the server says is left.
+ *     It is state, not an animation this client happens to be part-way
+ *     through, so it is never restarted from full and never skipped;
+ *   * the pick overlay cannot open over it, because the phase that opens the
+ *     overlay is the phase the ceremony is not.
  *
  * WHY POLLING RATHER THAN A SOCKET. The foundation exposes the match and its
  * event log over plain HTTP and stamps `seconds_remaining` as a DURATION so a
@@ -128,8 +144,6 @@ export default function ThreeManWeaveGame({
   const [deadlineAt, setDeadlineAt] = useState<number | null>(
     deadlineFromSeconds(initialMatch.seconds_remaining),
   );
-  /** The roll whose opening ceremony has already been shown (or skipped). */
-  const [ceremonyShownFor, setCeremonyShownFor] = useState<string | null>(null);
 
   // Guards a poll landing while a command is in flight from overwriting the
   // newer state the command already returned.
@@ -137,6 +151,7 @@ export default function ThreeManWeaveGame({
 
   const phase = phaseOf(match);
   const complete = phase === "complete";
+  const revealing = isRevealing(match);
   const state = match.public_state;
 
   const refresh = useCallback(async () => {
@@ -156,9 +171,12 @@ export default function ThreeManWeaveGame({
 
   useEffect(() => {
     if (complete) return;
-    const timer = window.setInterval(refresh, POLL_MS);
+    // Faster while the ceremony is running, so the handoff to the pick panel is
+    // crisp rather than up to a poll late. Bounded by the phase itself: this
+    // effect re-arms at the ordinary rate the moment `revealing` goes false.
+    const timer = window.setInterval(refresh, revealing ? REVEAL_POLL_MS : POLL_MS);
     return () => window.clearInterval(timer);
-  }, [complete, refresh]);
+  }, [complete, refresh, revealing]);
 
   useEffect(() => {
     if (!complete || results) return;
@@ -275,35 +293,39 @@ export default function ThreeManWeaveGame({
     0,
   );
 
-  const rollId = state.current_roll?.roll_id ?? null;
+  // THE WHOLE RULE. Not "unless it is your turn", not "unless we already showed
+  // it": the ceremony is open exactly while the server says the open turn is
+  // the reveal. Every seat, every round.
+  const ceremonyOpen = revealing && !complete;
 
-  // THE ONE RULE THAT REMOVES THE RACE. See the module docstring: the ceremony
-  // exists only while no human decision window is open.
-  const ceremonyOpen =
-    !!rollId && !complete && !yourTurn && ceremonyShownFor !== rollId;
-
-  // Your turn arriving retires this roll's ceremony immediately -- both so it
-  // unmounts mid-animation when a bot resolves fast, and so it cannot reappear
-  // later in the same round when the clock moves on to another seat.
-  useEffect(() => {
-    if (rollId && yourTurn && ceremonyShownFor !== rollId) {
-      setCeremonyShownFor(rollId);
-    }
-  }, [rollId, yourTurn, ceremonyShownFor]);
-
-  const overlayOpen = yourTurn && !complete && canPick(match);
+  // ...and therefore the decision surface is closed while it is. `canPick`
+  // already subtracts the reveal phase; `revealing` is repeated here because
+  // this is the line a future reader will check, and it should state the rule
+  // rather than depend on a helper doing so.
+  const overlayOpen = !revealing && yourTurn && !complete && canPick(match);
 
   const meta = modeMeta("three_man_weave");
   const hasBots = match.seats.some((seat) => seat.is_bot);
+  // WHO PICKS WHEN THE CEREMONY ENDS. The reveal turn names no seat, so
+  // `current_turn_seat_index` is null throughout it -- and the handoff line is
+  // most useful precisely then. The snapshot's `current_seat` is the seat the
+  // server will hand the pick turn to, so it answers for both phases.
+  const upNextSeat = match.current_turn_seat_index ?? state.current_seat;
   const nextUp =
-    match.current_turn_seat_index === null
+    upNextSeat === null || complete
       ? null
-      : match.current_turn_seat_index === match.your_seat_index
+      : upNextSeat === match.your_seat_index
         ? "You're up"
-        : `${seatLabel(match.seats, match.current_turn_seat_index)} is up`;
+        : `${seatLabel(match.seats, upNextSeat)} is up`;
 
   return (
-    <div className="ar-room tmw-room" data-testid="tmw-room">
+    <div
+      className="ar-room tmw-room"
+      data-testid="tmw-room"
+      // The server's own phase, on the room, so a browser test can assert what
+      // is on screen AGAINST what the server said rather than against a timer.
+      data-turn-phase={match.turn_phase ?? "none"}
+    >
       <header className="ar-room-head">
         <div className="ar-room-meta">
           <h1 className="ar-room-title">Three-Man Weave</h1>
@@ -363,7 +385,10 @@ export default function ThreeManWeaveGame({
             // Round one opens on the matchup: title, the three competitors with
             // you marked, the objective, then the roll (TMW-13).
             showIntro={picksMade === 0 && state.current_round === 1}
-            onRevealComplete={() => setCeremonyShownFor(rollId)}
+            // THE CEREMONY'S CLOCK IS THE SERVER'S. Both of these come from the
+            // reveal turn, so a reload mid-ceremony resumes at the right beat.
+            deadlineAt={deadlineAt}
+            revealSeconds={TMW_REVEAL_SECONDS}
           />
 
           <TurnStatus
