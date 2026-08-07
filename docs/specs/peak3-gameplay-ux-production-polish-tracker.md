@@ -27,7 +27,7 @@ added, (4) behavior observed in a real browser where applicable.
 | TMW-01 | Timeout must never reward inactivity; deterministic legal non-exploitable fallback | **VERIFIED** (code) | `autopick.auto_pick` ranked by scoring card and took the **top** option, and `PickOverlay` advertised it: "Timeout drafts the best available player for you." Doing nothing was never worse than playing. | `nba_peak/three_man_weave/autopick.py` — draws from the lower-value half of the legal completability-preserving pool via the turn's existing seeded RNG; lowest legal option when nothing preserves completability | `tests/three_man_weave/test_autopick.py` — never picks the best, never above the median, 60-state property test that the giveaway is always >0 and averages >5 pts, and stability across recomputation. UI copy owned by the TMW workstream. |
 | TMW-02 | Strict per-season position legality; no transitive illegal placement | **VERIFIED** (code) | Legality itself was sound; the **input grain** was wrong. `career_positions` unions every position across a whole career, so Westbrook's single 2025-26 SAC season listed `SF` (of eighteen; the other seventeen are `PG`) made small forward legal for him on a 2010s Thunder roster. A class of defect, not one player. | Season-anchored rights `({listed} ∪ career) ∩ band(listed)`, band = ±1 on PG-SG-SF-PF-C. `positions.py`, `career_positions.py` (`listed_position`), `eligibility.py` (`card_slot_rights`, `potential_slot_rights`, `rights_for_cards`), threaded as an explicit `SlotRights` through `arrangement/feasibility/draft/autopick/evaluation/mode` | `tests/three_man_weave/test_position_seasons.py` (19 tests) incl. the property that every starter in a played match stands where their own card allows. Verified: Westbrook OKC/LAL/HOU cards → `{PG}`; SAC 2025-26 → `{SF}`; Rodman SAS 1990s → `{SF,PF,C}`; Shaq → `{C}` |
 | TMW-03 | Complete franchise×decade candidate pools + audit doc | IN PROGRESS | **The premise was wrong.** Rodman IS in the SAS×1990s pool (32 identities, card `1994-95 SAS`, prime 52.19); `franchise_for_team_code("SAS")=="SAS"`, `decade_label(1993)=="1990s"`, both Spurs seasons scored. The user-visible defect is `PickOverlay.tsx:399-403`, whose empty state says "No eligible player matches that search" for three different facts: already drafted (the lock is **global across all rolls**), hidden by an active position filter, or genuinely ineligible. | Audit script + doc (own workstream); empty-state fix (TMW workstream) | |
-| TMW-04 | Bot choice quality (strong/near-optimal, seeded sims) | TODO | | | |
+| TMW-04 | Bot choice quality (strong/near-optimal, seeded sims) | **VERIFIED** (measured) | No defect found — the bots are already strong. The earlier "bots pass obvious elite choices" complaint does not reproduce. | No policy change made. Tuning a policy that measures this well would be changing scoring to chase a feeling. | `tests/three_man_weave/test_bot_simulation.py`, 120 seeded matches / 2,160 picks: **optimal 95.79%**, near-optimal 100%, mean utility regret 0.0025 (p95 0.0), mean quality regret **0.91 PEAK3 pts** (p95 6.61, max 11.83), **0 dominance violations, 0 illegal picks, 0 completion failures, 0 catastrophic deviations**. One latent modelling wart recorded as EXTRA-06 rather than tuned blind. |
 | TMW-05 | Bot think time 4–10s, visible, real scheduled phase | TODO | | | |
 | TMW-06 | Spinner/reveal becomes a full-focus game moment | TODO | | | |
 | TMW-07 | One turn-status surface, not three stacked rows | TODO | | | |
@@ -56,7 +56,7 @@ added, (4) behavior observed in a real browser where applicable.
 | S20-10 | Fix "While you were away" at the state-machine level | IN PROGRESS | **Not a reconnect bug.** Three verified mechanisms: (1) `state.py:580-587` — `_advance_lot` can `_resolve_lot` the lot it just created and `_resolve_lot` recurses back into `_advance_lot`, so **one accepted command settles 2+ lots**; the client sees `unseen.length > 1` and shows the catch-up banner *while the user is watching*, replacing the `LotReveal` payoff card. (2) **Sticky** — `LotLedger.tsx:299` self-acknowledges only at `unseen.length === 1`, so one undismissed gap freezes the cursor for the rest of the match and the reveal card never returns. (3) Blocked localStorage pins the cursor at `-1` forever, so the whole history reads as missed. **Explicitly cleared:** the sweep *cannot* manufacture an already-expired human turn — `mode.py:274` always uses `data.now + TURN_SECONDS`, `clock.enforce` fires ≤1 timeout per call, and `drive_pending_bots` freezes `now` against the stored `opened_at`, so ≤1 bot command runs per request. | S20 workstream | |
 | S20-11 | Reconnect / reload / two-tab correctness matrix | TODO | | | |
 | S20-12 | Errors become actionable product states | TODO | | | |
-| S20-13 | Bot auction quality audit | TODO | | | |
+| S20-13 | Bot auction quality audit | **VERIFIED** (measured) | No defect found. The valuation is coherent: tier→marginal value, scarcity ×(1+0.30/usable slots), urgency ×(1+0.18·filled), last slot = full legal ceiling, closeout ×1.35, uncontested ×0.6, seeded jitter 0.88–1.12, a per-slot reserve, and minimum-increment raises only. It never sees a hidden score — only the coarse three-band draw tier, and only for bot seats. | No policy change. | `tests/twenty_dollar/test_bot_calibration.py`, **2,000 bot-vs-bot matches**: completion **100%**, 0 illegal actions, 0 timeouts, 0 cap violations, 1 extreme overpayment. Prices scale with tier — $3.84 mean for a top-100 peak (max $14), $1.99 for 101–250, $1.11 for 251–500. Mean spend $14.02 of $20, mean skips used 1.18 of 5, final roster score mean 325.3 (sd 28.4). |
 | S20-14 | Roster/sidebar redesign | TODO | | | |
 | S20-15 | Results screen full redesign | TODO | | | |
 | S20-16 | Visual/browser verification matrix | TODO | | | |
@@ -111,6 +111,7 @@ Each gets an ID `EXTRA-nn` and must be fixed or explicitly deferred with a reaso
 | EXTRA-03 | `nba_peak/nba_facts/awards.py` | `gen_finals_mvp_not_best_player` and `gen_champion_role_players` (16 published facts) branch on `title_team_role`, a weighted z-score composite computed **in this repo** (`nba_peak/context/title_role.py`, `CO_BEST_GAP=0.60`). So "was not the best player on the team" is a PEAK3 model judgment printed as unqualified fact and sourced to Basketball-Reference. This contradicts the card's own stated rule. The guard test greps only `nba_facts/__init__.py` for two literal strings and never sees `awards.py`. | IN PROGRESS | Fact-bank workstream: generators removed, guard test widened to every module. |
 | EXTRA-04 | `apps/web/src/lib/twenty-dollar-seen.ts` + `LotLedger.tsx` | Docstrings assert that up to twelve bot turns can run inside one request. Verified false: `drive_pending_bots` freezes `now` and compares it against the stored `opened_at`, so at most one bot command executes per HTTP request. | IN PROGRESS | S20 workstream: correct the comments rather than leave a false rationale in place. |
 | EXTRA-05 | `apps/api/app/services/arena/clock.py` | `sweep_mode` is dead code (no caller anywhere), and its memory-repo feeder `arena_memory.py:469-484` calls `is_overdue_at(now)` **without** the grace argument, disagreeing with `enforce`. Latent if it is ever wired up. | OPEN | Not reachable today; recorded rather than fixed speculatively. |
+| EXTRA-07 | Arena entry (`styles/home.css`, `GameCard`) | Found by opening `arena-dark`: the flagship card's primary action was the 11px uppercase text link "START A RUN →" whose only affordance was a hover underline, and `.arena-inline-link` declared **no `color` at all**, so "Start a standard run" / "Resume a saved run" were indistinguishable from body text until hovered. This is the surface both target games launch from. | **FIXED** | `.pk-game-card-action` is now a real pill — filled gold on the featured card (ink 11.25:1), outlined elsewhere; secondary links are underlined and coloured at rest. Re-captured and re-inspected. |
 | EXTRA-06 | `nba_peak/three_man_weave/bot.py` | `_slot_supply` (`:337-345`) counts only `direct_slots` and initialises only for open slots, so a `FITS_AFTER_REARRANGEMENT` option whose landing slot is not open falls to the `.get(slot, 1)` default and receives the **maximum** scarcity bonus, partly cancelling the intended `-0.08` rearrangement penalty. Also `:294` mixes a per-slot alternative with a roll-wide floor, making `replacement_gap` non-comparable across slots. | OPEN | TMW-04 asks for a bot-quality audit; the seeded simulation currently reports 0 illegal picks, 0 completion failures, 0 dominance violations. Recorded for the audit rather than tuned blind. |
 
 ---
@@ -171,6 +172,23 @@ judgement recorded here → fix → recapture.
 ### Visual review notes
 
 _(one sentence per reviewed frame — hierarchy / readability judgement)_
+
+**Token-layer verification pass (1440×900, both themes, dev server), opened and inspected:**
+
+- `rankings-light` — **Protected surface intact.** All five component text colours
+  (SI blue, TP violet, REC pink, PO orange, TEAM green) render at full saturation
+  against the warmer raised surface, the numeric columns stay aligned, and the row
+  separators are now visible where the old `--border-subtle` was not. No bar
+  geometry, colour or ordering changed.
+- `home-light` — The hero reads as designed rather than washed out: the Syne
+  display face now actually renders (it did not before), the elevated player card
+  separates cleanly from the canvas, and the component bars are the strongest
+  element on the page. The primary CTA is a real filled gold button.
+- `arena-dark` — Display headings ("Arena", "RUN THE TABLE", "82-0 Peak Season")
+  now render in Syne; card edges are visible; the two-tier text hierarchy reads as
+  two tiers for the first time. **Defect found → EXTRA-07.**
+
+
 
 ---
 

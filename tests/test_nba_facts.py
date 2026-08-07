@@ -254,11 +254,15 @@ def test_no_fact_depends_on_a_judgment_this_repository_computes():
     for module in modules:
         text = module.read_text()
         # Comments and docstrings NAME these deliberately — this codebase
-        # explains its deletions rather than hiding them — so the scan looks at
-        # code only. Stripping is crude on purpose: a false positive here costs
-        # a comment reword, and a false negative costs a wrong fact on a
-        # homepage.
-        code = _strip_prose(text)
+        # explains its deletions rather than hiding them — so the scan removes
+        # prose and keeps everything else. Crucially it keeps ORDINARY STRING
+        # LITERALS: the defect looked like
+        #
+        #     role = str(row.get("title_team_role") or "")
+        #
+        # so a scan that stripped every string would be blind to precisely the
+        # line it exists to find. See `_without_prose`.
+        code = _without_prose(text)
         for judgment in REPO_COMPUTED_JUDGMENTS:
             if re.search(rf"\b{re.escape(judgment)}\b", code):
                 offences.append(f"{module.name} reads {judgment!r}")
@@ -273,20 +277,65 @@ def test_no_fact_depends_on_a_judgment_this_repository_computes():
     )
 
 
-def _strip_prose(text: str) -> str:
-    """Source with comments and string literals removed, for the scan above."""
+def _without_prose(text: str) -> str:
+    """Source with `#` comments and triple-quoted docstrings removed.
+
+    ORDINARY STRING LITERALS SURVIVE, AND THAT IS THE WHOLE DESIGN. A dependency
+    on a repo-computed column is spelled as a dict key —
+    `row.get("title_team_role")` — so a scan that discarded string literals
+    would pass on the exact source line it was written to catch. Triple-quoted
+    strings are dropped because in this package they are prose without
+    exception, and the prose describes these columns on purpose: the deletions
+    above are explained rather than hidden, and a scan that could not tell an
+    explanation from a dependency would force the explanations out.
+    """
     import io
     import tokenize
 
     kept: list[str] = []
     try:
         for token in tokenize.generate_tokens(io.StringIO(text).readline):
-            if token.type in (tokenize.COMMENT, tokenize.STRING):
+            if token.type == tokenize.COMMENT:
+                continue
+            if token.type == tokenize.STRING and token.string.lstrip("rbfuRBFU")[:3] in (
+                '"""', "'''"
+            ):
                 continue
             kept.append(token.string)
     except tokenize.TokenError:  # pragma: no cover - only on unparseable source
         return text
     return "\n".join(kept)
+
+
+def test_the_model_dependence_scan_actually_catches_the_defect_it_was_written_for(
+    tmp_path,
+):
+    """THE SCAN, EXERCISED ON THE LINE THAT GOT PAST THE OLD ONE.
+
+    A guard that has never been seen to fail is a guard nobody can trust, and
+    this one has a specific way of being wrong: the dependency is spelled as a
+    string literal, so the obvious implementation — strip comments and strings,
+    scan the rest — passes on it. This feeds `_without_prose` the deleted
+    generator's actual source and asserts the column survives the stripping,
+    while a docstring that merely discusses it does not.
+    """
+    import re
+
+    from nba_peak.nba_facts import awards
+
+    real_line = 'role = str(row.get("title_team_role") or "").strip()'
+    assert re.search(r"\btitle_team_role\b", _without_prose(real_line))
+
+    prose_only = '"""A note about title_team_role and why it is gone."""\nx = 1\n'
+    assert not re.search(r"\btitle_team_role\b", _without_prose(prose_only))
+
+    # And a comment mentioning it is prose too.
+    assert not re.search(r"\btitle_team_role\b", _without_prose("# title_team_role\n"))
+
+    # The live module names it only in prose, which is why the scan passes.
+    source = open(awards.__file__).read()
+    assert "title_team_role" in source, "the deletion is no longer explained"
+    assert not re.search(r"\btitle_team_role\b", _without_prose(source))
 
 
 def test_the_two_model_dependent_generators_are_gone():

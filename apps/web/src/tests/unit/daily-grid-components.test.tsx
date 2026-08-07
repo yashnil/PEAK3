@@ -317,14 +317,49 @@ describe("DailyGridGame", () => {
       expect(card).toHaveTextContent(String(result.biggest_miss!.points_left));
     });
 
-    it("shows only the squares PEAK3 would have changed, expandable to all nine", async () => {
-      const user = userEvent.setup();
+    // DG-01. The comparison used to be printed twice on one screen: a nine-line
+    // text list ("square — you used X (n) → Y (m)"), with a "show all nine"
+    // toggle because nine lines of that is a cross-reference exercise, AND the
+    // identical nine facts as a board underneath it. The list is deleted; the
+    // board carries the comparison alone.
+    it("explains the best legal grid once, on the board, with no parallel text list", async () => {
       await renderCompleted();
       await screen.findByTestId("complete-comparison");
-      // One deliberate miss in the fixture, so one row by default.
-      expect(screen.getAllByTestId("complete-per-cell-row")).toHaveLength(1);
-      await user.click(screen.getByTestId("complete-per-cell-toggle"));
-      expect(screen.getAllByTestId("complete-per-cell-row")).toHaveLength(9);
+      expect(screen.queryByTestId("complete-per-cell-row")).toBeNull();
+      expect(screen.queryByTestId("complete-per-cell-toggle")).toBeNull();
+      expect(screen.queryByTestId("complete-beat-note")).toBeNull();
+      expect(screen.queryByTestId("complete-overlap-note")).toBeNull();
+      // ...and what remains is the 3x3 itself, with all nine squares always on
+      // screen rather than behind an expander.
+      expect(screen.getAllByTestId("complete-optimal-cell")).toHaveLength(9);
+    });
+
+    it("keeps a concise overall explanation over the board", async () => {
+      await renderCompleted();
+      // The fixture changes exactly one of the nine squares.
+      const summary = await screen.findByTestId("complete-comparison-summary");
+      expect(summary).toHaveTextContent(/agrees with you on 8 of 9 squares/i);
+      expect(screen.getByTestId("complete-comparison")).toHaveTextContent(/best legal grid/i);
+    });
+
+    it("says so plainly when nothing would have changed", async () => {
+      const result = gridResult();
+      result.cells = result.cells.map((c) => ({
+        ...c,
+        optimal_player_season: c.user_player_season,
+        optimal_points: c.user_points,
+        points_left: 0,
+        matched_optimal: true,
+      }));
+      mockGetResult.mockResolvedValue(result);
+      window.localStorage.setItem(
+        dailyGridProgressKey(BOARD.board_id),
+        JSON.stringify(completedProgress()),
+      );
+      render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+      await screen.findByTestId("daily-grid-complete");
+      const summary = await screen.findByTestId("complete-comparison-summary");
+      expect(summary).toHaveTextContent(/matched the best legal grid on every square/i);
     });
 
     it("claims no rank, percentile or comparison to other players", async () => {
@@ -1080,22 +1115,10 @@ describe("DailyGridGame — the best legal grid", () => {
     expect(beaten[0]).toHaveAccessibleName(/beat the best legal grid here/i);
   });
 
-  it("says where the player spent a player the grid also wanted", async () => {
-    const result = gridResult();
-    const miss = result.cells[result.cells.length - 1];
-    result.cells[result.cells.length - 1] = {
-      ...miss,
-      optimal_player_user_square: "Celtics x 1990s",
-    };
-    mockGetResult.mockResolvedValue(result);
-    seedCompleted();
-    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
-
-    const note = await screen.findByTestId("complete-overlap-note");
-    // Reading the list, the same name appears twice; this is the line that
-    // turns that from a bug into the actual insight.
-    expect(note).toHaveTextContent(/you played .+ on Celtics x 1990s/i);
-  });
+  // The overlap note moved. It used to be a parenthetical inside the nine-line
+  // text list, which DG-01 deleted; it now sits on the optimal square that is
+  // asking for the swap, and is asserted there — see "keeps the 'you played
+  // them elsewhere' note" in the optimal-3x3 suite below.
 
   it("never claims a square was the max when the player beat it", async () => {
     const result = gridResult();
@@ -1118,15 +1141,18 @@ describe("DailyGridGame — the best legal grid", () => {
 });
 
 /**
- * The optimal board, drawn as a board.
+ * The optimal board, drawn as a board — DG-01 and DG-02.
  *
- * The list above it is complete and reading it means holding three coordinates
- * in your head at once: which square this line is about, who you put there,
- * who the grid wanted. These assert the three things that make the visual
- * version worth having — that a square's POSITION is its position on the real
- * board, that each square states its own verdict in a word rather than only in
- * a colour, and that a changed square carries the player's own answer so
- * nobody has to look back up.
+ * THIS IS NOW THE WHOLE COMPARISON. The nine-line text list that used to sit
+ * above it is deleted, so these assert everything a reader needs and used to
+ * get from the list: that a square's POSITION is its position on the real
+ * board, that each square states its verdict in a word rather than only in a
+ * colour, that a changed square carries the player's own answer, and that the
+ * "you played them on X" overlap — the one genuinely two-square fact the list
+ * carried — survives on the square that is asking for the swap.
+ *
+ * AND WHAT DG-02 ADDED: a headshot per square, from the one shared avatar
+ * primitive, plus the season and team beside the name.
  */
 describe("DailyGridGame — the optimal 3x3", () => {
   function seedCompleted() {
@@ -1142,7 +1168,7 @@ describe("DailyGridGame — the optimal 3x3", () => {
     mockSearch.mockResolvedValue({ query: "olajuwon", results: [hit()] });
   });
 
-  it("draws nine squares under the best-legal-grid text, with the board's own headers", async () => {
+  it("draws nine squares under the best-legal-grid heading, with the board's own headers", async () => {
     mockGetResult.mockResolvedValue(gridResult());
     seedCompleted();
     render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
@@ -1153,8 +1179,19 @@ describe("DailyGridGame — the optimal 3x3", () => {
     // rather than nine cards in a square.
     expect(within(grid).getAllByTestId("complete-optimal-row-header")).toHaveLength(3);
     expect(within(grid).getAllByTestId("complete-optimal-col-header")).toHaveLength(3);
-    // And the textual explanation it augments is still there.
+    // And the one concise explanation it sits under.
     expect(screen.getByTestId("complete-comparison")).toHaveTextContent(/best legal grid/i);
+  });
+
+  it("names all three states in a legend, so colour is never the only carrier", async () => {
+    mockGetResult.mockResolvedValue(gridResult());
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const legend = await screen.findByTestId("complete-optimal-legend");
+    expect(legend).toHaveTextContent(/Matched/);
+    expect(legend).toHaveTextContent(/You beat this/);
+    expect(legend).toHaveTextContent(/Best choice/);
   });
 
   it("puts each square where it sits on the real board, not where it was filled", async () => {
@@ -1253,5 +1290,92 @@ describe("DailyGridGame — the optimal 3x3", () => {
     // Colour is reinforcement here, never the only carrier of the fact.
     expect(changed).toHaveAccessibleName(/best legal grid plays .+ Nikola Jokic/i);
     expect(changed).toHaveAccessibleName(/You played /i);
+  });
+
+  // DG-01: the overlap note was the ONE thing the deleted nine-line list said
+  // that is about two squares rather than one. A name appearing twice on this
+  // board is not a duplicate bug — it is the grid saying it wanted that player
+  // somewhere else — so it moved onto the square that is asking for the swap.
+  it("keeps the 'you played them elsewhere' note, on the square asking for the swap", async () => {
+    const result = gridResult();
+    const target = result.cells.findIndex((c) => !c.matched_optimal);
+    result.cells[target] = {
+      ...result.cells[target],
+      optimal_player_user_square: "MVP x Nuggets",
+    };
+    mockGetResult.mockResolvedValue(result);
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    const swap = within(grid)
+      .getAllByTestId("complete-optimal-cell")
+      .filter((c) => c.getAttribute("data-state") === "replacement")[0];
+    const note = within(swap).getByTestId("complete-optimal-overlap");
+    expect(note).toHaveTextContent("You played Nikola Jokic on MVP x Nuggets.");
+    expect(swap).toHaveAccessibleName(/you played Nikola Jokic on MVP x Nuggets/i);
+    // Only on squares the grid wants swapped: on a matched square the note
+    // would be about this square, which says nothing.
+    const matched = within(grid)
+      .getAllByTestId("complete-optimal-cell")
+      .filter((c) => c.getAttribute("data-state") === "matched")[0];
+    expect(within(matched).queryByTestId("complete-optimal-overlap")).toBeNull();
+  });
+
+  // ---- DG-02 ----------------------------------------------------------------
+
+  it("gives every square a headshot from the one shared avatar primitive", async () => {
+    mockGetResult.mockResolvedValue(gridResult());
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    const cells = within(grid).getAllByTestId("complete-optimal-cell");
+    for (const cell of cells) {
+      expect(within(cell).getByTestId("player-avatar")).toBeInTheDocument();
+    }
+  });
+
+  it("renders the designed medallion, which is what actually ships", async () => {
+    // THE FALLBACK IS THE PRODUCTION PATH, not the error path. The ESPN
+    // manifest resolves ~15% of identities and roughly no historical players,
+    // and the API gate (PEAK3_ENABLE_EXTERNAL_ASSET_URLS) is off pending a
+    // licensing review — so no result payload carries an image URL and every
+    // square draws initials. It must therefore be a designed mark, sized, and
+    // out of the accessibility tree (the square's own aria-label names the
+    // player already).
+    mockGetResult.mockResolvedValue(gridResult());
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    const swap = within(grid)
+      .getAllByTestId("complete-optimal-cell")
+      .filter((c) => c.getAttribute("data-state") === "replacement")[0];
+    const avatar = within(swap).getByTestId("player-avatar");
+    // Not an <img>: no URL was supplied, so the medallion renders instead of a
+    // broken image, and it reserves the same box either way.
+    expect(avatar.tagName).toBe("DIV");
+    expect(avatar).toHaveTextContent("NJ");
+    expect(avatar).toHaveAttribute("aria-hidden", "true");
+    expect(avatar).toHaveStyle({ width: "28px", height: "28px" });
+    // And no square anywhere in the grid smuggles in a second image source.
+    expect(grid.querySelectorAll("img")).toHaveLength(0);
+  });
+
+  it("names the optimal player, their season and their team on every square", async () => {
+    mockGetResult.mockResolvedValue(gridResult());
+    seedCompleted();
+    render(<DailyGridGame initialBoard={BOARD} skipRulesGate />);
+
+    const grid = await screen.findByTestId("complete-optimal-grid");
+    const swap = within(grid)
+      .getAllByTestId("complete-optimal-cell")
+      .filter((c) => c.getAttribute("data-state") === "replacement")[0];
+    expect(swap).toHaveTextContent("Nikola Jokic");
+    expect(swap).toHaveTextContent("2021-22");
+    expect(swap).toHaveTextContent("DEN");
+    // The points that square was worth are still the number on the card.
+    expect(swap).toHaveTextContent(String(gridResult().biggest_miss!.optimal_points));
   });
 });

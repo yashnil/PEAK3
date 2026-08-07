@@ -119,8 +119,15 @@ app = FastAPI(
 allowed_origins = list(settings.CORS_ORIGINS)
 if settings.DEBUG:
     # 3000 = dev/e2e, 3001 = UX-polish capture config,
-    # 3002 = auth/daily capture config (playwright.auth-daily-shots.config.ts).
-    for origin in ("http://localhost:3000", "http://localhost:3001", "http://localhost:3002"):
+    # 3002 = auth/daily capture config (playwright.auth-daily-shots.config.ts),
+    # 3003 = gameplay/visual polish capture (playwright.polish-shots.config.ts).
+    # DEBUG-only, so none of these reach a deployed origin list.
+    for origin in (
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        "http://localhost:3003",
+    ):
         if origin not in allowed_origins:
             allowed_origins.append(origin)
 

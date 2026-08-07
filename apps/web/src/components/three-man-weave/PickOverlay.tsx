@@ -12,60 +12,73 @@ import {
   TMW_SLOT_LABELS,
   TMW_SLOT_TYPES,
 } from "@/types/three-man-weave";
-import type { TmwCandidate } from "@/lib/three-man-weave-state";
+import type { TmwCandidate, TmwLockEntry } from "@/lib/three-man-weave-state";
 import {
+  TMW_TIMEOUT_CONSEQUENCE,
+  TMW_TIMEOUT_RESOLVING,
   eligibilityLine,
+  emptyPoolReason,
   filterCandidatesByPosition,
   fitLabel,
   landingSlot,
+  legalMoveTargets,
+  lockedMatches,
+  placementsAfterMove,
+  positionsLine,
   searchCandidates,
+  seatLabel,
   slotAbbrev,
 } from "@/lib/three-man-weave-state";
 import ArenaTimer from "@/components/shared/ArenaTimer";
+import PlayerAvatar from "@/components/court/PlayerAvatar";
 import PlacementBoard, { type PlacementMode } from "./PlacementBoard";
 
 /**
  * The draft room: choose a player, then click where they go.
  *
- * WHAT THIS SURFACE USED TO BE, AND WHY EVERY PART OF IT CHANGED
- * ---------------------------------------------------------------
- * Manual acceptance found a dialog that technically contained every required
- * concept and implemented each one in its least usable form. Selecting a player
- * opened a list; placement happened through a small `<select>`; the confirm and
- * cancel actions rendered as plain text (`btn-primary` and `btn-secondary` were
- * used by four surfaces and defined in NO stylesheet); the roster was a
- * non-interactive list; "Fits after rearrangement" was a sentence rather than
- * something you could act on; and the right-hand half of the dialog — the half
- * where the most important interaction should have lived — was usually empty.
- *
- * The rewrite is one idea: THE ROSTER IS THE CONTROL.
+ * THE CORE IDEA IS UNCHANGED AND IS THE RIGHT ONE: the roster is the control.
  *
  *   1. Pick a candidate on the left. It highlights.
- *   2. Every legal slot on the right lights up; illegal ones dim.
+ *   2. Every legal slot on the right lights up; illegal ones step back.
  *   3. Click a slot. The card stages there, and any player the arrangement
  *      would move shows its destination ON ITS OWN SLOT.
  *   4. A real primary button commits: "Draft Kevin Garnett at PF".
  *
- * A `<select>` survives as an explicitly-labelled accessible fallback, which
- * PART 3 permits — "a compact destination select may exist as an accessible
- * fallback, but must not be the principal interaction". It is rendered after
- * the board, is not the default path, and every option it offers is a slot the
- * board already offers as a button.
+ * A `<select>` survives as an explicitly-labelled accessible fallback, rendered
+ * after the board, offering nothing the board does not.
  *
- * MOVES ARE PART OF THE SAME SURFACE. Clicking one of your own placed cards
- * with nothing selected starts a move; its legal destinations light up the same
- * way. Previously a move required closing the overlay, finding the card on the
- * board behind it, and opening a second dialog — a flow no player discovered.
+ * WHAT TMW-11 CHANGED
+ * -------------------
+ * 1. HEADSHOTS ON CANDIDATE ROWS, through the one shared `PlayerAvatar`
+ *    primitive. In production it renders its designed medallion for nearly
+ *    every historical player; the row is laid out for that, not around it.
  *
- * WHAT IS STILL NOT SHOWN BEFORE A PICK: any score, any band, any ordering that
- * encodes one. The list arrives in the server's own alphabetical order and
- * search reorders it only by what was typed. Knowing who these players were is
- * the mode.
+ * 2. AT ZERO SECONDS THE PANEL LOCKS. `ArenaTimer` has always supported
+ *    `onExpire` and neither of this mode's timers passed it, so at 0s the
+ *    selection panel stayed fully interactive -- a click then landed outside
+ *    the server's two-second grace and came back as `stale_state_version`,
+ *    which reads as the game refusing a legal pick. Expiry now switches the
+ *    surface to an explicit locked resolution state.
+ *
+ * 3. THE TIMEOUT COPY TELLS THE TRUTH. It used to read "Timeout drafts the best
+ *    available player for you", which was false and was also an instruction to
+ *    exploit it. See `TMW_TIMEOUT_CONSEQUENCE`.
+ *
+ * 4. THE EMPTY STATE DISTINGUISHES THREE DIFFERENT FACTS. One sentence -- "No
+ *    eligible player matches that search." -- was printed when (a) the name was
+ *    already drafted and the lock is GLOBAL across every roll, (b) a position
+ *    filter was hiding them, or (c) they genuinely never played for this
+ *    franchise in this decade. That is the whole of the "Dennis Rodman is
+ *    missing from the Spurs pool" report: he is in the pool, and a Rodman taken
+ *    off an earlier Pistons or Bulls roll is gone from it. Searching a drafted
+ *    name now names the seat and the round that took them.
  *
  * NOTHING HERE DECIDES LEGALITY. Every legal-slot set comes from the server's
  * own `candidate_fits` verdict, and a rearrangement commits the server's own
- * `plan` verbatim. A client re-derivation could differ, and would then be
- * refused at the exact moment a player expected a pick to land.
+ * `plan` verbatim. THE SEARCH BOX AND THE FILTER CHIPS ARE VIEW STATE ONLY:
+ * they never reach a command, and the timeout fallback is resolved server-side
+ * from the full feasible pool, so narrowing this list cannot change what an
+ * expired turn drafts.
  */
 export default function PickOverlay({
   open,
@@ -77,6 +90,7 @@ export default function PickOverlay({
   roster,
   seats,
   yourSeatIndex,
+  lockedEntries = [],
   deadlineAt,
   turnSeconds,
   busy,
@@ -93,6 +107,8 @@ export default function PickOverlay({
   roster: TmwRoster | null;
   seats: ArenaSeatPublic[];
   yourSeatIndex: number | null;
+  /** Every identity already off the board, for the empty state. */
+  lockedEntries?: TmwLockEntry[];
   /** Local monotonic deadline; see `ArenaTimer`. */
   deadlineAt: number | null;
   turnSeconds: number;
@@ -110,6 +126,19 @@ export default function PickOverlay({
   const [slot, setSlot] = useState<TmwSlotType | null>(null);
   /** The slot whose occupant the player is relocating, in `moving` mode. */
   const [movingFrom, setMovingFrom] = useState<TmwSlotType | null>(null);
+  /**
+   * WHICH DEADLINE EXPIRED, not a boolean.
+   *
+   * A `boolean` here was reset by the "fresh turn, fresh decision" effect
+   * below, and lost the race every time: React runs a CHILD's effects before
+   * its parent's, so `ArenaTimer` fired `onExpire` on mount for an
+   * already-past deadline and this component then cleared the flag one effect
+   * later. Storing the deadline the expiry belongs to makes the state
+   * self-invalidating -- a new turn carries a new deadline, so a stale expiry
+   * simply stops matching and nothing has to remember to clear it.
+   */
+  const [expiredDeadline, setExpiredDeadline] = useState<number | null>(null);
+  const expired = deadlineAt !== null && expiredDeadline === deadlineAt;
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const reset = useCallback(() => {
@@ -122,7 +151,7 @@ export default function PickOverlay({
 
   // A fresh turn is a fresh decision. Resetting on the roll AND the pick number
   // means a player never returns to the clock with the previous round's search
-  // still narrowing a different pool.
+  // still narrowing a different pool -- and never inherits a stale expiry.
   useEffect(() => {
     if (!open) return;
     reset();
@@ -172,6 +201,13 @@ export default function PickOverlay({
   );
   const hiddenByFilter = searched.length - shown.length;
 
+  // SEARCH ALSO LOOKS AT WHO IS ALREADY GONE. Not to offer them -- they are
+  // unpickable -- but so the empty state can say WHY the name is not here.
+  const locked = useMemo(
+    () => lockedMatches(lockedEntries, query),
+    [lockedEntries, query],
+  );
+
   const chosen = useMemo(
     () => candidates.find((c) => c.player_slug === selected) ?? null,
     [candidates, selected],
@@ -181,18 +217,14 @@ export default function PickOverlay({
 
   const movingPick = movingFrom ? (roster?.slots[movingFrom] ?? null) : null;
 
-  const moveDestinations = useMemo<TmwSlotType[]>(() => {
-    if (!movingPick || !movingFrom) return [];
-    // The bench accepts anyone with a recognised position; a starter slot
-    // accepts a player who plays it. `positions` is the model's own answer and
-    // is on every pick payload, so no rule is re-derived here — and the server
-    // re-validates the whole final assignment regardless.
-    const plays = new Set(movingPick.positions ?? []);
-    return TMW_SLOT_TYPES.filter(
-      (candidate) =>
-        candidate !== movingFrom && (candidate === "bench_1" || plays.has(candidate)),
-    );
-  }, [movingPick, movingFrom]);
+  // BOTH HALVES OF A SWAP ARE CHECKED. This used to filter on the moving
+  // player's own positions only, so a destination whose occupant could not play
+  // the source slot was offered as legal and refused by the server on commit.
+  // `legalMoveTargets` validates the whole resulting assignment.
+  const moveDestinations = useMemo<TmwSlotType[]>(
+    () => (movingFrom ? legalMoveTargets(roster, movingFrom) : []),
+    [roster, movingFrom],
+  );
 
   const placementSlots = useMemo<TmwSlotType[]>(
     () => (chosen ? placementOptionsFor(chosen) : []),
@@ -237,24 +269,15 @@ export default function PickOverlay({
 
   const commitMove = useCallback(() => {
     if (!movingFrom || !slot || !roster || !movingPick) return;
-    const placements: Record<string, string> = {};
-    for (const slotType of TMW_SLOT_TYPES) {
-      const occupant = roster.slots[slotType];
-      if (occupant) placements[slotType] = occupant.player_slug;
-    }
-    const displaced = roster.slots[slot];
-    placements[slot] = movingPick.player_slug;
-    if (displaced) placements[movingFrom] = displaced.player_slug;
-    else delete placements[movingFrom];
-    onMove(placements);
+    onMove(placementsAfterMove(roster, movingFrom, slot));
     setMovingFrom(null);
     setSlot(null);
   }, [movingFrom, slot, roster, movingPick, onMove]);
 
   if (!open) return null;
 
-  const canCommitPlacement = mode === "placing" && !!chosen && !!slot;
-  const canCommitMove = mode === "moving" && !!movingPick && !!slot;
+  const canCommitPlacement = mode === "placing" && !!chosen && !!slot && !expired;
+  const canCommitMove = mode === "moving" && !!movingPick && !!slot && !expired;
 
   return (
     <div className="tmw-overlay-scrim" data-testid="tmw-pick-overlay-scrim">
@@ -264,38 +287,58 @@ export default function PickOverlay({
         aria-labelledby={headingId}
         data-testid="tmw-pick-overlay"
         data-mode={mode}
+        data-expired={expired ? "true" : "false"}
         className="tmw-overlay"
       >
-        {/* DESKTOP TOP BAR (PART 6): round, pick, the rolled constraint, whose
-            turn it is, and a large timer — all in one strip so a player never
-            has to hunt for the state of their own turn. */}
         <header className="tmw-overlay-head">
           <div className="tmw-overlay-head-meta">
-            <p className="tmw-overlay-round">
+            <p className="tmw-overlay-round pk-numeral">
               Round {roundNumber ?? "—"} of {totalRounds} · pick {pickNumber} of{" "}
               {totalRounds * seats.length}
             </p>
-            <h2 id={headingId} className="tmw-overlay-title">
-              {roll ? `${roll.franchise_display_name} · ${roll.decade}` : "Your pick"}
+            {/* THE ROLL IS THE REVEAL, INSIDE THE SURFACE THAT USES IT.
+                When the human leads a round there is no room for a blocking
+                ceremony -- the server clock is already running -- so the
+                franchise x decade animates in here instead, with every control
+                live from the first frame. See `WeaveSpinner`'s docstring. */}
+            <h2 id={headingId} className="tmw-overlay-title" data-testid="tmw-overlay-roll">
+              {roll ? (
+                <>
+                  <span className="tmw-overlay-franchise">{roll.franchise_display_name}</span>
+                  <span className="tmw-overlay-decade">{roll.decade}</span>
+                </>
+              ) : (
+                "Your pick"
+              )}
             </h2>
             <p className="tmw-overlay-seat">
-              You are seat{" "}
-              {yourSeatIndex === null ? "—" : String.fromCharCode(65 + yourSeatIndex)}
-              {" · "}
-              {orderHint(seats.length)}
+              Everyone drafts from this roll · once a name is taken it is gone for
+              every seat
             </p>
           </div>
           <ArenaTimer
             deadlineAt={deadlineAt}
             totalSeconds={turnSeconds}
-            label="YOUR PICK"
-            consequence="Timeout drafts the best available player for you."
+            label="Your pick"
+            consequence={TMW_TIMEOUT_CONSEQUENCE}
             yours
+            onExpire={() => setExpiredDeadline(deadlineAt)}
             testId="tmw-overlay-clock"
           />
         </header>
 
-        <div className="tmw-overlay-body">
+        {/* THE LOCKED RESOLUTION STATE (TMW-11). At zero the panel stops
+            pretending it can still take an action: the server's sweep is
+            already committing the fallback, and a click landing here would come
+            back as `stale_state_version`. */}
+        {expired ? (
+          <p className="tmw-overlay-expired" data-testid="tmw-overlay-expired" role="status">
+            <span className="tmw-overlay-expired-dot" aria-hidden="true" />
+            {TMW_TIMEOUT_RESOLVING}
+          </p>
+        ) : null}
+
+        <div className="tmw-overlay-body" aria-busy={expired || busy}>
           {/* LEFT: the pool. */}
           <div className="tmw-overlay-pool">
             <label className="tmw-overlay-search">
@@ -304,6 +347,7 @@ export default function PickOverlay({
                 ref={searchRef}
                 type="search"
                 value={query}
+                disabled={expired}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder={`Search ${candidates.length} eligible players`}
                 data-testid="tmw-pick-search"
@@ -319,6 +363,7 @@ export default function PickOverlay({
                     key={option}
                     type="button"
                     aria-pressed={active}
+                    disabled={expired}
                     data-testid={`tmw-filter-${option}`}
                     className="tmw-filter-chip"
                     onClick={() =>
@@ -346,7 +391,7 @@ export default function PickOverlay({
               )}
             </div>
 
-            <p className="tmw-overlay-count" data-testid="tmw-pool-count">
+            <p className="tmw-overlay-count pk-numeral" data-testid="tmw-pool-count">
               {/* A FILTER NARROWS THE VIEW AND SAYS SO. Without this line a
                   filtered list is indistinguishable from a thin roll. */}
               Showing {shown.length} of {candidates.length} eligible
@@ -355,7 +400,8 @@ export default function PickOverlay({
 
             <ul className="tmw-overlay-list" data-testid="tmw-candidate-list">
               {shown.map((candidate) => {
-                const disabled = candidate.fit.state === TMW_NO_LEGAL_ARRANGEMENT;
+                const disabled =
+                  expired || candidate.fit.state === TMW_NO_LEGAL_ARRANGEMENT;
                 const isSelected = selected === candidate.player_slug;
                 return (
                   <li key={candidate.player_slug}>
@@ -379,26 +425,43 @@ export default function PickOverlay({
                         setSlot(options.length === 1 ? options[0] : null);
                       }}
                     >
-                      <span className="tmw-candidate-name">{candidate.player_name}</span>
-                      <span className="tmw-candidate-meta">{eligibilityLine(candidate)}</span>
-                      <span className="tmw-candidate-tags">
-                        <span className="tmw-candidate-positions">
-                          {candidate.positions.join(" / ") || "—"}
+                      <PlayerAvatar name={candidate.player_name} size={34} />
+                      <span className="tmw-candidate-body">
+                        <span className="tmw-candidate-name">{candidate.player_name}</span>
+                        <span className="tmw-candidate-meta">
+                          {eligibilityLine(candidate)}
                         </span>
-                        <span className="tmw-candidate-fit" data-fit={candidate.fit.state}>
-                          {fitLabel(candidate)}
+                        <span className="tmw-candidate-tags">
+                          <span className="tmw-candidate-positions">
+                            {positionsLine(candidate)}
+                          </span>
+                          <span className="tmw-candidate-fit" data-fit={candidate.fit.state}>
+                            {fitLabel(candidate)}
+                          </span>
                         </span>
+                        {candidate.fit.state === TMW_NO_LEGAL_ARRANGEMENT &&
+                        candidate.fit.reason ? (
+                          <span className="tmw-candidate-reason">
+                            {candidate.fit.reason}
+                          </span>
+                        ) : null}
                       </span>
-                      {disabled && candidate.fit.reason && (
-                        <span className="tmw-candidate-reason">{candidate.fit.reason}</span>
-                      )}
                     </button>
                   </li>
                 );
               })}
               {shown.length === 0 && (
                 <li className="tmw-overlay-empty" data-testid="tmw-pool-empty">
-                  No eligible player matches that search.
+                  <EmptyPool
+                    poolSize={candidates.length}
+                    hiddenByFilter={hiddenByFilter}
+                    query={query}
+                    locked={locked}
+                    seats={seats}
+                    yourSeatIndex={yourSeatIndex}
+                    roll={roll}
+                    onClearFilters={() => setFilters([])}
+                  />
                 </li>
               )}
             </ul>
@@ -433,17 +496,10 @@ export default function PickOverlay({
               }}
             />
 
-            {/* THE IDLE STATE SITS UNDER THE SLOTS, NOT AT THE FLOOR OF THE
-                PANEL. The action row is `margin-top: auto` so a live decision's
-                buttons pin to the bottom -- correct while there IS one, and the
-                reason the review capture showed a column of dead space between
-                six empty slots and a single line of guidance. With nothing
-                selected there is no action to pin, so the guidance follows the
-                thing it is about. */}
             {mode === "idle" ? (
               <p className="tmw-place-hint" data-testid="tmw-place-hint">
-                Nothing staged yet. Choosing a player on the left lights up
-                every slot they could legally take.
+                Nothing staged yet. Choosing a player on the left lights up every
+                slot they could legally take.
               </p>
             ) : null}
 
@@ -470,14 +526,15 @@ export default function PickOverlay({
             ) : null}
 
             {mode === "placing" && placementSlots.length > 1 ? (
-              // THE ACCESSIBLE FALLBACK, and explicitly labelled as one. PART 3
-              // permits a compact select to exist; it forbids it being the
-              // principal interaction. Every option here is a slot the board
-              // above already offers as a button.
+              // THE ACCESSIBLE FALLBACK, and explicitly labelled as one. A
+              // compact select may exist; it must not be the principal
+              // interaction. Every option here is a slot the board above
+              // already offers as a button.
               <label className="tmw-place-choice">
                 <span>Or choose a slot from a list</span>
                 <select
                   value={slot ?? ""}
+                  disabled={expired}
                   data-testid="tmw-place-select"
                   onChange={(event) => setSlot(event.target.value as TmwSlotType)}
                 >
@@ -504,12 +561,7 @@ export default function PickOverlay({
                     data-loading={busy ? "true" : "false"}
                     onClick={commitMove}
                   >
-                    {/* THE LABEL NAMES WHAT IS MISSING, not just the verb. A
-                        disabled primary reading "Move Aaron Wiggins" says
-                        nothing about why it is disabled -- and a 45%-opacity
-                        yellow fill reads as a murky colour rather than as an
-                        inert control. Matches the placement branch, which
-                        already said "Choose a slot for X". */}
+                    {/* THE LABEL NAMES WHAT IS MISSING, not just the verb. */}
                     {busy
                       ? "Moving…"
                       : canCommitMove
@@ -538,9 +590,7 @@ export default function PickOverlay({
                     data-loading={busy ? "true" : "false"}
                     onClick={() => canCommitPlacement && onPick(chosen!, slot!)}
                   >
-                    {/* THE BUTTON NAMES THE WHOLE DECISION — who, and where.
-                        "Draft Kevin Garnett" left the slot implicit at exactly
-                        the moment the slot was the thing being chosen. */}
+                    {/* THE BUTTON NAMES THE WHOLE DECISION — who, and where. */}
                     {busy
                       ? "Drafting…"
                       : slot
@@ -568,6 +618,83 @@ export default function PickOverlay({
   );
 }
 
+/**
+ * WHY THE LIST IS EMPTY — three genuinely different facts, three answers.
+ *
+ * See this module's docstring for the Dennis Rodman report this exists for.
+ */
+function EmptyPool({
+  poolSize,
+  hiddenByFilter,
+  query,
+  locked,
+  seats,
+  yourSeatIndex,
+  roll,
+  onClearFilters,
+}: {
+  poolSize: number;
+  hiddenByFilter: number;
+  query: string;
+  locked: TmwLockEntry[];
+  seats: ArenaSeatPublic[];
+  yourSeatIndex: number | null;
+  roll: TmwRoll | null;
+  onClearFilters: () => void;
+}) {
+  const reason = emptyPoolReason({ poolSize, hiddenByFilter, query, locked });
+
+  if (reason.kind === "locked") {
+    return (
+      <span data-testid="tmw-pool-empty-locked" className="tmw-overlay-empty-body">
+        <strong>Already off the board.</strong>{" "}
+        {reason.entries.map((entry, index) => (
+          <span key={entry.playerSlug}>
+            {index > 0 ? " " : ""}
+            {entry.playerName} was drafted by{" "}
+            {entry.seatIndex === yourSeatIndex
+              ? "you"
+              : seatLabel(seats, entry.seatIndex)}{" "}
+            in round {entry.roundNumber}.
+          </span>
+        ))}{" "}
+        A name taken by any seat is gone for every seat, in every franchise and
+        decade.
+      </span>
+    );
+  }
+
+  if (reason.kind === "filtered") {
+    return (
+      <span data-testid="tmw-pool-empty-filtered" className="tmw-overlay-empty-body">
+        <strong>Hidden by your position filter.</strong> {reason.hidden}{" "}
+        {reason.hidden === 1 ? "player matches" : "players match"} your search but
+        none play the positions you selected.{" "}
+        <button type="button" className="btn-secondary" onClick={onClearFilters}>
+          Clear filters
+        </button>
+      </span>
+    );
+  }
+
+  if (reason.kind === "not_eligible" && reason.query) {
+    return (
+      <span data-testid="tmw-pool-empty-ineligible" className="tmw-overlay-empty-body">
+        <strong>Not eligible for this roll.</strong> No undrafted player matching “
+        {reason.query}” recorded a season for{" "}
+        {roll ? `the ${roll.franchise_display_name} in the ${roll.decade}` : "this roll"}.
+      </span>
+    );
+  }
+
+  return (
+    <span data-testid="tmw-pool-empty-none" className="tmw-overlay-empty-body">
+      <strong>Nothing left on this roll.</strong> Every eligible name has already
+      been drafted.
+    </span>
+  );
+}
+
 /** Every slot this candidate could legally land on, in canonical order.
  *
  * For a direct fit that is the open slots they play. For a rearrangement it is
@@ -579,8 +706,4 @@ function placementOptionsFor(candidate: TmwCandidate): TmwSlotType[] {
   }
   const landing = landingSlot(candidate);
   return landing ? [landing] : [];
-}
-
-function orderHint(seatCount: number): string {
-  return seatCount === 3 ? "snake order A-B-C, then C-B-A" : "snake order";
 }

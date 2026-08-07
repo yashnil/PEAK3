@@ -152,7 +152,6 @@ export default function CompletionPanel({
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
-  const [showAll, setShowAll] = useState(false);
   // Ticks once a minute so the countdown to the next board stays roughly
   // right without a per-second timer for something hours away.
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -170,11 +169,10 @@ export default function CompletionPanel({
   // whichever one is actually true (see optimal.py's module docstring).
   const maxLabel = result?.exact_optimal ? "Today's max" : "Best known";
   const grade = result ? resultGrade(result.percent_of_best) : null;
-  // Which squares the maximum would have filled differently. That is the whole
-  // content of "what PEAK3 would have used" -- listing the nine squares when
-  // six of them matched buries the three that did not.
+  // Which squares the maximum would have filled differently. Now used only to
+  // say how many, in one sentence over the optimal board -- the nine-line list
+  // this used to feed is gone (DG-01).
   const changed = result ? result.cells.filter((c) => !c.matched_optimal) : [];
-  const shown = result ? (showAll ? result.cells : changed) : [];
   // Launch-polish §4: `result.cells` arrives in FILL order (the order the
   // player locked squares in -- see filled_list in optimal.py), not board
   // order. The mini-grid below is a `grid-cols-3` that fills left-to-right,
@@ -379,92 +377,34 @@ export default function CompletionPanel({
             </p>
           )}
 
+          {/* DG-01: ONE EXPLANATION, NOT TWO. This block used to open with a
+              nine-line text list — square, your pick, the grid's pick,
+              matched/replaced — and then render the identical nine facts again
+              as the board below it. The list is gone. Everything it said,
+              including the "you played them on X" overlap note it uniquely
+              carried, now sits on the square it is about, where a reader finds
+              it by looking rather than by cross-referencing three coordinates
+              per line. */}
           <div
             data-testid="complete-comparison"
             className="mt-4 rounded-lg p-3"
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
           >
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--text-muted)" }}>
-                The best legal grid
-              </p>
-              {changed.length > 0 && (
-                <button
-                  type="button"
-                  data-testid="complete-per-cell-toggle"
-                  onClick={() => setShowAll((v) => !v)}
-                  className="text-[11px] font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                  style={{ color: "var(--peak-accent-text)" }}
-                >
-                  {showAll ? "Show only what changed" : `Show all ${TOTAL_CELLS} squares`}
-                </button>
-              )}
-            </div>
-
-            {shown.length === 0 ? (
-              <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Nothing to change — your grid matched the best legal grid on every square.
-              </p>
-            ) : (
-              <ul className="mt-2 space-y-1.5">
-                {shown.map((cell: ResultCell) => (
-                  <li
-                    key={`${cell.row}-${cell.col}`}
-                    data-testid="complete-per-cell-row"
-                    data-beat-optimal={cell.beat_optimal ? "true" : "false"}
-                    className="flex flex-wrap items-baseline gap-x-2 text-xs leading-relaxed"
-                  >
-                    <span className="font-semibold" style={{ color: "var(--text-muted)" }}>
-                      {cellShortTitle(board, cell.row, cell.col)}
-                    </span>
-                    <span style={{ color: "var(--text-secondary)" }}>
-                      {cell.user_player_season.label} ({cell.user_points})
-                    </span>
-                    {cell.beat_optimal ? (
-                      <span data-testid="complete-beat-note" style={{ color: GRADE_COLOR.beat }}>
-                        — you beat it here ({cell.optimal_points})
-                      </span>
-                    ) : cell.matched_optimal ? (
-                      <span style={{ color: "var(--comp-team-text)" }}>— matched</span>
-                    ) : (
-                      <span style={{ color: "var(--comp-team-text)" }}>
-                        → {cell.optimal_player_season.label} ({cell.optimal_points})
-                      </span>
-                    )}
-                    {/* The same name can legitimately appear twice down this
-                        list — once as the player's pick, once as the optimal
-                        grid's. Saying where they spent them turns what looks
-                        like a duplicate bug into the actual insight: the grid
-                        wanted that player somewhere else. */}
-                    {cell.optimal_player_user_square && !cell.matched_optimal && !cell.beat_optimal && (
-                      <span
-                        data-testid="complete-overlap-note"
-                        className="text-[11px]"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        (you played {cell.optimal_player_season.player_name} on{" "}
-                        {cell.optimal_player_user_square})
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {/* The same nine facts, on the board they came from. The list
-                above is complete and reading it means holding three
-                coordinates in your head at once; this is read by looking. It
-                is placed INSIDE the same block, under the text, because it is
-                the same answer told a second way rather than a new section. */}
-            <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--border-subtle)" }}>
-              <p
-                className="text-[10px] font-bold uppercase tracking-[0.14em]"
-                style={{ color: "var(--text-muted)" }}
-              >
-                The optimal 3×3
-              </p>
-              <OptimalGrid board={board} cells={result.cells} />
-            </div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--text-muted)" }}>
+              The best legal grid
+            </p>
+            <p
+              data-testid="complete-comparison-summary"
+              className="mt-1 text-xs leading-relaxed"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {changed.length === 0
+                ? "Your grid matched the best legal grid on every square."
+                : `The highest-scoring board legal under these six constraints uses nine different players. It agrees with you on ${
+                    TOTAL_CELLS - changed.length
+                  } of ${TOTAL_CELLS} squares; the rest show what it would have played instead.`}
+            </p>
+            <OptimalGrid board={board} cells={result.cells} />
           </div>
         </>
       )}

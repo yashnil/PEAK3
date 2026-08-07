@@ -435,6 +435,45 @@
   transition: border-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard);
 }
 
+/* A PRIMARY ACTION HAS TO LOOK CLICKABLE AT REST (SHARED-04).
+   `START A RUN ->` was 11px uppercase text with a transparent underline that
+   only appeared on hover, and it is the entry point to the flagship mode --
+   on the surface both Arena games launch from. Hover is an enhancement; it
+   was the ONLY affordance. It is now a filled pill on the featured card and
+   an outlined one elsewhere, so the hierarchy between "the thing to press"
+   and "the other things on this card" survives a first glance and a touch
+   device. */
+.pk-game-card-action {
+  align-self: flex-start;
+  padding: var(--pk-space-2, 8px) var(--pk-space-3, 12px);
+  border: 1px solid var(--border-edge);
+  border-radius: 999px;
+  color: var(--text-primary);
+  transition:
+    color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
+    background-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
+    border-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard);
+}
+.pk-game-card[data-featured="true"] .pk-game-card-action {
+  background: var(--peak-accent);
+  border-color: var(--peak-accent);
+  /* Ink on gold: 11.25:1, and identical in both themes because the fill is. */
+  color: var(--peak-accent-on);
+}
+.pk-game-card[data-featured="true"] .pk-game-card-action-text {
+  color: var(--peak-accent-on);
+}
+.pk-game-card:hover .pk-game-card-action,
+.pk-game-card:focus-visible .pk-game-card-action {
+  background: color-mix(in srgb, var(--peak-accent) 16%, transparent);
+  border-color: var(--peak-accent);
+}
+.pk-game-card[data-featured="true"]:hover .pk-game-card-action,
+.pk-game-card[data-featured="true"]:focus-visible .pk-game-card-action {
+  background: var(--peak-accent);
+  border-color: var(--peak-accent-on);
+}
+
 .pk-game-card:hover .pk-game-card-action,
 .pk-game-card:focus-visible .pk-game-card-action {
   /* P6-d: same measured failure and fix as the featured-card rule above. */
@@ -521,6 +560,27 @@
   gap: var(--pk-space-1, 4px) var(--pk-space-4, 16px);
 }
 
+/* SHARED-04. This rule declared NO `color` and NO resting `text-decoration`, so
+   an inline link inherited body ink and was indistinguishable from the sentence
+   around it until a mouse hovered it -- which is no affordance at all on touch,
+   and the wrong one everywhere else. Hover is now an enhancement (it thickens),
+   not the thing that reveals the link exists. */
+/* SECONDARY, BUT STILL AN ACTION. `.arena-inline-link` declared no `color` at
+   all, so "Start a standard run" and "Resume a saved run" were
+   indistinguishable from body text until hovered -- the same hover-only
+   affordance as the CTA above, one level down. They stay links rather than
+   becoming buttons (they are genuinely secondary), but they now read as links
+   at rest. */
+.arena-inline-link {
+  color: var(--peak-accent-text);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.arena-inline-link:hover {
+  text-decoration-color: currentColor;
+}
 .arena-inline-link {
   display: inline-flex;
   align-items: center;
@@ -528,11 +588,14 @@
   gap: var(--pk-space-1, 4px);
   font-size: 12px;
   font-weight: 600;
+  color: var(--peak-accent-text);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
   text-underline-offset: 2px;
 }
 
 .arena-inline-link:hover {
-  text-decoration: underline;
+  text-decoration-thickness: 2px;
 }
 
 .arena-inline-link:focus-visible {
@@ -560,44 +623,95 @@
 }
 
 /* ---------------------------------------------------------------------------
-   NBA Fact of the Day.
+   NBA Fact of the Day (HOME-03).
 
-   WHAT THIS REPLACES. A heading, two tiny tags, one paragraph, and — as the
-   card's most prominent interaction — a `<details>` reading "Show source rows"
-   that opened a four-column table of (player, season, team, games). Two
-   findings in the manual review, one cause between them: "visually weak" and
-   "too dull to deserve homepage prominence". The design was one type size and
-   one call to action, and the call to action was an invitation to audit it.
+   WHAT THIS REPLACES. The card had already lost its "Show source rows"
+   disclosure and its four-column evidence table, and it had a featured value
+   and a court motif. What it still did not have was an IDENTITY: one gold
+   accent whatever the fact was about, one court drawing whatever the fact was
+   about, three tags in the same faint grey, and a single 11px underlined link
+   in `--text-secondary` as its only control. Beside the homepage hero it read
+   as a notice.
 
-   THE CARD NOW HAS A FOCAL POINT. Every published fact carries a `feature` --
-   the number, name or date it turns on -- and that is set large against a
-   court-line motif on the left, with the headline and its supporting sentence
-   beside it. Three type sizes instead of one, and something to look at.
+   SIX ACCENT GROUPS, ONE CUSTOM PROPERTY. `data-accent` on the section sets
+   `--fotd-accent` (the fill, for washes, rules and edges) and `--fotd-ink` (the
+   text-safe sibling, for anything a reader has to READ). Every colour in the
+   card derives from those two, so a new category is one line in the component's
+   `ACCENT_GROUPS` map and nothing here. The fills are the component palette's
+   own hues -- the strongest existing element in the product supplies the
+   accents rather than a second palette being invented beside it, which is the
+   same call `globals.css` makes for the competitive seat colours.
 
-   EVERY SOURCE-ROW RULE IS DELETED, not hidden. `.fotd-evidence`,
-   `.fotd-source`, `.fotd-provenance` and the disclosure-marker rules are gone
-   because the markup is gone; the rows themselves are still in the payload and
-   still re-derived by the model tests.
+   THE FILL/INK SPLIT IS NOT OPTIONAL. `--comp-*` and `--peak-accent` are tuned
+   for 4px bars and lose contrast as text; the `-text` siblings are the ones
+   measured against a surface in both themes. Text uses `--fotd-ink`, never
+   `--fotd-accent`.
 
-   THE MOTIF IS `currentColor`. Light and dark are one declaration rather than a
+   NO SOURCE-ROW RULES EXIST. `.fotd-evidence`, `.fotd-source`,
+   `.fotd-provenance` and the disclosure-marker rules were deleted with the
+   markup; the rows themselves are still in the payload and still re-derived by
+   the model tests.
+
+   MOTIFS ARE `currentColor`. Light and dark are one declaration rather than a
    media query somebody has to remember to update.
    --------------------------------------------------------------------------- */
 
 .fotd {
   padding: 0 1rem;
+  /* The default, and the fallback for any category the fact-bank rebuild
+     invents that the component has not been taught yet: brand gold, i.e.
+     exactly what every card looked like before this pass. */
+  --fotd-accent: var(--peak-accent);
+  --fotd-ink: var(--peak-accent-text);
+}
+
+.fotd[data-accent="rules"] {
+  --fotd-accent: var(--comp-si);
+  --fotd-ink: var(--comp-si-text);
+}
+
+.fotd[data-accent="records"] {
+  --fotd-accent: var(--comp-tp);
+  --fotd-ink: var(--comp-tp-text);
+}
+
+.fotd[data-accent="playoffs"] {
+  --fotd-accent: var(--comp-po);
+  --fotd-ink: var(--comp-po-text);
+}
+
+.fotd[data-accent="global"] {
+  --fotd-accent: var(--comp-team);
+  --fotd-ink: var(--comp-team-text);
+}
+
+.fotd[data-accent="people"] {
+  --fotd-accent: var(--comp-rec);
+  --fotd-ink: var(--comp-rec-text);
 }
 
 .fotd-inner {
   margin-inline: auto;
   max-width: 64rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1.15rem 1.35rem;
+  display: grid;
+  grid-template-columns: 9.75rem minmax(0, 1fr);
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.35rem 1.5rem;
   border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--peak-accent);
-  border-radius: 0.75rem;
-  background: var(--bg-elevated);
+  border-left: 3px solid var(--fotd-accent);
+  border-radius: 0.9rem;
+  /* A WASH RATHER THAN A FLAT PANEL. The accent enters the card as a tinted
+     corner behind the figure and fades out under the copy, so the colour is
+     composition rather than a stripe. 10% is the most the mix can carry before
+     `--fotd-ink` starts losing measurable contrast against it in light mode. */
+  background:
+    linear-gradient(
+      118deg,
+      color-mix(in srgb, var(--fotd-accent) 10%, var(--bg-elevated)) 0%,
+      color-mix(in srgb, var(--fotd-accent) 3%, var(--bg-elevated)) 42%,
+      var(--bg-elevated) 100%
+    );
   /* A TASTEFUL ENTRANCE, AND IT MOVES ONLY THE PANEL. Never `opacity` on a
      container: that applies to every descendant and drags text below AA
      mid-transition, which is the exact contrast defect an earlier pass in this
@@ -614,60 +728,23 @@
   .fotd-inner { animation: none; }
 }
 
-.fotd-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.fotd-title {
-  font-size: 0.6875rem;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--peak-accent-text);
-}
-
-.fotd-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-
-.fotd-tag {
-  padding: 0.1rem 0.45rem;
-  border-radius: 0.25rem;
-  border: 1px solid var(--border-subtle);
-  font-size: 0.5625rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.fotd-body {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-}
-
-/* THE FOCAL POINT. Fixed-width so the copy beside it starts at the same place
-   whatever the featured value is -- a card whose text origin moved with the
-   length of a number would flicker between days. */
-.fotd-feature {
+/* ---- The figure ---------------------------------------------------------
+   ALWAYS PRESENT, so the composition does not collapse into a paragraph on the
+   days the bank has no number to lead with. With a `feature` it is that value
+   set large over the motif; without one the motif becomes the mark itself. */
+.fotd-figure {
   position: relative;
-  flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.15rem;
-  width: 8.5rem;
-  min-height: 6.25rem;
-  padding: 0.5rem;
-  color: var(--peak-accent-text);
+  min-height: 7.25rem;
+  padding: 0.6rem;
+  border-radius: 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--fotd-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--fotd-accent) 11%, var(--bg-surface));
+  /* Sets `currentColor` for both motif variants and the featured value. */
+  color: var(--fotd-ink);
+  overflow: hidden;
 }
 
 .fotd-motif {
@@ -677,21 +754,18 @@
   height: 100%;
   /* Low enough to sit behind the value, high enough to be visible in both
      themes. It carries no text, so opacity here costs no contrast. */
-  opacity: 0.16;
+  opacity: 0.18;
   pointer-events: none;
-  /* AND IT FADES WHERE THE LABEL IS. The motif's densest region — the top edge
-     of the key, and the arc crossing it — sits at exactly the height a
-     two-line `feature_label` occupies, and that label is 9px uppercase at
-     0.12em tracking in `--text-muted`. A one-line label ("first-place votes")
-     cleared it; "straight titles, from the start" was read through the
-     rectangle and the arc at once, in both themes.
+  /* AND IT FADES WHERE THE LABEL IS. The motif's densest region sits at exactly
+     the height a two-line `feature_label` occupies, and that label is 9px
+     uppercase at 0.12em tracking. A one-line label ("first-place votes")
+     cleared it; "straight titles, from the start" was read through the drawing
+     in both themes.
 
-     A mask rather than a smaller motif or a shorter label: the composition is
-     a number standing on a court, and cropping the court to avoid the text
+     A mask rather than a smaller motif or a shorter label: the composition is a
+     number standing inside a mark, and cropping the mark to avoid the text
      would lose the thing the frame is for. The lower band drops to a quarter
-     strength rather than to nothing, so the baseline and the key are still
-     there — just no longer competing with type at the size type stops
-     winning. */
+     strength rather than to nothing. */
   -webkit-mask-image: linear-gradient(
     to bottom,
     #000 0%,
@@ -708,40 +782,140 @@
   );
 }
 
-.fotd-feature-value {
+/* The standalone variant: no watermark behind it, so it is drawn at full
+   strength and at a size that reads as an illustration rather than a texture.
+   No mask -- there is no label to protect. */
+.fotd-glyph {
+  display: block;
+  width: 4.5rem;
+  height: 4.5rem;
+}
+
+.fotd-motif-glyph {
+  position: static;
+  opacity: 0.75;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.fotd-feature {
   position: relative;
-  font-family: var(--font-display, inherit);
-  font-size: clamp(1.5rem, 1rem + 2.2vw, 2.25rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+}
+
+.fotd-feature-value {
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 1rem + 2.4vw, 2.4rem);
   font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
+  line-height: 1.02;
+  letter-spacing: -0.025em;
   text-align: center;
   text-wrap: balance;
+  color: var(--fotd-ink);
+  /* THE FIGURE PANEL CLIPS (`overflow: hidden`), so the hook has to fit inside
+     it rather than rely on not being too long. `feature` is not always a
+     numeral: across the featured tier it runs from "3" to "31 October 1950",
+     and at the display size a long one overflowed and was clipped mid-word --
+     the Jordan-shoes fact rendered as "anne". */
+  max-width: 100%;
+  /* `break-word`, NOT `anywhere`: `anywhere` splits a word the instant it
+     helps the line box, so "Banned" came back as "Bann / ed" once it fitted
+     the panel. This only breaks a word that genuinely cannot fit on a line of
+     its own, which -- with the size bands below -- is nothing in the current
+     tier. */
+  overflow-wrap: break-word;
+}
+
+/* The size follows the length band the component measured. A date needs to be
+   readable more than it needs to be enormous; a bare number can be both. */
+.fotd-feature[data-length="medium"] .fotd-feature-value {
+  font-size: clamp(1.05rem, 0.75rem + 1.1vw, 1.4rem);
+  letter-spacing: -0.02em;
+}
+.fotd-feature[data-length="long"] .fotd-feature-value {
+  font-size: clamp(0.9rem, 0.7rem + 0.6vw, 1.1rem);
+  letter-spacing: -0.005em;
+  line-height: 1.15;
 }
 
 .fotd-feature-label {
-  position: relative;
   font-size: 0.5625rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   text-align: center;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
-.fotd-copy {
+/* ---- The copy ----------------------------------------------------------- */
+
+.fotd-main {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 
-.fotd-headline {
-  font-family: var(--font-display, inherit);
-  font-size: clamp(1.05rem, 0.9rem + 1vw, 1.375rem);
+/* ONE EYEBROW LINE, WITH A HIERARCHY IN IT. Previously the title sat on one row
+   and three identical grey chips on another; the category -- the only one of
+   the three that tells a reader what they are about to read -- was styled
+   exactly like the era. */
+.fotd-eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.fotd-title {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fotd-ink);
+}
+
+/* A short accent rule between the standing title and the per-fact tags, so the
+   eyebrow reads as two things rather than one run-on row. */
+.fotd-rule {
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(
+    to right,
+    var(--fotd-accent),
+    color-mix(in srgb, var(--fotd-accent) 15%, transparent)
+  );
+}
+
+.fotd-tag {
+  padding: 0.12rem 0.5rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--border-subtle);
+  font-size: 0.5625rem;
   font-weight: 700;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.fotd-tag-category {
+  border-color: color-mix(in srgb, var(--fotd-accent) 45%, transparent);
+  background: color-mix(in srgb, var(--fotd-accent) 13%, transparent);
+  color: var(--fotd-ink);
+}
+
+.fotd-headline {
+  font-family: var(--font-display);
+  font-size: clamp(1.15rem, 0.92rem + 1.15vw, 1.55rem);
+  font-weight: 700;
+  line-height: 1.26;
+  letter-spacing: -0.015em;
   color: var(--text-primary);
   text-wrap: balance;
 }
@@ -749,55 +923,104 @@
 .fotd-support {
   font-size: 0.875rem;
   line-height: 1.6;
+  max-width: 56ch;
   color: var(--text-secondary);
 }
 
-/* A phone gets the motif above the copy rather than beside it: at 390px a
-   fixed 8.5rem column leaves the headline about eleven characters wide. */
-@media (max-width: 40rem) {
-  .fotd-body {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-  .fotd-feature {
-    width: 100%;
-    min-height: 5rem;
-    align-items: flex-start;
-    padding-left: 0;
-  }
-  .fotd-feature-value,
-  .fotd-feature-label {
-    text-align: left;
-  }
-  .fotd-motif {
-    width: 7rem;
-    left: auto;
-    right: 0;
-  }
-}
-
+/* ---- The one action, when there is one ----------------------------------
+   HOME-03 removed the default "See their PEAK3 profile" row: it appeared on
+   roughly three quarters of the bank, in `--text-secondary` at 0.6875rem with
+   an underline, and it was the card's only interactive element. What survives
+   appears only where the player is the SUBJECT of the fact, and it is a real
+   control with a resting affordance rather than faint underlined body text
+   (SHARED-04). */
 .fotd-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+  margin-top: 0.15rem;
 }
 
-.fotd-link {
-  font-size: 0.6875rem;
+.fotd-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--fotd-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--fotd-accent) 12%, transparent);
+  font-size: 0.8125rem;
   font-weight: 700;
-  color: var(--text-secondary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  line-height: 1.2;
+  color: var(--fotd-ink);
+  text-decoration: none;
+  transition: background-color 140ms ease, border-color 140ms ease;
 }
 
-.fotd-link:hover,
-.fotd-link:focus-visible {
-  color: var(--peak-accent-text);
+.fotd-cta-arrow {
+  transition: transform 140ms ease;
 }
 
-.fotd-link:focus-visible {
+.fotd-cta:hover {
+  background: color-mix(in srgb, var(--fotd-accent) 22%, transparent);
+  border-color: var(--fotd-accent);
+}
+
+.fotd-cta:hover .fotd-cta-arrow {
+  transform: translateX(2px);
+}
+
+.fotd-cta:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
-  border-radius: 0.2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fotd-cta,
+  .fotd-cta-arrow {
+    transition: none;
+  }
+  .fotd-cta:hover .fotd-cta-arrow {
+    transform: none;
+  }
+}
+
+/* ---- Phone --------------------------------------------------------------
+   A fixed 9.75rem figure column at 390px leaves the headline about eleven
+   characters wide, so the figure goes above the copy and becomes a short wide
+   band: the motif anchors to the right, the value reads from the left, and the
+   headline gets the full measure. */
+@media (max-width: 44rem) {
+  .fotd-inner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.9rem;
+    padding: 1.1rem 1.15rem;
+  }
+
+  .fotd-figure {
+    min-height: 4.75rem;
+    justify-content: flex-start;
+    padding: 0.6rem 0.85rem;
+  }
+
+  .fotd-motif {
+    left: auto;
+    right: 0;
+    width: 7rem;
+  }
+
+  .fotd-feature {
+    align-items: flex-start;
+  }
+
+  .fotd-feature-value,
+  .fotd-feature-label {
+    text-align: left;
+  }
+
+  .fotd-glyph {
+    width: 3.25rem;
+    height: 3.25rem;
+  }
 }

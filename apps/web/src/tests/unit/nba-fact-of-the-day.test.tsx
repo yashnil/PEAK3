@@ -1,22 +1,30 @@
 /**
- * The NBA Fact of the Day card.
+ * The NBA Fact of the Day card (HOME-03).
  *
- * TWO FINDINGS FROM THE MANUAL REVIEW, AND THEY HAD ONE CAUSE.
+ * WHERE THIS CARD CAME FROM. It began as a heading, two tiny tags, one
+ * paragraph and — as its most prominent interaction — a `<details>` labelled
+ * "Show source rows" that opened a four-column table of (player, season, team,
+ * games). That table is long gone and stays gone: these tests keep asserting
+ * its absence, because the rows still exist in the payload and re-adding them
+ * to the homepage would be a one-line mistake.
  *
- *   "NBA Fact of the Day is visually weak"
- *   "the generated fact is often too dull to deserve homepage prominence"
+ * WHAT THIS PASS CHANGED, AND WHAT THESE NOW ENCODE. Next to the homepage hero
+ * the card still read as a notice: one gold accent whatever the fact was about,
+ * one court drawing whatever the fact was about, three identical grey tags, and
+ * a 11px underlined "See their PEAK3 profile" — its only control — shown for
+ * roughly three quarters of the bank. So:
  *
- * The card was a heading, two tiny tags, one paragraph — and, as its most
- * prominent interaction, a `<details>` labelled "Show source rows" that opened
- * a four-column table of (player, season, team, games). One type size, nothing
- * to look at, and a call to action that invited a visitor to audit the fact
- * rather than enjoy it.
+ *   * the card is tuned to its category (`data-accent`, and one of five line
+ *     motifs) rather than looking the same every day;
+ *   * it always has a figure, so a fact with no number to lead with does not
+ *     collapse into a paragraph;
+ *   * the category tag is a different register from the era tag;
+ *   * the default profile link is REMOVED. One survives only where the player
+ *     is the subject of the fact, and it is a real control.
  *
- * The dullness half is fixed in the bank (see `nba_peak/nba_facts/`). This file
- * is about the card: a featured value with a court motif, a headline, a
- * supporting sentence, and NO SOURCE TABLE ANYWHERE. The rows still exist in
- * the payload and are still re-derived by the model tests; they are simply not
- * what the homepage offers.
+ * WHAT THESE DELIBERATELY DO NOT ASSERT: any field the fact bank might stop
+ * emitting. The bank is being re-tiered in parallel, so `feature`, `era`,
+ * `geography` and `player_slug` are each exercised as present AND absent.
  */
 import React from "react";
 import { describe, expect, it } from "vitest";
@@ -87,6 +95,41 @@ describe("the card renders the fact, and only the fact", () => {
   });
 });
 
+describe("the card is tuned to its category", () => {
+  it("puts the category's accent group on the section, for the stylesheet to read", () => {
+    // One custom property drives every colour in the card, so a category is a
+    // one-line map entry rather than a new block of CSS.
+    const { container } = renderCard();
+    expect(container.querySelector(".fotd")).toHaveAttribute("data-accent", "rules");
+    renderCard({ category: "olympics_fiba" });
+    expect(
+      screen.getAllByTestId("nba-fact-of-the-day")[1],
+    ).toHaveAttribute("data-accent", "global");
+    renderCard({ category: "playoffs_finals" });
+    expect(
+      screen.getAllByTestId("nba-fact-of-the-day")[2],
+    ).toHaveAttribute("data-accent", "playoffs");
+  });
+
+  it("falls back to the brand accent for a category it has not been taught", () => {
+    // The fact bank is being re-tiered in parallel. An unknown category must
+    // render like the card always did, not colourless.
+    renderCard({ category: "some_new_tier_the_bank_invents" });
+    const card = screen.getByTestId("nba-fact-of-the-day");
+    expect(card).toHaveAttribute("data-accent", "history");
+    expect(screen.getByTestId("fotd-category")).toHaveTextContent("NBA history");
+  });
+
+  it("draws a different motif for a different kind of fact", () => {
+    const rules = renderCard().container.querySelector("svg.fotd-motif");
+    const global = renderCard({ category: "global" }).container.querySelector(
+      "svg.fotd-motif",
+    );
+    expect(rules).toHaveAttribute("data-motif", "clock");
+    expect(global).toHaveAttribute("data-motif", "globe");
+  });
+});
+
 describe("the source-row table is gone", () => {
   it("renders no evidence table", () => {
     renderCard();
@@ -100,27 +143,49 @@ describe("the source-row table is gone", () => {
     expect(container.querySelector("details")).toBeNull();
     expect(container.textContent ?? "").not.toMatch(/source rows/i);
   });
+});
 
-  it("ships no interactive element except a genuinely useful link", () => {
-    // The card is server-rendered and carries no client behaviour at all now,
-    // which also retires the pre-hydration dead-click window the previous
-    // version's own comment documented.
+describe("the one action, and when there is none", () => {
+  it("ships no interactive element at all on an ordinary fact", () => {
+    // The card is server-rendered and carries no client behaviour, which also
+    // retires the pre-hydration dead-click window the old disclosure had.
     const { container } = renderCard();
     expect(container.querySelectorAll("button")).toHaveLength(0);
     expect(container.querySelectorAll("a")).toHaveLength(0);
   });
 
-  it("links a player profile only when the fact is about a player", () => {
+  it("does not link a profile merely because a player is named in the fact", () => {
+    // HOME-03 removed the DEFAULT "See their PEAK3 profile" row. A rule-change
+    // fact that happens to reference a player is exactly the case that used to
+    // get one for no reason.
     renderCard({ player_slug: "wilt-chamberlain" });
-    expect(screen.getByTestId("fotd-player-link")).toHaveAttribute(
-      "href",
-      "/players/wilt-chamberlain",
-    );
+    expect(screen.queryByTestId("fotd-player-link")).toBeNull();
+  });
+
+  it("links the profile where the player IS the subject, as a real control", () => {
+    const { container } = renderCard({
+      category: "player_story",
+      player_slug: "wilt-chamberlain",
+    });
+    const link = screen.getByTestId("fotd-player-link");
+    expect(link).toHaveAttribute("href", "/players/wilt-chamberlain");
+    // It does NOT name the player: the only identity in the payload is the
+    // slug, and title-casing a slug renders "Javale Mcgee" under a headline
+    // that says "JaVale McGee". The headline above it has already named them.
+    expect(link).toHaveTextContent(/See the full PEAK3 profile/);
+    // SHARED-04: an obvious control at rest, not faint underlined body text.
+    expect(link).toHaveClass("fotd-cta");
+    expect(container.querySelectorAll("a")).toHaveLength(1);
+  });
+
+  it("shows no link for a player-subject fact with no player attached", () => {
+    renderCard({ category: "player_story", player_slug: null });
+    expect(screen.queryByTestId("fotd-player-link")).toBeNull();
   });
 });
 
 describe("the graphic", () => {
-  it("draws court lines with no text, hidden from assistive technology", () => {
+  it("draws line art with no text, hidden from assistive technology", () => {
     const { container } = renderCard();
     const svg = container.querySelector("svg.fotd-motif");
     expect(svg).not.toBeNull();
@@ -131,12 +196,21 @@ describe("the graphic", () => {
   });
 
   it("inherits the theme rather than hard-coding two palettes", () => {
-    const { container } = renderCard();
-    const strokes = Array.from(
-      container.querySelectorAll("svg.fotd-motif [stroke]"),
-    ).map((el) => el.getAttribute("stroke"));
-    expect(strokes.length).toBeGreaterThan(0);
-    for (const stroke of strokes) expect(stroke).toBe("currentColor");
+    // Every motif, not just the court: a `fill` would come out as a solid block
+    // on the wrong theme, so they are stroke-only in `currentColor`.
+    for (const category of ["rules", "global", "playoffs_finals", "records", "nba_history"]) {
+      const { container } = render(
+        <NbaFactOfTheDay fact={{ ...FACT, category }} />,
+      );
+      const strokes = Array.from(
+        container.querySelectorAll("svg.fotd-motif [stroke]"),
+      ).map((el) => el.getAttribute("stroke"));
+      expect(strokes.length).toBeGreaterThan(0);
+      for (const stroke of strokes) expect(stroke).toBe("currentColor");
+      for (const el of Array.from(container.querySelectorAll("svg.fotd-motif [fill]"))) {
+        expect(el.getAttribute("fill")).toBe("none");
+      }
+    }
   });
 });
 
@@ -167,9 +241,21 @@ describe("degraded payloads", () => {
     expect(screen.getByTestId("fotd-category")).toHaveTextContent("Franchises");
   });
 
-  it("omits the featured block when the fact carries no feature", () => {
-    renderCard({ feature: null, feature_label: null });
+  it("keeps a figure even when the fact carries no feature", () => {
+    // Without this the card collapses to a paragraph on the days the bank has
+    // no number to lead with, which is where "visually weak" came from.
+    const { container } = renderCard({ feature: null, feature_label: null });
     expect(screen.queryByTestId("fotd-feature")).toBeNull();
+    expect(screen.getByTestId("fotd-figure")).toBeInTheDocument();
+    expect(container.querySelector(".fotd-glyph svg.fotd-motif")).not.toBeNull();
     expect(screen.getByTestId("fotd-text")).toBeInTheDocument();
+  });
+
+  it("renders without an era, a body or a geography", () => {
+    renderCard({ era: "", body: "", geography: undefined });
+    expect(screen.queryByTestId("fotd-era")).toBeNull();
+    expect(screen.queryByTestId("fotd-support")).toBeNull();
+    expect(screen.queryByTestId("fotd-geography")).toBeNull();
+    expect(screen.getByTestId("fotd-text")).toHaveTextContent(/shot clock/i);
   });
 });

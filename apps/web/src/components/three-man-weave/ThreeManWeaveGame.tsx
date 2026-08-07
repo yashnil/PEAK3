@@ -16,24 +16,23 @@ import {
 } from "@/lib/arena-api";
 import type { TmwCandidate } from "@/lib/three-man-weave-state";
 import {
+  TMW_TIMEOUT_CONSEQUENCE,
   candidatesForSeat,
   canPick,
   connectionState,
   identityLock,
   isYourTurn,
   phaseOf,
-  turnOrder,
+  seatLabel,
 } from "@/lib/three-man-weave-state";
 import { modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
-import ArenaTimer, { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
-import BotPickReveal, { turnHeadline } from "./BotPickReveal";
-import DraftOrderStrip from "./DraftOrderStrip";
+import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
 import IdentityLockPanel from "./IdentityLockPanel";
 import PickOverlay from "./PickOverlay";
 import PodiumReceipt from "./PodiumReceipt";
 import RosterBoard from "./RosterBoard";
-import SeatCourt from "./SeatCourt";
+import TurnStatus from "./TurnStatus";
 import WeaveSpinner from "./WeaveSpinner";
 
 /** How often to re-read the match while it is someone else's turn. */
@@ -47,32 +46,69 @@ const TURN_SECONDS = 45;
 /**
  * THREE-MAN WEAVE, driven entirely by the server.
  *
- * SERVER-AUTHORITATIVE, exactly like `CourtBuilder` and `RunTheTableGame`:
- * every action POSTs and this component replaces its whole match object with
- * the response. Nothing here decides legality, scores a roster, ranks a seat or
- * advances a turn -- it renders what the server projected for THIS seat and
- * sends back commands.
+ * SERVER-AUTHORITATIVE: every action POSTs and this component replaces its
+ * whole match object with the response. Nothing here decides legality, scores a
+ * roster, ranks a seat or advances a turn -- it renders what the server
+ * projected for THIS seat and sends back commands.
  *
- * THE LAYOUT IS THE PRODUCT DECISION. The three rosters are the page; the
- * spinner sits above them and the pick overlay above that. The previous
- * arrangement put a candidate list first and pushed all three courts below the
- * fold, so the thing you were choosing FOR was the thing you had to scroll
- * past. Here the board never moves and never disappears, including while the
- * overlay is open.
+ * THE LAYOUT IS THE PRODUCT DECISION. The three teams are the page; the turn
+ * status sits above them and the pick surface above that. There is now exactly
+ * ONE turn-status region (TMW-07): the spinner banner, the "X is selecting"
+ * band, the "X is scouting / X drafted" tray and the eighteen-chip snake strip
+ * (TMW-08) are all gone, and `TurnStatus` carries what they collectively said.
  *
- * THE OVERLAY OPENS ONLY AFTER THE SPINNER LANDS. `revealedRoll` gates it, so a
- * player is never asked to choose from a roll they have not been shown -- which
- * is also why the reveal callback and not the animation drives it.
+ * ================================================================
+ * THE REVEAL/CLOCK RACE, AND HOW IT WAS REMOVED (SHARED-01, TMW-06)
+ * ================================================================
+ * WHAT IT WAS. `WeaveSpinner` owned a client `setTimeout` for the 2270ms
+ * ceremony and this component gated the pick overlay on the callback it fired.
+ * The server stamps the 45-second turn deadline when the turn OPENS -- the same
+ * reducer output that reveals the roll (`mode.py`, `_open_round` +
+ * `open_turn`) -- so on the first pick of every round the player lost roughly
+ * 2.3 seconds, plus up to one 2000ms poll, of a clock that was visibly counting
+ * down behind an overlay that would not open. A ceremony cannot be allowed to
+ * spend a decision window that is already running.
+ *
+ * THE FIX IS A RULE, NOT A SHORTER TIMER:
+ *
+ *     THE CEREMONY IS MOUNTED ONLY WHILE NO HUMAN DECISION WINDOW IS OPEN.
+ *
+ * `ceremonyOpen` is derived from the server's own turn state on every render,
+ * so:
+ *
+ *   * when a bot leads the round (two seats in three, and every round the snake
+ *     hands to a bot) the full-focus ceremony plays over the dimmed board
+ *     inside the bot's 4-10 second think window and costs nobody anything;
+ *   * when the HUMAN leads the round the ceremony never mounts at all. The pick
+ *     surface opens on the same frame the turn does, with zero client-side
+ *     delay, and the franchise x decade reveal animates inside its own header
+ *     (`PickOverlay`, `.tmw-overlay-title`) with every control live;
+ *   * if a bot resolves faster than the ceremony (a short seeded think time,
+ *     a fast poll), the arrival of the human's turn unmounts the ceremony on
+ *     the very next render rather than making them wait it out.
+ *
+ * Nothing downstream waits for `onRevealComplete`; it only records that the
+ * ceremony for this roll has been shown.
+ *
+ * WHAT WOULD BE BETTER, AND WHY IT IS NOT HERE. A real server-side reveal
+ * phase -- `deadline_at` stamped after the reveal rather than at `_open_round`,
+ * with the phase reconstructible on reconnect -- is the correct end state and
+ * is what SHARED-01 asks for. It requires moving the deadline in
+ * `apps/api/app/services/three_man_weave/mode.py`, which is owned by the
+ * correctness workstream in this pass. The rule above is not a smaller version
+ * of that fix; it is a different one, and it is airtight against the specific
+ * defect: a client ceremony can never overlap a running human clock, because
+ * the two are mutually exclusive by construction.
  *
  * WHY POLLING RATHER THAN A SOCKET. The foundation exposes the match and its
  * event log over plain HTTP and stamps `seconds_remaining` as a DURATION so a
- * client with a skewed clock still counts down correctly. Polling that is a few
- * lines and degrades gracefully.
+ * client with a skewed clock still counts down correctly.
  *
  * TIMEOUTS ARE THE SERVER'S. This component never resolves one. It shows the
  * countdown the server sent; when a turn expires the server's sweep commits the
- * deterministic auto-pick and the next poll simply shows a board where that
- * seat has picked.
+ * deterministic fallback and the next poll shows a board where that seat has
+ * picked. Reaching zero locks the local controls (`PickOverlay`) and asks for a
+ * refresh, and does nothing else.
  */
 export default function ThreeManWeaveGame({
   initialMatch,
@@ -92,7 +128,8 @@ export default function ThreeManWeaveGame({
   const [deadlineAt, setDeadlineAt] = useState<number | null>(
     deadlineFromSeconds(initialMatch.seconds_remaining),
   );
-  const [revealedRoll, setRevealedRoll] = useState<string | null>(null);
+  /** The roll whose opening ceremony has already been shown (or skipped). */
+  const [ceremonyShownFor, setCeremonyShownFor] = useState<string | null>(null);
 
   // Guards a poll landing while a command is in flight from overwriting the
   // newer state the command already returned.
@@ -171,6 +208,11 @@ export default function ThreeManWeaveGame({
 
   const pick = useCallback(
     async (candidate: TmwCandidate, slotType: TmwSlotType) => {
+      // ONE ACTIVE REQUEST AT A TIME (SHARED-02). The controls disable on
+      // `busy`, and this is the second half of that promise: a double-submit
+      // through a keyboard repeat or a fast double-click cannot start a second
+      // command while the first is unresolved.
+      if (busy || inFlight.current) return;
       setBusy(true);
       setRejection(null);
       const payload: Record<string, unknown> = {
@@ -197,21 +239,19 @@ export default function ThreeManWeaveGame({
         setBusy(false);
       }
     },
-    [send],
+    [busy, send],
   );
 
   const rearrange = useCallback(
     async (placements: Record<string, string>) => {
+      if (busy || inFlight.current) return;
       setBusy(true);
       setRejection(null);
       try {
         const response = await send(TMW_COMMAND_REARRANGE, { placements });
         if (!response) return;
         if (!response.accepted && !response.replayed) {
-          // `message` is the field the API actually sends. The Showdown client
-          // read a field that did not exist and showed a generic string on
-          // every rejection; this surface reads the right one and says so here
-          // so the mistake is not repeated by copy-paste.
+          // `message` is the field the API actually sends.
           setRejection(response.message ?? "That move was refused.");
         }
       } catch (error) {
@@ -220,33 +260,47 @@ export default function ThreeManWeaveGame({
         setBusy(false);
       }
     },
-    [send],
+    [busy, send],
   );
 
   const connection = connectionState(failures);
   const yourTurn = isYourTurn(match);
   const candidates = useMemo(() => candidatesForSeat(match), [match]);
+  const lockedEntries = useMemo(() => identityLock(state), [state]);
   const yourRoster =
     state.rosters.find((roster) => roster.seat_index === match.your_seat_index) ??
     null;
-  const rollRevealed =
-    !!state.current_roll && revealedRoll === state.current_roll.roll_id;
-  const overlayOpen = yourTurn && !complete && rollRevealed && canPick(match);
   const picksMade = state.rosters.reduce(
     (total, roster) => total + Object.values(roster.slots).filter(Boolean).length,
     0,
   );
 
+  const rollId = state.current_roll?.roll_id ?? null;
+
+  // THE ONE RULE THAT REMOVES THE RACE. See the module docstring: the ceremony
+  // exists only while no human decision window is open.
+  const ceremonyOpen =
+    !!rollId && !complete && !yourTurn && ceremonyShownFor !== rollId;
+
+  // Your turn arriving retires this roll's ceremony immediately -- both so it
+  // unmounts mid-animation when a bot resolves fast, and so it cannot reappear
+  // later in the same round when the clock moves on to another seat.
+  useEffect(() => {
+    if (rollId && yourTurn && ceremonyShownFor !== rollId) {
+      setCeremonyShownFor(rollId);
+    }
+  }, [rollId, yourTurn, ceremonyShownFor]);
+
+  const overlayOpen = yourTurn && !complete && canPick(match);
+
   const meta = modeMeta("three_man_weave");
   const hasBots = match.seats.some((seat) => seat.is_bot);
-  // PART 8: exactly one participant is unmistakably active, and the top status
-  // says which in words rather than through a small badge in a corner.
-  const headline = turnHeadline(
-    match.seats,
-    match.current_turn_seat_index,
-    match.your_seat_index,
-    complete,
-  );
+  const nextUp =
+    match.current_turn_seat_index === null
+      ? null
+      : match.current_turn_seat_index === match.your_seat_index
+        ? "You're up"
+        : `${seatLabel(match.seats, match.current_turn_seat_index)} is up`;
 
   return (
     <div className="ar-room tmw-room" data-testid="tmw-room">
@@ -261,6 +315,8 @@ export default function ThreeManWeaveGame({
           )}
         </div>
         <div className="ar-room-tools">
+          {/* "How to play" is always available, which is what lets the opening
+              sequence stay a matchup rather than become a tutorial (TMW-13). */}
           {meta ? (
             <HowToPlay title={meta.name} rules={meta.rules} testId="tmw-rules" />
           ) : null}
@@ -291,51 +347,41 @@ export default function ThreeManWeaveGame({
           results={results}
           rosters={state.rosters}
           yourSeatIndex={match.your_seat_index}
+          seed={match.match_id}
           onPlayAgain={() => router.push("/arena/three-man-weave")}
         />
       ) : (
         <>
           <WeaveSpinner
+            open={ceremonyOpen}
             roll={state.current_roll}
             roundNumber={state.current_round}
             totalRounds={state.total_rounds}
-            onRevealComplete={() =>
-              setRevealedRoll(state.current_roll?.roll_id ?? null)
-            }
+            seats={match.seats}
+            yourSeatIndex={match.your_seat_index}
+            handoffLabel={nextUp ?? undefined}
+            // Round one opens on the matchup: title, the three competitors with
+            // you marked, the objective, then the roll (TMW-13).
+            showIntro={picksMade === 0 && state.current_round === 1}
+            onRevealComplete={() => setCeremonyShownFor(rollId)}
           />
 
-          {/* WHOSE TURN IT IS, AT THE TOP, IN WORDS. Paired with the clock so
-              the two facts a player needs under time pressure are one glance
-              apart. */}
-          <div className="tmw-turnbar" data-testid="tmw-turnbar">
-            <p
-              className="tmw-turnbar-headline"
-              data-testid="tmw-turn-spotlight"
-              data-yours={yourTurn ? "true" : "false"}
-              aria-live="polite"
-            >
-              {headline}
-            </p>
-            <ArenaTimer
-              deadlineAt={deadlineAt}
-              totalSeconds={TURN_SECONDS}
-              label={yourTurn ? "YOUR PICK" : "ON THE CLOCK"}
-              yours={yourTurn}
-              testId="tmw-turn-clock"
-            />
-          </div>
-
-          <BotPickReveal
+          <TurnStatus
             state={state}
             seats={match.seats}
             currentTurnSeatIndex={match.current_turn_seat_index}
             yourSeatIndex={match.your_seat_index}
-          />
-
-          <DraftOrderStrip
-            order={turnOrder(state, match.seat_count)}
-            seats={match.seats}
-            yourSeatIndex={match.your_seat_index}
+            complete={complete}
+            pickNumber={picksMade + 1}
+            totalPicks={state.total_rounds * match.seat_count}
+            deadlineAt={deadlineAt}
+            turnSeconds={TURN_SECONDS}
+            timeoutConsequence={TMW_TIMEOUT_CONSEQUENCE}
+            // Expiry is not a resolution -- it is a prompt to go and read the
+            // one the server already committed.
+            onExpire={() => {
+              void refresh();
+            }}
           />
 
           <RosterBoard
@@ -344,9 +390,11 @@ export default function ThreeManWeaveGame({
             yourSeatIndex={match.your_seat_index}
             currentTurnSeatIndex={match.current_turn_seat_index}
             justPickedSlug={justPicked}
+            onMove={rearrange}
+            busy={busy}
           />
 
-          <IdentityLockPanel entries={identityLock(state)} seats={match.seats} />
+          <IdentityLockPanel entries={lockedEntries} seats={match.seats} />
 
           <PickOverlay
             open={overlayOpen}
@@ -358,6 +406,7 @@ export default function ThreeManWeaveGame({
             roster={yourRoster}
             seats={match.seats}
             yourSeatIndex={match.your_seat_index}
+            lockedEntries={lockedEntries}
             deadlineAt={deadlineAt}
             turnSeconds={TURN_SECONDS}
             busy={busy}
@@ -370,35 +419,6 @@ export default function ThreeManWeaveGame({
             onClose={() => setRejection(null)}
           />
         </>
-      )}
-
-      {/* THE FINAL BOARDS, BEHIND A DISCLOSURE.
-          PART 12: "do not immediately repeat three giant interactive roster
-          boards ... use compact placement cards and expandable detailed
-          receipts." They used to render unconditionally under the podium, so
-          the payoff viewport was followed by three full court panels the player
-          had just spent six rounds looking at -- which is what pushed the
-          result's own numbers off the screen. They are still here, because a
-          completed match should be able to show every roster it produced; they
-          are simply no longer the thing that greets you. */}
-      {complete && results && (
-        <details className="tmw-final-courts-disclosure">
-          <summary data-testid="tmw-final-courts-toggle">
-            Show all three final rosters
-          </summary>
-          <div className="tmw-board-grid" data-testid="tmw-final-courts">
-            {state.rosters.map((roster) => (
-              <SeatCourt
-                key={roster.seat_index}
-                roster={roster}
-                seat={match.seats.find((seat) => seat.seat_index === roster.seat_index)}
-                isYou={roster.seat_index === match.your_seat_index}
-                isOnTurn={false}
-                justPickedSlug={null}
-              />
-            ))}
-          </div>
-        </details>
       )}
     </div>
   );

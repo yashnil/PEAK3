@@ -1603,9 +1603,12 @@ test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("complete-comparison")).toBeVisible({ timeout: 15_000 });
 
-    // Expand to the full nine squares so every optimal answer is on screen.
-    const toggle = page.getByTestId("complete-per-cell-toggle");
-    if (await toggle.count()) await toggle.click();
+    // DG-01: all nine optimal squares are on screen unconditionally now. The
+    // nine-line text list and the "show all nine" expander it needed are gone,
+    // so there is nothing left to click before reading the board.
+    await expect(page.getByTestId("complete-per-cell-toggle")).toHaveCount(0);
+    await expect(page.getByTestId("complete-per-cell-row")).toHaveCount(0);
+    await expect(page.getByTestId("complete-optimal-cell")).toHaveCount(9);
 
     // Read the API's own optimal grid and assert the invariant at the source
     // the UI renders from -- the rendered text is prose, the payload is fact.
@@ -1678,5 +1681,21 @@ test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
     await expect(page.getByTestId("complete-comparison")).toContainText(/best legal grid/i, {
       timeout: 15_000,
     });
+
+    // DG-02, in a real browser: every optimal square carries a headshot from
+    // the one shared avatar primitive, and it is the designed medallion rather
+    // than a broken <img> — the external-asset gate is off in every
+    // environment these tests run in.
+    const grid = page.getByTestId("complete-optimal-grid");
+    await expect(grid.getByTestId("player-avatar")).toHaveCount(9);
+    await expect(grid.locator("img")).toHaveCount(0);
+
+    // ...and the imagery has not made the board unreadable: the grid still
+    // fits its own column rather than forcing the panel to scroll sideways.
+    const overflow = await grid.evaluate((el) => {
+      const panel = el.closest('[data-testid="daily-grid-complete"]') as HTMLElement;
+      return el.scrollWidth - panel.clientWidth;
+    });
+    expect(overflow, "the optimal 3x3 overflows the completion panel").toBeLessThanOrEqual(1);
   });
 });

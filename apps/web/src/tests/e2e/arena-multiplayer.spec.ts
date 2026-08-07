@@ -310,7 +310,13 @@ test.describe("Three-Man Weave", () => {
       await expectNotAGeneric404(page);
 
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
-      await expect(page.getByTestId("tmw-draft-order")).toBeVisible();
+      // ONE TURN-STATUS REGION (TMW-07/TMW-08). This used to assert the
+      // eighteen-chip `tmw-draft-order` snake strip, which is deleted: the
+      // A-B-C / C-B-A order is a published rule that never changes, so it
+      // belongs in How to Play rather than on a live board. What a drafter
+      // actually needs mid-turn is here.
+      await expect(page.getByTestId("tmw-turnbar")).toBeVisible();
+      await expect(page.getByTestId("tmw-turnbar-round")).toContainText(/Round \d of \d/);
       await expect(page.getByTestId("tmw-courts")).toBeVisible();
       // Three seats, and the bots are named without an implementation label.
       await expect(page.getByTestId("tmw-room")).not.toContainText("random_legal");
@@ -361,13 +367,27 @@ test.describe("Three-Man Weave", () => {
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
 
-      // THE SPINNER IS AN EVENT, and it resolves to the server's own answer.
-      // `data-final-value` carries that answer from the first frame, so this
-      // asserts the reel cannot land anywhere else without racing it.
+      // THE ROLL IS REVEALED, ONE WAY OR THE OTHER.
+      //
+      // The full-focus ceremony is mounted only while NO human decision window
+      // is open -- that is the reveal/clock race fix (SHARED-01): a client
+      // ceremony may never spend a deadline the server has already started. The
+      // human's seat is drawn from the match seed, so when they lead round one
+      // the ceremony never mounts and the franchise x decade animates inside
+      // the live pick surface instead. Both are a real reveal; exactly one of
+      // them exists in any given match.
       const roll = page.getByTestId("tmw-roll");
-      await expect(roll).toBeVisible({ timeout: 20_000 });
-      const franchiseReel = page.getByTestId("tmw-roll-franchise");
-      await expect(franchiseReel).toHaveAttribute("data-final-value", /.+/);
+      const inlineRoll = page.getByTestId("tmw-overlay-roll");
+      await expect(roll.or(inlineRoll).first()).toBeVisible({ timeout: 20_000 });
+
+      const hasCeremony = (await roll.count()) > 0;
+      if (hasCeremony) {
+        // THE SPINNER IS AN EVENT, and it resolves to the server's own answer.
+        // `data-final-value` carries that answer from the first frame, so this
+        // asserts the reel cannot land anywhere else without racing it.
+        const franchiseReel = page.getByTestId("tmw-roll-franchise");
+        await expect(franchiseReel).toHaveAttribute("data-final-value", /.+/);
+      }
 
       // IT ACTUALLY SPINS, and that is asserted rather than assumed. Manual
       // acceptance called this "effectively a static result banner": the reel
@@ -392,7 +412,9 @@ test.describe("Three-Man Weave", () => {
         expect(transform, "the reel strip is not translated").not.toBe("none");
       }
 
-      await expect(roll).toHaveAttribute("data-revealed", "true", { timeout: 15_000 });
+      if (hasCeremony) {
+        await expect(roll).toHaveAttribute("data-revealed", "true", { timeout: 15_000 });
+      }
 
       // All three rosters are on screen, and no bot is a numbered placeholder.
       await expect(page.getByTestId("tmw-courts")).toBeVisible();
@@ -502,9 +524,13 @@ test.describe("Three-Man Weave", () => {
       await page.getByTestId("lobby-three_man_weave-practice").click();
       await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
       await expect(page.getByTestId("tmw-room")).toBeVisible({ timeout: 20_000 });
-      await expect(page.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true", {
-        timeout: 15_000,
-      });
+      // WAIT FOR THE BOARD, NOT FOR THE CEREMONY. The round-opening ceremony is
+      // mounted only while no human decision window is open, so whether it is
+      // on screen at all depends on which seat the seeded draw gave the human;
+      // when the human leads round one it never mounts and the reveal happens
+      // inside the live pick surface instead. The turn-status region is present
+      // either way. See `ThreeManWeaveGame`'s docstring.
+      await expect(page.getByTestId("tmw-turnbar")).toBeVisible({ timeout: 15_000 });
       await axeClean(page, "the Three-Man Weave draft room");
     } finally {
       await context.close();

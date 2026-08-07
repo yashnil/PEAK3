@@ -28,8 +28,8 @@ deletion is a correctness fix rather than a change of taste:
     gen_champion_role_players        "X won 3 championships without ever being
                                       the best player on the team."
 
-Both branched on the table's role column, which is not a Basketball-Reference
-observation at all: it is produced inside this repository by
+Both branched on the table's `title_team_role` column, which is not a
+Basketball-Reference observation at all: it is produced inside this repository by
 `nba_peak/context/title_role.py`, a weighted z-score composite with a tunable
 gap constant deciding where "co-best" ends. So each card printed a PEAK3 model
 judgment as an unqualified fact and attributed it to Basketball-Reference, on

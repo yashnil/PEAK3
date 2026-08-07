@@ -2,8 +2,8 @@
 
 WHY BANK MEMBERSHIP WAS NEVER A HOMEPAGE STANDARD
 =================================================
-`quality.py` decides what may be PUBLISHED. That gate is real — it rejects 578
-of 800-odd candidates — and it was still not a homepage standard, for one
+`quality.py` decides what may be PUBLISHED. That gate is real — it rejects 571
+of 758 candidates — and it was still not a homepage standard, for one
 structural reason that its own docstring admits:
 
     "within a generator every fact scores identically, so the survivors are the
@@ -43,7 +43,7 @@ WHAT THIS MODULE ADDS, AND THE THREE THINGS IT DOES DIFFERENTLY
    generators put their subject's number in `feature` — `5` straight rebounding
    titles, `13` straight All-Defense teams — and that number is per-fact, is
    already computed, and is exactly what makes one instance of a template more
-   remarkable than another. `_extremity` reads it, and admission within a
+   remarkable than another. `extremity` reads it, and admission within a
    pattern runs in descending order of it. Where a generator's feature is not a
    number (`DPOY`, `50/40/90`, `MVP`) the template genuinely has no internal
    ranking, and the tie falls to `fact_id`; `featured_report` names those
@@ -56,7 +56,7 @@ WHAT THIS MODULE ADDS, AND THE THREE THINGS IT DOES DIFFERENTLY
    less repetitive in the one way the numbers cannot describe.
 
 4. AND A MUCH TIGHTER CAP. `MAX_PER_DERIVED_PATTERN` is 8 in the bank;
-   `MAX_FEATURED_PER_PATTERN` is 3. A featured set of ~95 with 3 per template
+   `MAX_FEATURED_PER_PATTERN` is 3. A featured set of ~93 with 3 per template
    means no template is more than ~3% of what the homepage serves, and the
    fifteen-odd templates cannot between them crowd out the curated half.
 
@@ -127,7 +127,7 @@ FEATURED_MIN_TOTAL: dict[str, int] = {
 #: THREE, AND THE NUMBER IS THE POINT OF THE TIER. A template is one sentence
 #: with the nouns swapped, and the homepage's whole failure mode is serving the
 #: same sentence often enough that a reader notices the sentence instead of the
-#: fact. Eight of ~95 is 8%; three is 3%, which is roughly one appearance a
+#: fact. Eight of ~93 is 9%; three is 3%, which is roughly one appearance a
 #: quarter for any one shape.
 MAX_FEATURED_PER_PATTERN = 3
 
@@ -203,7 +203,7 @@ _SUBJECTIVE = tuple(
 #: bank is now a reservoir, and the homepage does not rotate through it.
 #:
 #: NINETY, BECAUSE THAT IS WHERE THE FLOORS LAND. The criteria above were
-#: written down first and counted afterwards, and they admit ~95 facts. This
+#: written down first and counted afterwards, and they admit 93 facts. This
 #: floor sits just under that so a build that loses a few facts still ships and
 #: a build that loses twenty stops. It is deliberately NOT set to a number the
 #: gates would have to be loosened to reach: HOME-02 asks for "a smaller
@@ -631,7 +631,18 @@ def featured_markdown(bank: Sequence[NbaFact]) -> str:
             )
     else:
         lines.append("None.")
-    lines.append("")
+    lines += [
+        "",
+        "Every fact in the tier that makes a claim about the present carries a",
+        "date, and `rotation.fact_for_date` filters on it before the schedule is",
+        "built — so an expired fact is not served with a caveat, it is not served.",
+        "The tier does NOT re-select when one lapses: an expiry drops that fact",
+        "and promotes nothing, because a template slot freeing up on a Tuesday is",
+        "a homepage that changes for a reason nobody can see. The cycle shortens",
+        "by the number that lapsed, which is what the dates above let a reader",
+        "work out for any future day.",
+        "",
+    ]
     return "\n".join(lines)
 
 
