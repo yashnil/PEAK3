@@ -288,7 +288,7 @@ test.describe("The $20 Showdown", () => {
         }
 
         await expect(page.getByTestId("td-table")).toBeVisible({ timeout: 30_000 });
-        await page.waitForTimeout(1600); // let the lot reveal beat settle
+        await page.waitForTimeout(4200); // past the reveal beat and the handoff hold
         await shot(page, `s20-auction-${cell.key}`, "auction stage: current bid hierarchy", {
           theme: cell.theme,
         });

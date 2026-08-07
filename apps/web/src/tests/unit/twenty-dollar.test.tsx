@@ -1,17 +1,20 @@
 /**
  * The $20 Showdown auction room.
  *
- * WHAT CHANGED, AND WHAT THE TESTS NOW PROTECT. v1 was a sealed-bid auction and
- * the tests here were mostly LEAK tests: recursive searches of the rendered
- * output for the opponent's hidden amount. v2 bids sequentially and every
- * amount is public the instant it is named, so there is no bid to leak — the
- * one secret left is the candidate's PEAK3 score, and the recursive-search
- * discipline moved onto that.
+ * WHAT THESE TESTS PROTECT. v1 was a sealed-bid auction and this file was
+ * mostly LEAK tests: recursive searches of the rendered output for the
+ * opponent's hidden amount. v2 bids sequentially and every amount is public the
+ * instant it is named, so the one secret left is the candidate's PEAK3 score,
+ * and the recursive-search discipline moved onto that.
  *
- * The rest of this file protects the reported UI defects directly: precise
- * whole-dollar controls instead of a slider, a turn indicator that says whose
- * move it is, and a disabled bid button that always says WHY.
+ * The rest protects the reported UI defects directly, and each block names the
+ * requirement it pins: the decision hierarchy (S20-04), the auction controls
+ * (S20-05), skips as a first-class number (S20-06), the three named declines
+ * (S20-07), the roster columns (S20-14) and the result screen (S20-15).
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -19,21 +22,31 @@ import userEvent from "@testing-library/user-event";
 import {
   bidBlockedLabel,
   formatDollars,
+  lastActionLabel,
+  passActionLabel,
+  passKind,
   standingBidLabel,
   waitingLabel,
+  TURN_SECONDS,
   type ResolvedLot,
   type TwentyDollarPublicState,
   type TwentyDollarPrivateState,
 } from "@/lib/twenty-dollar-api";
 import {
-  AuctionHistory,
-  BudgetMeter,
-  CandidateCard,
+  AuctionLog,
+  AuctionStage,
   LotReveal,
-  LotTicker,
   RosterBoard,
+  SeatCard,
+  TurnBanner,
 } from "@/components/twenty-dollar/AuctionBoard";
 import BidControls from "@/components/twenty-dollar/BidControls";
+import { SettledLotTray } from "@/components/twenty-dollar/LotLedger";
+import ShowdownResult, {
+  responseLine,
+} from "@/components/twenty-dollar/ShowdownResult";
+import MatchIntro from "@/components/twenty-dollar/MatchIntro";
+import ShowdownClock from "@/components/twenty-dollar/ShowdownClock";
 import { toLineupDNA } from "@/components/twenty-dollar/ComponentSilhouette";
 import TwentyDollarReceipt, {
   buildShowdownShareText,
@@ -114,6 +127,8 @@ function privateState(
     candidate_fits: ["PG"],
     market_skips: 5,
     pass_consumes_skip: true,
+    pass_kind: "market_skip",
+    lot_already_rejected: false,
     can_pass: true,
     timeout_outcome: "skip_used" as const,
     can_acquire_candidate: true,
@@ -171,7 +186,7 @@ function html(): string {
 describe("the candidate's score is hidden until the lot resolves", () => {
   it("renders no score, rank or component for a live candidate", () => {
     render(
-      <CandidateCard
+      <AuctionStage
         publicState={publicState()}
         fits={["PG"]}
         seatNames={["You", "Rival"]}
@@ -185,7 +200,7 @@ describe("the candidate's score is hidden until the lot resolves", () => {
 
   it("names the player, the season and the team, which IS what you bid on", () => {
     render(
-      <CandidateCard
+      <AuctionStage
         publicState={publicState()}
         fits={["PG"]}
         seatNames={["You", "Rival"]}
@@ -207,8 +222,6 @@ describe("the candidate's score is hidden until the lot resolves", () => {
   });
 
   it("says unsold, not sold, when nobody bid", () => {
-    // The eyebrow was hardcoded to "sold" and contradicted the verdict three
-    // lines below it.
     render(
       <LotReveal
         lot={{ ...SETTLED_LOT, winner_seat: null, price: 0 }}
@@ -220,27 +233,24 @@ describe("the candidate's score is hidden until the lot resolves", () => {
     expect(screen.getByTestId("td-reveal-verdict")).toHaveTextContent(/Nobody bid/i);
   });
 
-  it("says sold when a seat took it", () => {
-    render(<LotReveal lot={SETTLED_LOT} seatNames={["You", "Rival"]} yourSeat={0} />);
-    expect(screen.getByTestId("td-reveal-lot")).toHaveTextContent(/· sold/i);
-    expect(screen.getByTestId("td-reveal-lot")).not.toHaveTextContent(/unsold/i);
+  /**
+   * A RUN OF SETTLED LOTS IS A SEQUENCE, NOT A GAP (S20-10). One accepted
+   * command can settle several lots — `_advance_lot` resolves an unusable
+   * candidate inside the call that created it — and the player must be told
+   * more are coming rather than shown a "While you were away" banner while
+   * they are sitting there.
+   */
+  it("says how many more lots are still settling behind this one", () => {
+    render(
+      <LotReveal lot={SETTLED_LOT} seatNames={["You", "Rival"]} yourSeat={0} queued={2} />,
+    );
+    expect(screen.getByTestId("td-reveal-queued")).toHaveTextContent("2 more lots");
   });
 
-  /**
-   * THE SCORE IS THE PAYOFF, so it must not be the thing you scroll for.
-   * The component silhouette rendered inline and was most of the panel's
-   * height; a review frame showed the revealed score cut off by the bottom of
-   * the viewport. PART 19 asks for a "view breakdown" action after settlement
-   * rather than a chart appended under the live controls, which is also what
-   * keeps the number itself on screen.
-   */
   it("keeps the chart behind a disclosure so the score is what you see first", () => {
     render(<LotReveal lot={SETTLED_LOT} seatNames={["You", "Rival"]} yourSeat={0} />);
     const toggle = screen.getByTestId("td-reveal-breakdown-toggle");
-    expect(toggle).toBeInTheDocument();
     expect(toggle.closest("details")).not.toHaveAttribute("open");
-    // The score outranks the chart in the DOM, which is what a screen reader
-    // and a viewport agree on.
     expect(
       screen
         .getByTestId("td-reveal-score")
@@ -250,58 +260,39 @@ describe("the candidate's score is hidden until the lot resolves", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Everything an ascending auction must show
+// S20-04 — the decision hierarchy
 // ---------------------------------------------------------------------------
 
-describe("the standing bid and the turn are on the block", () => {
-  it("says whose move it is, and marks your own turn distinctly", () => {
+describe("the auction stage reads in the order a bidder decides", () => {
+  it("puts the CURRENT BID above the leader, and the leader above the last action", () => {
     render(
-      <CandidateCard
-        publicState={publicState({ active_seat: 0 })}
+      <AuctionStage
+        publicState={publicState({
+          current_bid: 6,
+          high_bidder: 1,
+          lot_actions: [
+            { seat_index: 0, action: "bid", amount: 5 },
+            { seat_index: 1, action: "bid", amount: 6 },
+          ],
+        })}
         fits={["PG"]}
         seatNames={["You", "Rival"]}
         yourSeat={0}
       />,
     );
-    const indicator = screen.getByTestId("td-turn-indicator");
-    expect(indicator).toHaveAttribute("data-your-turn", "true");
-    expect(indicator).toHaveTextContent(/your move/i);
-    // THE COUNTDOWN IS NO LONGER ON THIS CARD. It lives in `ArenaTimer` beside
-    // the controls so that a tick rerenders four characters rather than the
-    // whole board; `arena-timer.test.tsx` covers it there.
-    expect(screen.queryByTestId("td-turn-clock")).toBeNull();
-  });
-
-  it("names the opponent when the clock is theirs, and shows no countdown", () => {
-    render(
-      <CandidateCard
-        publicState={publicState({ active_seat: 1 })}
-        fits={["PG"]}
-        seatNames={["You", "Rival"]}
-        yourSeat={0}
-      />,
-    );
-    const indicator = screen.getByTestId("td-turn-indicator");
-    expect(indicator).toHaveAttribute("data-your-turn", "false");
-    expect(indicator).toHaveTextContent("Rival");
-  });
-
-  it("shows the standing bid and who holds it", () => {
-    render(
-      <CandidateCard
-        publicState={publicState({ current_bid: 6, high_bidder: 1, active_seat: 0 })}
-        fits={["PG"]}
-        seatNames={["You", "Rival"]}
-        yourSeat={0}
-      />,
-    );
-    expect(screen.getByTestId("td-standing-amount")).toHaveTextContent("$6");
-    expect(screen.getByTestId("td-standing-holder")).toHaveTextContent("Rival");
+    const amount = screen.getByTestId("td-standing-amount");
+    const holder = screen.getByTestId("td-standing-holder");
+    const last = screen.getByTestId("td-last-action");
+    expect(amount).toHaveTextContent("$6");
+    expect(holder).toHaveTextContent("Rival leads");
+    expect(last).toHaveTextContent("Rival raised to $6 (+$1)");
+    expect(amount.compareDocumentPosition(holder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(holder.compareDocumentPosition(last) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows no bid before anybody opens", () => {
     render(
-      <CandidateCard
+      <AuctionStage
         publicState={publicState()}
         fits={["PG"]}
         seatNames={["You", "Rival"]}
@@ -309,42 +300,91 @@ describe("the standing bid and the turn are on the block", () => {
       />,
     );
     expect(screen.getByTestId("td-standing-holder")).toHaveTextContent(/no bid yet/i);
+    expect(screen.queryByTestId("td-last-action")).toBeNull();
   });
 
-  it("tickers the walk-up so an alternating auction is legible", () => {
+  /**
+   * THE ROW OF MICRO-CHIPS IS GONE. `You $1 · PEAK3 Bot $2 · You $3 …` carried
+   * the whole bid history at 11px beside the control it competed with. The full
+   * walk-up moved into an expandable log, closed by default.
+   */
+  it("keeps the full bid history behind a closed disclosure", () => {
     render(
-      <LotTicker
+      <AuctionLog
         actions={SETTLED_LOT.actions}
         seatNames={["You", "Rival"]}
         yourSeat={0}
       />,
     );
-    const ticker = screen.getByTestId("td-lot-ticker");
-    expect(ticker).toHaveTextContent("$3");
-    expect(ticker).toHaveTextContent("$4");
-    expect(ticker).toHaveTextContent("$5");
-    expect(ticker).toHaveTextContent(/passed/i);
+    const log = screen.getByTestId("td-auction-log");
+    expect(log.tagName).toBe("DETAILS");
+    expect(log).not.toHaveAttribute("open");
+    const list = screen.getByTestId("td-lot-ticker");
+    expect(list).toHaveTextContent("$3");
+    expect(list).toHaveTextContent("$4");
+    expect(list).toHaveTextContent("$5");
+    expect(list).toHaveTextContent(/passed/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S20-03 — the active seat
+// ---------------------------------------------------------------------------
+
+describe("the active participant is unmistakable", () => {
+  it("names the turn at the top of the room, with a seat attribute for the styling", () => {
+    render(
+      <TurnBanner activeSeat={0} yourSeat={0} seatNames={["You", "Rival"]} phase="decide" />,
+    );
+    const banner = screen.getByTestId("td-turn-indicator");
+    expect(banner).toHaveAttribute("data-your-turn", "true");
+    expect(banner).toHaveAttribute("data-seat", "a");
+    expect(banner).toHaveTextContent(/your move/i);
+  });
+
+  it("names the opponent when the clock is theirs", () => {
+    render(
+      <TurnBanner activeSeat={1} yourSeat={0} seatNames={["You", "Rival"]} phase="decide" />,
+    );
+    const banner = screen.getByTestId("td-turn-indicator");
+    expect(banner).toHaveAttribute("data-your-turn", "false");
+    expect(banner).toHaveAttribute("data-seat", "b");
+    expect(banner).toHaveTextContent("Rival is deciding");
+  });
+
+  it("says what a beat is, rather than claiming somebody is deciding during it", () => {
+    const { rerender } = render(
+      <TurnBanner activeSeat={0} yourSeat={0} seatNames={["You", "Rival"]} phase="reveal" />,
+    );
+    expect(screen.getByTestId("td-turn-indicator")).toHaveTextContent(/new lot/i);
+    rerender(
+      <TurnBanner activeSeat={0} yourSeat={0} seatNames={["You", "Rival"]} phase="pending" />,
+    );
+    expect(screen.getByTestId("td-turn-indicator")).toHaveTextContent(/sending/i);
+  });
+
+  it("marks the seat card on the clock, in text as well as in an attribute", () => {
+    render(
+      <SeatCard seat={seat(1)} label="Rival" isYou={false} isActive isOpener={false} />,
+    );
+    expect(screen.getByTestId("td-budget-1")).toHaveAttribute("data-active", "true");
+    // Never colour alone.
+    expect(screen.getByTestId("td-seat-live-1")).toHaveTextContent(/on the clock/i);
   });
 
   it("marks the opening bidder for the current lot", () => {
     render(
-      <BudgetMeter
-        seat={seat(1)}
-        label="Rival"
-        isYou={false}
-        isActive={false}
-        isOpener
-      />,
+      <SeatCard seat={seat(1)} label="Rival" isYou={false} isActive={false} isOpener />,
     );
     expect(screen.getByTestId("td-opener-1")).toHaveTextContent(/opens/i);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Precise whole-dollar controls
+// S20-05 — the auction controls
 // ---------------------------------------------------------------------------
 
-describe("bid controls are a stepper, not a slider", () => {
+describe("bid controls are a designed auction control, not a form", () => {
   it("renders no range input anywhere", () => {
     render(
       <BidControls
@@ -358,51 +398,61 @@ describe("bid controls are a stepper, not a slider", () => {
     expect(document.querySelector('input[type="range"]')).toBeNull();
   });
 
-  /**
-   * ONE COMMAND IN FLIGHT, ONE CONTROL SAYING SO.
-   *
-   * `busy` is a single board-wide flag and both action buttons were reading
-   * it, so pressing Bid put "Submitting…" on the PASS button too — a review
-   * frame caught the screen claiming to be submitting a bid and a pass at the
-   * same moment. Which control was pressed is now remembered locally; the
-   * disabled state still comes from `busy`, because only one command may be
-   * in flight either way.
-   */
-  it("names only the command that was actually pressed as submitting", async () => {
+  it("carries the amount that will be submitted on the primary CTA", () => {
+    const { unmount } = render(
+      <BidControls
+        publicState={publicState()}
+        privateState={privateState()}
+        seatNames={["You", "Rival"]}
+        busy={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("td-submit-bid")).toHaveTextContent("Open at $1");
+    unmount();
+    render(
+      <BidControls
+        publicState={publicState({ current_bid: 3, high_bidder: 1, minimum_bid: 4 })}
+        privateState={privateState({ minimum_bid: 4 })}
+        seatNames={["You", "Rival"]}
+        busy={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("td-submit-bid")).toHaveTextContent("Raise to $4");
+  });
+
+  it("names only the command that was actually pressed as sending", async () => {
     const user = userEvent.setup();
-    const onSubmit = vi.fn();
     const props = {
       publicState: publicState(),
       privateState: privateState(),
       seatNames: ["You", "Rival"],
-      onSubmit,
+      onSubmit: vi.fn(),
     };
     const { rerender } = render(<BidControls {...props} busy={false} />);
 
     await user.click(screen.getByTestId("td-submit-bid"));
     rerender(<BidControls {...props} busy={true} />);
 
-    expect(screen.getByTestId("td-submit-bid")).toHaveTextContent(/Submitting \$\d+ bid/);
-    expect(screen.getByTestId("td-pass")).not.toHaveTextContent(/Submitting/);
+    expect(screen.getByTestId("td-submit-bid")).toHaveTextContent(/Sending \$\d+/);
+    expect(screen.getByTestId("td-pass")).not.toHaveTextContent(/Sending/);
     expect(screen.getByTestId("td-pass")).toBeDisabled();
   });
 
-  it("names the pass as submitting when the pass is what was pressed", async () => {
+  it("names the pass as sending when the pass is what was pressed", async () => {
     const user = userEvent.setup();
-    const onSubmit = vi.fn();
     const props = {
       publicState: publicState(),
       privateState: privateState(),
       seatNames: ["You", "Rival"],
-      onSubmit,
+      onSubmit: vi.fn(),
     };
     const { rerender } = render(<BidControls {...props} busy={false} />);
-
     await user.click(screen.getByTestId("td-pass"));
     rerender(<BidControls {...props} busy={true} />);
-
-    expect(screen.getByTestId("td-pass")).toHaveTextContent("Submitting…");
-    expect(screen.getByTestId("td-submit-bid")).not.toHaveTextContent(/Submitting/);
+    expect(screen.getByTestId("td-pass")).toHaveTextContent("Sending…");
+    expect(screen.getByTestId("td-submit-bid")).not.toHaveTextContent(/Sending/);
   });
 
   it("opens at the server's minimum and steps in whole dollars", async () => {
@@ -430,7 +480,6 @@ describe("bid controls are a stepper, not a slider", () => {
     render(
       <BidControls
         publicState={publicState()}
-        // $20 budget, five slots open -> the ceiling is $16.
         privateState={privateState({ max_bid: 16, reserve_floor: 4 })}
         seatNames={["You", "Rival"]}
         busy={false}
@@ -442,8 +491,7 @@ describe("bid controls are a stepper, not a slider", () => {
     expect(screen.getByTestId("td-bid-range")).toHaveTextContent("$1–$16");
   });
 
-  it("cannot be stepped below the raise minimum on a live bid", async () => {
-    const user = userEvent.setup();
+  it("cannot be stepped below the raise minimum on a live bid", () => {
     render(
       <BidControls
         publicState={publicState({ current_bid: 4, high_bidder: 1, minimum_bid: 5 })}
@@ -455,31 +503,6 @@ describe("bid controls are a stepper, not a slider", () => {
     );
     expect(screen.getByTestId("td-bid-amount")).toHaveTextContent("$5");
     expect(screen.getByTestId("td-bid-minus")).toBeDisabled();
-    await user.click(screen.getByTestId("td-submit-bid"));
-  });
-
-  it("labels the primary action Open or Bid depending on the lot", () => {
-    const { unmount } = render(
-      <BidControls
-        publicState={publicState()}
-        privateState={privateState()}
-        seatNames={["You", "Rival"]}
-        busy={false}
-        onSubmit={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("td-submit-bid")).toHaveTextContent("Open at $1");
-    unmount();
-    render(
-      <BidControls
-        publicState={publicState({ current_bid: 3, high_bidder: 1, minimum_bid: 4 })}
-        privateState={privateState({ minimum_bid: 4 })}
-        seatNames={["You", "Rival"]}
-        busy={false}
-        onSubmit={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("td-submit-bid")).toHaveTextContent("Bid $4");
   });
 
   it("submits the exact whole-dollar amount shown", async () => {
@@ -499,7 +522,7 @@ describe("bid controls are a stepper, not a slider", () => {
     expect(onSubmit).toHaveBeenCalledWith("bid", 3);
   });
 
-  it("always offers a pass on your own turn", async () => {
+  it("always offers a decline on your own turn", async () => {
     const onSubmit = vi.fn();
     const user = userEvent.setup();
     render(
@@ -514,6 +537,134 @@ describe("bid controls are a stepper, not a slider", () => {
     expect(screen.getByTestId("td-submit-bid")).toBeDisabled();
     await user.click(screen.getByTestId("td-pass"));
     expect(onSubmit).toHaveBeenCalledWith("pass", 0);
+  });
+
+  /**
+   * S20-08's CLIENT HALF, at the control. A phase that is not `decide` — the
+   * intro, a lot reveal, an inter-turn handoff — must not offer an action that
+   * has not opened yet.
+   */
+  it("closes the controls when the room's phase is not a decision", () => {
+    render(
+      <BidControls
+        publicState={publicState()}
+        privateState={privateState()}
+        seatNames={["You", "Rival"]}
+        busy={false}
+        live={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("td-bid-controls")).toHaveAttribute("data-live", "false");
+    expect(screen.getByTestId("td-submit-bid")).toBeDisabled();
+    expect(screen.getByTestId("td-pass")).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S20-06 / S20-07 — skips, named and counted
+// ---------------------------------------------------------------------------
+
+describe("the three declines are named, and the count is not a suffix", () => {
+  it.each([
+    ["market_skip", /market skip/i, "true"],
+    ["follow_pass", /pass on this lot/i, "false"],
+    ["auction_pass", /concede the lot/i, "false"],
+  ] as const)("labels %s by what it does", (kind, pattern, costs) => {
+    render(
+      <BidControls
+        publicState={publicState()}
+        privateState={privateState({
+          pass_kind: kind,
+          pass_consumes_skip: kind === "market_skip",
+        })}
+        seatNames={["You", "Rival"]}
+        busy={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    const pass = screen.getByTestId("td-pass");
+    expect(pass).toHaveTextContent(pattern);
+    expect(pass).toHaveAttribute("data-pass-kind", kind);
+    expect(pass).toHaveAttribute("data-costs-skip", costs);
+  });
+
+  /** S20-06 is explicit: "Do not append '—free' to Pass." */
+  it("never appends '— free' to a decline", () => {
+    for (const kind of ["follow_pass", "auction_pass"] as const) {
+      const { unmount } = render(
+        <BidControls
+          publicState={publicState()}
+          privateState={privateState({ pass_kind: kind, pass_consumes_skip: false })}
+          seatNames={["You", "Rival"]}
+          busy={false}
+          onSubmit={vi.fn()}
+        />,
+      );
+      expect(screen.getByTestId("td-pass").textContent).not.toMatch(/free/i);
+      unmount();
+    }
+  });
+
+  it("explains the cost in a sentence rather than in punctuation", () => {
+    render(
+      <BidControls
+        publicState={publicState()}
+        privateState={privateState({ pass_kind: "follow_pass", pass_consumes_skip: false })}
+        seatNames={["You", "Rival"]}
+        busy={false}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("td-bid-hint")).toHaveTextContent(
+      /already declined this lot, so this costs you no market skip/i,
+    );
+  });
+
+  it("falls back to `pass_consumes_skip` when the projection predates `pass_kind`", () => {
+    expect(passKind(privateState({ pass_kind: undefined }))).toBe("market_skip");
+    expect(
+      passKind(privateState({ pass_kind: undefined, pass_consumes_skip: false })),
+    ).toBe("auction_pass");
+    expect(passActionLabel(privateState({ pass_kind: "follow_pass" }))).toBe(
+      "Pass on this lot",
+    );
+  });
+
+  /** S20-06: a first-class number on the seat card, for BOTH seats. */
+  it("shows budget, roster and skips as three stats of equal rank", () => {
+    render(
+      <SeatCard
+        seat={seat(0, { budget: 12, filled_slots: 2, market_skips: 3 })}
+        label="You"
+        isYou
+        isActive
+        isOpener={false}
+      />,
+    );
+    const card = screen.getByTestId("td-budget-0");
+    expect(screen.getByTestId("td-seat-budget-0")).toHaveTextContent("$12");
+    expect(card).toHaveTextContent("2");
+    const skips = screen.getByTestId("td-skips-0");
+    expect(skips).toHaveAttribute("data-remaining", "3");
+    // The e2e suite reads this phrasing; it is also just what the number means.
+    expect(skips).toHaveTextContent(/skips left/);
+    expect(skips).toHaveTextContent("3");
+  });
+
+  it("reports the server's budget through a meter role", () => {
+    render(
+      <SeatCard
+        seat={seat(0, { budget: 12, filled_slots: 2 })}
+        label="You"
+        isYou
+        isActive
+        isOpener={false}
+      />,
+    );
+    const meter = screen.getByRole("meter");
+    expect(meter).toHaveAttribute("aria-valuenow", "12");
+    expect(meter).toHaveAttribute("aria-valuemax", "20");
   });
 });
 
@@ -549,11 +700,8 @@ describe("a disabled bid always says why", () => {
         onSubmit={vi.fn()}
       />,
     );
-    const button = screen.getByTestId("td-submit-bid");
-    const blocked = screen.queryByTestId("td-bid-blocked");
-    expect(button).toBeDisabled();
-    expect(blocked).not.toBeNull();
-    expect((blocked?.textContent ?? "").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("td-submit-bid")).toBeDisabled();
+    expect(screen.getByTestId("td-bid-blocked").textContent?.length).toBeGreaterThan(0);
   });
 
   it("maps every reason the server can send", () => {
@@ -573,64 +721,132 @@ describe("a disabled bid always says why", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Board furniture
+// S20-08 — the clock surface
 // ---------------------------------------------------------------------------
 
-describe("budget meter", () => {
-  it("reports the server's budget through a meter role", () => {
-    render(
-      <BudgetMeter
-        seat={seat(0, { budget: 12, filled_slots: 2 })}
-        label="You"
-        isYou
-        isActive
-        isOpener={false}
-      />,
-    );
-    const meter = screen.getByRole("meter");
-    expect(meter).toHaveAttribute("aria-valuenow", "12");
-    expect(meter).toHaveAttribute("aria-valuemax", "20");
-    expect(screen.getByTestId("td-budget-0")).toHaveTextContent("2 of 5 filled");
+describe("the clock", () => {
+  it("counts the SERVER's turn length, not a hardcoded 20", () => {
+    // The room passed `totalSeconds={20}` while `TURN_SECONDS` is 25, so the
+    // progress arc sat pinned at full for the first five seconds of every turn.
+    expect(TURN_SECONDS).toBe(25);
   });
 
-  it("marks the seat on the clock", () => {
+  const clockProps = {
+    activeSeat: 0,
+    yourSeat: 0,
+    turnKey: "0:0:0",
+    pendingCommand: null,
+    pendingAmount: 0,
+    onExpire: vi.fn(),
+  };
+
+  it("shows the submitted action instead of a countdown while a command is out", () => {
     render(
-      <BudgetMeter seat={seat(1)} label="Rival" isYou={false} isActive isOpener={false} />,
+      <ShowdownClock
+        {...clockProps}
+        phase="pending"
+        deadlineAt={null}
+        pendingCommand="bid"
+        pendingAmount={4}
+      />,
     );
-    expect(screen.getByTestId("td-budget-1")).toHaveAttribute("data-active", "true");
+    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "pending");
+    expect(screen.getByTestId("td-pending")).toHaveTextContent("Sending your $4 bid…");
+    expect(screen.queryByTestId("td-timer-value")).toBeNull();
+  });
+
+  it("renders the ordinary countdown once nothing is in flight", () => {
+    render(
+      <ShowdownClock {...clockProps} phase="decide" deadlineAt={performance.now() + 20_000} />,
+    );
+    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "countdown");
+    expect(screen.getByTestId("td-timer-value")).toBeInTheDocument();
+    // It reports TIME. The turn is `TurnBanner`'s job and nobody else's.
+    expect(screen.getByTestId("td-clock")).not.toHaveTextContent(/your turn/i);
+  });
+
+  /**
+   * NO DEADLINE IS A NORMAL STATE, NOT AN ERROR. `arena.py` sends
+   * `seconds_remaining` to exactly one seat, so it is null for the whole of the
+   * opponent's turn and for every beat. Handing that null to `ArenaTimer`
+   * produced its label-only idle state — a band with a word in it and nothing
+   * else, which a reviewer photographed and reasonably read as a missing clock.
+   */
+  it("never renders an empty band when there is no deadline", () => {
+    const { unmount } = render(
+      <ShowdownClock {...clockProps} phase="reveal" deadlineAt={null} />,
+    );
+    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "held");
+    expect(screen.getByTestId("td-clock").textContent?.trim().length).toBeGreaterThan(30);
+    unmount();
+
+    render(
+      <ShowdownClock
+        {...clockProps}
+        phase="settling"
+        activeSeat={null}
+        deadlineAt={null}
+      />,
+    );
+    expect(screen.getByTestId("td-clock")).toHaveTextContent(/next clock/i);
+    expect(screen.getByTestId("td-clock")).toHaveTextContent(/next lot opens/i);
+  });
+
+  it("counts up rather than inventing a deadline for the opponent", () => {
+    render(
+      <ShowdownClock {...clockProps} phase="decide" activeSeat={1} deadlineAt={null} />,
+    );
+    expect(screen.getByTestId("td-clock")).toHaveAttribute("data-mode", "elapsed");
+    expect(screen.getByTestId("td-elapsed-value")).toHaveTextContent("0s");
+    // TIME, not a second copy of the turn banner's sentence.
+    expect(screen.getByTestId("td-clock")).toHaveTextContent(/time elapsed/i);
+    expect(screen.getByTestId("td-clock")).not.toHaveTextContent(/is deciding/i);
   });
 });
+
+// ---------------------------------------------------------------------------
+// S20-14 — roster columns
+// ---------------------------------------------------------------------------
 
 describe("roster board", () => {
   const withRoster = seat(0, {
     filled_slots: 1,
     roster: [
       {
-        player_slug: "brian-grant",
-        player_name: "Brian Grant",
+        player_slug: "shai-gilgeous-alexander",
+        player_name: "Shai Gilgeous-Alexander",
         anchor_season: "1996-97",
         price: 4,
-        // The server's LIVE assignment, which a later purchase can move.
         slot: "C",
         prime_score: 44.5,
         autofilled: false,
       },
     ],
-    assignment: { C: "brian-grant" },
+    assignment: { C: "shai-gilgeous-alexander" },
     open_slots: ["PG", "SG", "SF", "PF"],
   });
 
   it("places each player at the slot the SERVER assigned", () => {
     render(<RosterBoard seat={withRoster} slots={publicState().slots} label="Your five" />);
-    expect(screen.getByTestId("td-slot-0-C")).toHaveTextContent("Brian Grant");
+    expect(screen.getByTestId("td-slot-0-C")).toHaveTextContent("Shai Gilgeous-Alexander");
     expect(screen.getByTestId("td-slot-0-PF")).toHaveTextContent("Open");
   });
 
-  it("shows the season and the revealed score beside a bought player", () => {
+  /**
+   * S20-14: a row must carry the headshot, the name, the season, the price and
+   * the position. The old row had a 2rem tag, a flexed name and a price in a
+   * 15rem column, so an ordinary name wrapped onto three lines.
+   */
+  it("carries every field a roster row owes, including an avatar", () => {
     render(<RosterBoard seat={withRoster} slots={publicState().slots} label="Your five" />);
-    expect(screen.getByTestId("td-slot-0-C")).toHaveTextContent("1996-97");
-    expect(screen.getByTestId("td-slot-0-C")).toHaveTextContent("44.5");
-    expect(screen.getByTestId("td-slot-0-C")).toHaveTextContent("$4");
+    const row = screen.getByTestId("td-slot-0-C");
+    expect(row).toHaveAttribute("data-filled", "true");
+    expect(row).toHaveTextContent("1996-97");
+    expect(row).toHaveTextContent("44.5");
+    expect(row).toHaveTextContent("$4");
+    expect(row).toHaveTextContent("C");
+    // The SHARED-03 primitive, not a second image component.
+    expect(row.querySelector('[data-testid="player-avatar"]')).not.toBeNull();
   });
 
   it("marks an auto-filled slot rather than passing it off as won", () => {
@@ -652,14 +868,10 @@ describe("roster board", () => {
   });
 });
 
-describe("auction history", () => {
+describe("the settled tray", () => {
   it("shows the price and the revealed score for a settled lot", () => {
     render(
-      <AuctionHistory
-        history={[SETTLED_LOT]}
-        seatNames={["You", "Rival"]}
-        yourSeat={0}
-      />,
+      <SettledLotTray history={[SETTLED_LOT]} seatNames={["You", "Rival"]} yourSeat={0} />,
     );
     const row = screen.getByTestId("td-history-0");
     expect(row).toHaveTextContent("Chris Paul");
@@ -669,14 +881,14 @@ describe("auction history", () => {
 
   it("renders nothing before the first lot settles", () => {
     const { container } = render(
-      <AuctionHistory history={[]} seatNames={["You", "Rival"]} yourSeat={0} />,
+      <SettledLotTray history={[]} seatNames={["You", "Rival"]} yourSeat={0} />,
     );
     expect(container).toBeEmptyDOMElement();
   });
 
   it("reports an unsold lot honestly", () => {
     render(
-      <AuctionHistory
+      <SettledLotTray
         history={[{ ...SETTLED_LOT, winner_seat: null, price: 0, decided_by: "unsold" }]}
         seatNames={["You", "Rival"]}
         yourSeat={0}
@@ -700,6 +912,52 @@ describe("the silhouette maps components onto the house radar", () => {
 });
 
 // ---------------------------------------------------------------------------
+// S20-01 — the intro
+// ---------------------------------------------------------------------------
+
+describe("the pre-match intro", () => {
+  it("names the opponent, the money, the slots and the skip rule", () => {
+    render(
+      <MatchIntro
+        opponentName="PEAK3 Bot"
+        startingBudget={20}
+        slots={5}
+        marketSkips={5}
+        rated={false}
+        onDismiss={vi.fn()}
+      />,
+    );
+    const intro = screen.getByTestId("td-intro");
+    expect(intro).toHaveTextContent("PEAK3 Bot");
+    expect(intro).toHaveTextContent("$20");
+    expect(intro).toHaveTextContent(/roster slots/i);
+    expect(intro).toHaveTextContent(/market skips/i);
+    expect(intro).toHaveAttribute("aria-modal", "true");
+  });
+
+  it("is dismissible by a real button and by Escape", async () => {
+    const onDismiss = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <MatchIntro
+        opponentName="PEAK3 Bot"
+        startingBudget={20}
+        slots={5}
+        marketSkips={5}
+        rated
+        onDismiss={onDismiss}
+      />,
+    );
+    // Focus lands on the action, so a keyboard user is not hunting for it.
+    expect(screen.getByTestId("td-intro-start")).toHaveFocus();
+    await user.click(screen.getByTestId("td-intro-start"));
+    expect(onDismiss).toHaveBeenCalled();
+    await user.keyboard("{Escape}");
+    expect(onDismiss).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Labels
 // ---------------------------------------------------------------------------
 
@@ -715,9 +973,9 @@ describe("status labels", () => {
   });
 
   it("names the opponent when the clock is theirs", () => {
-    expect(
-      waitingLabel(publicState({ active_seat: 1 }), 0, ["You", "Rival"]),
-    ).toMatch(/Rival/);
+    expect(waitingLabel(publicState({ active_seat: 1 }), 0, ["You", "Rival"])).toMatch(
+      /Rival/,
+    );
   });
 
   it("reports completion", () => {
@@ -730,10 +988,40 @@ describe("status labels", () => {
     ).toBe("$7 — you");
     expect(standingBidLabel(publicState(), 0, ["You", "Rival"])).toBe("No bid yet");
   });
+
+  it("describes the last action in words, not in a chip", () => {
+    const names = ["You", "Rival"];
+    expect(lastActionLabel(publicState(), 0, names)).toBeNull();
+    expect(
+      lastActionLabel(
+        publicState({ lot_actions: [{ seat_index: 0, action: "bid", amount: 2 }] }),
+        0,
+        names,
+      ),
+    ).toBe("You opened at $2");
+    expect(
+      lastActionLabel(
+        publicState({
+          lot_actions: [{ seat_index: 1, action: "pass", amount: 0, consumed_skip: true }],
+        }),
+        0,
+        names,
+      ),
+    ).toBe("Rival used a market skip");
+    expect(
+      lastActionLabel(
+        publicState({
+          lot_actions: [{ seat_index: 0, action: "pass", amount: 0, timed_out: true }],
+        }),
+        0,
+        names,
+      ),
+    ).toBe("You ran out of time");
+  });
 });
 
 // ---------------------------------------------------------------------------
-// Receipt
+// Receipt and result
 // ---------------------------------------------------------------------------
 
 const RECEIPT: TwentyDollarReceiptData = {
@@ -785,8 +1073,6 @@ const RECEIPT: TwentyDollarReceiptData = {
     winner_seat: 1,
     outcome: "decided",
     decided_by: "roster_total",
-    // ONE LEVEL in v2: unspent money has no scoring value, so it cannot be a
-    // tie-break either. An exact tie is a draw.
     levels: [
       {
         level: "roster_total", label: "Roster PEAK3 total", higher_wins: true,
@@ -819,10 +1105,6 @@ describe("receipt", () => {
   });
 
   it("renders no 'One bid away' panel, even when the payload carries one", () => {
-    // The panel reported final totals computed by moving one card from the
-    // winner's roster to the loser's, which leaves six cards on one side and
-    // four on the other. The receipt fixture below still includes the legacy
-    // key, and the component must ignore it rather than render it.
     expect(screen.queryByTestId("td-counterfactual")).toBeNull();
     expect(screen.getByTestId("td-receipt").textContent).not.toMatch(/one bid away/i);
   });
@@ -832,13 +1114,144 @@ describe("receipt", () => {
   });
 });
 
+describe("the result screen (S20-15)", () => {
+  const RESULT_STATE = publicState({
+    phase: "complete",
+    seats: [
+      seat(0, {
+        budget: 0,
+        filled_slots: 5,
+        roster: [
+          {
+            player_slug: "michael-holton",
+            player_name: "Michael Holton",
+            anchor_season: "1983-84",
+            price: 13,
+            slot: "PG",
+            prime_score: 22.65,
+            autofilled: false,
+          },
+        ],
+      }),
+      seat(1, { budget: 0, filled_slots: 5 }),
+    ],
+  });
+
+  function renderResult(yourSeat: number) {
+    return render(
+      <ShowdownResult
+        receipt={RECEIPT}
+        publicState={RESULT_STATE}
+        seatNames={["You", "Rival"]}
+        yourSeat={yourSeat}
+        onPlayAgain={vi.fn()}
+        onCopy={vi.fn()}
+        copied={false}
+      />,
+    );
+  }
+
+  it("says WON or LOST in a word, never by colour alone", () => {
+    const { unmount } = renderResult(1);
+    expect(screen.getByTestId("td-result")).toHaveAttribute("data-outcome", "win");
+    expect(screen.getByTestId("td-result-headline")).toHaveTextContent("WON");
+    unmount();
+    renderResult(0);
+    expect(screen.getByTestId("td-result")).toHaveAttribute("data-outcome", "loss");
+    expect(screen.getByTestId("td-result-headline")).toHaveTextContent("LOST");
+  });
+
+  it("states the margin and a response line rather than a grey explanation", () => {
+    renderResult(0);
+    expect(screen.getByTestId("td-result-margin")).toHaveTextContent("85.63");
+    expect(screen.getByTestId("td-result-response").textContent?.length).toBeGreaterThan(20);
+    // The old screen's "Decided on the sum of five career-best 1Y PEAK3
+    // seasons." sentence is gone from the hero; the receipt still explains it.
+    expect(screen.getByTestId("td-result").textContent).not.toMatch(
+      /Decided on the sum of five/,
+    );
+  });
+
+  /** DETERMINISTIC: the same match must read the same way on every render. */
+  it("picks the same response line for the same match, every time", () => {
+    const first = responseLine("loss", 85.63, 39121);
+    expect(responseLine("loss", 85.63, 39121)).toBe(first);
+    expect(responseLine("loss", 0.4, 39121)).not.toBe(first);
+    expect(responseLine("draw", 0, 1)).toMatch(/level/i);
+  });
+
+  it("gives both teams a rich card: five rows, price, PEAK3 value and totals", () => {
+    renderResult(0);
+    expect(screen.getByTestId("td-result-total-0")).toHaveTextContent("152.79");
+    expect(screen.getByTestId("td-result-total-1")).toHaveTextContent("238.42");
+    expect(screen.getByTestId("td-result-money-0")).toHaveTextContent(/spent/);
+    const card = screen.getByTestId("td-result-seat-0");
+    expect(card.querySelectorAll(".td-result-slot")).toHaveLength(5);
+    expect(card).toHaveTextContent("Michael Holton");
+    expect(card).toHaveTextContent("$13");
+    // 22.65 renders as 22.6: the float is a hair below the midpoint, and the
+    // number shown is `toFixed(1)` of the SERVER's value with no rounding of
+    // our own applied on top of it.
+    expect(card).toHaveTextContent("22.6");
+    expect(card.querySelector('[data-testid="player-avatar"]')).not.toBeNull();
+  });
+
+  it("promotes the three callouts to cards with a headline number", () => {
+    renderResult(0);
+    expect(screen.getByTestId("td-callout-bargain")).toHaveTextContent("Steal of the night");
+    expect(screen.getByTestId("td-callout-bargain")).toHaveTextContent("61.2");
+    expect(screen.getByTestId("td-callout-overpay")).toHaveTextContent("$13");
+    expect(screen.getByTestId("td-callout-decisive")).toHaveTextContent("Clint Capela");
+  });
+
+  it("keeps the receipt behind a secondary disclosure and the actions as buttons", () => {
+    render(
+      <ShowdownResult
+        receipt={RECEIPT}
+        publicState={RESULT_STATE}
+        seatNames={["You", "Rival"]}
+        yourSeat={0}
+        onPlayAgain={vi.fn()}
+        onCopy={vi.fn()}
+        copied={false}
+      >
+        <p>receipt body</p>
+      </ShowdownResult>,
+    );
+    const detail = screen.getByTestId("td-result-detail-toggle").closest("details");
+    expect(detail).not.toHaveAttribute("open");
+    expect(screen.getByTestId("td-play-again").tagName).toBe("BUTTON");
+    expect(screen.getByTestId("td-back-to-arena")).toHaveAttribute("href", "/arena");
+  });
+
+  it("calls back when the actions are pressed", async () => {
+    const onPlayAgain = vi.fn();
+    const onCopy = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ShowdownResult
+        receipt={RECEIPT}
+        publicState={RESULT_STATE}
+        seatNames={["You", "Rival"]}
+        yourSeat={0}
+        onPlayAgain={onPlayAgain}
+        onCopy={onCopy}
+        copied={false}
+      />,
+    );
+    await user.click(screen.getByTestId("td-play-again"));
+    await user.click(screen.getByTestId("td-share"));
+    expect(onPlayAgain).toHaveBeenCalled();
+    expect(onCopy).toHaveBeenCalled();
+  });
+});
+
 describe("share text", () => {
   it("carries totals and spend but never the roster", () => {
     const text = buildShowdownShareText(RECEIPT, 0);
     expect(text).toContain("The $20 Showdown");
     expect(text).toContain("152.8");
     expect(text).toContain("$20 spent");
-    // Spoiler-safe: no player names.
     expect(text).not.toContain("Clint Capela");
     expect(text).not.toContain("Darrell Armstrong");
   });
@@ -854,5 +1267,64 @@ describe("formatting", () => {
     expect(formatDollars(9)).toBe("$9");
     expect(formatDollars(0)).toBe("$0");
     expect(formatDollars(-4)).toBe("$0");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The stylesheet's own contract
+// ---------------------------------------------------------------------------
+
+/**
+ * THREE CSS DEFECTS, PINNED. Each one was invisible in dark mode and in a
+ * component test, which is why they survived: a stylesheet is the one artefact
+ * in this app that nothing else asserts against.
+ */
+describe("twenty-dollar.css", () => {
+  const css = readFileSync(
+    path.resolve(__dirname, "../../styles/twenty-dollar.css"),
+    "utf8",
+  );
+  /** The file with every `@media { … }` block removed, so base rules can be
+   *  compared without a responsive override counting as a redefinition. */
+  const base = css.replace(/@media[^{]+\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
+
+  it("never uses the accent FILL token as a text colour", () => {
+    // `--peak-accent` measures 1.29–1.50:1 as text on the light canvas. Nine
+    // rules used it that way, including `.td-btn-primary` — the label of the
+    // mode's single most important control. Text uses `--peak-accent-text`,
+    // which is re-derived per theme.
+    const offenders = [...css.matchAll(/(^|[\s;{])color:\s*var\(--peak-accent[,)]/gm)];
+    expect(offenders.map((m) => m[0])).toEqual([]);
+  });
+
+  it("gives the primary control a real fill", () => {
+    // It was `background: transparent` with an accent border, so the primary
+    // action was visually weaker than the secondary links on the result screen.
+    const rule = /\.td-btn-primary\s*\{([^}]*)\}/.exec(css);
+    expect(rule).not.toBeNull();
+    expect(rule?.[1]).toMatch(/background:\s*var\(--peak-accent\)/);
+    expect(rule?.[1]).toMatch(/color:\s*var\(--peak-accent-on\)/);
+  });
+
+  it("defines each base selector exactly once", () => {
+    // `.td-reveal` and `.td-candidate` were each defined twice — a v1 block and
+    // a v2 block 600 lines apart — and the later one silently won, so editing
+    // the first had no effect at all.
+    const selectors = [...base.matchAll(/(^|\})\s*([^{}@/]+?)\s*\{/g)]
+      .map((m) => m[2].replace(/\s+/g, " ").trim())
+      .filter((s) => s.startsWith("."));
+    const seen = new Map<string, number>();
+    for (const selector of selectors) {
+      seen.set(selector, (seen.get(selector) ?? 0) + 1);
+    }
+    expect([...seen.entries()].filter(([, count]) => count > 1)).toEqual([]);
+  });
+
+  it("has consolidated its tabular numerals onto the shared class", () => {
+    // Twenty hand-rolled `font-variant-numeric` declarations had accumulated
+    // here. `.pk-numeral` in globals.css is the one definition; the markup
+    // carries the class.
+    const declarations = css.match(/font-variant-numeric/g) ?? [];
+    expect(declarations.length).toBeLessThanOrEqual(4);
   });
 });

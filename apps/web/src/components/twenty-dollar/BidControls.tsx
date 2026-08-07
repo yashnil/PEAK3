@@ -5,48 +5,65 @@ import { useEffect, useState } from "react";
 import {
   bidBlockedLabel,
   formatDollars,
+  passActionCost,
+  passActionLabel,
+  passKind,
   type TwentyDollarPrivateState,
   type TwentyDollarPublicState,
 } from "@/lib/twenty-dollar-api";
 
 /**
- * Whole-dollar bid entry for an ascending auction.
+ * The auction control (S20-05).
  *
- * WHY THE SLIDER IS GONE. A `range` input is the wrong instrument for money you
- * name to the dollar: it cannot be typed, it has no visible increment, and
- * dragging it below a legal minimum you cannot see is how a player ends up
- * submitting `$0` and being told it is too low. This is a stepper with explicit
- * jumps — the amounts a bidder actually reaches for — plus a Max that means the
- * legal ceiling rather than "everything you have".
+ * WHAT IT REPLACED. A `−  $1  +` stepper with a three-chip row under it, a
+ * transparent "primary" button whose only decoration was an accent border, and
+ * four lines of legal-range microcopy — the whole thing reading as a form, on
+ * the one surface in the mode that is a decision under a clock. `.td-btn-primary`
+ * was `background: transparent`, so the mode's single most important control
+ * was visually weaker than the "Back to Arena" link on the result screen.
  *
- * THE CLAMP HERE IS A COURTESY, NOT THE ENFORCEMENT. `minimum_bid` and
+ * WHAT IS DELIBERATELY UNCHANGED. Every monetary rule. `minimum_bid` and
  * `max_bid` come from the server's own projection, and the reducer re-checks
- * every bid against the persisted budget regardless of what arrives. Clamping
- * in the control just means a player is shown their range instead of being told
+ * every bid against the persisted budget regardless of what arrives. The clamp
+ * here is a COURTESY so a player is shown their range instead of being told
  * "rejected" for something the UI could have prevented. Nothing here decides
  * legality.
  *
- * A DISABLED CONTROL ALWAYS SAYS WHY. `bid_blocked_reason` is a machine-readable
- * string the server computes; `bidBlockedLabel` turns it into a sentence, and it
- * renders next to the button rather than in a tooltip. Greying a control out
- * with no reason beside it reads as a broken app rather than as a rule, and the
- * brief lists it as a defect in its own right.
+ * THE TWO ACTIONS ARE NAMED, NOT PUNCTUATED (S20-06 / S20-07). The old decline
+ * control read either `Market Skip — 4 of 5` or `Pass — free`, which taught the
+ * rule through a suffix and left the running count inside a button label. The
+ * server now publishes `pass_kind`, so the control says which of the three
+ * declines it will perform — `Market skip`, `Pass on this lot`, `Concede the
+ * lot` — and the count lives on the seat card as a first-class number.
+ *
+ * A DISABLED CONTROL ALWAYS SAYS WHY. `bid_blocked_reason` is machine-readable;
+ * `bidBlockedLabel` turns it into a sentence next to the button rather than
+ * into a tooltip. Greying a control out with no reason beside it reads as a
+ * broken app rather than as a rule.
  */
 export interface BidControlsProps {
   publicState: TwentyDollarPublicState;
   privateState: TwentyDollarPrivateState;
   seatNames: string[];
-  /** True while a command is in flight, or while the view is known stale. */
+  /** True while a command is in flight. */
   busy: boolean;
   /**
-   * The LOCAL countdown has reached zero on this seat's turn.
+   * The room's phase machine says the human may act right now.
    *
-   * The controls stop offering an action, and say why. This is not the client
+   * False during the intro, during a lot reveal, during an inter-turn handoff
+   * and while a command is pending — every case where offering an action would
+   * be offering one that has not opened yet or has already been sent.
+   */
+  live?: boolean;
+  /**
+   * The LOCAL countdown reached zero on this seat's turn, with nothing in
+   * flight.
+   *
+   * The controls stop offering an action and say why. This is not the client
    * deciding a timeout — it never submits anything and the server still owns
-   * the resolution, with a grace window that lets a genuinely in-time action
-   * land. It is the honest end of the previous behaviour, where a live-looking
-   * Bid button on an expired turn is what produced the reported "I bid $2 and
-   * was told my move was not accepted".
+   * the resolution. Critically it is NOT set while a command is pending: an
+   * action sent inside the server's two-second grace window is designed to be
+   * accepted, and painting "the clock ran out" over it was defect S20-08.
    */
   expired?: boolean;
   onSubmit: (command: "bid" | "pass", amount: number) => void;
@@ -57,6 +74,7 @@ export default function BidControls({
   privateState,
   seatNames,
   busy,
+  live = true,
   expired = false,
   onSubmit,
 }: BidControlsProps) {
@@ -75,18 +93,19 @@ export default function BidControls({
     seatNames,
     publicState.active_seat,
   );
-  const canBid = blocked === null && min <= max && !expired;
   const clamped = Math.min(Math.max(amount, min), Math.max(max, min));
   const opening = publicState.current_bid <= 0;
-  const pending = busy || expired;
+  // `pending` disables; `canBid` is about legality. Kept apart so a control
+  // that is merely waiting does not read as one that is refused.
+  const pending = busy || expired || !live;
+  const canBid = blocked === null && min <= max && !expired;
+  const kind = passKind(privateState);
 
-  /* WHICH command is in flight, not merely THAT one is.
-     `busy` is one flag for the whole board, and both buttons were reading it:
-     press Bid and the review frame caught the pass control announcing
-     "Submitting…" too, so the screen claimed to be doing two contradictory
-     things at once. This remembers what was actually pressed. It is label-only
-     -- `busy` still disables both, because only one command may be in flight
-     -- and it clears when the command settles. */
+  /* WHICH command is in flight, not merely THAT one is. `busy` is one flag for
+     the whole board and both buttons were reading it, so pressing Bid made the
+     pass control announce "Submitting…" as well — the screen claimed to be
+     doing two contradictory things at once. Label-only: `busy` still disables
+     both, because only one command may be in flight. */
   const [sent, setSent] = useState<"bid" | "pass" | null>(null);
   useEffect(() => {
     if (!busy) setSent(null);
@@ -99,16 +118,23 @@ export default function BidControls({
   const step = (delta: number) =>
     setAmount((value) => Math.min(Math.max(value + delta, min), Math.max(max, min)));
 
+  const primaryLabel =
+    busy && sent !== "pass"
+      ? `Sending ${formatDollars(clamped)}…`
+      : opening
+        ? `Open at ${formatDollars(clamped)}`
+        : `Raise to ${formatDollars(clamped)}`;
+
   return (
-    <section className="td-bid" data-testid="td-bid-controls" aria-live="polite">
+    <section className="td-bid" data-testid="td-bid-controls" data-live={live ? "true" : "false"}>
       <div className="td-bid-head">
         <p className="td-bid-label" id="td-bid-label">
-          {opening ? "Open the bidding" : "Raise or pass"}
+          {opening ? "Open the bidding" : "Raise or step aside"}
         </p>
-        <p className="td-bid-range" data-testid="td-bid-range">
-          {canBid
-            ? `${formatDollars(min)}–${formatDollars(max)} legal`
-            : `Reserve ${formatDollars(privateState.reserve_floor)}`}
+        {/* THE BUDGET LIMIT IS OBVIOUS, and it is a value rather than a
+            parenthetical: "$1–$16 legal" was 12 px of grey beside the label. */}
+        <p className="td-bid-range pk-numeral" data-testid="td-bid-range">
+          {canBid ? `${formatDollars(min)}–${formatDollars(max)}` : `Reserve ${formatDollars(privateState.reserve_floor)}`}
         </p>
       </div>
 
@@ -124,7 +150,7 @@ export default function BidControls({
           &minus;
         </button>
         <output
-          className="td-bid-amount"
+          className="td-bid-amount pk-numeral"
           data-testid="td-bid-amount"
           aria-label={`Bid entry ${formatDollars(clamped)}`}
         >
@@ -173,6 +199,7 @@ export default function BidControls({
       </div>
 
       <div className="td-bid-actions">
+        {/* A REAL FILLED PRIMARY, carrying the amount it will submit. */}
         <button
           type="button"
           className="td-btn td-btn-primary"
@@ -181,68 +208,42 @@ export default function BidControls({
           data-loading={busy && sent !== "pass" ? "true" : "false"}
           onClick={() => send("bid", clamped)}
         >
-          {/* THE PENDING STATE NAMES THE AMOUNT. PART 14 asks for
-              "Submitting $2 bid…" specifically, because a spinner that does
-              not say what is in flight leaves a player unsure whether their
-              number or the previous one is on its way. */}
-          {busy && sent !== "pass"
-            ? `Submitting ${formatDollars(clamped)} bid…`
-            : opening
-              ? `Open at ${formatDollars(clamped)}`
-              : `Bid ${formatDollars(clamped)}`}
+          {primaryLabel}
         </button>
         <button
           type="button"
-          className="td-btn"
+          className="td-btn td-btn-decline"
           data-testid="td-pass"
           /* PASSING IS NOT ALWAYS AVAILABLE. `can_pass` is the server's own
              verdict: a seat out of market skips, facing a candidate it can
              legally use with nothing bid, must open. Deriving that here would
              be a second copy of the rule that could disagree with the first. */
           disabled={pending || !privateState.is_your_turn || !privateState.can_pass}
-          data-costs-skip={privateState.pass_consumes_skip ? "true" : "false"}
+          data-pass-kind={kind}
+          data-costs-skip={kind === "market_skip" ? "true" : "false"}
           data-loading={busy && sent === "pass" ? "true" : "false"}
           onClick={() => send("pass", 0)}
         >
-          {/* TWO ACTIONS, TWO NAMES, TWO CONSEQUENCES. PART 15: "do not use the
-              same visual label for different consequences." A market skip
-              spends one of five; conceding a live auction spends nothing, and
-              the previous "Skip (−1)" / "Pass" pair left the count implicit on
-              the expensive one and the freeness implicit on the other. */}
-          {busy && sent === "pass"
-            ? "Submitting…"
-            : privateState.pass_consumes_skip
-              ? `Market Skip — ${privateState.market_skips} of ${publicState.market_skips_per_seat}`
-              : "Pass — free"}
+          {busy && sent === "pass" ? "Sending…" : passActionLabel(privateState)}
         </button>
       </div>
 
-      {expired ? (
-        <p className="td-bid-expired" data-testid="td-bid-expired" role="status">
-          The clock ran out. The server is settling this lot — its decision will
-          appear here in a moment.
-        </p>
-      ) : null}
-
-      {/* THE REASON. Rendered whenever the bid control is unavailable, beside
-          the button rather than in a tooltip. */}
+      {/* ONE SUPPORTING LINE, NOT FOUR. Whichever of these is true is the only
+          thing a player needs read to them at this instant. */}
       {blocked ? (
         <p className="td-bid-blocked" data-testid="td-bid-blocked" role="status">
           {blocked}
         </p>
+      ) : expired ? (
+        <p className="td-bid-blocked" data-testid="td-bid-expired" role="status">
+          The clock ran out. The server is settling this lot — its decision will
+          appear here in a moment.
+        </p>
       ) : (
         <p className="td-bid-hint" data-testid="td-bid-hint">
-          {/* THE SKIP RULE IS EXPLAINED BEFORE IT BITES, not after. A player
-              who learns it by finding "Pass" greyed out has been taught it
-              badly, and this is the one rule in the mode that changes the
-              whole strategy. */}
           {!privateState.can_pass
-            ? `No market skips left — this player fits your roster and nobody has bid, so you must open at ${formatDollars(min)}.`
-            : privateState.pass_consumes_skip
-              ? `Skipping costs one of your ${privateState.market_skips} remaining market skips. Opening bid is ${formatDollars(min)}.`
-              : opening
-                ? `Opening bid is ${formatDollars(min)}. Passing costs nothing here.`
-                : `Beat ${formatDollars(publicState.current_bid)} by at least $1, or pass — conceding a live auction is free.`}
+            ? `No market skips left, and this player fits your roster — you must open at ${formatDollars(min)}.`
+            : passActionCost(privateState, publicState)}
         </p>
       )}
     </section>

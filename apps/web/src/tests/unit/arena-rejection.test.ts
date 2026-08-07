@@ -1,25 +1,36 @@
 /**
- * The rejection contract: every refusal names what actually happened.
+ * The rejection contract: every refusal names something the player can act on,
+ * and nothing the player sees is written by a backend engineer (S20-12).
  *
- * THE DEFECT UNDER TEST. The API's `SubmitCommandResponse` carries its prose in
- * `message`; the Showdown client declared the field as `rejection_message` and
- * rendered `result.rejection_message || "That move was not accepted."`. The
- * read was always `undefined`, so 100% of rejections showed the generic string
- * — including the reported `$2` Curry bid, where the server had said "This
- * match has moved on (you sent version 1, it is now 2). Reload."
+ * THREE DEFECTS UNDER TEST, in the order they were found.
  *
- * Two things are asserted here that a snapshot test would not catch:
+ * 1. A FIELD-NAME MISMATCH THAT DISCARDED EVERY EXPLANATION. The API's
+ *    `SubmitCommandResponse` carries its prose in `message`; the Showdown
+ *    client declared the field as `rejection_message` and rendered
+ *    `result.rejection_message || "That move was not accepted."`. The read was
+ *    always `undefined`, so 100% of rejections showed the generic string —
+ *    including the reported `$2` Curry bid, where the server had said "This
+ *    match has moved on (you sent version 1, it is now 2). Reload."
  *
- *   * THE FIELD NAME. `readsTheFieldTheApiActuallySends` pins the client
- *     interface to the API model. A field that does not exist is not a type
- *     error when it is declared optional, which is why this went unnoticed.
- *   * THE CONTENT. A rejection must say which lot closed, who took the player
- *     and for how much — the information the player needs to trust the board —
- *     rather than a version number they cannot act on.
+ * 2. AND THEN THE PASS-THROUGH BECAME THE DEFECT. Falling back to the server's
+ *    own prose for an unrecognised code was fine while every code was
+ *    recognised, and stopped being fine the moment three were not:
+ *    `duplicate_action`, `not_bidding` and `ruleset_version_mismatch` all
+ *    reached players verbatim, and the last is an engineering string naming two
+ *    ruleset identifiers. `not_your_seat`, `unknown_command` and the bare
+ *    `"rejected"` were not in the union at all.
+ *
+ * 3. AND HTTP FAILURES NEVER GOT HERE. A 404, 403, 429 or 500 was thrown before
+ *    any of this ran and rendered as `apiError.message` — which for a body with
+ *    no `detail.message` is literally the string `"HTTP 500"`.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-import { explainRejection, type AttemptedAction } from "@/lib/arena-rejection";
+import {
+  explainRejection,
+  explainTransportError,
+  type AttemptedAction,
+} from "@/lib/arena-rejection";
 import type {
   ResolvedLot,
   SubmitCommandResult,
@@ -98,6 +109,37 @@ const CURRY_BID: AttemptedAction = {
   wouldSpendSkip: false,
 };
 
+/** Every code the API can currently emit for this mode. */
+const ALL_CODES = [
+  "stale_state_version",
+  "turn_already_resolved",
+  "match_not_live",
+  "match_expired",
+  "duplicate_action",
+  "not_your_seat",
+  "unknown_command",
+  "ruleset_version_mismatch",
+  "not_bidding",
+  "not_your_turn",
+  "already_passed",
+  "bid_too_low",
+  "bid_over_max",
+  "candidate_unfit",
+  "no_market_skips",
+  "roster_full",
+  "match_over",
+  "bid_not_integer",
+  "rejected",
+] as const;
+
+beforeEach(() => {
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("the reported Curry rejection", () => {
   it("names the lot, the winner and the price instead of a version number", () => {
     const result = explainRejection(
@@ -114,48 +156,24 @@ describe("the reported Curry rejection", () => {
     expect(result.message).toContain("Floor General");
     expect(result.message).toContain("$1");
     expect(result.boardMovedOn).toBe(true);
+    expect(result.tone).toBe("board");
     // And it does NOT leak the mechanism at the player.
     expect(result.message).not.toContain("version");
   });
 
-  it("is never the generic string, for any code the server can emit", () => {
-    const codes = [
-      "stale_state_version",
-      "turn_already_resolved",
-      "not_your_turn",
-      "already_passed",
-      "bid_too_low",
-      "bid_over_max",
-      "candidate_unfit",
-      "no_market_skips",
-      "roster_full",
-      "match_over",
-      "match_not_live",
-      "match_expired",
-      "bid_not_integer",
-    ];
-    for (const code of codes) {
+  it("is never a shrug, for any code the server can emit", () => {
+    for (const code of ALL_CODES) {
       const result = explainRejection(code, "server prose", CURRY_BID, state(), SEAT_NAMES, 0);
       expect(result.message).not.toBe("That move was not accepted.");
       expect(result.message.length).toBeGreaterThan(10);
+      expect(result.tone).toBeTruthy();
     }
-  });
-
-  it("falls back to the server's own sentence rather than to a shrug", () => {
-    const result = explainRejection(
-      "some_future_code",
-      "Your maximum bid is $7.",
-      CURRY_BID,
-      state(),
-      SEAT_NAMES,
-      0,
-    );
-    expect(result.message).toBe("Your maximum bid is $7.");
   });
 
   it("still says something actionable when the server sent no prose at all", () => {
     const result = explainRejection(null, null, CURRY_BID, state(), SEAT_NAMES, 0);
-    expect(result.message).toContain("board below is current");
+    expect(result.message).toMatch(/board below is up to date/i);
+    expect(result.tone).toBe("retry");
   });
 });
 
@@ -200,11 +218,13 @@ describe("rules refusals, which are the player's to fix", () => {
     expect(result.message).toContain("$3");
     expect(result.message).toContain("$5");
     expect(result.boardMovedOn).toBe(false);
+    expect(result.tone).toBe("rule");
   });
 
-  it("keeps the server's own sentence for the reserve ceiling", () => {
+  it("keeps the server's own sentence for the reserve ceiling — the ONE allowlisted code", () => {
     // The server knows the persisted budget and the exact ceiling; this module
-    // does not, so it must not paraphrase.
+    // does not, so it must not paraphrase. It is an allowlist of one rather
+    // than a general pass-through, which is the whole point of the change.
     const result = explainRejection(
       "bid_over_max",
       "Your maximum bid is $7: every slot you still have to fill must keep at least $1 behind it.",
@@ -214,6 +234,19 @@ describe("rules refusals, which are the player's to fix", () => {
       0,
     );
     expect(result.message).toContain("$7");
+    expect(result.message).toContain("$1 behind it");
+  });
+
+  it("writes its own ceiling sentence when the server sent no prose", () => {
+    const result = explainRejection(
+      "bid_over_max",
+      "",
+      { ...CURRY_BID, amount: 12, lotIndex: 5 },
+      state(),
+      SEAT_NAMES,
+      0,
+    );
+    expect(result.message).toContain("$12");
     expect(result.message).toContain("$1 behind it");
   });
 
@@ -228,6 +261,101 @@ describe("rules refusals, which are the player's to fix", () => {
     );
     expect(result.message).toContain("no market skips left");
     expect(result.message).toContain("$1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The codes that used to reach a player verbatim
+// ---------------------------------------------------------------------------
+
+describe("codes that were unmapped, or not in the union at all", () => {
+  it.each([
+    ["duplicate_action", /already processed/i],
+    ["not_bidding", /already moved on/i],
+    ["ruleset_version_mismatch", /reload the page/i],
+    ["not_your_seat", /not seated in this match/i],
+    ["unknown_command", /out of date/i],
+  ] as const)("writes user-facing copy for %s", (code, pattern) => {
+    const result = explainRejection(
+      code,
+      "twenty_dollar_v3 != twenty_dollar_v1 (snapshot ruleset_version)",
+      { ...CURRY_BID, lotIndex: 5 },
+      state(),
+      SEAT_NAMES,
+      0,
+    );
+    expect(result.message).toMatch(pattern);
+    // THE ENGINEERING STRING NEVER SURVIVES.
+    expect(result.message).not.toContain("twenty_dollar_v");
+    expect(result.message).not.toContain("!=");
+  });
+
+  it("never passes an unrecognised code's prose through to a player", () => {
+    const result = explainRejection(
+      "some_future_code",
+      "Traceback (most recent call last): KeyError('active_seat')",
+      CURRY_BID,
+      state(),
+      SEAT_NAMES,
+      0,
+    );
+    expect(result.message).not.toContain("Traceback");
+    expect(result.message).not.toContain("KeyError");
+    expect(result.message).toMatch(/board below is up to date/i);
+    expect(result.tone).toBe("retry");
+    // ...but it is logged, so the failure is still diagnosable.
+    expect(console.warn).toHaveBeenCalled();
+  });
+
+  it("carries the code through for telemetry even when the copy is generic", () => {
+    expect(
+      explainRejection("some_future_code", "x", CURRY_BID, state(), SEAT_NAMES, 0).code,
+    ).toBe("some_future_code");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTTP-level failures
+// ---------------------------------------------------------------------------
+
+describe("transport failures, which never reached this module before", () => {
+  it("never renders 'HTTP 500'", () => {
+    // `twenty-dollar-api.ts::parseErrorDetail` produces exactly this string for
+    // a body with no `detail.message`, and it was rendered into the banner.
+    for (const attempted of ["load", "bid", "pass"] as const) {
+      const result = explainTransportError(500, undefined, "HTTP 500", attempted);
+      expect(result.message).not.toContain("HTTP");
+      expect(result.message).not.toContain("500");
+      expect(result.tone).toBe("retry");
+    }
+  });
+
+  it.each([
+    ["authentication_required", 401, /sign in again/i],
+    ["not_a_participant", 403, /another pair of bidders/i],
+    ["match_not_found", 404, /no longer available/i],
+    ["rate_limited", 429, /try once more|refresh shortly/i],
+  ] as const)("maps %s", (code, status, pattern) => {
+    expect(explainTransportError(status, code, "raw", "bid").message).toMatch(pattern);
+  });
+
+  it("says the move was NOT SENT when a command fails, and does not when a poll does", () => {
+    expect(explainTransportError(0, "network_unavailable", null, "bid").message).toMatch(
+      /your bid was not sent/i,
+    );
+    expect(explainTransportError(0, "network_unavailable", null, "load").message).toMatch(
+      /reconnecting/i,
+    );
+  });
+
+  it("falls back on the STATUS when the code is unknown", () => {
+    expect(explainTransportError(403, "brand_new_code", "x", "bid").message).toMatch(
+      /not able to act/i,
+    );
+    expect(explainTransportError(409, "brand_new_code", "x", "bid").message).toMatch(
+      /moved on/i,
+    );
+    expect(explainTransportError(404, undefined, null, "load").tone).toBe("reload");
   });
 });
 

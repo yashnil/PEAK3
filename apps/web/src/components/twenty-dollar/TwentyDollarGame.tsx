@@ -5,72 +5,83 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
-  newIdempotencyKey,
+  showdownIdempotencyKey,
   twentyDollarApi,
   TwentyDollarAPIError,
   timeoutConsequence,
-  waitingLabel,
   type TwentyDollarMatchView,
 } from "@/lib/twenty-dollar-api";
-import { explainRejection, type AttemptedAction } from "@/lib/arena-rejection";
+import {
+  explainRejection,
+  explainTransportError,
+  type AttemptedAction,
+  type RejectionExplanation,
+} from "@/lib/arena-rejection";
 import { modeMeta } from "@/lib/arena-modes";
 import HowToPlay from "@/components/arena/HowToPlay";
-import ArenaTimer, { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
+import { deadlineFromSeconds } from "@/components/shared/ArenaTimer";
 import {
-  BudgetMeter,
-  CandidateCard,
+  AuctionLog,
+  AuctionStage,
   LotReveal,
-  LotTicker,
   RosterBoard,
+  SeatCard,
+  TurnBanner,
 } from "./AuctionBoard";
-import { MissedLotsSummary, SettledLotTray, useLotVisibility } from "./LotLedger";
+import { ResumeRecap, SettledLotTray, useLotLedger } from "./LotLedger";
 import BidControls from "./BidControls";
+import MatchIntro from "./MatchIntro";
+import ShowdownClock from "./ShowdownClock";
 import ShowdownResult from "./ShowdownResult";
 import TwentyDollarReceipt, {
   buildShowdownShareText,
   type TwentyDollarReceiptData,
 } from "./TwentyDollarReceipt";
+import { useShowdownPhase } from "./useShowdownPhase";
 
 /**
  * One $20 Showdown match — the auction room.
  *
  * SERVER-AUTHORITATIVE, LOCAL `useState`. The entire client state is "the last
- * view the server sent", the pattern RTT and head-to-head already use. There is
- * no local reducer mirroring the rules, because a second copy of the rules is a
- * second thing that can disagree with the first.
+ * view the server sent". There is no local reducer mirroring the rules, because
+ * a second copy of the rules is a second thing that can disagree with the first.
  *
- * WHAT WENT WRONG HERE, AND WHAT CHANGED
- * ---------------------------------------
- * A player bid `$2` on Stephen Curry, was told "That move was not accepted",
- * and watched the lot settle to the bot for `$1`. Three separate defects, all
- * in this file's neighbourhood:
+ * THE FOUR DEFECTS THIS FILE OWNED, AND WHAT REPLACED THEM
+ * --------------------------------------------------------
  *
- *   1. THE ERROR TEXT WAS ALWAYS GENERIC. The API returns the explanation under
- *      `message`; this component read `result.rejection_message`, which does
- *      not exist on the response, so the `||` fallback fired on 100% of
- *      rejections. The server was saying "This match has moved on (you sent
- *      version 1, it is now 2)" and the player was shown a shrug.
- *      `explainRejection` now turns the code plus the returned authoritative
- *      state into the sentence the player actually needs — which lot closed,
- *      who got the player, for how much.
- *   2. THE ERROR NEVER CLEARED. `error` was reset only at the start of the next
- *      submission, so a stale banner sat over subsequent lots. It now clears on
- *      any authoritative transition, and can be dismissed.
- *   3. THE COUNTDOWN WAS STALE BY DESIGN. It was re-seeded from a poll up to
- *      2 s old and ticked locally from there, so a control could read "3" on a
- *      turn that had already expired. It is now converted to a local monotonic
- *      deadline the instant a response lands, and lives in `ArenaTimer` — which
- *      also means a second no longer rerenders the whole board. The server side
- *      of the same fix is `clock.ACTION_GRACE_SECONDS`.
+ * 1. THE IDEMPOTENCY KEY WAS REUSED ACROSS DIFFERENT INTENTS (S20-02, and the
+ *    worst of the four). The room minted one random key, held it in a ref, and
+ *    cleared it only on the success path — the `catch` left it set. After a
+ *    dropped response the NEXT CLICK OF ANY KIND reused that key, so the server
+ *    replayed the verdict it had recorded for a completely different action. If
+ *    the lost request had been REJECTED, the retry returned `replayed: true`,
+ *    the `if (!accepted && !replayed)` guard suppressed the banner, and the
+ *    corrected bid was never sent: a silent no-op under a running clock. The
+ *    key is now DERIVED from `(matchId, seat, stateVersion, command, payload)`,
+ *    so a retry of the same action replays and a different action is a
+ *    different action, with no lifecycle to get wrong. A replayed REJECTION is
+ *    now surfaced rather than swallowed.
  *
- * THE CLOCK IS STILL THE SERVER'S, AND STILL DECIDES NOTHING HERE. Reaching
- * zero locally stops offering an action that cannot succeed and says "settling"
- * — it never submits, never passes, and never resolves a turn.
+ * 2. THE COUNTDOWN DID NOT FREEZE ON CLICK (S20-08). `submit()` set `busy` and
+ *    `inFlight` and never touched `deadlineAt`, and `ArenaTimer` keys only on
+ *    `[deadlineAt]`. See `useShowdownPhase`.
  *
- * WHY THIS POLLS. There is no realtime transport anywhere in this codebase.
- * Polling the same authenticated route a human refresh would hit reuses the
- * whole projection and permission model unchanged, and it is what makes a bot's
- * move appear without a background worker. It stops when the match completes.
+ * 3. "WHILE YOU WERE AWAY" FIRED DURING LIVE PLAY (S20-10). See `LotLedger`.
+ *
+ * 4. RAW SERVER PROSE REACHED THE BANNER (S20-12). `apiError.message` was
+ *    rendered directly in two places, and for a body without a `detail.message`
+ *    that string is literally `"HTTP 500"`. Every path now goes through
+ *    `explainRejection` or `explainTransportError`.
+ *
+ * WHY THIS POLLS, AND WHY THE POLL NOW REACTS TO THE TAB. There is no realtime
+ * transport in this codebase; polling the same authenticated route a refresh
+ * would hit reuses the whole projection and permission model unchanged. What it
+ * did not do was notice the tab. A backgrounded tab has its intervals throttled
+ * to once a minute or worse, so the first frame back was stale and the local
+ * `performance.now()` deadline read zero until a poll re-seeded it. There is
+ * now an immediate re-poll on `visibilitychange` and on `focus`. The interval
+ * itself no longer depends on `view`, which used to tear it down and recreate
+ * it on every single response.
  */
 
 const POLL_MS = 2000;
@@ -78,25 +89,27 @@ const POLL_MS = 2000;
 export default function TwentyDollarGame({ matchId }: { matchId: string }) {
   const router = useRouter();
   const [view, setView] = useState<TwentyDollarMatchView | null>(null);
-  const [error, setError] = useState<{ message: string; code: string | null } | null>(null);
+  const [error, setError] = useState<RejectionExplanation | null>(null);
   const [loadFailure, setLoadFailure] = useState<TwentyDollarAPIError | null>(null);
   const [busy, setBusy] = useState(false);
+  const [inFlightAction, setInFlightAction] = useState<{
+    command: "bid" | "pass";
+    amount: number;
+  } | null>(null);
   const [copied, setCopied] = useState(false);
   const [locallyExpired, setLocallyExpired] = useState(false);
   // A local monotonic deadline rather than a duration in state. See
   // `ArenaTimer`'s docstring for why a re-seeded duration drifts.
   const [deadlineAt, setDeadlineAt] = useState<number | null>(null);
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
 
-  // Held across retries so a resubmitted click is a REPLAY server-side rather
-  // than a second bid. Cleared only when an action completes.
-  const pendingKey = useRef<string | null>(null);
   // Guards a poll landing while a command is in flight from overwriting the
   // newer state the command already returned.
   const inFlight = useRef(false);
-  // The highest authoritative version this client has applied. A response that
-  // is older than what is already on screen is DROPPED rather than rendered:
-  // two overlapping requests can complete out of order, and the newer state
-  // must win regardless of arrival order.
+  // The highest authoritative version this client has applied. A response older
+  // than what is already on screen is DROPPED rather than rendered: two
+  // overlapping requests can complete out of order, and the newer state must
+  // win regardless of arrival order.
   const appliedVersion = useRef(-1);
 
   /**
@@ -110,6 +123,7 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
     appliedVersion.current = next.state_version;
     setView(next);
     setDeadlineAt(deadlineFromSeconds(next.seconds_remaining));
+    setSecondsRemaining(next.seconds_remaining);
     setLocallyExpired(false);
     // ERRORS CLEAR ON AN AUTHORITATIVE TRANSITION. A rejection explains a
     // moment; once the board has moved past that moment the explanation is
@@ -129,13 +143,9 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
     } catch (err) {
       const apiError = err as TwentyDollarAPIError;
       setLoadFailure((current) => current ?? apiError);
-      setError({
-        message:
-          apiError.status === 0
-            ? "Could not reach the PEAK3 API. The board below is the last state we confirmed."
-            : apiError.message,
-        code: apiError.code ?? null,
-      });
+      setError(
+        explainTransportError(apiError.status, apiError.code, apiError.message, "load"),
+      );
     }
   }, [matchId, applyView]);
 
@@ -145,13 +155,37 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
 
   const complete = view?.public_state?.phase === "complete";
 
-  // Poll while the match is live. Cleared on unmount and on completion, so a
-  // finished match does not keep a timer alive behind a receipt.
+  // POLL WHILE THE MATCH IS LIVE, and re-poll the instant the tab comes back.
+  // `completeRef` rather than a `complete` dependency: the interval used to be
+  // torn down and recreated on every response because `view` was a dependency,
+  // which is a new timer every two seconds for no reason.
+  const completeRef = useRef(complete);
+  completeRef.current = complete;
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => {
-    if (!view || complete) return;
-    const id = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(id);
-  }, [view, complete, load]);
+    const tick = () => {
+      if (completeRef.current) return;
+      void loadRef.current();
+    };
+    const id = window.setInterval(tick, POLL_MS);
+
+    // A BACKGROUNDED TAB IS THROTTLED, so the first frame back is stale and the
+    // local deadline reads zero until a poll re-seeds it. Both events, because
+    // a window that is focused without ever having been `hidden` (an alt-tab on
+    // some platforms) fires only `focus`.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", tick);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", tick);
+    };
+  }, []);
 
   const submit = useCallback(
     async (command: "bid" | "pass", amount: number) => {
@@ -163,50 +197,64 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
         standingBid: view.public_state.current_bid,
         wouldSpendSkip: view.private_state.pass_consumes_skip,
       };
+      const payload = command === "bid" ? { amount } : {};
+      // DERIVED, NOT MINTED. See the module docstring: this is the whole of the
+      // S20-02 fix. The same click retried produces the same key and replays;
+      // any other action produces a different key and is applied.
+      const key = showdownIdempotencyKey(
+        matchId,
+        view.your_seat_index,
+        view.state_version,
+        command,
+        payload,
+      );
+
       setBusy(true);
+      setInFlightAction({ command, amount });
       setError(null);
+      // THE COUNTDOWN STOPS HERE (S20-08). `useShowdownPhase` reads `busy` and
+      // hands `ArenaTimer` a null deadline, so nothing counts down behind the
+      // request and `onExpire` cannot fire against an action the server's grace
+      // window is about to accept.
+      setLocallyExpired(false);
       inFlight.current = true;
-      if (!pendingKey.current) pendingKey.current = newIdempotencyKey();
       try {
         const result = await twentyDollarApi.submitCommand(
           matchId,
           command,
-          command === "bid" ? { amount } : {},
+          payload,
           view.state_version,
-          pendingKey.current,
+          key,
         );
         // The authoritative state lands FIRST, so the explanation below is
         // derived from the board as it now is rather than from the stale render
         // the click was made against.
         applyView(result.match);
-        if (!result.accepted && !result.replayed) {
-          // `message` — the field the API actually sends. Reading
-          // `rejection_message` here is what discarded every explanation the
-          // server ever produced.
-          const explained = explainRejection(
-            result.rejection_code,
-            result.message,
-            attempt,
-            result.match.public_state,
-            result.match.public_state.seat_names ??
-              result.match.seats.map((seat) => seat.display_name),
-            result.match.your_seat_index,
+        // `replayed` NO LONGER SUPPRESSES THE EXPLANATION. A replayed rejection
+        // is still a rejection the player has not been told about, and the old
+        // guard turned exactly that case into a silent no-op.
+        if (!result.accepted) {
+          setError(
+            explainRejection(
+              result.rejection_code,
+              result.message,
+              attempt,
+              result.match.public_state,
+              result.match.public_state.seat_names ??
+                result.match.seats.map((seat) => seat.display_name),
+              result.match.your_seat_index,
+            ),
           );
-          setError({ message: explained.message, code: explained.code });
         }
-        pendingKey.current = null;
       } catch (err) {
         const apiError = err as TwentyDollarAPIError;
-        setError({
-          message:
-            apiError.status === 0
-              ? `Could not reach the PEAK3 API — your ${command === "bid" ? "bid" : "pass"} was not sent. It is safe to try again.`
-              : apiError.message,
-          code: apiError.code ?? null,
-        });
+        setError(
+          explainTransportError(apiError.status, apiError.code, apiError.message, command),
+        );
       } finally {
         inFlight.current = false;
         setBusy(false);
+        setInFlightAction(null);
       }
     },
     [matchId, view, busy, applyView],
@@ -259,7 +307,9 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
       meta={meta}
       error={error}
       busy={busy}
+      inFlightAction={inFlightAction}
       deadlineAt={deadlineAt}
+      secondsRemaining={secondsRemaining}
       locallyExpired={locallyExpired}
       copied={copied}
       onExpire={() => setLocallyExpired(true)}
@@ -272,15 +322,18 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
 }
 
 /**
- * The room itself, split out so `useLotVisibility` can key off a state that is
- * guaranteed to exist. Hooks cannot run behind the loading gates above.
+ * The room itself, split out so the ledger and the phase machine can key off a
+ * state that is guaranteed to exist. Hooks cannot run behind the loading gates
+ * above.
  */
 function AuctionRoom({
   view,
   meta,
   error,
   busy,
+  inFlightAction,
   deadlineAt,
+  secondsRemaining,
   locallyExpired,
   copied,
   onExpire,
@@ -291,9 +344,11 @@ function AuctionRoom({
 }: {
   view: TwentyDollarMatchView;
   meta: ReturnType<typeof modeMeta>;
-  error: { message: string; code: string | null } | null;
+  error: RejectionExplanation | null;
   busy: boolean;
+  inFlightAction: { command: "bid" | "pass"; amount: number } | null;
   deadlineAt: number | null;
+  secondsRemaining: number | null;
   locallyExpired: boolean;
   copied: boolean;
   onExpire: () => void;
@@ -311,7 +366,23 @@ function AuctionRoom({
     [publicState.seat_names, view.seats],
   );
   const receipt = publicState.receipt as TwentyDollarReceiptData | undefined;
-  const { missed, reveal, acknowledge } = useLotVisibility(view.match_id, publicState);
+
+  const { recap, reveal, queued, acknowledgeRecap } = useLotLedger(
+    view.match_id,
+    publicState,
+  );
+
+  const { phase, clockDeadlineAt, controlsLive, dismissIntro } = useShowdownPhase({
+    lotIndex: publicState.lot_index,
+    activeSeat: publicState.active_seat,
+    yourSeat,
+    actionCount: publicState.lot_actions.length,
+    historyLength: publicState.history.length,
+    secondsRemaining,
+    deadlineAt,
+    pending: busy,
+    complete,
+  });
 
   const yourTurn = privateState.is_your_turn && !complete;
   const opponentSeats = useMemo(
@@ -319,6 +390,8 @@ function AuctionRoom({
     [publicState.seats, yourSeat],
   );
   const yourSeatPublic = publicState.seats[yourSeat ?? 0];
+  const opponentName =
+    seatNames[opponentSeats[0]?.seat_index ?? 1] ?? "PEAK3 Bot";
 
   if (complete && receipt) {
     return (
@@ -329,27 +402,21 @@ function AuctionRoom({
           seatNames={seatNames}
           yourSeat={yourSeat}
           onPlayAgain={onPlayAgain}
+          onCopy={() => {
+            void navigator.clipboard
+              ?.writeText(buildShowdownShareText(receipt, yourSeat))
+              .then(() => onCopy(true));
+          }}
+          copied={copied}
         >
           <TwentyDollarReceipt receipt={receipt} seatNames={seatNames} yourSeat={yourSeat} />
-          <button
-            type="button"
-            className="td-btn"
-            data-testid="td-share"
-            onClick={() => {
-              void navigator.clipboard
-                ?.writeText(buildShowdownShareText(receipt, yourSeat))
-                .then(() => onCopy(true));
-            }}
-          >
-            {copied ? "Copied" : "Copy result"}
-          </button>
         </ShowdownResult>
       </div>
     );
   }
 
   return (
-    <div className="td-game ar-room" data-testid="td-game">
+    <div className="td-game ar-room" data-testid="td-game" data-phase={phase}>
       <header className="ar-room-head">
         <div className="ar-room-meta">
           <h1 className="ar-room-title">The $20 Showdown</h1>
@@ -376,11 +443,27 @@ function AuctionRoom({
         </div>
       </header>
 
-      {/* THE ERROR IS DISMISSIBLE AND SELF-CLEARING. It also says what it is:
-          a board that moved on reads differently from a move that was illegal,
-          and `explainRejection` has already decided which. */}
+      {/* THE TURN, AT THE TOP OF THE ROOM (S20-03). The only `aria-live` region
+          on the board that tracks play: it changes when the turn changes and at
+          no other time. */}
+      <TurnBanner
+        activeSeat={publicState.active_seat}
+        yourSeat={yourSeat}
+        seatNames={seatNames}
+        phase={phase}
+      />
+
+      {/* THE ERROR IS DISMISSIBLE AND SELF-CLEARING, and it never carries
+          backend wording — `explainRejection` and `explainTransportError` have
+          already decided what a player can act on. */}
       {error ? (
-        <div className="td-error" role="alert" data-testid="td-error" data-code={error.code ?? ""}>
+        <div
+          className="td-error"
+          role="alert"
+          data-testid="td-error"
+          data-code={error.code ?? ""}
+          data-tone={error.tone}
+        >
           <p className="td-error-text">{error.message}</p>
           <button
             type="button"
@@ -393,23 +476,25 @@ function AuctionRoom({
         </div>
       ) : null}
 
-      {missed.length > 0 ? (
-        <MissedLotsSummary
-          lots={missed}
+      {/* THE RECAP IS COMPACT AND IT DOES NOT DISPLACE ANYTHING. It appears only
+          across a genuine resume boundary (see `useLotLedger`), shows three rows
+          with a "View N more", and sits above a board that is still fully
+          rendered underneath it. */}
+      {recap.length > 0 ? (
+        <ResumeRecap
+          lots={recap}
           seatNames={seatNames}
           yourSeat={yourSeat}
-          onDismiss={acknowledge}
+          onDismiss={acknowledgeRecap}
         />
       ) : null}
 
       {/* THREE SYMMETRICAL COLUMNS. Both participants get the same panel with
-          the same fields in the same order — PART 19's "do not allocate
-          structurally different information to the two participants". The
-          settled history is no longer one of those fields; it is a full-width
+          the same fields in the same order. The settled history is a full-width
           tray below, so it cannot compress the opponent's roster. */}
-      <div className="td-table">
+      <div className="td-table" data-testid="td-table">
         <div className="td-column td-column-seat">
-          <BudgetMeter
+          <SeatCard
             seat={yourSeatPublic}
             skipAllowance={publicState.market_skips_per_seat}
             isYou
@@ -421,70 +506,77 @@ function AuctionRoom({
         </div>
 
         <div className="td-column td-column-centre">
-          <CandidateCard
+          <AuctionStage
             publicState={publicState}
             fits={privateState.candidate_fits}
             seatNames={seatNames}
             yourSeat={yourSeat}
           />
 
-          {/* THE TIMER IS ITS OWN COMPONENT, ATTACHED TO THE ACTIVE SEAT, and
-              says what expiry will cost before it costs it. */}
-          <ArenaTimer
-            deadlineAt={deadlineAt}
-            totalSeconds={20}
-            label={
-              yourTurn
-                ? "YOUR TURN"
-                : publicState.active_seat === null
-                  ? "Settling the lot"
-                  : `${seatNames[publicState.active_seat] ?? "Opponent"} is deciding`
-            }
+          {/* THE CLOCK, ATTACHED TO THE ACTION, saying what expiry will cost
+              before it costs it — and frozen the instant a command goes out.
+              It never says WHOSE turn it is; `TurnBanner` above is the single
+              turn surface. */}
+          <ShowdownClock
+            phase={phase}
+            deadlineAt={clockDeadlineAt}
+            activeSeat={publicState.active_seat}
+            yourSeat={yourSeat}
             consequence={
               yourTurn ? timeoutConsequence(privateState, seatNames, publicState) : null
             }
-            yours={yourTurn}
+            // A NEW TURN RESTARTS THE COUNT-UP. Lot, action count and seat
+            // together identify one turn: any of the three moving means the
+            // previous turn is over.
+            turnKey={`${publicState.lot_index}:${publicState.lot_actions.length}:${publicState.active_seat ?? "none"}`}
+            pendingCommand={inFlightAction?.command ?? null}
+            pendingAmount={inFlightAction?.amount ?? 0}
             onExpire={onExpire}
-            testId="td-timer"
           />
-
-          {/* ONE LOT AT A TIME, ON CENTRE STAGE -- and ABOVE the controls.
-              It used to render last in this column, under the bid controls,
-              and the review frame showed the revealed score cut off by the
-              viewport: the payoff of the lot was the one thing you had to
-              scroll for. A run of settled lots is a gap and is reported as one
-              above, not stacked here. */}
-          {reveal ? (
-            <LotReveal lot={reveal} seatNames={seatNames} yourSeat={yourSeat} />
-          ) : null}
-
-          <LotTicker
-            actions={publicState.lot_actions}
-            seatNames={seatNames}
-            yourSeat={yourSeat}
-          />
-
-          <p className="td-waiting" data-testid="td-waiting" aria-live="polite">
-            {locallyExpired && yourTurn
-              ? "Time expired — settling this lot…"
-              : waitingLabel(publicState, yourSeat, seatNames)}
-          </p>
 
           <BidControls
             publicState={publicState}
             privateState={privateState}
             seatNames={seatNames}
             busy={busy}
-            expired={locallyExpired}
+            live={controlsLive}
+            // NOT WHILE A COMMAND IS IN FLIGHT. `busy` already froze the clock,
+            // so `locallyExpired` can only be true for a turn that ran out with
+            // nothing sent — which is the only case the expired copy is true of.
+            expired={locallyExpired && !busy}
             onSubmit={onSubmit}
           />
 
+          {/* ONE LOT AT A TIME, ON CENTRE STAGE. A run of settled lots is a
+              SEQUENCE — `queued` says how many are still coming — rather than a
+              catch-up banner over the top of live play. */}
+          {reveal ? (
+            <LotReveal
+              lot={reveal}
+              seatNames={seatNames}
+              yourSeat={yourSeat}
+              queued={queued}
+            />
+          ) : null}
+
+          {/* ONE TURN SURFACE, NOT FOUR. A `td-waiting` line reading "Your
+              move — open or pass." used to sit here, under a `Your move`
+              banner, an `ON THE CLOCK` chip on the seat card and a `YOUR TURN`
+              clock label. That is TMW-07's "three stacked rows" defect,
+              reproduced in the Showdown. The banner says whose turn it is, the
+              seat card shows it as a state, the clock shows the time, and the
+              controls say what the actions do. Nothing repeats. */}
+          <AuctionLog
+            actions={publicState.lot_actions}
+            seatNames={seatNames}
+            yourSeat={yourSeat}
+          />
         </div>
 
         <div className="td-column td-column-seat">
           {opponentSeats.map((seat) => (
             <div key={seat.seat_index} className="td-column-stack">
-              <BudgetMeter
+              <SeatCard
                 seat={seat}
                 skipAllowance={publicState.market_skips_per_seat}
                 isYou={false}
@@ -507,6 +599,17 @@ function AuctionRoom({
         seatNames={seatNames}
         yourSeat={yourSeat}
       />
+
+      {phase === "intro" ? (
+        <MatchIntro
+          opponentName={opponentName}
+          startingBudget={yourSeatPublic?.budget ?? 20}
+          slots={publicState.slots.length}
+          marketSkips={publicState.market_skips_per_seat}
+          rated={view.rated}
+          onDismiss={dismissIntro}
+        />
+      ) : null}
     </div>
   );
 }
