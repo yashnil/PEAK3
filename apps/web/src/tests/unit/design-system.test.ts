@@ -179,6 +179,55 @@ describe("every motion primitive is actually defined", () => {
       expect(globals).toMatch(new RegExp(`@keyframes\\s+${name}\\b`));
     }
   });
+
+  it("`.pk-crown-accent` draws on its own, not only beside `.pk-crown`", () => {
+    // IT DID NOT, AND THAT COST FIVE CALL SITES. Written as a modifier that
+    // only recoloured `.pk-crown::before`, it renders nothing when used alone
+    // — while reading exactly like a complete class. Five reveal and
+    // progression surfaces used it alone and drew no hairline; the markup was
+    // right, the class existed, and the output was silently empty.
+    const own = globals.match(/\.pk-crown-accent::before\s*\{[^}]*\}/g) ?? [];
+    expect(own.length).toBeGreaterThan(0);
+    // Some `::before` rule reachable from `.pk-crown-accent` alone must supply
+    // `content`, or the pseudo-element is never generated at all.
+    const generates = globals.match(
+      /\.pk-crown::before,\s*\n?\s*\.pk-crown-accent::before\s*\{[^}]*content:/,
+    );
+    expect(generates).not.toBeNull();
+  });
+});
+
+describe("interactive primitives do not lie about disabled controls", () => {
+  const css = globals;
+
+  // `:hover` MATCHES A `:disabled` BUTTON. Without a guard, a greyed-out
+  // control rises two pixels and gains an elevation tier exactly like a live
+  // one — the clearest false affordance a UI can offer. Three surfaces had
+  // already written their own local guard before this was fixed centrally,
+  // which is the usual sign that a primitive is missing something.
+  const GUARDED = [
+    /\.pk-lift:hover:not\(:disabled\)/,
+    /\.pk-lift:focus-visible:not\(:disabled\)/,
+    /\.pk-lift-lg:hover:not\(:disabled\)/,
+    /\.pk-press:active:not\(:disabled\)/,
+  ];
+
+  for (const pattern of GUARDED) {
+    it(`${pattern.source} excludes disabled elements`, () => {
+      expect(css).toMatch(pattern);
+    });
+  }
+
+  it("the reduced-motion overrides match that specificity", () => {
+    // THE SUBTLE HALF. The guarded rules are specificity (0,4,0). The
+    // reduced-motion block that suppresses the lift comes LATER in the file
+    // but, written as a bare `.pk-lift:hover` at (0,2,0), would lose the
+    // cascade anyway — and reduced motion would silently stop working, with
+    // nothing in the diff to show for it.
+    const reduced = reducedMotionBlocks(globals);
+    expect(reduced).toMatch(/\.pk-lift:hover:not\(:disabled\)/);
+    expect(reduced).toMatch(/\.pk-press:active:not\(:disabled\)/);
+  });
 });
 
 describe("the primitives that move are neutralised under reduced motion", () => {

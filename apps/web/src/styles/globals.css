@@ -2473,8 +2473,20 @@ html, body {
     border-color var(--pk-dur-lift) var(--pk-ease-decel);
 }
 
-.pk-lift:hover,
-.pk-lift:focus-visible {
+/* A DISABLED CONTROL DOES NOT RESPOND.
+   `:hover` still matches a `:disabled` button, so without this guard a
+   greyed-out control rose two pixels and gained an elevation tier on
+   hover exactly like a live one — the clearest false affordance a UI
+   can offer, and one three surfaces had already written their own
+   local guard for by the time it was noticed centrally.
+
+   Expressed as `:not()` on the hover selector rather than as a later
+   override, so a disabled element simply never matches and keeps
+   whatever resting shadow its own stylesheet gave it. An override
+   would have had to invent a resting value to reset TO, and would
+   have got it wrong for every surface with a custom one. */
+.pk-lift:hover:not(:disabled):not([aria-disabled="true"]),
+.pk-lift:focus-visible:not(:disabled):not([aria-disabled="true"]) {
   transform: translateY(-2px);
   box-shadow: var(--pk-rim), var(--pk-elev-3);
 }
@@ -2495,8 +2507,8 @@ html, body {
     border-color var(--pk-dur-lift) var(--pk-ease-decel);
 }
 
-.pk-lift-lg:hover,
-.pk-lift-lg:focus-visible {
+.pk-lift-lg:hover:not(:disabled):not([aria-disabled="true"]),
+.pk-lift-lg:focus-visible:not(:disabled):not([aria-disabled="true"]) {
   transform: translateY(-4px);
   box-shadow: var(--pk-rim-strong), var(--pk-elev-4);
 }
@@ -2510,12 +2522,12 @@ html, body {
   transition: transform var(--pk-dur-fast) var(--pk-ease-decel);
 }
 
-.pk-press:active {
+.pk-press:active:not(:disabled):not([aria-disabled="true"]) {
   transform: scale(0.975);
 }
 
 /* Composed: the standard interactive object. */
-.pk-lift.pk-press:active {
+.pk-lift.pk-press:active:not(:disabled):not([aria-disabled="true"]) {
   transform: translateY(-1px) scale(0.985);
 }
 
@@ -2607,11 +2619,25 @@ html, body {
 /* A lit hairline across the top edge, for a surface that should read
    as raised without carrying a full border. Needs a positioned parent;
    the ::before is inert to the pointer and to assistive tech. */
-.pk-crown {
+/* BOTH CLASSES DRAW. `.pk-crown-accent` was written as a modifier that
+   only recoloured `.pk-crown::before`, which meant it rendered nothing
+   at all unless `.pk-crown` happened to be beside it — and it reads
+   exactly like a complete class, so five call sites across the reveal
+   and progression surfaces used it alone and drew no hairline. Nobody
+   would spot that in review: the markup is right, the class exists,
+   and the result is silently empty.
+
+   Making the accent variant self-sufficient costs one selector and
+   removes the trap. It still composes: `.pk-crown .pk-crown-accent`
+   resolves to the accent background either way, because the accent
+   rule comes second. */
+.pk-crown,
+.pk-crown-accent {
   position: relative;
 }
 
-.pk-crown::before {
+.pk-crown::before,
+.pk-crown-accent::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
@@ -2738,18 +2764,26 @@ html, body {
 
   /* No movement at all. The element still reports itself as hovered
      through its border and shadow, which is the information; the
-     travel was the decoration. */
-  .pk-lift:hover,
-  .pk-lift:focus-visible,
-  .pk-lift-lg:hover,
-  .pk-lift-lg:focus-visible,
-  .pk-press:active,
-  .pk-lift.pk-press:active {
+     travel was the decoration.
+
+     THE `:not()` CHAINS ARE LOAD-BEARING HERE, not copied for tidiness.
+     The rules these override carry `:not(:disabled):not([aria-disabled])`
+     — specificity (0,4,0). Written as the bare `.pk-lift:hover` this
+     block used to be, at (0,2,0), it would lose the cascade despite
+     coming later in the file, and reduced motion would silently stop
+     suppressing the lift. Any future change to the guards above must be
+     mirrored here. */
+  .pk-lift:hover:not(:disabled):not([aria-disabled="true"]),
+  .pk-lift:focus-visible:not(:disabled):not([aria-disabled="true"]),
+  .pk-lift-lg:hover:not(:disabled):not([aria-disabled="true"]),
+  .pk-lift-lg:focus-visible:not(:disabled):not([aria-disabled="true"]),
+  .pk-press:active:not(:disabled):not([aria-disabled="true"]),
+  .pk-lift.pk-press:active:not(:disabled):not([aria-disabled="true"]) {
     transform: none;
   }
 
-  .pk-lift:hover,
-  .pk-lift:focus-visible {
+  .pk-lift:hover:not(:disabled):not([aria-disabled="true"]),
+  .pk-lift:focus-visible:not(:disabled):not([aria-disabled="true"]) {
     box-shadow: var(--pk-rim), var(--pk-elev-3);
   }
 
