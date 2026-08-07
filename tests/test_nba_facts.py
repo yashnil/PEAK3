@@ -14,6 +14,23 @@ table cannot know why the shot clock is 24 seconds. So the evidence assertion
 now applies to DERIVED facts, and a strictly harder one applies to the curated
 half — an editorial fact with no named source, or marked unverified, fails the
 BUILD, not just this file.
+
+AND THEN THE HOMEPAGE TIER ARRIVED, AND FOUR ASSERTIONS HAD TO MOVE. The daily
+rotation no longer walks the bank; it walks `featured.featured_facts(bank)`. So
+every property that used to be stated about the BANK — the period, the
+no-repeat window, "selection reaches every fact", the subject spacing — is now
+stated about the TIER, because the tier is what gets served and asserting them
+about a set nothing serves would be asserting nothing. Each of those tests says
+so in place. Two assertions were REPLACED BY STRICTLY STRONGER ONES rather than
+moved, and both are called out where they sit:
+
+  * the model-independence check used to grep one file for two strings. It now
+    scans every module in the package for four dependencies, and it is the test
+    that would have caught `title_team_role` reaching a homepage card.
+  * "at least 80 distinct players in the bank" could pass while one generator's
+    eight published facts were all about the same person. The primary assertion
+    is now that no template repeats a subject at all, which the count could not
+    express.
 """
 from __future__ import annotations
 
@@ -26,15 +43,19 @@ from nba_peak.nba_facts import (
     CATEGORIES,
     FACT_BANK_VERSION,
     MIN_FACTS,
+    MIN_FEATURED_FACTS,
     NbaFact,
     PERISHABLE_CATEGORIES,
     bank_payload,
     build_bank,
     build_candidates,
     fact_for_date,
+    featured_facts,
+    featured_failures,
     is_live,
     load_rows,
     recent_window,
+    select_featured,
 )
 from nba_peak.nba_facts.derived import MAX_CAREER_SPAN_YEARS
 
@@ -60,6 +81,12 @@ def rejected(built):
 
 
 @pytest.fixture(scope="module")
+def featured(bank):
+    """The tier the homepage actually rotates through."""
+    return featured_facts(bank)
+
+
+@pytest.fixture(scope="module")
 def derived_facts(bank):
     return [fact for fact in bank if fact.provenance == "derived"]
 
@@ -74,7 +101,10 @@ def editorial_facts(bank):
 # ---------------------------------------------------------------------------
 
 
-def test_the_bank_is_large_enough_to_not_repeat_itself(bank):
+def test_the_bank_is_large_enough_to_select_a_homepage_tier_from(bank):
+    """The RESERVOIR floor. The no-repeat guarantee moved to the featured tier
+    (`test_the_featured_tier_is_large_enough_for_a_daily_feature`); this number
+    is what a container build with a missing input trips."""
     assert len(bank) >= MIN_FACTS
 
 
@@ -147,19 +177,158 @@ def test_no_fact_mentions_the_model(bank):
             assert word not in lowered, f"{fact.fact_id} refers to the model: {fact.text}"
 
 
-def test_no_fact_depends_on_a_component_score(bank):
-    """Structural, not textual: the generators read the season table only.
+#: Every value this REPOSITORY computes rather than records. A fact may not be a
+#: function of one, because a claim derived from one cannot be attributed to
+#: Basketball-Reference and cannot be checked by a reader who does not have this
+#: codebase.
+#:
+#: `title_team_role` IS THE ENTRY THAT MATTERS, and it is here because it got
+#: past. `nba_peak/context/title_role.py` computes it — a weighted z-score
+#: composite with `CO_BEST_GAP = 0.60` deciding where "co-best" ends — and two
+#: award generators branched on it to publish
+#:
+#:     "JaVale McGee won 3 championships without ever being the best player on
+#:      the team."
+#:
+#: as an unqualified fact, sourced to Basketball-Reference, on the surface whose
+#: whole premise is that a visitor can evaluate it without knowing what PEAK3 is.
+#: Both generators are deleted.
+REPO_COMPUTED_JUDGMENTS = (
+    "title_team_role",
+    "title_team_role_score",
+    "best_player_title",
+    "co_best_player_title",
+    "secondary_star_title",
+    "prime_score",
+    "prime_index",
+    "scored_1980_2026",
+    "teammate_adjustment",
+    "context_confidence",
+)
 
-    `load_rows` returns membership and games; there is no score anywhere in the
-    pipeline, so a fact cannot be a function of one.
+#: And the modules that produce them. An import is as much a dependency as a
+#: column read, and a generator that called `title_role.classify(...)` directly
+#: would name none of the strings above.
+REPO_JUDGMENT_MODULES = (
+    "nba_peak.context.title_role",
+    "nba_peak.context",
+    "peak3",
+    "nba_peak.scoring",
+)
+
+
+def test_no_fact_depends_on_a_judgment_this_repository_computes():
+    """THE TEST THAT SHOULD HAVE CAUGHT `title_team_role`, AND DID NOT.
+
+    WHAT THIS REPLACES, AND WHY THE REPLACEMENT IS STRICTLY STRONGER. The old
+    version opened `nba_peak/nba_facts/__init__.py` — the package's re-export
+    list, which contains no generator — and asserted two literal strings were
+    absent from it:
+
+        text = open(nba_facts.__file__).read()
+        assert "prime_score" not in text
+        assert "scored_1980_2026" not in text
+
+    Both assertions passed for the whole life of the defect. `awards.py`,
+    `derived.py` and every other module in the package were never opened, so a
+    generator reading a PEAK3-computed column was invisible to the one test
+    written to forbid exactly that. The docstring even claimed the property was
+    structural — "there is no score anywhere in the pipeline" — which was a
+    statement about a file nobody was checking.
+
+    This version reads EVERY module in the package, checks ten repo-computed
+    values rather than two, and checks imports as well as identifiers. It is a
+    superset of the old test in every dimension: same two strings, more strings,
+    more files, plus the import check the old one had no notion of.
     """
+    import re
+    from pathlib import Path
+
     from nba_peak import nba_facts
 
-    source = (nba_facts.__file__ or "")
-    assert source
-    text = open(source).read()
-    assert "prime_score" not in text
-    assert "scored_1980_2026" not in text
+    package = Path(nba_facts.__file__).parent
+    modules = sorted(package.glob("*.py"))
+    assert len(modules) >= 8, f"only found {len(modules)} modules to scan"
+
+    offences: list[str] = []
+    for module in modules:
+        text = module.read_text()
+        # Comments and docstrings NAME these deliberately — this codebase
+        # explains its deletions rather than hiding them — so the scan looks at
+        # code only. Stripping is crude on purpose: a false positive here costs
+        # a comment reword, and a false negative costs a wrong fact on a
+        # homepage.
+        code = _strip_prose(text)
+        for judgment in REPO_COMPUTED_JUDGMENTS:
+            if re.search(rf"\b{re.escape(judgment)}\b", code):
+                offences.append(f"{module.name} reads {judgment!r}")
+        for dotted in REPO_JUDGMENT_MODULES:
+            if re.search(rf"^\s*(from|import)\s+{re.escape(dotted)}\b", code, re.M):
+                offences.append(f"{module.name} imports {dotted!r}")
+
+    assert offences == [], (
+        "A fact generator depends on a value this repository computes. Such a "
+        "claim cannot be sourced to Basketball-Reference and must not be "
+        "published as fact: " + "; ".join(offences)
+    )
+
+
+def _strip_prose(text: str) -> str:
+    """Source with comments and string literals removed, for the scan above."""
+    import io
+    import tokenize
+
+    kept: list[str] = []
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type in (tokenize.COMMENT, tokenize.STRING):
+                continue
+            kept.append(token.string)
+    except tokenize.TokenError:  # pragma: no cover - only on unparseable source
+        return text
+    return "\n".join(kept)
+
+
+def test_the_two_model_dependent_generators_are_gone():
+    """Deleted, not reworded, and not merely absent from the registry.
+
+    "X was not the best player on that team" has no external record to cite, so
+    there is no wording that makes it sourceable. A generator left in the module
+    but out of `AWARD_GENERATORS` would be one import away from shipping again.
+    """
+    from nba_peak.nba_facts import awards
+
+    for name in ("gen_finals_mvp_not_best_player", "gen_champion_role_players"):
+        assert not hasattr(awards, name), f"{name} is still defined"
+    registered = {generator.__name__ for generator in awards.AWARD_GENERATORS}
+    assert "gen_finals_mvp_not_best_player" not in registered
+    assert "gen_champion_role_players" not in registered
+
+
+def test_no_published_fact_ranks_a_player_by_an_unstated_standard(bank):
+    """The textual half of the same rule, over the WHOLE bank.
+
+    The structural test above forbids reading a computed column. This forbids
+    the sentence, whatever produced it — an editorial entry could make the same
+    claim from no data at all, and did: one curated fact called a player "its
+    best player" and another called somebody "never the worst defender on the
+    floor". Both were rewritten to say what happened instead.
+    """
+    import re
+
+    from nba_peak.nba_facts.featured import SUBJECTIVE_CLAIMS
+
+    forbidden = re.compile(
+        r"\bbest player\b|\b(best|worst) (defender|shooter|passer|scorer)\b",
+        re.IGNORECASE,
+    )
+    for fact in bank:
+        assert not forbidden.search(f"{fact.headline} {fact.body}"), (
+            f"{fact.fact_id} ranks a player: {fact.headline}"
+        )
+    # And the featured gate knows the same shapes, so a new one cannot reach the
+    # homepage even if it reaches the bank.
+    assert any("best player" in pattern for pattern, _ in SUBJECTIVE_CLAIMS)
 
 
 # ---------------------------------------------------------------------------
@@ -213,24 +382,40 @@ def test_consecutive_days_never_repeat(bank):
         previous = current
 
 
-def test_selection_reaches_every_fact(bank):
-    """No fact is unreachable, and none is over-served.
+def test_selection_reaches_every_featured_fact(bank, featured):
+    """No featured fact is unreachable, and none is over-served.
 
-    The period is still exactly one bank's worth of days, as it was under the
-    old single-stride rotation. What changed is what happens INSIDE that period:
-    the schedule is interleaved across (category-group, era-group) buckets, so
-    consecutive days differ in kind rather than only in fact. The old walk was
-    blind to what it landed on, which is how a run of days could be five
-    variations of the same pattern, each of which passed its own quality bar
-    while the sequence passed nothing.
+    STATED ABOUT THE TIER, WHICH IS WHAT MOVED. This used to read
+    `seen == {fact.fact_id for fact in bank}` over `len(bank)` days, and that
+    was the right assertion when the rotation walked the bank. It now walks
+    `featured_facts(bank)`, so asserting the old form would assert that the
+    homepage serves facts it is specifically gated against serving. The
+    property — every member of the rotated set appears exactly once per period,
+    none is unreachable — is unchanged and is asserted over the set that is
+    actually rotated.
     """
-    period = len(bank)
+    period = len(featured)
     start = date(2026, 1, 1)
     seen = {
         fact_for_date(bank, (start + timedelta(days=offset)).isoformat()).fact_id
         for offset in range(period)
     }
-    assert seen == {fact.fact_id for fact in bank}
+    assert seen == {fact.fact_id for fact in featured}
+
+
+def test_the_homepage_never_serves_a_fact_outside_the_featured_tier(bank, featured):
+    """The tier is a gate, not a preference.
+
+    A year of days, every one of them checked against the tier, because "only
+    high-tier facts rotate onto the homepage" is the whole of HOME-02 and a
+    rotation that leaked one fact in fifty would look correct in a sample.
+    """
+    ids = {fact.fact_id for fact in featured}
+    start = date(2026, 1, 1)
+    for offset in range(400):
+        served = fact_for_date(bank, (start + timedelta(days=offset)).isoformat())
+        assert served is not None
+        assert served.fact_id in ids, f"{served.fact_id} is in the bank, not the tier"
 
 
 def test_selection_reads_no_clock(bank):
@@ -341,6 +526,52 @@ def test_an_expired_fact_is_not_served(bank):
         assert served is None or served.fact_id != fact.fact_id
 
 
+def test_every_expired_featured_fact_is_dropped_on_the_day_it_lapses(bank, featured):
+    """EVERY dated fact in the tier, on its last day and its first dead one.
+
+    The test above checks one fact. This checks all of them, and it checks the
+    boundary in both directions — a fact must still be served ON `valid_until`
+    and must be unreachable the morning after, for a whole rotation period
+    rather than for sixty days. An expiry that is honoured for two months and
+    then forgotten is the same defect arriving later.
+    """
+    dated = [f for f in featured if f.valid_until]
+    assert dated, "no featured fact carries an expiry, so this guard is untested"
+    for fact in dated:
+        assert is_live(fact, fact.valid_until), fact.fact_id
+        dead = date.fromisoformat(fact.valid_until[:10]) + timedelta(days=1)
+        assert not is_live(fact, dead.isoformat())
+        for offset in range(len(featured) + 5):
+            served = fact_for_date(bank, (dead + timedelta(days=offset)).isoformat())
+            assert served is None or served.fact_id != fact.fact_id, (
+                f"{fact.fact_id} expired on {fact.valid_until} and was served "
+                f"on {(dead + timedelta(days=offset)).isoformat()}"
+            )
+
+
+def test_the_rotation_still_has_something_to_serve_after_everything_expires(bank):
+    """A tier that empties is a homepage that goes blank.
+
+    Every perishable fact in the tier is a `current_nba` entry dated to the end
+    of a season. This walks past the latest of them and asserts the rotation
+    keeps answering — the tier shrinks by the ten that lapsed and does not
+    promote anything to replace them, which is the intended behaviour and worth
+    stating.
+    """
+    dated = [f.valid_until[:10] for f in featured_facts(bank) if f.valid_until]
+    assert dated
+    after = (date.fromisoformat(max(dated)) + timedelta(days=1)).isoformat()
+    surviving = [f for f in featured_facts(bank) if is_live(f, after)]
+    assert len(surviving) == len(featured_facts(bank)) - len(dated)
+    assert len(surviving) >= MIN_FEATURED_FACTS - len(dated)
+    for offset in range(30):
+        served = fact_for_date(
+            bank, (date.fromisoformat(after) + timedelta(days=offset)).isoformat()
+        )
+        assert served is not None
+        assert served.valid_until is None or served.valid_until[:10] >= after
+
+
 # ---------------------------------------------------------------------------
 # Quality
 # ---------------------------------------------------------------------------
@@ -402,18 +633,41 @@ def test_no_published_fact_is_a_near_duplicate_of_another(bank):
 
 
 def test_two_facts_about_different_people_are_never_merged(bank):
-    """The other half of the same rule, asserted directly.
+    """The other half of the same rule, asserted directly — and asserted better.
 
-    A bank of 154 generated facts uses each template many times; if the
-    duplicate check treated shared phrasing as sameness it would silently keep
-    one player per template and drop the rest.
+    THE OLD FORM WAS `len(distinct players) >= 80`, WHICH COULD NOT SEE THE
+    DEFECT IT WAS WRITTEN FOR. If the duplicate check treated shared phrasing as
+    sameness it would keep ONE PLAYER PER TEMPLATE and drop the other seven, and
+    a bank with twenty templates plus ninety curated facts would still have
+    reported well over eighty distinct players. The count was a proxy for the
+    property and a loose one.
+
+    The primary assertion is now the property itself: within every generated
+    template, no two published facts name the same player. That is strictly
+    stronger — it fails on a template collapsed to a single subject, which the
+    count passes.
+
+    The bank-wide count is kept as a second, weaker check and its number moved
+    from 80 to 75, because 41 facts were removed from the bank on purpose (two
+    model-dependent award generators, two roster-tenure profiles re-scored below
+    the floor) and 78 is what the smaller bank honestly holds. The number was
+    never the point; the injectivity above is.
     """
-    from collections import Counter
+    from collections import defaultdict
 
-    subjects = Counter(
-        fact.player_slug for fact in bank if fact.player_slug
-    )
-    assert len(subjects) >= 80, f"only {len(subjects)} distinct players in the bank"
+    by_pattern: dict[str, list[str]] = defaultdict(list)
+    for fact in bank:
+        if fact.provenance == "derived" and fact.player_slug:
+            by_pattern[fact.pattern or "unpatterned"].append(fact.player_slug)
+    assert by_pattern, "no derived fact names a player"
+    for pattern, slugs in sorted(by_pattern.items()):
+        assert len(slugs) == len(set(slugs)), (
+            f"{pattern} published {len(slugs)} facts about "
+            f"{len(set(slugs))} people — the duplicate check collapsed a template"
+        )
+
+    subjects = {fact.player_slug for fact in bank if fact.player_slug}
+    assert len(subjects) >= 75, f"only {len(subjects)} distinct players in the bank"
 
 
 def test_the_pattern_cap_is_reported_rather_than_silent(rejected):
@@ -475,34 +729,58 @@ def test_no_rotation_group_dominates(bank):
     assert largest <= len(bank) * (MAX_ROTATION_GROUP_SHARE + 0.10), counts
 
 
-def test_the_bank_is_large_enough_for_a_daily_feature(bank):
-    """180 IS THE PRODUCT REQUIREMENT, not a comfortable margin.
+def test_the_bank_is_large_enough_to_select_a_tier_from(bank):
+    """180 IS STILL THE FLOOR, and it now means something narrower.
 
-    `schedule()` has a period of exactly `len(bank)` days, so the size of the
-    bank is the no-repeat guarantee. A 47-fact bank cycled its whole inventory
-    every seven weeks.
+    It used to be the no-repeat guarantee: `schedule()` had a period of exactly
+    `len(bank)` days. The rotation walks the featured tier now, so that meaning
+    moved to `MIN_FEATURED_FACTS` and this number is the RESERVOIR floor — the
+    thing that failed when a Docker image shipped without `data/facts/` and
+    produced 113 facts. The number is unchanged; only its justification is.
     """
-    assert len(bank) >= 180, len(bank)
+    assert len(bank) >= MIN_FACTS, len(bank)
 
 
-def test_no_fact_repeats_inside_180_daily_keys(bank):
-    served = recent_window(bank, "2026-03-01", 180)
+def test_the_featured_tier_is_large_enough_for_a_daily_feature(featured):
+    """AND THIS IS THE NO-REPEAT GUARANTEE NOW.
+
+    `schedule()` has a period of exactly `len(featured)` days, so the size of
+    the tier is how long a reader can watch before anything comes round again.
+    Ninety is a smaller promise than the bank's old 180 and an honest one:
+    HOME-02 asks for "a smaller excellent featured set over hundreds of filler
+    facts", and the alternative to three months of distinct strong facts is six
+    months of which the second half is padding.
+    """
+    assert len(featured) >= MIN_FEATURED_FACTS, len(featured)
+
+
+def test_no_fact_repeats_inside_a_full_rotation(bank, featured):
+    """A whole period, served day by day, with nothing seen twice.
+
+    The window is `len(featured)` rather than the old fixed 180 because the
+    period IS `len(featured)`; asking for 180 distinct facts from a 93-fact
+    rotation would assert something arithmetically impossible rather than
+    something desirable.
+    """
+    period = len(featured)
+    served = recent_window(bank, "2026-03-01", period)
     ids = [fact.fact_id for fact in served]
-    assert len(ids) == 180
-    assert len(set(ids)) == 180, "a fact came round inside 180 days"
+    assert len(ids) == period
+    assert len(set(ids)) == period, f"a fact came round inside {period} days"
 
 
-def test_no_player_or_team_headlines_twice_in_a_fortnight(bank):
+def test_no_player_or_team_headlines_twice_in_a_fortnight(featured):
     """A reader notices a name long before they notice a category.
 
     Round-robin over (category-group, era) buckets alternates the KIND of fact
     and is entirely blind to WHO it is about, so it would happily serve three
-    Michael Jordan facts in a week from three different buckets.
+    Michael Jordan facts in a week from three different buckets. Asserted over
+    the tier, because the tier is the sequence a reader sees.
     """
     from nba_peak.nba_facts import SUBJECT_SPACING_DAYS
     from nba_peak.nba_facts.rotation import _subject, schedule
 
-    ordered = schedule(bank)
+    ordered = schedule(featured)
     for index, fact in enumerate(ordered):
         subject = _subject(fact)
         if subject is None:
@@ -513,7 +791,7 @@ def test_no_player_or_team_headlines_twice_in_a_fortnight(bank):
         )
 
 
-def test_consecutive_days_almost_never_share_a_category_group(bank):
+def test_consecutive_days_almost_never_share_a_category_group(featured):
     """"Almost" is the honest word and the reason is arithmetic.
 
     Near the end of a period only one lane has anything left in it, so a
@@ -522,8 +800,8 @@ def test_consecutive_days_almost_never_share_a_category_group(bank):
     """
     from nba_peak.nba_facts import schedule_audit
 
-    audit = schedule_audit(bank)
-    assert audit["consecutive_group_repeats"] <= len(bank) * 0.05, audit
+    audit = schedule_audit(featured)
+    assert audit["consecutive_group_repeats"] <= len(featured) * 0.05, audit
 
 
 def test_no_generator_template_dominates(bank):
@@ -536,6 +814,271 @@ def test_no_generator_template_dominates(bank):
     counts = Counter(fact.pattern for fact in bank if fact.provenance == "derived")
     assert counts, "no derived facts carry a pattern"
     assert max(counts.values()) <= MAX_PER_DERIVED_PATTERN, counts.most_common(3)
+
+
+# ---------------------------------------------------------------------------
+# The homepage featured tier
+#
+# HOME-02: "Create a clear homepage suitability gate or tier … only high-tier
+# facts rotate onto the homepage … prefer a smaller excellent featured set over
+# hundreds of filler facts."
+#
+# The tier exists because bank membership could not be that gate. A derived
+# fact's seven quality axes are constants of its TEMPLATE — every fact one
+# generator emits scores identically — so the publication floor admits or
+# rejects whole families and can never separate the best instance of a pattern
+# from the eighth. These tests hold the second gate to the criteria HOME-02
+# names, and hold it to being COMPUTED rather than curated by hand.
+# ---------------------------------------------------------------------------
+
+
+def test_the_featured_tier_is_a_computed_property_and_not_a_hand_list(bank):
+    """Membership follows from the scores, for facts that do not exist yet.
+
+    A hand-list would pass every other test in this section and would be a
+    different thing: it could not tell a curator why an entry was excluded, and
+    a new editorial fact would join only if somebody remembered to add it. This
+    builds two synthetic facts that are identical except in their scores and
+    asserts the gate separates them.
+    """
+    from nba_peak.nba_facts import NbaFact, QualityScores
+    from nba_peak.nba_facts.featured import featured_failures
+
+    def synthetic(**scores) -> NbaFact:
+        return NbaFact(
+            fact_id="rules-synthetic",
+            headline="A synthetic fact used to exercise the gate.",
+            body="It names a source and expires never.",
+            category="rules",
+            era="1950s",
+            provenance="editorial",
+            source_label="Editorial — checked against a named published source",
+            source_detail="A named published source, long enough to be a citation",
+            verified=True,
+            quality=QualityScores(**scores),
+        )
+
+    strong = synthetic(
+        surprise=5, significance=5, clarity=5, broad_interest=5, novelty=5,
+        source_confidence=5, homepage_suitability=5,
+    )
+    weak = synthetic(
+        surprise=3, significance=4, clarity=5, broad_interest=5, novelty=4,
+        source_confidence=5, homepage_suitability=5,
+    )
+    assert featured_failures(strong) == []
+    assert "surprise<4" in featured_failures(weak)
+
+    # And the gate is what decides the tier: everything in it passes, and
+    # nothing that fails is in it.
+    ids = {fact.fact_id for fact in featured_facts(bank)}
+    for fact in bank:
+        if featured_failures(fact):
+            assert fact.fact_id not in ids, f"{fact.fact_id} is featured and fails"
+
+
+def test_every_featured_fact_clears_every_homepage_criterion(featured):
+    for fact in featured:
+        assert featured_failures(fact) == [], (
+            f"{fact.fact_id}: {featured_failures(fact)}"
+        )
+
+
+def test_the_featured_tier_holds_a_higher_bar_than_the_bank(bank, featured):
+    """A gate that admits everything is not a gate.
+
+    Two things asserted together, because either alone is satisfiable trivially:
+    the tier is a strict subset of the bank, and it is a small enough one that
+    it represents a decision. HOME-02's instruction was to prefer a smaller
+    excellent set, so the ceiling here is as much the point as the floor.
+    """
+    bank_ids = {fact.fact_id for fact in bank}
+    featured_ids = {fact.fact_id for fact in featured}
+    assert featured_ids < bank_ids
+    assert len(featured) <= len(bank) * 0.7, (len(featured), len(bank))
+
+
+def test_derived_facts_clear_a_higher_bar_than_editorial_ones(featured):
+    """Not a prejudice about provenance — a correction for what the score
+    measures.
+
+    An editorial entry's seven numbers were assigned to that entry by somebody
+    who read it. A derived fact's were assigned to its TEMPLATE by somebody who
+    read one example. The second is a weaker signal about any individual fact,
+    so it has to clear more to carry the same confidence.
+    """
+    from nba_peak.nba_facts.featured import FEATURED_MIN_TOTAL
+
+    assert FEATURED_MIN_TOTAL["derived"] > FEATURED_MIN_TOTAL["editorial"]
+    for fact in featured:
+        assert fact.quality.total >= FEATURED_MIN_TOTAL[fact.provenance], fact.fact_id
+
+
+def test_no_template_can_carry_a_family_onto_the_homepage(featured):
+    """THE DEFECT THE TIER EXISTS FOR, ASSERTED DIRECTLY.
+
+    The publication gate caps a generator at eight and takes the first eight by
+    hash, because within a generator every fact scores identically and there is
+    nothing to rank. Eight of a ninety-fact rotation is 9% — a reader meets the
+    same sentence roughly monthly. The tier caps at three AND requires the three
+    to come from three different eras, so a template's slots buy three different
+    periods of the league rather than three players from one decade.
+    """
+    from collections import Counter, defaultdict
+
+    from nba_peak.nba_facts import MAX_FEATURED_PER_PATTERN, MAX_PER_DERIVED_PATTERN
+    from nba_peak.nba_facts.rotation import era_group
+
+    assert MAX_FEATURED_PER_PATTERN < MAX_PER_DERIVED_PATTERN
+
+    counts = Counter(
+        fact.pattern for fact in featured if fact.provenance == "derived"
+    )
+    assert counts, "no derived fact reached the tier, so this guard is untested"
+    assert max(counts.values()) <= MAX_FEATURED_PER_PATTERN, counts.most_common(3)
+
+    eras: dict[str, list[str]] = defaultdict(list)
+    for fact in featured:
+        if fact.provenance == "derived":
+            eras[fact.pattern].append(era_group(fact.era))
+    for pattern, groups in sorted(eras.items()):
+        assert len(groups) == len(set(groups)), (
+            f"{pattern} features {len(groups)} facts from {len(set(groups))} eras"
+        )
+
+
+def test_the_tier_ranks_within_a_template_rather_than_taking_the_first_by_hash(bank):
+    """The per-fact signal the publication gate never read.
+
+    Most generators put their subject's number in `feature` — five straight
+    rebounding titles, thirteen straight All-Defense teams — and that number is
+    per-fact, already computed, and exactly what makes one instance of a
+    template more remarkable than another. Where it exists, the featured slots
+    must go to the largest, not to whichever id sorted first.
+    """
+    from collections import defaultdict
+
+    from nba_peak.nba_facts.featured import extremity, featured_failures
+
+    eligible: dict[str, list] = defaultdict(list)
+    for fact in bank:
+        if fact.provenance == "derived" and not featured_failures(fact):
+            eligible[fact.pattern].append(fact)
+
+    chosen = {fact.fact_id for fact in featured_facts(bank)}
+    ranked = 0
+    for pattern, facts in sorted(eligible.items()):
+        magnitudes = {extremity(f) for f in facts}
+        if len(magnitudes) <= 1:
+            continue  # the template has no internal ordering; see featured.py
+        ranked += 1
+        taken = [f for f in facts if f.fact_id in chosen]
+        if not taken:
+            continue
+        best = max(extremity(f) for f in facts)
+        assert max(extremity(f) for f in taken) == best, (
+            f"{pattern} featured a weaker instance than the one it had: "
+            f"{[(f.headline, extremity(f)) for f in taken]}"
+        )
+    assert ranked, "no featured template has a rankable feature"
+
+
+def test_no_featured_fact_makes_a_claim_nobody_can_check(featured):
+    """NON-SUBJECTIVITY, the HOME-02 criterion no quality axis covers.
+
+    `gen_finals_mvp_not_best_player` scored 31/35 with every axis at 4 or 5,
+    because the person scoring the template was scoring how INTERESTING it was.
+    No axis asks whether a sentence is the kind of thing that can be checked at
+    all, so the gate asks it separately.
+    """
+    from nba_peak.nba_facts.featured import subjective_claim
+
+    for fact in featured:
+        found = subjective_claim(fact)
+        assert found is None, f"{fact.fact_id}: {found} in {fact.headline!r}"
+
+
+def test_the_tier_spreads_across_categories_and_eras(featured):
+    """CATEGORY DIVERSITY, the sixth criterion, measured on what is served.
+
+    A tier of ninety strong facts that were all Finals history would satisfy
+    every other test here and would be a worse homepage than the bank it
+    replaced.
+    """
+    from collections import Counter
+
+    from nba_peak.nba_facts.featured import MAX_FEATURED_GROUP_SHARE
+    from nba_peak.nba_facts.rotation import category_group, era_group
+
+    groups = Counter(category_group(fact.category) for fact in featured)
+    assert len(groups) >= 5, groups
+    assert max(groups.values()) <= len(featured) * (MAX_FEATURED_GROUP_SHARE + 0.05), (
+        groups
+    )
+
+    eras = Counter(era_group(fact.era) for fact in featured)
+    assert set(eras) == {"early", "classic", "modern", "current"}, eras
+    assert min(eras.values()) >= len(featured) * 0.1, eras
+
+    categories = {fact.category for fact in featured}
+    for required in (
+        "rules", "olympics_fiba", "womens", "draft", "global", "records",
+        "culture", "current_nba", "nba_history",
+    ):
+        assert required in categories, f"the tier has nothing filed {required}"
+
+
+def test_every_featured_fact_about_the_present_carries_an_expiry(featured):
+    """Read SEMANTICALLY, so a fact filed `global` that makes a claim about this
+    season is held to the same rule as one filed `current_nba`."""
+    from nba_peak.nba_facts import coverage
+
+    for fact in coverage.facts_in_group(featured, "current_nba"):
+        assert fact.valid_until, f"{fact.fact_id}: {fact.headline}"
+    for fact in featured:
+        if fact.category in PERISHABLE_CATEGORIES:
+            assert fact.valid_until, fact.fact_id
+
+
+def test_every_featured_fact_is_still_sourceable(featured):
+    """The tier is stricter about sourcing than the bank, not looser.
+
+    A derived fact carries the rows it was computed from; a curated one names
+    the record a person read. HOME-02: "every published fact remains sourceable
+    in data/tests even if sources are not shown in the homepage UI."
+    """
+    for fact in featured:
+        assert fact.verified, fact.fact_id
+        assert fact.quality.source_confidence == 5, fact.fact_id
+        if fact.provenance == "derived":
+            assert fact.evidence, fact.fact_id
+        else:
+            assert len(fact.source_detail.strip()) > 25, fact.fact_id
+
+
+def test_the_featured_tier_is_reproducible(bank, featured):
+    """Same bank in, same tier out — and independent of the order it arrives in.
+
+    Selection sorts by (total, magnitude, fact_id) and every ceiling is applied
+    in that order, so there is no iteration-order dependence to leak.
+    """
+    again, _ = select_featured(bank)
+    assert [f.fact_id for f in again] == [f.fact_id for f in featured]
+    backwards, _ = select_featured(list(reversed(bank)))
+    assert [f.fact_id for f in backwards] == [f.fact_id for f in featured]
+
+
+def test_the_written_payload_records_the_tier_the_rotation_serves(bank, featured):
+    """The JSON names the featured ids so the artifact is self-describing.
+
+    Nothing reads them back — `fact_for_date` recomputes the tier from the same
+    committed scores — so this is the assertion that stops the record and the
+    computation drifting into disagreement.
+    """
+    payload = bank_payload(bank)
+    assert payload["featured_count"] == len(featured)
+    assert payload["featured"] == [fact.fact_id for fact in featured]
+    assert set(payload["featured"]) <= {entry["fact_id"] for entry in payload["facts"]}
 
 
 def test_award_facts_are_re_derivable_from_the_committed_context(bank):
@@ -642,6 +1185,19 @@ def test_the_bank_is_not_dominated_by_players_switching_teams(bank, rejected):
         if "returned" in fact.headline.lower()
         or "suited up for" in fact.headline.lower()
         or "one season for each" in fact.headline.lower()
+        # AND THE TWO SHAPES THE HOMEPAGE AUDIT ADDED, which are the same
+        # objection one step further on. HOME-01's reject list names "mundane
+        # roster-tenure counting", and the last two derived profiles scoring a
+        # bare pass were counting rows in a tenure table:
+        #
+        #   "Udonis Haslem played all 20 of his recorded seasons for one
+        #    franchise (MIA)."
+        #   "Chris Paul was still on an NBA roster in his 21st recorded season."
+        #
+        # Both are re-scored below the publication floor, and this is what keeps
+        # them there.
+        or "of his recorded seasons for one franchise" in fact.headline.lower()
+        or "was still on an nba roster" in fact.headline.lower()
     ]
     assert switching == [], [f.headline for f in switching]
     # And they were rejected rather than never generated, so the report can
@@ -730,7 +1286,7 @@ def test_every_fact_about_the_present_carries_an_expiry(bank):
         assert fact.valid_until, f"{fact.fact_id}: {fact.headline}"
 
 
-def test_the_repair_pass_only_ever_improves(bank):
+def test_the_repair_pass_only_ever_improves(featured):
     """`_repair` is a strict-improvement hill climb over a finished schedule.
 
     It exists because the greedy pass places facts left to right: near the end
@@ -742,7 +1298,7 @@ def test_the_repair_pass_only_ever_improves(bank):
     """
     from nba_peak.nba_facts.rotation import _repair, _cost, schedule
 
-    ordered = schedule(bank)
+    ordered = schedule(featured)
     repaired = _repair(list(ordered))
     everywhere = range(len(ordered))
     assert {f.fact_id for f in repaired} == {f.fact_id for f in ordered}
@@ -750,13 +1306,13 @@ def test_the_repair_pass_only_ever_improves(bank):
     assert _cost(repaired, everywhere) <= _cost(ordered, everywhere)
 
 
-def test_the_schedule_depends_on_the_bank_and_not_on_its_order(bank):
+def test_the_schedule_depends_on_the_bank_and_not_on_its_order(featured):
     """The schedule is cached by the tuple of fact ids it was built from, so a
     caller handing the same facts in a different order must still get the same
     sequence — otherwise the cache key and the function disagree about what the
     input is."""
     from nba_peak.nba_facts.rotation import schedule
 
-    forwards = schedule(bank)
-    backwards = schedule(list(reversed(bank)))
+    forwards = schedule(featured)
+    backwards = schedule(list(reversed(featured)))
     assert [f.fact_id for f in forwards] == [f.fact_id for f in backwards]

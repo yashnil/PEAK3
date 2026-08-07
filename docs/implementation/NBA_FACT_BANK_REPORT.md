@@ -9,9 +9,9 @@ different one.
 | | |
 |---|---|
 | Bank version | `nba_facts_v2` |
-| Published facts | **228** |
-| Candidates considered | 806 |
-| Rejected | 578 |
+| Published facts | **187** |
+| Candidates considered | 758 |
+| Rejected | 571 |
 | Duplicates and near-duplicates | 2 |
 | Facts with an expiry | 11 |
 
@@ -19,10 +19,10 @@ different one.
 
 | Reason | Count |
 |---|---|
-| `below_quality_floor` | 391 |
-| `group_cap` | 13 |
+| `below_quality_floor` | 406 |
+| `group_cap` | 23 |
 | `near_duplicate` | 2 |
-| `pattern_cap` | 172 |
+| `pattern_cap` | 140 |
 
 Two of those are ceilings rather than quality judgements, and both are
 counted here precisely so they do not read as "the generator only found
@@ -41,7 +41,7 @@ twelve":
 
 | Provenance | Facts |
 |---|---|
-| derived | 137 |
+| derived | 96 |
 | editorial | 91 |
 
 ### By category
@@ -52,20 +52,20 @@ twelve":
 | culture | 5 |
 | current_nba | 10 |
 | draft | 5 |
-| franchise | 12 |
+| franchise | 4 |
 | global | 5 |
 | historic_games | 5 |
 | international_leagues | 4 |
 | nba_history | 12 |
 | obscure_history | 2 |
 | olympics_fiba | 10 |
-| player_story | 17 |
-| playoffs_finals | 27 |
+| player_story | 10 |
+| playoffs_finals | 19 |
 | records | 28 |
-| role_players | 9 |
+| role_players | 1 |
 | rules | 5 |
 | statistical_oddity | 24 |
-| streaks | 28 |
+| streaks | 18 |
 | tactics | 1 |
 | womens | 9 |
 
@@ -79,12 +79,12 @@ twelve":
 | 1940s | 3 |
 | 1950s | 6 |
 | 1960s | 8 |
-| 1970s | 15 |
-| 1980s | 25 |
-| 1990s | 51 |
-| 2000s | 42 |
-| 2010s | 36 |
-| 2020s | 39 |
+| 1970s | 14 |
+| 1980s | 18 |
+| 1990s | 41 |
+| 2000s | 33 |
+| 2010s | 29 |
+| 2020s | 32 |
 
 ### By geography
 
@@ -92,15 +92,15 @@ twelve":
 |---|---|
 | global | 10 |
 | international | 12 |
-| usa | 206 |
+| usa | 165 |
 
 ### Domestic, global and women's basketball
 
 | | Facts | Share |
 |---|---|---|
-| NBA / domestic | 206 | 90% |
-| Global or international | 22 | 9% |
-| Women's basketball | 9 | 3% |
+| NBA / domestic | 165 | 88% |
+| Global or international | 22 | 11% |
+| Women's basketball | 9 | 4% |
 
 Counted separately on purpose: a WNBA fact is domestic and a EuroLeague
 fact is international, so one geography field cannot answer both.
@@ -128,8 +128,8 @@ target invites.
 | Foundational and iconic NBA history | 26 | 25 ✓ |
 | Obscure but meaningful NBA history | 5 | — |
 | Active / current NBA | 11 | 10 ✓ |
-| Playoffs and Finals | 42 | — |
-| Records and statistical oddities | 80 | — |
+| Playoffs and Finals | 34 | — |
+| Records and statistical oddities | 70 | — |
 | Draft history | 9 | — |
 | Tactical evolution | 8 | 5 ✓ |
 | Rule evolution | 8 | 5 ✓ |
@@ -138,7 +138,7 @@ target invites.
 | International leagues | 6 | — |
 | Women's basketball and the WNBA | 10 | 10 ✓ |
 | Basketball culture | 8 | — |
-| Geographic basketball stories | 17 | — |
+| Geographic basketball stories | 9 | — |
 | Surprising player and team connections | 15 | — |
 
 Targets are the product brief's preferred minima, stated in
@@ -156,7 +156,7 @@ reader of this report should be able to see how many there are.
 | For the first time since Michael Jordan, a rookie led his own team in points, rebounds, assists and steals. | `current_nba` | 2027-06-30 |
 | The WNBA's 2024 attendance jump was the largest in its history. | `current_nba` | 2027-06-30 |
 | Jalen Brunson scored 45 points in the game that ended the Finals. | `current_nba` | 2027-06-30 |
-| San Antonio reached the Finals for the first time since 2014, with a 22-year-old as its best player. | `current_nba` | 2027-06-30 |
+| San Antonio won 62 games and reached the Finals for the first time since 2014. | `current_nba` | 2027-06-30 |
 | Nobody had played twenty-three NBA seasons before. | `current_nba` | 2027-06-30 |
 | The youngest fifty-point game in NBA history belongs to a rookie. | `current_nba` | 2027-06-30 |
 | Shai Gilgeous-Alexander is the first player in four years to win back-to-back MVPs. | `current_nba` | 2027-06-30 |
@@ -171,11 +171,11 @@ perishable category that carries no expiry.
 
 | | |
 |---|---|
-| Days examined | 233 |
-| Distinct facts served | 228 |
-| First repeat after | **228 days** |
-| Schedule period | 228 days |
-| Consecutive same-category-group days | 0 |
+| Days examined | 120 |
+| Distinct facts served | 93 |
+| First repeat after | **93 days** |
+| Schedule period | 93 days |
+| Consecutive same-category-group days | 3 |
 | Same player or team inside 14 days | 0 |
 
 Measured by serving the days and reading what came back, not by reasoning
@@ -197,24 +197,20 @@ generator look like a copy of its siblings.
 | Pattern | Candidates | Published |
 |---|---|---|
 | `editorial` | 91 | 91 |
-| `derived:franchise_tenure` | 8 | 8 |
 | `gen_all_nba_first_no_playoffs` | 11 | 8 |
 | `gen_all_star_no_playoffs_streak` | 23 | 8 |
-| `gen_champion_role_players` | 40 | 8 |
 | `gen_champion_with_a_title` | 8 | 8 |
 | `gen_deep_runs_without_a_ring` | 13 | 8 |
 | `gen_dpoy_with_a_title` | 16 | 8 |
 | `gen_fifty_forty_ninety` | 9 | 8 |
-| `gen_finals_mvp_not_best_player` | 8 | 8 |
 | `gen_mvp_runners_up_who_never_won` | 8 | 8 |
 | `gen_title_streaks` | 16 | 8 |
 | `gen_title_without_playoffs` | 44 | 8 |
-| `derived:late_career` | 7 | 7 |
-| `gen_all_defense_streaks` | 18 | 7 |
 | `gen_multiple_titles_one_season` | 18 | 7 |
 | `gen_mvp_without_finals` | 24 | 7 |
-| `gen_all_nba_streaks` | 14 | 6 |
-| `gen_all_star_streaks` | 15 | 6 |
+| `gen_all_star_streaks` | 15 | 4 |
+| `gen_all_defense_streaks` | 18 | 3 |
+| `gen_all_nba_streaks` | 14 | 2 |
 | `gen_mvp_and_dpoy` | 1 | 1 |
 
 ### Categories with no published fact
@@ -235,13 +231,13 @@ that does not exist.
 
 | Axis | Mean |
 |---|---|
-| surprise | 3.99 |
-| significance | 3.84 |
-| clarity | 4.75 |
-| broad_interest | 4.28 |
-| novelty | 3.94 |
-| source_confidence | 4.86 |
-| homepage_suitability | 4.31 |
+| surprise | 4.05 |
+| significance | 3.95 |
+| clarity | 4.86 |
+| broad_interest | 4.38 |
+| novelty | 3.99 |
+| source_confidence | 4.93 |
+| homepage_suitability | 4.45 |
 
 ### The twenty strongest accepted facts
 
@@ -268,19 +264,19 @@ that does not exist.
 
 ### The weakest accepted facts
 
-- John Stockton played all 19 of his recorded seasons for one franchise (UTA), from 1984-85 to 2002-03. — *franchise, 24/35*
-- Stephen Curry played all 17 of his recorded seasons for one franchise (GSW), from 2009-10 to 2025-26. — *franchise, 24/35*
-- Kobe Bryant played all 20 of his recorded seasons for one franchise (LAL), from 1996-97 to 2015-16. — *franchise, 24/35*
-- Tim Duncan played all 19 of his recorded seasons for one franchise (SAS), from 1997-98 to 2015-16. — *franchise, 24/35*
-- Dirk Nowitzki played all 21 of his recorded seasons for one franchise (DAL), from 1998-99 to 2018-19. — *franchise, 24/35*
+- Karl Malone was an All-Star 11 years running. — *streaks, 28/35*
+- Bruce Bowen was named All-Defense 8 seasons in a row. — *streaks, 28/35*
+- Dwyane Wade was an All-Star 12 years running. — *streaks, 28/35*
+- The Aces took a third title in four years without losing a Finals game. — *womens, 28/35*
+- Australia's national league is older than the three-point line's permanence in the NBA. — *international_leagues, 26/35*
 
 ### A sample of what was rejected
 
-- Chris Paul suited up for 8 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Eddie Johnson suited up for 8 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Jamal Crawford suited up for 8 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- James Edwards suited up for 8 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Jaren Jackson suited up for 9 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Jarrett Jack suited up for 9 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Jeff Green suited up for 9 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Jerry Stackhouse suited up for 8 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Dirk Nowitzki played all 21 of his recorded seasons for one franchise (DAL), from 1998-99 to 2018-19. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- John Stockton played all 19 of his recorded seasons for one franchise (UTA), from 1984-85 to 2002-03. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Kobe Bryant played all 20 of his recorded seasons for one franchise (LAL), from 1996-97 to 2015-16. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Manu Ginobili played all 16 of his recorded seasons for one franchise (SAS), from 2002-03 to 2017-18. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Reggie Miller played all 18 of his recorded seasons for one franchise (IND), from 1987-88 to 2004-05. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Stephen Curry played all 17 of his recorded seasons for one franchise (GSW), from 2009-10 to 2025-26. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Tim Duncan played all 19 of his recorded seasons for one franchise (SAS), from 1997-98 to 2015-16. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Udonis Haslem played all 20 of his recorded seasons for one franchise (MIA), from 2003-04 to 2022-23. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)

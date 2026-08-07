@@ -25,8 +25,17 @@ and three things that never existed:
     derived     the original generators, now SCORED
     editorial   curated, human-checked entries, each naming its source
     quality     seven axes, per-axis floors, and near-duplicate detection
+    featured    the HOMEPAGE tier — a second, stricter gate over the bank
     rotation    balanced by category-group and era, not a blind walk
     bank        assembly, the build report, and the process-wide cache
+
+TWO GATES, AND THE SECOND ONE IS THE HOMEPAGE'S. `quality` decides what may be
+PUBLISHED; `featured` decides what may be THE THING ON THE PAGE. They are
+separate because the first cannot do the second's job: a derived fact's seven
+axes are constants of its template, so one generator clearing the publication
+floor puts its entire family through in a block, and the homepage ends up
+serving a shape rather than a fact. `rotation.fact_for_date` draws from the
+featured tier only; the wider bank remains the reservoir it is selected from.
 
 NOTHING CALLS A LANGUAGE MODEL, at build time or at request time. A model may
 help draft or rank candidates while `data/facts/editorial_facts.json` is being
@@ -61,6 +70,20 @@ from .bank import (
 from .awards import AWARD_GENERATORS, load_context
 from .derived import GENERATORS, load_rows
 from .editorial import EDITORIAL_PATH, EditorialFactError, load_editorial
+from .featured import (
+    FEATURED_MIN_AXIS,
+    FEATURED_MIN_TOTAL,
+    MAX_FEATURED_PER_PATTERN,
+    MIN_FEATURED_FACTS,
+    SUBJECTIVE_CLAIMS,
+    clear_featured_cache,
+    featured_facts,
+    featured_failures,
+    featured_markdown,
+    featured_report,
+    select_featured,
+    subjective_claim,
+)
 from .quality import (
     MAX_PER_DERIVED_PATTERN,
     MAX_ROTATION_GROUP_SHARE,
@@ -94,12 +117,17 @@ __all__ = [
     "AWARD_GENERATORS",
     "GENERATORS",
     "load_context",
+    "FEATURED_MIN_AXIS",
+    "FEATURED_MIN_TOTAL",
     "MIN_AXIS",
     "MIN_FACTS",
+    "MIN_FEATURED_FACTS",
     "MIN_TOTAL",
     "REQUIRED_INPUTS",
+    "MAX_FEATURED_PER_PATTERN",
     "MAX_PER_DERIVED_PATTERN",
     "MAX_ROTATION_GROUP_SHARE",
+    "SUBJECTIVE_CLAIMS",
     "NEAR_DUPLICATE_THRESHOLD",
     "SUBJECT_SPACING_DAYS",
     "PERISHABLE_CATEGORIES",
@@ -114,10 +142,17 @@ __all__ = [
     "build_report",
     "cached_bank",
     "clear_bank_cache",
+    "clear_featured_cache",
     "fact_for_date",
+    "featured_facts",
+    "featured_failures",
+    "featured_markdown",
+    "featured_report",
     "filter_and_dedupe",
     "is_live",
     "load_bank",
+    "select_featured",
+    "subjective_claim",
     "load_editorial",
     "load_rows",
     "missing_inputs",

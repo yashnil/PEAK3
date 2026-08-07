@@ -45,12 +45,41 @@ function initialsFromName(name: string): string {
 interface Props {
   name: string;
   size?: number;
-  /** Optional safe, already-license-checked headshot URL. Absent in every
-   * current caller -- see module docstring. */
+  /** Optional safe, already-license-checked headshot URL. Populated only when
+   * the API is running with PEAK3_ENABLE_EXTERNAL_ASSET_URLS -- see the module
+   * docstring. */
   imageUrl?: string | null;
+  /**
+   * Alternative text, for the callers where this avatar is the ONLY thing
+   * naming the player.
+   *
+   * The default is deliberately empty + `aria-hidden`: in every roster,
+   * candidate row and result card the avatar sits directly beside the player's
+   * name in text, and announcing the name twice is worse for a screen-reader
+   * user than not announcing the image at all. Pass a string only when there
+   * is no adjacent text to carry it.
+   */
+  alt?: string;
 }
 
-export default function PlayerAvatar({ name, size = 36, imageUrl }: Props) {
+/**
+ * THE ONE PLAYER-IMAGE PRIMITIVE. Three-Man Weave, the $20 Showdown and the
+ * Daily Grid result board all render players, and each of them wanting its own
+ * `<img>` with its own fallback is how a product ends up with four different
+ * broken-image behaviours. They import this.
+ *
+ * WHAT A READER SHOULD EXPECT TO SEE TODAY. The asset manifest resolves 526 of
+ * 3,432 eligible identities (15.3%), and resolution requires a current ESPN
+ * roster entry -- so Jokic resolves and Jordan, Magic, Bird, Kareem, Kobe,
+ * Duncan and Hakeem do not, and Wilt, Russell and Shaq are absent from the
+ * manifest entirely. On top of that every resolved entry carries
+ * `license_status: "unknown_do_not_cache"`, and the API gate
+ * (`PEAK3_ENABLE_EXTERNAL_ASSET_URLS`) defaults OFF pending a licensing review
+ * nobody has done. In production this component therefore renders the
+ * medallion for everyone, which is why the medallion is designed rather than a
+ * grey placeholder: it is the shipping path, not the error path.
+ */
+export default function PlayerAvatar({ name, size = 36, imageUrl, alt }: Props) {
   const [imageFailed, setImageFailed] = useState(false);
   const tint = PALETTE[hashString(name) % PALETTE.length];
 
@@ -64,10 +93,16 @@ export default function PlayerAvatar({ name, size = 36, imageUrl }: Props) {
       <img
         data-testid="player-avatar"
         src={imageUrl}
-        alt=""
-        aria-hidden="true"
+        alt={alt ?? ""}
+        aria-hidden={alt ? undefined : "true"}
         width={size}
         height={size}
+        // NO LAYOUT SHIFT, EITHER WAY ROUND. `width`/`height` reserve the box
+        // before the bytes arrive, and the medallion fallback occupies exactly
+        // the same square -- so a headshot that 404s swaps one circle for
+        // another rather than resizing the row it sits in.
+        loading="lazy"
+        decoding="async"
         style={{
           width: size,
           height: size,

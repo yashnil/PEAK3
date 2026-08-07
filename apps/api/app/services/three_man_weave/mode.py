@@ -158,12 +158,18 @@ class ThreeManWeaveMode:
         return human_seat_index(seed, PARTICIPANT_COUNT)
 
     def bot_think_seconds(self, seed: int, seat_index: int, turn_seq: int) -> float:
-        """How long a bot seat appears to deliberate. Seeded, 1-5 seconds.
+        """How long a bot seat appears to deliberate. Seeded, 4-10 seconds.
 
         Presentation only, and the foundation enforces it against the turn's
         stored `opened_at`. Never the human turn clock: three seats at 45
         seconds each turned a six-round draft into a quarter of an hour of
         watching nothing happen.
+
+        THE FLOOR IS ABOVE THE CLIENT'S POLL INTERVAL, deliberately. At the
+        previous 1-5 seconds a bot frequently moved inside the same two-second
+        poll that opened its turn, so a client rendered the settled pick
+        without ever rendering the seat on the clock -- the deliberation the
+        turn-status surface is built around was, in practice, unobservable.
         """
         return bot_think_seconds(seed, seat_index, turn_seq)
 

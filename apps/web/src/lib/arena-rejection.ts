@@ -46,6 +46,10 @@ export type ArenaRejectionCode =
   | "match_expired"
   | "duplicate_action"
   | "turn_already_resolved"
+  // -- the mode's translation layer (apps/api/app/services/twenty_dollar/mode.py)
+  | "not_your_seat"
+  | "unknown_command"
+  | "ruleset_version_mismatch"
   // -- auction rules (nba_peak/twenty_dollar/state.py)
   | "not_bidding"
   | "not_your_turn"
@@ -56,8 +60,9 @@ export type ArenaRejectionCode =
   | "candidate_unfit"
   | "already_passed"
   | "no_market_skips"
-  | "ruleset_version_mismatch"
-  | "match_over";
+  | "match_over"
+  // -- the bare string the foundation emits when nothing more specific applies
+  | "rejected";
 
 /** What the player was trying to do, as the client understood it at click time. */
 export interface AttemptedAction {
@@ -83,7 +88,31 @@ export interface RejectionExplanation {
    * between "here is what happened" and "here is what you must fix".
    */
   boardMovedOn: boolean;
+  /**
+   * How the surface should present this.
+   *
+   *   * `board`  — the board moved; the banner reports what happened.
+   *   * `rule`   — the player must choose differently; keep the controls live.
+   *   * `retry`  — transient, and retrying the same action is reasonable.
+   *   * `reload` — the client's copy of the match is unusable; reconnect.
+   */
+  tone: "board" | "rule" | "retry" | "reload";
 }
+
+/**
+ * The one message a user must never see, in either direction.
+ *
+ * S20-12: "never expose stack traces or opaque backend wording". Server prose
+ * is passed through on an ALLOWLIST of codes whose sentences are written for
+ * players (`bid_over_max` names the exact ceiling from the persisted budget,
+ * which this module cannot compute). Everything else — including any code
+ * added to the API after this file was written — gets the graceful state
+ * below, and the raw text goes to the console for diagnosis instead.
+ */
+const PROSE_ALLOWLIST = new Set(["bid_over_max"]);
+
+const UNKNOWN_MESSAGE =
+  "That move did not go through. The board below is up to date — try again.";
 
 function seatName(names: string[], index: number | null, yourSeat: number | null): string {
   if (index === null) return "the other seat";
@@ -134,14 +163,27 @@ export function explainRejection(
   yourSeat: number | null,
 ): RejectionExplanation {
   const prose = (serverMessage ?? "").trim();
-  const fallback = (): RejectionExplanation => ({
-    // The server's own sentence is a good answer and a poor last resort; it
-    // names the real constraint but not the consequence. It is used whenever
-    // this module has nothing more specific, which is a narrow set.
-    message: prose || "The server did not accept that move. The board below is current.",
-    code: code ?? null,
-    boardMovedOn: false,
-  });
+  /**
+   * The last resort. Server prose reaches a player only for a code on
+   * `PROSE_ALLOWLIST`; anything else is an engineering string (
+   * `"'draft' is not a move in this mode."`, `"This match has moved on (you
+   * sent version 1, it is now 2)"`, a ruleset-version dump) and is logged
+   * rather than rendered.
+   */
+  const fallback = (): RejectionExplanation => {
+    if (code && PROSE_ALLOWLIST.has(code) && prose) {
+      return { message: prose, code, boardMovedOn: false, tone: "rule" };
+    }
+    if (prose && typeof console !== "undefined") {
+      console.warn("[showdown] unmapped rejection", { code, message: prose });
+    }
+    return {
+      message: UNKNOWN_MESSAGE,
+      code: code ?? null,
+      boardMovedOn: false,
+      tone: "retry",
+    };
+  };
 
   const amount = formatDollars(attempt.amount);
   const verb = attempt.command === "bid" ? `${amount} bid` : "pass";

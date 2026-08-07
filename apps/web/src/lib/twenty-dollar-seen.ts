@@ -1,42 +1,49 @@
 /**
  * Which settled lots this player has actually been shown, across reloads.
  *
- * THE DEFECT THIS FIXES. `useLotVisibility` used to baseline itself at the
- * history length on first render, so a reload started a fresh slate and
- * reported no gap at all. That was defensible while the summary was only
- * covering bursts WITHIN a session — several lots settling between two polls,
- * which really does happen (`_advance_lot` resolves unsold lots recursively,
- * and `drive_pending_bots` runs up to twelve bot turns inside one request). It
- * was wrong for the case the feature is named after: closing a tab, coming
- * back, and finding players on a roster you never saw bought.
- *
- * WHAT THE CURSOR IS, AND WHY IT IS THIS AND NOT SOMETHING ELSE.
- *
- * `lot_index` is the authoritative, monotonic, server-assigned ordinal of a
- * settled lot. It is already in every history row, it never renumbers, and it
- * orders the history by construction. So "the highest lot_index this browser
- * has acknowledged" is a complete description of what the player has seen, in
- * one integer, derived entirely from state the server already publishes.
+ * WHAT THIS CURSOR IS. `lot_index` is the authoritative, monotonic,
+ * server-assigned ordinal of a settled lot. It is already in every history
+ * row, it never renumbers, and it orders the history by construction. So "the
+ * highest lot_index this browser has acknowledged" is a complete description
+ * of what the player has seen, in one integer, derived entirely from state the
+ * server already publishes.
  *
  *   * NOT a count. A count would be wrong the moment the server settles a lot
  *     the client never enumerated, and it carries no ordering.
  *   * NOT `state_version`. That advances on every accepted command including
  *     bids and passes, so it cannot answer "which LOTS did I miss" without
  *     replaying the event log.
- *   * NOT a server-side column. That is a migration, and the specification asks
- *     for none unless unavoidable. This is unavoidable only if the cursor must
- *     survive a device change, and it must not: "while you were away" is a
- *     statement about one reader's attention, not about the match.
+ *   * NOT a server-side column. That is a migration, and "while you were away"
+ *     is a statement about one reader's attention, not about the match.
  *
- * KEYED TO THE AUTHORITATIVE MATCH IDENTITY, so two matches cannot contaminate
- * each other and a replayed match id resumes exactly where it left off. Stored
- * under the app's existing `peak3-` prefix, beside `peak3-theme` and the
- * daily-grid progress keys.
+ * A CORRECTION TO WHAT THIS FILE USED TO CLAIM. The previous docstring said
+ * `drive_pending_bots` "runs up to twelve bot turns inside one request". That
+ * is false and it mattered, because it was used to justify treating any
+ * multi-lot jump as a reconnect. `drive_pending_bots` freezes `now` and
+ * compares it against the stored `opened_at`, so at most ONE bot command runs
+ * per HTTP request; `clock.enforce` fires at most one timeout per call; and
+ * `mode.py` always opens a new turn at `data.now + TURN_SECONDS`, so a sweep
+ * cannot manufacture an already-expired human turn. The one real multi-lot
+ * mechanism is `_advance_lot` → `_resolve_lot` → `_advance_lot`: a drawn
+ * candidate that neither seat can legally acquire settles inside the call that
+ * created it. That is ordinary live play, not a reconnect, and `LotLedger`
+ * now presents it as a reveal SEQUENCE rather than a catch-up banner.
  *
- * IT ONLY EVER MOVES FORWARD. `acknowledge` takes the max of the stored value
- * and the new one, so an out-of-order response, a stale tab or a user pressing
- * "Caught up" twice cannot rewind the cursor and replay a summary the player
- * has already dismissed.
+ * STORAGE CAN BE BLOCKED, AND THAT USED TO BE PERMANENT. In private mode, with
+ * cookies disabled, or inside a partitioned iframe, `localStorage` throws.
+ * Reads then answered `-1` forever and writes silently did nothing, so the
+ * cursor could never advance: the catch-up banner became undismissable and the
+ * single-lot reveal never fired. The documented intent ("degrade to
+ * per-session") did not hold, because a per-session degrade needs somewhere to
+ * put the session's value. There is now a MODULE-LEVEL IN-MEMORY STORE that
+ * takes over whenever `localStorage` is unavailable: acknowledgement works for
+ * the life of the tab, and only the cross-reload guarantee is lost — which is
+ * exactly what "degrade to per-session" was always supposed to mean.
+ *
+ * IT ONLY EVER MOVES FORWARD. `writeSeenCursor` takes the max of the stored
+ * value and the new one, so an out-of-order response, a stale tab or a user
+ * pressing "Caught up" twice cannot rewind the cursor and replay a summary the
+ * player has already dismissed.
  */
 
 /** localStorage key for one match's acknowledgement cursor. */
@@ -45,50 +52,82 @@ export function seenCursorKey(matchId: string): string {
 }
 
 /**
+ * The per-session fallback, used only when `localStorage` is unusable.
+ *
+ * Module-level rather than React state on purpose: `useLotLedger` remounts on
+ * every route transition inside the same match, and a cursor that resets on
+ * remount is the undismissable-banner bug in a different costume.
+ */
+const memoryStore = new Map<string, number>();
+
+/** Test seam. Clears the in-memory fallback without touching localStorage. */
+export function resetMemoryCursors(): void {
+  memoryStore.clear();
+}
+
+/** Is `localStorage` actually usable in this document? */
+function localStorageAvailable(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    // Reading the property itself throws in a partitioned third-party
+    // context, so the access has to be inside the try.
+    return window.localStorage !== null && window.localStorage !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The highest `lot_index` this browser has shown the player for this match.
  *
  * `-1` means "nothing acknowledged", which is the correct answer both for a
  * brand-new match (its history is empty, so nothing is reported) and for a
- * match this browser is genuinely seeing for the first time (every settled lot
- * is one the reader missed, which is exactly what the summary is for).
+ * match this browser is genuinely seeing for the first time.
  */
 export function readSeenCursor(matchId: string): number {
-  if (typeof window === "undefined") return -1;
-  try {
-    const raw = window.localStorage.getItem(seenCursorKey(matchId));
-    if (raw === null) return -1;
-    const value = Number.parseInt(raw, 10);
-    // A corrupt value is treated as "nothing acknowledged" rather than trusted.
-    // Showing a summary twice is a small annoyance; skipping one silently is
-    // the defect this module exists to remove.
-    return Number.isFinite(value) ? value : -1;
-  } catch {
-    // Storage blocked (private mode, disabled cookies). The summary then
-    // behaves exactly as it did before this module existed — per-session — and
-    // nothing throws. Same discipline as `theme.ts` and `run-the-table-state.ts`.
-    return -1;
+  const key = seenCursorKey(matchId);
+  if (localStorageAvailable()) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (raw !== null) {
+        const value = Number.parseInt(raw, 10);
+        // A corrupt value is treated as "nothing acknowledged" rather than
+        // trusted. Showing a summary twice is a small annoyance; skipping one
+        // silently is the defect this module exists to remove.
+        if (Number.isFinite(value)) return value;
+        return memoryStore.get(key) ?? -1;
+      }
+    } catch {
+      /* fall through to the in-memory store */
+    }
   }
+  return memoryStore.get(key) ?? -1;
 }
 
 /** Record that everything up to and including `lotIndex` has been shown. */
 export function writeSeenCursor(matchId: string, lotIndex: number): void {
-  if (typeof window === "undefined") return;
+  const key = seenCursorKey(matchId);
+  // MONOTONIC, and written to BOTH stores. See the module docstring: a rewind
+  // would replay a dismissed summary, and the memory copy is what keeps the
+  // cursor advancing when persistence is refused.
+  const next = Math.max(readSeenCursor(matchId), lotIndex);
+  memoryStore.set(key, next);
+  if (!localStorageAvailable()) return;
   try {
-    // MONOTONIC. See the module docstring: a rewind would replay a dismissed
-    // summary, and two tabs progressing at different speeds would fight.
-    const next = Math.max(readSeenCursor(matchId), lotIndex);
-    window.localStorage.setItem(seenCursorKey(matchId), String(next));
+    window.localStorage.setItem(key, String(next));
   } catch {
-    /* storage blocked — degrade to per-session, never throw */
+    /* storage blocked — the in-memory value above IS the per-session degrade */
   }
 }
 
 /** Forget a match's cursor. Test seam, and the natural home for any future
  *  "clear my local history" control. */
 export function clearSeenCursor(matchId: string): void {
-  if (typeof window === "undefined") return;
+  const key = seenCursorKey(matchId);
+  memoryStore.delete(key);
+  if (!localStorageAvailable()) return;
   try {
-    window.localStorage.removeItem(seenCursorKey(matchId));
+    window.localStorage.removeItem(key);
   } catch {
     /* storage blocked */
   }

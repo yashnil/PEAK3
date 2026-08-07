@@ -74,10 +74,25 @@ AUTOPICK_VERSION: Final[str] = "tmw_autopick_v1"
 BOT_POLICY_VERSION: Final[str] = "tmw_bot_v2"
 
 #: How long a bot seat appears to "think" before its pick lands, in seconds.
-#: A seeded draw inside this window, per (match, seat, turn) -- long enough to
-#: watch, short enough that three seats do not turn six rounds into a wait.
-BOT_THINK_SECONDS_MIN: Final[float] = 1.0
-BOT_THINK_SECONDS_MAX: Final[float] = 5.0
+#: A seeded draw inside this window, per (match, seat, turn).
+#:
+#: WHY 4-10 AND NOT 1-5. At 1-5 seconds a bot frequently moved inside the same
+#: two-second poll that opened its turn, so the board rendered the RESULT and
+#: never the deliberation -- the seat went from empty to filled between two
+#: frames and the "X is on the clock" state was, in practice, unobservable. The
+#: floor is now longer than the client's poll interval, which is what makes the
+#: bot's own clock a thing a player can actually watch rather than a state the
+#: transport quietly skips over.
+#:
+#: THE CEILING IS THE FOUNDATION'S. `bots.bot_think_seconds_for` clamps any
+#: mode hook to 10.0 seconds so a mode cannot park a bot past the human clock,
+#: so 10.0 is the largest value this range can usefully name.
+#:
+#: PRESENTATION ONLY. This never touches bot decision quality: the pick is
+#: computed by the same policy either way and the delay is enforced against the
+#: turn's stored `opened_at`, so a fast-polling client cannot hurry it.
+BOT_THINK_SECONDS_MIN: Final[float] = 4.0
+BOT_THINK_SECONDS_MAX: Final[float] = 10.0
 
 
 def bot_think_seconds(seed: int | str, seat_index: int, turn_seq: int) -> float:

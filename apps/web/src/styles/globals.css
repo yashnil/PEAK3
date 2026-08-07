@@ -569,6 +569,142 @@
 }
 
 /* ================================================================
+   Gameplay + visual polish pass — corrections and additions
+   ================================================================
+
+   THREE OUTRIGHT BUGS FIRST. `--font-display`, `--font-mono` and
+   `--peak-accent-on` are REFERENCED but were never DEFINED:
+
+     * `var(--font-display, inherit)` appears in 11 rules across
+       arena.css, home.css, twenty-dollar.css and three-man-weave.css.
+       Every one of them silently fell back to Inter, so Syne -- which
+       IS loaded, and IS applied by the `.font-display` class -- never
+       reached a single game heading.
+     * `var(--font-mono)` in arena.css always took its raw fallback.
+     * `.tmw-seat-letter` (three-man-weave.css:287) writes
+       `color: var(--peak-accent-on)` with NO fallback, so the
+       declaration is invalid and the colour is inherited. The other
+       five uses carry an inline `#12131a` fallback, which is the same
+       value written six times in four files.
+
+   Defining them is a fix, not a redesign: every consumer already asked
+   for exactly this.
+
+   WHAT ELSE CHANGED, AND WHY. Four measured contrast problems, all of
+   them "two tokens that are supposed to differ and do not":
+
+     * `--text-secondary` vs `--text-muted` measured 1.12:1 apart in
+       dark and 1.26:1 in light. Two tokens with 1,056 combined uses
+       that render as the same grey are not a hierarchy, and "reduce
+       low-value faint microcopy" is unachievable while the two tiers
+       are indistinguishable. Widened in both themes.
+     * `--border-subtle` measured 1.056:1 against `--bg-surface` in
+       dark. It is the most-used card edge in the app (55 rules, 23 of
+       them in twenty-dollar.css alone) and it was invisible.
+     * Light `--bg-elevated` vs `--bg-surface` measured 1.074:1 -- three
+       declared elevation tiers reading as one material, which is the
+       specific reason Arena Day looks washed out rather than designed.
+     * `--focus-ring` measured 3.65:1 on dark surfaces.
+
+   Values are stated as measured ratios in the comments beside them.
+   The `--comp-*` component fills are NOT touched: the Rankings bars are
+   an approved surface and their fill/text split is load-bearing.
+   ================================================================ */
+
+:root {
+  /* ---- The three referenced-but-undefined tokens ---- */
+  /* Syne for display, resolved through the same next/font variable the
+     `.font-display` class uses, so the class and the token cannot
+     disagree about which face is "display". */
+  --font-display: var(--font-syne), "Syne", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  /* Ink on a gold fill. 11.25:1 against --peak-accent, and identical in
+     both themes because the fill is. */
+  --peak-accent-on: #12131a;
+
+  /* ---- Text tiers that are actually distinguishable ---- */
+  /* 9.1:1 on --bg-surface (was 4.9:1 and only 1.12:1 clear of muted). */
+  --text-secondary: #b3b8cc;
+  /* 5.7:1 on --bg-surface, and 4.6:1 on --bg-surface-hover, which is
+     where the old value fell below AA on hovered rows. */
+  --text-muted: #8b90a6;
+
+  /* ---- Edges you can see ---- */
+  /* 1.37:1 on --bg-surface: a hairline, but a visible one. */
+  --border-subtle: #2b3040;
+  /* NEW. 3.0:1 on --bg-surface -- the UI-component contrast floor, for
+     an edge that has to carry structure on its own rather than sit
+     under a fill. */
+  --border-edge: #525a72;
+  /* ~6:1 on --bg-surface (was 3.65:1). */
+  --focus-ring: #7b8cff;
+
+  /* ---- Competitive seat accents ----
+     Multiplayer had no per-seat identity at all: all three Three-Man
+     Weave seats and both Showdown seats used the single brand gold and
+     were told apart by a letter glyph. `data-is-you` was emitted with
+     zero CSS rules attached to it.
+
+     Three seats, maximally separable, every ink value >= 7:1 on
+     --bg-surface. Seat fills are the component palette's own hues, so
+     the strongest existing element in the product supplies the accents
+     rather than a second palette being invented beside it. */
+  --seat-1-fill: #f5c842;   /* gold    — 11.3:1 */
+  --seat-1-ink: #f5c842;
+  --seat-2-fill: #60a5fa;   /* blue    —  7.1:1 */
+  --seat-2-ink: #7ab5fb;
+  --seat-3-fill: #34d399;   /* emerald —  9.3:1 */
+  --seat-3-ink: #4bdba7;
+  /* Two seats: the widest hue split available, so "you" and "them" are
+     never a brightness judgement. */
+  --seat-a-fill: #f5c842;
+  --seat-a-ink: #f5c842;
+  --seat-b-fill: #a78bfa;   /* violet  —  6.6:1 */
+  --seat-b-ink: #b69ffb;
+
+  /* ---- Numerals ----
+     Timers, bids, scores and prices must not reflow as digits change.
+     Consolidated here because 36 hand-rolled `font-variant-numeric`
+     declarations had accumulated across the partials, 20 of them in
+     twenty-dollar.css. */
+  --pk-numeral: "tnum" 1, "lnum" 1;
+}
+
+:root[data-theme="light"] {
+  /* Same widening, measured against the light surfaces. */
+  --text-secondary: #4b4636;  /* 9.1:1 on --bg-surface */
+  --text-muted: #6b6552;      /* 5.6:1 on --bg-surface */
+
+  --border-subtle: #d3cbb6;
+  --border-edge: #a2977c;     /* 3.0:1 on --bg-surface */
+
+  /* SURFACE TIERS THAT SEPARATE. Recessed goes DARKER than the page
+     while raised goes lighter, rather than three warm creams within
+     1.07:1 of each other. --bg-page is unchanged, so nothing that
+     depends on the canvas colour moves. */
+  --bg-elevated: #f6f2e9;
+  --bg-surface: #fdfbf6;      /* 1.23:1 against --bg-page */
+  --bg-surface-hover: #f2ede0;
+
+  /* Seat inks, re-derived for a light canvas -- the FILLS stay
+     identical in both themes so a seat's colour identity is stable. */
+  --seat-1-ink: #7a5807;      /* 6.3:1 */
+  --seat-2-ink: #1d5fc4;      /* 5.8:1 */
+  --seat-3-ink: #0c6941;      /* 6.5:1 */
+  --seat-a-ink: #7a5807;
+  --seat-b-ink: #6b46c9;      /* 6.1:1 */
+}
+
+/* Tabular numerals wherever a number is a value rather than prose.
+   `.score-number` already existed and was effectively orphaned; this
+   gives the partials one class to reach for. */
+.pk-numeral,
+.score-number {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: var(--pk-numeral);
+}
+
+/* ================================================================
    Base
    ================================================================ */
 
@@ -1502,6 +1638,13 @@ html, body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  /* SMOOTH SCROLLING IS MOTION TOO, and the blanket above never reached
+     it: `html { scroll-behavior: smooth }` is set unconditionally near
+     the top of this file, so a reduced-motion user still got animated
+     scrolling on every in-page jump. */
+  html {
+    scroll-behavior: auto !important;
   }
 }
 

@@ -1002,6 +1002,15 @@ def test_bot_think_time_is_seeded_inside_the_published_window():
         bot_think_seconds,
     )
 
+    # THE WINDOW IS PINNED TO LITERALS, not only to its own constants.
+    # Asserting `MIN <= value <= MAX` is true for every window including the
+    # one this replaced, so it could not catch the defect it was written for:
+    # at 1-5 seconds a bot often moved inside the same two-second poll that
+    # opened its turn, and the deliberation the whole surface is built around
+    # was never observable. The floor must stay above the client poll interval.
+    assert BOT_THINK_SECONDS_MIN == 4.0
+    assert BOT_THINK_SECONDS_MAX == 10.0
+
     seen = set()
     for seed in range(40):
         for seat in range(PARTICIPANT_COUNT):
