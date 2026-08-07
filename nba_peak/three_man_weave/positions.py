@@ -190,7 +190,13 @@ def season_starter_positions(player_slug: str | None, season: str | None) -> fro
     listed = listed_position(player_slug, season)
     if listed is None:
         return frozenset()
-    return ({listed} | set(canonical_positions(player_slug))) & position_band(listed)
+    # `frozenset(...)`, not the bare `&` result. Set intersection returns a
+    # MUTABLE set, which propagates all the way out through
+    # `season_slot_rights` and `EligibilityIndex.card_slot_rights` -- so the
+    # annotation said `frozenset[str]` while the value was a `set`, and
+    # immutability is one of this module's stated safety properties rather
+    # than a decoration.
+    return frozenset(({listed} | set(canonical_positions(player_slug))) & position_band(listed))
 
 
 def card_starter_positions(player_slug: str | None, season: str | None) -> frozenset[str]:

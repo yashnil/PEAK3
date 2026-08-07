@@ -94,7 +94,16 @@ export function readSeenCursor(matchId: string): number {
         // A corrupt value is treated as "nothing acknowledged" rather than
         // trusted. Showing a summary twice is a small annoyance; skipping one
         // silently is the defect this module exists to remove.
-        if (Number.isFinite(value)) return value;
+        //
+        // THE MEMORY STORE STILL WINS IF IT IS AHEAD, and that is not
+        // belt-and-braces. Storage is not all-or-nothing: reads can succeed
+        // while writes throw -- quota exceeded, Safari private browsing, a
+        // partitioned frame. In that state every acknowledgement lands only in
+        // memory, and returning the stale persisted value made
+        // `acknowledgeRecap` inert for the life of the tab: the banner came
+        // straight back, which is the "caught up reappearing after
+        // acknowledgment" symptom this module was written to remove.
+        if (Number.isFinite(value)) return Math.max(value, memoryStore.get(key) ?? -1);
         return memoryStore.get(key) ?? -1;
       }
     } catch {

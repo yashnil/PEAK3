@@ -143,7 +143,16 @@ export function AuctionStage({
         Lot {publicState.lot_index + 1}
         <span className="td-stage-lot-of">
           {" "}
-          of {publicState.max_lots} · {publicState.market_phase === "closeout" ? "closeout" : "standard"} market
+          {/* THE STANDARD MARKET'S LENGTH, NOT THE HARD CAP.
+              `max_lots` is 36 -- the ceiling the board will never exceed --
+              while the market a player is actually in runs to
+              `standard_market_lots` (24) before closeout begins. Printing the
+              cap here put "LOT 1 OF 36" next to a header chip reading
+              "STANDARD MARKET · 24 LOTS", two different totals for the same
+              auction on the same screen. */}
+          of {publicState.market_phase === "closeout" ? publicState.max_lots : publicState.standard_market_lots}
+          {" · "}
+          {publicState.market_phase === "closeout" ? "closeout" : "standard"} market
         </span>
       </p>
 

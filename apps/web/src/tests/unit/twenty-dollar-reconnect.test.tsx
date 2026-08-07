@@ -171,6 +171,28 @@ describe("the persisted cursor", () => {
     expect(readSeenCursor(MATCH)).toBe(-1);
   });
 
+  it("still advances when reads work and WRITES throw", () => {
+    // STORAGE IS NOT ALL-OR-NOTHING. Quota exhaustion, Safari private
+    // browsing and a partitioned frame all produce a store that reads back
+    // fine and refuses to write. The read path returned the stale persisted
+    // value and never consulted the in-memory fallback, so every
+    // acknowledgement landed in memory, was ignored, and the recap came
+    // straight back -- "caught up reappearing after acknowledgment", which is
+    // the exact symptom this module exists to remove.
+    window.localStorage.setItem(seenCursorKey(MATCH), "5");
+    const setItem = window.localStorage.setItem;
+    window.localStorage.setItem = () => {
+      throw new DOMException("QuotaExceededError");
+    };
+    try {
+      expect(readSeenCursor(MATCH)).toBe(5);
+      writeSeenCursor(MATCH, 7);
+      expect(readSeenCursor(MATCH)).toBe(7);
+    } finally {
+      window.localStorage.setItem = setItem;
+    }
+  });
+
   it("preserves ordering regardless of the input array's order", () => {
     const unsorted = [lot(5), lot(2), lot(9)];
     expect(partitionUnseen(unsorted, 1).map((l) => l.lot_index)).toEqual([2, 5, 9]);

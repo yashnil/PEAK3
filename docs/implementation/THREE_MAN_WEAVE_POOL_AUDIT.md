@@ -436,4 +436,3 @@ in that decade, and each scores him on that franchise's own season.
 | WAS | 2000s | 51 | 39 | 12 | 0 | yes |
 | WAS | 2010s | 61 | 45 | 16 | 0 | yes |
 | WAS | 2020s | 41 | 27 | 14 | 0 | yes |
-

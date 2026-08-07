@@ -385,6 +385,11 @@ export default function PickOverlay({
                   className="tmw-filter-clear"
                   onClick={() => setFilters([])}
                   data-testid="tmw-filter-clear"
+                  /* The last control in this panel that did not lock at zero.
+                     It submits nothing, so it could not have changed an
+                     outcome -- but a panel that is "locked" while one button
+                     still responds is telling the player two things at once. */
+                  disabled={expired}
                 >
                   Clear
                 </button>
