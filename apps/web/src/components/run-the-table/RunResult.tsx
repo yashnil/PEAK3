@@ -26,6 +26,9 @@ import {
   perkStrategyHint,
 } from "@/lib/run-the-table-copy";
 import { drawShareCard } from "@/lib/run-the-table-share-card";
+// Lives with the surface that needed a counting result number first; see its
+// own docstring for why it is not `AnimatedNumber` directly.
+import { ResultNumber } from "@/components/game/result-number";
 import LaneProfile from "./LaneProfile";
 
 /**
@@ -235,10 +238,20 @@ export default function RunResult({
           element on the screen, first in DOM order, above every highlight
           card. Used to be `text-[11px]` — smaller than the flavour line
           beneath it, which is backwards: whether the table was cleared is
-          the one fact this whole screen exists to state. */}
-      <header className="flex flex-col gap-1.5">
+          the one fact this whole screen exists to state.
+
+          The visual-identity pass adds the frame the word was missing: a
+          decision-tier surface with an accent crown and the spotlight ring,
+          so the verdict reads as a STAMP pressed onto the receipt rather than
+          as very large text sitting on the page. `.pk-reveal` at index 0 makes
+          it the first thing that lands, and the display face gives it the
+          tracking the rest of the game's headlines already use. */}
+      <header
+        className="pk-reveal pk-depth-decision pk-crown pk-crown-accent pk-spotlight flex flex-col gap-1.5 rounded-xl border p-3.5"
+        style={{ "--pk-reveal-index": 0 } as React.CSSProperties}
+      >
         <span
-          className="text-4xl font-black uppercase leading-none tracking-tight sm:text-5xl"
+          className="font-display text-4xl font-black uppercase leading-none sm:text-5xl"
           style={{ color: stampColor }}
           data-testid="rtt-result-verdict"
           data-outcome={outcome}
@@ -251,16 +264,23 @@ export default function RunResult({
         <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
           {receipt.story}
         </p>
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+        {/* WAS `--text-muted`. Record, lives and roster total are the three
+            numbers the run actually produced — they are the result, not a
+            provenance footnote, and the roster total counts to itself for the
+            same reason. */}
+        <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
           Record <span className="score-number">{receipt.record}</span> ·{" "}
           <span className="score-number">{receipt.lives_remaining}</span> lives left · roster total{" "}
-          <span className="score-number">{receipt.roster_total.toFixed(1)}</span>
+          <ResultNumber value={receipt.roster_total} precision={1} />
         </p>
       </header>
 
       {/* §6 item 2 — act reached / boss record, one row per act. */}
       {receipt.battles.length > 0 && (
-        <section className="flex flex-col gap-1.5">
+        <section
+          className="pk-reveal flex flex-col gap-1.5"
+          style={{ "--pk-reveal-index": 1 } as React.CSSProperties}
+        >
           <h3 className="rtt-result-heading">Boss record</h3>
           <ul className="flex flex-col gap-1" data-testid="rtt-result-battles">
             {receipt.battles.map((b) => (
@@ -268,8 +288,7 @@ export default function RunResult({
                 key={`${b.act}-${b.boss_id}`}
                 data-testid={`rtt-result-battle-${b.act}`}
                 data-outcome={b.outcome}
-                className="flex flex-wrap items-baseline gap-2 rounded-lg px-2 py-1.5 text-xs"
-                style={{ background: "var(--bg-surface)" }}
+                className="pk-depth pk-crown flex flex-wrap items-baseline gap-2 rounded-lg px-2 py-1.5 text-xs"
               >
                 <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
                   Act <span className="score-number">{b.act}</span>
@@ -290,7 +309,10 @@ export default function RunResult({
                 <span className="score-number" style={{ color: "var(--text-secondary)" }}>
                   {b.player_lanes_won}–{b.opponent_lanes_won} on lanes
                 </span>
-                <span style={{ color: "var(--text-muted)" }}>
+                {/* WAS `--text-muted`. "Decided on the summed lane margin" is
+                    the sentence that explains an outcome a player may not
+                    otherwise understand — the least skippable half of the row. */}
+                <span style={{ color: "var(--text-secondary)" }}>
                   {DECIDED_BY_LABELS[b.decided_by] ?? "Decided on lanes won"}
                 </span>
               </li>
@@ -302,7 +324,10 @@ export default function RunResult({
       {/* §6 items 3-5 + 7 — MVP, most-valuable transaction, largest mistake,
           credits — the "stat tile" row. Positive framing (MVP, best move)
           alongside the negative framing this screen used to have none of. */}
-      <section className="grid gap-2 sm:grid-cols-2">
+      <section
+        className="pk-reveal grid gap-2 sm:grid-cols-2"
+        style={{ "--pk-reveal-index": 2 } as React.CSSProperties}
+      >
         <Highlight title="Run MVP">
           {receipt.run_mvp ? (
             <>
@@ -321,9 +346,12 @@ export default function RunResult({
         <Highlight title="Best move" testId="rtt-result-best-move">
           {mostValuable ? (
             <>
+              {/* WAS 9px `--text-muted`. It is the word that says whether the
+                  run's best move was a purchase or a trade — the subject of
+                  the sentence under it. */}
               <span
-                className="mb-0.5 block text-[9px] font-bold uppercase tracking-widest"
-                style={{ color: "var(--text-muted)" }}
+                className="mb-0.5 block text-[10px] font-bold uppercase tracking-widest"
+                style={{ color: "var(--text-secondary)" }}
               >
                 {mostValuable.kind === "acquisition" ? "Acquisition" : "Trade"}
               </span>
@@ -350,7 +378,7 @@ export default function RunResult({
               )}
               {/* The runner-up: a secondary line, not a full duplicate card. */}
               {runnerUp && (
-                <span className="mt-1 block text-[11px]" style={{ color: "var(--text-muted)" }}>
+                <span className="mt-1 block text-[11px]" style={{ color: "var(--text-secondary)" }}>
                   {"incoming" in runnerUp
                     ? `Also traded for ${runnerUp.incoming.player_name} (${formatSigned(runnerUp.score_delta, 2)} PEAK3).`
                     : `Also bought ${runnerUp.player_name} (${formatSigned(runnerUp.score_delta, 2)} PEAK3).`}
@@ -409,7 +437,9 @@ export default function RunResult({
                 <span className="truncate text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
                   {entry.player_name}
                 </span>
-                <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
+                {/* WAS `--text-muted`. The seat and the peak window are what
+                    distinguish one roster line from another. */}
+                <span className="truncate text-[10px]" style={{ color: "var(--text-secondary)" }}>
                   {slotLabel({ slot_id: entry.slot_id, role: entry.role, is_starter: true })} · {entry.window}
                 </span>
               </span>
@@ -425,7 +455,7 @@ export default function RunResult({
       <section className="flex flex-col gap-2">
         <h3 className="rtt-result-heading">Five-lane profile</h3>
         <LaneProfile lanes={receiptLaneProfile(receipt.lane_profile)} dense />
-        <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+        <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
           Strongest: {receipt.strongest_lane.label}{" "}
           <span className="score-number">{receipt.strongest_lane.value.toFixed(1)}</span> · weakest:{" "}
           {receipt.weakest_lane.label}{" "}
@@ -439,7 +469,7 @@ export default function RunResult({
       <section className="flex flex-col gap-1.5">
         <h3 className="rtt-result-heading">Front office perks</h3>
         {receipt.systems.length === 0 ? (
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
             No perk was ever selected.
           </p>
         ) : (
@@ -455,7 +485,7 @@ export default function RunResult({
                   — {plain ?? sys.summary}
                 </p>
                 {hint && (
-                  <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                  <p className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
                     {hint}
                   </p>
                 )}
@@ -463,7 +493,7 @@ export default function RunResult({
                   <details data-testid={`rtt-result-system-rule-${sys.id}`}>
                     <summary
                       className="cursor-pointer select-none text-[11px]"
-                      style={{ color: "var(--text-muted)", textDecoration: "underline", textUnderlineOffset: "2px" }}
+                      style={{ color: "var(--text-secondary)", textDecoration: "underline", textUnderlineOffset: "2px" }}
                     >
                       {PERK_EXACT_RULE_LABEL}
                       <span className="sr-only"> for {sys.name}</span>
@@ -509,7 +539,10 @@ export default function RunResult({
                   minWidth: "76px",
                 }}
               >
-                <span className="text-[9px] uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                {/* WAS 9px `--text-muted`. It names the stage the outcome
+                    beneath it belongs to; without it the timeline is a row of
+                    unattributed verdicts. */}
+                <span className="text-[10px] uppercase tracking-wide" style={{ color: "var(--text-secondary)" }}>
                   {row.kind === "boss" ? `Act ${row.act} boss` : `Act ${row.act}·${row.stage}`}
                 </span>
                 <span className="text-[10px] font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -534,7 +567,7 @@ export default function RunResult({
       <section className="flex flex-col gap-1.5">
         <h3 className="rtt-result-heading">Why this run ended this way</h3>
         {items.length === 0 ? (
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+          <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
             Not enough happened to explain.
           </p>
         ) : (
@@ -571,7 +604,7 @@ export default function RunResult({
           that doesn't exist. */}
       <section className="flex flex-col gap-1" data-testid="rtt-result-leaderboard">
         <h3 className="rtt-result-heading">Leaderboard</h3>
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+        <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
           Not ranked yet — RUN THE TABLE doesn&apos;t have a global leaderboard in this build.
         </p>
       </section>
@@ -589,7 +622,7 @@ export default function RunResult({
           data-testid="rtt-run-it-back"
           onClick={onRunItBack}
           disabled={busy}
-          className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-bold uppercase tracking-wide disabled:opacity-60"
+          className="rtt-tap pk-lift pk-press inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-bold uppercase tracking-wide disabled:opacity-60"
           style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           <RotateCcw size={13} aria-hidden="true" />
@@ -600,7 +633,7 @@ export default function RunResult({
           data-testid="rtt-replay-seed"
           onClick={onReplaySeed}
           disabled={busy}
-          className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide disabled:opacity-60"
+          className="rtt-tap pk-lift pk-press inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide disabled:opacity-60"
           style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
         >
           <Repeat size={13} aria-hidden="true" />
@@ -611,7 +644,7 @@ export default function RunResult({
           data-testid="rtt-challenge"
           onClick={handleChallenge}
           disabled={busy}
-          className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide disabled:opacity-60"
+          className="rtt-tap pk-lift pk-press inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide disabled:opacity-60"
           style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
         >
           {copied === "challenge" ? <Check size={13} aria-hidden="true" /> : <LinkIcon size={13} aria-hidden="true" />}
@@ -621,7 +654,7 @@ export default function RunResult({
           type="button"
           data-testid="rtt-copy-summary"
           onClick={handleCopySummary}
-          className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
+          className="rtt-tap pk-lift pk-press inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
           style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
         >
           {copied === "summary" ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
@@ -631,7 +664,7 @@ export default function RunResult({
           type="button"
           data-testid="rtt-share-card"
           onClick={handleShareCard}
-          className="rtt-tap inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
+          className="rtt-tap pk-lift pk-press inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
           style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
         >
           <Camera size={13} aria-hidden="true" />
@@ -682,11 +715,13 @@ function Highlight({
   tone?: "incorrect";
 }) {
   return (
+    /* A raised object with a lit top edge rather than a flat rectangle: these
+       four tiles are the run's highlights, and they were rendering at exactly
+       the same visual weight as the explanatory paragraphs around them. */
     <div
       data-testid={testId}
-      className="rounded-xl border p-2.5 flex flex-col gap-1"
+      className="pk-depth pk-crown rounded-xl border p-2.5 flex flex-col gap-1"
       style={{
-        background: "var(--bg-elevated)",
         borderColor: tone === "incorrect" ? "var(--incorrect-dim)" : "var(--border-default)",
       }}
     >

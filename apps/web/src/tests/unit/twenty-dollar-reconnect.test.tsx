@@ -1,23 +1,28 @@
 /**
- * "While you were away", across a real reload.
+ * The lot ledger: what plays as a reveal, what recaps, and what can never be
+ * permanent (S20-10).
  *
- * THE DEFECT UNDER TEST. `useLotVisibility` baselined itself at
- * `history.length` on first render, so a reload started a fresh slate and
- * reported no gap. That was right for bursts WITHIN a session — several lots
- * really do settle between two polls, because `_advance_lot` resolves unsold
- * lots recursively and `drive_pending_bots` runs up to twelve bot turns inside
- * one request — and wrong for the case the feature is named after: closing a
- * tab, coming back, and finding players on a roster you never saw bought.
+ * THIS FILE USED TO ENCODE THE DEFECT. Its previous assertions were "several
+ * unseen lots is a gap", "a gap does not acknowledge itself", and "the summary
+ * survives a remount" — all of which described the sticky "While you were away"
+ * banner that fired during live play. They are replaced rather than relaxed,
+ * because the behaviour they protected was the bug.
  *
- * The cursor is the highest `lot_index` this browser has displayed, persisted
- * per match id. `lot_index` is server-assigned, monotonic and already on every
- * history row, so "what have I seen" is one integer derived from state the
- * server publishes — no migration, no second record of the match, and nothing
- * that can disagree with the authoritative history.
+ * THE THREE VERIFIED MECHANISMS behind the report, none of which is a reconnect:
  *
- * A REMOUNT IS A RELOAD, for this hook. Everything it reads on mount comes from
- * localStorage and from props; there is no module-level state and no ref that
- * outlives an unmount. So `unmount()` then `render()` exercises exactly the
+ *  1. ONE ACCEPTED COMMAND CAN SETTLE TWO OR MORE LOTS, and it is normal.
+ *     `state.py::_advance_lot` calls `_resolve_lot` on the lot it just created
+ *     when neither seat can legally acquire the candidate, and `_resolve_lot`
+ *     calls `_advance_lot` again. The market draws from all 500 qualified
+ *     players regardless of either roster. The old hook read `unseen.length > 1`
+ *     as a reconnect and showed the banner to a player who was sitting there.
+ *  2. IT WAS STICKY. The cursor advanced only on a solo reveal or on the
+ *     "Caught up" button, so an undismissed gap froze it forever — banner
+ *     permanent, `reveal` permanently null.
+ *  3. BLOCKED STORAGE MADE BOTH PERMANENT, because writes silently did nothing.
+ *
+ * A REMOUNT IS A RELOAD, for this hook: everything it reads on mount comes from
+ * the cursor store and from props, so `unmount()` then `render()` exercises the
  * path a browser reload takes.
  */
 import React from "react";
@@ -25,11 +30,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { MissedLotsSummary, useLotVisibility } from "@/components/twenty-dollar/LotLedger";
+import {
+  ResumeRecap,
+  useLotLedger,
+  REVEAL_HOLD_MS,
+} from "@/components/twenty-dollar/LotLedger";
 import {
   clearSeenCursor,
   partitionUnseen,
   readSeenCursor,
+  resetMemoryCursors,
   seenCursorKey,
   writeSeenCursor,
 } from "@/lib/twenty-dollar-seen";
@@ -99,24 +109,25 @@ function state(
   };
 }
 
-/** A probe that renders whatever the hook decides, so a test can read it. */
+/** A probe that renders whatever the ledger decides, so a test can read it. */
 function Probe({ history, phase = "auction" as const }: {
   history: ResolvedLot[];
   phase?: "auction" | "complete";
 }) {
-  const { missed, reveal, acknowledge } = useLotVisibility(MATCH, state(history, { phase }));
+  const { recap, reveal, queued, acknowledgeRecap } = useLotLedger(
+    MATCH,
+    state(history, { phase }),
+  );
   return (
     <div>
-      <span data-testid="missed">{missed.map((l) => l.lot_index).join(",")}</span>
+      <span data-testid="recap">{recap.map((l) => l.lot_index).join(",")}</span>
       <span data-testid="reveal">{reveal ? reveal.lot_index : "none"}</span>
-      <button type="button" data-testid="ack" onClick={acknowledge}>
-        ack
-      </button>
-      <MissedLotsSummary
-        lots={missed}
+      <span data-testid="queued">{queued}</span>
+      <ResumeRecap
+        lots={recap}
         seatNames={["You", "Floor General"]}
         yourSeat={0}
-        onDismiss={acknowledge}
+        onDismiss={acknowledgeRecap}
       />
     </div>
   );
@@ -124,6 +135,7 @@ function Probe({ history, phase = "auction" as const }: {
 
 beforeEach(() => {
   window.localStorage.clear();
+  resetMemoryCursors();
 });
 
 afterEach(() => {
@@ -159,109 +171,232 @@ describe("the persisted cursor", () => {
     expect(readSeenCursor(MATCH)).toBe(-1);
   });
 
-  it("survives storage being unavailable rather than throwing", () => {
-    const original = window.localStorage.setItem;
+  it("still advances when reads work and WRITES throw", () => {
+    // STORAGE IS NOT ALL-OR-NOTHING. Quota exhaustion, Safari private
+    // browsing and a partitioned frame all produce a store that reads back
+    // fine and refuses to write. The read path returned the stale persisted
+    // value and never consulted the in-memory fallback, so every
+    // acknowledgement landed in memory, was ignored, and the recap came
+    // straight back -- "caught up reappearing after acknowledgment", which is
+    // the exact symptom this module exists to remove.
+    window.localStorage.setItem(seenCursorKey(MATCH), "5");
+    const setItem = window.localStorage.setItem;
     window.localStorage.setItem = () => {
-      throw new Error("quota");
+      throw new DOMException("QuotaExceededError");
     };
-    expect(() => writeSeenCursor(MATCH, 3)).not.toThrow();
-    window.localStorage.setItem = original;
+    try {
+      expect(readSeenCursor(MATCH)).toBe(5);
+      writeSeenCursor(MATCH, 7);
+      expect(readSeenCursor(MATCH)).toBe(7);
+    } finally {
+      window.localStorage.setItem = setItem;
+    }
   });
 
   it("preserves ordering regardless of the input array's order", () => {
     const unsorted = [lot(5), lot(2), lot(9)];
     expect(partitionUnseen(unsorted, 1).map((l) => l.lot_index)).toEqual([2, 5, 9]);
   });
+
+  /**
+   * THE THIRD MECHANISM. Storage that throws used to make the cursor
+   * permanently `-1`: every settled lot read as missed, "Caught up" was inert,
+   * and the banner could never be dismissed. The documented intent — "degrade
+   * to per-session" — did not hold, because a per-session degrade needs
+   * somewhere to put the session's value.
+   */
+  it("keeps advancing IN MEMORY when storage is blocked", () => {
+    const setItem = window.localStorage.setItem;
+    const getItem = window.localStorage.getItem;
+    window.localStorage.setItem = () => {
+      throw new Error("quota");
+    };
+    window.localStorage.getItem = () => {
+      throw new Error("blocked");
+    };
+    try {
+      expect(() => writeSeenCursor(MATCH, 3)).not.toThrow();
+      // The point: it READS BACK. Before, this was -1 forever.
+      expect(readSeenCursor(MATCH)).toBe(3);
+      writeSeenCursor(MATCH, 5);
+      expect(readSeenCursor(MATCH)).toBe(5);
+      expect(partitionUnseen([lot(4), lot(5), lot(6)], readSeenCursor(MATCH))).toHaveLength(1);
+    } finally {
+      window.localStorage.setItem = setItem;
+      window.localStorage.getItem = getItem;
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
-// Reload
+// Live play — the case the banner used to break
 // ---------------------------------------------------------------------------
 
-describe("reload", () => {
-  it("reports ONE missed lot after a reload", () => {
-    writeSeenCursor(MATCH, 2);
-    render(<Probe history={[lot(0), lot(1), lot(2), lot(3)]} />);
-    // One unseen lot is a reveal, not a gap -- the same treatment it would get
-    // if the player had been watching.
-    expect(screen.getByTestId("reveal")).toHaveTextContent("3");
-    expect(screen.getByTestId("missed")).toHaveTextContent("");
+describe("lots that settle while the client is live", () => {
+  it("play as a reveal SEQUENCE and never as a catch-up banner", () => {
+    vi.useFakeTimers();
+    // Mount live at lot 0 settled and acknowledged — an ordinary in-play state.
+    writeSeenCursor(MATCH, 0);
+    const { rerender } = render(<Probe history={[lot(0)]} />);
+    expect(screen.getByTestId("recap")).toHaveTextContent("");
+
+    // ONE accepted command settles three lots. This is `_advance_lot` →
+    // `_resolve_lot` → `_advance_lot`, which is normal, and it is what used to
+    // produce "While you were away" in front of a player who was sitting there.
+    rerender(<Probe history={[lot(0), lot(1), lot(2), lot(3)]} />);
+    expect(screen.getByTestId("recap")).toHaveTextContent("");
+    expect(screen.queryByTestId("td-missed-lots")).toBeNull();
+    expect(screen.getByTestId("reveal")).toHaveTextContent("1");
+    expect(screen.getByTestId("queued")).toHaveTextContent("2");
   });
 
-  it("reports SEVERAL missed lots after a reload, in order", () => {
+  it("advances through the queue one lot at a time, on its own", () => {
+    vi.useFakeTimers();
+    writeSeenCursor(MATCH, 0);
+    const history = [lot(0), lot(1), lot(2), lot(3)];
+    const { rerender } = render(<Probe history={[lot(0)]} />);
+    rerender(<Probe history={history} />);
+
+    expect(screen.getByTestId("reveal")).toHaveTextContent("1");
+    act(() => {
+      vi.advanceTimersByTime(REVEAL_HOLD_MS + 50);
+    });
+    expect(screen.getByTestId("reveal")).toHaveTextContent("2");
+    act(() => {
+      vi.advanceTimersByTime(REVEAL_HOLD_MS + 50);
+    });
+    expect(screen.getByTestId("reveal")).toHaveTextContent("3");
+    act(() => {
+      vi.advanceTimersByTime(REVEAL_HOLD_MS + 50);
+    });
+    // THE QUEUE DRAINS. It could not, before: `unseen.length > 1` never
+    // self-acknowledged, so the cursor froze and `reveal` was null forever.
+    expect(screen.getByTestId("reveal")).toHaveTextContent("none");
+    expect(readSeenCursor(MATCH)).toBe(3);
+  });
+
+  it("a brand-new match with no history reveals and recaps nothing", () => {
+    render(<Probe history={[]} />);
+    expect(screen.getByTestId("recap")).toHaveTextContent("");
+    expect(screen.getByTestId("reveal")).toHaveTextContent("none");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A genuine resume
+// ---------------------------------------------------------------------------
+
+describe("a genuine resume boundary", () => {
+  it("recaps the lots that settled while this browser was gone", () => {
     writeSeenCursor(MATCH, 1);
     render(<Probe history={[lot(0), lot(1), lot(2), lot(3), lot(4)]} />);
-    expect(screen.getByTestId("missed")).toHaveTextContent("2,3,4");
-    expect(screen.getByTestId("reveal")).toHaveTextContent("none");
+    expect(screen.getByTestId("recap")).toHaveTextContent("2,3,4");
     expect(screen.getByTestId("td-missed-lots")).toHaveAttribute("data-count", "3");
   });
 
-  it("omits nothing: every settled lot past the cursor is listed", () => {
+  it("stays COMPACT: three rows, with the rest behind 'View N more'", async () => {
     writeSeenCursor(MATCH, -1);
-    const history = [lot(0), lot(1), lot(2), lot(3)];
-    render(<Probe history={history} />);
-    for (const index of [0, 1, 2, 3]) {
-      expect(screen.getByTestId(`td-missed-${index}`)).toBeInTheDocument();
-    }
+    render(<Probe history={[lot(0), lot(1), lot(2), lot(3), lot(4), lot(5)]} />);
+    // Six missed lots, three rendered. A giant permanent block pushing the live
+    // lot below the fold is exactly what S20-10 forbids.
+    expect(screen.getAllByTestId(/^td-missed-\d+$/)).toHaveLength(3);
+    expect(screen.getByTestId("td-missed-more")).toHaveTextContent("View 3 more");
+
+    await userEvent.click(screen.getByTestId("td-missed-more"));
+    expect(screen.getAllByTestId(/^td-missed-\d+$/)).toHaveLength(6);
+  });
+
+  it("reports a single missed lot as a reveal rather than a recap", () => {
+    writeSeenCursor(MATCH, 2);
+    render(<Probe history={[lot(0), lot(1), lot(2), lot(3)]} />);
+    // The ceiling is 3 and the cursor is 2, so lot 3 IS behind the boundary —
+    // one lot is still a recap of one, which the surface renders as one row.
+    expect(screen.getByTestId("recap")).toHaveTextContent("3");
+    expect(screen.getAllByTestId(/^td-missed-\d+$/)).toHaveLength(1);
   });
 
   it("reports nothing after a reload that missed nothing", () => {
     writeSeenCursor(MATCH, 3);
     render(<Probe history={[lot(0), lot(1), lot(2), lot(3)]} />);
-    expect(screen.getByTestId("missed")).toHaveTextContent("");
+    expect(screen.getByTestId("recap")).toHaveTextContent("");
     expect(screen.getByTestId("reveal")).toHaveTextContent("none");
   });
 
-  it("reports nothing during a live auction with no settled lots", () => {
-    render(<Probe history={[]} />);
-    expect(screen.getByTestId("missed")).toHaveTextContent("");
-    expect(screen.getByTestId("reveal")).toHaveTextContent("none");
-  });
+  it("does not re-recap lots that settle live AFTER the resume", () => {
+    vi.useFakeTimers();
+    writeSeenCursor(MATCH, 1);
+    const { rerender } = render(<Probe history={[lot(0), lot(1), lot(2)]} />);
+    expect(screen.getByTestId("recap")).toHaveTextContent("2");
 
-  it("keeps reporting a live auction's own gap while the auction continues", () => {
-    // A reload mid-lot: three lots settled while away, and the current lot is
-    // still live (`active_seat` set, no new history row).
-    writeSeenCursor(MATCH, 0);
-    render(<Probe history={[lot(0), lot(1), lot(2), lot(3)]} />);
-    expect(screen.getByTestId("missed")).toHaveTextContent("1,2,3");
+    rerender(<Probe history={[lot(0), lot(1), lot(2), lot(3)]} />);
+    // Lot 3 arrived while we were watching: a reveal, not more recap.
+    expect(screen.getByTestId("recap")).toHaveTextContent("2");
+    expect(screen.getByTestId("reveal")).toHaveTextContent("3");
   });
 });
 
 // ---------------------------------------------------------------------------
-// Acknowledgement, and not replaying it
+// Acknowledgement — and never being stuck
 // ---------------------------------------------------------------------------
 
 describe("acknowledgement", () => {
-  it("dismissing the summary advances the cursor past every missed lot", async () => {
+  it("dismissing the recap advances the cursor past every recapped lot", async () => {
     writeSeenCursor(MATCH, 0);
     render(<Probe history={[lot(0), lot(1), lot(2), lot(3)]} />);
     await userEvent.click(screen.getByTestId("td-missed-dismiss"));
     expect(readSeenCursor(MATCH)).toBe(3);
-    expect(screen.getByTestId("missed")).toHaveTextContent("");
+    expect(screen.getByTestId("recap")).toHaveTextContent("");
   });
 
-  it("a REPEATED reconnect does not replay an acknowledged summary", () => {
+  it("a REPEATED reconnect does not replay an acknowledged recap", () => {
     writeSeenCursor(MATCH, 0);
     const history = [lot(0), lot(1), lot(2)];
     const first = render(<Probe history={history} />);
-    expect(screen.getByTestId("missed")).toHaveTextContent("1,2");
+    expect(screen.getByTestId("recap")).toHaveTextContent("1,2");
 
     act(() => {
-      screen.getByTestId("ack").click();
+      screen.getByTestId("td-missed-dismiss").click();
     });
     first.unmount();
 
-    // Reload one.
     const second = render(<Probe history={history} />);
-    expect(screen.getByTestId("missed")).toHaveTextContent("");
+    expect(screen.getByTestId("recap")).toHaveTextContent("");
     second.unmount();
 
-    // Reload two. Still nothing -- the cursor is not a session value.
     render(<Probe history={history} />);
-    expect(screen.getByTestId("missed")).toHaveTextContent("");
+    expect(screen.getByTestId("recap")).toHaveTextContent("");
   });
 
-  it("shows no DUPLICATE summary when the same state arrives twice", () => {
+  /**
+   * THE STICKINESS TEST. A played reveal must not silently jump the cursor past
+   * an unacknowledged recap — that would mark lots as seen that nobody read —
+   * and the recap must not block the queue from ever draining either. Both are
+   * asserted in one sequence.
+   */
+  it("a reveal behind an outstanding recap plays without swallowing it", () => {
+    vi.useFakeTimers();
+    writeSeenCursor(MATCH, 0);
+    const { rerender } = render(<Probe history={[lot(0), lot(1), lot(2)]} />);
+    expect(screen.getByTestId("recap")).toHaveTextContent("1,2");
+
+    rerender(<Probe history={[lot(0), lot(1), lot(2), lot(3)]} />);
+    expect(screen.getByTestId("reveal")).toHaveTextContent("3");
+    act(() => {
+      vi.advanceTimersByTime(REVEAL_HOLD_MS + 50);
+    });
+    // Lot 3 has played and stopped being offered; lots 1-2 are still recapped.
+    expect(screen.getByTestId("reveal")).toHaveTextContent("none");
+    expect(screen.getByTestId("recap")).toHaveTextContent("1,2");
+    expect(readSeenCursor(MATCH)).toBe(0);
+
+    act(() => {
+      screen.getByTestId("td-missed-dismiss").click();
+    });
+    // Dismissing flushes everything, including the lot that played behind it.
+    expect(readSeenCursor(MATCH)).toBe(3);
+  });
+
+  it("shows no DUPLICATE recap when the same state arrives twice", () => {
     writeSeenCursor(MATCH, 0);
     const history = [lot(0), lot(1), lot(2)];
     const { rerender } = render(<Probe history={history} />);
@@ -270,31 +405,21 @@ describe("acknowledgement", () => {
     expect(screen.getAllByTestId("td-missed-lots")).toHaveLength(1);
   });
 
-  it("a single reveal acknowledges itself after its hold", () => {
-    vi.useFakeTimers();
-    writeSeenCursor(MATCH, 1);
-    render(<Probe history={[lot(0), lot(1), lot(2)]} />);
-    expect(screen.getByTestId("reveal")).toHaveTextContent("2");
-    expect(readSeenCursor(MATCH)).toBe(1);
-
-    act(() => {
-      vi.advanceTimersByTime(2_000);
-    });
-    // It was on screen; it counts as seen. A reload now reports no gap.
-    expect(readSeenCursor(MATCH)).toBe(2);
-  });
-
-  it("a GAP does not acknowledge itself", () => {
-    vi.useFakeTimers();
-    writeSeenCursor(MATCH, 0);
-    render(<Probe history={[lot(0), lot(1), lot(2), lot(3)]} />);
-    act(() => {
-      vi.advanceTimersByTime(10_000);
-    });
-    // Auto-advancing here would be the original defect wearing a cursor: the
-    // lots would be marked shown without anybody having read them.
-    expect(readSeenCursor(MATCH)).toBe(0);
-    expect(screen.getByTestId("missed")).toHaveTextContent("1,2,3");
+  it("is dismissible even when storage refuses to persist anything", async () => {
+    const setItem = window.localStorage.setItem;
+    window.localStorage.setItem = () => {
+      throw new Error("quota");
+    };
+    try {
+      writeSeenCursor(MATCH, 0);
+      render(<Probe history={[lot(0), lot(1), lot(2)]} />);
+      expect(screen.getByTestId("recap")).toHaveTextContent("1,2");
+      await userEvent.click(screen.getByTestId("td-missed-dismiss"));
+      // Before the in-memory fallback this click did nothing, forever.
+      expect(screen.getByTestId("recap")).toHaveTextContent("");
+    } finally {
+      window.localStorage.setItem = setItem;
+    }
   });
 });
 
@@ -305,19 +430,16 @@ describe("acknowledgement", () => {
 describe("two tabs", () => {
   it("a second tab stops reporting lots the first tab acknowledged", () => {
     writeSeenCursor(MATCH, 0);
-    const history = [lot(0), lot(1), lot(2)];
-    render(<Probe history={history} />);
-    expect(screen.getByTestId("missed")).toHaveTextContent("1,2");
+    render(<Probe history={[lot(0), lot(1), lot(2)]} />);
+    expect(screen.getByTestId("recap")).toHaveTextContent("1,2");
 
-    // The other tab acknowledges. `storage` fires only in THIS tab, which is
-    // the direction that needs it.
     act(() => {
       writeSeenCursor(MATCH, 2);
       window.dispatchEvent(
         new StorageEvent("storage", { key: seenCursorKey(MATCH), newValue: "2" }),
       );
     });
-    expect(screen.getByTestId("missed")).toHaveTextContent("");
+    expect(screen.getByTestId("recap")).toHaveTextContent("");
   });
 
   it("ignores a storage event for a different match", () => {
@@ -328,7 +450,7 @@ describe("two tabs", () => {
         new StorageEvent("storage", { key: seenCursorKey("m-other"), newValue: "9" }),
       );
     });
-    expect(screen.getByTestId("missed")).toHaveTextContent("1,2");
+    expect(screen.getByTestId("recap")).toHaveTextContent("1,2");
   });
 });
 
@@ -337,6 +459,7 @@ describe("a completed match", () => {
     writeSeenCursor(MATCH, 0);
     render(<Probe history={[lot(0), lot(1), lot(2)]} phase="complete" />);
     expect(readSeenCursor(MATCH)).toBe(2);
+    expect(screen.queryByTestId("td-missed-lots")).toBeNull();
   });
 });
 

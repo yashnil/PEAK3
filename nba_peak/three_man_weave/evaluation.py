@@ -89,7 +89,11 @@ from nba_peak.three_man_weave.config import (
     TMW_ADAPTER_VERSION,
 )
 from nba_peak.three_man_weave.eligibility import EligibilityIndex
-from nba_peak.three_man_weave.positions import canonical_positions, validate_roster
+from nba_peak.three_man_weave.positions import (
+    card_starter_positions,
+    rights_for,
+    validate_roster,
+)
 from nba_peak.three_man_weave.schemas import DraftPick
 
 SCORE_STATUS_COMPLETE = "complete"
@@ -234,8 +238,16 @@ def resolve_scoring_season_card(
     return card
 
 
-def _assert_evaluable(roster: Mapping[str, Optional[DraftPick]]) -> None:
-    """Reject anything that is not exactly a full, legal six-slot roster."""
+def _assert_evaluable(
+    roster: Mapping[str, Optional[DraftPick]], index: EligibilityIndex
+) -> None:
+    """Reject anything that is not exactly a full, legal six-slot roster.
+
+    THE LAST GATE BEFORE A SCORE EXISTS. Legality is re-checked here at the
+    SEASON grain -- the same grain the draft enforced -- so a roster that
+    somehow reached the evaluator with a starter standing somewhere their card
+    does not support raises instead of being scored and published.
+    """
     unknown = [slot for slot in roster if slot not in SLOT_TYPES]
     if unknown:
         raise EvaluationError("unknown_slot", f"not roster slots: {sorted(unknown)}")
@@ -249,7 +261,18 @@ def _assert_evaluable(roster: Mapping[str, Optional[DraftPick]]) -> None:
     if len(SLOT_TYPES) != ROSTER_SIZE:  # pragma: no cover - config invariant
         raise EvaluationError("bad_config", "SLOT_TYPES and ROSTER_SIZE disagree")
 
-    check = validate_roster({slot: pick.player_slug for slot, pick in roster.items()})
+    rights = rights_for(
+        (pick.player_slug, card.season)
+        for pick, card in (
+            (pick, index.scoring_card(pick.player_slug, pick.franchise_id, pick.decade))
+            for pick in roster.values()
+            if pick is not None
+        )
+        if card is not None
+    )
+    check = validate_roster(
+        {slot: pick.player_slug for slot, pick in roster.items()}, rights
+    )
     if not check.ok:
         raise EvaluationError(check.code or "illegal_roster", check.message or "illegal roster")
 
@@ -265,7 +288,7 @@ def evaluate_roster(
     `f"{board_seed}:{card_key}"` where `card_key` is the sorted card
     identities, so the same roster and seed always produce the same result.
     """
-    _assert_evaluable(roster)
+    _assert_evaluable(roster, index)
 
     picks: list[DraftPick] = [roster[slot] for slot in SLOT_TYPES]  # type: ignore[misc]
     cards: list[PlayerSeasonCard] = [resolve_scoring_season_card(pick, index) for pick in picks]
@@ -293,7 +316,9 @@ def evaluate_roster(
             team_id=card.team_id,
             team_name=card.team_name,
             listed_position=card.position,
-            canonical_positions=tuple(sorted(canonical_positions(card.player_slug))),
+            canonical_positions=tuple(
+                sorted(card_starter_positions(card.player_slug, card.season))
+            ),
             season_score=card.season_score,
             score_status=card.score_status,
             score_source=card.score_source,

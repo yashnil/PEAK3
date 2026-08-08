@@ -175,7 +175,15 @@ async def enforce(
     #    `ACTION_GRACE_SECONDS` for why a turn is not swept the instant its
     #    deadline passes, and why that is not slack in the rules.
     turn = await repo.get_open_turn(match_id)
-    if turn is None or not turn.is_overdue_at(now, ACTION_GRACE_SECONDS) or reducer is None:
+    if turn is None or reducer is None:
+        return None
+    # THE GRACE WINDOW PROTECTS A LATE ACTION, so a turn that accepts no action
+    # does not get one. A mode may open a turn nobody is on the clock for --
+    # Three-Man Weave's franchise x decade reveal is one -- and there charging
+    # the two-second allowance would simply make every ceremony two seconds
+    # longer than the mode asked for, with nothing to protect.
+    grace = ACTION_GRACE_SECONDS if turn.seat_index is not None else 0.0
+    if not turn.is_overdue_at(now, grace):
         return None
 
     request = CommandRequest(

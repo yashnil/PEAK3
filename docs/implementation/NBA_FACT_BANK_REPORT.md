@@ -9,9 +9,9 @@ different one.
 | | |
 |---|---|
 | Bank version | `nba_facts_v2` |
-| Published facts | **228** |
-| Candidates considered | 806 |
-| Rejected | 578 |
+| Published facts | **187** |
+| Candidates considered | 758 |
+| Rejected | 571 |
 | Duplicates and near-duplicates | 2 |
 | Facts with an expiry | 11 |
 
@@ -19,10 +19,10 @@ different one.
 
 | Reason | Count |
 |---|---|
-| `below_quality_floor` | 391 |
-| `group_cap` | 13 |
+| `below_quality_floor` | 406 |
+| `group_cap` | 23 |
 | `near_duplicate` | 2 |
-| `pattern_cap` | 172 |
+| `pattern_cap` | 140 |
 
 Two of those are ceilings rather than quality judgements, and both are
 counted here precisely so they do not read as "the generator only found
@@ -41,7 +41,7 @@ twelve":
 
 | Provenance | Facts |
 |---|---|
-| derived | 137 |
+| derived | 96 |
 | editorial | 91 |
 
 ### By category
@@ -52,20 +52,20 @@ twelve":
 | culture | 5 |
 | current_nba | 10 |
 | draft | 5 |
-| franchise | 12 |
+| franchise | 4 |
 | global | 5 |
 | historic_games | 5 |
 | international_leagues | 4 |
 | nba_history | 12 |
 | obscure_history | 2 |
 | olympics_fiba | 10 |
-| player_story | 17 |
-| playoffs_finals | 27 |
+| player_story | 10 |
+| playoffs_finals | 19 |
 | records | 28 |
-| role_players | 9 |
+| role_players | 1 |
 | rules | 5 |
 | statistical_oddity | 24 |
-| streaks | 28 |
+| streaks | 18 |
 | tactics | 1 |
 | womens | 9 |
 
@@ -79,12 +79,12 @@ twelve":
 | 1940s | 3 |
 | 1950s | 6 |
 | 1960s | 8 |
-| 1970s | 15 |
-| 1980s | 25 |
-| 1990s | 51 |
-| 2000s | 42 |
-| 2010s | 36 |
-| 2020s | 39 |
+| 1970s | 14 |
+| 1980s | 18 |
+| 1990s | 41 |
+| 2000s | 33 |
+| 2010s | 29 |
+| 2020s | 32 |
 
 ### By geography
 
@@ -92,15 +92,15 @@ twelve":
 |---|---|
 | global | 10 |
 | international | 12 |
-| usa | 206 |
+| usa | 165 |
 
 ### Domestic, global and women's basketball
 
 | | Facts | Share |
 |---|---|---|
-| NBA / domestic | 206 | 90% |
-| Global or international | 22 | 9% |
-| Women's basketball | 9 | 3% |
+| NBA / domestic | 165 | 88% |
+| Global or international | 22 | 11% |
+| Women's basketball | 9 | 4% |
 
 Counted separately on purpose: a WNBA fact is domestic and a EuroLeague
 fact is international, so one geography field cannot answer both.
@@ -128,8 +128,8 @@ target invites.
 | Foundational and iconic NBA history | 26 | 25 ✓ |
 | Obscure but meaningful NBA history | 5 | — |
 | Active / current NBA | 11 | 10 ✓ |
-| Playoffs and Finals | 42 | — |
-| Records and statistical oddities | 80 | — |
+| Playoffs and Finals | 34 | — |
+| Records and statistical oddities | 70 | — |
 | Draft history | 9 | — |
 | Tactical evolution | 8 | 5 ✓ |
 | Rule evolution | 8 | 5 ✓ |
@@ -138,7 +138,7 @@ target invites.
 | International leagues | 6 | — |
 | Women's basketball and the WNBA | 10 | 10 ✓ |
 | Basketball culture | 8 | — |
-| Geographic basketball stories | 17 | — |
+| Geographic basketball stories | 9 | — |
 | Surprising player and team connections | 15 | — |
 
 Targets are the product brief's preferred minima, stated in
@@ -156,7 +156,7 @@ reader of this report should be able to see how many there are.
 | For the first time since Michael Jordan, a rookie led his own team in points, rebounds, assists and steals. | `current_nba` | 2027-06-30 |
 | The WNBA's 2024 attendance jump was the largest in its history. | `current_nba` | 2027-06-30 |
 | Jalen Brunson scored 45 points in the game that ended the Finals. | `current_nba` | 2027-06-30 |
-| San Antonio reached the Finals for the first time since 2014, with a 22-year-old as its best player. | `current_nba` | 2027-06-30 |
+| San Antonio won 62 games and reached the Finals for the first time since 2014. | `current_nba` | 2027-06-30 |
 | Nobody had played twenty-three NBA seasons before. | `current_nba` | 2027-06-30 |
 | The youngest fifty-point game in NBA history belongs to a rookie. | `current_nba` | 2027-06-30 |
 | Shai Gilgeous-Alexander is the first player in four years to win back-to-back MVPs. | `current_nba` | 2027-06-30 |
@@ -171,11 +171,11 @@ perishable category that carries no expiry.
 
 | | |
 |---|---|
-| Days examined | 233 |
-| Distinct facts served | 228 |
-| First repeat after | **228 days** |
-| Schedule period | 228 days |
-| Consecutive same-category-group days | 0 |
+| Days examined | 120 |
+| Distinct facts served | 93 |
+| First repeat after | **93 days** |
+| Schedule period | 93 days |
+| Consecutive same-category-group days | 3 |
 | Same player or team inside 14 days | 0 |
 
 Measured by serving the days and reading what came back, not by reasoning
@@ -197,24 +197,20 @@ generator look like a copy of its siblings.
 | Pattern | Candidates | Published |
 |---|---|---|
 | `editorial` | 91 | 91 |
-| `derived:franchise_tenure` | 8 | 8 |
 | `gen_all_nba_first_no_playoffs` | 11 | 8 |
 | `gen_all_star_no_playoffs_streak` | 23 | 8 |
-| `gen_champion_role_players` | 40 | 8 |
 | `gen_champion_with_a_title` | 8 | 8 |
 | `gen_deep_runs_without_a_ring` | 13 | 8 |
 | `gen_dpoy_with_a_title` | 16 | 8 |
 | `gen_fifty_forty_ninety` | 9 | 8 |
-| `gen_finals_mvp_not_best_player` | 8 | 8 |
 | `gen_mvp_runners_up_who_never_won` | 8 | 8 |
 | `gen_title_streaks` | 16 | 8 |
 | `gen_title_without_playoffs` | 44 | 8 |
-| `derived:late_career` | 7 | 7 |
-| `gen_all_defense_streaks` | 18 | 7 |
 | `gen_multiple_titles_one_season` | 18 | 7 |
 | `gen_mvp_without_finals` | 24 | 7 |
-| `gen_all_nba_streaks` | 14 | 6 |
-| `gen_all_star_streaks` | 15 | 6 |
+| `gen_all_star_streaks` | 15 | 4 |
+| `gen_all_defense_streaks` | 18 | 3 |
+| `gen_all_nba_streaks` | 14 | 2 |
 | `gen_mvp_and_dpoy` | 1 | 1 |
 
 ### Categories with no published fact
@@ -235,13 +231,13 @@ that does not exist.
 
 | Axis | Mean |
 |---|---|
-| surprise | 3.99 |
-| significance | 3.84 |
-| clarity | 4.75 |
-| broad_interest | 4.28 |
-| novelty | 3.94 |
-| source_confidence | 4.86 |
-| homepage_suitability | 4.31 |
+| surprise | 4.05 |
+| significance | 3.95 |
+| clarity | 4.86 |
+| broad_interest | 4.38 |
+| novelty | 3.99 |
+| source_confidence | 4.93 |
+| homepage_suitability | 4.45 |
 
 ### The twenty strongest accepted facts
 
@@ -268,19 +264,266 @@ that does not exist.
 
 ### The weakest accepted facts
 
-- John Stockton played all 19 of his recorded seasons for one franchise (UTA), from 1984-85 to 2002-03. — *franchise, 24/35*
-- Stephen Curry played all 17 of his recorded seasons for one franchise (GSW), from 2009-10 to 2025-26. — *franchise, 24/35*
-- Kobe Bryant played all 20 of his recorded seasons for one franchise (LAL), from 1996-97 to 2015-16. — *franchise, 24/35*
-- Tim Duncan played all 19 of his recorded seasons for one franchise (SAS), from 1997-98 to 2015-16. — *franchise, 24/35*
-- Dirk Nowitzki played all 21 of his recorded seasons for one franchise (DAL), from 1998-99 to 2018-19. — *franchise, 24/35*
+- Karl Malone was an All-Star 11 years running. — *streaks, 28/35*
+- Bruce Bowen was named All-Defense 8 seasons in a row. — *streaks, 28/35*
+- Dwyane Wade was an All-Star 12 years running. — *streaks, 28/35*
+- The Aces took a third title in four years without losing a Finals game. — *womens, 28/35*
+- Australia's national league is older than the three-point line's permanence in the NBA. — *international_leagues, 26/35*
 
 ### A sample of what was rejected
 
-- Chris Paul suited up for 8 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Eddie Johnson suited up for 8 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Jamal Crawford suited up for 8 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- James Edwards suited up for 8 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Jaren Jackson suited up for 9 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Jarrett Jack suited up for 9 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Jeff Green suited up for 9 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
-- Jerry Stackhouse suited up for 8 different franchises. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Dirk Nowitzki played all 21 of his recorded seasons for one franchise (DAL), from 1998-99 to 2018-19. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- John Stockton played all 19 of his recorded seasons for one franchise (UTA), from 1984-85 to 2002-03. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Kobe Bryant played all 20 of his recorded seasons for one franchise (LAL), from 1996-97 to 2015-16. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Manu Ginobili played all 16 of his recorded seasons for one franchise (SAS), from 2002-03 to 2017-18. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Reggie Miller played all 18 of his recorded seasons for one franchise (IND), from 1987-88 to 2004-05. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Stephen Curry played all 17 of his recorded seasons for one franchise (GSW), from 2009-10 to 2025-26. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Tim Duncan played all 19 of his recorded seasons for one franchise (SAS), from 1997-98 to 2015-16. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+- Udonis Haslem played all 20 of his recorded seasons for one franchise (MIA), from 2003-04 to 2022-23. — `below_quality_floor` (broad_interest<3, homepage_suitability<3, total<23)
+
+---
+
+<!-- featured-tier: appended by nba_peak.nba_facts.featured -->
+
+> **Everything from here down is generated by a second command.**
+> `scripts/build_nba_facts.py --report` writes the bank half above.
+> The homepage-tier half below comes from
+> `nba_peak.nba_facts.featured.featured_markdown(bank)` run over the same
+> build, and the prose between the two is maintained by hand. To regenerate
+> the whole file:
+>
+> ```
+> python scripts/build_nba_facts.py --report docs/implementation/NBA_FACT_BANK_REPORT.md
+> python -c "from pathlib import Path; from nba_peak.nba_facts import build_bank, featured_markdown; \
+>   p=Path('docs/implementation/NBA_FACT_BANK_REPORT.md'); b,_=build_bank(); \
+>   p.write_text(p.read_text().rstrip() + '\n\n' + featured_markdown(b))"
+> ```
+>
+> The tables are produced by the same module that performs the selection, so
+> this half cannot describe a tier a different function chose.
+
+## What was removed from the bank, and why
+
+### Two generators deleted outright — a sourcing defect, not a taste judgement
+
+| Generator | Facts it had published | Why it is gone |
+|---|---|---|
+| `gen_finals_mvp_not_best_player` | 8 | Branched on the context table's `title_team_role` column. |
+| `gen_champion_role_players` | 8 | Same column, same defect. |
+
+`title_team_role` is not a Basketball-Reference observation. It is computed
+inside this repository by `nba_peak/context/title_role.py` — a weighted z-score
+composite with `CO_BEST_GAP = 0.60` deciding where "co-best" ends — so
+
+> JaVale McGee won 3 championships without ever being the best player on the team.
+
+printed a PEAK3 model judgment as an unqualified fact and attributed it to
+Basketball-Reference, on the one surface whose premise is that a visitor can
+evaluate what it says without knowing what PEAK3 is.
+
+**Deleted rather than reworded.** "Who was the best player on that team" has no
+external record to cite, so there is no sentence that makes the claim
+sourceable. The ring count is checkable; the clause that made it a story is not,
+and a fact is not the sum of a true half and an unsourceable one.
+
+The test that should have caught this
+(`tests/test_nba_facts.py::test_no_fact_depends_on_a_component_score`) opened
+`nba_peak/nba_facts/__init__.py` — the package's re-export list, which contains
+no generator — and checked two literal strings. Both assertions passed for the
+whole life of the defect. It is replaced by
+`test_no_fact_depends_on_a_judgment_this_repository_computes`, which scans every
+module in the package for ten repo-computed values and for imports of the
+modules that produce them.
+
+### Two derived profiles re-scored below the publication floor
+
+| Profile | Facts it had published | Shape |
+|---|---|---|
+| `derived:franchise_tenure` | 8 | "Udonis Haslem played all 20 of his recorded seasons for one franchise (MIA)." |
+| `derived:late_career` | 7 | "Chris Paul was still on an NBA roster in his 21st recorded season." |
+
+HOME-01's reject list names "mundane roster-tenure counting". Both were counting
+rows in a tenure table, which is the one thing `derived.py` can do and not a
+reason to publish it. All nine profiles in that file now score below the floor;
+they are still generated and still counted in *Facts per pattern* above, because
+a bounded coverage that nothing records reads as "the generator only found
+eight".
+
+Re-scored rather than deleted, unlike the award pair: these facts are true and
+checkable and the objection is that nobody wants to read them, which is a score.
+The award pair was making a claim that cannot be sourced at all, which is not a
+score — it is a fact that does not exist.
+
+### Two editorial entries rewritten
+
+| Key | Was | Is |
+|---|---|---|
+| `spurs-2026-finals` | "…with a 22-year-old as its best player." | "San Antonio won 62 games and reached the Finals for the first time since 2014." |
+| `tallest-and-shortest` | "…and was never the worst defender on the floor." | "…and played fourteen seasons. All three were in the league at the same time in 1994-95." |
+
+Both made a judgment about a player that no source can settle. Rewritten to say
+what happened; `featured.SUBJECTIVE_CLAIMS` is what stops the shape returning.
+
+**Net: 228 facts in the bank before this pass, 187 after.** Sixteen deleted, 15
+re-scored below the floor, and 10 more evicted by the rotation-group ceiling,
+which is a share of the provisional bank and therefore shrinks with it.
+
+## The homepage featured tier
+
+Bank membership is what may be published. It is not a homepage
+standard, because a derived fact's seven axes are assigned to its
+TEMPLATE — so the moment one generator's profile clears the floor,
+every fact it will ever emit clears it, in a block of eight. The
+featured tier is the second gate: `nba_peak/nba_facts/featured.py`.
+
+**Only the featured tier rotates onto the homepage.**
+`rotation.fact_for_date` selects from it, so the daily cycle length is
+the size of this tier and not the size of the bank.
+
+| | |
+|---|---|
+| Bank | 187 |
+| **Featured** | **93** |
+| Share of the bank | 50% |
+| Rotation cycle | **93 days** |
+| Distinct player subjects | 38 |
+| Featured facts with an expiry | 10 |
+
+### Featured by provenance
+
+| Provenance | Facts |
+|---|---|
+| derived | 14 |
+| editorial | 79 |
+
+### Featured by category
+
+| Category | Facts |
+|---|---|
+| connections | 2 |
+| culture | 4 |
+| current_nba | 9 |
+| draft | 4 |
+| franchise | 4 |
+| global | 5 |
+| historic_games | 5 |
+| international_leagues | 3 |
+| nba_history | 12 |
+| obscure_history | 2 |
+| olympics_fiba | 9 |
+| playoffs_finals | 3 |
+| records | 9 |
+| role_players | 1 |
+| rules | 5 |
+| statistical_oddity | 7 |
+| streaks | 3 |
+| tactics | 1 |
+| womens | 5 |
+
+### Featured by era
+
+| Era | Facts |
+|---|---|
+| 1890s | 1 |
+| 1920s | 1 |
+| 1930s | 1 |
+| 1940s | 3 |
+| 1950s | 6 |
+| 1960s | 7 |
+| 1970s | 12 |
+| 1980s | 6 |
+| 1990s | 17 |
+| 2000s | 11 |
+| 2010s | 9 |
+| 2020s | 19 |
+
+### Featured by era group
+
+| Era group | Facts |
+|---|---|
+| classic | 35 |
+| current | 19 |
+| early | 19 |
+| modern | 20 |
+
+### Featured by rotation group
+
+| Rotation group | Facts |
+|---|---|
+| culture | 13 |
+| history | 22 |
+| modern | 14 |
+| numbers | 19 |
+| people | 3 |
+| world | 22 |
+
+### Featured per template
+
+| Template | Facts |
+|---|---|
+| editorial | 79 |
+| gen_all_nba_first_no_playoffs | 3 |
+| gen_fifty_forty_ninety | 3 |
+| gen_multiple_titles_one_season | 3 |
+| gen_dpoy_with_a_title | 2 |
+| gen_title_streaks | 2 |
+| gen_mvp_and_dpoy | 1 |
+
+### Why bank facts did not reach the tier
+
+| Criterion failed | Facts |
+|---|---|
+| `total<30` | 48 |
+| `capped` | 26 |
+| `surprise<4` | 23 |
+| `source_confidence<5` | 13 |
+| `broad_interest<4` | 1 |
+| `homepage_suitability<4` | 1 |
+| `total<28` | 1 |
+
+`capped` means the fact cleared every criterion and lost a slot to a
+ceiling — the three-per-template cap, the one-era-per-template rule, or
+the rotation-group share. Those are not quality judgements:
+
+| Ceiling | Facts |
+|---|---|
+| `featured_pattern_cap` | 11 |
+| `featured_pattern_era` | 15 |
+
+### Templates with no internal ranking
+
+Most generators put their subject's number in `feature`, and admission
+within a template runs in descending order of it — so the featured
+slots go to the five-year streak rather than to whichever three-year
+streak hashed first. These templates emit a constant feature
+(`DPOY`, `50/40/90`, `MVP`), have no internal ordering, and fall
+through to `fact_id`. Named rather than hidden:
+
+- `gen_all_nba_first_no_playoffs`
+- `gen_dpoy_with_a_title`
+- `gen_fifty_forty_ninety`
+- `gen_mvp_and_dpoy`
+
+### Featured facts that expire
+
+| Fact | Category | Serves until |
+|---|---|---|
+| The 2026 scoring champion had been traded fourteen months earlier. | `current_nba` | 2027-06-30 |
+| No Defensive Player of the Year had ever been unanimous until 2026. | `current_nba` | 2027-06-30 |
+| For the first time since Michael Jordan, a rookie led his own team in points, rebounds, assists and steals. | `current_nba` | 2027-06-30 |
+| The WNBA's 2024 attendance jump was the largest in its history. | `current_nba` | 2027-06-30 |
+| Jalen Brunson scored 45 points in the game that ended the Finals. | `current_nba` | 2027-06-30 |
+| Nobody had played twenty-three NBA seasons before. | `current_nba` | 2027-06-30 |
+| The youngest fifty-point game in NBA history belongs to a rookie. | `current_nba` | 2027-06-30 |
+| Shai Gilgeous-Alexander is the first player in four years to win back-to-back MVPs. | `current_nba` | 2027-06-30 |
+| New York won a championship fifty-three years after its last one. | `current_nba` | 2027-06-30 |
+| A record 135 international players opened an NBA season. | `global` | 2026-10-15 |
+
+Every fact in the tier that makes a claim about the present carries a
+date, and `rotation.fact_for_date` filters on it before the schedule is
+built — so an expired fact is not served with a caveat, it is not served.
+The tier does NOT re-select when one lapses: an expiry drops that fact
+and promotes nothing, because a template slot freeing up on a Tuesday is
+a homepage that changes for a reason nobody can see. The cycle shortens
+by the number that lapsed, which is what the dates above let a reader
+work out for any future day.

@@ -30,6 +30,26 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export const TWENTY_DOLLAR_MODE = "twenty_dollar";
 
+/**
+ * The decision window, mirroring `nba_peak/twenty_dollar/config.py::TURN_SECONDS`.
+ *
+ * Declared here rather than typed into a prop, because it was typed into a
+ * prop: the room passed `totalSeconds={20}` to `ArenaTimer` while the server
+ * gave 25, so the progress arc sat pinned at full for the first five seconds
+ * of every single turn and then fell off a cliff. One constant, one place.
+ */
+export const TURN_SECONDS = 25;
+
+/**
+ * The grace window the server allows past a deadline, mirroring
+ * `apps/api/app/services/arena/clock.py::ACTION_GRACE_SECONDS`.
+ *
+ * `apps/api/tests/test_arena_action_races.py` asserts an action up to 1900 ms
+ * late is still ACCEPTED. The client must therefore not paint "time expired"
+ * over an action it has already sent — see `useShowdownPhase`.
+ */
+export const ACTION_GRACE_SECONDS = 2;
+
 export class TwentyDollarAPIError extends Error {
   status: number;
   code?: string;
@@ -89,6 +109,19 @@ export interface CandidatePublic {
   anchor_season: string;
   team: string | null;
   positions: string[];
+  /**
+   * This player's photograph, from the committed asset manifest.
+   *
+   * IDENTITY, NOT VALUATION — which is the only reason it is allowed on a LIVE
+   * lot at all. It says who is on the block, exactly as `player_name` does; it
+   * carries no score, no rank and no component.
+   *
+   * Null for most identities and for every identity when the API's
+   * `PEAK3_ENABLE_EXTERNAL_ASSET_URLS` gate is off, which is the shipped
+   * default. `PlayerAvatar` draws its medallion in the same reserved box, so
+   * null costs no layout. @see `components/court/PlayerAvatar`.
+   */
+  headshot_url?: string | null;
 }
 
 /** A candidate as it appears in a RESOLVED round, with everything revealed. */
@@ -117,6 +150,9 @@ export interface RosterEntry {
    *  number they were bought on. */
   prime_score: number;
   autofilled: boolean;
+  /** @see `CandidatePublic.headshot_url`. Null for most identities and for all
+   *  of them with the API's default flag posture. */
+  headshot_url?: string | null;
 }
 
 /**
@@ -255,6 +291,22 @@ export interface TwentyDollarPrivateState {
    * before the click instead of reporting the charge afterwards, and so an
    * ordinary concession (free) is visibly different from a real skip. */
   pass_consumes_skip: boolean;
+  /**
+   * WHICH of the three declines passing right now would be.
+   *
+   * `nba_peak/twenty_dollar/state.py::pass_kind`. The three have genuinely
+   * different consequences and used to share one word ("skip") plus a
+   * punctuation mark ("Pass — free") doing the explaining. The control now
+   * NAMES the action it is about to take; the count is a first-class number on
+   * the seat card rather than a suffix on a button.
+   *
+   * Optional only so a client rendered against an older projection still
+   * type-checks; `passKind()` falls back to `pass_consumes_skip`.
+   */
+  pass_kind?: PassKind;
+  /** Has either seat already declined this UNOPENED lot? When true a decline
+   * is a free follow rather than a market skip. */
+  lot_already_rejected?: boolean;
   /** False in exactly one situation: the pass would cost a skip and there are
    * none left, so the only legal move is to open at the minimum. */
   can_pass: boolean;
@@ -268,6 +320,18 @@ export interface TwentyDollarPrivateState {
 }
 
 export type TimeoutOutcome = "skip_used" | "auto_open" | "free_pass" | "conceded";
+
+/**
+ * The three ways a seat can decline, named.
+ *
+ *   * `market_skip`  — first rejection of an UNOPENED lot. Costs one token.
+ *   * `follow_pass`  — the other seat already rejected it, so the player is
+ *                      gone either way. Free.
+ *   * `auction_pass` — conceding a live auction. Free.
+ *
+ * @see `nba_peak/twenty_dollar/state.py::pass_kind`
+ */
+export type PassKind = "market_skip" | "follow_pass" | "auction_pass";
 
 export interface ArenaSeatMeta {
   seat_index: number;
@@ -329,18 +393,41 @@ export interface SubmitCommandResult {
 // ---------------------------------------------------------------------------
 
 /**
- * A fresh idempotency key per user action.
+ * A stable idempotency key for one INTENDED action.
  *
- * The server requires at least 8 characters and uses it to make a retry a
- * replay rather than a second bid. Generated per ACTION, not per request, so a
- * network retry of the same click reuses it -- that is the whole point.
+ * WHY THIS REPLACED A RANDOM UUID, and it is the highest-severity defect this
+ * pass fixed. The room used to mint `newIdempotencyKey()` once, hold it in a
+ * ref, and clear it only on the SUCCESS path — the `catch` left it set. So
+ * after a dropped response the next click of ANY kind reused the key and the
+ * server replayed the recorded verdict for a completely different intent. If
+ * the lost request had been REJECTED, the retry came back `replayed: true`,
+ * the room's `if (!accepted && !replayed)` guard swallowed the banner, and the
+ * corrected bid was never sent: a silent no-op under a running clock.
+ *
+ * Deriving the key from what the action IS makes a retry of the SAME action a
+ * replay and a genuinely different action a different key, with no lifecycle
+ * to get wrong. Identical in shape to `arena-api.ts::commandIdempotencyKey`,
+ * which is what Three-Man Weave has always used; it is duplicated rather than
+ * imported so the two Arena modes cannot be coupled through a helper that one
+ * of them is free to change.
+ *
+ * The server's minimum length is 8, which the match id alone clears.
  */
-export function newIdempotencyKey(): string {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `td-${random}`.slice(0, 128);
+export function showdownIdempotencyKey(
+  matchId: string,
+  seatIndex: number | null,
+  stateVersion: number,
+  commandType: string,
+  payload: Record<string, unknown>,
+): string {
+  const shape = Object.keys(payload)
+    .sort()
+    .map((key) => `${key}=${String(payload[key])}`)
+    .join("&");
+  return `${matchId}:${seatIndex ?? "x"}:${stateVersion}:${commandType}:${shape}`.slice(
+    0,
+    128,
+  );
 }
 
 export const twentyDollarApi = {
@@ -462,6 +549,86 @@ export function bidBlockedLabel(
 
 /** Slot order for display. The server publishes it; this is the fallback. */
 export const SLOT_ORDER = ["PG", "SG", "SF", "PF", "C"] as const;
+
+/**
+ * Which decline this seat's Pass control would actually perform.
+ *
+ * Reads the server's `pass_kind` when it is present and falls back to the
+ * older `pass_consumes_skip` boolean when it is not, so a client rendered
+ * against a projection from before that field existed still names two of the
+ * three cases correctly instead of guessing all three.
+ */
+export function passKind(privateState: TwentyDollarPrivateState): PassKind {
+  if (privateState.pass_kind) return privateState.pass_kind;
+  return privateState.pass_consumes_skip ? "market_skip" : "auction_pass";
+}
+
+/**
+ * The LABEL on the decline control — the action it will take, by name.
+ *
+ * PART S20-06: "Do not append '—free' to Pass. The UI should explain the
+ * distinction through state, not punctuation." So the free cases are simply
+ * called what they are, and the expensive one says it spends a token without
+ * carrying the running count (that is a first-class number on the seat card).
+ */
+export function passActionLabel(privateState: TwentyDollarPrivateState): string {
+  switch (passKind(privateState)) {
+    case "market_skip":
+      return "Market skip";
+    case "follow_pass":
+      return "Pass on this lot";
+    case "auction_pass":
+    default:
+      return "Concede the lot";
+  }
+}
+
+/** One line saying what the decline costs, for the control's supporting copy. */
+export function passActionCost(
+  privateState: TwentyDollarPrivateState,
+  publicState: TwentyDollarPublicState,
+): string {
+  switch (passKind(privateState)) {
+    case "market_skip":
+      return `Takes this player off the board and spends 1 of your ${publicState.market_skips_per_seat} market skips.`;
+    case "follow_pass":
+      return "The other seat has already declined this lot, so this costs you no market skip.";
+    case "auction_pass":
+    default:
+      return "Conceding a live auction costs no market skip.";
+  }
+}
+
+/**
+ * THE LAST MEANINGFUL ACTION on the live lot, as one short sentence.
+ *
+ * S20-04 puts this fourth in the hierarchy, under the current bid and the
+ * leader. It replaces the row of micro-chips (`You $1 · PEAK3 Bot $2 · …`)
+ * that used to carry the whole history at 11 px.
+ */
+export function lastActionLabel(
+  publicState: TwentyDollarPublicState,
+  yourSeat: number | null,
+  seatNames: string[] = [],
+): string | null {
+  const actions = publicState.lot_actions;
+  if (!actions || actions.length === 0) return null;
+  const last = actions[actions.length - 1];
+  const who = last.seat_index === yourSeat ? "You" : (seatNames[last.seat_index] ?? "Opponent");
+  if (last.action === "bid") {
+    const previous = actions
+      .slice(0, -1)
+      .filter((action) => action.action === "bid")
+      .pop();
+    const raise = previous ? last.amount - previous.amount : 0;
+    return previous
+      ? `${who} raised to ${formatDollars(last.amount)} (+${formatDollars(raise)})`
+      : `${who} opened at ${formatDollars(last.amount)}`;
+  }
+  if (last.timed_out) return `${who} ran out of time`;
+  if (last.consumed_skip) return `${who} used a market skip`;
+  return `${who} passed`;
+}
 
 /**
  * What expiry will cost this seat, in words, BEFORE the clock reaches zero.

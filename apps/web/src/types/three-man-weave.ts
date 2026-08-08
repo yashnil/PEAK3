@@ -42,6 +42,16 @@ export interface ArenaMatchView<TPublic = TmwPublicState, TPrivate = TmwPrivateS
   current_turn_seat_index: number | null;
   /** A DURATION, not a deadline — the server keeps the authoritative instant. */
   seconds_remaining: number | null;
+  /**
+   * WHAT THE COUNTDOWN IS COUNTING. `seconds_remaining` alone cannot say.
+   *
+   * A mode may open a turn that is not a decision: Three-Man Weave's franchise
+   * × decade reveal belongs to no seat, accepts no command, and carries its own
+   * server deadline. A client that assumed every countdown was a decision
+   * window rendered a live pick panel over the ceremony — the exact race this
+   * field removes. `null` when no turn is open.
+   */
+  turn_phase: string | null;
   latest_event_seq: number;
   room_code: string | null;
 }
@@ -114,6 +124,28 @@ export const TMW_COMMAND_PICK = "tmw_pick";
 /** Repositioning your OWN roster. Does not consume a turn. */
 export const TMW_COMMAND_REARRANGE = "tmw_rearrange";
 
+/**
+ * THE OPEN TURN'S PHASE, and the two values this mode publishes.
+ *
+ * `reveal` is a REAL SERVER TURN, not an animation: it belongs to no seat, its
+ * deadline is the ceremony's own, and the pick window does not start until it
+ * ends. `pick` is the 45-second decision window. Everything the room does with
+ * the ceremony is derived from this field, so a reload mid-ceremony resumes it
+ * from server state rather than restarting a client timer.
+ */
+export const TMW_TURN_PHASE_REVEAL = "reveal";
+export const TMW_TURN_PHASE_PICK = "pick";
+
+/**
+ * The reveal window's nominal length, mirroring `REVEAL_SECONDS` in
+ * `apps/api/app/services/three_man_weave/mode.py`.
+ *
+ * USED ONLY AS THE DENOMINATOR for "how far into the ceremony are we", and only
+ * when the server sent no duration at all. The instant the ceremony ends is
+ * always the server's, never this number.
+ */
+export const TMW_REVEAL_SECONDS = 3.2;
+
 export const TMW_STARTER_SLOTS = ["PG", "SG", "SF", "PF", "C"] as const;
 export const TMW_BENCH_SLOTS = ["bench_1"] as const;
 export const TMW_SLOT_TYPES = [...TMW_STARTER_SLOTS, ...TMW_BENCH_SLOTS] as const;
@@ -176,6 +208,16 @@ export interface TmwCandidatePublic {
   eligibility: TmwEligibility;
   /** Canonical starter positions, from the model's own position data. */
   positions: string[];
+  /**
+   * A real photograph, or null.
+   *
+   * Resolved server-side from the same committed manifest 82-0 uses, behind
+   * the same `ENABLE_EXTERNAL_ASSET_URLS` gate — never fetched or guessed by
+   * the client. Null is the ordinary answer for about four identities in five
+   * (the manifest resolves 20.5% of this mode's pool, because resolution needs
+   * a current roster entry), and `PlayerAvatar` draws its medallion for those.
+   */
+  headshot_url?: string | null;
 }
 
 /** A DRAFTED player: the candidate payload plus the card they are scored on. */

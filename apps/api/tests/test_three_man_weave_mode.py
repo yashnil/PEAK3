@@ -7,6 +7,7 @@ franchise x decade roll.
 """
 from __future__ import annotations
 
+import copy
 import os
 import subprocess
 import sys
@@ -27,6 +28,7 @@ from app.repositories.arena_protocols import (
     TURN_RESOLUTION_TIMEOUT,
     ArenaMatch,
     ArenaSeat,
+    ArenaTurn,
     CommandRequest,
     ReducerInput,
 )
@@ -38,15 +40,19 @@ from app.services.three_man_weave.mode import (
     EVENT_ROLL_REVEALED,
     MODE_NAME,
     PHASE_PICK,
+    PHASE_REVEAL,
     REJECT_NOT_YOUR_TURN,
     REJECT_UNKNOWN_COMMAND,
     REJECT_VERSION_MISMATCH,
+    REVEAL_SECONDS,
+    TURN_SECONDS,
     ThreeManWeaveMode,
     mode,
     register,
 )
 
 from nba_peak.three_man_weave.config import PARTICIPANT_COUNT, ROSTER_SIZE, ROUNDS, RULESET_VERSION
+from nba_peak.three_man_weave.eligibility import get_index
 
 NOW = datetime(2026, 8, 4, 12, 0, 0, tzinfo=timezone.utc)
 
@@ -100,16 +106,47 @@ def _command(
     )
 
 
-def _reduce(snapshot: dict, command: CommandRequest, seats=None, seed: int = 4242):
+def _reduce(
+    snapshot: dict,
+    command: CommandRequest,
+    seats=None,
+    seed: int = 4242,
+    open_turn=None,
+    now: datetime = NOW,
+):
     return mode.reduce(
         ReducerInput(
             match=_match(snapshot, seed=seed),
             seats=seats or _seats(),
-            open_turn=None,
+            open_turn=open_turn,
             command=command,
-            now=NOW,
+            now=now,
         )
     )
+
+
+def _turn(phase: str, seat_index: int | None, *, deadline: datetime, seq: int = 0) -> ArenaTurn:
+    """An open turn as the foundation would have stored it."""
+    return ArenaTurn(
+        match_id="m1",
+        turn_seq=seq,
+        phase=phase,
+        seat_index=seat_index,
+        deadline_at=deadline,
+        opened_at=NOW,
+    )
+
+
+def _reveal_turn(seq: int = 0) -> ArenaTurn:
+    """The ceremony turn: no seat, its own deadline, `REVEAL_SECONDS` long."""
+    return _turn(
+        PHASE_REVEAL, None, deadline=NOW + timedelta(seconds=REVEAL_SECONDS), seq=seq
+    )
+
+
+def _timeout(key: str = "sweep") -> CommandRequest:
+    """The server-issued timeout the foundation's sweep fires. No actor."""
+    return _command(COMMAND_TYPE_TIMEOUT, {}, seat_index=None, key=key)
 
 
 @pytest.fixture(scope="module")
@@ -160,10 +197,25 @@ def test_the_six_contract_members_are_present_and_correctly_typed():
     assert mode.mode_version == RULESET_VERSION
     assert mode.seat_count == 3
     assert isinstance(mode.turn_seconds, float) and mode.turn_seconds > 0
-    assert mode.initial_phase() == PHASE_PICK
+    # ROUND ONE OPENS ON THE CEREMONY, exactly like every later round -- and it
+    # belongs to no seat, which is what makes the foundation publish
+    # `seconds_remaining` to all three participants.
+    assert mode.initial_phase() == PHASE_REVEAL
+    assert mode.initial_turn_seat(mode.initial_snapshot(4242, _seats())) is None
     assert callable(mode.initial_snapshot)
     assert callable(mode.reduce)
     assert callable(mode.project)
+
+
+def test_the_reveal_phase_accepts_no_action_and_the_pick_phase_does():
+    """The hook `arena.bots.drive_pending_bots` reads before letting a bot play.
+
+    Without it the driver reads the ceremony's `seat_index is None` as a
+    SIMULTANEOUS turn and lets every bot act, so all three seats would draft
+    underneath a reveal nobody had seen yet.
+    """
+    assert mode.phase_accepts_action(PHASE_PICK) is True
+    assert mode.phase_accepts_action(PHASE_REVEAL) is False
 
 
 def test_the_mode_registers_and_refuses_a_duplicate_name():
@@ -496,6 +548,163 @@ def test_a_valid_pick_is_accepted_and_opens_the_next_turn(opening):
     assert out.open_turn.seat_index == 1
     assert out.open_turn.deadline_at == NOW + timedelta(seconds=mode.turn_seconds)
     assert [event.event_type for event in out.events] == [EVENT_PICK_MADE]
+
+
+# ---------------------------------------------------------------------------
+# THE FRANCHISE x DECADE CEREMONY, AS A SERVER PHASE
+#
+# WHAT WENT WRONG, TWICE. The reveal began as a ~2270ms client `setTimeout`
+# that gated the pick overlay while the server's 45-second deadline -- stamped
+# when the turn OPENED -- was already running, so a player leading a round lost
+# the ceremony's whole duration off a clock counting down behind an overlay that
+# would not open. The first repair removed the race by removing the product
+# requirement: it simply refused to show the ceremony on rounds the human led.
+#
+# The reveal is a real turn now. It belongs to no seat, accepts no command, and
+# its expiry opens the pick turn with a FULL window measured from the ceremony's
+# END. Every assertion below is one of the properties that makes that true, and
+# none of them can be satisfied by a client.
+# ---------------------------------------------------------------------------
+def test_every_round_opens_on_the_ceremony_and_no_mid_round_pick_does(opening):
+    """ROUND 1 AND EVERY LATER ROUND, checked over a whole real draft.
+
+    A regression that only fired at a round boundary a bot happened to lead
+    would be invisible to a test that looked at round 1 alone, so this walks all
+    eighteen picks and classifies every turn the mode opened.
+    """
+    # Round 1's ceremony comes from the opening hooks rather than from a pick.
+    assert mode.initial_phase() == PHASE_REVEAL
+    assert mode.initial_turn_seat(opening) is None
+
+    _snapshot, outputs = _play_to_completion(seed=4242)
+    assert len(outputs) == ROUNDS * PARTICIPANT_COUNT
+
+    reveals = 0
+    for index, out in enumerate(outputs):
+        if index == len(outputs) - 1:
+            # The last pick completes the match: no turn follows it at all.
+            assert out.open_turn is None
+            assert out.status == MATCH_STATUS_COMPLETED
+            continue
+        assert out.open_turn is not None, index
+        if (index + 1) % PARTICIPANT_COUNT == 0:
+            # This pick closed a round, so it drew the next roll -- and the
+            # next roll goes to the ceremony, not to a seat.
+            reveals += 1
+            assert out.open_turn.phase == PHASE_REVEAL, index
+            assert out.open_turn.seat_index is None, index
+            assert out.open_turn.deadline_at == NOW + timedelta(seconds=REVEAL_SECONDS)
+        else:
+            # Mid-round, the clock hands straight to the next seat. The reveal
+            # fires ONCE per round, not once per pick.
+            assert out.open_turn.phase == PHASE_PICK, index
+            assert out.open_turn.seat_index is not None, index
+            assert out.open_turn.deadline_at == NOW + timedelta(seconds=TURN_SECONDS)
+    assert reveals == ROUNDS - 1, "one ceremony per round boundary"
+
+
+def test_the_ceremony_hands_over_a_full_window_measured_from_its_own_end(opening):
+    """THE REGRESSION THAT MUST NEVER COME BACK.
+
+    Round 1 opens on seat 0 and seat 0 here is a HUMAN -- the exact case the
+    earlier fix had removed the ceremony from, because showing it cost that
+    player 2.3 seconds of a clock that had already started. The deadline below
+    is measured from the instant the sweep fired (the END of the reveal), so the
+    ceremony costs them nothing at all.
+    """
+    ended = NOW + timedelta(seconds=REVEAL_SECONDS)
+    out = _reduce(opening, _timeout(), open_turn=_reveal_turn(), now=ended)
+
+    assert out.accepted, out.rejection_message
+    assert out.status == MATCH_STATUS_ACTIVE
+    assert out.open_turn is not None
+    assert out.open_turn.phase == PHASE_PICK
+    assert out.open_turn.seat_index == opening["current_seat"] == 0
+    assert _seats()[0].occupant_kind == "human", "seat 0 must be the human seat"
+
+    assert out.open_turn.deadline_at == ended + timedelta(seconds=TURN_SECONDS)
+    # Stated the other way round too, because this is the shape of the defect:
+    # a window measured from when the ROUND opened is short by the ceremony.
+    assert out.open_turn.deadline_at != NOW + timedelta(seconds=TURN_SECONDS)
+    assert (out.open_turn.deadline_at - ended).total_seconds() == TURN_SECONDS
+
+
+def test_the_ceremony_ending_commits_nothing(opening):
+    """A clock transition, not a game event: no pick, no roll redraw, no event.
+
+    If the ceremony's expiry went through `_reduce_timeout` it would auto-pick
+    for a seat that has not been given its turn yet -- a forfeit for standing
+    still. This asserts the snapshot is byte-identical either side of it.
+    """
+    before = copy.deepcopy(opening)
+    out = _reduce(
+        opening,
+        _timeout(),
+        open_turn=_reveal_turn(),
+        now=NOW + timedelta(seconds=REVEAL_SECONDS),
+    )
+    assert out.accepted
+    assert out.snapshot == before, "the ceremony changed the game state"
+    assert out.events == (), "a ceremony ending is not a game event"
+    assert out.results == ()
+    # No pick was made and the roll was not redrawn.
+    assert out.snapshot["picks"] == before["picks"] == []
+    assert out.snapshot["current_roll"] == before["current_roll"]
+    assert out.snapshot["current_seat"] == before["current_seat"]
+    # And the reducer did not mutate its input, which a replay depends on.
+    assert opening == before
+
+
+def test_replaying_the_ceremony_timeout_is_identical(opening):
+    """Pure in `(state, now)`, so the foundation's derived key can safely
+    replay it: two sweeps racing the same turn produce the same turn."""
+    ended = NOW + timedelta(seconds=REVEAL_SECONDS)
+    first = _reduce(opening, _timeout(key="sweep"), open_turn=_reveal_turn(), now=ended)
+    second = _reduce(opening, _timeout(key="sweep"), open_turn=_reveal_turn(), now=ended)
+    assert first.snapshot == second.snapshot
+    assert first.open_turn == second.open_turn
+    assert first.events == second.events == ()
+
+
+def test_no_seat_may_pick_while_the_ceremony_is_running(opening):
+    """Human or bot: nobody drafts under the reveal.
+
+    The bot driver is stopped upstream by `phase_accepts_action`; this is the
+    RULE, so a command arriving by any other route is refused rather than
+    relying on the driver having been polite.
+    """
+    seat = opening["current_seat"]
+    slug, slot = _first_legal_pick(opening, seat)
+    payload = {"player_slug": slug, "slot_type": slot}
+
+    refused = _reduce(
+        opening,
+        _command(COMMAND_PICK, payload, seat_index=seat),
+        open_turn=_reveal_turn(),
+    )
+    assert not refused.accepted
+    assert refused.rejection_code == REJECT_NOT_YOUR_TURN
+    assert refused.snapshot is None and refused.events == ()
+
+    # THE SAME PICK, BY THE SAME SEAT, ONCE THE CEREMONY IS OVER: accepted. So
+    # the refusal is about the phase and nothing else.
+    accepted = _reduce(
+        opening,
+        _command(COMMAND_PICK, payload, seat_index=seat, key="k2"),
+        open_turn=_turn(
+            PHASE_PICK, seat, deadline=NOW + timedelta(seconds=TURN_SECONDS)
+        ),
+    )
+    assert accepted.accepted, accepted.rejection_message
+
+    # AND THE PROJECTION STILL ADVERTISES `tmw_pick` THROUGHOUT, because
+    # `legal_commands` is derived from the snapshot's `current_seat` -- which
+    # during the reveal already names the seat that picks next. A client that
+    # trusted `legal_commands` alone would open its pick surface over the
+    # ceremony, which is why the phase, not the command list, is the authority
+    # on when.
+    _public, _private, legal = mode.project(_match(opening), _seats(), seat)
+    assert COMMAND_PICK in legal
 
 
 def test_a_pick_out_of_turn_is_rejected_without_advancing_anything(opening):
@@ -884,7 +1093,7 @@ def test_a_pick_and_its_rearrangement_commit_as_one_command(opening):
         if seat is None:
             break
         draft_state = D.DraftState.from_dict(state)
-        fits = D.candidate_fits(draft_state, seat)
+        fits = D.candidate_fits(draft_state, get_index(), seat)
         needy = [
             (slug, fit)
             for slug, fit in sorted(fits.items())
@@ -931,10 +1140,11 @@ def test_a_pick_and_its_rearrangement_commit_as_one_command(opening):
 
 def test_a_pick_whose_arrangement_disagrees_with_its_slot_is_refused(opening):
     from nba_peak.three_man_weave import draft as D
+    from nba_peak.three_man_weave.eligibility import get_index
 
     seat = opening["current_seat"]
     draft_state = D.DraftState.from_dict(opening)
-    fits = D.candidate_fits(draft_state, seat)
+    fits = D.candidate_fits(draft_state, get_index(), seat)
     slug = sorted(fits)[0]
     landing = fits[slug].direct_slots[0]
     other = next(s for s in ("PG", "SG", "SF", "PF", "C", "bench_1") if s != landing)
@@ -999,6 +1209,15 @@ def test_bot_think_time_is_seeded_inside_the_published_window():
         BOT_THINK_SECONDS_MIN,
         bot_think_seconds,
     )
+
+    # THE WINDOW IS PINNED TO LITERALS, not only to its own constants.
+    # Asserting `MIN <= value <= MAX` is true for every window including the
+    # one this replaced, so it could not catch the defect it was written for:
+    # at 1-5 seconds a bot often moved inside the same two-second poll that
+    # opened its turn, and the deliberation the whole surface is built around
+    # was never observable. The floor must stay above the client poll interval.
+    assert BOT_THINK_SECONDS_MIN == 4.0
+    assert BOT_THINK_SECONDS_MAX == 10.0
 
     seen = set()
     for seed in range(40):

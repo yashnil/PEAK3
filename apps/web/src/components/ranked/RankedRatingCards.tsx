@@ -56,16 +56,20 @@ export default function RankedRatingCards() {
           return (
             <div
               key={mode}
-              className="rounded-lg border p-3"
-              style={{ background: "var(--bg-surface)", borderColor: "var(--border-subtle)" }}
+              className="pk-depth pk-crown rounded-lg border p-3"
+              style={{ borderColor: "var(--border-subtle)" }}
             >
-              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+              {/* WAS `--text-muted`. It names the queue the rating belongs to,
+                  and three cards side by side are indistinguishable without
+                  it. No count-up here on purpose: a standing rating on a
+                  profile is DISPLAYED, not resolved — it did not just happen. */}
+              <div className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
                 {RANKED_MODE_LABELS[mode]}
               </div>
               {rating.established ? (
                 <>
                   <div
-                    className="text-2xl font-bold tabular-nums"
+                    className="score-number font-display text-2xl font-bold"
                     style={{ color: "var(--text-primary)" }}
                     aria-label={`${RANKED_MODE_LABELS[mode]} rating: ${rating.rating?.toFixed(0)}`}
                   >
@@ -87,7 +91,7 @@ export default function RankedRatingCards() {
 
       {/* No composite rank shown until at least two queues are established. */}
       {establishedCount < 2 && (
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+        <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
           A combined ranked profile appears once at least two queues are established.
         </p>
       )}

@@ -27,6 +27,13 @@ from . import awards as awards_module
 from . import coverage
 from . import derived as derived_module
 from .editorial import EDITORIAL_PATH, load_editorial
+from .featured import (
+    MIN_FEATURED_FACTS,
+    clear_featured_cache,
+    featured_facts,
+    featured_markdown,
+    featured_report,
+)
 from .quality import (
     Rejection,
     category_counts,
@@ -44,11 +51,19 @@ SOURCE_LABEL = derived_module.SOURCE_LABEL
 
 #: A bank smaller than this is a broken build.
 #:
-#: RAISED FROM 40 TO 180, and the number is the product requirement rather than
-#: a comfortable margin: a daily feature must not cycle its whole inventory
-#: inside seven weeks. `schedule()` gives a period of exactly `len(bank)` days,
-#: so this floor IS the no-repeat guarantee — 180 facts is 180 days before any
-#: fact can come round again.
+#: WHAT THIS NUMBER MEANS CHANGED, AND THE NUMBER DID NOT. It was raised from 40
+#: to 180 as the no-repeat guarantee: `schedule()` had a period of exactly
+#: `len(bank)` days, so the size of the bank WAS how long a reader could watch
+#: before seeing something twice.
+#:
+#: That is no longer true. `rotation.fact_for_date` rotates the FEATURED TIER
+#: (`featured.py`), so the period is `len(featured)` and the no-repeat floor is
+#: `featured.MIN_FEATURED_FACTS`. This floor now means something narrower and
+#: still worth failing a build over: the bank is the RESERVOIR the tier is
+#: selected from, and a reservoir that has collapsed is how a container build
+#: with a missing input reports itself. 180 is kept rather than lowered to the
+#: current 190 because it is the number that caught exactly that — a Docker
+#: image missing `data/facts/` produced 113 facts and this floor is what said so.
 MIN_FACTS = 180
 
 
@@ -137,10 +152,23 @@ def build_bank(
 
 
 def bank_payload(bank: Sequence[NbaFact]) -> dict:
+    """The written artifact.
+
+    IT RECORDS THE FEATURED TIER, AND DOES NOT DEPEND ON THE RECORD. `featured`
+    below is a list of ids, written so the file is self-describing and a reader
+    of `data/web/nba_facts.v1.json` can see which facts the homepage may serve
+    without running the selector. Nothing reads it back: `fact_for_date`
+    recomputes the tier from the same committed scores, so the two cannot drift
+    into disagreeing about what is featured — and `tests/test_nba_facts.py`
+    asserts they agree.
+    """
+    featured = featured_facts(bank)
     return {
         "version": FACT_BANK_VERSION,
         "source_label": SOURCE_LABEL,
         "count": len(bank),
+        "featured_count": len(featured),
+        "featured": [fact.fact_id for fact in featured],
         "facts": [fact.as_dict() for fact in bank],
     }
 
@@ -177,8 +205,15 @@ def cached_bank() -> tuple[NbaFact, ...]:
 
 
 def clear_bank_cache() -> None:
-    """Drop the process-wide bank — for tests that write a different one."""
+    """Drop the process-wide bank — for tests that write a different one.
+
+    AND THE FEATURED TIER WITH IT. The tier is memoised on the tuple of fact
+    ids, so a different bank is a different key and a stale entry cannot be
+    served; clearing it anyway keeps "reset everything derived from the bank" a
+    single call rather than two a caller has to know about.
+    """
     cached_bank.cache_clear()
+    clear_featured_cache()
 
 
 def bank_status(path: Optional[Path] = None) -> dict:
@@ -295,8 +330,12 @@ def build_report(
             for group in coverage.SEMANTIC_GROUPS
         ],
         "coverage_shortfalls": coverage.shortfalls(bank),
-        "rotation": schedule_audit(bank),
+        # THE ROTATION AUDIT MEASURES WHAT IS ROTATED, which is the featured
+        # tier and not the bank. Auditing the bank here would report the
+        # interleave quality of a sequence nothing serves.
+        "rotation": schedule_audit(featured_facts(bank)),
         "repeat_window": _repeat_window_audit(bank, sample_date),
+        "featured": featured_report(bank),
         "rejected_examples": [
             {"headline": r.headline, "category": r.category,
              "reason": r.reason, "detail": r.detail}
@@ -311,8 +350,14 @@ def _repeat_window_audit(bank: Sequence[NbaFact], sample_date: str) -> dict:
     Measured by actually serving the days rather than by reasoning about the
     schedule's period, so a change to selection that broke the guarantee would
     show up here rather than in the comment above it.
+
+    THE WINDOW IS SIZED ON THE FEATURED TIER, because that is what gets served.
+    Walking `len(bank)` days over a tier of ninety would report a first repeat
+    at ninety and call it a defect; the tier's size IS the period, and the
+    number worth reading is whether the walk reaches it.
     """
-    days = max(len(bank) + 5, 200)
+    period = len(featured_facts(bank))
+    days = max(period + 5, 120)
     served = recent_window(bank, sample_date, days)
     first_repeat = None
     seen: dict[str, int] = {}
@@ -322,9 +367,12 @@ def _repeat_window_audit(bank: Sequence[NbaFact], sample_date: str) -> dict:
         seen.setdefault(fact.fact_id, index)
     return {
         "days_examined": days,
+        "rotation_period": period,
         "distinct_facts_served": len(seen),
         "first_repeat_after_days": first_repeat,
-        "subject_window_days": schedule_audit(bank)["subject_window_days"],
+        "subject_window_days": schedule_audit(
+            featured_facts(bank)
+        )["subject_window_days"],
     }
 
 
@@ -332,6 +380,7 @@ __all__ = [
     "BANK_PATH",
     "EDITORIAL_PATH",
     "MIN_FACTS",
+    "MIN_FEATURED_FACTS",
     "REQUIRED_INPUTS",
     "assert_inputs_present",
     "missing_inputs",
@@ -343,6 +392,10 @@ __all__ = [
     "build_report",
     "cached_bank",
     "clear_bank_cache",
+    "clear_featured_cache",
     "fact_for_date",
+    "featured_facts",
+    "featured_markdown",
+    "featured_report",
     "load_bank",
 ]

@@ -1,14 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
   RANKING_BASIS_LABEL,
+  TMW_TIMEOUT_CONSEQUENCE,
+  TMW_TIMEOUT_RESOLVING,
+  emptyPoolReason,
+  legalMoveTargets,
+  lockedMatches,
+  moveRejection,
+  placementsAfterMove,
+  positionsLine,
+  resultBand,
+  resultLine,
+  seatAccent,
+  slotAcceptsPick,
+  turnHeadline,
   candidatesForSeat,
   connectionState,
   eligibilityLine,
   hasTradedEvidence,
   identityLock,
+  isRevealing,
   isYourTurn,
   outcomeHeadline,
   phaseOf,
+  canPick,
   pickFeed,
   podium,
   rankingBasisLabel,
@@ -32,6 +47,10 @@ import type {
   TmwPlayer,
   TmwPublicState,
   TmwRoster,
+} from "@/types/three-man-weave";
+import {
+  TMW_TURN_PHASE_PICK,
+  TMW_TURN_PHASE_REVEAL,
 } from "@/types/three-man-weave";
 
 /** An UNDRAFTED candidate: no scoring card exists on this payload at all. */
@@ -149,6 +168,9 @@ function matchView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
     legal_commands: [],
     current_turn_seat_index: 0,
     seconds_remaining: 45,
+    // The open turn is a DECISION window by default. The ceremony is the other
+    // value of this field and is exercised explicitly wherever it matters.
+    turn_phase: TMW_TURN_PHASE_PICK,
     latest_event_seq: 2,
     room_code: null,
     ...overrides,
@@ -398,6 +420,30 @@ describe("phase", () => {
     expect(phaseOf(matchView())).toBe("picking");
   });
 
+  it("reports revealing while the server's open turn IS the ceremony", () => {
+    // THE ROLL IS ON THE BOARD DURING THE CEREMONY -- showing it is the point.
+    // So the phase cannot be read from the roll's absence any more; it is read
+    // from the turn the server actually has open.
+    const ceremony = matchView({ turn_phase: TMW_TURN_PHASE_REVEAL });
+    expect(ceremony.public_state.current_roll).not.toBeNull();
+    expect(phaseOf(ceremony)).toBe("revealing");
+    expect(isRevealing(ceremony)).toBe(true);
+    expect(isRevealing(matchView())).toBe(false);
+    expect(isRevealing(null)).toBe(false);
+  });
+
+  it("refuses to call a pick legal while the ceremony is running", () => {
+    // `project` derives `legal_commands` from the SNAPSHOT's `current_seat`,
+    // which during the reveal already names the seat that picks next -- so the
+    // server advertises `tmw_pick` while its own reducer would refuse it with
+    // `not_your_turn`. The turn phase is the authority on *when*.
+    const legal = ["tmw_pick", "tmw_rearrange"];
+    expect(canPick(matchView({ legal_commands: legal }))).toBe(true);
+    expect(
+      canPick(matchView({ legal_commands: legal, turn_phase: TMW_TURN_PHASE_REVEAL })),
+    ).toBe(false);
+  });
+
   it("knows whose turn it is", () => {
     expect(isYourTurn(matchView())).toBe(true);
     expect(isYourTurn(matchView({ current_turn_seat_index: 2 }))).toBe(false);
@@ -591,6 +637,210 @@ describe("connection", () => {
     expect(connectionState(1)).toBe("reconnecting");
     expect(connectionState(2)).toBe("reconnecting");
     expect(connectionState(3)).toBe("offline");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rearrangement legality (TMW-10)
+// ---------------------------------------------------------------------------
+describe("rearrangement legality", () => {
+  const bird = pick({
+    player_slug: "larry-bird",
+    player_name: "Larry Bird",
+    positions: ["SF", "PF"],
+    slot_type: "SF",
+  });
+  const lowry = pick({
+    player_slug: "kyle-lowry",
+    player_name: "Kyle Lowry",
+    positions: ["PG"],
+    slot_type: "PG",
+  });
+  const board = roster(0, { SF: bird, PG: lowry });
+
+  it("accepts a starter slot only when the player-season actually plays it", () => {
+    // TMW-02, as the predicate every drag, click and keyboard move goes
+    // through. There is no "someone else can move, therefore this player can go
+    // anywhere" rule anywhere in this path.
+    expect(slotAcceptsPick("PF", bird)).toBe(true);
+    expect(slotAcceptsPick("PG", bird)).toBe(false);
+    // The bench accepts any drafted player.
+    expect(slotAcceptsPick("bench_1", lowry)).toBe(true);
+  });
+
+  it("refuses an illegal destination by naming the player and the rule", () => {
+    expect(moveRejection(board, "SF", "PG")).toMatch(/Larry Bird plays SF \/ PF/);
+    expect(moveRejection(board, "SF", "PF")).toBeNull();
+  });
+
+  it("checks BOTH halves of a swap, not only the card being dragged", () => {
+    // The Westbrook-at-SF shape: validating only the dragged player is exactly
+    // how an illegal assignment gets created by an interaction that looked
+    // careful. Moving Bird onto Lowry's PG is refused for Bird; moving Lowry
+    // onto Bird's SF is refused for Lowry.
+    expect(moveRejection(board, "PG", "SF")).toMatch(/Kyle Lowry plays PG/);
+    const wide = roster(0, { SF: bird, PF: pick({ player_slug: "kg", player_name: "KG", positions: ["PF", "C"], slot_type: "PF" }) });
+    // Bird can take PF, but KG cannot take SF, so the swap is still refused.
+    expect(moveRejection(wide, "SF", "PF")).toMatch(/Swapping would put KG/);
+  });
+
+  it("lists only the destinations that are legal for the whole assignment", () => {
+    expect(legalMoveTargets(board, "SF")).toEqual(["PF", "bench_1"]);
+    // Lowry is a pure PG, so shooting guard is NOT offered -- the model's own
+    // position list is the only authority, never "a guard is a guard".
+    expect(legalMoveTargets(board, "PG")).toEqual(["bench_1"]);
+    expect(legalMoveTargets(board, "C")).toEqual([]);
+  });
+
+  it("emits the COMPLETE final assignment, which is the only shape the server takes", () => {
+    expect(placementsAfterMove(board, "SF", "bench_1")).toEqual({
+      PG: "kyle-lowry",
+      bench_1: "larry-bird",
+    });
+    expect(placementsAfterMove(board, "SF", "PF")).toEqual({
+      PG: "kyle-lowry",
+      PF: "larry-bird",
+    });
+  });
+
+  it("prints a readable position line, including for a player with none", () => {
+    expect(positionsLine(bird)).toBe("SF / PF");
+    expect(positionsLine({ ...bird, positions: [] })).toBe("no listed position");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Timeout copy (TMW-01, UI half)
+// ---------------------------------------------------------------------------
+describe("timeout copy", () => {
+  it("never promises the best available player", () => {
+    // The old string was "Timeout drafts the best available player for you",
+    // which was false AND was an instruction to exploit it: a player who knew
+    // nothing about the roll did strictly better by not clicking.
+    expect(TMW_TIMEOUT_CONSEQUENCE).not.toMatch(/best available/i);
+    expect(TMW_TIMEOUT_CONSEQUENCE).toMatch(/fallback/i);
+    expect(TMW_TIMEOUT_RESOLVING).toMatch(/Time expired/i);
+    expect(TMW_TIMEOUT_RESOLVING).not.toMatch(/best available/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Why the pool looks empty (TMW-11)
+// ---------------------------------------------------------------------------
+describe("the empty-pool reason", () => {
+  const rodman = {
+    playerSlug: "dennis-rodman",
+    playerName: "Dennis Rodman",
+    seatIndex: 2,
+    roundNumber: 2,
+    franchiseDisplayName: "Detroit Pistons",
+    decade: "1990s",
+  };
+
+  it("finds a drafted identity by name so the lock can be explained", () => {
+    expect(lockedMatches([rodman], "rodman").map((e) => e.playerSlug)).toEqual([
+      "dennis-rodman",
+    ]);
+    expect(lockedMatches([rodman], "")).toEqual([]);
+    expect(lockedMatches([rodman], "jordan")).toEqual([]);
+  });
+
+  it("distinguishes already-drafted from filtered from genuinely ineligible", () => {
+    // ONE SENTENCE USED TO COVER ALL THREE -- "No eligible player matches that
+    // search." -- which is the whole of the "Dennis Rodman is missing from the
+    // Spurs pool" report. He was in the pool; he had been drafted off an
+    // earlier roll, and the lock is global.
+    expect(
+      emptyPoolReason({ poolSize: 30, hiddenByFilter: 0, query: "rodman", locked: [rodman] }),
+    ).toEqual({ kind: "locked", entries: [rodman] });
+    expect(
+      emptyPoolReason({ poolSize: 30, hiddenByFilter: 4, query: "", locked: [] }),
+    ).toEqual({ kind: "filtered", hidden: 4 });
+    expect(
+      emptyPoolReason({ poolSize: 30, hiddenByFilter: 0, query: "jordan", locked: [] }),
+    ).toEqual({ kind: "not_eligible", query: "jordan" });
+    expect(
+      emptyPoolReason({ poolSize: 0, hiddenByFilter: 0, query: "", locked: [] }),
+    ).toEqual({ kind: "no_pool" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Seats, turn copy and the result bank
+// ---------------------------------------------------------------------------
+describe("seat identity", () => {
+  it("maps each of the three seats onto its own accent", () => {
+    expect([seatAccent(0), seatAccent(1), seatAccent(2)]).toEqual(["1", "2", "3"]);
+  });
+});
+
+describe("the turn headline", () => {
+  const seats = [
+    { seat_index: 0, display_name: "You", is_bot: false, status: "active", bot_rating: null },
+    { seat_index: 1, display_name: "The Spark", is_bot: true, status: "active", bot_rating: 1100 },
+  ];
+
+  it("names the seat rather than relying on a badge", () => {
+    expect(turnHeadline(seats, 0, 0, false)).toBe("Your pick");
+    expect(turnHeadline(seats, 1, 0, false)).toBe("The Spark is on the clock");
+    expect(turnHeadline(seats, null, 0, false)).toMatch(/Rolling/);
+    expect(turnHeadline(seats, 1, 0, true)).toBe("Draft complete");
+  });
+});
+
+describe("the result response bank", () => {
+  it("separates a win by a hair from a win by a mile", () => {
+    const close = podium([
+      result({ seat_index: 0, placement: 1, score: 71.0 }),
+      result({ seat_index: 1, display_name: "Bee", placement: 2, score: 70.0, outcome: "loss" }),
+    ]);
+    expect(resultBand(close, 0)).toBe("won_close");
+
+    const clear = podium([
+      result({ seat_index: 0, placement: 1, score: 80.0 }),
+      result({ seat_index: 1, display_name: "Bee", placement: 2, score: 60.0, outcome: "loss" }),
+    ]);
+    expect(resultBand(clear, 0)).toBe("won_clear");
+  });
+
+  it("separates a near miss from a rout", () => {
+    const near = podium([
+      result({ seat_index: 0, placement: 2, score: 70.5, outcome: "loss" }),
+      result({ seat_index: 1, display_name: "Bee", placement: 1, score: 71.0 }),
+    ]);
+    expect(resultBand(near, 0)).toBe("close_loss");
+
+    const rout = podium([
+      result({ seat_index: 0, placement: 3, score: 50.0, outcome: "loss" }),
+      result({ seat_index: 1, display_name: "Bee", placement: 1, score: 80.0 }),
+    ]);
+    expect(resultBand(rout, 0)).toBe("clear_loss");
+  });
+
+  it("calls a shared first place a draw rather than a win", () => {
+    const drawn = podium([
+      result({ seat_index: 0, placement: 1, score: 70, outcome: "draw" }),
+      result({ seat_index: 1, display_name: "Bee", placement: 1, score: 70, outcome: "draw" }),
+    ]);
+    expect(resultBand(drawn, 0)).toBe("drawn");
+  });
+
+  it("is deterministic per match and varies between matches", () => {
+    // A hero line that changed on every poll or resize would read as a glitch,
+    // and a screen reader would re-announce it.
+    expect(resultLine("won_clear", "match-a")).toBe(resultLine("won_clear", "match-a"));
+    const lines = new Set(
+      ["a", "b", "c", "d", "e", "f", "g", "h"].map((seed) => resultLine("clear_loss", seed)),
+    );
+    expect(lines.size).toBeGreaterThan(1);
+  });
+
+  it("says nothing robotic and nothing about a placement number", () => {
+    for (const band of ["won_clear", "won_close", "drawn", "close_loss", "clear_loss"] as const) {
+      const line = resultLine(band, "seed");
+      expect(line).not.toMatch(/you finished/i);
+      expect(line).not.toMatch(/\d/);
+    }
   });
 });
 

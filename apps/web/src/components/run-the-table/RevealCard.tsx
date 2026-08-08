@@ -1,7 +1,10 @@
 "use client";
 import { motion } from "motion/react";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
-import { AnimatedNumber } from "@/components/ui";
+// Deep import, not the `@/components/ui` barrel: the barrel re-exports
+// `ThemeToggle`, which reaches `lucide-react`, and paying for that whole
+// dependency to render one number costs a route ~15 kB of First Load JS.
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { LANE_FIELDS, LaneField, RevealSlot, Role, RunCardPublic } from "@/types/run-the-table";
 import { LANE_LABELS, ROLE_LABELS, laneColorVar } from "@/lib/run-the-table-state";
 import {
@@ -103,9 +106,23 @@ export default function RevealCard({
     <li
       data-testid="rtt-reveal-card"
       data-reveal-status={concealed ? "concealed" : settled ? "settled" : (beat ?? "active")}
-      className="flex min-h-[64px] items-center gap-3 rounded-lg border px-3 py-2"
+      /* THREE STATES, THREE SURFACES. A settled card is a finished object and
+         gets `.pk-depth`'s lit top edge and volume gradient; the card
+         currently resolving gets the ACCENT crown instead, which is the "this
+         is the live one" treatment the accent border alone was doing on its
+         own; a concealed card stays deliberately flat, because a slot with
+         nothing in it should not read as an object.
+         `.pk-spotlight` is deliberately NOT used on the active card:
+         `.pk-depth` is declared after it in globals.css and would win the
+         `box-shadow` on any row that had both, so the accent crown is the
+         treatment that stays honest in every state. */
+      className={`flex min-h-[64px] items-center gap-3 rounded-lg border px-3 py-2 ${
+        concealed ? "" : settled ? "pk-depth pk-crown" : "pk-crown pk-crown-accent"
+      }`}
       style={{
-        background: concealed ? "var(--bg-elevated)" : "var(--bg-surface)",
+        // Only set where a class is not already supplying it: `.pk-depth`
+        // paints the settled row, and an inline value would beat it.
+        background: settled ? undefined : concealed ? "var(--bg-elevated)" : "var(--bg-surface)",
         borderColor:
           typeof status === "object" ? "var(--peak-accent)" : "var(--border-subtle)",
       }}
@@ -113,9 +130,12 @@ export default function RevealCard({
       {/* Beat 2: role label — metadata only, carries no identity. Always the
           first thing to appear, and always present in the a11y tree even
           while concealed (it is not the secret). */}
+      {/* WAS `--text-muted` when shown. "Starter — Lead Creator" is the seat
+          this card fills; it is the whole content of beat 2 and the only thing
+          on the row until identity resolves. Not metadata. */}
       <span
         className="w-24 shrink-0 text-[10px] font-bold uppercase tracking-widest @[420px]:w-28"
-        style={{ color: showRole ? "var(--text-muted)" : "transparent" }}
+        style={{ color: showRole ? "var(--text-secondary)" : "transparent" }}
         aria-hidden={!showRole}
       >
         {orderLabel}
@@ -217,9 +237,12 @@ export default function RevealCard({
 
             <span className="flex items-baseline gap-1.5">
               {/* Beat 5: 3-year window. */}
+              {/* WAS `--text-muted`. The window is half of what a PEAK3 card
+                  IS — "Michael Jordan" without "1990-91 to 1992-93" is not the
+                  same claim. It is beat 5 of the reveal for that reason. */}
               <span
                 className="truncate text-[10px]"
-                style={{ color: showWindow ? "var(--text-muted)" : "transparent" }}
+                style={{ color: showWindow ? "var(--text-secondary)" : "transparent" }}
                 aria-hidden={!showWindow}
               >
                 {slot?.window ?? slot?.anchor_season ?? " "}
@@ -232,7 +255,11 @@ export default function RevealCard({
                   value={scoreTarget}
                   precision={1}
                   durationMs={reducedMotion ? 0 : REVEAL_BEAT_DURATION_MS.score}
-                  className="text-[10px] font-semibold"
+                  /* `.pk-counting` keys off this component's own
+                     `data-settled`, so the digits carry accent ink for exactly
+                     as long as beat 6 is running and settle back on landing —
+                     no second timer to fall out of step with the sequence. */
+                  className="pk-counting text-[10px] font-semibold"
                   data-testid={`rtt-reveal-score-${slot.slot_id}`}
                 />
               )}

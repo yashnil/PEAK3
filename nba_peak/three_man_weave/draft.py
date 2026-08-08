@@ -45,9 +45,10 @@ from nba_peak.three_man_weave.config import (
     SNAKE_FORWARD,
     SNAKE_REVERSE,
 )
-from nba_peak.three_man_weave.eligibility import EligibilityIndex
+from nba_peak.three_man_weave.eligibility import EligibilityIndex, rights_for_cards
 from nba_peak.three_man_weave.positions import (
     IllegalPlacement,
+    SlotRights,
     apply_reposition,
     is_legal,
     validate_roster,
@@ -156,6 +157,39 @@ class DraftState:
             ),
         )
 
+    # -- position rights --------------------------------------------------
+    def slot_rights(
+        self, index: EligibilityIndex, include_pool: bool = False
+    ) -> dict[str, frozenset[str]]:
+        """The `SlotRights` map for every identity this state can talk about.
+
+        Rebuilt from the index on demand rather than stored on the snapshot,
+        so a rule or data correction reaches a match already in progress
+        instead of being frozen into it at reveal time -- the same reason
+        `current_round` and `is_complete` are properties.
+
+        `include_pool` adds the still-undrafted identities at their WIDER
+        potential grain. Only completability questions need them; a placement
+        question must not see them, because a union across future rolls is not
+        a licence to stand somewhere on this one.
+        """
+        committed: list[tuple[str, str, str]] = []
+        if self.current_roll is not None:
+            committed.extend(
+                (slug, self.current_roll.franchise_id, self.current_roll.decade)
+                for slug in self.current_roll.eligible_slugs
+            )
+        # Appended AFTER the roll's candidates so a drafted identity's own card
+        # wins if it somehow appears in both.
+        committed.extend(
+            (pick.player_slug, pick.franchise_id, pick.decade) for pick in self.picks
+        )
+        return rights_for_cards(
+            index,
+            committed=committed,
+            potential=undrafted_pool(self, index) if include_pool else (),
+        )
+
     # -- the lock ---------------------------------------------------------
     def drafted_identities(self) -> frozenset[str]:
         """Every identity taken by ANY seat -- the global lock.
@@ -195,13 +229,17 @@ def set_roll(state: DraftState, roll: Roll) -> DraftState:
     return replace(state, current_roll=roll, used_roll_ids=used)
 
 
-def legal_slots_for_pick(state: DraftState, seat_index: int, player_slug: str) -> tuple[str, ...]:
+def legal_slots_for_pick(
+    state: DraftState, seat_index: int, player_slug: str, rights: SlotRights
+) -> tuple[str, ...]:
     """The open slots on this seat's roster that this identity may occupy."""
     roster = state.roster(seat_index)
-    return tuple(slot for slot in roster.open_slots() if is_legal(player_slug, slot))
+    return tuple(slot for slot in roster.open_slots() if is_legal(player_slug, slot, rights))
 
 
-def legal_picks(state: DraftState, seat_index: Optional[int] = None) -> dict[str, tuple[str, ...]]:
+def legal_picks(
+    state: DraftState, index: EligibilityIndex, seat_index: Optional[int] = None
+) -> dict[str, tuple[str, ...]]:
     """player_slug -> the open slots they could fill, for the current roll.
 
     Empty dict when no roll is revealed. An identity already drafted by ANY
@@ -213,17 +251,20 @@ def legal_picks(state: DraftState, seat_index: Optional[int] = None) -> dict[str
     if seat is None:
         return {}
     drafted = state.drafted_identities()
+    rights = state.slot_rights(index)
     out: dict[str, tuple[str, ...]] = {}
     for slug in state.current_roll.eligible_slugs:
         if slug in drafted:
             continue
-        slots = legal_slots_for_pick(state, seat, slug)
+        slots = legal_slots_for_pick(state, seat, slug, rights)
         if slots:
             out[slug] = slots
     return out
 
 
-def candidate_fits(state: DraftState, seat_index: Optional[int] = None) -> dict[str, CandidateFit]:
+def candidate_fits(
+    state: DraftState, index: EligibilityIndex, seat_index: Optional[int] = None
+) -> dict[str, CandidateFit]:
     """THE FULL ELIGIBLE POOL for the current roll, each classified for a seat.
 
     Every undrafted identity the roll made eligible appears, in the roll's own
@@ -245,11 +286,13 @@ def candidate_fits(state: DraftState, seat_index: Optional[int] = None) -> dict[
     return fits_for_candidates(
         assignment,
         [slug for slug in state.current_roll.eligible_slugs if slug not in drafted],
+        state.slot_rights(index),
     )
 
 
 def apply_pick(
     state: DraftState,
+    index: EligibilityIndex,
     player_slug: str,
     slot_type: Optional[str] = None,
     seat_index: Optional[int] = None,
@@ -307,10 +350,11 @@ def apply_pick(
         )
 
     roster = state.roster(seat)
+    rights = state.slot_rights(index)
 
     if placements is not None:
         return _apply_pick_with_arrangement(
-            state, roster, seat, player_slug, slot_type, placements
+            state, roster, seat, player_slug, slot_type, placements, rights
         )
 
     if slot_type is None:
@@ -321,7 +365,7 @@ def apply_pick(
         raise DraftError("unknown_slot", f"'{slot_type}' is not a roster slot")
     if roster.slots.get(slot_type) is not None:
         raise DraftError("slot_filled", f"Slot {slot_type} is already filled")
-    if not is_legal(player_slug, slot_type):
+    if not is_legal(player_slug, slot_type, rights):
         raise DraftError("illegal_slot", f"'{player_slug}' cannot play {slot_type}")
 
     pick = DraftPick(
@@ -342,7 +386,7 @@ def apply_pick(
     # which is exactly why it is worth asserting -- a future rule change that
     # breaks an invariant fails here rather than silently shipping an illegal
     # roster into the evaluator.
-    check = validate_roster(new_roster.assignment())
+    check = validate_roster(new_roster.assignment(), rights)
     if not check.ok:  # pragma: no cover - defensive
         raise DraftError(check.code or "illegal_roster", check.message or "illegal roster")
 
@@ -402,12 +446,15 @@ def _apply_pick_with_arrangement(
     player_slug: str,
     slot_type: Optional[str],
     placements: Mapping[str, str],
+    rights: SlotRights,
 ) -> DraftState:
     """The atomic draft-plus-rearrange path. Validated as one final roster."""
     assert state.current_roll is not None  # caller checks
 
     try:
-        produced = validate_arrangement(roster.assignment(), placements, incoming=player_slug)
+        produced = validate_arrangement(
+            roster.assignment(), placements, rights, incoming=player_slug
+        )
     except IllegalPlacement as exc:
         raise DraftError(exc.code, exc.message) from exc
 
@@ -448,7 +495,10 @@ def _apply_pick_with_arrangement(
 
 
 def rearrange(
-    state: DraftState, seat_index: int, placements: Mapping[str, str]
+    state: DraftState,
+    index: EligibilityIndex,
+    seat_index: int,
+    placements: Mapping[str, str],
 ) -> DraftState:
     """Reposition a seat's existing roster. Does NOT consume a turn.
 
@@ -467,7 +517,9 @@ def rearrange(
         raise DraftError("match_complete", "The match is already complete")
     roster = state.roster(seat_index)
     try:
-        produced = validate_arrangement(roster.assignment(), placements, incoming=None)
+        produced = validate_arrangement(
+            roster.assignment(), placements, state.slot_rights(index), incoming=None
+        )
     except IllegalPlacement as exc:
         raise DraftError(exc.code, exc.message) from exc
 
@@ -488,7 +540,11 @@ def rearrange(
 
 
 def reposition(
-    state: DraftState, seat_index: int, slot_a: str, slot_b: str
+    state: DraftState,
+    index: EligibilityIndex,
+    seat_index: int,
+    slot_a: str,
+    slot_b: str,
 ) -> DraftState:
     """Swap two of a seat's slots, keeping the roster legal throughout.
 
@@ -500,7 +556,7 @@ def reposition(
     """
     roster = state.roster(seat_index)
     # Validates the outcome; raises IllegalPlacement if the swap is illegal.
-    apply_reposition(roster.assignment(), slot_a, slot_b)
+    apply_reposition(roster.assignment(), slot_a, slot_b, state.slot_rights(index))
 
     new_slots = dict(roster.slots)
     pick_a, pick_b = new_slots.get(slot_a), new_slots.get(slot_b)

@@ -90,7 +90,14 @@ export default function DailyHub() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 pb-16 pt-8 sm:px-4">
-      <header className="home-hero-glow -mx-3 rounded-2xl px-4 py-8 sm:-mx-4 sm:px-6 sm:py-10">
+      {/* `.pk-atmosphere`, not the retired `.home-hero-glow`. Same two
+          floodlights and the same court grid, but the alphas come from
+          `--pk-glow-warm` / `--pk-glow-cool`, which are re-derived for Arena
+          Day. The old rule hardcoded them as literal rgba, so this header was
+          being served Arena Night's lighting in light mode — 10% gold over
+          cream, which is nothing. The homepage hit the same bug and was moved
+          first; this was the last caller. */}
+      <header className="pk-atmosphere -mx-3 rounded-2xl px-4 py-8 sm:-mx-4 sm:px-6 sm:py-10">
         <p
           className="text-[11px] font-bold uppercase tracking-[0.2em]"
           style={{ color: "var(--peak-accent-text)" }}
@@ -190,8 +197,8 @@ export default function DailyHub() {
           plenty of players arrive here for it specifically. */}
       <section className="mt-6" aria-label="Play any time">
         <p
-          className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em]"
-          style={{ color: "var(--text-muted)" }}
+          className="mb-2 text-[11px] font-bold uppercase tracking-[0.16em]"
+          style={{ color: "var(--text-secondary)" }}
         >
           Play any time
         </p>

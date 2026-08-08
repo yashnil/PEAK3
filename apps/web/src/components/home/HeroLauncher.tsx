@@ -43,7 +43,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { Play, RotateCcw } from "lucide-react";
 import { loadActiveRun } from "@/lib/run-the-table-state";
 
@@ -63,12 +63,20 @@ export interface HeroLauncherProps {
    */
   children?: ReactNode;
   className?: string;
+  /**
+   * Position in the hero's staggered reveal, 0-based. The caller adds
+   * `.pk-reveal` through `className`; this supplies the index that class reads.
+   * Taken as a prop rather than folded into `className` because the value is a
+   * CUSTOM PROPERTY, and there is no class name that carries a number.
+   */
+  revealIndex?: number;
 }
 
 export default function HeroLauncher({
   label = "Play Run the Table",
   children,
   className,
+  revealIndex,
 }: HeroLauncherProps) {
   // Read on the client only: the server cannot know what is in localStorage,
   // and rendering "Continue Run" during SSR would hydrate-mismatch every
@@ -83,9 +91,27 @@ export default function HeroLauncher({
   const PrimaryIcon = hasActiveRun ? RotateCcw : Play;
 
   return (
-    <div className={className ? `flex flex-col items-start ${className}` : "flex flex-col items-start"}>
+    <div
+      className={className ? `flex flex-col items-start ${className}` : "flex flex-col items-start"}
+      style={
+        revealIndex === undefined
+          ? undefined
+          : ({ "--pk-reveal-index": revealIndex } as CSSProperties)
+      }
+    >
       <div className="flex flex-wrap items-center" style={{ gap: "var(--pk-space-3, 12px)" }}>
-        <Link href={primaryHref} data-testid="home-primary-cta" className="home-launcher-trigger">
+        {/* THE ONE PLACE ON THE HOMEPAGE THAT GETS `.pk-sheen`.
+            A single specular pass across the control on hover. It is the one
+            primitive in the set that turns into noise the moment a second
+            element on the same screen has it, which is exactly why it belongs
+            on the page's single primary action and nowhere else — including
+            the "Explore Rankings" link twelve pixels to its right, which gets
+            lift and press and stops there. */}
+        <Link
+          href={primaryHref}
+          data-testid="home-primary-cta"
+          className="home-launcher-trigger pk-lift pk-press pk-sheen"
+        >
           <PrimaryIcon size={16} aria-hidden="true" />
           {primaryLabel}
         </Link>

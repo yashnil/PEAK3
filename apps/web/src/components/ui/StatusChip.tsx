@@ -67,9 +67,15 @@ const TONES: Record<StatusChipTone, ToneStyle> = {
   },
 };
 
+/* RAISED FROM 10/11px. A chip carries a state the player has to act on —
+   "In progress", "Not eligible", "Your turn" — and uppercase letterspaced
+   text is already the hardest case to read at small sizes. One point each
+   costs no layout (the padding is unchanged and the chip is pill-shaped) and
+   moves both sizes above the floor where letterspacing starts to hurt more
+   than it helps. */
 const SIZES: Record<StatusChipSize, { fontSize: number; padding: string; gap: string }> = {
-  sm: { fontSize: 10, padding: "2px 7px", gap: "var(--pk-space-1, 4px)" },
-  md: { fontSize: 11, padding: "4px 10px", gap: "var(--pk-space-1, 4px)" },
+  sm: { fontSize: 11, padding: "2px 7px", gap: "var(--pk-space-1, 4px)" },
+  md: { fontSize: 12, padding: "4px 10px", gap: "var(--pk-space-1, 4px)" },
 };
 
 export interface StatusChipProps {
@@ -116,6 +122,10 @@ export function StatusChip({
         fontSize: s.fontSize,
         padding: s.padding,
         gap: s.gap,
+        // A lit top edge on every tone except `muted`, which is deliberately
+        // the flat one — it is the tone for "this is background information",
+        // and giving it volume would argue the opposite.
+        boxShadow: tone === "muted" ? undefined : "var(--pk-rim)",
       }}
     >
       {icon ? (

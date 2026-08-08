@@ -1603,9 +1603,12 @@ test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
     await page.goto(DAILY_URL, { waitUntil: "load" });
     await expect(page.getByTestId("complete-comparison")).toBeVisible({ timeout: 15_000 });
 
-    // Expand to the full nine squares so every optimal answer is on screen.
-    const toggle = page.getByTestId("complete-per-cell-toggle");
-    if (await toggle.count()) await toggle.click();
+    // DG-01: all nine optimal squares are on screen unconditionally now. The
+    // nine-line text list and the "show all nine" expander it needed are gone,
+    // so there is nothing left to click before reading the board.
+    await expect(page.getByTestId("complete-per-cell-toggle")).toHaveCount(0);
+    await expect(page.getByTestId("complete-per-cell-row")).toHaveCount(0);
+    await expect(page.getByTestId("complete-optimal-cell")).toHaveCount(9);
 
     // Read the API's own optimal grid and assert the invariant at the source
     // the UI renders from -- the rendered text is prose, the payload is fact.
@@ -1641,6 +1644,25 @@ test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
 
   test("labels the comparison as the best LEGAL grid", async ({ page, request }) => {
     test.slow();
+
+    // EVERY THIRD-PARTY PORTRAIT FAILS, ON PURPOSE AND BEFORE THE FIRST
+    // NAVIGATION. This is what makes the avatar-fallback assertion below
+    // deterministic instead of a bet on whether `a.espncdn.com` answers.
+    // Scoped to image requests from other origins: the app's own API on
+    // localhost is untouched, so nothing about the board, the solve or the
+    // comparison changes — only the portraits, which is exactly the surface
+    // under test.
+    await page.route(
+      (url) => url.hostname !== "localhost" && url.hostname !== "127.0.0.1",
+      async (route) => {
+        if (route.request().resourceType() === "image") {
+          await route.abort();
+          return;
+        }
+        await route.continue();
+      },
+    );
+
     const filled = await solveBoardViaApi(request);
     const board = await (
       await request.get(`${API_BASE}/api/v1/daily-grid/board`, { params: { date: FIXED_DATE } })
@@ -1678,5 +1700,46 @@ test.describe("Daily Grid — the optimal comparison is a legal grid", () => {
     await expect(page.getByTestId("complete-comparison")).toContainText(/best legal grid/i, {
       timeout: 15_000,
     });
+
+    // DG-02, in a real browser: every optimal square renders through the one
+    // shared avatar primitive, and when a portrait cannot be fetched the
+    // square draws the designed medallion rather than a broken <img>.
+    //
+    // WHY THIS NO LONGER ASSERTS "ZERO <img>" AGAINST THE LIVE NETWORK.
+    // The old form was `expect(grid.locator("img")).toHaveCount(0)` with the
+    // note that "the external-asset gate is off in every environment these
+    // tests run in". That premise is false. `player_assets.v3.json` is
+    // committed, 534 of its 3,494 players resolve to a real
+    // `https://a.espncdn.com/...` URL, and `PlayerAvatar` renders a real
+    // `<img>` for those and swaps to the medallion only in `onError`. So the
+    // assertion was really "every one of these nine portraits failed to load
+    // within five seconds" — it passed when espncdn was slow or unreachable
+    // and failed when it served the bytes, which is the wrong way round: the
+    // suite was green precisely when the product was working least well.
+    // Raising the timeout could not fix it and neither could lowering it.
+    //
+    // The guarantee worth protecting is the FALLBACK, so the failure is now
+    // caused rather than waited for: every cross-origin image request is
+    // aborted at the network layer above, which makes `onError` fire for all
+    // nine squares deterministically and offline. What is asserted is the
+    // rendered result — nine medallions, no surviving <img> — not a race.
+    const grid = page.getByTestId("complete-optimal-grid");
+    await expect(grid.getByTestId("player-avatar")).toHaveCount(9);
+    // Lazy portraits below the fold never request, so they would never error
+    // either. Bring the grid into view so every square has actually tried.
+    await grid.scrollIntoViewIfNeeded();
+    // The medallion is a `div.player-avatar`; the photo is an `<img>` with the
+    // same test id. Asserting the positive form as well as the absence means a
+    // future change that dropped the avatar entirely cannot pass this line.
+    await expect(grid.locator("div.player-avatar")).toHaveCount(9);
+    await expect(grid.locator("img")).toHaveCount(0);
+
+    // ...and the imagery has not made the board unreadable: the grid still
+    // fits its own column rather than forcing the panel to scroll sideways.
+    const overflow = await grid.evaluate((el) => {
+      const panel = el.closest('[data-testid="daily-grid-complete"]') as HTMLElement;
+      return el.scrollWidth - panel.clientWidth;
+    });
+    expect(overflow, "the optimal 3x3 overflows the completion panel").toBeLessThanOrEqual(1);
   });
 });

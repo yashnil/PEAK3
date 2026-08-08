@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 /**
  * Surface tier. Three visibly different treatments so a grid of modes is not
@@ -34,6 +34,18 @@ export interface GameCardProps {
   tone?: GameCardTone;
   /** Tighter padding for dense catalog grids. */
   compact?: boolean;
+  /**
+   * Position in a revealed grid, 0-based. Omit and the card simply renders —
+   * there is no entrance at all, which is the right default for the catalog
+   * pages that show thirty of these at once.
+   *
+   * WHY AN INDEX AND NOT A DELAY. `.pk-reveal` in globals.css multiplies this
+   * by `--pk-stagger`, so the RHYTHM is one decision made in the design layer
+   * and a two-card row and a five-card row stagger at the same rate. A caller
+   * that passed milliseconds would be re-deciding that per screen, which is
+   * how three surfaces end up with three different ideas of "one beat".
+   */
+  revealIndex?: number;
 }
 
 /**
@@ -57,9 +69,19 @@ export interface GameCardProps {
  *  - `data-tone` alongside the pre-existing `data-featured`, so the state is
  *    inspectable in tests without reading computed styles.
  *
- * All motion is CSS transition only (rules live in `styles/home.css`), so the
- * global prefers-reduced-motion rule in globals.css neutralises it; there is
- * no JS-driven animation and this stays a server component.
+ * WHAT THE VISUAL-IDENTITY PASS CHANGED. The card stopped owning its own hover
+ * physics. It used to declare `transform: translateY(-2px)` and a shadow tier
+ * in `home.css`, which is exactly what `.pk-lift-lg` expresses — at the same
+ * specificity, from a later point in the cascade, so the two agreed only for as
+ * long as the numbers happened to match. It now carries `.pk-lift .pk-lift-lg
+ * .pk-press` and `home.css` keeps only the border colour, which is the card's
+ * own identity and which no primitive sets. The card also gained `.pk-press`,
+ * so a click has a physical response; it previously had none.
+ *
+ * All motion is still CSS only — the shared primitives are plain classes and
+ * `revealIndex` is a custom property — so the reduced-motion rules in
+ * globals.css neutralise every part of it, there is no JS-driven animation, and
+ * this stays a server component.
  */
 export default function GameCard({
   href,
@@ -74,8 +96,14 @@ export default function GameCard({
   testId,
   tone = "inset",
   compact,
+  revealIndex,
 }: GameCardProps) {
   const pad = compact ? "p-4" : "p-4 sm:p-5";
+  // `.pk-lift-lg` rather than `.pk-lift`: the whole card is the link, so the
+  // response should read at the scale of the object being pointed at. Paired
+  // with `.pk-press`, because a card that rises on hover and does nothing on
+  // click feels broken in a way people cannot name.
+  const motion = revealIndex === undefined ? "" : "pk-reveal";
 
   return (
     <Link
@@ -83,7 +111,12 @@ export default function GameCard({
       data-testid={testId}
       data-featured={featured ? "true" : "false"}
       data-tone={featured ? "featured" : tone}
-      className={`pk-game-card group ${pad} ${featured && !compact ? "sm:p-6" : ""}`}
+      className={`pk-game-card pk-lift pk-lift-lg pk-press group ${motion} ${pad} ${featured && !compact ? "sm:p-6" : ""}`}
+      style={
+        revealIndex === undefined
+          ? undefined
+          : ({ "--pk-reveal-index": revealIndex } as CSSProperties)
+      }
     >
       {/* The hover/focus rail. Decorative: the action row carries the words. */}
       <span className="pk-game-card-rail" aria-hidden="true" />
@@ -104,10 +137,20 @@ export default function GameCard({
             </span>
           )}
           <div className="min-w-0">
+            {/* PROMOTED AND ENLARGED. The eyebrow is the card's category —
+                "Daily", "Flagship", "Community" — i.e. the one word that says
+                what KIND of thing this is before the title says which one. It
+                was 10px in `--text-muted`, the smallest and faintest
+                combination available, which is the treatment for a footnote.
+                11px in `--text-secondary`, and `--peak-accent-text` rather
+                than the frozen fill gold on the featured card, where the fill
+                value measures 1.5:1 as ink on Arena Day's surfaces. */}
             {eyebrow && (
               <p
-                className="text-[10px] font-bold uppercase tracking-[0.16em]"
-                style={{ color: featured ? "var(--peak-accent)" : "var(--text-muted)" }}
+                className="home-eyebrow"
+                style={{
+                  color: featured ? "var(--peak-accent-text)" : "var(--text-secondary)",
+                }}
               >
                 {eyebrow}
               </p>
@@ -134,12 +177,19 @@ export default function GameCard({
         {description}
       </p>
 
+      {/* THE META CHIPS STAY `--text-muted`, AND THAT IS THE JUDGEMENT, NOT AN
+          OVERSIGHT. They are "5 acts", "~15 min", "one board a day" —
+          genuinely tertiary metadata beside a title and a description that
+          already carry the offer. `--text-muted` is what that tier is for, and
+          demoting everything on the page out of it would leave the token
+          meaning nothing. Only the SIZE moved, 10px to 11px, because a chip
+          nobody can read is not quiet, it is broken. */}
       {meta && meta.length > 0 && (
         <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-1.5">
           {meta.map((item) => (
             <li
               key={item}
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
               style={{
                 color: "var(--text-muted)",
                 background: "var(--pk-surface-inset, var(--bg-elevated))",

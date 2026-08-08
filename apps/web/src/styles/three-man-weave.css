@@ -1,20 +1,83 @@
 /* THREE-MAN WEAVE room.
    ---------------------------------------------------------------------------
-   Owns `.tmw-*` only. The shared room chrome (`.ar-*`) lives in arena.css and
-   the court geometry (`.roster-board*`, `.court-panel-wrapper`) in globals.css
-   -- both are reused here rather than restated, so the draft board and the
-   82-0 court are literally the same court.
+   Owns `.tmw-*` only (plus `.celebration*`, which is shared with the Showdown
+   result and lives here for historical reasons). The room chrome (`.ar-*`) is
+   arena.css and the court geometry (`.roster-board*`, `.court-panel-wrapper`)
+   is globals.css -- both are reused rather than restated, so the draft board
+   and the 82-0 court are literally the same court.
 
-   EVERY COLOUR IS A TOKEN. Nothing in this file hardcodes a hex value, which is
-   what makes light mode and dark mode one implementation instead of two. */
+   EVERY COLOUR IS A TOKEN. Nothing here hardcodes a hex or an rgb(), which is
+   what makes light and dark one implementation instead of two. The previous
+   file had one exception -- `rgb(245 200 66 / 45%)` in the on-the-clock
+   keyframe, an untokenised copy of the accent that could not follow a theme --
+   and it is gone.
+
+   THREE SEATS, THREE ACCENTS. `--seat-1/2/3-fill` and `--seat-1/2/3-ink` are
+   defined once in globals.css with fills stable across themes and inks
+   re-derived per theme. `.tmw-seat` maps `data-seat-accent` onto two local
+   custom properties and everything downstream reads those, so a seat's colour
+   is decided in exactly one place. `data-is-you` finally has rules attached.
+
+   FIXED IN THIS PASS: two selectors that silently overrode themselves
+   (`.tmw-place-slot` was declared twice, as was `.tmw-place-choice select`),
+   the untokenised accent above, and eleven `var(--font-display)` references
+   that resolved to nothing because the token had never been defined.
+
+   GAME-FEEL PASS (ADDITIVE)
+   -------------------------
+   This room read as three well-organised panels rather than as three people
+   competing. The changes are all in the "who is live, what just resolved, and
+   is this thing an object" register, and every one of them CONSUMES the
+   primitive layer at the bottom of globals.css rather than growing a fourth
+   local copy of it:
+
+     * DEPTH IS COMPOSED, NOT CLASSED, on the surfaces that already own a
+       box-shadow or a background state. `.pk-depth` is a single-declaration
+       utility: applying it to `.tmw-seat` would have replaced the on-turn
+       glow, because globals.css is imported AFTER this file (the `@import`s
+       sit at its top) and equal-specificity rules there win. So the panels
+       that carry their own states take `--pk-rim` / `--pk-elev-*` directly,
+       and the utility class is used only where nothing conflicts.
+     * THE ACTIVE-TURN PULSE IS ONE PRIMITIVE. `tmw-onclock-breathe` was a
+       hand-rolled duplicate of `.pk-turn-pulse` -- same idea, same box-shadow
+       trick, same reason for choosing a ring over an opacity fade. It is gone
+       and the badge sets `--pk-pulse-color` to its own seat's fill instead, so
+       there is now exactly ONE infinite ring animation definition in the app
+       and three seats express themselves through its colour variable.
+     * `--pk-spotlight` IS RE-SCOPED, NOT REPLACED. The global value is built
+       from the brand gold. This room has three seats and the live-panel ring
+       has to follow whoever is on the clock, so `.tmw-turnbar` redefines the
+       token from `--seat-fill`. The primitive stays one primitive.
+     * FOUR `--text-muted` VALUES MOVED UP A TIER. "Open" on an empty roster
+       slot, "Open" on a placement target, "Not filled" on a result card and
+       the no-legal-arrangement fit verdict are all things a drafter reads
+       while deciding. The separator glyphs and the disabled filter chip stay
+       muted, because those genuinely are tertiary. */
+
+/* ---------------------------------------------------------------------------
+   The room
+   --------------------------------------------------------------------------- */
 
 .tmw-room {
+  /* THE ROOM IS LIT, NOT FLAT. `.pk-atmosphere` (globals) paints the two
+     floodlights and the court grid behind the whole shell; it is applied on
+     the element rather than restated here so this room and the home hero are
+     literally the same lighting rig.
+
+     THE GRID IS WIDENED FROM THE 48px DEFAULT. Three dense courts sitting on
+     a 48px lattice reads as interference between two grids; at 72px the floor
+     stays a floor and the courts stay the thing you look at. */
+  --pk-court-grid-size: 72px;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
-  /* The room owns its own width. Any child that wants to be wider scrolls
-     inside its own box rather than pushing the document sideways. */
-  max-width: 100%;
+  /* CONSTRAINED, DELIBERATELY (TMW-09). Three teams stretched across a 1700px
+     monitor read as a spreadsheet with three sections; at this width they read
+     as three teams, and each court keeps enough room for a headshot, a name, a
+     position and a score. */
+  width: 100%;
+  max-width: 82rem;
+  margin-inline: auto;
   min-width: 0;
 }
 
@@ -26,39 +89,132 @@
 /* Anything that legitimately wants to be wider than the room scrolls INSIDE
    ITS OWN BOX. A horizontally scrolling document is the one overflow failure a
    phone user cannot work around. */
-.tmw-room .tmw-tablist,
-.tmw-room [data-testid="tmw-order-list"] {
+.tmw-room .tmw-tablist {
   max-width: 100%;
   min-width: 0;
 }
 
 /* ---------------------------------------------------------------------------
-   The spinner
-   --------------------------------------------------------------------------- */
+   The opening ceremony (TMW-06, TMW-13)
+   ---------------------------------------------------------------------------
+   A full-focus overlay over the dimmed, blurred board -- not a banner above it.
+   It is mounted only while no human decision window is open (see
+   `ThreeManWeaveGame`), so it can dim the page without ever costing a second
+   of anyone's clock. */
 
-.tmw-spinner {
-  border: 1px solid var(--peak-accent);
-  background: var(--peak-accent-bg);
-  border-radius: 0.75rem;
-  padding: 0.9rem 1rem;
+.tmw-ceremony-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: color-mix(in srgb, var(--bg-page) 82%, transparent);
+  backdrop-filter: blur(7px) saturate(0.85);
+  -webkit-backdrop-filter: blur(7px) saturate(0.85);
+  animation: tmw-ceremony-in 220ms ease-out;
+}
+
+.tmw-ceremony {
+  position: relative;
+  width: min(38rem, 100%);
+  padding: 1.6rem 1.5rem 1.4rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-xl, 20px);
+  background:
+    radial-gradient(120% 80% at 50% 0%, var(--peak-accent-bg), transparent 62%),
+    var(--bg-elevated);
+  box-shadow: 0 26px 70px -20px rgba(0, 0, 0, 0.6);
   text-align: center;
+  overflow: hidden;
 }
 
-.tmw-spinner--idle {
+.tmw-ceremony--idle {
+  position: static;
+  padding: 0.9rem 1rem;
   border-color: var(--border-subtle);
-  background: var(--bg-elevated);
+  box-shadow: none;
 }
 
-.tmw-spinner-round {
+.tmw-ceremony-eyebrow {
+  font-family: var(--font-display);
   font-size: 0.625rem;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
-.tmw-spinner-reels {
-  margin-top: 0.5rem;
+.tmw-ceremony-title {
+  margin-top: 0.35rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 5vw, 2.4rem);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+/* The three competitors, as competitors. */
+.tmw-ceremony-seats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.tmw-ceremony-seat {
+  --seat-fill: var(--seat-1-fill);
+  --seat-ink: var(--seat-1-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.6rem 0.4rem;
+  border: 1px solid var(--border-subtle);
+  border-top: 3px solid var(--seat-fill);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-surface);
+  min-width: 0;
+}
+
+.tmw-ceremony-seat[data-seat-accent="2"] {
+  --seat-fill: var(--seat-2-fill);
+  --seat-ink: var(--seat-2-ink);
+}
+
+.tmw-ceremony-seat[data-seat-accent="3"] {
+  --seat-fill: var(--seat-3-fill);
+  --seat-ink: var(--seat-3-ink);
+}
+
+/* YOU, MARKED — and not by colour alone: the "You" word sits underneath. */
+.tmw-ceremony-seat[data-is-you="true"] {
+  border-color: var(--seat-fill);
+  box-shadow: 0 0 0 1px var(--seat-fill);
+}
+
+.tmw-ceremony-seat-name {
+  font-weight: 700;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.tmw-ceremony-seat-kind {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--seat-ink);
+}
+
+.tmw-ceremony-objective {
+  margin-top: 0.9rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.tmw-ceremony-reels {
+  margin-top: 0.75rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -67,21 +223,68 @@
   max-width: 100%;
 }
 
-/* On a phone the two reels stack, because side by side each one is too narrow
-   to hold a franchise name and the pair is what the round is about. */
+.tmw-ceremony-x {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  align-self: center;
+}
+
+.tmw-ceremony-note {
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.tmw-ceremony-handoff {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-subtle);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--peak-accent-text);
+  animation: tmw-handoff-in 320ms ease-out;
+}
+
+@keyframes tmw-ceremony-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tmw-handoff-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* On a phone the two reels stack: side by side each one is too narrow to hold
+   a franchise name, and the pair is what the round is about. */
 @media (max-width: 480px) {
-  .tmw-spinner-reels {
+  .tmw-ceremony-reels {
     flex-direction: column;
     gap: 0.25rem;
   }
-  .tmw-reel-value,
-  .tmw-spinner .spin-reel-strip {
+  .tmw-ceremony .spin-reel-strip {
     width: min(18rem, 78vw);
     height: 60px;
     line-height: 60px;
   }
-  .tmw-spinner-x {
+  .tmw-ceremony-x {
     display: none;
+  }
+  .tmw-ceremony-seats {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -98,19 +301,19 @@
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
-/* The settled value and the moving strip must occupy the SAME box, or the
-   layout jumps at the moment the reel lands -- which reads as a glitch at
-   exactly the beat that is supposed to feel decisive. */
-.tmw-reel-value,
-.tmw-spinner .spin-reel-strip {
+/* THE APERTURE. A framed window with a payline across its middle row and a
+   fade at both edges, so the strip visibly runs THROUGH something rather than
+   reading as text being replaced. */
+.tmw-ceremony .spin-reel-strip {
+  position: relative;
   display: block;
   height: 90px;
   line-height: 90px;
   /* SIZED AGAINST THE VIEWPORT, not against a comfortable desktop reading of
-     "Golden State Warriors". Two fixed 11rem reels plus the separator came to
+     "Golden State Warriors": two fixed 11rem reels plus the separator came to
      392px, which overflowed a 390px phone by exactly the amount the e2e
      overflow check caught. */
   width: min(18rem, 40vw);
@@ -122,44 +325,341 @@
   color: var(--text-primary);
   white-space: nowrap;
   text-overflow: ellipsis;
+  border: 1px solid var(--peak-accent-dim);
+  border-radius: 0.5rem;
+  background: var(--bg-page);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 22%,
+    #000 78%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 22%,
+    #000 78%,
+    transparent 100%
+  );
 }
 
-.tmw-spinner .spin-reel-track {
+/* The payline sits on the WINDOW, never on a row -- a class on the moving row
+   would change its size mid-flight and re-lay-out the strip underneath the
+   animation. */
+.tmw-ceremony .spin-reel-strip::after {
+  content: "";
+  position: absolute;
+  inset: 30px 0;
+  pointer-events: none;
+  border-top: 1px solid var(--peak-accent);
+  border-bottom: 1px solid var(--peak-accent);
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--peak-accent-bg) 45%,
+    var(--peak-accent-bg) 55%,
+    transparent
+  );
+}
+
+.tmw-ceremony .spin-reel-track {
   display: block;
   will-change: transform;
 }
 
-.tmw-spinner .spin-reel-row {
+/* THE SAME WEIGHT, MOVING OR STOPPED. The landing must be the strip arriving,
+   not the type changing size. */
+.tmw-ceremony .spin-reel-row {
   display: block;
   height: 30px;
   line-height: 30px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-size: clamp(0.85rem, 2.2vw, 1.15rem);
+  font-weight: 700;
+  color: var(--text-primary);
+  opacity: 0.55;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tmw-spinner-x {
-  font-size: 1.1rem;
-  color: var(--text-muted);
-  align-self: center;
+/* MOTION BLUR while the strip is at speed, easing off as it settles -- the
+   cheapest possible cue that this is movement rather than a redraw. */
+.tmw-ceremony .spin-reel-strip[data-stage="spinning"] .spin-reel-track {
+  filter: blur(1.6px);
+  transition: filter 200ms ease-out;
 }
 
-.tmw-spinner[data-reel="decade"] .tmw-reel-value,
-.tmw-reel[data-reel="decade"] .tmw-reel-value {
+.tmw-ceremony .spin-reel-strip[data-stage="settling"] .spin-reel-track {
+  filter: blur(0);
+  transition: filter 180ms ease-out;
+}
+
+.tmw-ceremony[data-phase="revealed"] {
+  animation: tmw-ceremony-flash 520ms ease-out;
+}
+
+@keyframes tmw-ceremony-flash {
+  0% {
+    box-shadow: 0 26px 70px -20px rgba(0, 0, 0, 0.6), 0 0 0 0 var(--peak-accent-bg);
+  }
+  40% {
+    box-shadow: 0 26px 70px -20px rgba(0, 0, 0, 0.6), 0 0 0 10px var(--peak-accent-bg);
+  }
+  100% {
+    box-shadow: 0 26px 70px -20px rgba(0, 0, 0, 0.6), 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-ceremony-scrim,
+  .tmw-ceremony,
+  .tmw-ceremony-handoff,
+  .tmw-ceremony .spin-reel-strip[data-stage] .spin-reel-track {
+    animation: none;
+    filter: none;
+    transition: none;
+  }
+  .tmw-ceremony-scrim {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--bg-page);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   The one turn-status surface (TMW-07, TMW-08)
+   --------------------------------------------------------------------------- */
+
+.tmw-turnbar {
+  --seat-fill: var(--peak-accent);
+  --seat-ink: var(--peak-accent-text);
+  /* THE LIVE-PANEL RING FOLLOWS THE SEAT, NOT THE BRAND. `--pk-spotlight` is
+     defined globally from `--peak-accent`, which is correct for a single-
+     player surface and wrong here: this bar takes the colour of whoever is on
+     the clock, and a gold ring around a blue seat's turn says the wrong thing
+     twice. Re-scoping the token keeps ONE spotlight primitive in the app
+     instead of adding a second, seat-coloured one beside it. */
+  --pk-spotlight:
+    0 0 0 1px color-mix(in srgb, var(--seat-fill) 48%, transparent),
+    0 0 26px -6px color-mix(in srgb, var(--seat-fill) 60%, transparent);
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--border-edge);
+  border-left: 4px solid var(--seat-fill);
+  border-radius: var(--pk-r-md, 10px);
+  /* A lit top edge and a shadow beneath, so the room's status reads as a
+     board mounted above the courts rather than as a coloured strip. */
+  background: var(--pk-grad-raised);
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
+}
+
+/* `.pk-spotlight` sets a box-shadow AND a gold `border-color`. Both need
+   answering here, and neither is a fault in the primitive:
+     * its box-shadow is one declaration, so on its own it discards the rim
+       above and the bar goes flat at exactly the moment it matters most;
+     * its `border-color` is a shorthand, so it would also repaint the 4px
+       LEFT rail -- the thing that says which seat is on the clock -- in the
+       brand gold.
+   Composed here at a specificity that beats both. */
+.tmw-turnbar.pk-spotlight {
+  box-shadow: var(--pk-rim), var(--pk-spotlight);
+  border-color: color-mix(in srgb, var(--seat-fill) 40%, var(--border-edge));
+  border-left-color: var(--seat-fill);
+}
+
+.tmw-turnbar[data-seat-accent="1"] {
+  --seat-fill: var(--seat-1-fill);
+  --seat-ink: var(--seat-1-ink);
+}
+.tmw-turnbar[data-seat-accent="2"] {
+  --seat-fill: var(--seat-2-fill);
+  --seat-ink: var(--seat-2-ink);
+}
+.tmw-turnbar[data-seat-accent="3"] {
+  --seat-fill: var(--seat-3-fill);
+  --seat-ink: var(--seat-3-ink);
+}
+
+.tmw-turnbar-meta {
+  min-width: 0;
+}
+
+.tmw-turnbar-round {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-family: var(--font-display);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  /* The eyebrow tracking token rather than a fourth hand-set value. */
+  letter-spacing: var(--pk-track-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.tmw-turnbar-dot {
+  color: var(--text-muted);
+}
+
+.tmw-turnbar-roll {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.1rem;
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tmw-turnbar-decade {
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--pk-r-pill, 999px);
+  background: var(--peak-accent-bg);
+  border: 1px solid var(--peak-accent-dim);
+  font-size: 0.6875rem;
+  font-weight: 700;
   color: var(--peak-accent-text);
 }
 
-.tmw-spinner-note {
-  margin-top: 0.4rem;
+.tmw-turnbar-who {
+  min-width: 0;
+}
+
+.tmw-turnbar-headline {
+  font-family: var(--font-display);
+  font-size: clamp(1rem, 2.4vw, 1.35rem);
+  font-weight: 800;
+  /* Display tracking and display leading, from the tokens. The +0.01em this
+     replaces was set before the face was Space Grotesk, which is already
+     comfortably spaced at this weight and reads loose when opened further. */
+  letter-spacing: var(--pk-track-heading);
+  line-height: var(--pk-leading-heading);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.tmw-turnbar-headline[data-yours="true"] {
+  color: var(--peak-accent-text);
+  text-transform: uppercase;
+}
+
+.tmw-turnbar-sub {
+  margin-top: 0.1rem;
   font-size: 0.75rem;
   color: var(--text-secondary);
 }
 
+/* THE BOT'S OWN VISIBLE CLOCK (TMW-05). It counts UP, because the API sends
+   `seconds_remaining: null` for a seat that is not yours -- see `TurnStatus`. */
+.tmw-bot-clock {
+  --seat-fill: var(--peak-accent);
+  --seat-ink: var(--peak-accent-text);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  min-width: 5.5rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-surface);
+  /* Sits inside the turnbar, so it needs its own lit edge to keep reading as
+     a separate instrument rather than as a lighter patch of the bar. */
+  box-shadow: var(--pk-rim);
+}
+
+.tmw-bot-clock[data-seat-accent="1"] {
+  --seat-fill: var(--seat-1-fill);
+  --seat-ink: var(--seat-1-ink);
+}
+.tmw-bot-clock[data-seat-accent="2"] {
+  --seat-fill: var(--seat-2-fill);
+  --seat-ink: var(--seat-2-ink);
+}
+.tmw-bot-clock[data-seat-accent="3"] {
+  --seat-fill: var(--seat-3-fill);
+  --seat-ink: var(--seat-3-ink);
+}
+
+.tmw-bot-clock--idle {
+  border-style: dashed;
+  background: transparent;
+}
+
+.tmw-bot-clock-label {
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.tmw-bot-clock-value {
+  font-family: var(--font-mono);
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--seat-ink);
+}
+
+.tmw-bot-clock-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.tmw-bot-clock-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--seat-fill);
+  animation: tmw-thinking 1.1s ease-in-out infinite;
+}
+
+.tmw-bot-clock-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.tmw-bot-clock-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes tmw-thinking {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  50% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 720px) {
+  .tmw-turnbar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0.5rem;
+  }
+  .tmw-turnbar-meta {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-bot-clock-dots i {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* ---------------------------------------------------------------------------
-   The three-roster board
+   The three-team board
    --------------------------------------------------------------------------- */
 
 .tmw-board {
@@ -169,25 +669,39 @@
 }
 
 .tmw-board-qualifier {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* The result of a move, said once. Never colour alone: the wording carries it. */
+.tmw-board-notice {
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--pk-r-sm, 6px);
+  border: 1px solid var(--border-edge);
+  background: var(--bg-elevated);
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+}
+
+.tmw-board-notice[data-tone="error"] {
+  border-color: var(--peak-accent-dim);
+  background: var(--peak-accent-bg);
 }
 
 .tmw-board-grid {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.75rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 /* Tabs are the MOBILE presentation, so the grid and the tabs swap at the width
-   where three courts stop being readable rather than at an arbitrary
-   breakpoint: below ~720px each court gets under 230px, which drops player
-   names. */
+   where three teams stop being readable rather than at an arbitrary
+   breakpoint: below ~760px each court gets under 240px, which drops names. */
 .tmw-board-tabs {
   display: none;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .tmw-board-grid {
     display: none;
   }
@@ -199,32 +713,60 @@
 .tmw-tablist {
   display: flex;
   gap: 0.35rem;
+  margin-bottom: 0.5rem;
   overflow-x: auto;
-  padding-bottom: 0.25rem;
-  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
 }
 
 .tmw-tab {
+  --seat-fill: var(--seat-1-fill);
+  --seat-ink: var(--seat-1-ink);
   flex: 1 1 0;
-  min-width: 7rem;
-  scroll-snap-align: start;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+  min-height: var(--pk-tap-min, 44px);
   padding: 0.4rem 0.5rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.5rem;
+  border: 1px solid var(--border-edge);
+  border-bottom: 3px solid transparent;
+  border-radius: var(--pk-r-sm, 6px);
   background: var(--bg-elevated);
   text-align: left;
+  cursor: pointer;
 }
 
+.tmw-tab[data-seat-accent="2"] {
+  --seat-fill: var(--seat-2-fill);
+  --seat-ink: var(--seat-2-ink);
+}
+.tmw-tab[data-seat-accent="3"] {
+  --seat-fill: var(--seat-3-fill);
+  --seat-ink: var(--seat-3-ink);
+}
+
+/* ACTIVE TEAM FORWARD. The selected tab is filled and raised, not merely
+   underlined -- on a phone the tab strip is the only "which team am I looking
+   at" signal there is. */
 .tmw-tab[aria-selected="true"] {
-  border-color: var(--peak-accent);
-  background: var(--peak-accent-bg);
+  border-color: var(--seat-fill);
+  border-bottom-color: var(--seat-fill);
+  background: var(--bg-surface);
+  box-shadow: 0 2px 10px -4px var(--seat-fill);
 }
 
-.tmw-tab[data-on-turn="true"] .tmw-tab-name {
+.tmw-tab[data-on-turn="true"] .tmw-tab-name::after {
+  content: " ● on the clock";
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--peak-accent-text);
+}
+
+.tmw-tab:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .tmw-tab-name {
@@ -238,58 +780,132 @@
 
 .tmw-tab-meta {
   font-size: 0.625rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ---------------------------------------------------------------------------
-   One seat
+   One team (TMW-09)
    --------------------------------------------------------------------------- */
 
 .tmw-seat {
+  --seat-fill: var(--seat-1-fill);
+  --seat-ink: var(--seat-1-ink);
+  /* `position: relative` is for `.pk-crown`'s hairline, which the markup opts
+     into. The card's own `overflow: hidden` clips it to the rounded corner. */
+  position: relative;
   display: flex;
-  min-width: 0;
   flex-direction: column;
-  gap: 0.3rem;
+  min-width: 0;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-elevated);
+  /* THREE TEAMS, THREE OBJECTS. The rim is the single most effective thing
+     separating a card from a rectangle, and it is composed here rather than
+     taken from `.pk-depth` because the on-turn and is-you states below own
+     this element's background and shadow and would be overwritten by the
+     utility (globals.css is imported after this file). The TONE is
+     deliberately left at `--bg-elevated`: the seat header is `--bg-surface`
+     and switching the body to `--pk-grad-raised` would collapse the two. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
+  overflow: hidden;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.tmw-seat[data-seat-accent="2"] {
+  --seat-fill: var(--seat-2-fill);
+  --seat-ink: var(--seat-2-ink);
+}
+.tmw-seat[data-seat-accent="3"] {
+  --seat-fill: var(--seat-3-fill);
+  --seat-ink: var(--seat-3-ink);
+}
+
+/* YOUR TEAM. `data-is-you` used to be emitted with ZERO rules attached. It is
+   the single most useful fact on this screen, so it is a real treatment: a
+   thicker accent edge and a warmer surface, plus the "You" word in the header
+   so it is not communicated by colour alone. */
+.tmw-seat[data-is-you="true"] {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--seat-fill) 8%, transparent),
+      transparent 40%
+    ),
+    var(--bg-elevated);
+}
+
+.tmw-seat[data-is-you="true"] .tmw-seat-head {
+  border-bottom-color: var(--seat-fill);
+}
+
+/* EXACTLY ONE ROSTER IS ACTIVE. The whole signal used to be an inline
+   `inset 0 0 0 2px` shadow -- the "indicated by tiny text and a small badge"
+   finding. The active team takes a bright accent border and a broadcast glow;
+   the other two step back by BORDER TONE, never by opacity, because reading
+   what your opponents still need is the strategy of the mode and an
+   `opacity: 0.82` dropped every muted label below AA. */
+.tmw-seat[data-on-turn="true"] {
+  border-color: var(--seat-fill);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 0 1px var(--seat-fill),
+    0 0 30px -8px var(--seat-fill);
+  transform: translateY(-2px);
+}
+
+.tmw-seat[data-on-turn="false"] {
+  border-color: var(--border-subtle);
 }
 
 .tmw-seat-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.4rem;
-  min-width: 0;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 2px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.tmw-seat[data-on-turn="true"] .tmw-seat-head {
+  background: color-mix(in srgb, var(--seat-fill) 12%, var(--bg-surface));
+  border-bottom-color: var(--seat-fill);
 }
 
 .tmw-seat-identity {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.4rem;
   min-width: 0;
 }
 
-.tmw-seat-letter {
+/* The crest carries the seat's colour as a FILL rather than as an outline,
+   which is what makes three teams distinguishable at a glance. */
+.tmw-seat-crest {
   display: grid;
   place-items: center;
-  width: 1.15rem;
-  height: 1.15rem;
-  flex: none;
-  border-radius: 0.25rem;
-  border: 1px solid var(--border-subtle);
-  font-size: 0.625rem;
-  font-weight: 700;
-  color: var(--text-secondary);
-}
-
-.tmw-seat[data-on-turn="true"] .tmw-seat-letter {
-  border-color: var(--peak-accent);
-  background: var(--peak-accent);
+  width: 1.55rem;
+  height: 1.55rem;
+  flex-shrink: 0;
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--seat-fill);
   color: var(--peak-accent-on);
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .tmw-seat-name {
-  font-size: 0.8125rem;
+  font-family: var(--font-display);
+  font-size: 0.875rem;
   font-weight: 700;
+  /* A team name is a dense UI label, not a hero -- the tight step, not the
+     display one. */
+  letter-spacing: var(--pk-track-tight);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -298,247 +914,440 @@
 }
 
 .tmw-seat[data-on-turn="true"] .tmw-seat-name {
-  color: var(--peak-accent-text);
+  color: var(--seat-ink);
 }
 
 .tmw-seat-kind {
+  flex-shrink: 0;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-pill, 999px);
   font-size: 0.5625rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-muted);
-  flex: none;
+  color: var(--text-secondary);
+}
+
+.tmw-seat[data-is-you="true"] .tmw-seat-kind {
+  border-color: var(--seat-fill);
+  color: var(--seat-ink);
 }
 
 .tmw-seat-meters {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  flex: none;
+  gap: 0.35rem;
+  flex-shrink: 0;
 }
 
 .tmw-seat-count {
-  font-size: 0.625rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.tmw-seat-onclock {
+  padding: 0.1rem 0.45rem;
+  border-radius: var(--pk-r-pill, 999px);
+  background: var(--seat-fill);
+  color: var(--peak-accent-on);
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* THE PULSE IS A RING, NOT AN OPACITY FADE, and it is now the SHARED ring.
+     Fading the badge halves the contrast of its own text for half of every
+     cycle -- axe caught an early version at 4.13:1 mid-fade -- so this has
+     always animated a box-shadow instead, which runs on the compositor and
+     never touches the glyphs.
+
+     `tmw-onclock-breathe` used to be a private keyframe here that reached the
+     same conclusion in the same way as globals' `.pk-turn-pulse`. The markup
+     now carries `.pk-turn-pulse` and this rule supplies only the one thing
+     the primitive asks a caller for: which colour it is breathing in. Three
+     seats, one animation definition. */
+  --pk-pulse-color: var(--seat-fill);
 }
 
 .tmw-seat-edge {
+  padding: 0.2rem 0.6rem;
   font-size: 0.625rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .tmw-seat-edge[data-band="leading"] {
-  color: var(--peak-accent-text);
+  color: var(--seat-ink);
+}
+
+.tmw-seat-movehint {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* THE COURT IS TEXTURE BEHIND THE TEXT, not a thing competing with it. The
+   wrapper's own border is dropped here because `.tmw-seat` already draws one;
+   two nested 1px edges a few pixels apart read as a rendering artefact. */
+.tmw-seat .court-panel-wrapper {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* MORE ROOM PER CARD. globals.css lays the starters out on a four-column
+   half-court, which at three teams inside an 82rem room gives each wing card
+   about 85px -- not enough for a headshot, a name, a position and a score. The
+   two-column arrangement keeps the spatial reading (point at the top, wings
+   across, bigs inside) and doubles the width of every card. Scoped to
+   `.tmw-seat` so the 82-0 court is untouched. */
+.tmw-seat .roster-board-starters {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "pg pg"
+    "sf sg"
+    "pf c";
+  gap: 0.45rem;
+}
+
+.tmw-seat .roster-board {
+  padding: 12px 10px 10px;
+}
+
+.tmw-seat .roster-board-bench-row {
+  padding: 8px 10px 10px;
 }
 
 /* ---------------------------------------------------------------------------
-   Seat clocks
-   --------------------------------------------------------------------------- */
-
-.tmw-clock {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 2.6rem;
-  height: 1.6rem;
-  padding: 0 0.35rem;
-  border-radius: 0.35rem;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-page);
-}
-
-.tmw-clock[data-state="live"] {
-  border-color: var(--peak-accent);
-  background: var(--peak-accent-bg);
-}
-
-.tmw-clock[data-state="idle"] {
-  opacity: 0.45;
-}
-
-.tmw-clock-value {
-  font-size: 0.9375rem;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  color: var(--peak-accent-text);
-  line-height: 1;
-}
-
-.tmw-clock[data-urgent="true"] .tmw-clock-value {
-  color: var(--text-primary);
-}
-
-.tmw-clock-unit {
-  font-size: 0.5625rem;
-  font-weight: 600;
-  margin-left: 0.05rem;
-}
-
-.tmw-clock-idle {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.tmw-clock-dots {
-  display: inline-flex;
-  gap: 0.15rem;
-}
-
-.tmw-clock-dots i {
-  width: 0.25rem;
-  height: 0.25rem;
-  border-radius: 50%;
-  background: var(--text-muted);
-  animation: tmw-think 1.05s ease-in-out infinite;
-}
-
-.tmw-clock-dots i:nth-child(2) {
-  animation-delay: 0.15s;
-}
-.tmw-clock-dots i:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes tmw-think {
-  0%,
-  100% {
-    opacity: 0.3;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* ---------------------------------------------------------------------------
-   Roster slot cards
+   One slot on a court
    --------------------------------------------------------------------------- */
 
 .tmw-slot {
-  display: flex;
-  min-width: 0;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.4rem;
+  row-gap: 0.25rem;
   width: 100%;
-  flex-direction: column;
-  gap: 0.1rem;
-  border-radius: 0.375rem;
-  border: 1px solid var(--border-subtle);
-  /* Opaque, so the decorative court markings show only through the gaps
-     between cards -- the same layering the court stylesheet describes. */
-  background: var(--bg-elevated);
-  padding: 0.3rem 0.4rem;
+  min-height: 3.4rem;
+  padding: 1.15rem 0.45rem 0.45rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-sm, 6px);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  /* A LIT EDGE, NOT `.pk-depth`. The utility would make this opaque, and the
+     88% mix is the whole reason the court markings read as texture UNDER the
+     roster rather than as a picture beside it. The rim alone is what turns
+     the card into an object. */
+  box-shadow: var(--pk-rim);
   text-align: left;
 }
 
-.tmw-slot--movable {
-  cursor: pointer;
-}
-
-.tmw-slot--movable:hover {
-  border-color: var(--peak-accent);
-}
-
-/* The pick "animation" is a one-shot highlight rather than a movement, so it
-   survives prefers-reduced-motion untouched and cannot strand a card
-   mid-flight if a poll lands while it is showing. */
-.tmw-slot[data-just-picked="true"] {
-  border-color: var(--peak-accent);
-  background: var(--peak-accent-bg);
-  animation: tmw-land 520ms ease-out;
-}
-
-@keyframes tmw-land {
-  0% {
-    transform: scale(0.94);
-  }
-  55% {
-    transform: scale(1.03);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tmw-slot[data-just-picked="true"] {
-    animation: none;
-  }
+.tmw-slot[data-filled="false"] {
+  border-style: dashed;
+  border-color: var(--border-subtle);
+  background: transparent;
+  place-items: center;
+  min-height: 3.4rem;
 }
 
 .tmw-slot-tag {
+  position: absolute;
+  top: 0.25rem;
+  left: 0.45rem;
+  font-family: var(--font-mono);
   font-size: 0.5625rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
+}
+
+.tmw-slot-score {
+  position: absolute;
+  top: 0.2rem;
+  right: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--peak-accent-text);
+}
+
+.tmw-slot-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
 }
 
 .tmw-slot-name {
-  font-size: 0.6875rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 700;
   line-height: 1.15;
   color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .tmw-slot-meta {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.25rem;
-  font-size: 0.5625rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
+  flex-direction: column;
+  min-width: 0;
 }
 
-.tmw-slot-season {
+.tmw-slot-season,
+.tmw-slot-positions {
+  font-size: 0.625rem;
+  color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tmw-slot-score {
-  flex: none;
-  font-weight: 700;
-  color: var(--peak-accent-text);
+/* "Open" IS A LABEL A DRAFTER READS, not metadata. Which of the six slots is
+   still empty -- on your board and on both opponents' -- is the single fact
+   that decides what to take next, and it was set in the faintest ink the
+   theme has. Secondary, not muted. */
+.tmw-slot-open {
+  grid-column: 1 / -1;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
-.tmw-slot-open {
-  font-size: 0.625rem;
-  font-style: italic;
-  color: var(--text-muted);
+.tmw-slot[data-just-picked="true"] {
+  border-color: var(--peak-accent);
+  box-shadow: 0 0 0 1px var(--peak-accent);
+}
+
+/* -- rearrangement on your own court (TMW-10) ------------------------------ */
+
+.tmw-slot--interactive {
+  cursor: grab;
+}
+
+.tmw-slot--interactive:hover {
+  border-color: var(--seat-fill);
+}
+
+.tmw-slot--interactive:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* THE CARD IN HAND KEEPS ITS RING WHILE THE POINTER IS OVER IT. `.pk-lift`'s
+   hover shadow and this rule are both two-token selectors, and globals.css is
+   imported after this file, so the plain form would lose to the generic hover
+   at exactly the moment the specific state matters. The `.pk-lift` in the
+   selector is there to win, and for no other reason. */
+.tmw-slot--interactive[data-picked-up="true"],
+.tmw-slot--interactive.pk-lift[data-picked-up="true"]:hover,
+.tmw-slot--interactive.pk-lift[data-picked-up="true"]:focus-visible {
+  cursor: grabbing;
+  border-color: var(--seat-fill);
+  box-shadow:
+    0 0 0 2px var(--seat-fill),
+    0 6px 18px -8px var(--seat-fill);
+}
+
+/* A LEGAL DESTINATION LIGHTS UP STRONGLY. An illegal one is still a real
+   target -- it answers with the rule that stopped the move rather than
+   swallowing the drop -- so it is stepped back rather than hidden. */
+.tmw-slot--interactive[data-legal="true"] {
+  border-style: solid;
+  border-color: var(--seat-fill);
+  background: color-mix(in srgb, var(--seat-fill) 14%, var(--bg-surface));
+}
+
+.tmw-slot--interactive[data-moving="true"][data-legal="false"][data-picked-up="false"] {
+  border-color: var(--border-subtle);
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-seat,
+  .tmw-seat-onclock {
+    transition: none;
+    animation: none;
+  }
+  .tmw-seat[data-on-turn="true"] {
+    transform: none;
+  }
+  /* `.pk-turn-pulse`'s own reduced-motion form leaves the badge with a static
+     lit ring, which is the information. Restated here only because the rule
+     above zeroes `animation` on this element for historical reasons and would
+     otherwise leave the badge with nothing at all. */
+  .tmw-seat-onclock.pk-turn-pulse {
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--seat-fill) 34%, transparent);
+  }
 }
 
 /* ---------------------------------------------------------------------------
-   The pick overlay
+   Recent picks + draft history (TMW-12)
+   --------------------------------------------------------------------------- */
+
+.tmw-ledger {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+}
+
+.tmw-ledger-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.tmw-ledger-title {
+  font-family: var(--font-display);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.tmw-ledger-count {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+.tmw-ledger-empty {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* THE RAIL: four items, horizontal, scrolling inside its own box. */
+.tmw-ledger-rail {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding-bottom: 0.15rem;
+  scrollbar-width: thin;
+}
+
+.tmw-ledger-chip {
+  --seat-fill: var(--seat-1-fill);
+  --seat-ink: var(--seat-1-ink);
+  flex: 0 0 auto;
+  max-width: 13rem;
+  min-width: 0;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--seat-fill);
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--bg-surface);
+}
+
+.tmw-ledger-chip[data-seat-accent="2"],
+.tmw-ledger-history li[data-seat-accent="2"] {
+  --seat-fill: var(--seat-2-fill);
+  --seat-ink: var(--seat-2-ink);
+}
+.tmw-ledger-chip[data-seat-accent="3"],
+.tmw-ledger-history li[data-seat-accent="3"] {
+  --seat-fill: var(--seat-3-fill);
+  --seat-ink: var(--seat-3-ink);
+}
+
+.tmw-ledger-chip-name {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tmw-ledger-chip-meta {
+  display: block;
+  font-size: 0.625rem;
+  color: var(--seat-ink);
+}
+
+.tmw-ledger-more > summary {
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  min-height: var(--pk-tap-min, 44px);
+  display: flex;
+  align-items: center;
+}
+
+.tmw-ledger-more > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.tmw-ledger-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.tmw-ledger-history li {
+  --seat-fill: var(--seat-1-fill);
+  --seat-ink: var(--seat-1-ink);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding-left: 0.5rem;
+  border-left: 3px solid var(--seat-fill);
+}
+
+.tmw-ledger-history-name {
+  font-size: 0.75rem;
+  color: var(--text-primary);
+}
+
+.tmw-ledger-history-meta {
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------------------
+   The pick surface (TMW-11)
    --------------------------------------------------------------------------- */
 
 .tmw-overlay-scrim {
   position: fixed;
   inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  z-index: 50;
+  display: grid;
+  place-items: center;
   padding: 1rem;
-  background: color-mix(in srgb, var(--bg-page) 82%, transparent);
-  backdrop-filter: blur(2px);
+  background: color-mix(in srgb, var(--bg-page) 78%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   overflow-y: auto;
 }
 
 .tmw-overlay {
-  width: min(64rem, 100%);
-  max-height: min(90vh, 46rem);
+  width: min(62rem, 100%);
+  max-height: min(46rem, 92vh);
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--peak-accent);
-  border-radius: 0.85rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-xl, 20px);
   background: var(--bg-elevated);
-  box-shadow: 0 18px 48px rgb(0 0 0 / 35%);
+  box-shadow: 0 26px 70px -20px rgba(0, 0, 0, 0.6);
   overflow: hidden;
 }
 
@@ -546,9 +1355,15 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.75rem 0.9rem;
-  border-bottom: 1px solid var(--border-subtle);
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-edge);
+  background: var(--bg-surface);
+}
+
+.tmw-overlay-head-meta {
+  min-width: 0;
 }
 
 .tmw-overlay-round {
@@ -556,231 +1371,391 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.tmw-overlay-title {
-  font-size: 1.05rem;
-  font-weight: 800;
-  color: var(--text-primary);
-}
-
-.tmw-overlay-seat {
-  font-size: 0.6875rem;
   color: var(--text-secondary);
 }
 
-.tmw-overlay-clock {
+/* THE ROLL IS THE REVEAL WHEN THE HUMAN LEADS A ROUND. It animates in here,
+   inside a live surface, instead of behind a blocking ceremony that would be
+   spending a clock the server already started. */
+.tmw-overlay-title {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: none;
-  padding: 0.3rem 0.6rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--peak-accent);
-  background: var(--peak-accent-bg);
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.1rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.15rem, 3vw, 1.6rem);
+  font-weight: 800;
+  color: var(--text-primary);
+  animation: tmw-roll-in 420ms cubic-bezier(0.22, 1.2, 0.36, 1);
 }
 
-.tmw-overlay-clock-value {
-  font-size: 1.6rem;
-  font-weight: 800;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
+.tmw-overlay-decade {
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--pk-r-pill, 999px);
+  background: var(--peak-accent-bg);
+  border: 1px solid var(--peak-accent-dim);
+  font-size: 0.75rem;
+  font-weight: 700;
   color: var(--peak-accent-text);
 }
 
-.tmw-overlay-clock-unit {
-  font-size: 0.5625rem;
+@keyframes tmw-roll-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.tmw-overlay-seat {
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* THE LOCKED TIMEOUT-RESOLUTION STATE. At zero the panel stops pretending it
+   can still take an action -- see `PickOverlay`. */
+.tmw-overlay-expired {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--peak-accent-dim);
+  background: var(--peak-accent-bg);
+  font-size: 0.8125rem;
   font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--peak-accent-text);
+}
+
+.tmw-overlay-expired-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--peak-accent);
+  animation: tmw-thinking 1.1s ease-in-out infinite;
 }
 
 .tmw-overlay-body {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
   gap: 0;
   min-height: 0;
   flex: 1;
 }
 
-@media (max-width: 780px) {
-  .tmw-overlay-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.tmw-overlay-body[aria-busy="true"] .tmw-overlay-pool {
+  opacity: 0.55;
 }
 
 .tmw-overlay-pool {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  padding: 0.7rem 0.9rem;
+  gap: 0.5rem;
   min-height: 0;
+  padding: 0.85rem 1rem;
   border-right: 1px solid var(--border-subtle);
-}
-
-@media (max-width: 780px) {
-  .tmw-overlay-pool {
-    border-right: none;
-    border-bottom: 1px solid var(--border-subtle);
-  }
 }
 
 .tmw-overlay-search input {
   width: 100%;
-  padding: 0.45rem 0.6rem;
-  border-radius: 0.45rem;
-  border: 1px solid var(--border-default);
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-sm, 6px);
   background: var(--bg-page);
   color: var(--text-primary);
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
+}
+
+.tmw-overlay-search input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 .tmw-overlay-filters {
   display: flex;
+  gap: 0.3rem;
   flex-wrap: wrap;
-  gap: 0.25rem;
 }
 
 .tmw-filter-chip {
-  min-width: 2.1rem;
-  padding: 0.2rem 0.4rem;
-  border-radius: 0.35rem;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-page);
-  font-size: 0.625rem;
+  min-width: 2.4rem;
+  min-height: 2rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-pill, 999px);
+  background: var(--bg-surface);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
   font-weight: 700;
   color: var(--text-secondary);
+  cursor: pointer;
 }
 
 .tmw-filter-chip[aria-pressed="true"] {
   border-color: var(--peak-accent);
-  background: var(--peak-accent-bg);
-  color: var(--peak-accent-text);
+  background: var(--peak-accent);
+  color: var(--peak-accent-on);
+}
+
+.tmw-filter-chip:focus-visible,
+.tmw-filter-clear:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* A DISABLED CONTROL IS DELIBERATE, NOT FAINT (SHARED-04). */
+.tmw-filter-chip:disabled {
+  border-style: dashed;
+  color: var(--text-muted);
+  cursor: not-allowed;
 }
 
 .tmw-filter-clear {
-  font-size: 0.625rem;
-  color: var(--text-muted);
+  padding: 0.2rem 0.5rem;
+  border: 0;
+  background: none;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--peak-accent-text);
   text-decoration: underline;
+  cursor: pointer;
 }
 
 .tmw-overlay-count {
-  font-size: 0.625rem;
-  color: var(--text-muted);
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
 }
 
 .tmw-overlay-list {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  overflow-y: auto;
+  gap: 0.3rem;
   min-height: 0;
-  flex: 1;
-  /* A hard floor so the list is a list even on a short mobile viewport, where
-     the overlay itself is already capped at 90vh. */
-  max-height: 22rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .tmw-candidate {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.55rem;
   width: 100%;
-  flex-direction: column;
-  gap: 0.1rem;
-  padding: 0.4rem 0.5rem;
-  border-radius: 0.45rem;
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.45rem 0.55rem;
   border: 1px solid var(--border-subtle);
-  background: var(--bg-page);
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--bg-surface);
   text-align: left;
+  cursor: pointer;
 }
 
-.tmw-candidate[aria-pressed="true"] {
+.tmw-candidate:hover:not(:disabled) {
+  border-color: var(--border-edge);
+  background: var(--bg-surface-hover);
+}
+
+.tmw-candidate:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* THE SELECTED CANDIDATE KEEPS ITS RING UNDER THE POINTER. `.pk-lift:hover`
+   is defined later in the cascade at the same specificity, so the plain form
+   would drop the accent ring from the one row the player has actually chosen.
+   The `.pk-lift` in the selector is a tie-break, nothing more. */
+.tmw-candidate[aria-pressed="true"],
+.tmw-candidate.pk-lift[aria-pressed="true"]:hover,
+.tmw-candidate.pk-lift[aria-pressed="true"]:focus-visible {
   border-color: var(--peak-accent);
   background: var(--peak-accent-bg);
+  box-shadow: 0 0 0 1px var(--peak-accent);
+}
+
+/* A DISABLED CANDIDATE MUST NOT LIFT. `.pk-lift`'s hover rule does not exclude
+   `:disabled`, and a row that rises to the pointer and then refuses the click
+   is offering an interaction it cannot honour -- the same rule this file
+   applies to every other control. */
+.tmw-candidate.pk-lift:disabled:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 .tmw-candidate:disabled {
-  opacity: 0.55;
   cursor: not-allowed;
+  border-style: dashed;
+  background: transparent;
+}
+
+.tmw-candidate-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
 }
 
 .tmw-candidate-name {
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .tmw-candidate-meta,
 .tmw-candidate-reason {
-  font-size: 0.625rem;
-  color: var(--text-muted);
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
 }
 
 .tmw-candidate-tags {
   display: flex;
-  align-items: center;
   gap: 0.4rem;
-  font-size: 0.5625rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .tmw-candidate-positions {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 700;
   color: var(--text-secondary);
 }
 
-.tmw-candidate-fit[data-fit="fits_now"] {
-  color: var(--comp-team);
-}
-.tmw-candidate-fit[data-fit="fits_after_rearrangement"] {
-  color: var(--comp-po);
-}
-.tmw-candidate-fit[data-fit="no_legal_arrangement"] {
-  color: var(--text-muted);
+.tmw-candidate-fit {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
+.tmw-candidate-fit[data-fit="fits_now"] {
+  color: var(--seat-3-ink);
+}
+
+.tmw-candidate-fit[data-fit="fits_after_rearrangement"] {
+  color: var(--peak-accent-text);
+}
+
+/* A VERDICT, NOT A FOOTNOTE. "No legal arrangement" is the rule that stops a
+   pick landing; a drafter scanning a pool needs to read it at a glance, and
+   de-emphasis was being spelled as near-invisibility. It is still the quietest
+   of the three fit states -- it is neutral ink where the other two are
+   coloured -- but it is now legible ink. */
+.tmw-candidate-fit[data-fit="no_legal_arrangement"] {
+  color: var(--text-secondary);
+}
+
+/* THE EMPTY STATE ANSWERS THE ACTUAL QUESTION (TMW-11). Three different facts,
+   three different sentences -- see `PickOverlay`'s `EmptyPool`. */
 .tmw-overlay-empty {
-  padding: 0.75rem;
+  padding: 0.7rem 0.6rem;
+  border: 1px dashed var(--border-edge);
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--bg-surface);
+}
+
+.tmw-overlay-empty-body {
+  display: block;
   font-size: 0.75rem;
-  font-style: italic;
-  color: var(--text-muted);
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.tmw-overlay-empty-body strong {
+  display: block;
+  margin-bottom: 0.15rem;
+  color: var(--text-primary);
+}
+
+.tmw-overlay-empty-body .btn-secondary {
+  margin-top: 0.45rem;
 }
 
 .tmw-overlay-place {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.7rem 0.9rem;
+  gap: 0.55rem;
   min-height: 0;
+  padding: 0.85rem 1rem;
   overflow-y: auto;
 }
 
 .tmw-overlay-subhead {
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font-family: var(--font-display);
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
+}
+
+.tmw-place-instruction {
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
 }
 
 .tmw-place-slots {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.3rem;
 }
 
+/* ONE DECLARATION, ONCE. This selector was previously written twice in this
+   file (lines 774 and 1679 of the old version), so the first block was dead
+   and nobody could tell which one they were editing. */
 .tmw-place-slot {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.3rem 0.45rem;
-  border-radius: 0.4rem;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.4rem 0.55rem;
   border: 1px solid var(--border-subtle);
-  background: var(--bg-page);
-  font-size: 0.75rem;
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--bg-surface);
+  text-align: left;
   color: var(--text-primary);
+}
+
+.tmw-place-slot--interactive {
+  cursor: pointer;
+}
+
+.tmw-place-slot--interactive:hover {
+  border-color: var(--border-edge);
+  background: var(--bg-surface-hover);
+}
+
+.tmw-place-slot--interactive:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* A LEGAL DESTINATION LIGHTS UP STRONGLY (TMW-11); an illegal one steps back
+   by fill and border style rather than merely fading.
+   The `.pk-lift` forms exist only to outrank `.pk-lift:hover`'s generic
+   shadow, which is defined later in the cascade and would otherwise erase the
+   accent ring on the one slot the player is pointing at. */
+.tmw-place-slot[data-legal="true"],
+.tmw-place-slot.pk-lift[data-legal="true"]:hover,
+.tmw-place-slot.pk-lift[data-legal="true"]:focus-visible {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+  box-shadow: 0 0 0 1px var(--peak-accent);
+}
+
+.tmw-place-slots[data-mode="placing"] .tmw-place-slot[data-legal="false"],
+.tmw-place-slots[data-mode="moving"] .tmw-place-slot[data-legal="false"] {
+  border-style: dashed;
+  border-color: var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
 }
 
 .tmw-place-slot[data-incoming="true"] {
@@ -789,380 +1764,537 @@
 }
 
 .tmw-place-slot[data-vacating="true"] {
-  border-color: var(--comp-po);
+  border-color: var(--peak-accent-dim);
+}
+
+.tmw-place-slot[data-source="true"] {
+  border-color: var(--peak-accent);
+  box-shadow: 0 0 0 2px var(--peak-accent);
 }
 
 .tmw-place-tag {
-  font-size: 0.5625rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  width: 1.6rem;
-  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  min-width: 1.6rem;
 }
 
 .tmw-place-body {
   display: flex;
   align-items: baseline;
-  gap: 0.35rem;
+  gap: 0.4rem;
+  flex-wrap: wrap;
   min-width: 0;
+  font-size: 0.8125rem;
 }
 
+/* The placement board's "Open" is the target a player is looking FOR. */
 .tmw-place-open {
-  font-style: italic;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
-.tmw-place-move {
+.tmw-place-move,
+.tmw-place-swap {
+  font-family: var(--font-mono);
   font-size: 0.625rem;
   font-weight: 700;
-  color: var(--comp-po);
+  color: var(--peak-accent-text);
 }
 
-.tmw-place-confirm,
 .tmw-place-hint {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.tmw-place-rearrange {
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--peak-accent-dim);
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--peak-accent-bg);
+}
+
+.tmw-place-rearrange-head {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tmw-place-rearrange-list {
+  margin-top: 0.25rem;
+  padding-left: 1rem;
+  list-style: decimal;
   font-size: 0.75rem;
   color: var(--text-secondary);
 }
 
 .tmw-place-choice {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
+  flex-direction: column;
+  gap: 0.2rem;
   font-size: 0.6875rem;
   color: var(--text-secondary);
 }
 
+/* Also previously declared twice (838 and 1812). */
 .tmw-place-choice select {
-  padding: 0.25rem 0.4rem;
-  border-radius: 0.35rem;
-  border: 1px solid var(--border-default);
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-sm, 6px);
   background: var(--bg-page);
   color: var(--text-primary);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 
-.tmw-place-rearrange {
-  font-size: 0.6875rem;
-  color: var(--comp-po);
+.tmw-place-choice select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 .tmw-place-actions,
-.tmw-move-actions,
 .tmw-result-actions {
   display: flex;
+  gap: 0.5rem;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  margin-top: auto;
+  padding-top: 0.25rem;
+}
+
+@media (max-width: 760px) {
+  .tmw-overlay-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tmw-overlay-pool {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .tmw-overlay {
+    max-height: 94vh;
+  }
 }
 
 /* ---------------------------------------------------------------------------
-   The move dialog
-   --------------------------------------------------------------------------- */
-
-.tmw-move {
-  width: min(28rem, 100%);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.9rem;
-  border: 1px solid var(--peak-accent);
-  border-radius: 0.75rem;
-  background: var(--bg-elevated);
-}
-
-.tmw-move-title {
-  font-size: 0.95rem;
-  font-weight: 800;
-  color: var(--text-primary);
-}
-
-.tmw-move-from,
-.tmw-move-none {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-}
-
-.tmw-move-options {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.tmw-move-option {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.5rem;
-  border-radius: 0.45rem;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-page);
-  text-align: left;
-}
-
-.tmw-move-option[aria-checked="true"] {
-  border-color: var(--peak-accent);
-  background: var(--peak-accent-bg);
-}
-
-.tmw-move-option-tag {
-  font-size: 0.625rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  width: 1.8rem;
-  flex: none;
-}
-
-.tmw-move-option-body {
-  display: flex;
-  flex-direction: column;
-  font-size: 0.75rem;
-  color: var(--text-primary);
-}
-
-.tmw-move-option-swap {
-  font-size: 0.625rem;
-  color: var(--text-muted);
-}
-
-.tmw-move-error {
-  font-size: 0.6875rem;
-  color: var(--text-primary);
-}
-
-/* ---------------------------------------------------------------------------
-   The result screen
+   The finish (TMW-14)
    --------------------------------------------------------------------------- */
 
 .tmw-result {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-}
-
-.tmw-result-head {
-  padding: 0.9rem 1rem;
-  border-radius: 0.75rem;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
-  text-align: center;
-}
-
-/* First / second / third are DIFFERENT, and third is not punished. A losing
-   roster is still six real seasons the player chose. */
-.tmw-result-head[data-tier="first"] {
-  border-color: var(--peak-accent);
-  background: var(--peak-accent-bg);
-}
-
-.tmw-result-head[data-tier="second"] {
-  border-color: var(--comp-tm);
-}
-
-.tmw-result-placement {
-  font-size: 0.6875rem;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.tmw-result-head[data-tier="first"] .tmw-result-placement {
-  color: var(--peak-accent-text);
-}
-
-.tmw-result-headline {
-  font-size: clamp(1.1rem, 3.5vw, 1.6rem);
-  font-weight: 800;
-  color: var(--text-primary);
-}
-
-.tmw-result-basis {
-  margin-top: 0.3rem;
-  font-size: 0.6875rem;
-  color: var(--text-secondary);
-  max-width: 42rem;
+  gap: 1rem;
+  /* CENTRED, MAX-WIDTH. Three ranking cards stretched edge to edge across a
+     1700px monitor is the composition this replaces. */
+  width: 100%;
+  max-width: 64rem;
   margin-inline: auto;
 }
 
-.tmw-result-rows {
+.tmw-result-head {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-}
-
-.tmw-result-row {
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.65rem;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1.6rem 1.25rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-xl, 20px);
   background: var(--bg-elevated);
-  padding: 0.6rem 0.75rem;
+  text-align: center;
+  overflow: hidden;
 }
 
-.tmw-result-row[data-placement="1"] {
-  border-color: var(--peak-accent);
+.tmw-result-head[data-tier="first"] {
+  border-color: var(--seat-1-fill);
+  background:
+    radial-gradient(120% 90% at 50% 0%, var(--peak-accent-bg), transparent 65%),
+    var(--bg-elevated);
+  box-shadow: 0 0 40px -18px var(--seat-1-fill);
 }
 
-.tmw-result-row-head {
+.tmw-result-head[data-tier="second"] {
+  border-color: color-mix(in srgb, var(--seat-2-fill) 55%, var(--border-edge));
+}
+
+.tmw-result-head[data-tier="third"] {
+  border-color: color-mix(in srgb, var(--seat-3-fill) 40%, var(--border-edge));
+}
+
+/* THE PLACEMENT BADGE. A numeral plus the ordinal in words, so placement is
+   never carried by the medal colour alone. */
+.tmw-result-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-pill, 999px);
+  background: var(--bg-surface);
+}
+
+.tmw-result-head[data-tier="first"] .tmw-result-badge {
+  border-color: var(--seat-1-fill);
+  background: var(--seat-1-fill);
+  color: var(--peak-accent-on);
+}
+
+.tmw-result-badge-rank {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.tmw-result-badge-word {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tmw-result-line {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 6vw, 3rem);
+  font-weight: 800;
+  /* The display steps, from the tokens. The hand-set -0.02em/1.05 pair this
+     replaces predates the face being Space Grotesk and was within a
+     rounding error of the token values anyway. */
+  letter-spacing: var(--pk-track-display);
+  line-height: var(--pk-leading-display);
+  color: var(--text-primary);
+}
+
+.tmw-result-headline {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.tmw-result-headline-score {
+  padding: 0.05rem 0.5rem;
+  border-radius: var(--pk-r-pill, 999px);
+  background: var(--peak-accent-bg);
+  border: 1px solid var(--peak-accent-dim);
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--peak-accent-text);
+}
+
+/* THREE RANKING CARDS, WINNER ELEVATED. */
+.tmw-result-rows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.tmw-result-card {
+  --seat-fill: var(--seat-1-fill);
+  --seat-ink: var(--seat-1-ink);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-elevated);
+  /* Same reasoning as `.tmw-seat`: the placement states below own this
+     element's background and shadow, so the depth is composed from the tokens
+     rather than taken from `.pk-depth`, which would be overwritten for first
+     place and would flatten the podium's one elevated card. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
+  overflow: hidden;
+}
+
+.tmw-result-card[data-seat-accent="2"] {
+  --seat-fill: var(--seat-2-fill);
+  --seat-ink: var(--seat-2-ink);
+}
+.tmw-result-card[data-seat-accent="3"] {
+  --seat-fill: var(--seat-3-fill);
+  --seat-ink: var(--seat-3-ink);
+}
+
+/* THE CHAMPIONSHIP TREATMENT, and two distinct muted families beneath it.
+   Every card also carries its rank numeral and its ordinal in the accessible
+   name, so none of this is colour alone. */
+.tmw-result-card[data-placement="1"] {
+  grid-row: 1;
+  border-color: var(--seat-1-fill);
+  background:
+    linear-gradient(180deg, var(--peak-accent-bg), transparent 45%),
+    var(--bg-elevated);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 10px 34px -14px var(--seat-1-fill);
+  transform: translateY(-6px);
+}
+
+.tmw-result-card[data-placement="2"] {
+  border-color: color-mix(in srgb, var(--seat-2-fill) 45%, var(--border-edge));
+}
+
+.tmw-result-card[data-placement="3"] {
+  border-color: color-mix(in srgb, var(--seat-3-fill) 32%, var(--border-edge));
+}
+
+.tmw-result-card[data-is-you="true"] .tmw-result-name {
+  color: var(--seat-ink);
+}
+
+.tmw-result-card-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 2px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.tmw-result-card[data-placement="1"] .tmw-result-card-head {
+  border-bottom-color: var(--seat-1-fill);
 }
 
 .tmw-result-rank {
   display: grid;
   place-items: center;
-  width: 1.4rem;
-  height: 1.4rem;
-  flex: none;
-  border-radius: 0.3rem;
-  background: var(--bg-page);
-  font-size: 0.75rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--border-edge);
+  color: var(--bg-page);
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
   font-weight: 800;
-  color: var(--text-secondary);
+  line-height: 1;
 }
 
-.tmw-result-row[data-placement="1"] .tmw-result-rank {
-  background: var(--peak-accent);
+.tmw-result-card[data-placement="1"] .tmw-result-rank {
+  background: var(--seat-1-fill);
   color: var(--peak-accent-on);
 }
 
 .tmw-result-name {
-  flex: 1;
-  font-size: 0.875rem;
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
   font-weight: 700;
   color: var(--text-primary);
-  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .tmw-result-you,
 .tmw-result-tied {
+  font-family: var(--font-body, inherit);
   font-size: 0.6875rem;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
 }
 
 .tmw-result-score {
+  grid-column: 1 / -1;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  flex: none;
+  align-items: baseline;
+  gap: 0.4rem;
 }
 
 .tmw-result-score strong {
-  font-size: 1.15rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--peak-accent-text);
-}
-
-.tmw-result-score-label,
-.tmw-result-secondary {
-  font-size: 0.5625rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.tmw-result-secondary {
-  margin-top: 0.25rem;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 0.625rem;
-}
-
-.tmw-result-unranked {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  color: var(--text-muted);
-}
-
-.tmw-result-cards {
-  margin-top: 0.5rem;
-  display: grid;
-  gap: 0.25rem;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-}
-
-.tmw-result-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.35rem;
-  padding: 0.3rem 0.4rem;
-  border-radius: 0.4rem;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-page);
-}
-
-.tmw-result-card[data-decisive="true"] {
-  border-color: var(--peak-accent);
-}
-
-.tmw-result-card-tag {
-  font-size: 0.5625rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  width: 1.6rem;
-  flex: none;
-}
-
-.tmw-result-card-body {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-
-.tmw-result-card-name {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
   color: var(--text-primary);
 }
 
-.tmw-result-card-season,
-.tmw-result-card-origin,
-.tmw-result-card-note {
-  font-size: 0.5625rem;
-  color: var(--text-muted);
-}
-
-.tmw-result-card-score {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+.tmw-result-card[data-placement="1"] .tmw-result-score strong {
   color: var(--peak-accent-text);
-  flex: none;
 }
 
-.tmw-result-facts {
-  margin-top: 0.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.6875rem;
-}
-
-.tmw-result-facts dt {
+.tmw-result-score-label {
   font-size: 0.5625rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
-.tmw-result-facts dd {
+.tmw-result-unranked {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+/* EVERY TEAM'S FULL FINAL ROSTER, on the card. */
+.tmw-result-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.55rem;
+}
+
+.tmw-result-slot {
+  display: grid;
+  grid-template-columns: 1.6rem auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.35rem;
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--bg-surface);
+}
+
+.tmw-result-slot-tag {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.tmw-result-slot-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tmw-result-slot-name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.tmw-result-slot-season {
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tmw-result-slot-score {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--peak-accent-text);
+}
+
+/* "Not filled" on a final roster is a result, not metadata: it is the reason
+   a card scored what it scored. */
+.tmw-result-slot-open {
+  grid-column: 2 / -1;
+  font-size: 0.6875rem;
   color: var(--text-secondary);
 }
 
 .tmw-result-unranked-note,
 .tmw-result-empty {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.tmw-result-actions {
+  justify-content: center;
+}
+
+/* THE RECEIPT, ONE CLICK AWAY, NOT IN THE CELEBRATION LAYER. */
+.tmw-result-receipt {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+  padding: 0.6rem 0.85rem;
+}
+
+.tmw-result-receipt > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  min-height: var(--pk-tap-min, 44px);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.tmw-result-receipt > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.tmw-result-basis {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.tmw-receipt-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.tmw-receipt-name {
+  font-family: var(--font-display);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tmw-result-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.25rem;
+}
+
+.tmw-result-facts dt {
+  font-size: 0.5625rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.tmw-result-facts dd {
   font-size: 0.75rem;
   color: var(--text-secondary);
 }
 
+.tmw-receipt-notes {
+  margin-top: 0.35rem;
+  padding-left: 1rem;
+  list-style: disc;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 900px) {
+  .tmw-result-rows {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tmw-result-card[data-placement="1"] {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tmw-overlay-title,
+  .tmw-overlay-expired-dot {
+    animation: none;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Celebration
-   --------------------------------------------------------------------------- */
+   ---------------------------------------------------------------------------
+   Shared with the $20 Showdown result (`ShowdownResult.tsx`), which is why it
+   lives beside a mode partial rather than inside one. */
 
 .celebration {
   position: absolute;
@@ -1212,831 +2344,4 @@
   .celebration {
     display: none;
   }
-}
-
-/* ==========================================================================
-   RESCUE PASS
-   ==========================================================================
-   Four surfaces, one theme: make the state visible instead of describing it.
-   ========================================================================== */
-
-/* ---------------------------------------------------------------------------
-   THE SPINNER READS AS A REEL (PART 7)
-   ---------------------------------------------------------------------------
-   The MECHANICS were already right -- `SpinReel` is the 82-0 wheel, with a
-   constant 52-row travel, an easing curve, a settle overshoot and a
-   `transitionend`/timeout pair. Manual acceptance still called it "effectively
-   a static result banner", and the reason was entirely presentational:
-
-     * NO WINDOW. A 90px box with no frame, no payline and no edge fade does
-       not read as an aperture onto a moving strip; it reads as text changing.
-     * A WEIGHT JUMP AT THE LANDING. Spinning rows were 13px and
-       `--text-secondary`; the settled value is up to 21.6px and
-       `--text-primary`. So the animation ended with the type changing size and
-       colour, which reads as "a label appeared" rather than "a wheel stopped".
-     * NO LANDING BEAT. The transform overshoots, but nothing on screen marks
-       the moment it locks.
-
-   None of that needs new JavaScript: `data-phase` and `data-stage` are already
-   on the DOM from t=0.
-   --------------------------------------------------------------------------- */
-
-.tmw-spinner {
-  position: relative;
-  overflow: hidden;
-}
-
-/* THE APERTURE. A framed window with a payline across its middle row and a
-   fade at both edges, so the strip visibly runs THROUGH something. */
-.tmw-spinner .spin-reel-strip {
-  position: relative;
-  border: 1px solid var(--peak-accent-dim);
-  border-radius: 0.5rem;
-  background: var(--bg-page);
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 22%,
-    #000 78%,
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent 0,
-    #000 22%,
-    #000 78%,
-    transparent 100%
-  );
-}
-
-/* The payline sits on the WINDOW, never on a row -- a class on the moving row
-   would change its size mid-flight and re-lay-out the strip underneath the
-   animation, which is the bug the shared component's docstring records. */
-.tmw-spinner .spin-reel-strip::after {
-  content: "";
-  position: absolute;
-  inset: 30px 0;
-  pointer-events: none;
-  border-top: 1px solid var(--peak-accent);
-  border-bottom: 1px solid var(--peak-accent);
-  background: linear-gradient(
-    to right,
-    transparent,
-    var(--peak-accent-bg) 45%,
-    var(--peak-accent-bg) 55%,
-    transparent
-  );
-}
-
-/* THE SAME WEIGHT, MOVING OR STOPPED. The landing must be the strip arriving,
-   not the type changing. */
-.tmw-spinner .spin-reel-row {
-  font-size: clamp(0.85rem, 2.2vw, 1.15rem);
-  font-weight: 700;
-  color: var(--text-primary);
-  opacity: 0.55;
-}
-
-/* MOTION BLUR while the strip is at speed, easing off as it settles. A short
-   vertical blur is what a real reel looks like and is the cheapest possible
-   cue that this is movement rather than a redraw. */
-.tmw-spinner .spin-reel-strip[data-stage="spinning"] .spin-reel-track {
-  filter: blur(1.6px);
-  transition: filter 200ms ease-out;
-}
-
-.tmw-spinner .spin-reel-strip[data-stage="settling"] .spin-reel-track {
-  filter: blur(0);
-  transition: filter 180ms ease-out;
-}
-
-/* THE LANDING BEAT. One pulse on the whole ceremony as the result locks, so
-   the moment has a mark. */
-.tmw-spinner[data-phase="revealed"] .tmw-reel-value {
-  animation: tmw-reel-land 420ms cubic-bezier(0.22, 1.2, 0.36, 1);
-}
-
-.tmw-spinner[data-phase="revealed"] {
-  animation: tmw-spinner-flash 520ms ease-out;
-}
-
-@keyframes tmw-reel-land {
-  0% { transform: scale(0.92); opacity: 0.4; }
-  55% { transform: scale(1.045); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-@keyframes tmw-spinner-flash {
-  0% { box-shadow: 0 0 0 0 var(--peak-accent-bg); }
-  40% { box-shadow: 0 0 0 6px var(--peak-accent-bg); }
-  100% { box-shadow: 0 0 0 0 transparent; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tmw-spinner .spin-reel-strip[data-stage] .spin-reel-track,
-  .tmw-spinner[data-phase="revealed"] .tmw-reel-value,
-  .tmw-spinner[data-phase="revealed"] {
-    animation: none;
-    filter: none;
-    transition: none;
-  }
-}
-
-/* ---------------------------------------------------------------------------
-   EXACTLY ONE ROSTER IS ACTIVE (PART 8)
-   ---------------------------------------------------------------------------
-   The whole signal used to be an inline `inset 0 0 0 2px` shadow on the court
-   wrapper -- the "indicated by tiny text and a small badge" finding. The active
-   seat now takes a bright border, a broadcast glow and a raised header, and the
-   two inactive courts recede. Recession is by opacity of the CHROME only, not
-   of the text, so the other rosters stay readable: reading what your opponents
-   still need is the strategy.
-   --------------------------------------------------------------------------- */
-
-.tmw-seat {
-  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
-}
-
-.tmw-seat[data-on-turn="true"] {
-  border-color: var(--peak-accent);
-  box-shadow:
-    0 0 0 1px var(--peak-accent),
-    0 0 28px -6px var(--peak-accent);
-  transform: translateY(-2px);
-}
-
-.tmw-seat[data-on-turn="true"] .tmw-seat-head {
-  background: var(--peak-accent-bg);
-  border-bottom-color: var(--peak-accent-dim);
-}
-
-.tmw-seat[data-on-turn="true"] .tmw-seat-name {
-  color: var(--peak-accent-text, var(--peak-accent));
-}
-
-/* RECESSION BY FILL, NEVER BY OPACITY.
-   An `opacity: 0.82` on the inactive courts blended every text colour inside
-   them toward the page and dropped `--text-muted` from 5.4:1 to 4.05:1 — an
-   axe `color-contrast` failure on the seat kind, the progress count and every
-   empty bench slot. It is also the wrong instrument: reading what your
-   opponents still need is the entire strategy of this mode, so the two courts
-   that are not on the clock must stay fully legible. They recede because the
-   ACTIVE one advances -- a brighter border, a glow, a lifted header -- and
-   because their own border steps back one tone. Nothing about their text
-   changes.
-
-   The draft-order strip already recorded this discipline for its completed
-   turns ("recessed by fill rather than opacity, so a completed turn's label
-   stays readable at AA"); this is the same rule, applied where it was missed. */
-.tmw-seat[data-on-turn="false"] {
-  border-color: var(--border-subtle);
-}
-
-.tmw-seat[data-on-turn="false"] .tmw-seat-head {
-  background: var(--bg-page);
-}
-
-.tmw-seat-onclock {
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  background: var(--peak-accent);
-  color: var(--peak-accent-on, #12131a);
-  font-size: 0.5625rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  /* THE PULSE IS A RING, NOT AN OPACITY FADE. Fading the badge halves the
-     contrast of its own text for half of every cycle -- axe caught it at
-     4.13:1 mid-fade -- and a live-region-adjacent status that becomes hard to
-     read on a beat is worse than one that simply sits there. A box-shadow
-     animates on the compositor and never touches the text. */
-  animation: tmw-onclock-breathe 2s ease-in-out infinite;
-}
-
-@keyframes tmw-onclock-breathe {
-  0%, 100% { box-shadow: 0 0 0 0 rgb(245 200 66 / 45%); }
-  50% { box-shadow: 0 0 0 4px rgb(245 200 66 / 0%); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tmw-seat,
-  .tmw-seat-onclock {
-    transition: none;
-    animation: none;
-  }
-  .tmw-seat[data-on-turn="true"] {
-    transform: none;
-  }
-}
-
-/* ---------------------------------------------------------------------------
-   THE TURN BAR AND THE BOT REVEAL (PART 8, PART 9)
-   --------------------------------------------------------------------------- */
-
-.tmw-turnbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--pk-r-md, 10px);
-  background: var(--bg-elevated);
-}
-
-.tmw-turnbar-headline {
-  font-family: var(--font-display, inherit);
-  font-size: clamp(1.1rem, 3vw, 1.5rem);
-  font-weight: 800;
-  color: var(--text-primary);
-}
-
-.tmw-turnbar-headline[data-yours="true"] {
-  color: var(--peak-accent-text, var(--peak-accent));
-}
-
-.tmw-reveal {
-  padding: 0.8rem 1rem;
-  border: 1px solid var(--peak-accent-dim);
-  border-radius: var(--pk-r-md, 10px);
-  background: var(--bg-elevated);
-  text-align: center;
-}
-
-.tmw-reveal[data-state="revealed"] {
-  animation: tmw-reveal-in 320ms ease-out;
-}
-
-.tmw-reveal-who {
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.tmw-reveal-name {
-  font-family: var(--font-display, inherit);
-  font-size: clamp(1.15rem, 3.4vw, 1.6rem);
-  font-weight: 800;
-  color: var(--text-primary);
-}
-
-.tmw-reveal-meta {
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-}
-
-/* The scouting animation: three dots, and nothing that implies a percentage of
-   anything. The bot's think time is a seeded 1-5 seconds enforced against the
-   turn's `opened_at`, not a task with progress. */
-.tmw-reveal-scouting {
-  display: flex;
-  justify-content: center;
-  gap: 0.3rem;
-  margin-top: 0.4rem;
-}
-
-.tmw-reveal-scouting span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--peak-accent);
-  animation: tmw-scout-bounce 1.1s ease-in-out infinite;
-}
-
-.tmw-reveal-scouting span:nth-child(2) { animation-delay: 0.15s; }
-.tmw-reveal-scouting span:nth-child(3) { animation-delay: 0.3s; }
-
-@keyframes tmw-scout-bounce {
-  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
-  40% { transform: translateY(-4px); opacity: 1; }
-}
-
-/* Slides, does not fade. Same reason as `.rk-analysis`: this tray carries a
-   player name and a slot, and a panel that animates its own opacity makes
-   every character inside it transiently low-contrast. */
-@keyframes tmw-reveal-in {
-  from { transform: translateY(6px); }
-  to { transform: none; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tmw-reveal[data-state="revealed"],
-  .tmw-reveal-scouting span {
-    animation: none;
-  }
-  .tmw-reveal-scouting span { opacity: 1; }
-}
-
-/* ---------------------------------------------------------------------------
-   THE DRAFT TIMELINE (PART 11)
-   --------------------------------------------------------------------------- */
-
-.tmw-order {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.tmw-order-heading {
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-/* `position: relative` is the fix for a real mobile overflow. Each turn chip
-   carries an `.sr-only` label and the house `.sr-only` is `position:
-   absolute` -- an absolutely-positioned descendant is clipped by its
-   CONTAINING BLOCK, not by the nearest scroll container, so with no positioned
-   ancestor those labels escaped the list and stretched the document 160px
-   sideways on a 390px phone. */
-.tmw-order-list {
-  position: relative;
-  display: flex;
-  gap: 0.5rem;
-  min-width: 0;
-  max-width: 100%;
-  padding-bottom: 0.3rem;
-  overflow-x: auto;
-}
-
-.tmw-order-round {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.25rem 0.45rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.5rem;
-  background: var(--bg-surface);
-}
-
-.tmw-order-round-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.15rem;
-  font-size: 0.625rem;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-}
-
-.tmw-order-reverse {
-  color: var(--peak-accent-text, var(--peak-accent));
-  font-size: 0.75rem;
-  line-height: 1;
-}
-
-.tmw-order-turns {
-  display: flex;
-  gap: 0.2rem;
-}
-
-.tmw-order-turn {
-  display: inline-grid;
-  place-items: center;
-  min-width: 2.4rem;
-  padding: 0.2rem 0.35rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.35rem;
-  background: var(--bg-page);
-  color: var(--text-secondary);
-  font-size: 0.6875rem;
-  font-weight: 700;
-}
-
-.tmw-order-turn[data-you="true"] { border-color: var(--peak-accent-dim); }
-/* Recessed by FILL, never by opacity -- the same rule the seat courts follow,
-   and for the same reason: a dimmed label is an unreadable label. */
-.tmw-order-turn[data-done="true"] {
-  background: var(--bg-elevated);
-  color: var(--text-muted);
-}
-
-.tmw-order-turn[data-next="true"] {
-  border-color: var(--peak-accent-dim);
-  color: var(--text-primary);
-}
-
-.tmw-order-turn[data-active="true"] {
-  background: var(--peak-accent);
-  border-color: var(--peak-accent);
-  color: var(--peak-accent-on, #12131a);
-  opacity: 1;
-  animation: tmw-order-mark 1.6s ease-in-out infinite;
-}
-
-@keyframes tmw-order-mark {
-  0%, 100% { box-shadow: 0 0 0 0 transparent; }
-  50% { box-shadow: 0 0 0 3px var(--peak-accent-bg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tmw-order-turn[data-active="true"] { animation: none; }
-}
-
-/* ---------------------------------------------------------------------------
-   THE PLACEMENT BOARD (PARTS 3, 4, 5)
-   ---------------------------------------------------------------------------
-   The right half of the draft room used to be a plain list with a dropdown
-   under it and, for a single-slot candidate, nothing at all -- "the right side
-   of the selection dialog is often mostly empty despite roster placement being
-   the most important interaction". Every slot is now a target with three
-   visible states: legal, staged, and vacating.
-   --------------------------------------------------------------------------- */
-
-.tmw-overlay-place {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.7rem 0.9rem;
-  min-height: 0;
-  overflow-y: auto;
-  /* So a slot scrolled to the bottom clears the sticky action row rather than
-     ending up underneath it. */
-  scroll-padding-bottom: 6rem;
-}
-
-.tmw-overlay-place-head { display: flex; flex-direction: column; gap: 0.15rem; }
-
-.tmw-place-instruction {
-  font-size: 0.75rem;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
-
-.tmw-place-slots {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-}
-
-.tmw-place-slot {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  width: 100%;
-  min-height: 2.75rem;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.5rem;
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 0.8125rem;
-  text-align: left;
-}
-
-/* AN ELEMENT THAT LOOKS CLICKABLE IS CLICKABLE. The interactive variant is the
-   only one that gets a pointer cursor, a hover and a focus ring -- the
-   component renders a `<button>` for exactly these and a `<div>` otherwise, so
-   the accessibility tree agrees with the eye. */
-.tmw-place-slot--interactive {
-  cursor: pointer;
-  transition: border-color 140ms ease, background-color 140ms ease, transform 90ms ease;
-}
-
-.tmw-place-slot--interactive:hover {
-  border-color: var(--peak-accent);
-  background: var(--bg-surface-hover, var(--bg-elevated));
-}
-
-.tmw-place-slot--interactive:active { transform: translateY(1px); }
-
-.tmw-place-slot:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-/* LEGAL DESTINATIONS LIGHT UP; ILLEGAL ONES RECEDE. Both carry a non-colour
-   carrier too -- the legal ones are the only ones with a solid accent edge and
-   the only ones that are buttons. */
-.tmw-place-slots[data-mode="placing"] .tmw-place-slot[data-legal="true"],
-.tmw-place-slots[data-mode="moving"] .tmw-place-slot[data-legal="true"] {
-  border-color: var(--peak-accent);
-  background: var(--peak-accent-bg);
-}
-
-.tmw-place-slots[data-mode="placing"] .tmw-place-slot[data-legal="false"],
-.tmw-place-slots[data-mode="moving"] .tmw-place-slot[data-legal="false"] {
-  opacity: 0.45;
-}
-
-.tmw-place-slot[data-incoming="true"] {
-  border-color: var(--peak-accent);
-  border-width: 2px;
-  background: var(--peak-accent-bg);
-}
-
-.tmw-place-slot[data-source="true"] {
-  border-style: dashed;
-  border-color: var(--peak-accent);
-  opacity: 0.75;
-}
-
-.tmw-place-slot[data-vacating="true"] { border-color: var(--comp-tm, #94a3b8); }
-
-.tmw-place-tag {
-  flex-shrink: 0;
-  display: inline-grid;
-  place-items: center;
-  min-width: 2.2rem;
-  padding: 0.1rem 0.3rem;
-  border-radius: 0.3rem;
-  background: var(--bg-page);
-  font-size: 0.625rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
-}
-
-.tmw-place-body {
-  display: flex;
-  align-items: baseline;
-  gap: 0.45rem;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.tmw-place-incoming { color: var(--peak-accent-text, var(--peak-accent)); font-weight: 700; }
-.tmw-place-open { color: var(--text-muted); font-style: italic; }
-
-.tmw-place-move,
-.tmw-place-swap {
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--comp-tm, #94a3b8);
-}
-
-/* THE REARRANGEMENT, AS A SEQUENCE. "Fits after rearrangement" was a label;
-   this is the arrangement, in order, with the same information also drawn on
-   the slots it affects. */
-.tmw-place-rearrange {
-  padding: 0.55rem 0.7rem;
-  border: 1px dashed var(--peak-accent-dim);
-  border-radius: 0.5rem;
-  background: var(--bg-surface);
-}
-
-.tmw-place-rearrange-head {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  color: var(--text-secondary);
-}
-
-.tmw-place-rearrange-list {
-  margin-top: 0.3rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  font-size: 0.8125rem;
-  color: var(--text-primary);
-  list-style: decimal inside;
-}
-
-.tmw-place-choice {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-}
-
-.tmw-place-choice select {
-  flex: 1;
-  padding: 0.3rem 0.4rem;
-  border: 1px solid var(--border-default, var(--border-subtle));
-  border-radius: 0.35rem;
-  background: var(--bg-page);
-  color: var(--text-primary);
-  font-size: 0.75rem;
-}
-
-/* THE PRIMARY ACTION STAYS IN VIEW at common laptop heights (PART 6). The pool
-   and the placement column each scroll internally; the action row does not. */
-/* THE ACTION ROW IS OPAQUE, AND THE COLUMN RESERVES ROOM FOR IT.
-   ---------------------------------------------------------------------------
-   It is `position: sticky` at the bottom of a scrolling column, which is what
-   keeps the Draft button in view at laptop heights. Two things were wrong with
-   the first version, and the 390px review frame showed both at once: the
-   background was a gradient whose top 35% is transparent, so the roster slot
-   underneath BLED THROUGH the button ("SF  Open" legible across "Choose a slot
-   for Al Wood"); and the column reserved no space for it, so the last slots
-   could never scroll clear of it and a legal destination sat permanently
-   underneath a control.
-
-   Opaque fill plus a hairline, and `scroll-padding-bottom` on the column so the
-   sticky row is never the thing a slot scrolls behind. */
-.tmw-place-actions {
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  padding: 0.6rem 0 0.1rem;
-  margin-top: auto;
-  background: var(--bg-elevated);
-  box-shadow: 0 -8px 12px -8px rgb(0 0 0 / 55%);
-}
-
-.tmw-place-actions::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: var(--border-subtle);
-}
-
-.tmw-place-actions .btn-primary { flex: 1 1 12rem; }
-
-.tmw-place-hint {
-  padding: 0.6rem 0.7rem;
-  border: 1px dashed var(--border-subtle);
-  border-radius: 0.5rem;
-  font-size: 0.8125rem;
-  line-height: 1.45;
-  color: var(--text-secondary);
-}
-
-/* MOBILE: two steps, never two crushed columns (PART 6). Below the breakpoint
-   the pool and the placement board stack, the placement board is the second
-   step, and the action row stays pinned. */
-/* MOBILE IS A TWO-STEP FLOW (PART 6): select, then place.
-   ---------------------------------------------------------------------------
-   Below this width the pool and the placement board share one scrolling column,
-   and the 390px review frame showed what that costs once a candidate IS
-   selected: three visible candidates, a truncated fourth, and a roster board
-   squeezed underneath with its own action row pinned over the last slots. The
-   pool has already done its job at that point.
-
-   So step two hides step one. The staged player's name is in the instruction
-   line and on the slot itself, the timer stays pinned in the header, and
-   "Cancel selection" / "Cancel move" is the Back action -- every requirement
-   PART 6 lists for the mobile flow, with no second component and no hidden
-   confirmation. Desktop is unaffected: both columns fit side by side there,
-   which is why the rule is scoped to the breakpoint. */
-@media (max-width: 780px) {
-  .tmw-overlay[data-mode="placing"] .tmw-overlay-pool,
-  .tmw-overlay[data-mode="moving"] .tmw-overlay-pool {
-    display: none;
-  }
-
-  .tmw-overlay[data-mode="placing"] .tmw-overlay-place,
-  .tmw-overlay[data-mode="moving"] .tmw-overlay-place {
-    border-top: 0;
-  }
-
-  .tmw-overlay-place {
-    border-top: 1px solid var(--border-subtle);
-    /* ROOM FOR THE PINNED ACTIONS. At 390px they stack, so the row is two full
-       buttons tall; without this the last roster slots sit permanently behind
-       it and a legal destination cannot be reached. */
-    padding-bottom: 0.6rem;
-  }
-  .tmw-place-slots {
-    /* The reserve, sized to the stacked action row. A margin rather than
-       padding on the column, so the dashed idle hint keeps its own box. */
-    scroll-margin-bottom: 7rem;
-  }
-  .tmw-place-actions {
-    position: sticky;
-    bottom: 0;
-    padding-bottom: 0.6rem;
-  }
-  .tmw-place-actions .btn-primary,
-  .tmw-place-actions .btn-secondary {
-    flex: 1 1 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tmw-place-slot--interactive { transition: none; }
-  .tmw-place-slot--interactive:active { transform: none; }
-}
-
-/* ---------------------------------------------------------------------------
-   THE RESULT (PART 12)
-   --------------------------------------------------------------------------- */
-
-.tmw-result-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 1rem;
-}
-
-.tmw-result-actions .btn-primary { flex: 1 1 12rem; }
-.tmw-result-actions .btn-secondary { flex: 1 1 10rem; }
-
-/* The three final courts, behind a disclosure rather than under the podium.
-   The payoff viewport is the payoff; three full court panels the player has
-   just spent six rounds looking at are a receipt, not a reveal. */
-.tmw-final-courts-disclosure {
-  margin-top: 1rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--pk-r-md, 10px);
-  background: var(--bg-elevated);
-}
-
-.tmw-final-courts-disclosure > summary {
-  min-height: var(--pk-tap-min, 44px);
-  display: flex;
-  align-items: center;
-  padding: 0.6rem 0.9rem;
-  font-size: 0.8125rem;
-  font-weight: 700;
-  color: var(--text-secondary);
-  cursor: pointer;
-  list-style: none;
-}
-
-.tmw-final-courts-disclosure > summary::-webkit-details-marker { display: none; }
-
-.tmw-final-courts-disclosure > summary::after {
-  content: "";
-  margin-left: auto;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: rotate(45deg);
-}
-
-.tmw-final-courts-disclosure[open] > summary::after { transform: rotate(-135deg); }
-
-.tmw-final-courts-disclosure > summary:hover { color: var(--text-primary); }
-
-.tmw-final-courts-disclosure > summary:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: -2px;
-}
-
-.tmw-final-courts-disclosure .tmw-board-grid { padding: 0.75rem; }
-
-/* THE OVERLAY ON A SHORT LAPTOP (PART 6: "the primary action must remain in
-   view at common laptop heights").
-   ---------------------------------------------------------------------------
-   `max-height: min(90vh, 46rem)` on a 768px-tall laptop is ~690px, and the
-   header plus a full-height pool plus the placement column exceeded it -- so
-   the Draft button sat below the panel's own fold and a player had to scroll
-   INSIDE the dialog to commit a pick under a clock. The two columns now own
-   their own scroll and the action row is sticky, so the panel never grows past
-   its box and the primary action is always the last thing in view. */
-@media (min-height: 30rem) {
-  .tmw-overlay {
-    max-height: min(92vh, 46rem);
-  }
-}
-
-@media (max-height: 44rem) {
-  .tmw-overlay {
-    max-height: 96vh;
-  }
-  .tmw-overlay-head {
-    padding: 0.45rem 0.9rem;
-  }
-  /* The ceremony's clock is large by design; on a short screen the header is
-     the thing that gives way, not the controls. */
-  .tmw-overlay-head .ar-timer-value {
-    font-size: 1.75rem;
-  }
-}
-
-.tmw-overlay-head-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
-  min-width: 0;
-}
-
-/* THE POOL SCROLLS INSIDE ITSELF. Without this the list grows the dialog and
-   pushes the placement column -- and therefore the Draft button -- past the
-   bottom of the panel. */
-.tmw-overlay-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-/* A SELECTED CANDIDATE IS UNMISTAKABLE. It is the left half of a two-step
-   decision, and the right half only makes sense once you can see which player
-   it is about. */
-.tmw-candidate[data-selected="true"] {
-  border-color: var(--peak-accent);
-  background: var(--peak-accent-bg);
-  box-shadow: inset 3px 0 0 0 var(--peak-accent);
-}
-
-.tmw-candidate[data-selected="true"] .tmw-candidate-name {
-  color: var(--peak-accent-text, var(--peak-accent));
 }

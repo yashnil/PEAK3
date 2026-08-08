@@ -68,32 +68,95 @@ def test_result_carries_its_own_version(index, opened_state):
 # ---------------------------------------------------------------------------
 # The policy
 # ---------------------------------------------------------------------------
-def test_auto_pick_takes_the_best_available_by_scoring_card(index, opened_state):
-    """"Best" means best by the number the roster is actually scored on --
-    not by a separate heuristic that could disagree with the result."""
+def test_auto_pick_never_takes_the_best_available(index, opened_state):
+    """TIMING OUT MUST NOT BE A STRATEGY.
+
+    The old policy handed the timed-out seat the highest-rated identity on the
+    board, and the surface advertised it -- so doing nothing was never worse
+    than playing, and a player who could not name a single 1990s Bull still
+    got Michael Jordan. The fallback now draws from the LOWER-VALUE half of
+    the legal, completability-preserving pool.
+    """
+    roll = opened_state.current_roll
     pick = auto_pick(opened_state, index)
-    assert pick.player_slug == "michael-jordan"
-    expected = index.scoring_card(
-        "michael-jordan", opened_state.current_roll.franchise_id, "1990s"
-    ).prime_score
-    assert pick.scoring_score == pytest.approx(expected)
+
+    scores = {
+        slug: index.scoring_card(slug, roll.franchise_id, roll.decade).prime_score
+        for slug in roll.eligible_slugs
+    }
+    best = max(scores, key=scores.__getitem__)
+    assert pick.player_slug != best
+    assert pick.scoring_score == pytest.approx(scores[pick.player_slug])
+
+    # Never above the median of what was legally available.
+    ordered = sorted(scores.values())
+    median = ordered[len(ordered) // 2]
+    assert pick.scoring_score <= median
+
+
+def test_the_timeout_fallback_cannot_beat_active_play_across_many_states(index):
+    """The property, not the anecdote: over many seeded rolls the fallback's
+    expected value must sit clearly below the top of the legal pool."""
+    from nba_peak.three_man_weave.config import stream_rng
+    from nba_peak.three_man_weave import feasibility as F
+
+    gaps = []
+    for seed in range(60):
+        state = D.create_match(seed)
+        roll = F.roll_next(
+            index,
+            state.rosters,
+            frozenset(),
+            1,
+            stream_rng(seed, "rolls"),
+            frozenset(),
+        )
+        assert roll is not None
+        state = D.set_roll(state, roll)
+        pick = auto_pick(state, index)
+        assert pick is not None
+        scores = sorted(
+            index.scoring_card(slug, roll.franchise_id, roll.decade).prime_score
+            for slug in roll.eligible_slugs
+        )
+        if len(scores) < 4:
+            continue
+        gaps.append(scores[-1] - pick.scoring_score)
+
+    assert gaps, "fixture assumption: some rolls had a usable pool"
+    # Every single state gives up something, and the average giveaway is large
+    # enough that a player cannot treat the clock as a free scout.
+    assert all(gap > 0 for gap in gaps)
+    assert sum(gaps) / len(gaps) > 5.0
+
+
+def test_the_timeout_fallback_is_stable_across_recomputation(index, opened_state):
+    """A refresh, a retry or a second sweep must not reroll the fallback."""
+    first = auto_pick(opened_state, index)
+    for _ in range(5):
+        assert auto_pick(opened_state, index).as_dict() == first.as_dict()
 
 
 def test_auto_pick_only_ever_returns_a_legal_placement(index, opened_state):
     pick = auto_pick(opened_state, index)
-    assert pick.slot_type in D.legal_slots_for_pick(opened_state, pick.seat_index, pick.player_slug)
+    assert pick.slot_type in D.legal_slots_for_pick(
+        opened_state,
+        pick.seat_index,
+        pick.player_slug,
+        opened_state.slot_rights(index),
+    )
     # And it is genuinely applicable.
-    D.apply_pick(opened_state, pick.player_slug, pick.slot_type)
+    D.apply_pick(opened_state, index, pick.player_slug, pick.slot_type)
 
 
 def test_auto_pick_respects_the_identity_lock(index):
     state = D.create_match(1)
     state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
-    state = D.apply_pick(state, "michael-jordan", "SG")
+    state = D.apply_pick(state, index, "michael-jordan", "SG")
     for _ in range(2):
         pick = auto_pick(state, index)
         assert pick.player_slug != "michael-jordan"
-        state = D.apply_pick(state, pick.player_slug, pick.slot_type)
+        state = D.apply_pick(state, index, pick.player_slug, pick.slot_type)
 
 
 def test_auto_pick_respects_hard_position_legality(index):

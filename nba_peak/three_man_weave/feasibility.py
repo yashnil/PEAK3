@@ -42,9 +42,13 @@ from typing import Mapping, Optional, Sequence
 
 from nba_peak.franchises import franchise_display_name
 from nba_peak.three_man_weave.config import MAX_ROLL_ATTEMPTS, MIN_ELIGIBLE_FOR_ROLL
-from nba_peak.three_man_weave.eligibility import EligibilityIndex
+from nba_peak.three_man_weave.eligibility import EligibilityIndex, rights_for_cards
 from nba_peak.three_man_weave.matching import find_assignment, has_perfect_matching
-from nba_peak.three_man_weave.positions import is_legal, legal_players_for_slot
+from nba_peak.three_man_weave.positions import (
+    SlotRights,
+    is_legal,
+    legal_players_for_slot,
+)
 from nba_peak.three_man_weave.schemas import Roll, Roster
 
 # Rejection codes, in the order the checks run. Machine-readable so the
@@ -84,7 +88,9 @@ class RollFeasibility:
         }
 
 
-def legal_choices_for_seat(roster: Roster, candidates: Sequence[str]) -> tuple[str, ...]:
+def legal_choices_for_seat(
+    roster: Roster, candidates: Sequence[str], rights: SlotRights
+) -> tuple[str, ...]:
     """Those candidates that fit at least one of THIS roster's open slots.
 
     Not "undrafted", not "has a position" -- fits a slot this particular seat
@@ -93,13 +99,16 @@ def legal_choices_for_seat(roster: Roster, candidates: Sequence[str]) -> tuple[s
     """
     open_slots = roster.open_slots()
     return tuple(
-        slug for slug in candidates if any(is_legal(slug, slot) for slot in open_slots)
+        slug
+        for slug in candidates
+        if any(is_legal(slug, slot, rights) for slot in open_slots)
     )
 
 
 def can_fill_open_slots(
     open_slots_by_seat: Mapping[int, Sequence[str]],
     available_slugs: Sequence[str],
+    rights: SlotRights,
 ) -> bool:
     """Can EVERY listed open slot, across ALL seats, be filled from one shared pool?
 
@@ -121,17 +130,20 @@ def can_fill_open_slots(
     if not left:
         return True
     pool = list(available_slugs)
-    adjacency = {node: legal_players_for_slot(node[1], pool) for node in left}
+    adjacency = {node: legal_players_for_slot(node[1], pool, rights) for node in left}
     return has_perfect_matching(left, adjacency)
 
 
 def can_complete_all_rosters(
     rosters: Sequence[Roster],
     available_slugs: Sequence[str],
+    rights: SlotRights,
 ) -> bool:
     """`can_fill_open_slots` for real rosters -- can every seat still finish?"""
     return can_fill_open_slots(
-        {roster.seat_index: roster.open_slots() for roster in rosters}, available_slugs
+        {roster.seat_index: roster.open_slots() for roster in rosters},
+        available_slugs,
+        rights,
     )
 
 
@@ -139,6 +151,7 @@ def _round_is_playable(
     rosters: Sequence[Roster],
     candidates: Sequence[str],
     undrafted_pool: Sequence[str],
+    rights: SlotRights,
 ) -> tuple[bool, Optional[dict[int, str]]]:
     """Checks 4 and 5 together: can this round be played AND the match finish?
 
@@ -155,7 +168,8 @@ def _round_is_playable(
     """
     seats = list(rosters)
     adjacency = {
-        roster.seat_index: legal_choices_for_seat(roster, candidates) for roster in seats
+        roster.seat_index: legal_choices_for_seat(roster, candidates, rights)
+        for roster in seats
     }
     assignment = find_assignment([roster.seat_index for roster in seats], adjacency)
     if assignment is None:
@@ -168,7 +182,7 @@ def _round_is_playable(
     per_seat_slots: list[list[str]] = []
     for roster in seats:
         slug = assignment[roster.seat_index]
-        options = [slot for slot in roster.open_slots() if is_legal(slug, slot)]
+        options = [slot for slot in roster.open_slots() if is_legal(slug, slot, rights)]
         if not options:  # pragma: no cover - find_assignment guarantees one
             return False, None
         per_seat_slots.append(options)
@@ -181,7 +195,7 @@ def _round_is_playable(
             roster.seat_index: tuple(slot for slot in roster.open_slots() if slot != used)
             for roster, used in zip(seats, combo)
         }
-        if can_fill_open_slots(hypothetical, remaining_pool):
+        if can_fill_open_slots(hypothetical, remaining_pool, rights):
             return True, assignment
     return False, None
 
@@ -194,7 +208,16 @@ def evaluate_roll(
     drafted_slugs: frozenset[str],
     used_roll_ids: frozenset[str] = frozenset(),
 ) -> RollFeasibility:
-    """Run all five checks against a candidate franchise x decade combination."""
+    """Run all five checks against a candidate franchise x decade combination.
+
+    POSITION RIGHTS ARE BUILT HERE, from the index, at two different grains --
+    see `eligibility.rights_for_cards`. The candidates on THIS roll and the
+    picks already on the rosters are committed to a season and get that
+    season's rights; the wider undrafted pool is not committed to a card yet,
+    so it gets the union across every roll it remains eligible for. Asking the
+    narrow question of the wide pool would reject rolls that are perfectly
+    playable.
+    """
     roll_id = f"{franchise_id.lower()}-{decade}"
 
     def reject(reason: str, undrafted: tuple[str, ...] = ()) -> RollFeasibility:
@@ -219,18 +242,32 @@ def evaluate_roll(
     if len(undrafted) < MIN_ELIGIBLE_FOR_ROLL:
         return reject(REJECT_TOO_FEW_ELIGIBLE, undrafted)
 
+    global_pool = _global_undrafted(index, drafted_slugs)
+    rights = rights_for_cards(
+        index,
+        committed=(
+            [(slug, franchise_id, decade) for slug in undrafted]
+            + [
+                (pick.player_slug, pick.franchise_id, pick.decade)
+                for roster in rosters
+                for pick in roster.picks()
+            ]
+        ),
+        potential=global_pool,
+    )
+
     for roster in rosters:
-        if not legal_choices_for_seat(roster, undrafted):
+        if not legal_choices_for_seat(roster, undrafted, rights):
             return reject(REJECT_SEAT_HAS_NO_LEGAL_PICK, undrafted)
 
-    global_pool = _global_undrafted(index, drafted_slugs)
-    ok, witness = _round_is_playable(rosters, undrafted, global_pool)
+    ok, witness = _round_is_playable(rosters, undrafted, global_pool, rights)
     if not ok:
         # Distinguish "this round cannot be dealt" from "it can, but it
         # strands the match" -- different rejections, and the difference
         # matters when auditing why a roll space narrowed.
         adjacency = {
-            roster.seat_index: legal_choices_for_seat(roster, undrafted) for roster in rosters
+            roster.seat_index: legal_choices_for_seat(roster, undrafted, rights)
+            for roster in rosters
         }
         dealt = find_assignment([roster.seat_index for roster in rosters], adjacency)
         reason = (

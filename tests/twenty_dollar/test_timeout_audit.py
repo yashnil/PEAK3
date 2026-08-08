@@ -93,6 +93,9 @@ def _play_with_timeouts(
             candidate = state["current_candidate"]
             standing = int(state["current_bid"] or 0)
             expected = S.timeout_outcome(state, seat_index, pool)
+            # Captured BEFORE the timeout applies: the pass this expiry is
+            # about to record is the thing that would make it true afterwards.
+            already_rejected = S.lot_has_prior_rejection(state)
 
             S.timeout_active_seat(state, pool)
             tally[expected] += 1
@@ -106,6 +109,7 @@ def _play_with_timeouts(
                     "lot_index": before_lot,
                     "candidate": candidate,
                     "standing_bid": standing,
+                    "lot_already_rejected": already_rejected,
                     "budget_before": before_budget,
                     "budget_after": state["seats"][seat_index]["budget"],
                     "skips_before": before_skips,
@@ -163,59 +167,87 @@ def _of(audit: dict, outcome: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def test_the_three_reachable_branches_are_exercised_many_times(audit):
+def test_the_four_branches_are_exercised_many_times(audit):
     """A branch reached twice is an anecdote; these are reached in the hundreds.
 
-    `TIMEOUT_FREE_PASS` is deliberately absent -- see
-    `test_the_free_pass_branch_is_structurally_unreachable_in_a_live_match`,
-    which is the stronger statement about it.
+    `TIMEOUT_FREE_PASS` USED TO BE UNREACHABLE and is now the follow-pass.
+    Before market skips distinguished the first rejection of an unopened lot
+    from a rejection that follows one, both seats were charged, so the only
+    free expiry was on a lot the seat could not have bought -- and
+    `_advance_lot` pre-passes those seats before they ever hold the clock, so
+    the branch could not fire. Following the other seat's rejection is now free
+    and is a perfectly ordinary thing to time out on.
     """
-    for outcome in (S.TIMEOUT_SKIP_USED, S.TIMEOUT_AUTO_OPEN, S.TIMEOUT_CONCEDED):
+    for outcome in (
+        S.TIMEOUT_SKIP_USED,
+        S.TIMEOUT_AUTO_OPEN,
+        S.TIMEOUT_CONCEDED,
+        S.TIMEOUT_FREE_PASS,
+    ):
         assert audit["tally"][outcome] >= 20, (
             f"{outcome} was reached only {audit['tally'][outcome]} times; "
             "the audit is not exercising it"
         )
 
 
-def test_the_free_pass_branch_is_structurally_unreachable_in_a_live_match(audit, pool):
-    """AND THAT IS A STRONGER GUARANTEE THAN "IT IS FREE".
+def test_a_timed_out_follow_pass_is_free_and_a_first_rejection_is_not(audit, pool):
+    """THE SKIP RULE, ASSERTED AT THE ONLY PLACE THAT SPENDS THE TOKEN.
 
-    The audit reaches `skip_used`, `auto_open` and `conceded` in the hundreds
-    and `free_pass` exactly zero times. That is not a hole in the audit; it is a
-    property of the board, and it is worth stating rather than papering over.
+    A market skip buys the right to take a player off the board. The FIRST seat
+    to reject an unopened lot makes that call and pays for it; the second is
+    answering a lot that is already dead -- the player is gone either way --
+    and pays nothing. Charging both burned two of a match's ten skips on one
+    worthless candidate, and pushed a player who happened to act second onto
+    `REJECT_NO_MARKET_SKIPS`, forced to open the bidding on someone they did
+    not want.
 
-    `_advance_lot` marks a seat `passed` BEFORE the lot opens if it cannot
-    legally acquire the candidate -- no room, no money under the reserve rule,
-    or no completable roster afterwards. `_next_actor` then skips passed seats,
-    so `active_seat` can never land on a seat with nothing to do. A seat facing
-    a candidate it cannot use is therefore never given a clock to run out, and
-    the "illegal-fit timeout" cannot occur in play.
-
-    Both halves are asserted: the invariant across every timed-out decision in
-    the sweep, and the rule itself on a constructed state, so the branch stays
-    correct for the day the pre-pass changes.
+    Asserted three ways: as an invariant over every timed-out decision in the
+    sweep, and on two constructed states so the rule stays correct even if the
+    sweep stops reaching it.
     """
-    # 1. The invariant, across the whole audit.
-    assert audit["tally"][S.TIMEOUT_FREE_PASS] == 0
+    # 1. The invariant, across the whole audit: an unopened lot charges the
+    #    first rejector and nobody else.
     for record in audit["records"]:
-        if record["standing_bid"] == 0:
-            # Nothing bid means the seat on the clock could use this candidate,
-            # so its expiry is a real decision and is charged (or forced to
-            # open when it has nothing left to charge).
+        if record["standing_bid"] != 0:
+            assert record["outcome"] == S.TIMEOUT_CONCEDED, record
+            continue
+        if record.get("lot_already_rejected"):
+            assert record["outcome"] == S.TIMEOUT_FREE_PASS, record
+        else:
             assert record["outcome"] in (S.TIMEOUT_SKIP_USED, S.TIMEOUT_AUTO_OPEN), record
 
-    # 2. The rule itself, on a state built to reach it. A seat with no money
-    #    cannot acquire anyone, so its pass is free.
+    # 2. The rule itself: the first rejection charges, the follow does not.
     state = S.initial_state(seed=89)
-    seat = state["active_seat"]
-    state["seats"][seat]["budget"] = 0
-    assert not S.pass_consumes_skip(state, seat, pool)
-    assert S.timeout_outcome(state, seat, pool) == S.TIMEOUT_FREE_PASS
-    before = S.market_skips(state, seat)
-    S.timeout_active_seat(state, pool)
-    assert S.market_skips(state, seat) == before
+    first = state["active_seat"]
+    second = 1 - first
+    assert S.pass_kind(state, first, pool) == S.PASS_MARKET_SKIP
+    before_first = S.market_skips(state, first)
+    before_second = S.market_skips(state, second)
 
-    # 3. And a seat whose roster is already complete is likewise free.
+    state, code, message = S.submit_action(state, first, S.COMMAND_PASS, 0, pool)
+    assert code is None, message
+    assert S.market_skips(state, first) == before_first - 1
+
+    if state.get("active_seat") == second and state["phase"] == S.PHASE_AUCTION:
+        assert S.lot_has_prior_rejection(state)
+        assert S.pass_kind(state, second, pool) == S.PASS_FOLLOW
+        assert not S.pass_consumes_skip(state, second, pool)
+        assert S.timeout_outcome(state, second, pool) == S.TIMEOUT_FREE_PASS
+        S.timeout_active_seat(state, pool)
+        assert S.market_skips(state, second) == before_second
+
+    # 3. A seat that cannot acquire the candidate at all is still free, which
+    #    is what this branch originally meant.
+    broke = S.initial_state(seed=97)
+    seat = broke["active_seat"]
+    broke["seats"][seat]["budget"] = 0
+    assert not S.pass_consumes_skip(broke, seat, pool)
+    assert S.timeout_outcome(broke, seat, pool) == S.TIMEOUT_FREE_PASS
+    before = S.market_skips(broke, seat)
+    S.timeout_active_seat(broke, pool)
+    assert S.market_skips(broke, seat) == before
+
+    # 4. And a seat whose roster is already complete is likewise free.
     full = S.initial_state(seed=97)
     other = full["active_seat"]
     full["seats"][other]["roster"] = [
@@ -421,10 +453,12 @@ def test_audit_report_is_printable(audit, capsys):
         ):
             share = tally[outcome] / total if total else 0.0
             print(f"  {outcome:<16}                 {tally[outcome]:>6}  ({share:6.2%})")
+        followed = sum(
+            1 for r in audit["records"] if r.get("lot_already_rejected")
+        )
         print(
-            "  free_pass is structurally unreachable in a live match "
-            "(a seat that cannot use the candidate is passed out before the "
-            "lot opens, so it never holds the clock)"
+            f"  free_pass is the follow-pass: {followed} expiries answered a lot "
+            "the other seat had already rejected, and none of them spent a token"
         )
         settled = sum(1 for r in audit["records"] if r["settled"])
         print(f"  expiries that settled a lot      {settled}")

@@ -3,14 +3,17 @@
  *
  * WHAT IS ASSERTED HERE IS PRODUCT RULES, NOT RENDERING. Each block below
  * corresponds to a rule the mode would be wrong without: that a candidate
- * carries no score, that a disabled candidate says why, that all three rosters
- * are on screen at once, that the result declares its basis and publishes no
- * projected record. A test that only checked "the component rendered" would
- * pass for every version of these components including the broken ones.
+ * carries no score, that a disabled candidate says why, that all three teams
+ * are on screen at once, that the result publishes no projected record.
+ *
+ * THE HEADLINE CONTRACT IN THIS FILE is the one in `ThreeManWeaveGame`: the
+ * round-opening ceremony may never overlap a running human decision window.
+ * That is the reveal/clock race SHARED-01 forbids and it is asserted directly,
+ * from the server's own turn state, rather than trusted to a timer.
  */
 import React from "react";
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import SeatCourt from "@/components/three-man-weave/SeatCourt";
@@ -18,20 +21,66 @@ import RosterBoard from "@/components/three-man-weave/RosterBoard";
 import PodiumReceipt from "@/components/three-man-weave/PodiumReceipt";
 import PickOverlay from "@/components/three-man-weave/PickOverlay";
 import IdentityLockPanel from "@/components/three-man-weave/IdentityLockPanel";
-import DraftOrderStrip from "@/components/three-man-weave/DraftOrderStrip";
-import BotPickReveal from "@/components/three-man-weave/BotPickReveal";
+import TurnStatus from "@/components/three-man-weave/TurnStatus";
 import WeaveSpinner from "@/components/three-man-weave/WeaveSpinner";
+import ThreeManWeaveGame from "@/components/three-man-weave/ThreeManWeaveGame";
 import type { TmwCandidate } from "@/lib/three-man-weave-state";
 import type {
   ArenaResultView,
   ArenaSeatPublic,
+  TmwMatchView,
   TmwPick,
   TmwPublicState,
   TmwRoll,
   TmwRoster,
 } from "@/types/three-man-weave";
+import {
+  TMW_REVEAL_SECONDS,
+  TMW_TURN_PHASE_PICK,
+  TMW_TURN_PHASE_REVEAL,
+} from "@/types/three-man-weave";
+
+/** Installs a `matchMedia` stub whose `(prefers-reduced-motion: reduce)` answer
+ * is `reduced`. jsdom has no `matchMedia` at all, so without this every
+ * component under test reads the hook's "unavailable" fallback of `false`. */
+function mockMatchMedia(reduced: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: query.includes("prefers-reduced-motion") ? reduced : false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
+const getMatch = vi.fn();
+const getMatchResults = vi.fn();
+const submitCommand = vi.fn();
+
+vi.mock("@/lib/arena-api", () => ({
+  ArenaAPIError: class ArenaAPIError extends Error {
+    constructor(
+      public status: number,
+      public detail: string,
+      public code?: string,
+    ) {
+      super(detail);
+    }
+  },
+  commandIdempotencyKey: () => "idem",
+  getMatch: (...args: unknown[]) => getMatch(...args),
+  getMatchResults: (...args: unknown[]) => getMatchResults(...args),
+  submitCommand: (...args: unknown[]) => submitCommand(...args),
+}));
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -161,6 +210,68 @@ function publicState(overrides: Partial<TmwPublicState> = {}): TmwPublicState {
   };
 }
 
+function matchView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
+  return {
+    match_id: "m-1",
+    mode: "three_man_weave",
+    mode_version: "tmw_ruleset_v2",
+    model_version: "peak3_v1",
+    status: "active",
+    state_version: 4,
+    seat_count: 3,
+    entry_path: "practice",
+    rated: false,
+    your_seat_index: 0,
+    seats: SEATS,
+    public_state: publicState(),
+    private_state: {
+      seat_index: 0,
+      candidate_fits: {
+        "kawhi-leonard": {
+          player_slug: "kawhi-leonard",
+          state: "fits_now",
+          direct_slots: ["SF"],
+          plan: null,
+          moves: [],
+          reason: null,
+        },
+      },
+    },
+    legal_commands: ["tmw_pick", "tmw_rearrange"],
+    current_turn_seat_index: 0,
+    seconds_remaining: 45,
+    turn_phase: TMW_TURN_PHASE_PICK,
+    latest_event_seq: 3,
+    room_code: null,
+    ...overrides,
+  };
+}
+
+/**
+ * THE MATCH AS THE SERVER SENDS IT DURING THE CEREMONY, field for field.
+ *
+ * Every one of these is what `_build_view` actually publishes while the reveal
+ * turn is open, and each is load-bearing:
+ *
+ *   * `turn_phase: "reveal"` — the only thing the room switches on;
+ *   * `current_turn_seat_index: null` — the ceremony belongs to no seat;
+ *   * `seconds_remaining` — published to EVERY seat when a turn names none, so
+ *     all three participants count the same beat down;
+ *   * `legal_commands` still containing `tmw_pick` — `project` derives it from
+ *     the snapshot's `current_seat`, which already names the seat that picks
+ *     next. A room that trusted `legal_commands` alone would open the pick
+ *     panel over the ceremony, which is the regression these tests hold shut.
+ */
+function ceremonyView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
+  return matchView({
+    turn_phase: TMW_TURN_PHASE_REVEAL,
+    current_turn_seat_index: null,
+    seconds_remaining: TMW_REVEAL_SECONDS,
+    legal_commands: ["tmw_pick", "tmw_rearrange"],
+    ...overrides,
+  });
+}
+
 function result(overrides: Partial<ArenaResultView> = {}): ArenaResultView {
   return {
     seat_index: 0,
@@ -202,11 +313,134 @@ function result(overrides: Partial<ArenaResultView> = {}): ArenaResultView {
 }
 
 // ---------------------------------------------------------------------------
-// The roster board
+// THE REVEAL/CLOCK RACE (SHARED-01, TMW-06)
+// ---------------------------------------------------------------------------
+
+describe("the ceremony is the server's reveal phase, and nothing else", () => {
+  beforeEach(() => {
+    mockMatchMedia(false);
+    getMatch.mockReset();
+    getMatchResults.mockReset();
+    submitCommand.mockReset();
+    getMatch.mockImplementation(async () => matchView());
+    getMatchResults.mockResolvedValue({ results: [] });
+  });
+
+  it("mounts the ceremony on a round the HUMAN leads, and holds the pick panel shut", () => {
+    // THE REGRESSION THIS EXISTS TO PREVENT, IN BOTH ITS FORMS.
+    //
+    // First form: the ceremony was a 2270ms client `setTimeout` gating the pick
+    // overlay while the server's 45-second deadline -- stamped when the turn
+    // opened -- was already running, so a player leading a round lost the whole
+    // ceremony off a clock counting down behind an overlay that would not open.
+    //
+    // Second form, the workaround: the room refused to mount the ceremony at
+    // all when `!yourTurn` was false, which removed the race by removing the
+    // product requirement. On every round the human led, there was no reveal.
+    //
+    // Neither is possible now. The reveal is a server turn; the room shows it
+    // whenever the server says it is open, and the pick panel is shut for
+    // exactly as long -- even though `legal_commands` already advertises
+    // `tmw_pick`, because the snapshot's `current_seat` names this seat.
+    render(<ThreeManWeaveGame initialMatch={ceremonyView({ your_seat_index: 0 })} />);
+
+    expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
+    expect(screen.getByTestId("tmw-roll")).toBeInTheDocument();
+    expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
+    expect(screen.getByTestId("tmw-room")).toHaveAttribute("data-turn-phase", "reveal");
+  });
+
+  it("opens the pick panel only once the server's phase flips to pick", () => {
+    const { rerender } = render(
+      <ThreeManWeaveGame initialMatch={ceremonyView({ your_seat_index: 0 })} />,
+    );
+    expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
+
+    // The same match, one phase later: the sweep ended the ceremony and the
+    // mode opened the pick turn with a FULL window measured from that instant.
+    rerender(
+      <ThreeManWeaveGame
+        key="pick"
+        initialMatch={matchView({
+          turn_phase: TMW_TURN_PHASE_PICK,
+          current_turn_seat_index: 0,
+          seconds_remaining: 45,
+        })}
+      />,
+    );
+    expect(screen.queryByTestId("tmw-ceremony-scrim")).toBeNull();
+    expect(screen.getByTestId("tmw-pick-overlay")).toBeInTheDocument();
+    expect(screen.getByTestId("tmw-overlay-roll")).toHaveTextContent("Toronto Raptors");
+    expect(screen.getByTestId("tmw-overlay-roll")).toHaveTextContent("2010s");
+  });
+
+  it("plays the same ceremony on a round a bot leads", () => {
+    // Identical assertions to the human-led case, deliberately: the whole point
+    // of moving the reveal server-side is that the two are the same event.
+    render(
+      <ThreeManWeaveGame
+        initialMatch={ceremonyView({
+          public_state: publicState({ current_seat: 1 }),
+        })}
+      />,
+    );
+    expect(screen.getByTestId("tmw-ceremony-scrim")).toBeInTheDocument();
+    expect(screen.getByTestId("tmw-roll")).toBeInTheDocument();
+    expect(screen.queryByTestId("tmw-pick-overlay")).toBeNull();
+  });
+
+  it("resumes a reload mid-ceremony where the server says it is, not from the start", () => {
+    // A reload is a fresh mount with whatever `seconds_remaining` the server
+    // sends. With 0.3s of a 3.2s window left the ceremony is nearly over, so it
+    // must render RESOLVED -- not replay the reel it already finished, and not
+    // vanish either.
+    const nearlyDone = render(
+      <ThreeManWeaveGame initialMatch={ceremonyView({ seconds_remaining: 0.3 })} />,
+    );
+    expect(nearlyDone.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true");
+    expect(nearlyDone.queryByTestId("tmw-pick-overlay")).toBeNull();
+    nearlyDone.unmount();
+
+    // ...whereas a match that has only just opened the reveal is at its start.
+    const justOpened = render(<ThreeManWeaveGame initialMatch={ceremonyView()} />);
+    expect(justOpened.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "false");
+  });
+
+  it("has exactly one turn-status region and none of the three it replaced", () => {
+    // TMW-07 and TMW-08: the spinner banner, the "X is selecting" band, the
+    // "X is scouting / X drafted" tray and the eighteen-chip snake strip were
+    // four surfaces describing one turn.
+    render(<ThreeManWeaveGame initialMatch={matchView({ current_turn_seat_index: 1 })} />);
+    expect(screen.getAllByTestId("tmw-turnbar")).toHaveLength(1);
+    expect(screen.queryByTestId("tmw-draft-order")).toBeNull();
+    expect(screen.queryByTestId("tmw-bot-reveal")).toBeNull();
+  });
+
+  it("never renders the duplicate final-rosters disclosure on the result", async () => {
+    getMatchResults.mockResolvedValue({ results: [result()] });
+    render(
+      <ThreeManWeaveGame
+        initialMatch={matchView({
+          status: "completed",
+          current_turn_seat_index: null,
+          seconds_remaining: null,
+          public_state: publicState({ is_complete: true }),
+        })}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("tmw-podium")).toBeInTheDocument());
+    // TMW-14: the rosters ARE the ranking cards now, so a second collapsed copy
+    // of all three courts under the podium is duplication, not disclosure.
+    expect(screen.queryByTestId("tmw-final-courts-toggle")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The three-team board
 // ---------------------------------------------------------------------------
 
 describe("RosterBoard", () => {
-  it("renders all three rosters at once, not one at a time", () => {
+  it("renders all three teams at once, not one at a time", () => {
     render(
       <RosterBoard
         state={publicState()}
@@ -223,7 +457,7 @@ describe("RosterBoard", () => {
     }
   });
 
-  it("offers every roster as a tab on mobile, with its own count", () => {
+  it("offers every team as a tab on mobile, with its own count", () => {
     render(
       <RosterBoard
         state={publicState()}
@@ -251,6 +485,88 @@ describe("RosterBoard", () => {
     );
     expect(screen.getAllByTestId("tmw-seat-edge-0")[0]).toHaveTextContent("Leading");
   });
+
+  // -- rearrangement during normal gameplay (TMW-10) -------------------------
+
+  function boardWithRoster() {
+    const onMove = vi.fn();
+    const state = publicState({
+      rosters: [
+        roster(0, {
+          SF: pick({ player_slug: "larry-bird", player_name: "Larry Bird", slot_type: "SF" }),
+          PG: pick({
+            player_slug: "kyle-lowry",
+            player_name: "Kyle Lowry",
+            positions: ["PG"],
+            slot_type: "PG",
+          }),
+        }),
+        roster(1),
+        roster(2),
+      ],
+    });
+    render(
+      <RosterBoard
+        state={state}
+        seats={SEATS}
+        yourSeatIndex={0}
+        // NOT your turn: the whole point of TMW-10 is that roster management is
+        // not locked behind the draft modal.
+        currentTurnSeatIndex={1}
+        onMove={onMove}
+      />,
+    );
+    return { onMove };
+  }
+
+  it("moves a card to a legal slot between turns and commits a COMPLETE assignment", async () => {
+    const { onMove } = boardWithRoster();
+    const court = screen.getAllByTestId("tmw-seat-court-0")[0];
+    await userEvent.click(within(court).getByTestId("tmw-slot-SF"));
+    expect(within(court).getByTestId("tmw-slot-SF")).toHaveAttribute(
+      "data-picked-up",
+      "true",
+    );
+    // The bench accepts anyone, so it lights up.
+    expect(within(court).getByTestId("tmw-slot-bench_1")).toHaveAttribute(
+      "data-legal",
+      "true",
+    );
+    await userEvent.click(within(court).getByTestId("tmw-slot-bench_1"));
+    expect(onMove).toHaveBeenCalledWith({ PG: "kyle-lowry", bench_1: "larry-bird" });
+  });
+
+  it("refuses an illegal destination immediately, by player and by rule", async () => {
+    const { onMove } = boardWithRoster();
+    const court = screen.getAllByTestId("tmw-seat-court-0")[0];
+    // Larry Bird plays SF/PF. Point guard is not a legal destination, and the
+    // slot is still a real target so the refusal can be specific rather than a
+    // dead click.
+    await userEvent.click(within(court).getByTestId("tmw-slot-SF"));
+    expect(within(court).getByTestId("tmw-slot-PG")).toHaveAttribute("data-legal", "false");
+    await userEvent.click(within(court).getByTestId("tmw-slot-PG"));
+    expect(onMove).not.toHaveBeenCalled();
+    expect(screen.getByTestId("tmw-move-notice")).toHaveTextContent(/Larry Bird/);
+    expect(screen.getByTestId("tmw-move-notice")).toHaveTextContent(/SF \/ PF/);
+  });
+
+  it("cancels a selection with Escape", async () => {
+    boardWithRoster();
+    const court = screen.getAllByTestId("tmw-seat-court-0")[0];
+    await userEvent.click(within(court).getByTestId("tmw-slot-SF"));
+    await userEvent.keyboard("{Escape}");
+    expect(within(court).getByTestId("tmw-slot-SF")).toHaveAttribute(
+      "data-picked-up",
+      "false",
+    );
+  });
+
+  it("never makes an opponent's court interactive", () => {
+    boardWithRoster();
+    const theirs = screen.getAllByTestId("tmw-seat-court-1")[0];
+    expect(theirs).toHaveAttribute("data-interactive", "false");
+    expect(within(theirs).getByTestId("tmw-slot-SF").tagName).not.toBe("BUTTON");
+  });
 });
 
 describe("SeatCourt", () => {
@@ -267,93 +583,136 @@ describe("SeatCourt", () => {
     const panel = screen.getByTestId("tmw-seat-court-1");
     expect(within(panel).getByRole("heading")).toHaveTextContent("Floor General");
     expect(within(panel).getByTestId("tmw-seat-progress-1")).toHaveTextContent("1/6");
-    // THE ON-THE-CLOCK STATE, not a per-seat countdown. Three of those ticked
-    // once a second and re-rendered three whole court panels for a number that
-    // belongs beside the controls; `ArenaTimer` owns the count now, and this
-    // seat carries only the state -- which changes when the turn does.
     expect(within(panel).getByTestId("tmw-seat-onclock-1")).toBeInTheDocument();
   });
 
-  it("shows bot thinking and the pick reveal in the room, not on each court", () => {
-    // PART 9. A bot pick used to appear between two polls with no transition:
-    // a seat went from empty to filled and nothing marked the moment. The
-    // server already enforces a 1-5s think time against `arena_turns.opened_at`,
-    // so the board genuinely does render the bot on the clock first -- the
-    // client simply had nowhere to say so.
-    render(
-      <BotPickReveal
-        state={publicState({ rosters: [roster(0), roster(1), roster(2)] })}
-        seats={SEATS}
-        currentTurnSeatIndex={1}
-        yourSeatIndex={0}
-      />,
+  it("gives every seat its own accent AND says which one is yours in words", () => {
+    // TMW-09. All three seats used to be painted in the single brand gold and
+    // told apart by a letter glyph, and `data-is-you` was emitted with zero CSS
+    // attached. Colour is now a real signal -- and never the only one.
+    const { rerender } = render(
+      <SeatCourt roster={roster(0)} seat={SEATS[0]} isYou isOnTurn={false} />,
     );
-    const tray = screen.getByTestId("tmw-bot-reveal");
-    expect(tray).toHaveAttribute("data-state", "scouting");
-    expect(tray).toHaveTextContent("Floor General is scouting");
+    const yours = screen.getByTestId("tmw-seat-court-0");
+    expect(yours).toHaveAttribute("data-seat-accent", "1");
+    expect(yours).toHaveAttribute("data-is-you", "true");
+    expect(yours).toHaveTextContent("You");
+
+    rerender(
+      <SeatCourt roster={roster(2)} seat={SEATS[2]} isYou={false} isOnTurn={false} />,
+    );
+    expect(screen.getByTestId("tmw-seat-court-2")).toHaveAttribute("data-seat-accent", "3");
   });
 
-  it("shows the scoring season and score on a drafted card, and no trade chip", () => {
+  it("shows a headshot, the scoring season and the score on a drafted card", () => {
     render(
-      <SeatCourt
-        roster={roster(0, { SF: pick() })}
-        seat={SEATS[0]}
-        isYou
-        isOnTurn={false}
-      />,
+      <SeatCourt roster={roster(0, { SF: pick() })} seat={SEATS[0]} isYou isOnTurn={false} />,
     );
-    const cell = screen.getByTestId("tmw-slot-season-SF");
-    expect(cell).toHaveTextContent("2018-19 TOR");
-    expect(cell).toHaveTextContent("84.0");
+    const slot = screen.getByTestId("tmw-slot-SF");
+    // SHARED-03: the one shared avatar primitive, not a second image path.
+    expect(within(slot).getByTestId("player-avatar")).toBeInTheDocument();
+    expect(within(slot).getByTestId("tmw-slot-season-SF")).toHaveTextContent("2018-19 TOR");
+    expect(slot).toHaveTextContent("84.0");
+    // The position label is on the card, which is what makes a legal/illegal
+    // rearrangement readable without opening anything.
+    expect(slot).toHaveTextContent("SF / PF");
     // "via trade" appeared beside most stars and told a reader nothing they
     // could act on; the team and season already say where the card comes from.
-    expect(cell).not.toHaveTextContent(/via trade/i);
+    expect(slot).not.toHaveTextContent(/via trade/i);
   });
 
-  it("no longer offers a move control on the board itself", () => {
-    // THE MOVEMENT CONTROL MOVED INTO THE DRAFT ROOM. A card that was a button
-    // on all three courts -- two of which belong to opponents and did nothing
-    // when pressed -- was offering an interaction it could not honour, and the
-    // move it did offer opened a second dialog over the board that manual
-    // acceptance found nobody discovered. `PlacementBoard` owns it now, where a
-    // move can be previewed against a staged pick and committed with it.
+  it("is read-only unless it is your own court in a live match", () => {
     render(
-      <SeatCourt
-        roster={roster(0, { SF: pick() })}
-        seat={SEATS[0]}
-        isYou
-        isOnTurn={false}
-      />,
+      <SeatCourt roster={roster(0, { SF: pick() })} seat={SEATS[0]} isYou isOnTurn={false} />,
     );
     expect(screen.getByTestId("tmw-slot-SF").tagName).not.toBe("BUTTON");
   });
 
   it("marks exactly one roster as being on the clock", () => {
-    // PART 8. The active treatment used to be a 2px inline inset shadow, which
-    // is the "indicated by tiny text and a small badge" finding. It is now a
-    // data attribute the stylesheet turns into a bright border, a glow and a
-    // dimming of the inactive courts -- and it carries a text label too, so the
-    // signal is not colour alone.
     const { rerender } = render(
       <SeatCourt roster={roster(0)} seat={SEATS[0]} isYou isOnTurn />,
     );
-    expect(screen.getByTestId("tmw-seat-court-0")).toHaveAttribute(
-      "data-on-turn",
-      "true",
-    );
+    expect(screen.getByTestId("tmw-seat-court-0")).toHaveAttribute("data-on-turn", "true");
     expect(screen.getByTestId("tmw-seat-onclock-0")).toBeInTheDocument();
 
     rerender(<SeatCourt roster={roster(0)} seat={SEATS[0]} isYou isOnTurn={false} />);
-    expect(screen.getByTestId("tmw-seat-court-0")).toHaveAttribute(
-      "data-on-turn",
-      "false",
-    );
+    expect(screen.getByTestId("tmw-seat-court-0")).toHaveAttribute("data-on-turn", "false");
     expect(screen.queryByTestId("tmw-seat-onclock-0")).toBeNull();
   });
 });
 
 // ---------------------------------------------------------------------------
-// The pick overlay
+// The one turn-status surface
+// ---------------------------------------------------------------------------
+
+describe("TurnStatus", () => {
+  function renderStatus(
+    overrides: Partial<React.ComponentProps<typeof TurnStatus>> = {},
+  ) {
+    render(
+      <TurnStatus
+        state={publicState()}
+        seats={SEATS}
+        currentTurnSeatIndex={1}
+        yourSeatIndex={0}
+        complete={false}
+        pickNumber={2}
+        totalPicks={18}
+        deadlineAt={null}
+        turnSeconds={45}
+        timeoutConsequence="Running out drafts a weaker legal fallback for you."
+        {...overrides}
+      />,
+    );
+  }
+
+  it("carries everything the four deleted strips used to say, in one place", () => {
+    renderStatus();
+    // TMW-08: round, pick, the rolled constraint, the active seat, progress.
+    expect(screen.getByTestId("tmw-turnbar-round")).toHaveTextContent("Round 1 of 6");
+    expect(screen.getByTestId("tmw-turnbar-round")).toHaveTextContent("Pick 2 of 18");
+    expect(screen.getByTestId("tmw-turnbar-roll")).toHaveTextContent("Toronto Raptors");
+    expect(screen.getByTestId("tmw-turnbar-roll")).toHaveTextContent("2010s");
+    expect(screen.getByTestId("tmw-turn-spotlight")).toHaveTextContent(
+      "Floor General is on the clock",
+    );
+    expect(screen.getByTestId("tmw-turn-progress")).toHaveTextContent("0/6");
+  });
+
+  it("announces turn changes politely and never announces a ticking number", () => {
+    renderStatus();
+    expect(screen.getByTestId("tmw-turn-spotlight")).toHaveAttribute("aria-live", "polite");
+    // The only live region in this surface is the headline.
+    const regions = document.querySelectorAll(
+      '[data-testid="tmw-turnbar"] [aria-live]',
+    );
+    expect(regions).toHaveLength(1);
+  });
+
+  it("shows a visible clock for a deliberating bot", async () => {
+    // TMW-05: the bot's think time is now 4-10 seconds, longer than the client
+    // poll interval, so the deliberation is genuinely observable. The API sends
+    // no deadline for a seat that is not yours, so this clock counts UP rather
+    // than inventing a countdown.
+    renderStatus();
+    await waitFor(() =>
+      expect(screen.getByTestId("tmw-bot-clock")).toHaveTextContent(/Deliberating/),
+    );
+  });
+
+  it("states what running out of time does, and never promises the best available", () => {
+    renderStatus({
+      currentTurnSeatIndex: 0,
+      deadlineAt: performance.now() + 30_000,
+    });
+    const consequence = screen.getByTestId("tmw-turn-clock-consequence");
+    expect(consequence).toHaveTextContent(/weaker legal fallback/i);
+    expect(consequence.textContent).not.toMatch(/best available/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The pick surface
 // ---------------------------------------------------------------------------
 
 describe("PickOverlay", () => {
@@ -367,16 +726,19 @@ describe("PickOverlay", () => {
         roundNumber={1}
         pickNumber={1}
         totalRounds={6}
-        candidates={[candidate("kawhi-leonard"), candidate("kyle-lowry", {
-          fit: {
-            player_slug: "kyle-lowry",
-            state: "fits_now",
-            direct_slots: ["PG"],
-            plan: null,
-            moves: [],
-            reason: null,
-          },
-        })]}
+        candidates={[
+          candidate("kawhi-leonard"),
+          candidate("kyle-lowry", {
+            fit: {
+              player_slug: "kyle-lowry",
+              state: "fits_now",
+              direct_slots: ["PG"],
+              plan: null,
+              moves: [],
+              reason: null,
+            },
+          }),
+        ]}
         roster={roster(0)}
         seats={SEATS}
         yourSeatIndex={0}
@@ -403,6 +765,12 @@ describe("PickOverlay", () => {
     );
   });
 
+  it("puts the shared headshot primitive on every candidate row", () => {
+    renderOverlay();
+    const row = screen.getByTestId("tmw-candidate-kawhi-leonard");
+    expect(within(row).getByTestId("player-avatar")).toBeInTheDocument();
+  });
+
   it("states how many of the pool a filter is hiding", async () => {
     renderOverlay();
     expect(screen.getByTestId("tmw-pool-count")).toHaveTextContent(
@@ -418,6 +786,50 @@ describe("PickOverlay", () => {
     expect(screen.queryByTestId("tmw-candidate-kawhi-leonard")).toBeNull();
     await userEvent.clear(screen.getByTestId("tmw-pick-search"));
     expect(screen.getByTestId("tmw-candidate-kawhi-leonard")).toBeInTheDocument();
+  });
+
+  // -- the three genuinely different empty states (TMW-11) -------------------
+
+  it("says a searched name is ALREADY DRAFTED, and by whom", async () => {
+    // THE DENNIS RODMAN REPORT, as a test. He was never missing from the Spurs
+    // pool; the lock is global, so a Rodman taken off an earlier roll is gone
+    // from every later one. One sentence used to cover this case, the filter
+    // case and genuine ineligibility alike.
+    renderOverlay({
+      lockedEntries: [
+        {
+          playerSlug: "dennis-rodman",
+          playerName: "Dennis Rodman",
+          seatIndex: 2,
+          roundNumber: 2,
+          franchiseDisplayName: "Detroit Pistons",
+          decade: "1990s",
+        },
+      ],
+    });
+    await userEvent.type(screen.getByTestId("tmw-pick-search"), "rodman");
+    const empty = screen.getByTestId("tmw-pool-empty-locked");
+    expect(empty).toHaveTextContent("Dennis Rodman");
+    expect(empty).toHaveTextContent("Board Man");
+    expect(empty).toHaveTextContent("round 2");
+  });
+
+  it("says a position filter is what is hiding the pool, and offers to clear it", async () => {
+    renderOverlay();
+    await userEvent.type(screen.getByTestId("tmw-pick-search"), "kawhi");
+    await userEvent.click(screen.getByTestId("tmw-filter-PG"));
+    const empty = screen.getByTestId("tmw-pool-empty-filtered");
+    expect(empty).toHaveTextContent(/position filter/i);
+    await userEvent.click(within(empty).getByRole("button", { name: /clear filters/i }));
+    expect(screen.getByTestId("tmw-candidate-kawhi-leonard")).toBeInTheDocument();
+  });
+
+  it("says a name is genuinely not eligible for THIS franchise and decade", async () => {
+    renderOverlay();
+    await userEvent.type(screen.getByTestId("tmw-pick-search"), "jordan");
+    const empty = screen.getByTestId("tmw-pool-empty-ineligible");
+    expect(empty).toHaveTextContent(/Toronto Raptors/);
+    expect(empty).toHaveTextContent(/2010s/);
   });
 
   it("disables a candidate with no legal arrangement and says why", () => {
@@ -459,19 +871,12 @@ describe("PickOverlay", () => {
       ],
     });
     await userEvent.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
-    // THE PREVIEW IS ACTIONABLE, NOT A LABEL. It names both halves of the
-    // arrangement in order, and the same information is drawn on the slots
-    // themselves -- Larry Bird's SF slot carries its destination.
     expect(screen.getByTestId("tmw-rearrange-note")).toHaveTextContent(
       /Kawhi Leonard → Small forward/,
     );
     expect(screen.getByTestId("tmw-rearrange-note")).toHaveTextContent(
       /Larry Bird: Small forward → Bench/,
     );
-    // THE ARROW ON THE STAGED SLOT NAMES WHO IS MOVING. That slot now shows
-    // the INCOMING player in bold, so an unattributed "→ BN" beside it reads as
-    // the arriving player leaving again -- which is what a review frame of a
-    // four-move rearrangement actually said.
     expect(screen.getByTestId("tmw-vacating-SF")).toHaveTextContent("Larry Bird → BN");
     await userEvent.click(screen.getByTestId("tmw-confirm-pick"));
     expect(onPick).toHaveBeenCalledWith(
@@ -483,6 +888,31 @@ describe("PickOverlay", () => {
   it("shows the clock inside the overlay, not only on the board", () => {
     renderOverlay({ deadlineAt: performance.now() + 40_000 });
     expect(screen.getByTestId("tmw-overlay-clock-value")).toHaveTextContent("40");
+  });
+
+  it("locks into a resolution state at zero rather than staying live", async () => {
+    // `ArenaTimer` has always supported `onExpire` and neither of this mode's
+    // timers passed it. At 0s the panel stayed fully interactive, and a click
+    // then landed outside the server's two-second grace and came back as
+    // `stale_state_version` -- which reads as the game refusing a legal pick.
+    const { onPick } = renderOverlay({ deadlineAt: performance.now() - 10 });
+    await waitFor(() =>
+      expect(screen.getByTestId("tmw-overlay-expired")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("tmw-overlay-expired")).toHaveTextContent(
+      "Time expired — assigning a legal fallback.",
+    );
+    expect(screen.getByTestId("tmw-pick-overlay")).toHaveAttribute("data-expired", "true");
+    expect(screen.getByTestId("tmw-pick-search")).toBeDisabled();
+    expect(screen.getByTestId("tmw-candidate-kawhi-leonard")).toBeDisabled();
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it("never promises the best available player on timeout", () => {
+    renderOverlay({ deadlineAt: performance.now() + 20_000 });
+    const consequence = screen.getByTestId("tmw-overlay-clock-consequence");
+    expect(consequence.textContent).not.toMatch(/best available/i);
+    expect(consequence).toHaveTextContent(/weaker legal fallback/i);
   });
 
   // -- direct placement, which is the whole of the rescue ------------------
@@ -503,7 +933,6 @@ describe("PickOverlay", () => {
       ],
     });
     await userEvent.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
-    // Legal destinations are real buttons; illegal ones are not.
     const sf = screen.getByTestId("tmw-place-SF");
     expect(sf.tagName).toBe("BUTTON");
     expect(sf).toHaveAttribute("data-legal", "true");
@@ -512,7 +941,6 @@ describe("PickOverlay", () => {
 
     await userEvent.click(screen.getByTestId("tmw-place-PF"));
     expect(screen.getByTestId("tmw-staged-PF")).toHaveTextContent("Kawhi Leonard");
-    // THE BUTTON NAMES THE WHOLE DECISION -- who, and where.
     expect(screen.getByTestId("tmw-confirm-pick")).toHaveTextContent(
       "Draft Kawhi Leonard at Power forward",
     );
@@ -524,9 +952,6 @@ describe("PickOverlay", () => {
   });
 
   it("keeps a labelled select as an accessible fallback, never as the default", async () => {
-    // PART 3 permits a compact select to EXIST; it forbids it being the
-    // principal interaction. It appears only when more than one slot is legal,
-    // is labelled as an alternative, and offers nothing the board does not.
     renderOverlay({
       candidates: [
         candidate("kawhi-leonard", {
@@ -571,15 +996,11 @@ describe("PickOverlay", () => {
     renderOverlay();
     await userEvent.click(screen.getByTestId("tmw-candidate-kawhi-leonard"));
     expect(screen.getByTestId("tmw-confirm-pick")).toHaveClass("btn-primary");
-    // `btn-primary` and `btn-secondary` were used by four surfaces and defined
-    // in NO stylesheet, so under Tailwind Preflight every one of them painted
-    // as plain text. The classes are the contract; `arena.css` now defines
-    // them, and `styles.test.ts` asserts the rules exist.
     expect(screen.getByTestId("tmw-cancel-pick")).toHaveClass("btn-secondary");
     expect(screen.getByTestId("tmw-cancel-pick")).toHaveTextContent("Cancel selection");
   });
 
-  // -- direct roster movement, from the same surface -----------------------
+  // -- roster movement from the same surface --------------------------------
 
   it("moves an existing roster card by clicking it and then a destination", async () => {
     const { onMove } = renderOverlay({
@@ -587,23 +1008,25 @@ describe("PickOverlay", () => {
         SF: pick({ player_slug: "larry-bird", player_name: "Larry Bird", slot_type: "SF" }),
       }),
     });
-    // Clicking your own placed card starts a move.
     await userEvent.click(screen.getByTestId("tmw-place-SF"));
     expect(screen.getByTestId("tmw-pick-overlay")).toHaveAttribute("data-mode", "moving");
     expect(screen.getByTestId("tmw-place-SF")).toHaveAttribute("data-source", "true");
 
     await userEvent.click(screen.getByTestId("tmw-place-bench_1"));
     await userEvent.click(screen.getByTestId("tmw-move-confirm"));
-    // A COMPLETE final arrangement, which is the only shape the server accepts
-    // and the reason no half-move can exist.
+    // A COMPLETE final arrangement, which is the only shape the server accepts.
     expect(onMove).toHaveBeenCalledWith({ bench_1: "larry-bird" });
   });
 
-  it("swaps two placed cards atomically", async () => {
+  it("swaps two placed cards atomically, and only when BOTH halves are legal", async () => {
     const { onMove } = renderOverlay({
       roster: roster(0, {
         SF: pick({ player_slug: "larry-bird", player_name: "Larry Bird", slot_type: "SF" }),
-        bench_1: pick({ player_slug: "kevin-mchale", player_name: "Kevin McHale", slot_type: "bench_1" }),
+        bench_1: pick({
+          player_slug: "kevin-mchale",
+          player_name: "Kevin McHale",
+          slot_type: "bench_1",
+        }),
       }),
     });
     await userEvent.click(screen.getByTestId("tmw-place-SF"));
@@ -613,6 +1036,27 @@ describe("PickOverlay", () => {
       SF: "kevin-mchale",
       bench_1: "larry-bird",
     });
+  });
+
+  it("does not offer a swap that would leave the displaced player somewhere illegal", async () => {
+    // THE WESTBROOK-AT-SF SHAPE. The previous destination filter checked only
+    // the player being moved, so a starter slot whose occupant could not play
+    // the SOURCE slot was offered as legal and refused by the server on commit.
+    renderOverlay({
+      roster: roster(0, {
+        SF: pick({ player_slug: "larry-bird", player_name: "Larry Bird", slot_type: "SF" }),
+        PG: pick({
+          player_slug: "kyle-lowry",
+          player_name: "Kyle Lowry",
+          positions: ["PG"],
+          slot_type: "PG",
+        }),
+      }),
+    });
+    // Bird could physically occupy nothing at PG, and Lowry could not take SF,
+    // so neither direction of that swap is offered.
+    await userEvent.click(screen.getByTestId("tmw-place-PG"));
+    expect(screen.getByTestId("tmw-place-SF")).toHaveAttribute("data-legal", "false");
   });
 
   it("cancels a move without touching the roster", async () => {
@@ -629,62 +1073,97 @@ describe("PickOverlay", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The result
+// The finish
 // ---------------------------------------------------------------------------
 
 describe("PodiumReceipt", () => {
-  it("names the basis and never calls it an average", () => {
+  function renderResult(
+    overrides: Partial<React.ComponentProps<typeof PodiumReceipt>> = {},
+  ) {
     render(
       <PodiumReceipt
         results={[result()]}
         rosters={[roster(0, { SF: pick() })]}
         yourSeatIndex={0}
+        seed="m-1"
+        onPlayAgain={vi.fn()}
+        {...overrides}
+      />,
+    );
+  }
+
+  it("opens on a placement badge and a response line, not on a report", () => {
+    renderResult();
+    // TMW-14 rejects the robotic "You finished 3rd" and the analytics paragraph
+    // that used to sit directly under the headline.
+    expect(screen.getByTestId("tmw-your-placement")).toHaveTextContent("1st");
+    expect(screen.getByTestId("tmw-result-line").textContent).toBeTruthy();
+    const podium = screen.getByTestId("tmw-podium");
+    expect(podium).toHaveAttribute("data-band", "won_clear");
+  });
+
+  it("keeps the response line deterministic for one completed match", () => {
+    renderResult();
+    const first = screen.getByTestId("tmw-result-line").textContent;
+    screen.getByTestId("tmw-result-line").remove();
+    renderResult();
+    expect(screen.getByTestId("tmw-result-line").textContent).toBe(first);
+  });
+
+  it("reads a near miss differently from a rout", () => {
+    const rosters = [roster(0, { SF: pick() }), roster(1)];
+    render(
+      <PodiumReceipt
+        results={[
+          result({ seat_index: 0, placement: 2, score: 70.5, outcome: "loss" }),
+          result({ seat_index: 1, display_name: "Floor General", placement: 1, score: 71.0 }),
+        ]}
+        rosters={rosters}
+        yourSeatIndex={0}
+        seed="m-2"
         onPlayAgain={vi.fn()}
       />,
     );
-    const basis = screen.getByTestId("tmw-ranking-basis");
-    expect(basis).toHaveTextContent(/lineup-quality index/i);
-    expect(basis).toHaveTextContent(/Not an average/i);
+    expect(screen.getByTestId("tmw-podium")).toHaveAttribute("data-band", "close_loss");
+  });
+
+  it("shows every team's COMPLETE final roster on its ranking card", () => {
+    renderResult();
+    const card = screen.getByTestId("tmw-result-0");
+    // Six slots, all of them, with the headshot primitive on the filled one.
+    expect(card.querySelectorAll(".tmw-result-slot")).toHaveLength(6);
+    expect(within(card).getByText("Kawhi Leonard")).toBeInTheDocument();
+    expect(within(card).getByText("2018-19 Toronto Raptors")).toBeInTheDocument();
+    expect(within(card).getAllByTestId("player-avatar").length).toBeGreaterThan(0);
+  });
+
+  it("moves the methodology behind a Full receipt disclosure", async () => {
+    renderResult();
+    const receipt = screen.getByTestId("tmw-receipt");
+    // THE MODULE RULE STILL HOLDS -- the basis is named where the winner is
+    // declared -- but it is no longer the second line of the celebration.
+    expect(receipt).toContainElement(screen.getByTestId("tmw-ranking-basis"));
+    expect(screen.getByTestId("tmw-ranking-basis")).toHaveTextContent(
+      /lineup-quality index/i,
+    );
+    expect(screen.getByTestId("tmw-ranking-basis")).toHaveTextContent(/Not an average/i);
+    // And so do the three explanations TMW-14 removed from the primary screen.
+    expect(receipt).toContainElement(screen.getByTestId("tmw-decisive-0"));
+    expect(receipt).toContainElement(screen.getByTestId("tmw-fit-0"));
+    expect(receipt).toContainElement(screen.getByTestId("tmw-mean-0"));
+    expect(screen.getByTestId("tmw-receipt-toggle")).toBeInTheDocument();
   });
 
   it("publishes no projected record anywhere", () => {
-    render(
-      <PodiumReceipt
-        results={[result()]}
-        rosters={[roster(0, { SF: pick() })]}
-        yourSeatIndex={0}
-        onPlayAgain={vi.fn()}
-      />,
-    );
+    renderResult();
     const panel = screen.getByTestId("tmw-podium");
     expect(panel.textContent).not.toMatch(/\b\d{2}-\d{2}\s*projected/i);
     expect(panel.textContent).not.toMatch(/projected record/i);
   });
 
-  it("reports the decisive pick as a measured drop, not an opinion", () => {
-    render(
-      <PodiumReceipt
-        results={[result()]}
-        rosters={[roster(0, { SF: pick() })]}
-        yourSeatIndex={0}
-        onPlayAgain={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("tmw-decisive-0")).toHaveTextContent(
-      /removing them costs 4.12 lineup score/,
-    );
-  });
-
   it("celebrates a win and offers both exits", async () => {
     const onPlayAgain = vi.fn();
-    render(
-      <PodiumReceipt
-        results={[result()]}
-        rosters={[roster(0, { SF: pick() })]}
-        yourSeatIndex={0}
-        onPlayAgain={onPlayAgain}
-      />,
-    );
+    renderResult({ onPlayAgain });
     expect(screen.getByTestId("tmw-celebration")).toHaveAttribute("data-active", "true");
     expect(screen.getByTestId("tmw-back-to-arena")).toHaveAttribute("href", "/arena");
     await userEvent.click(screen.getByTestId("tmw-play-again"));
@@ -692,35 +1171,21 @@ describe("PodiumReceipt", () => {
   });
 
   it("does not celebrate a loss, and does not punish it either", () => {
-    render(
-      <PodiumReceipt
-        results={[result({ placement: 3, outcome: "loss" })]}
-        rosters={[roster(0, { SF: pick() })]}
-        yourSeatIndex={0}
-        onPlayAgain={vi.fn()}
-      />,
-    );
+    renderResult({ results: [result({ placement: 3, outcome: "loss" })] });
     expect(screen.getByTestId("tmw-celebration")).toHaveAttribute("data-active", "false");
-    // WHOSE PLACEMENT. "3RD PLACE" sat directly above "The Closer wins", and the
-    // two lines together parse as "The Closer won third place" -- caught in the
-    // review capture. The eyebrow is about YOU; it now says so.
-    expect(screen.getByTestId("tmw-your-placement")).toHaveTextContent("You finished 3rd");
+    expect(screen.getByTestId("tmw-your-placement")).toHaveTextContent("3rd");
   });
 
   it("shows an unscoreable roster as a real state, never as zero", () => {
-    render(
-      <PodiumReceipt
-        results={[
-          result({
-            score: 0,
-            detail: { ...result().detail, score_status: "incomplete", lineup_score: null },
-          }),
-        ]}
-        rosters={[roster(0)]}
-        yourSeatIndex={0}
-        onPlayAgain={vi.fn()}
-      />,
-    );
+    renderResult({
+      results: [
+        result({
+          score: 0,
+          detail: { ...result().detail, score_status: "incomplete", lineup_score: null },
+        }),
+      ],
+      rosters: [roster(0)],
+    });
     expect(screen.getByTestId("tmw-result-0")).toHaveTextContent("Not ranked");
   });
 });
@@ -730,8 +1195,19 @@ describe("PodiumReceipt", () => {
 // ---------------------------------------------------------------------------
 
 describe("WeaveSpinner", () => {
+  beforeEach(() => {
+    mockMatchMedia(false);
+  });
+
   it("carries the server's answer from the first frame", () => {
-    render(<WeaveSpinner roll={ROLL} roundNumber={1} totalRounds={6} />);
+    render(
+      <WeaveSpinner
+        roll={ROLL}
+        roundNumber={1}
+        totalRounds={6}
+        revealSeconds={TMW_REVEAL_SECONDS}
+      />,
+    );
     // The reel cannot resolve to anything else: the value is decided before
     // the animation starts and is exposed as data from t=0.
     expect(screen.getByTestId("tmw-roll-franchise")).toHaveAttribute(
@@ -744,13 +1220,133 @@ describe("WeaveSpinner", () => {
     );
   });
 
+  it("renders nothing at all when the room has closed it", () => {
+    // The room closes it whenever the server's turn phase is not `reveal`, so
+    // "closed" has to mean absent, not hidden.
+    const { container } = render(
+      <WeaveSpinner
+        open={false}
+        roll={ROLL}
+        roundNumber={1}
+        totalRounds={6}
+        revealSeconds={TMW_REVEAL_SECONDS}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("opens round one on the matchup: the three competitors and the objective", () => {
+    render(
+      <WeaveSpinner
+        roll={ROLL}
+        roundNumber={1}
+        totalRounds={6}
+        seats={SEATS}
+        yourSeatIndex={0}
+        showIntro
+        revealSeconds={TMW_REVEAL_SECONDS}
+      />,
+    );
+    expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
+    expect(screen.getByTestId("tmw-intro-seat-0")).toHaveAttribute("data-is-you", "true");
+    expect(screen.getByTestId("tmw-intro-seat-1")).toHaveTextContent("Floor General");
+    expect(screen.getByTestId("tmw-intro-objective")).toHaveTextContent(
+      /6 franchise × decade rounds/i,
+    );
+  });
+
   it("says it is rolling when there is no roll yet", () => {
-    render(<WeaveSpinner roll={null} roundNumber={null} totalRounds={6} />);
+    render(
+      <WeaveSpinner
+        roll={null}
+        roundNumber={null}
+        totalRounds={6}
+        revealSeconds={TMW_REVEAL_SECONDS}
+      />,
+    );
     expect(screen.getByTestId("tmw-roll-rolling")).toBeInTheDocument();
+  });
+
+  it("fits its whole sequence inside the server's window", () => {
+    // THE CEREMONY'S LENGTH IS NOT THIS COMPONENT'S TO CHOOSE any more. Every
+    // stage boundary is a fraction of the window the server published, so the
+    // reel cannot still be spinning when the phase ends -- which is what would
+    // put a live pick panel on top of a moving wheel.
+    vi.useFakeTimers();
+    try {
+      render(
+        <WeaveSpinner
+          roll={ROLL}
+          roundNumber={1}
+          totalRounds={6}
+          revealSeconds={TMW_REVEAL_SECONDS}
+        />,
+      );
+      expect(screen.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "false");
+      // One millisecond before the window closes it has resolved...
+      act(() => {
+        vi.advanceTimersByTime(TMW_REVEAL_SECONDS * 1000 - 1);
+      });
+      expect(screen.getByTestId("tmw-roll")).toHaveAttribute("data-revealed", "true");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the SAME beat under prefers-reduced-motion, and drops only the movement", () => {
+    // REDUCED MOTION IS NOT A SHORTER CEREMONY. The pair still has to be READ,
+    // and the phase is the server's either way -- cutting the hold would give a
+    // reduced-motion player less time to take in the same information. So the
+    // schedule is identical and only the travel is removed: the reels show
+    // their value instead of spinning to it.
+    vi.useFakeTimers();
+    mockMatchMedia(true);
+    try {
+      render(
+        <WeaveSpinner
+          roll={ROLL}
+          roundNumber={1}
+          totalRounds={6}
+          revealSeconds={TMW_REVEAL_SECONDS}
+        />,
+      );
+      const section = screen.getByTestId("tmw-roll");
+      expect(section).toHaveAttribute("data-reduced-motion", "true");
+      // No strip to travel -- the answer is simply there.
+      expect(screen.getByTestId("tmw-roll-franchise")).toHaveAttribute(
+        "data-stage",
+        "reduced",
+      );
+      expect(screen.getByTestId("tmw-roll-franchise")).toHaveTextContent(
+        "Toronto Raptors",
+      );
+      // ...and the beat is NOT collapsed: a second in, it has not resolved.
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(section).toHaveAttribute("data-revealed", "false");
+      act(() => {
+        vi.advanceTimersByTime(TMW_REVEAL_SECONDS * 1000);
+      });
+      expect(section).toHaveAttribute("data-revealed", "true");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
 describe("IdentityLockPanel", () => {
+  function entries(count: number) {
+    return Array.from({ length: count }, (_, index) => ({
+      playerSlug: `player-${index}`,
+      playerName: `Player ${index}`,
+      seatIndex: index % 3,
+      roundNumber: index + 1,
+      franchiseDisplayName: "Toronto Raptors",
+      decade: "2010s",
+    }));
+  }
+
   it("lists who is off the board and to whom", () => {
     render(
       <IdentityLockPanel
@@ -770,27 +1366,18 @@ describe("IdentityLockPanel", () => {
     expect(screen.getByTestId("tmw-lock-count")).toHaveTextContent("1");
     expect(screen.getByTestId("tmw-identity-lock")).toHaveTextContent("Floor General");
   });
-});
 
-describe("DraftOrderStrip", () => {
-  it("shows the full published snake, upcoming turns included", () => {
-    render(
-      <DraftOrderStrip
-        order={[
-          { roundNumber: 1, seatIndex: 0, done: true, active: false },
-          { roundNumber: 1, seatIndex: 1, done: false, active: true },
-          { roundNumber: 1, seatIndex: 2, done: false, active: false },
-        ]}
-        seats={SEATS}
-        yourSeatIndex={0}
-      />,
-    );
-    expect(screen.getByTestId("tmw-order-1-2")).toHaveAttribute("data-done", "false");
-    // WHO, not a seat index. A numbered square meant reading the order required
-    // holding an index-to-name mapping in your head while a clock ran.
-    expect(screen.getByTestId("tmw-order-1-0")).toHaveTextContent("You");
-    expect(screen.getByTestId("tmw-order-1-1")).toHaveAttribute("data-active", "true");
-    // The NEXT pick is marked too, not only the current one.
-    expect(screen.getByTestId("tmw-order-1-2")).toHaveAttribute("data-next", "true");
+  it("keeps the live rail compact and moves the rest behind a disclosure", () => {
+    // TMW-12: the ledger used to grow to eighteen rows and sat permanently
+    // between the board and the pick surface.
+    render(<IdentityLockPanel entries={entries(9)} seats={SEATS} />);
+    expect(screen.getByTestId("tmw-lock-list").querySelectorAll("li")).toHaveLength(4);
+    expect(screen.getByTestId("tmw-lock-history-toggle")).toHaveTextContent("(9)");
+    expect(screen.getByTestId("tmw-lock-history").querySelectorAll("li")).toHaveLength(9);
+  });
+
+  it("offers no disclosure at all while the rail still holds everything", () => {
+    render(<IdentityLockPanel entries={entries(3)} seats={SEATS} />);
+    expect(screen.queryByTestId("tmw-lock-history-toggle")).toBeNull();
   });
 });

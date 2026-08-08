@@ -44,6 +44,21 @@ Everything here is a pure function of the date and the bank's contents. No clock
 is read; the caller supplies the day, which is what makes every selection
 replayable.
 
+WHAT IS ROTATED IS THE FEATURED TIER, NOT THE BANK
+==================================================
+`fact_for_date` selects from `featured.featured_facts(bank)`. Callers still hand
+it the whole bank — the route does, the build report does — and the tier is
+applied inside, so there is one answer to "what may the homepage serve" rather
+than one per call site. The consequences are worth stating plainly because two
+of them used to be facts about the bank:
+
+  * the schedule's PERIOD is `len(featured)`, not `len(bank)`, so the no-repeat
+    guarantee is `featured.MIN_FEATURED_FACTS` days and `bank.MIN_FACTS` no
+    longer carries that meaning;
+  * every property below — interleaving, subject spacing, the repair pass — is
+    now computed over a smaller and stronger set, which makes them easier to
+    satisfy rather than harder.
+
 THE DAY IS PACIFIC, NOT UTC. `nba_peak.daily_key` is the one place this
 application's day boundary is defined — midnight America/Los_Angeles, shared by
 every daily mode. The fact route used to default to the server's UTC date, so
@@ -423,8 +438,30 @@ def fact_for_date(bank: Sequence[NbaFact], iso_date: str) -> Optional[NbaFact]:
     interleave exists to create. The bank version still participates, through
     the schedule's contents, so a rebuilt bank reshuffles rather than silently
     swapping today's fact under the same id.
+
+    IT ROTATES THE FEATURED TIER, NOT THE BANK, AND THAT IS THE WHOLE POINT OF
+    THE TIER. Callers hand this the bank — the route does, the report does — and
+    for a long time every one of those ~190 facts was a homepage candidate,
+    because clearing the publication gate was the only standard there was. It is
+    the wrong standard for this surface, for the reason `featured.py` opens with:
+    a derived fact's quality axes are constants of its TEMPLATE, so a generator
+    whose profile clears the floor puts its whole family on the homepage in a
+    block. `featured.featured_facts` is the second gate, and applying it HERE
+    rather than at each call site means there is one answer to "what can the
+    homepage serve" instead of one per caller.
+
+    ORDER: TIER FIRST, THEN EXPIRY. The tier is a property of the bank and does
+    not change shape on the day a perishable fact lapses — an expiry drops that
+    fact and promotes nothing, rather than freeing a template slot and silently
+    letting a different fact in. An expired fact can therefore never be served:
+    it is filtered here, on the way into the schedule, on every date.
+
+    Returns `None` for an empty bank and for a bank whose featured tier is empty,
+    which is what lets the route report an unbuilt bank rather than fabricate.
     """
-    live = [fact for fact in bank if is_live(fact, iso_date)]
+    from .featured import featured_facts
+
+    live = [fact for fact in featured_facts(bank) if is_live(fact, iso_date)]
     if not live:
         return None
     ordered = schedule(live)

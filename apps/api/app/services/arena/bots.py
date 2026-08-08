@@ -362,6 +362,33 @@ def bot_think_seconds_for(mode, match, turn) -> float:
     return max(0.0, min(seconds, 10.0))
 
 
+def phase_accepts_bot_action(mode, turn) -> bool:
+    """May a bot act on this turn at all?
+
+    A MODE MAY OPEN A TURN THAT IS NOT A DECISION. Three-Man Weave opens a
+    `reveal` turn for the franchise x decade ceremony: it carries a real
+    server deadline, it belongs to no seat, and nobody -- human or bot -- plays
+    during it.
+
+    Without this check `drive_pending_bots` reads `seat_index is None` as a
+    SIMULTANEOUS turn and lets every bot seat act, so the bots would draft
+    underneath the ceremony and the reveal would be over before it was shown.
+    The default is True, so a mode that never opens such a turn is unaffected
+    and does not have to know this hook exists.
+    """
+    hook = getattr(mode, "phase_accepts_action", None)
+    if hook is None or turn is None:
+        return True
+    try:
+        return bool(hook(turn.phase))
+    except Exception:  # pragma: no cover - a broken hook must not wedge a turn
+        logger.exception(
+            "arena: phase_accepts_action hook failed for mode %r",
+            getattr(mode, "mode", "?"),
+        )
+        return True
+
+
 def bot_may_act_at(turn, now: datetime, think_seconds: float = BOT_THINK_SECONDS) -> bool:
     """Has this bot's thinking time elapsed?
 
@@ -452,6 +479,11 @@ async def drive_pending_bots(
             return steps
         turn = await repo.get_open_turn(match_id)
         if turn is None:
+            return steps
+        if not phase_accepts_bot_action(mode, turn):
+            # A turn nobody plays. Returning rather than skipping is the same
+            # rule as the think-time check below: turns are sequential, so
+            # nothing behind this one can move either.
             return steps
         if not bot_may_act_at(turn, now, bot_think_seconds_for(mode, match, turn)):
             return steps

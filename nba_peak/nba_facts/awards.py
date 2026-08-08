@@ -10,12 +10,38 @@ was that the facts were "too dull to deserve homepage prominence".
 `data/generated/player_season_context.parquet` is committed, covers 1980-2026,
 and holds what actually happened: MVP and DPOY vote ranks, All-NBA and
 All-Defense selections, All-Star nods, the five statistical titles, 50/40/90
-seasons, championships, Finals MVPs, how deep a team went, and what role a
-player had on a title team. 20,573 rows, joining at 100% onto the season table.
+seasons, championships, Finals MVPs and how deep a team went. 20,573 rows,
+joining at 100% onto the season table.
 
 That is a different KIND of fact, and it is still verified by construction: the
 build recomputes every one of these, and `tests/test_nba_facts.py` re-derives a
 sample straight from the parquet. Nothing here is authored.
+
+NOT EVERY COLUMN IN THAT TABLE IS A FACT ABOUT BASKETBALL
+=========================================================
+The context table also carries columns this repository COMPUTES rather than
+records, and two generators used to read one of them. Both are gone, and the
+deletion is a correctness fix rather than a change of taste:
+
+    gen_finals_mvp_not_best_player   "X won Finals MVP on a team he was not the
+                                      best player on."
+    gen_champion_role_players        "X won 3 championships without ever being
+                                      the best player on the team."
+
+Both branched on the table's `title_team_role` column, which is not a
+Basketball-Reference observation at all: it is produced inside this repository by
+`nba_peak/context/title_role.py`, a weighted z-score composite with a tunable
+gap constant deciding where "co-best" ends. So each card printed a PEAK3 model
+judgment as an unqualified fact and attributed it to Basketball-Reference, on
+the one surface whose whole premise is that a visitor can evaluate it without
+knowing what PEAK3 is.
+
+Rewording would not have fixed it. "Who was the best player on that team" has
+no external record to cite, so there is no sentence that makes the claim
+sourceable; the only honest move is not to publish it. THE RULE THIS FILE NOW
+RUNS UNDER: a generator may read a column only if the column records something
+that happened. `tests/test_nba_facts.py::test_no_fact_depends_on_a_judgment_this_repository_computes`
+scans every module in this package and fails if one of those columns comes back.
 
 THE RULE THIS FILE IS WRITTEN UNDER
 ===================================
@@ -25,8 +51,8 @@ is a row in a table, and the brief rules it out twice over — "dull bookkeeping
 
 So almost every generator here emits a CONJUNCTION: two things that happened to
 the same player in the same season and are surprising TOGETHER. A scoring title
-and a lottery finish. An MVP and no Finals. A Finals MVP who was not his team's
-best player. Those are facts somebody repeats.
+and a lottery finish. An MVP and no Finals. An All-NBA First Team in a year the
+team went home. Those are facts somebody repeats.
 
 The exceptions are the ones where a single fact is genuinely rare: 50/40/90 (13
 seasons in 47 years) and multi-season title streaks (Rodman's seven straight
@@ -415,37 +441,12 @@ def gen_dpoy_with_a_title(rows: list[dict]) -> list[NbaFact]:
     return out
 
 
-def gen_finals_mvp_not_best_player(rows: list[dict]) -> list[NbaFact]:
-    """The Finals MVP was not the best player on his own title team."""
-    out: list[NbaFact] = []
-    for row in rows:
-        if _num(row, "finals_mvp") <= 0:
-            continue
-        role = str(row.get("title_team_role") or "").strip()
-        if role in ("", "Clear best player"):
-            continue
-        out.append(
-            _fact(
-                pattern="gen_finals_mvp_not_best_player",
-                key=f"{row['player_slug']}-{row['season']}",
-                headline=(
-                    f"{row['player']} won Finals MVP on a team he was not the "
-                    "best player on."
-                ),
-                body=(
-                    f"{row['season']}, with {row['team']}. The award goes to the "
-                    "best player of one series, not of one season, and those are "
-                    "different questions more often than the trophy suggests."
-                ),
-                category="playoffs_finals",
-                row=row,
-                feature="Finals MVP",
-                feature_label=role.lower(),
-                quality=dict(surprise=5, significance=4, clarity=4, broad_interest=5,
-                             novelty=5, source_confidence=4, homepage_suitability=4),
-            )
-        )
-    return out
+# `gen_finals_mvp_not_best_player` STOOD HERE and is deleted rather than
+# reworded. See the module docstring: it branched on the context table's role
+# column, which this repository computes in `nba_peak/context/title_role.py`
+# rather than reads from a record, so every card was a model judgment printed as
+# a Basketball-Reference fact. There is no wording that makes "he was not the
+# best player on that team" sourceable, so the fact does not exist.
 
 
 def gen_champion_with_a_title(rows: list[dict]) -> list[NbaFact]:
@@ -737,46 +738,12 @@ def gen_deep_runs_without_a_ring(rows: list[dict], minimum: int = 5) -> list[Nba
     return out
 
 
-def gen_champion_role_players(rows: list[dict], minimum: int = 3) -> list[NbaFact]:
-    """Several rings, none of them as the best player on the team."""
-    by_player: dict[str, list[dict]] = {}
-    for row in rows:
-        if _num(row, "championship") > 0:
-            by_player.setdefault(row["player_slug"], []).append(row)
-    out: list[NbaFact] = []
-    for slug, seasons in sorted(by_player.items()):
-        roles = {str(row.get("title_team_role") or "") for row in seasons}
-        if len(seasons) < minimum or "Clear best player" in roles:
-            continue
-        if not roles & {"Role player", "Secondary star"}:
-            continue
-        seasons.sort(key=lambda r: r["season_end"])
-        teams = sorted({row["team"] for row in seasons})
-        first, last = seasons[0], seasons[-1]
-        out.append(
-            _fact(
-                pattern="gen_champion_role_players",
-                key=f"{slug}-rings-not-the-star",
-                headline=(
-                    f"{first['player']} won {len(seasons)} championships without "
-                    "ever being the best player on the team."
-                ),
-                body=(
-                    f"{first['season']} to {last['season']}, with "
-                    f"{_and_list(teams)}. Rings are counted per player and won "
-                    "per roster, which is how a career like this reads as one "
-                    "thing on a list and another on tape."
-                ),
-                category="role_players",
-                row=last,
-                feature=str(len(seasons)),
-                feature_label="rings, never the star",
-                quality=dict(surprise=4, significance=3, clarity=4, broad_interest=4,
-                             novelty=4, source_confidence=4, homepage_suitability=4),
-                rows=[first, last],
-            )
-        )
-    return out
+# `gen_champion_role_players` STOOD HERE and is deleted for the same reason.
+# "JaVale McGee won 3 championships without ever being the best player on the
+# team" reads as a record of three rings and is in fact a claim about a ranking
+# this repository computed, with `CO_BEST_GAP = 0.60` deciding who counts as a
+# secondary star. The ring count is checkable; the clause that makes it a story
+# is not, and a fact is not the sum of a true half and an unsourceable one.
 
 
 def gen_mvp_runners_up_who_never_won(rows: list[dict]) -> list[NbaFact]:
@@ -869,7 +836,6 @@ AWARD_GENERATORS = (
     gen_mvp_without_finals,
     gen_mvp_and_dpoy,
     gen_dpoy_with_a_title,
-    gen_finals_mvp_not_best_player,
     gen_champion_with_a_title,
     gen_all_nba_first_no_playoffs,
     gen_title_streaks,
@@ -877,7 +843,6 @@ AWARD_GENERATORS = (
     gen_all_nba_streaks,
     gen_all_defense_streaks,
     gen_deep_runs_without_a_ring,
-    gen_champion_role_players,
     gen_mvp_runners_up_who_never_won,
     gen_all_star_no_playoffs_streak,
 )
