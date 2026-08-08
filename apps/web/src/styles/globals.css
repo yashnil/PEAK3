@@ -787,20 +787,15 @@ html, body {
   background-size: 48px 48px;
 }
 
-/* Phase 8E: homepage hero -- same restrained "arena lighting" language as
-   the court/spinner (Phase 8D: two low-opacity corner glows + a court-line
-   grid texture), scaled up for a full hero section. Gives the front door
-   the same premium arena atmosphere as the game itself instead of a plain
-   flat panel, without drifting into a busy/gaudy look (every glow stays
-   under 12% alpha, same discipline as .roster-board's). */
-.home-hero-glow {
-  background-image:
-    radial-gradient(45% 60% at 12% 0%, rgba(245, 200, 66, 0.10), transparent 70%),
-    radial-gradient(45% 60% at 88% 0%, rgba(96, 165, 250, 0.07), transparent 70%),
-    linear-gradient(var(--court-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--court-line) 1px, transparent 1px);
-  background-size: auto, auto, 48px 48px, 48px 48px;
-}
+/* `.home-hero-glow` (Phase 8E) WAS HERE AND IS GONE.
+   It was the first statement of the arena-lighting idea — two low-opacity
+   corner glows over a court-line grid — and `.pk-atmosphere` at the bottom of
+   this file is the same stack with its alphas moved into `--pk-glow-warm` /
+   `--pk-glow-cool`, which are re-derived for Arena Day. The literal rgba here
+   could not be, so every surface using this rule was served Arena Night's
+   lighting in light mode. Both callers (the homepage hero and the Daily hub
+   header) now use the token-driven class, so this is dead rather than
+   deprecated. */
 
 /* ================================================================
    Card surfaces

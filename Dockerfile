@@ -36,11 +36,29 @@ WORKDIR /app
 # model/scraper pipeline (requests, beautifulsoup4, lxml, html5lib, pytest) and
 # none of that runs in a serving container.
 #
-# unidecode is the one root dependency the BUILD step needs: the exporter
-# ASCII-folds player names into slugs. It is named explicitly here so the reason
-# it is present is recorded next to the reason it is needed.
+# The BUILD steps further down (`build_web_dataset.py`, `build_nba_facts.py`)
+# have their own dependency contract, and it is `requirements-build.txt` rather
+# than a list written out here. This used to read
+#
+#     RUN pip install ... -r apps/api/requirements.txt "unidecode>=1.3"
+#
+# with a comment explaining that unidecode was "the one root dependency the
+# BUILD step needs". That was true when it was written and quietly stopped
+# being true: the fact generator now reads a parquet, and this image kept
+# working only because the API's RUNTIME set happens to carry pyarrow for
+# unrelated request-time paths. CI, which had made the same guess with a
+# different list, broke instead.
+#
+# Installing the build contract explicitly means the image no longer depends on
+# a runtime coincidence to be buildable, and means CI and Docker read the same
+# file — the drift that `tests/test_nba_facts_deployment.py` exists to catch,
+# one layer down from the missing-generator defect it was written for. It adds
+# nothing to the image in practice: pandas and pyarrow are already in the
+# runtime set at compatible floors, and unidecode was already being installed
+# by name here.
 COPY apps/api/requirements.txt ./apps/api/requirements.txt
-RUN pip install --no-cache-dir -r apps/api/requirements.txt "unidecode>=1.3"
+COPY requirements-build.txt ./requirements-build.txt
+RUN pip install --no-cache-dir -r apps/api/requirements.txt -r requirements-build.txt
 
 # Only what the API actually reads. Copying the whole repo would drag in
 # apps/web (node_modules, .next), the test suites and the scrape caches.

@@ -16,14 +16,26 @@
  * and then hands `AnimatedNumber` the authoritative value, which is the one
  * thing that makes it tween.
  *
- * THE ZERO IS NEVER PAINTED AND NEVER SPOKEN. The hand-off runs in a LAYOUT
- * effect, which React flushes before the browser paints, so no frame ever
- * shows a zero score and `AnimatedNumber`'s screen-reader sibling carries the
- * real value from the first painted frame onward. (A plain `useEffect` here
- * would paint one frame of `0` — small, but it is the difference between
- * decoration over a result and a result that briefly lies.) Under
- * `prefers-reduced-motion` `AnimatedNumber` never schedules a tween at all, so
- * the same hand-off just assigns the value and nothing moves.
+ * THE ZERO IS NEVER PAINTED IN THE BROWSER — WITH ONE STATED LIMIT. The
+ * hand-off runs in a LAYOUT effect, which React flushes before the browser
+ * paints, so on the client no frame shows a zero score and `AnimatedNumber`'s
+ * screen-reader sibling carries the real value from the first painted frame
+ * onward. (A plain `useEffect` here would paint one frame of `0` — small, but
+ * it is the difference between decoration over a result and a result that
+ * briefly lies.) Under `prefers-reduced-motion` `AnimatedNumber` never
+ * schedules a tween at all, so the same hand-off just assigns the value and
+ * nothing moves.
+ *
+ * THE LIMIT, STATED RATHER THAN GLOSSED: the SERVER-RENDERED HTML contains
+ * `0`, including in the visually-hidden sibling, because `useState(0)` is the
+ * initial render and layout effects do not run during SSR. Hydration matches
+ * (the client's first render is also `0`) and the real value lands before the
+ * first client paint, so this is not observable in the product — every surface
+ * using this component is a post-gameplay result screen that cannot be reached
+ * without JavaScript. It would become observable the moment one of these
+ * numbers appeared on a server-rendered page a visitor could read without
+ * hydrating, and at that point this component is the wrong tool: pass the
+ * authoritative value to `AnimatedNumber` directly and accept no count-up.
  *
  * `.pk-counting` is applied permanently and keys off `AnimatedNumber`'s own
  * `data-settled` attribute, so the digits carry accent ink only while they are

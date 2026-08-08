@@ -825,7 +825,12 @@
   box-shadow:
     var(--pk-rim-strong),
     0 0 0 1px var(--border-edge),
-    0 10px 24px -18px rgb(0 0 0 / 0.8);
+    /* `--pk-elev-3`, not a black literal. The literal was theme-blind: pure
+       black under a seat sitting on Arena Day's warm cream reads as soot,
+       which is the exact "neutral grey haze" failure the elevation tokens
+       were re-tuned for light mode to avoid. The token already carries a
+       warm-ink value there and a black one here. */
+    var(--pk-elev-3);
 }
 
 /* THE ACTIVE SEAT IS LIT FROM ACROSS THE ROOM. A 1px ring alone was the
@@ -1215,7 +1220,10 @@
   text-align: center;
   box-shadow:
     var(--pk-rim-strong),
-    0 24px 60px -30px rgb(0 0 0 / 0.9);
+    /* `--pk-elev-4` is the deep-lift tier and is already theme-tuned: a
+       black literal here cast soot across Arena Day's cream scrim, which
+       this card floats directly on top of. */
+    var(--pk-elev-4);
 }
 
 .td-intro-eyebrow {

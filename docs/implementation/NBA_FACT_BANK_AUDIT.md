@@ -29,11 +29,50 @@ existing checks:
 
 | Class | Count | Example |
 |---|---|---|
-| **Claim is false, or was true and has since stopped being true** | 22 | `kobe-81` said 81 was the highest post-merger single-game total outside Wilt's 100. Bam Adebayo scored 83 on 10 March 2026. |
+| **Claim is false, or was true and has since stopped being true** | 23 | `kobe-81` said 81 was the highest post-merger single-game total outside Wilt's 100. Bam Adebayo scored 83 on 10 March 2026. |
 | **Claim is true but the superlative is unbounded or mis-scoped** | 16 | `russell-first-black-coach` said "American professional sport". Fritz Pollard co-coached the Akron Pros in 1921, 45 years earlier. |
 | **Sentence is opinion wearing a fact's clothes** | 26 | "the most famous floor in basketball", "the tournament's most quoted number", "a player most fans could not name". |
 
 (The classes overlap; 64 entries were rewritten in total.)
+
+### 1.1 Disposition of every false or expired claim
+
+All 23 are enumerated in §4.1 with the specific defect and the source used to
+settle it. Their disposition:
+
+| | |
+|---|---|
+| False or expired claims found | **23** |
+| Corrected and re-verified against a named source | **23** |
+| Removed from the publishable bank | **0** |
+| Intentionally retained uncorrected | **0** |
+| Still false or expired in the published bank | **0** |
+
+Nothing was removed because in every one of the 23 a true, bounded version of
+the claim existed and was more interesting than the false one — the Real Madrid
+entry is the clearest case: the cross-league comparison was the false half, and
+"most-decorated club in European basketball" is both true and the reason anyone
+would read the sentence.
+
+**Correction to an earlier count.** The first pass of this document reported 22
+here while listing 23 rows in §4.1. Twenty-three is the count; the table is the
+authority and `tests/test_nba_facts_retired_claims.py` asserts that this
+document's §4.1 and the register agree, so the two cannot drift again.
+
+### 1.2 How "zero false facts" is enforced, and what enforces nothing
+
+`nba_peak/nba_facts/validation.py` is a STRUCTURAL gate. It refuses an entry
+with no dereferenceable `source_url`, no `checked_on`, no declared `claim_type`,
+or with language a source cannot settle. **It does not and cannot establish that
+a sentence is true**, and no schema can. The entry that started this audit
+passed every structural check it had.
+
+Truth here is established by human audit — §4 of this document, one entry at a
+time against a named published source — and held by
+`tests/test_nba_facts_retired_claims.py`, which encodes each retired assertion
+as a pattern that must match nothing the bank can serve. That file is a ratchet
+on the audit, not a substitute for it: it proves a known-false claim cannot
+return, not that the remaining claims are true.
 
 ---
 

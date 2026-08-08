@@ -98,7 +98,7 @@ jobs:
 
       - name: Run lineup model tests (need v3 profiles)
         run: |
-          pip install pandas unidecode
+          pip install -r requirements-build.txt
           scripts/ci/build-web-data.sh
           scripts/ci/lineup-tests.sh
 
@@ -114,8 +114,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install pandas unidecode
+      # The build's OWN dependency contract, not a hand-list. `pandas
+      # unidecode` was written here by hand and was correct until the fact
+      # generator started reading a parquet; then this job was the only place
+      # in the repository that claimed the build needed no parquet engine.
+      - name: Install build dependencies
+        run: pip install -r requirements-build.txt
 
       - name: Build web dataset + card profiles v3
         run: scripts/ci/build-web-data.sh
