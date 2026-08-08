@@ -27,6 +27,19 @@ THE GATE, AND WHY IT IS A HARD FAILURE
 warning, not a skip: a bank that silently drops the one fact somebody forgot to
 source is a bank whose sourcing rule is decorative. The build stops and names
 the entry.
+
+THE SECOND HALF OF THE GATE LIVES IN `validation.py`
+====================================================
+Everything in the paragraph above answers "is this entry FILLED IN". An audit of
+the committed bank found a fact that passed all of it and was false anyway — a
+comparison between EuroLeague titles and NBA championships that nobody had
+actually run — plus a fact repeating a marketing legend, plus a handful of
+sentences whose strongest claim was that the author admired something. So each
+entry now also declares a `source_url` a reviewer can open, a `checked_on` date,
+and a `claim_type`, and its prose is screened for opinion, hedging, unbounded
+superlatives and PEAK3 model voice. `validation.validate_entry` raises,
+`_build` re-raises it as an `EditorialFactError`, and the build stops exactly as
+it does for a missing source.
 """
 from __future__ import annotations
 
@@ -42,6 +55,7 @@ from .schema import (
     QualityScores,
     fact_id,
 )
+from .validation import FactValidationError, validate_entry
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 EDITORIAL_PATH = _REPO_ROOT / "data" / "facts" / "editorial_facts.json"
@@ -139,6 +153,23 @@ def _build(entry: dict, source: Path) -> NbaFact:
             f"{source.name}: entry {key!r} carries no quality scores. Every "
             "candidate is scored before the filter can reject it."
         )
+
+    # THE CLAIM GATE, LAST, and deliberately after the structural checks above.
+    #
+    # An entry with no category or no `source_detail` is not a fact with a
+    # wording problem, it is a fact nobody finished, and reporting "uses the
+    # superlative phrase 'the only'" about a draft would send the curator to the
+    # wrong sentence. Order the diagnostics so the first failure a build reports
+    # is the first thing a person has to fix.
+    #
+    # Translated into `EditorialFactError` rather than allowed to escape as
+    # itself, because `scripts/build_nba_facts.py` catches one exception type
+    # for "the curated file is not publishable" and there is no reason for a
+    # caller to have to know which half of the gate objected.
+    try:
+        validate_entry(entry, source)
+    except FactValidationError as exc:
+        raise EditorialFactError(str(exc)) from exc
 
     return NbaFact(
         # The id is derived from the STABLE KEY, not from the wording, so an
