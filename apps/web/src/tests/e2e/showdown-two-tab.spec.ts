@@ -68,10 +68,57 @@ async function pastIntro(page: Page): Promise<void> {
   await expect(page.getByTestId("td-table")).toBeVisible({ timeout: 30_000 });
 }
 
+/** The room's poll cadence, `POLL_MS` in `TwentyDollarGame.tsx`.
+ *
+ *  Mirrored rather than imported: an e2e spec that imports a client component
+ *  drags the React tree into the test process for one integer. It is repeated
+ *  here so the dwells below can be expressed as "N poll cycles" instead of as
+ *  magic numbers — if the room's cadence changes, this comment is the pointer
+ *  to the thing that has to change with it. */
+const ROOM_POLL_MS = 2000;
+
 test.describe("The $20 Showdown — two tabs on one match", () => {
   test("both tabs follow the same match, and neither invents a catch-up", async ({
     browser,
   }) => {
+    // WHY THIS TEST DOES NOT FIT THE DEFAULT 30s BUDGET, in measured phases.
+    //
+    // It is not slow because anything is wrong. It drives THREE browser
+    // contexts through a real Next dev server and a real FastAPI state
+    // machine, and the server-authoritative pacing is genuinely real time.
+    // From the CI trace of the run that timed out (workflow 31285655265), on
+    // a cold runner:
+    //
+    //     1.9s  tab A auth bootstrap (waitForFunction)
+    //     4.0s  goto /arena/lobby
+    //     1.9s  lobby practice control becomes visible
+    //     3.8s  match creation → td-game visible
+    //     1.6s  tab B goto
+    //     1.5s  tab B auth bootstrap
+    //     2.4s  tab B past the intro → td-table
+    //     1.2s  dwell: proving no "missed lots" banner appears
+    //     5.0s  dwell: several poll cycles, proving no cascade
+    //     0.4s  watcher reload
+    //     2.4s  reloaded tab past the intro → td-table
+    //     ----
+    //    29.0s  reached, with the lot comparison and recap check still to run
+    //
+    // The 30s budget expired inside the settle wait at 29.0s. Nothing hung:
+    // the sibling test in this file, which shares the same two-context setup,
+    // passed on the same CI run in 14.4s.
+    //
+    // 90s is that 29s critical path, plus the ~4s of work it had left, plus
+    // the one phase the trace happened not to pay — the wait for a live
+    // control, which costs nothing when it is the human's turn and up to a
+    // full 25s `TURN_SECONDS` turn when the bot holds the clock — and then
+    // roughly 1.5x for a loaded shared runner. It is a bound on a measured
+    // scenario, not a round number chosen to make a red test green.
+    //
+    // The two dwells below are NOT padding and are deliberately not shortened:
+    // both assert a NEGATIVE ("no catch-up banner appears"), and a negative is
+    // only worth anything if it is observed across more than one poll cycle.
+    test.setTimeout(90_000);
+
     const sub = `e2e-td-2tab-${Date.now()}`;
     const first = await signedInPage(browser, sub);
     const matchId = await startShowdown(first);
@@ -101,22 +148,31 @@ test.describe("The $20 Showdown — two tabs on one match", () => {
     const acting = first;
     const watcher = second;
 
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const bid = acting.getByTestId("td-submit-bid");
-      const pass = acting.getByTestId("td-pass");
-      if ((await bid.count()) && (await bid.isEnabled().catch(() => false))) {
-        await bid.click();
-        break;
-      }
-      if ((await pass.count()) && (await pass.isEnabled().catch(() => false))) {
-        await pass.click();
-        break;
-      }
-      await acting.waitForTimeout(1500);
-    }
+    // WAIT FOR A LIVE CONTROL, DO NOT SAMPLE FOR ONE.
+    //
+    // This was eight fixed 1500ms rounds of "is anything enabled yet?", which
+    // is up to 12 SECONDS of the budget spent sleeping between polls and, in
+    // the worst case, still no click — the bot can hold the clock for a full
+    // `TURN_SECONDS`. A selector that matches whichever control is live lets
+    // Playwright return the instant one is, so the good case costs nothing and
+    // the bot-turn case waits exactly as long as it must instead of in
+    // 1.5-second lumps. Same action, same assertion after it.
+    const liveControl = acting
+      .locator(
+        '[data-testid="td-submit-bid"]:not([disabled]), [data-testid="td-pass"]:not([disabled])',
+      )
+      .first();
+    await expect(
+      liveControl,
+      "one of the acting tab's controls must become live within a turn",
+    ).toBeVisible({ timeout: 30_000 });
+    await liveControl.click();
 
     // Let both tabs poll several times so a cascade would have shown itself.
-    await acting.waitForTimeout(5000);
+    // Two and a half cycles of the room's own cadence, stated as such: the
+    // point is "more than one poll has happened in both tabs", and a bare
+    // 5000 did not say that.
+    await acting.waitForTimeout(2.5 * ROOM_POLL_MS);
     await watcher.waitForTimeout(500);
 
     await expect(
@@ -154,7 +210,14 @@ test.describe("The $20 Showdown — two tabs on one match", () => {
     };
     await watcher.reload({ waitUntil: "domcontentloaded" });
     await pastIntro(watcher);
-    await watcher.waitForTimeout(1500);
+    // A STATE WAIT, NOT A SLEEP. This was a flat 1500ms hoping the reloaded
+    // tab had its first payload by then — the wait that the CI budget actually
+    // expired inside. What the next three lines need is a rendered lot number,
+    // so wait for exactly that: it returns as soon as the tab has re-synced
+    // and it cannot pass on a tab that never did.
+    await expect(watcher.getByTestId("td-lot-number").first()).toBeVisible({
+      timeout: 20_000,
+    });
     const [a, b] = [await lotOf(acting), await lotOf(watcher)];
     expect(a, "the acting tab reports a lot number").not.toBeNull();
     expect(b, "the reloaded tab reports a lot number").not.toBeNull();
