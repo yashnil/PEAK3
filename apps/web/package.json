@@ -21,6 +21,8 @@
     "start:e2e": "NEXT_PUBLIC_PEAK3_E2E_AUTH=1 next start"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/space-grotesk": "^5.3.0",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.49.4",
     "clsx": "^2.1.1",
