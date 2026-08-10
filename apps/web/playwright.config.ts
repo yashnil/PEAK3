@@ -27,11 +27,45 @@ export default defineConfig({
     video: "retain-on-failure",
   },
   projects: [
+    // ── Desktop, split by SEMANTIC ISOLATION ────────────────────────────────
+    //
+    // Not by test count. The three desktop projects below partition the same
+    // set the single `chromium` project used to run, and the union is proved
+    // mechanically by `scripts/ci/assert-e2e-inventory.sh` rather than by a
+    // number anyone maintains by hand.
+    //
+    // WHY SPLIT AT ALL. Every desktop test shared ONE browser and ONE
+    // API+web service pair for ~50 minutes, with `workers: 1` and
+    // `fullyParallel: false`. The Arena's multiplayer specs are the stateful
+    // ones — real matches, real bots, in-memory server repositories that only
+    // grow — and they were being run at minute 45 of that lifecycle, behind
+    // CourtBuilder's ~16-minute spec. Failures moved between Rankings,
+    // navigation, RTT, CourtBuilder and Showdown across runs while each
+    // individual fix stayed green, which is the signature of a shared
+    // resource degrading rather than of five unrelated bugs.
+    //
+    // Isolation is the point: the multiplayer shard now starts with a fresh
+    // API (fresh in-memory repositories) and a fresh browser, and it no longer
+    // waits behind anything.
     {
-      // Desktop Chromium: runs all tests EXCEPT those tagged @mobile
-      name: "chromium",
+      name: "chromium-multiplayer",
       use: { ...devices["Desktop Chrome"] },
       grepInvert: /@mobile/,
+      testMatch: /(arena-multiplayer|showdown-two-tab)\.spec\.ts/,
+    },
+    {
+      // CourtBuilder is ~16 minutes on its own and is independent of the rest.
+      name: "chromium-courtbuilder",
+      use: { ...devices["Desktop Chrome"] },
+      grepInvert: /@mobile/,
+      testMatch: /courtbuilder\.spec\.ts/,
+    },
+    {
+      // Everything else: navigation, rankings, accessibility, daily, RTT, auth.
+      name: "chromium-core",
+      use: { ...devices["Desktop Chrome"] },
+      grepInvert: /@mobile/,
+      testIgnore: /(arena-multiplayer|showdown-two-tab|courtbuilder)\.spec\.ts/,
     },
     {
       // Mobile Chrome: runs ONLY tests tagged @mobile
@@ -68,7 +102,22 @@ export default defineConfig({
       //
       // In CI: always start fresh.
       // Locally: reuse if the global setup validates the server as current.
-      command: "npm run dev:e2e",
+      // PRODUCTION SERVER WHEN `PEAK3_E2E_PROD=1`, dev otherwise.
+      //
+      // `next dev` compiles routes ON DEMAND, and that cost lands inside test
+      // budgets: a CI trace measured `GET /arena?_rsc=...` returning 200 after
+      // 3902ms on a cold two-core runner, which is what failed a navigation
+      // assertion that had been given the 5s `expect` default. The same class
+      // of cold compile is visible in the RTT history test (four route
+      // compiles at 4.0-5.8s each) and in every "it passed locally" report,
+      // because a developer's `.next` is warm.
+      //
+      // The production build removes that variable entirely and is also what
+      // actually ships. `NEXT_PUBLIC_*` values are inlined AT BUILD TIME, so
+      // the E2E auth flag has to be set for the build rather than for the
+      // server — `npm run build:e2e` does that, and `playwright.setup.ts`
+      // still probes the running server rather than trusting either.
+      command: process.env.PEAK3_E2E_PROD === "1" ? "npm run start:e2e" : "npm run dev:e2e",
       url: "http://localhost:3000",
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

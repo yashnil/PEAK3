@@ -266,7 +266,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [chromium, mobile-chrome]
+        project: [chromium-core, chromium-multiplayer, chromium-courtbuilder, mobile-chrome]
     steps:
       - uses: actions/checkout@v4
 

@@ -616,6 +616,16 @@ test.describe("The $20 Showdown", () => {
   test("the human gets a usable window and a real bid resolves a lot", async ({
     browser,
   }) => {
+    // THE SAME TRAP, FOUND BY AUDIT RATHER THAN BY LOSING ANOTHER CI CYCLE.
+    // This test grants two inner waits of 30s each — `toBeEnabled` for the
+    // human's window and the convergence poll after the bid — inside a 30s
+    // whole-test budget, before the ~12.4s of cold setup CI measured on its
+    // sibling. Sixty seconds of allowances cannot fit in thirty; it has been
+    // passing only because both normally resolve in a second or two.
+    //
+    // Inside the test body, NOT at describe scope, where it would silently
+    // re-budget every Showdown test including those whose 30s ceiling is right.
+    test.setTimeout(80_000);
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
@@ -664,6 +674,36 @@ test.describe("The $20 Showdown", () => {
   });
 
   test("passing does not make the bot pass in sympathy", async ({ browser }) => {
+    // WHERE THE CI RUN ACTUALLY DIED, AND WHY 30s WAS NEVER ENOUGH.
+    //
+    // The trace ends on an UNFINISHED `click` on `td-pass`, started at
+    // t=12.38s and still waiting when the whole-test budget expired 17.6s
+    // later. It never reached the invariant assertion below, so the bot was
+    // neither proven nor disproven to have copied the human. The loop asks
+    // `isEnabled()` and then clicks — two round-trips across a 2s poll — so
+    // the board can legitimately flip to the bot's turn in between and disable
+    // the control; the click then waits for it to come back, bounded only by
+    // the test. That wait is CORRECT: it is how the human's twelve actions
+    // reliably happen, which is what spends the bot's five
+    // `MARKET_SKIPS_PER_SEAT` and forces it into a bid it must make.
+    //
+    // The budget is also arithmetically impossible on its own: the convergence
+    // poll below is granted 25s, and CI measured 12.4s of cold navigation and
+    // match creation before the loop begins. 25 + 12.4 exceeds 30 before a
+    // single iteration runs.
+    //
+    // 150s is this test's own worst case: 12.4s of setup, twelve iterations
+    // each of which may wait out a bot turn, and the 25s poll. Observed max
+    // across 50 local runs was 59.6s, so the ceiling is for the tail.
+    //
+    // THE LOOP IS DELIBERATELY UNCHANGED. Four rewrites of it were tried and
+    // measured, and every one made this test WORSE by letting an iteration
+    // skip acting: a 2s bounded click failed 4/50, an 8s bound 1-2/50, and a
+    // deadline form 25/50 — all with "the bot never spent a dollar", because
+    // the human had stopped driving the auction the bot is forced by. The
+    // unbounded wait is the thing that keeps the invariant observable.
+    test.setTimeout(150_000);
+
     const context = await browser.newContext();
     const page = await context.newPage();
     try {

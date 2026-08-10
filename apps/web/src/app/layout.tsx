@@ -1,13 +1,27 @@
 import type { Metadata } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import localFont from "next/font/local";
 import { AuthProvider } from "@/lib/auth-context";
 import { themeInitScript } from "@/lib/theme-script";
 import "@/styles/globals.css";
 
-const inter = Inter({
-  subsets: ["latin"],
+/* SELF-HOSTED, NOT `next/font/google`.
+ *
+ * `next/font/google` downloads the face from fonts.gstatic.com AT BUILD TIME,
+ * which made every production build depend on Google Fonts being reachable —
+ * and a CI build failed exactly there, with typecheck, lint and all 1953 unit
+ * tests green and no assertion broken. A build that can fail for a reason
+ * outside the repository is not deterministic.
+ *
+ * The bytes now come from `@fontsource-variable/*`, an npm dependency resolved
+ * from the lockfile like any other, and `next/font/local` still does the
+ * optimisation, self-hosting and CSS-variable wiring. Same faces, same
+ * variables, no network. */
+const inter = localFont({
+  src: "../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
   variable: "--font-inter",
   display: "swap",
+  // Variable font: one file spans the whole axis rather than a weight list.
+  weight: "100 900",
 });
 
 /**
@@ -37,11 +51,15 @@ const inter = Inter({
  * fell back to Inter. 800 is dropped — Space Grotesk has no 800, and the six
  * call sites using `font-extrabold` now resolve to 700, its heaviest.
  */
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
+const spaceGrotesk = localFont({
+  src: "../../node_modules/@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2",
   variable: "--font-space-grotesk",
   display: "swap",
-  weight: ["400", "500", "600", "700"],
+  // Space Grotesk's variable weight axis is 300-700, so this single file
+  // covers every weight the previous `weight: ["400","500","600","700"]`
+  // requested — 400 and 500 for the eyebrow/label tier, 600 and 700 for
+  // display — with no face dropped and nothing new added.
+  weight: "300 700",
 });
 
 export const metadata: Metadata = {

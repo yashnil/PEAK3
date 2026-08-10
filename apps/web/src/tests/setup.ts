@@ -12,12 +12,12 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-// Mock next/font/google
-vi.mock("next/font/google", () => ({
-  Inter: () => ({ variable: "--font-inter", className: "inter" }),
-  Space_Grotesk: () => ({
-    variable: "--font-space-grotesk",
-    className: "space-grotesk",
+// Mock next/font/local — the faces are self-hosted via @fontsource-variable
+// rather than fetched from Google at build time (see app/layout.tsx).
+vi.mock("next/font/local", () => ({
+  default: (opts: { variable?: string }) => ({
+    variable: opts?.variable ?? "--font-local",
+    className: "local-font",
   }),
 }));
 
