@@ -559,6 +559,7 @@ async def _open_play(
         # WHICH SEAT OPENS IS THE MODE'S TO SAY, not this function's. See
         # `modes.initial_turn_seat` for the defect a hardcoded 0 caused.
         first_seat = mode_seam.initial_turn_seat(mode, snapshot)
+        first_phase = mode.initial_phase()
         return ReducerOutput(
             accepted=True,
             snapshot=snapshot,
@@ -574,8 +575,12 @@ async def _open_play(
                 ),
             ),
             open_turn=TurnDraft(
-                phase=mode.initial_phase(),
-                deadline_at=data.now + timedelta(seconds=mode.turn_seconds),
+                phase=first_phase,
+                # THE PHASE'S OWN LENGTH, not the decision window. Round one's
+                # ceremony is not a 45-second decision; see
+                # `modes.phase_seconds`.
+                deadline_at=data.now
+                + timedelta(seconds=mode_seam.phase_seconds(mode, first_phase)),
                 seat_index=first_seat,
             ),
         )

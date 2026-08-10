@@ -918,7 +918,7 @@ export default function RunTheTableGame({
             type="button"
             data-testid="rtt-reveal-continue-roster"
             onClick={() => setRosterRevealDismissed(true)}
-            className="rtt-tap self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide"
+            className="rtt-tap pk-lift pk-press self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide"
             style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
           >
             Continue
@@ -961,7 +961,7 @@ export default function RunTheTableGame({
             type="button"
             data-testid="rtt-reveal-continue-boss"
             onClick={() => setDismissedBossRevealId(bossTrack.boss_id)}
-            className="rtt-tap self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide"
+            className="rtt-tap pk-lift pk-press self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide"
             style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
           >
             Continue to the briefing

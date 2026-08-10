@@ -13,6 +13,13 @@
  * interaction is an invitation to read a four-column database. The assertions
  * are now that the control and the table are absent, and that the panel has no
  * interactive element left to get wrong.
+ *
+ * HOME-03 ADDED THREE FACTS THAT ONLY A BROWSER CAN CHECK: that the figure is
+ * unconditional (whichever fact the calendar picks today), that the category
+ * accent group actually resolves to a colour through the stylesheet, and that
+ * the default "See their PEAK3 profile" row — the card's old only control, in
+ * faint secondary text — is gone, with anything that survives being a real
+ * target.
  */
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
@@ -60,26 +67,66 @@ test.describe("NBA Fact of the Day", () => {
     await expect(panel).not.toContainText(/source rows/i);
   });
 
-  test("leads with a featured value and a supporting sentence", async ({ page }) => {
+  test("leads with a figure and a supporting sentence", async ({ page }) => {
     await page.goto("/", { waitUntil: "domcontentloaded" });
     const panel = page.getByTestId("nba-fact-of-the-day");
     await expect(panel).toBeVisible({ timeout: 20_000 });
 
-    // Not every fact carries a feature, so this asserts the SHAPE when one
+    // HOME-03: the figure is unconditional, so whichever fact the calendar
+    // picks the card has a focal point rather than collapsing to a paragraph.
+    const figure = page.getByTestId("fotd-figure");
+    await expect(figure).toBeVisible();
+    const figureBox = (await figure.boundingBox())!;
+    const headlineBox = (await page.getByTestId("fotd-text").boundingBox())!;
+    expect(figureBox.width).toBeGreaterThan(0);
+    expect(headlineBox.width).toBeGreaterThan(0);
+
+    // Not every fact carries a `feature`, so this asserts the SHAPE when one
     // does rather than requiring today's fact to have one.
     const feature = page.getByTestId("fotd-feature");
-    if (await feature.count()) {
-      await expect(feature).toContainText(/\S/);
-      const featureBox = (await feature.boundingBox())!;
-      const headlineBox = (await page.getByTestId("fotd-text").boundingBox())!;
-      // A focal point, set apart from the prose rather than inside it.
-      expect(featureBox.width).toBeGreaterThan(0);
-      expect(headlineBox.width).toBeGreaterThan(0);
-    }
-    // The court motif is decorative and must stay out of the accessibility tree.
+    if (await feature.count()) await expect(feature).toContainText(/\S/);
+
+    // The motif is decorative and must stay out of the accessibility tree.
     const motif = panel.locator("svg.fotd-motif");
-    if (await motif.count()) {
-      await expect(motif.first()).toHaveAttribute("aria-hidden", "true");
+    await expect(motif.first()).toHaveAttribute("aria-hidden", "true");
+  });
+
+  test("is coloured by the category it is about", async ({ page }) => {
+    // One custom property drives the whole card, so this is the single
+    // browser-observable fact that the accent group reached the stylesheet.
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const panel = page.getByTestId("nba-fact-of-the-day");
+    await expect(panel).toBeVisible({ timeout: 20_000 });
+
+    const accent = await panel.getAttribute("data-accent");
+    expect(
+      ["history", "rules", "records", "playoffs", "global", "people"],
+      "the card rendered with no accent group",
+    ).toContain(accent);
+
+    const resolved = await panel.evaluate((el) =>
+      getComputedStyle(el).getPropertyValue("--fotd-accent").trim(),
+    );
+    expect(resolved, "--fotd-accent did not resolve to a colour").toMatch(/\S/);
+  });
+
+  test("offers no faint default profile link", async ({ page }) => {
+    // HOME-03 removed the "See their PEAK3 profile" row that appeared on
+    // roughly three quarters of the bank. Whatever survives must be a real
+    // control (SHARED-04), never underlined secondary body text.
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    const panel = page.getByTestId("nba-fact-of-the-day");
+    await expect(panel).toBeVisible({ timeout: 20_000 });
+
+    // `.fotd-link` was the old faint style: 0.6875rem, `--text-secondary`,
+    // underlined body text, and the card's only control. It no longer exists.
+    await expect(panel.locator(".fotd-link")).toHaveCount(0);
+    const cta = page.getByTestId("fotd-player-link");
+    if (await cta.count()) {
+      await expect(cta).toHaveClass(/fotd-cta/);
+      const box = (await cta.boundingBox())!;
+      expect(box.height, "the one surviving action is not a comfortable target")
+        .toBeGreaterThanOrEqual(40);
     }
   });
 

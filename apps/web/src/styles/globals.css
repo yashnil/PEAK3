@@ -569,6 +569,144 @@
 }
 
 /* ================================================================
+   Gameplay + visual polish pass — corrections and additions
+   ================================================================
+
+   THREE OUTRIGHT BUGS FIRST. `--font-display`, `--font-mono` and
+   `--peak-accent-on` are REFERENCED but were never DEFINED:
+
+     * `var(--font-display, inherit)` appears in 11 rules across
+       arena.css, home.css, twenty-dollar.css and three-man-weave.css.
+       Every one of them silently fell back to Inter, so Syne -- which
+       IS loaded, and IS applied by the `.font-display` class -- never
+       reached a single game heading.
+     * `var(--font-mono)` in arena.css always took its raw fallback.
+     * `.tmw-seat-letter` (three-man-weave.css:287) writes
+       `color: var(--peak-accent-on)` with NO fallback, so the
+       declaration is invalid and the colour is inherited. The other
+       five uses carry an inline `#12131a` fallback, which is the same
+       value written six times in four files.
+
+   Defining them is a fix, not a redesign: every consumer already asked
+   for exactly this.
+
+   WHAT ELSE CHANGED, AND WHY. Four measured contrast problems, all of
+   them "two tokens that are supposed to differ and do not":
+
+     * `--text-secondary` vs `--text-muted` measured 1.12:1 apart in
+       dark and 1.26:1 in light. Two tokens with 1,056 combined uses
+       that render as the same grey are not a hierarchy, and "reduce
+       low-value faint microcopy" is unachievable while the two tiers
+       are indistinguishable. Widened in both themes.
+     * `--border-subtle` measured 1.056:1 against `--bg-surface` in
+       dark. It is the most-used card edge in the app (55 rules, 23 of
+       them in twenty-dollar.css alone) and it was invisible.
+     * Light `--bg-elevated` vs `--bg-surface` measured 1.074:1 -- three
+       declared elevation tiers reading as one material, which is the
+       specific reason Arena Day looks washed out rather than designed.
+     * `--focus-ring` measured 3.65:1 on dark surfaces.
+
+   Values are stated as measured ratios in the comments beside them.
+   The `--comp-*` component fills are NOT touched: the Rankings bars are
+   an approved surface and their fill/text split is load-bearing.
+   ================================================================ */
+
+:root {
+  /* ---- The three referenced-but-undefined tokens ---- */
+  /* THE DISPLAY FACE. Space Grotesk since the visual-identity pass (see
+     `app/layout.tsx` for why it replaced Syne). Resolved through the same
+     next/font variable the `.font-display` class uses, so the class and the
+     token cannot disagree about which face is "display" — that disagreement
+     is exactly the bug this token was originally added to fix. */
+  --font-display: var(--font-space-grotesk), "Space Grotesk", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  /* Ink on a gold fill. 11.25:1 against --peak-accent, and identical in
+     both themes because the fill is. */
+  --peak-accent-on: #12131a;
+
+  /* ---- Text tiers that are actually distinguishable ---- */
+  /* 9.1:1 on --bg-surface (was 4.9:1 and only 1.12:1 clear of muted). */
+  --text-secondary: #b3b8cc;
+  /* 5.7:1 on --bg-surface, and 4.6:1 on --bg-surface-hover, which is
+     where the old value fell below AA on hovered rows. */
+  --text-muted: #8b90a6;
+
+  /* ---- Edges you can see ---- */
+  /* 1.37:1 on --bg-surface: a hairline, but a visible one. */
+  --border-subtle: #2b3040;
+  /* NEW. 3.0:1 on --bg-surface -- the UI-component contrast floor, for
+     an edge that has to carry structure on its own rather than sit
+     under a fill. */
+  --border-edge: #525a72;
+  /* ~6:1 on --bg-surface (was 3.65:1). */
+  --focus-ring: #7b8cff;
+
+  /* ---- Competitive seat accents ----
+     Multiplayer had no per-seat identity at all: all three Three-Man
+     Weave seats and both Showdown seats used the single brand gold and
+     were told apart by a letter glyph. `data-is-you` was emitted with
+     zero CSS rules attached to it.
+
+     Three seats, maximally separable, every ink value >= 7:1 on
+     --bg-surface. Seat fills are the component palette's own hues, so
+     the strongest existing element in the product supplies the accents
+     rather than a second palette being invented beside it. */
+  --seat-1-fill: #f5c842;   /* gold    — 11.3:1 */
+  --seat-1-ink: #f5c842;
+  --seat-2-fill: #60a5fa;   /* blue    —  7.1:1 */
+  --seat-2-ink: #7ab5fb;
+  --seat-3-fill: #34d399;   /* emerald —  9.3:1 */
+  --seat-3-ink: #4bdba7;
+  /* Two seats: the widest hue split available, so "you" and "them" are
+     never a brightness judgement. */
+  --seat-a-fill: #f5c842;
+  --seat-a-ink: #f5c842;
+  --seat-b-fill: #a78bfa;   /* violet  —  6.6:1 */
+  --seat-b-ink: #b69ffb;
+
+  /* ---- Numerals ----
+     Timers, bids, scores and prices must not reflow as digits change.
+     Consolidated here because 36 hand-rolled `font-variant-numeric`
+     declarations had accumulated across the partials, 20 of them in
+     twenty-dollar.css. */
+  --pk-numeral: "tnum" 1, "lnum" 1;
+}
+
+:root[data-theme="light"] {
+  /* Same widening, measured against the light surfaces. */
+  --text-secondary: #4b4636;  /* 9.1:1 on --bg-surface */
+  --text-muted: #6b6552;      /* 5.6:1 on --bg-surface */
+
+  --border-subtle: #d3cbb6;
+  --border-edge: #a2977c;     /* 3.0:1 on --bg-surface */
+
+  /* SURFACE TIERS THAT SEPARATE. Recessed goes DARKER than the page
+     while raised goes lighter, rather than three warm creams within
+     1.07:1 of each other. --bg-page is unchanged, so nothing that
+     depends on the canvas colour moves. */
+  --bg-elevated: #f6f2e9;
+  --bg-surface: #fdfbf6;      /* 1.23:1 against --bg-page */
+  --bg-surface-hover: #f2ede0;
+
+  /* Seat inks, re-derived for a light canvas -- the FILLS stay
+     identical in both themes so a seat's colour identity is stable. */
+  --seat-1-ink: #7a5807;      /* 6.3:1 */
+  --seat-2-ink: #1d5fc4;      /* 5.8:1 */
+  --seat-3-ink: #0c6941;      /* 6.5:1 */
+  --seat-a-ink: #7a5807;
+  --seat-b-ink: #6b46c9;      /* 6.1:1 */
+}
+
+/* Tabular numerals wherever a number is a value rather than prose.
+   `.score-number` already existed and was effectively orphaned; this
+   gives the partials one class to reach for. */
+.pk-numeral,
+.score-number {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: var(--pk-numeral);
+}
+
+/* ================================================================
    Base
    ================================================================ */
 
@@ -599,9 +737,18 @@ html, body {
    Typography utilities
    ================================================================ */
 
+/* READS THE TOKEN, NOT THE RAW next/font VARIABLE.
+   This class and `--font-display` are two names for one decision, and they
+   were previously two independent declarations of it — which is how Syne
+   ended up applied by the class and absent from all eleven `var(--font-display)`
+   call sites for an entire release. One source now.
+   Tracking comes from `--pk-track-display` for the same reason: display
+   surfaces that set their own size also set their own tracking, and a single
+   hardcoded -0.02em was wrong at both ends of the scale. */
 .font-display {
-  font-family: var(--font-syne, var(--font-inter, system-ui, sans-serif));
-  letter-spacing: -0.02em;
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  letter-spacing: var(--pk-track-display, -0.02em);
 }
 
 .text-peak-accent {
@@ -640,20 +787,15 @@ html, body {
   background-size: 48px 48px;
 }
 
-/* Phase 8E: homepage hero -- same restrained "arena lighting" language as
-   the court/spinner (Phase 8D: two low-opacity corner glows + a court-line
-   grid texture), scaled up for a full hero section. Gives the front door
-   the same premium arena atmosphere as the game itself instead of a plain
-   flat panel, without drifting into a busy/gaudy look (every glow stays
-   under 12% alpha, same discipline as .roster-board's). */
-.home-hero-glow {
-  background-image:
-    radial-gradient(45% 60% at 12% 0%, rgba(245, 200, 66, 0.10), transparent 70%),
-    radial-gradient(45% 60% at 88% 0%, rgba(96, 165, 250, 0.07), transparent 70%),
-    linear-gradient(var(--court-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--court-line) 1px, transparent 1px);
-  background-size: auto, auto, 48px 48px, 48px 48px;
-}
+/* `.home-hero-glow` (Phase 8E) WAS HERE AND IS GONE.
+   It was the first statement of the arena-lighting idea — two low-opacity
+   corner glows over a court-line grid — and `.pk-atmosphere` at the bottom of
+   this file is the same stack with its alphas moved into `--pk-glow-warm` /
+   `--pk-glow-cool`, which are re-derived for Arena Day. The literal rgba here
+   could not be, so every surface using this rule was served Arena Night's
+   lighting in light mode. Both callers (the homepage hero and the Daily hub
+   header) now use the token-driven class, so this is dead rather than
+   deprecated. */
 
 /* ================================================================
    Card surfaces
@@ -1503,6 +1645,13 @@ html, body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+  /* SMOOTH SCROLLING IS MOTION TOO, and the blanket above never reached
+     it: `html { scroll-behavior: smooth }` is set unconditionally near
+     the top of this file, so a reduced-motion user still got animated
+     scrolling on every in-page jump. */
+  html {
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ================================================================
@@ -2079,4 +2228,573 @@ html, body {
 
 /* ================================================================
    === END PEAK3 UI PRIMITIVES ===
+   ================================================================ */
+
+/* ================================================================
+   === VISUAL IDENTITY + GAME-FEEL PASS (ADDITIVE) ===
+   ================================================================
+   Everything above this banner is unchanged by this pass except three
+   edits that were single-source corrections rather than redesigns:
+   `--font-display` now names Space Grotesk, `.font-display` reads that
+   token instead of re-deciding the face itself, and `.font-display`
+   takes its tracking from `--pk-track-display`.
+
+   WHAT THIS SECTION IS FOR. The product had a complete, measured token
+   set and essentially no *game* in its surfaces: flat panels, one
+   accent, hover states that changed a background by 4% and nothing
+   else, and thirty-seven keyframes that each belonged to exactly one
+   screen. Nothing here replaces a token. It adds the layer that was
+   missing — a display type scale, an atmosphere/depth vocabulary, and
+   a small set of motion primitives any surface can reach for.
+
+   THE RULES THIS SECTION OBEYS
+   ---------------------------
+   1. NEW PROPERTIES ONLY. No existing token is redefined here. The one
+      exception is stated and justified at its declaration.
+   2. NO NEW TEXT COLOURS. Every measured contrast ratio in this file
+      was established by an earlier audit; inventing new ink would mean
+      either re-measuring everything or shipping an unmeasured claim.
+      This pass adds surfaces, rims, glows and gradients — decoration
+      *behind* ink that is already proven — and where it touches text it
+      only ever moves a value UP a tier (muted -> secondary), which can
+      only increase contrast.
+   3. MOTION IS DECORATION OVER AN ALREADY-VISIBLE RESULT. No primitive
+      here gates information behind an animation. Removing every one of
+      them leaves the app fully usable and fully readable, which is what
+      makes the reduced-motion block at the bottom honest rather than a
+      degraded experience.
+   4. EVERY PRIMITIVE IS `.pk-`-NAMESPACED and composable. They are
+      utilities a surface opts into, not a restyle that reaches into
+      surfaces from a distance.
+   ================================================================ */
+
+:root {
+  /* ---- Type scale ----
+     A display face needs its own tracking per size: Space Grotesk set
+     at -0.022em is correct for a 48px hero and visibly too tight for a
+     14px eyebrow, and the single hardcoded -0.02em on `.font-display`
+     was applying the hero value to both. Four steps, because that is
+     how many distinct display sizes the app actually uses. */
+  --pk-track-display: -0.022em;   /* hero / page titles, 28px and up   */
+  --pk-track-heading: -0.014em;   /* section headings, 18-26px         */
+  --pk-track-tight: -0.006em;     /* dense UI labels                   */
+  --pk-track-eyebrow: 0.13em;     /* uppercase micro-labels            */
+
+  /* Display line-heights. Tight enough that a two-line hero reads as
+     one object rather than two sentences. */
+  --pk-leading-display: 1.04;
+  --pk-leading-heading: 1.18;
+
+  /* ---- The gold, as a ramp rather than one value ----
+     `--peak-accent` (#f5c842) is FROZEN and untouched: it is the brand,
+     it is the fill in a dozen approved surfaces, and `--peak-accent-on`
+     is measured against it. What was missing is everything either side
+     of it, which is why every accented surface in the app was either
+     "full gold" or "gold at 8% alpha" with nothing in between.
+
+     Derived with color-mix from the frozen value, not hand-picked, so
+     the ramp cannot drift away from the brand colour it is a ramp OF.
+     These are FILL/EDGE values. Gold ink on a dark surface remains
+     `--peak-accent-text`, which is already measured. */
+  --peak-accent-wash: color-mix(in srgb, var(--peak-accent) 7%, transparent);
+  --peak-accent-veil: color-mix(in srgb, var(--peak-accent) 14%, transparent);
+  --peak-accent-edge: color-mix(in srgb, var(--peak-accent) 32%, transparent);
+  --peak-accent-rim: color-mix(in srgb, var(--peak-accent) 55%, transparent);
+
+  /* ---- Arena atmosphere ----
+     The homepage hero already hand-rolled two radial "floodlights" plus
+     a court grid, inline, in one rule. Three other surfaces have since
+     copy-pasted a variant of it. These are that idea, named once.
+
+     Alphas stay at or under 12%, which is the discipline the original
+     `.home-hero-glow` comment set and the reason the effect reads as
+     lighting rather than as a coloured box. */
+  --pk-glow-warm: rgba(245, 200, 66, 0.10);   /* the court-side floodlight */
+  --pk-glow-cool: rgba(96, 165, 250, 0.07);   /* the far-side fill light   */
+  --pk-glow-strong: rgba(245, 200, 66, 0.20); /* a lit, active element     */
+
+  /* Two floodlights and the court grid, as one reusable background.
+     `--pk-court-grid-size` is a local knob so a small panel can tighten
+     the grid without redeclaring the whole stack. */
+  --pk-court-grid-size: 48px;
+  --pk-atmosphere:
+    radial-gradient(45% 60% at 12% 0%, var(--pk-glow-warm), transparent 70%),
+    radial-gradient(45% 60% at 88% 0%, var(--pk-glow-cool), transparent 70%),
+    linear-gradient(var(--court-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--court-line) 1px, transparent 1px);
+
+  /* ---- Depth ----
+     The single most effective thing separating a "web panel" from a
+     "game panel" is a lit top edge. A card with a 1px inner highlight
+     along its top reads as a physical object catching the room's light;
+     the same card without one reads as a rectangle. Both themes get a
+     rim, but they are opposite in kind: white light on dark, warm ink
+     shadow on light (defined in the light block below).
+
+     `--pk-rim` is designed to be composed INTO an existing box-shadow,
+     not to replace it:
+         box-shadow: var(--pk-rim), var(--pk-elev-2);            */
+  --pk-rim: inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  --pk-rim-strong: inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  /* A recessed well — the inverse, for inputs, wells and inset lists. */
+  --pk-well: inset 0 1px 3px rgba(0, 0, 0, 0.30);
+
+  /* A hairline that catches light along the top and fades — the edge
+     treatment for a card that must read as raised without a full
+     border. */
+  --pk-hairline: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--text-primary) 12%, transparent) 20%,
+    color-mix(in srgb, var(--text-primary) 12%, transparent) 80%,
+    transparent
+  );
+
+  /* The gold hairline, for the top edge of a surface that is the thing
+     the player is meant to act on. */
+  --pk-hairline-accent: linear-gradient(
+    90deg,
+    transparent,
+    var(--peak-accent-rim) 25%,
+    var(--peak-accent-rim) 75%,
+    transparent
+  );
+
+  /* ---- Surface gradients ----
+     A flat `--bg-surface` fill under a rim still reads flat. A two-stop
+     gradient of two or three percent is invisible as a gradient and
+     entirely visible as volume. */
+  --pk-grad-raised: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--text-primary) 3%, var(--bg-surface)),
+    var(--bg-surface)
+  );
+  --pk-grad-decision: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--peak-accent) 5%, var(--bg-elevated)),
+    var(--bg-elevated)
+  );
+
+  /* ---- Motion: additions to the existing scale ----
+     `--pk-dur-*` and `--pk-ease-*` above are unchanged and remain the
+     scale. These are the two things the cinematic surfaces kept
+     hand-rolling because the scale had no name for them. */
+  --pk-dur-lift: 160ms;       /* a hover state should beat the pointer  */
+  --pk-dur-pulse: 2000ms;     /* one breath of an "it is your turn" ring */
+  /* An overshoot that settles, for something arriving and landing.
+     Distinct from `--pk-ease-emphasized`, which overshoots and stays
+     lively — this one is heavier and stops dead, which is what a card
+     locking into a slot should feel like. */
+  --pk-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Deceleration only. For anything the user initiated: it must start
+     at full speed, because they already committed. */
+  --pk-ease-decel: cubic-bezier(0.05, 0.7, 0.1, 1);
+
+  /* Stagger step for a revealed list. Read by `.pk-reveal` through
+     `--pk-reveal-index`, so a caller sets an index rather than a delay
+     and the rhythm stays consistent across every surface. */
+  --pk-stagger: 55ms;
+
+  /* ---- Focus, as a game affordance ----
+     `--focus-ring` and its geometry are unchanged and remain the a11y
+     focus indicator. This is the separate, decorative "this element is
+     the live one" treatment, which is not the same concept and was
+     being spelled with the focus ring on three surfaces. */
+  --pk-spotlight: 0 0 0 1px var(--peak-accent-edge),
+                  0 0 24px -4px var(--pk-glow-strong);
+}
+
+:root[data-theme="light"] {
+  /* Arena Day. The rim inverts: on a warm cream surface a white inner
+     highlight is invisible, and the thing that reads as "lit from
+     above" is a soft warm shadow under the top edge instead. Warm ink
+     rather than neutral black, matching the reasoning already written
+     against `--pk-elev-*`'s light overrides above. */
+  --pk-rim: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 6%, transparent);
+  --pk-rim-strong: inset 0 1px 0 color-mix(in srgb, var(--text-primary) 11%, transparent);
+  --pk-well: inset 0 1px 3px color-mix(in srgb, var(--text-primary) 12%, transparent);
+
+  /* Floodlights have to work harder against a light canvas — a 10%
+     gold wash over cream is nothing. Warmer and slightly denser, and
+     the cool fill shifts from a blue that goes grey on cream to one
+     that keeps its hue. */
+  --pk-glow-warm: rgba(214, 158, 20, 0.13);
+  --pk-glow-cool: rgba(48, 93, 141, 0.08);
+  --pk-glow-strong: rgba(214, 158, 20, 0.26);
+
+  /* The gold ramp needs more of itself on cream for the same reason. */
+  --peak-accent-wash: color-mix(in srgb, var(--peak-accent) 16%, transparent);
+  --peak-accent-veil: color-mix(in srgb, var(--peak-accent) 26%, transparent);
+  --peak-accent-edge: color-mix(in srgb, var(--peak-accent) 52%, transparent);
+  --peak-accent-rim: color-mix(in srgb, #b48a14 62%, transparent);
+
+  /* Raised goes LIGHTER than its own fill on a light canvas — the
+     opposite direction from dark mode, because the light source is
+     still above and cream lit from above gets brighter, not darker. */
+  --pk-grad-raised: linear-gradient(
+    180deg,
+    #ffffff,
+    var(--bg-surface)
+  );
+  --pk-grad-decision: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--peak-accent) 12%, var(--bg-elevated)),
+    var(--bg-elevated)
+  );
+}
+
+/* ================================================================
+   Motion primitives
+   ================================================================
+   Seven behaviours, each one class. They are deliberately small: the
+   thing that makes an app feel expensive is that the SAME lift, the
+   SAME press and the SAME reveal happen everywhere, not that each
+   screen has an inventive one.
+   ================================================================ */
+
+/* ---- 1. LIFT ----------------------------------------------------
+   The universal "this responds to you". Two pixels and one shadow
+   tier, on hover AND on keyboard focus, because a keyboard user is
+   entitled to the same feedback a mouse user gets.
+
+   `will-change` is deliberately NOT set: it is a promise to the
+   compositor that costs a layer per element, and these are applied to
+   grids of dozens of cards. Transform and box-shadow are already
+   compositor-friendly. */
+.pk-lift {
+  transition:
+    transform var(--pk-dur-lift) var(--pk-ease-decel),
+    box-shadow var(--pk-dur-lift) var(--pk-ease-decel),
+    border-color var(--pk-dur-lift) var(--pk-ease-decel);
+}
+
+/* A DISABLED CONTROL DOES NOT RESPOND.
+   `:hover` still matches a `:disabled` button, so without this guard a
+   greyed-out control rose two pixels and gained an elevation tier on
+   hover exactly like a live one — the clearest false affordance a UI
+   can offer, and one three surfaces had already written their own
+   local guard for by the time it was noticed centrally.
+
+   Expressed as `:not()` on the hover selector rather than as a later
+   override, so a disabled element simply never matches and keeps
+   whatever resting shadow its own stylesheet gave it. An override
+   would have had to invent a resting value to reset TO, and would
+   have got it wrong for every surface with a custom one. */
+.pk-lift:hover:not(:disabled):not([aria-disabled="true"]),
+.pk-lift:focus-visible:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(-2px);
+  box-shadow: var(--pk-rim), var(--pk-elev-3);
+}
+
+/* A card that is itself a link/button gets a slightly larger move —
+   the whole object is the target, so the response should read at the
+   scale of the object.
+
+   IT CARRIES ITS OWN TRANSITION rather than requiring `.pk-lift`
+   beside it. Written as a hover-only override it worked perfectly in
+   combination and snapped with no transition when used alone, which
+   is a trap nobody would find in review: the class name says "lift",
+   the element does lift, and only the easing is missing. */
+.pk-lift-lg {
+  transition:
+    transform var(--pk-dur-lift) var(--pk-ease-decel),
+    box-shadow var(--pk-dur-lift) var(--pk-ease-decel),
+    border-color var(--pk-dur-lift) var(--pk-ease-decel);
+}
+
+.pk-lift-lg:hover:not(:disabled):not([aria-disabled="true"]),
+.pk-lift-lg:focus-visible:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(-4px);
+  box-shadow: var(--pk-rim-strong), var(--pk-elev-4);
+}
+
+/* ---- 2. PRESS ---------------------------------------------------
+   The other half of lift, and the half almost every web UI omits. A
+   control that rises on hover and does nothing on click feels broken
+   in a way people cannot name. Scale rather than translate, so it
+   reads as "pushed in" rather than "moved down". */
+.pk-press {
+  transition: transform var(--pk-dur-fast) var(--pk-ease-decel);
+}
+
+.pk-press:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: scale(0.975);
+}
+
+/* Composed: the standard interactive object. */
+.pk-lift.pk-press:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: translateY(-1px) scale(0.985);
+}
+
+/* ---- 3. REVEAL --------------------------------------------------
+   A panel arriving. Rise and fade, never scale — scaling text blurs it
+   mid-animation on non-integer scales.
+
+   STAGGER IS AN INDEX, NOT A DELAY. A caller sets
+   `style={{ "--pk-reveal-index": i }}` and the rhythm is this file's
+   decision, so a six-item list and a three-item list stagger at the
+   same rate instead of each screen inventing one.
+
+   CAPPED AT INDEX 8. Uncapped, a 30-row list would leave its last row
+   invisible for 1.6 seconds, which is not a reveal, it is a fault. */
+@keyframes pk-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pk-reveal {
+  animation: pk-reveal var(--pk-dur-reveal) var(--pk-ease-settle) both;
+  animation-delay: calc(min(var(--pk-reveal-index, 0), 8) * var(--pk-stagger));
+}
+
+/* ---- 4. ACTIVE-TURN PULSE --------------------------------------
+   "It is your turn" / "this is live". A slow ring that breathes, on
+   box-shadow only, so it never moves the element and never reflows a
+   row of seats.
+
+   THE COLOUR IS INHERITED, NOT FIXED. `--pk-pulse-color` defaults to
+   the brand gold, and the multiplayer seats override it with their own
+   `--seat-N-fill` — so the same primitive expresses "your turn" in
+   your seat's colour rather than every seat pulsing gold. */
+@keyframes pk-turn-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--pk-pulse-color, var(--peak-accent)) 40%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--pk-pulse-color, var(--peak-accent)) 0%, transparent);
+  }
+}
+
+.pk-turn-pulse {
+  animation: pk-turn-pulse var(--pk-dur-pulse) var(--pk-ease-standard) infinite;
+}
+
+/* ---- 5. SPOTLIGHT ----------------------------------------------
+   The element that matters right now. NOT a focus ring — focus is
+   `*:focus-visible` above and is about where the keyboard is; this is
+   about where the GAME is, and the two are frequently different
+   elements at the same moment. */
+.pk-spotlight {
+  box-shadow: var(--pk-spotlight);
+  border-color: var(--peak-accent-edge);
+}
+
+/* ---- 6. DEPTH ---------------------------------------------------
+   A surface that reads as an object: lit top edge, volume gradient,
+   shadow beneath. One class instead of the three-declaration stack
+   that four partials had each written their own version of. */
+/* `background-image` + `background-color`, NEVER the `background`
+   shorthand. The shorthand resets every background longhand it does
+   not mention, which has two consequences that only show up in
+   combination: a `.pk-depth` element loses any background-image a
+   sibling class gave it (`.pk-atmosphere` and `.court-grid-bg` both
+   set one), and it is left with a transparent background-color that
+   only looks right because the gradient happens to be opaque. Naming
+   the longhands makes the class composable and gives it a real fill
+   underneath. */
+.pk-depth {
+  background-image: var(--pk-grad-raised);
+  background-color: var(--bg-surface);
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
+}
+
+.pk-depth-decision {
+  background-image: var(--pk-grad-decision);
+  background-color: var(--bg-elevated);
+  box-shadow: var(--pk-rim-strong), var(--pk-elev-3);
+  border-color: var(--peak-accent-edge);
+}
+
+/* A lit hairline across the top edge, for a surface that should read
+   as raised without carrying a full border. Needs a positioned parent;
+   the ::before is inert to the pointer and to assistive tech. */
+/* BOTH CLASSES DRAW. `.pk-crown-accent` was written as a modifier that
+   only recoloured `.pk-crown::before`, which meant it rendered nothing
+   at all unless `.pk-crown` happened to be beside it — and it reads
+   exactly like a complete class, so five call sites across the reveal
+   and progression surfaces used it alone and drew no hairline. Nobody
+   would spot that in review: the markup is right, the class exists,
+   and the result is silently empty.
+
+   Making the accent variant self-sufficient costs one selector and
+   removes the trap. It still composes: `.pk-crown .pk-crown-accent`
+   resolves to the accent background either way, because the accent
+   rule comes second. */
+.pk-crown,
+.pk-crown-accent {
+  position: relative;
+}
+
+.pk-crown::before,
+.pk-crown-accent::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: var(--pk-hairline);
+  pointer-events: none;
+}
+
+.pk-crown-accent::before {
+  background: var(--pk-hairline-accent);
+}
+
+/* ---- 7. ATMOSPHERE ---------------------------------------------
+   The arena lighting, as a class. `.home-hero-glow` already did this
+   inline for one surface; this is the same stack, named, so the next
+   surface that wants it does not paste a fourth copy of the gradient
+   list. */
+.pk-atmosphere {
+  background-image: var(--pk-atmosphere);
+  background-size:
+    auto,
+    auto,
+    var(--pk-court-grid-size) var(--pk-court-grid-size),
+    var(--pk-court-grid-size) var(--pk-court-grid-size);
+}
+
+/* ---- Sheen -------------------------------------------------------
+   A single specular pass across a primary control on hover. Used
+   SPARINGLY and by opt-in only — this is the one effect in the set
+   that becomes noise the moment it is applied to more than the one
+   button on a screen that matters most.
+
+   Clipped by the host's own `overflow: hidden`; the pseudo-element is
+   inert and the transform runs on the compositor. */
+.pk-sheen {
+  position: relative;
+  overflow: hidden;
+}
+
+.pk-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    color-mix(in srgb, var(--text-primary) 14%, transparent) 48%,
+    transparent 66%
+  );
+  transform: translateX(-120%);
+  pointer-events: none;
+  opacity: 0;
+}
+
+.pk-sheen:hover::after,
+.pk-sheen:focus-visible::after {
+  opacity: 1;
+  transform: translateX(120%);
+  transition:
+    transform var(--pk-dur-slower) var(--pk-ease-decel),
+    opacity var(--pk-dur-fast) linear;
+}
+
+/* ---- Count-up -----------------------------------------------------
+   The digits themselves, while a score is counting. `AnimatedNumber`
+   drives the VALUE; this is the accompanying treatment, so a counting
+   score looks live rather than looking like a number that happens to
+   be changing.
+
+   IT KEYS OFF `data-settled`, WHICH `AnimatedNumber` ALREADY EMITS,
+   rather than off a class the caller toggles on a timer. That matters:
+   a second timer racing the tween is how a "still counting" highlight
+   ends up stuck on a number that finished 300ms ago. There is one
+   clock here and the component owns it.
+
+   Applied permanently — the accent only appears while unsettled, and
+   the colour transitions back on landing. Tabular figures are already
+   guaranteed by `.pk-numeral` / `.score-number`, so nothing reflows
+   while this runs. Under reduced motion `AnimatedNumber` never
+   schedules a tween at all, so `data-settled` is "true" from the first
+   paint and this is inert without needing a media query. */
+.pk-counting {
+  transition: color var(--pk-dur-slow) var(--pk-ease-decel);
+}
+
+.pk-counting[data-settled="false"] {
+  color: var(--peak-accent-text);
+}
+
+/* ================================================================
+   Reduced motion — the primitives above
+   ================================================================
+   The global rule near the top of this file collapses
+   animation-duration and transition-duration, which is most of the
+   job. It does NOT touch three things these primitives depend on, and
+   each is a real defect rather than a nicety:
+
+     * `animation-delay`. `.pk-reveal` staggers by delay. Collapsing
+       the duration alone leaves the eighth item of a list INVISIBLE
+       for 440ms and then popping in — strictly worse than the
+       animation it was meant to replace.
+     * The hover TRANSFORM on `.pk-lift`. A zero-duration transition
+       still applies the transform; the card teleports two pixels on
+       hover. Removing the movement entirely is the intent.
+     * `.pk-sheen`'s pass, which is pure decoration and has no
+       reduced-duration form that is not a flash.
+
+   Scoped to `.pk-*` rather than added to the global block on purpose:
+   several existing cinematic sequences pair a CSS `animation-delay`
+   with a JS timer, and zeroing delay globally would desynchronise
+   them. This pass does not get to make that change on their behalf.
+   ================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .pk-reveal {
+    animation-delay: 0ms !important;
+  }
+
+  .pk-lift,
+  .pk-lift-lg,
+  .pk-press {
+    transition: border-color var(--pk-dur-fast) linear;
+  }
+
+  /* No movement at all. The element still reports itself as hovered
+     through its border and shadow, which is the information; the
+     travel was the decoration.
+
+     THE `:not()` CHAINS ARE LOAD-BEARING HERE, not copied for tidiness.
+     The rules these override carry `:not(:disabled):not([aria-disabled])`
+     — specificity (0,4,0). Written as the bare `.pk-lift:hover` this
+     block used to be, at (0,2,0), it would lose the cascade despite
+     coming later in the file, and reduced motion would silently stop
+     suppressing the lift. Any future change to the guards above must be
+     mirrored here. */
+  .pk-lift:hover:not(:disabled):not([aria-disabled="true"]),
+  .pk-lift:focus-visible:not(:disabled):not([aria-disabled="true"]),
+  .pk-lift-lg:hover:not(:disabled):not([aria-disabled="true"]),
+  .pk-lift-lg:focus-visible:not(:disabled):not([aria-disabled="true"]),
+  .pk-press:active:not(:disabled):not([aria-disabled="true"]),
+  .pk-lift.pk-press:active:not(:disabled):not([aria-disabled="true"]) {
+    transform: none;
+  }
+
+  .pk-lift:hover:not(:disabled):not([aria-disabled="true"]),
+  .pk-lift:focus-visible:not(:disabled):not([aria-disabled="true"]) {
+    box-shadow: var(--pk-rim), var(--pk-elev-3);
+  }
+
+  /* The ring stops breathing and simply stays lit, so "it is your
+     turn" is still expressed — as a state rather than as a motion. */
+  .pk-turn-pulse {
+    animation: none;
+    box-shadow: 0 0 0 3px
+      color-mix(in srgb, var(--pk-pulse-color, var(--peak-accent)) 34%, transparent);
+  }
+
+  .pk-sheen::after {
+    display: none;
+  }
+}
+
+/* ================================================================
+   === END VISUAL IDENTITY + GAME-FEEL PASS ===
    ================================================================ */

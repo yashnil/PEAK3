@@ -172,7 +172,28 @@ test.describe("Navbar Play", () => {
     }
 
     await viewAll.click();
-    await expect(page).toHaveURL(/\/arena$/);
+    // WAIT FOR THE NAVIGATION, NOT FOR FIVE SECONDS.
+    //
+    // This was `expect(page).toHaveURL(/\/arena$/)` at the 5s default, and it
+    // failed on CI while the navigation was still legitimately in flight. The
+    // trace of that run is unambiguous: the click dispatched cleanly in 39ms
+    // on an attached, stable, hit-testable anchor, and the RSC request it
+    // started — `GET /arena?_rsc=...` — returned **200 after 3902ms**, with
+    // the route's own chunk arriving 143ms later. Next commits the URL only
+    // once that payload is applied, so the address bar legitimately still read
+    // "/" when the 5s expired. Nothing about the product was wrong: the href
+    // is asserted three lines above, the click registered, the request was
+    // made and answered.
+    //
+    // What that 3.9s actually is: a cold on-demand dev compile of `/arena` on
+    // a two-core runner. It is the same cost the assertion below already
+    // anticipated by carrying a 15s timeout — this line simply had not been
+    // given the same allowance.
+    //
+    // `waitForURL` rather than a longer `toHaveURL`: it is navigation-aware
+    // and resolves the moment the router commits, so a fast machine pays
+    // nothing. The URL contract is unchanged and still asserted.
+    await page.waitForURL(/\/arena$/, { timeout: 20_000 });
     const flagshipCard = page.locator('[data-testid="arena-flagship-card"]');
     await expect(flagshipCard).toBeVisible({ timeout: 15_000 });
     await expect(flagshipCard).toHaveAttribute("href", "/arena/run-the-table");
@@ -627,7 +648,15 @@ test.describe("/arena hub", () => {
   test("the 82-0 CTA reaches the start gate without starting a run", async ({ page }) => {
     await page.goto("/arena", { waitUntil: "load" });
     await page.getByRole("link", { name: /Build a Perfect Season/i }).click();
-    await expect(page).toHaveURL(/\/arena\/court\/practice\/apex_1y/);
+    // THE SAME RACE THE "View all games" ASSERTION ABOVE LOST, FOUND BY
+    // AUDITING FOR IT RATHER THAN BY WAITING FOR CI. This was the last
+    // `toHaveURL` in this file still on the 5s `expect` default, and its
+    // target is `/arena/court/practice/[mode]` — a dynamic route whose first
+    // load is heavier than `/arena`'s. A cold dev compile there costs more
+    // than the 3.9s that was already enough to fail the other one. Its
+    // sibling assertions on lines 238 and 509 were given 15s for exactly this
+    // reason; this one had been left behind.
+    await page.waitForURL(/\/arena\/court\/practice\/apex_1y/, { timeout: 20_000 });
     await expect(page.locator('[data-testid="peak-season-start-gate"]')).toBeVisible({
       timeout: 15_000,
     });

@@ -16,6 +16,11 @@
 /* ------------------------------------------------------------------ */
 
 .ar-lobby {
+  /* THE CONCOURSE IS LIT. `.pk-atmosphere` is applied on the element; the grid
+     is opened right out here because the lobby is mostly whitespace between a
+     few large cards, and a tight lattice across that much empty surface is
+     wallpaper rather than architecture. */
+  --pk-court-grid-size: 96px;
   max-width: 68rem;
   margin: 0 auto;
   padding: 2.25rem 1rem 3.5rem;
@@ -45,12 +50,16 @@
   background: var(--peak-accent);
 }
 
+/* THE PAGE'S OWN NAME IS NOT METADATA. This eyebrow sits directly above the
+   lobby title and is the first word on the surface; the muted tier is for
+   things a reader may skip. Tracking comes from the token now, rather than a
+   fourth hand-set uppercase value. */
 .ar-eyebrow {
   font-size: 0.6875rem;
   font-weight: 700;
-  letter-spacing: 0.18em;
+  letter-spacing: var(--pk-track-eyebrow);
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .ar-lobby-title {
@@ -113,6 +122,11 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--pk-r-lg, 14px);
   background: var(--bg-elevated);
+  /* A lit top edge and a shadow, so a mode card reads as something you could
+     pick up. Composed from the tokens rather than taken from `.pk-depth`,
+     which would repaint the background and flatten the card into its own
+     header; the hover behaviour comes from `.pk-lift` on the element. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
   overflow: hidden;
   transition: border-color 200ms ease, transform 200ms ease;
 }
@@ -121,7 +135,12 @@
   border-color: var(--border-default, var(--border-subtle));
 }
 
-.ar-card[data-highlighted="true"] {
+/* THE HIGHLIGHTED CARD KEEPS ITS ACCENT EDGE UNDER THE POINTER. `.pk-lift`'s
+   hover rule sets a border-colour of its own later in the cascade; the
+   `.pk-lift` in these selectors is a tie-break and nothing more. */
+.ar-card[data-highlighted="true"],
+.ar-card.pk-lift[data-highlighted="true"]:hover,
+.ar-card.pk-lift[data-highlighted="true"]:focus-visible {
   border-color: var(--peak-accent);
 }
 
@@ -165,7 +184,10 @@
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  /* A BADGE IS A LABEL, NOT A FOOTNOTE. This class carries "Draft", "Rated",
+     "vs bots" and the live lot number in BOTH game rooms' headers -- things a
+     player reads mid-match to know what they are in. */
+  color: var(--text-secondary);
 }
 
 .ar-badge-alpha {
@@ -275,11 +297,13 @@
   color: var(--text-primary);
 }
 
+/* The one line that says what a mode IS. It is the sentence a visitor uses to
+   choose between two games; it cannot be the faintest thing on the card. */
 .ar-card-tagline {
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .ar-card-body {
@@ -297,6 +321,8 @@
   margin: 0;
 }
 
+/* Seat count and match length. Both are answers to "can I start this now",
+   which is the whole question a lobby exists to answer. */
 .ar-facts li {
   padding: 0.15rem 0.5rem;
   border: 1px solid var(--border-subtle);
@@ -304,7 +330,7 @@
   background: var(--pk-surface-inset, var(--bg-surface));
   font-size: 0.6875rem;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ------------------------------------------------------------------ */
@@ -325,10 +351,12 @@
   gap: 0.3rem;
 }
 
+/* WHAT THE BUTTON ABOVE IT WILL DO -- including whether the match counts.
+   Rated state must never be a discovery made afterwards. */
 .ar-action-note {
   font-size: 0.6875rem;
   line-height: 1.35;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .ar-btn {
@@ -365,6 +393,16 @@
 .ar-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* A DISABLED CONTROL DOES NOT RISE TO THE POINTER. `.pk-lift`'s hover rule is
+   written for the general case and does not exclude `:disabled`; a button that
+   lifts and then refuses the click is offering an interaction it cannot
+   honour, which is the rule both game rooms already follow. */
+.ar-btn.pk-lift:disabled:hover,
+.ar-btn.pk-lift[aria-disabled="true"]:hover {
+  transform: none;
+  box-shadow: none;
 }
 
 .ar-btn-primary {
@@ -466,12 +504,14 @@
   margin: 0;
 }
 
+/* The term half of a definition list is the half that says what the number
+   beside it means. */
 .ar-queue-facts dt {
   font-size: 0.625rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .ar-queue-facts dd {
@@ -562,12 +602,14 @@
   padding-top: 0.5rem;
 }
 
+/* A heading inside How to Play, which is opened mid-match by someone who does
+   not know a rule. Nothing in that panel is tertiary. */
 .ar-rules-title {
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .ar-rules-list {
@@ -671,6 +713,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* `.pk-lift` and `.pk-press` neutralise themselves in globals; this block
+     covers the transitions this file declares on the same elements. */
   .ar-card,
   .ar-card-rail,
   .ar-btn,
@@ -880,10 +924,12 @@
   color: var(--text-primary);
 }
 
+/* THE UNIT IS PART OF THE NUMBER. "12" and "12s" are different readings, and
+   this is a clock a decision is being made against. */
 .ar-timer-unit {
   grid-area: unit;
   font-size: 0.75rem;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .ar-timer-track {
@@ -931,8 +977,12 @@
   background: var(--incorrect, #ef4444);
 }
 
+/* AN EXPIRED CLOCK IS STILL A STATEMENT. It steps back from the urgent red,
+   but a large numeral in the faintest ink the theme has reads as a disabled
+   widget rather than as "time is up" -- the same failure mode as the Showdown's
+   unopened bid. */
 .ar-timer[data-state="expired"] .ar-timer-value {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 @keyframes ar-timer-pulse {

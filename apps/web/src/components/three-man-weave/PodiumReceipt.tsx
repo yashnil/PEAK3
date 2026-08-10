@@ -1,41 +1,64 @@
 "use client";
 import Link from "next/link";
+import type { CSSProperties } from "react";
 import type { ArenaResultView, TmwRoster, TmwSlotType } from "@/types/three-man-weave";
 import { TMW_SLOT_LABELS, TMW_SLOT_TYPES } from "@/types/three-man-weave";
 import {
   RANKING_BASIS_LABEL,
+  ordinal,
   outcomeHeadline,
   podium,
   rankingBasisLabel,
+  resultBand,
+  resultLine,
   scoreSourceNote,
+  seatAccent,
   slotAbbrev,
 } from "@/lib/three-man-weave-state";
+import PlayerAvatar from "@/components/court/PlayerAvatar";
 import Celebration from "@/components/shared/Celebration";
+// Deep import, not the `@/components/ui` barrel: the barrel re-exports
+// `ThemeToggle`, which reaches `lucide-react`, and paying for that whole
+// dependency to render one number costs a route ~15 kB of First Load JS.
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 
 /**
- * The final placement and the three-way receipt.
+ * THE FINISH. A competitive result, not an analytics report.
  *
- * THREE BINDING RULES LIVE ON THIS SURFACE.
+ * WHAT TMW-14 DELETED FROM THE CELEBRATION LAYER, and why each one had to go:
  *
- * 1. THE RANKING BASIS IS NAMED WHERE THE WINNER IS DECLARED -- not in a
- *    tooltip, not in a footnote. The number that decided the match is the 82-0
- *    model's lineup-quality index over the six drafted cards, and a reader who
- *    assumed it was the average of the six scores on screen would be wrong in a
- *    way that makes a close result look arbitrary. The basis sentence sits
- *    directly under the headline.
+ *   * the long "Ranked on PEAK3 lineup score — the 82-0 model's lineup-quality
+ *     index over these six seasons…" paragraph, directly under the headline;
+ *   * "Decisive pick", a leave-one-out marginal printed to two decimals;
+ *   * "Best value";
+ *   * "Positional fit  100 / 100 · starter talent 70.0 · bench 55.0";
+ *   * the mean-season-score explanation, on every row;
+ *   * and the separate "Show all three final rosters" disclosure, which
+ *     duplicated the rosters this screen was already showing.
  *
- * 2. THERE IS NO PROJECTED RECORD. Not smaller, not muted, not labelled --
- *    absent. The 82-0 record projection is calibrated for an eight-card roster
- *    and this mode plays six, so "68-14 projected" would be a claim the mode
- *    cannot stand behind however carefully it were hedged. The server does not
- *    send one and there is no field here to render.
+ * None of that is wrong and none of it is deleted from the product -- it is all
+ * still here, one click away, under "Full receipt". It simply is not what the
+ * end of a match should open with. THE MODULE RULE STILL HOLDS: the ranking
+ * basis is named wherever a winner is declared, and there is still no projected
+ * record anywhere, because the 82-0 record projection is calibrated for eight
+ * cards and this mode plays six.
  *
- * 3. EVERY EXPLANATION IS A MEASURED COMPONENT, NOT PROSE. "Decisive pick" is a
- *    leave-one-out marginal computed by re-running the same evaluator without
- *    that card; the fit components are the evaluator's own outputs. The
- *    previous receipt carried sentences like "low team-context depth", which
- *    read as a basketball judgement and were really a percentile with no scale
- *    attached.
+ * WHAT REPLACED IT:
+ *
+ *   * a placement badge and a deterministic line from a small response bank,
+ *     keyed to placement AND margin -- so a two-tenths loss reads "One pick
+ *     away" and a fifteen-point loss does not;
+ *   * the winner and the final lineup score, as the two numbers that decided it;
+ *   * three ranking cards, each carrying that team's COMPLETE final roster with
+ *     headshots, so the payoff screen shows the thing six rounds were spent
+ *     building;
+ *   * a centred, max-width composition with the winner elevated -- not three
+ *     cards stretched across a 1700px monitor.
+ *
+ * COLOUR IS NEVER THE ONLY SIGNAL. First place takes the gold championship
+ * treatment and second and third take distinct muted families, and every card
+ * also carries its rank numeral, its ordinal in words and, for the human, an
+ * explicit "you" marker.
  *
  * A roster that could not be fully scored gets a real state -- "Not ranked",
  * with the reason -- rather than a blank or a zero. `scoreDisplay` returns a
@@ -45,11 +68,15 @@ export default function PodiumReceipt({
   results,
   rosters,
   yourSeatIndex,
+  seed = "",
   onPlayAgain,
 }: {
   results: ArenaResultView[];
   rosters: TmwRoster[];
   yourSeatIndex: number | null;
+  /** Match id. Keys the response bank so repeat plays vary and a reload of the
+   *  SAME result says the same thing. */
+  seed?: string;
   onPlayAgain: () => void;
 }) {
   const rows = podium(results);
@@ -68,64 +95,104 @@ export default function PodiumReceipt({
   const yours = rows.find((row) => row.result.seat_index === yourSeatIndex) ?? null;
   const placement = yours?.result.placement ?? null;
   const won = placement === 1;
+  const band = resultBand(rows, yourSeatIndex);
+  const winner = rows.find((row) => row.result.placement === 1) ?? null;
 
   return (
     <section
       data-testid="tmw-podium"
       data-your-placement={placement ?? "none"}
+      data-band={band}
       className="tmw-result"
     >
-      {/* The celebration is decoration over a decided result and never blocks
-          a control: it is `pointer-events: none`, it is skipped entirely under
-          reduced motion, and nothing below waits for it. */}
+      {/* Decoration over a decided result: `pointer-events: none`, skipped
+          entirely under reduced motion, and nothing below waits for it. */}
       <Celebration active={won} testId="tmw-celebration" />
 
-      <header className="tmw-result-head" data-tier={tierOf(placement)}>
-        {/* WHOSE PLACEMENT THIS IS, SAID OUT LOUD.
-            It read "3RD PLACE" directly above "The Closer wins", and the review
-            frame showed the result: the two lines together parse as "The Closer
-            won third place". The eyebrow is about YOU and the headline is about
-            the winner, so the eyebrow now says so. */}
-        <p className="tmw-result-placement" data-testid="tmw-your-placement">
-          {placement === null
-            ? "Match complete"
-            : `You finished ${ordinal(placement)}`}
+      {/* THE FINISH LANDS IN THE ORDER A PERSON READS IT: placement, then the
+          sentence, then the number, then the podium, then the way out.
+          `.pk-reveal` takes an index and globals decides the rhythm, so this
+          screen staggers at the same rate as every other revealed list in the
+          product. Every element is present and readable from the first frame --
+          the animation is decoration over an already-decided result, which is
+          what makes switching it off under `prefers-reduced-motion` honest
+          rather than a downgrade. */}
+      <header
+        className="tmw-result-head pk-crown pk-crown-accent"
+        data-tier={tierOf(placement)}
+      >
+        <p
+          className="tmw-result-badge pk-reveal"
+          data-testid="tmw-your-placement"
+          style={{ "--pk-reveal-index": 0 } as CSSProperties}
+        >
+          <span className="tmw-result-badge-rank pk-numeral" aria-hidden="true">
+            {placement ?? "—"}
+          </span>
+          <span className="tmw-result-badge-word">
+            {placement === null ? "Complete" : ordinal(placement)}
+          </span>
         </p>
-        <h2 className="tmw-result-headline" data-testid="tmw-outcome">
-          {outcomeHeadline(rows)}
+        <h2
+          className="tmw-result-line pk-reveal"
+          data-testid="tmw-result-line"
+          style={{ "--pk-reveal-index": 1 } as CSSProperties}
+        >
+          {resultLine(band, seed || String(placement ?? "none"))}
         </h2>
-        <p className="tmw-result-basis" data-testid="tmw-ranking-basis">
-          {rankingBasisLabel()}
+        <p
+          className="tmw-result-headline pk-reveal"
+          data-testid="tmw-outcome"
+          style={{ "--pk-reveal-index": 2 } as CSSProperties}
+        >
+          {outcomeHeadline(rows)}
+          {winner && winner.score.kind === "scored" ? (
+            /* THE WINNING NUMBER RESOLVES RATHER THAN APPEARING. `AnimatedNumber`
+               settles on the server's own value exactly -- never on an
+               interpolation -- and publishes that value to assistive tech from
+               the first paint, so nobody waits on a tween to learn the score.
+               `.pk-counting` is the accompanying ink treatment. */
+            <span className="tmw-result-headline-score score-number pk-counting">
+              <AnimatedNumber value={winner.score.value} precision={1} />
+            </span>
+          ) : null}
         </p>
       </header>
 
       <ol className="tmw-result-rows" data-testid="tmw-result-rows">
-        {rows.map((row) => {
+        {rows.map((row, index) => {
           const roster = rosters.find(
             (entry) => entry.seat_index === row.result.seat_index,
           );
-          const detail = row.result.detail;
+          const isYou = row.result.seat_index === yourSeatIndex;
           return (
             <li
               key={row.result.seat_index}
               data-testid={`tmw-result-${row.result.seat_index}`}
               data-placement={row.result.placement}
-              data-is-you={row.result.seat_index === yourSeatIndex}
-              className="tmw-result-row"
+              data-is-you={isYou}
+              data-seat-accent={seatAccent(row.result.seat_index)}
+              className="tmw-result-card pk-crown pk-reveal"
+              // Continues the header's count, so the podium arrives after the
+              // verdict rather than alongside it.
+              style={{ "--pk-reveal-index": 3 + index } as CSSProperties}
             >
-              <div className="tmw-result-row-head">
-                <span className="tmw-result-rank">{row.result.placement}</span>
+              <div className="tmw-result-card-head">
+                <span className="tmw-result-rank pk-numeral" aria-hidden="true">
+                  {row.result.placement}
+                </span>
                 <span className="tmw-result-name">
                   {row.result.display_name}
-                  {row.result.seat_index === yourSeatIndex && (
-                    <span className="tmw-result-you"> · you</span>
-                  )}
+                  <span className="sr-only">{`, ${ordinal(row.result.placement)}`}</span>
+                  {isYou && <span className="tmw-result-you"> · you</span>}
                   {row.tied && <span className="tmw-result-tied"> · drawn</span>}
                 </span>
                 <span className="tmw-result-score">
                   {row.score.kind === "scored" ? (
                     <>
-                      <strong>{row.score.text}</strong>
+                      <strong className="score-number">
+                        <AnimatedNumber value={row.score.value} precision={1} />
+                      </strong>
                       <span className="tmw-result-score-label">
                         {RANKING_BASIS_LABEL}
                       </span>
@@ -136,93 +203,48 @@ export default function PodiumReceipt({
                 </span>
               </div>
 
-              {row.meanSeasonScore !== null && (
-                <p className="tmw-result-secondary" data-testid={`tmw-mean-${row.result.seat_index}`}>
-                  Mean season PEAK3 {row.meanSeasonScore.toFixed(1)} — reported for
-                  reading, not the basis.
-                </p>
-              )}
-
               {roster && (
-                <ul className="tmw-result-cards">
+                <ul className="tmw-result-roster">
                   {TMW_SLOT_TYPES.map((slot) => {
                     const pick = roster.slots[slot];
-                    const decisive = detail?.decisive_pick?.slot_type === slot;
                     return (
-                      <li
-                        key={slot}
-                        className="tmw-result-card"
-                        data-slot={slot}
-                        data-decisive={decisive ? "true" : "false"}
-                      >
-                        <span className="tmw-result-card-tag">
+                      <li key={slot} className="tmw-result-slot" data-slot={slot}>
+                        <span className="tmw-result-slot-tag">
                           <span aria-hidden="true">{slotAbbrev(slot as TmwSlotType)}</span>
                           <span className="sr-only">
                             {TMW_SLOT_LABELS[slot as TmwSlotType]}
                           </span>
                         </span>
-                        <span className="tmw-result-card-body">
-                          <span className="tmw-result-card-name">
-                            {pick?.player_name ?? "—"}
-                          </span>
-                          <span className="tmw-result-card-season">
-                            {pick?.scoring_card
-                              ? `${pick.scoring_card.season} ${pick.scoring_card.team_name}`
-                              : "—"}
-                          </span>
-                          {pick && scoreSourceNote(pick) && (
-                            <span className="tmw-result-card-note">
-                              {scoreSourceNote(pick)}
+                        {pick ? (
+                          <>
+                            <PlayerAvatar
+                              name={pick.player_name}
+                              imageUrl={pick.headshot_url}
+                              size={30}
+                            />
+                            <span className="tmw-result-slot-body">
+                              <span className="tmw-result-slot-name">
+                                {pick.player_name}
+                              </span>
+                              <span className="tmw-result-slot-season pk-numeral">
+                                {pick.scoring_card
+                                  ? `${pick.scoring_card.season} ${pick.scoring_card.team_name}`
+                                  : "—"}
+                              </span>
                             </span>
-                          )}
-                          <span className="tmw-result-card-origin">
-                            Drafted on {pick?.eligibility.franchise_display_name ?? "—"}{" "}
-                            {pick?.decade ?? ""}
-                          </span>
-                        </span>
-                        <span className="tmw-result-card-score">
-                          {pick?.scoring_card
-                            ? pick.scoring_card.prime_score.toFixed(1)
-                            : "—"}
-                        </span>
+                            <span className="tmw-result-slot-score score-number">
+                              {pick.scoring_card
+                                ? pick.scoring_card.prime_score.toFixed(1)
+                                : "—"}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="tmw-result-slot-open">Not filled</span>
+                        )}
                       </li>
                     );
                   })}
                 </ul>
-              )}
-
-              {detail && (
-                <dl className="tmw-result-facts">
-                  {detail.decisive_pick && (
-                    <div data-testid={`tmw-decisive-${row.result.seat_index}`}>
-                      <dt>Decisive pick</dt>
-                      <dd>
-                        {detail.decisive_pick.player_name} (
-                        {detail.decisive_pick.season} {detail.decisive_pick.team_id}) —
-                        removing them costs{" "}
-                        {detail.decisive_pick.lineup_quality_drop.toFixed(2)} lineup
-                        score, the most of the six.
-                      </dd>
-                    </div>
-                  )}
-                  {detail.best_pick && (
-                    <div>
-                      <dt>Best value</dt>
-                      <dd>{detail.best_pick}</dd>
-                    </div>
-                  )}
-                  {detail.fit_components && (
-                    <div data-testid={`tmw-fit-${row.result.seat_index}`}>
-                      <dt>Positional fit</dt>
-                      <dd>
-                        {detail.fit_components.positional_fit.toFixed(0)} / 100 ·
-                        starter talent{" "}
-                        {detail.fit_components.talent_core.toFixed(1)} · bench{" "}
-                        {detail.fit_components.bench_strength.toFixed(1)}
-                      </dd>
-                    </div>
-                  )}
-                </dl>
               )}
             </li>
           );
@@ -235,19 +257,109 @@ export default function PodiumReceipt({
         </p>
       )}
 
-      <footer className="tmw-result-actions">
+      <footer
+        className="tmw-result-actions pk-reveal"
+        style={{ "--pk-reveal-index": 6 } as CSSProperties}
+      >
         <button
           type="button"
-          className="btn-primary"
+          className="btn-primary pk-lift pk-press"
           data-testid="tmw-play-again"
           onClick={onPlayAgain}
         >
           Play again
         </button>
-        <Link href="/arena" className="btn-secondary" data-testid="tmw-back-to-arena">
+        <Link
+          href="/arena"
+          className="btn-secondary pk-lift pk-press"
+          data-testid="tmw-back-to-arena"
+        >
           Back to Arena
         </Link>
       </footer>
+
+      {/* THE RECEIPT, ONE CLICK AWAY. Everything the previous screen opened
+          with lives here: the basis sentence, the leave-one-out decisive pick,
+          the evaluator's own fit components and the mean season score with its
+          "this decides nothing" label. Accessible, auditable, and not in the
+          celebration layer. */}
+      <details className="tmw-result-receipt" data-testid="tmw-receipt">
+        <summary data-testid="tmw-receipt-toggle">Full receipt · how scoring worked</summary>
+        <p className="tmw-result-basis" data-testid="tmw-ranking-basis">
+          {rankingBasisLabel()}
+        </p>
+        <ol className="tmw-receipt-rows">
+          {rows.map((row) => {
+            const detail = row.result.detail;
+            return (
+              <li key={row.result.seat_index} className="tmw-receipt-row">
+                <h3 className="tmw-receipt-name">
+                  {ordinal(row.result.placement)} · {row.result.display_name}
+                </h3>
+                <dl className="tmw-result-facts">
+                  {row.meanSeasonScore !== null && (
+                    <div data-testid={`tmw-mean-${row.result.seat_index}`}>
+                      <dt>Mean season PEAK3</dt>
+                      <dd className="pk-numeral">
+                        {row.meanSeasonScore.toFixed(1)} — reported for reading. It
+                        cannot tell a correctly-placed lineup from a scrambled one, so
+                        it decides nothing.
+                      </dd>
+                    </div>
+                  )}
+                  {detail?.decisive_pick && (
+                    <div data-testid={`tmw-decisive-${row.result.seat_index}`}>
+                      <dt>Decisive pick</dt>
+                      <dd>
+                        {detail.decisive_pick.player_name} (
+                        {detail.decisive_pick.season} {detail.decisive_pick.team_id}) —
+                        removing them costs{" "}
+                        <span className="pk-numeral">
+                          {detail.decisive_pick.lineup_quality_drop.toFixed(2)}
+                        </span>{" "}
+                        lineup score, the most of the six.
+                      </dd>
+                    </div>
+                  )}
+                  {detail?.best_pick && (
+                    <div>
+                      <dt>Best value</dt>
+                      <dd>{detail.best_pick}</dd>
+                    </div>
+                  )}
+                  {detail?.fit_components && (
+                    <div data-testid={`tmw-fit-${row.result.seat_index}`}>
+                      <dt>Positional fit</dt>
+                      <dd className="pk-numeral">
+                        {detail.fit_components.positional_fit.toFixed(0)} / 100 · starter
+                        talent {detail.fit_components.talent_core.toFixed(1)} · bench{" "}
+                        {detail.fit_components.bench_strength.toFixed(1)}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                {/* The traded-SCORE disclosure: a claim about the number, so it
+                    belongs on the receipt rather than on a celebration card. */}
+                {(() => {
+                  const roster = rosters.find(
+                    (entry) => entry.seat_index === row.result.seat_index,
+                  );
+                  const notes = TMW_SLOT_TYPES.map((slot) => roster?.slots[slot])
+                    .filter((pick) => !!pick && !!scoreSourceNote(pick))
+                    .map((pick) => `${pick!.player_name}: ${scoreSourceNote(pick!)}`);
+                  return notes.length ? (
+                    <ul className="tmw-receipt-notes">
+                      {notes.map((note) => (
+                        <li key={note}>{note}</li>
+                      ))}
+                    </ul>
+                  ) : null;
+                })()}
+              </li>
+            );
+          })}
+        </ol>
+      </details>
     </section>
   );
 }
@@ -257,9 +369,4 @@ function tierOf(placement: number | null): string {
   if (placement === 2) return "second";
   if (placement === null) return "none";
   return "third";
-}
-
-function ordinal(value: number): string {
-  const suffix = value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th";
-  return `${value}${suffix}`;
 }

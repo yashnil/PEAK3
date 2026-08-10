@@ -47,7 +47,15 @@ const CompletionTrigger = forwardRef<HTMLButtonElement, Props>(function Completi
       data-testid="daily-grid-completion-trigger"
       onClick={onOpen}
       aria-haspopup="dialog"
-      className="fixed bottom-4 left-1/2 z-40 inline-flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-bold shadow-lg transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+      /* `.pk-press` only. `.pk-lift` is deliberately NOT used here: this
+         button is horizontally centred with `-translate-x-1/2`, and
+         `.pk-lift`'s hover rule sets `transform: translateY(-2px)` outright,
+         which would drop the centring and snap the pill to the left edge on
+         hover. The hand-rolled `hover:-translate-y-0.5` below composes with
+         the centring instead, and `.pk-press`'s `scale()` composes with
+         both — so the press half of the pairing is real, and the lift half
+         stays as the class that already worked. */
+      className="pk-press fixed bottom-4 left-1/2 z-40 inline-flex -translate-x-1/2 items-center gap-2 rounded-full px-4 py-2.5 text-sm font-bold shadow-lg transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
       style={{
         background: "var(--peak-accent)",
         color: "var(--text-inverse)",

@@ -14,6 +14,49 @@
    - Every transition/animation here is CSS-only, so the global
      `prefers-reduced-motion` rule in globals.css neutralises it
      without any JS cooperation.
+
+   ================================================================
+   HOMEPAGE VISUAL-IDENTITY PASS — what changed and why
+   ================================================================
+   The homepage had correct information architecture and almost no
+   PHYSICALITY. Every panel was a flat fill inside a 1px border, the
+   hero hand-rolled its own floodlight stack, and Arena Day made all
+   of that worse: the light palette's four surface tiers span roughly
+   1.1:1 in lightness, so "a cream box on a cream page with a beige
+   hairline" was the entire vocabulary the page had for separating one
+   region from another.
+
+   This pass consumes the `pk-` identity layer at the bottom of
+   globals.css rather than inventing a second one beside it:
+
+     * DEPTH IS A RIM, NOT A BORDER. `--pk-rim` (a lit inner top edge
+       in Arena Night, a warm ink shadow in Arena Day) composed into
+       an existing `--pk-elev-*` is what turns a rectangle into an
+       object. Every card surface on this page now carries one, and
+       `--pk-elev-0` (i.e. nothing) is no longer used at rest — on
+       cream, "no shadow" and "no card" look identical.
+     * VOLUME IS A GRADIENT. `--pk-grad-raised` is a two-to-three
+       percent vertical ramp that reads as light falling on a surface.
+       Crucially it runs in OPPOSITE directions per theme (lighter at
+       the top on cream, since cream lit from above gets brighter),
+       which is exactly the correction Arena Day needed and exactly
+       the thing a hand-rolled `color-mix(--bg-elevated 85%)` could
+       never express.
+     * MOTION IS THE SHARED PRIMITIVES. `.pk-lift` / `.pk-press` /
+       `.pk-reveal` are applied in the TSX. The bespoke hover
+       transforms this file used to own were deleted rather than left
+       to fight them: two rules moving the same card by different
+       amounts is how a hover state ends up depending on stylesheet
+       order.
+     * NO NEW INK. Not one text colour is invented here. Where copy
+       was too faint it moved UP a measured tier (`--text-muted` ->
+       `--text-secondary`), which can only increase contrast, and
+       where it was too small it got larger. Both changes live in the
+       TSX, next to the copy they affect.
+
+   Local custom properties introduced by this pass, all scoped to a
+   class and none of them design tokens: `--home-ink` (pre-existing),
+   `--home-panel-fill` (`.home-lb-panel`), `--nav-surface` in nav.css.
    ================================================================ */
 
 /* ================================================================
@@ -60,9 +103,46 @@
   max-width: 42rem;
 }
 
+/* THE DISPLAY FACE NOW HAS A SCALE, AND THE HERO IS ITS TOP STEP.
+   `.font-display` supplies Space Grotesk at `--pk-track-display`; what it
+   cannot know is the LEADING, and the hero is a deliberate two-line
+   sentence. At the browser default (~1.2) those two lines read as two
+   separate statements stacked on top of each other; at
+   `--pk-leading-display` (1.04) they lock into one block of type, which
+   is what makes a headline read as a headline rather than as a
+   paragraph in a larger size. */
 .home-hero-h1 {
   color: var(--home-ink);
   text-wrap: balance;
+  letter-spacing: var(--pk-track-display);
+  line-height: var(--pk-leading-display);
+}
+
+/* THE EYEBROW, AS ONE CLASS INSTEAD OF FOUR UTILITIES.
+   Every uppercase micro-label on this page was spelled out inline with a
+   hand-picked `tracking-[0.2em]` / `tracking-[0.18em]` / `tracking-[0.16em]`
+   — three values for one typographic decision, none of which was the
+   display face's own. `--pk-track-eyebrow` is that decision, made once.
+
+   The SIZE is deliberately 11px and not the 10px several of these labels
+   had drifted to: at 0.13em tracking a 10px uppercase string is a texture,
+   not a word, and these labels are the page's only structural signposts
+   ("Flagship", "Daily · quick play", "Competitive"). */
+.home-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: var(--pk-track-eyebrow);
+  text-transform: uppercase;
+}
+
+/* Section titles. `--pk-track-heading` rather than the display tracking:
+   Space Grotesk at -0.022em is tuned for a 48px hero and is visibly too
+   tight at 22px, which is the whole reason the token set has four steps. */
+.home-section-title {
+  letter-spacing: var(--pk-track-heading);
+  line-height: var(--pk-leading-heading);
+  color: var(--text-primary);
 }
 
 /* A thin gold rule under the eyebrow: court-line geometry, not a box. */
@@ -97,24 +177,97 @@
   color: var(--text-inverse);
   font-weight: 700;
   letter-spacing: 0.01em;
-  box-shadow: var(--pk-elev-2);
+  /* THE ONE PRIMARY CONTROL ON THE PAGE, SO IT GETS THE FULL STACK:
+     a lit top edge, a shadow it casts, and — because a solid gold fill on
+     cream otherwise reads as a flat sticker — a warm halo that only this
+     control has. `--pk-glow-strong` is the "this element is lit" value and
+     is already re-tuned per theme, so the halo survives Arena Day instead
+     of disappearing into it. */
+  box-shadow:
+    var(--pk-rim-strong),
+    var(--pk-elev-2),
+    0 6px 22px -10px var(--pk-glow-strong);
+}
+
+/* THE DOUBLED CLASS AGAIN, AND FOR A DIFFERENT REASON THAN BELOW.
+   `transition` is a shorthand: it REPLACES, it does not merge. `.pk-lift`
+   declares its own complete list (transform, box-shadow, border-color) at
+   (0,1,0) from later in the cascade, so a plain `.home-launcher-trigger`
+   transition would be discarded outright — and `background-color` is not in
+   `.pk-lift`'s list, so the gold fill would snap to its hover value with no
+   ease at all. (0,2,0) restores it, and restates the primitive's own three
+   properties so composing the two does not silently drop any of them. */
+.home-launcher-trigger.home-launcher-trigger {
   transition:
     background-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
-    box-shadow var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
-    transform var(--pk-dur-fast, 120ms) var(--pk-ease-standard);
+    border-color var(--pk-dur-lift) var(--pk-ease-decel),
+    box-shadow var(--pk-dur-lift) var(--pk-ease-decel),
+    transform var(--pk-dur-lift) var(--pk-ease-decel);
 }
 
-.home-launcher-trigger:hover {
+/* NO `transform` TRANSITION HERE ANY MORE, AND NO `:active` RULE. Both are
+   `.pk-lift` / `.pk-press`'s job now (the trigger carries those classes),
+   and the previous bespoke `translateY(1px)` on `:active` fought
+   `.pk-press`'s `scale(0.975)` — two rules moving one button, with
+   stylesheet order deciding the winner.
+
+   THE DOUBLED CLASS IS DELIBERATE. `.pk-lift:hover` sets a complete
+   `box-shadow`, and globals.css imports this partial before declaring the
+   primitives, so at equal specificity the primitive wins and the gold halo
+   would vanish on hover — the one moment it should be strongest. Repeating
+   the class raises this rule to (0,3,0) so the halo composes with the lift
+   instead of being replaced by it. It is the only place on this page that
+   overrides a primitive, and it does so by adding to it, not by opting
+   out. */
+.home-launcher-trigger.home-launcher-trigger:hover,
+.home-launcher-trigger.home-launcher-trigger:focus-visible {
   background: var(--peak-accent-dim);
   border-color: var(--peak-accent-dim);
-  box-shadow: var(--pk-elev-3);
-}
-
-.home-launcher-trigger:active {
-  transform: translateY(1px);
+  box-shadow:
+    var(--pk-rim-strong),
+    var(--pk-elev-3),
+    0 10px 30px -12px var(--pk-glow-strong);
 }
 
 .home-launcher-trigger:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* THE HERO'S SECOND CONTROL ("Explore Rankings").
+   Lifted out of an inline `style` object on the homepage, where its resting
+   `box-shadow` would have outranked `.pk-lift:hover` — a style-attribute
+   declaration beats every stylesheet rule, so the button would have looked
+   raised and then refused to rise. Same reason its background lives here.
+
+   Quieter than `.home-launcher-trigger` by design: a raised surface and a
+   real border, no fill, no halo, no sheen. One primary action per screen. */
+.home-secondary-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pk-space-2, 8px);
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0 var(--pk-space-5, 20px);
+  border-radius: var(--pk-r-md, 10px);
+  border: 1px solid var(--border-default);
+  background: var(--pk-grad-raised);
+  box-shadow: var(--pk-rim), var(--pk-elev-1);
+  color: var(--text-primary);
+  font-weight: 600;
+  /* No `transition` here: this control changes only its border colour on
+     hover, and `.pk-lift` — which it carries — already transitions exactly
+     that, from later in the cascade at the same specificity. A local
+     shorthand would be discarded in full and would read as if it were doing
+     something. */
+}
+
+.home-secondary-cta:hover,
+.home-secondary-cta:focus-visible {
+  border-color: var(--border-emphasis);
+}
+
+.home-secondary-cta:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
@@ -249,7 +402,12 @@
       color-mix(in srgb, var(--bg-surface) 92%, var(--peak-accent) 8%),
       var(--bg-elevated) 70%
     );
-  box-shadow: var(--pk-elev-3);
+  /* The rim is what makes the front card of the deck read as a physical
+     card catching the room's light rather than as a lighter rectangle.
+     It matters most in Arena Day, where the deck's three slots are
+     separated by scale and offset but barely at all by fill — the cards
+     and the page behind them are two creams a percent apart. */
+  box-shadow: var(--pk-rim-strong), var(--pk-elev-3);
   transition:
     transform var(--pk-dur-slower, 480ms) var(--pk-ease-standard),
     opacity var(--pk-dur-slower, 480ms) var(--pk-ease-standard);
@@ -324,7 +482,26 @@
 
 /* Surface tiers, so a page of cards is not one repeated dark
    rectangle with an identical border. `data-tone` is set by
-   GameCard.tsx; `featured` wins over all of them. */
+   GameCard.tsx; `featured` wins over all of them.
+ *
+ * ARENA DAY IS WHY THESE ALL CARRY A SHADOW AT REST NOW.
+ * `--pk-elev-0` is literally `none`, and the light palette's four surface
+ * tiers span about 1.1:1 — `--bg-elevated` (#f4f0e6) on `--bg-page`
+ * (#ece7dc) with a `--border-subtle` (#ddd6c4) hairline. On a dark canvas
+ * that hairline is plenty; on cream it is the only thing saying "card",
+ * and a grid of them read as a wireframe. A one-tier shadow plus
+ * `--pk-rim` (a warm ink line under the top edge in this theme, a lit
+ * white one in Arena Night) is what separates them, and it separates them
+ * in BOTH themes rather than only fixing the one that complained.
+ *
+ * THE `transition` DECLARATION IS GONE, and deleting it is the point rather
+ * than an omission. `.pk-lift` declares a complete `transition` shorthand
+ * at the same specificity from later in the cascade, so this rule's copy
+ * was already being discarded in full — a shorthand does not merge, it
+ * replaces. Leaving it would have meant a card whose transition list was
+ * decided by import order, which is precisely the class of coupling this
+ * pass exists to remove. `.pk-lift` already covers transform, box-shadow
+ * and border-color, i.e. everything this card animates. */
 .pk-game-card {
   position: relative;
   display: flex;
@@ -333,19 +510,24 @@
   border-radius: var(--pk-r-lg, 14px);
   border: 1px solid var(--pk-surface-inset-border, var(--border-subtle));
   background: var(--pk-surface-inset, var(--bg-elevated));
-  box-shadow: var(--pk-elev-0);
-  transition:
-    border-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
-    background-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
-    box-shadow var(--pk-dur-base, 200ms) var(--pk-ease-standard),
-    transform var(--pk-dur-base, 200ms) var(--pk-ease-standard);
+  box-shadow: var(--pk-rim), var(--pk-elev-1);
 }
 
+/* `--pk-grad-raised` rather than the flat `--bg-surface` fill: a two-stop
+   ramp of two or three percent is invisible as a gradient and entirely
+   visible as volume, and it runs in OPPOSITE directions per theme (down
+   from white on cream, up from the surface on near-black) which is
+   precisely the correction a single flat fill cannot express. */
 .pk-game-card[data-tone="raised"] {
   border-color: var(--pk-surface-raised-border, var(--border-default));
-  background: var(--pk-surface-raised, var(--bg-surface));
+  background: var(--pk-grad-raised);
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
 }
 
+/* The quiet tier stays genuinely quiet — it is the tier that says "this is
+   a link to a board, not a game to start" — so it keeps its washed
+   background and takes only the rim, no cast shadow. It is the one card on
+   the page that is meant to sit ON the page rather than above it. */
 .pk-game-card[data-tone="quiet"] {
   border-color: var(--pk-surface-quiet-border, var(--border-subtle));
   background-color: transparent;
@@ -354,17 +536,34 @@
     color-mix(in srgb, var(--bg-elevated) 70%, transparent),
     transparent 80%
   );
+  box-shadow: var(--pk-rim);
 }
 
+/* THE FLAGSHIP. `--peak-accent-wash` replaces the two hardcoded
+   `rgba(245, 200, 66, …)` literals that were here. The token is derived from
+   the frozen `--peak-accent` with color-mix and re-tuned per theme, and its
+   DARK value is 7% — bit-for-bit the `rgba(…, 0.07)` this rule already used,
+   so Arena Night's composite is unchanged. Arena Day's is 16%, because a 7%
+   gold wash over cream is nothing at all.
+
+   THE STRONGER `--peak-accent-veil` (14% / 26%) WAS TRIED HERE AND REJECTED
+   ON A MEASUREMENT, which is worth recording because it looked better. At
+   14% over `--bg-elevated`, `--text-secondary` — the card's description, the
+   longest text on it — composites to 4.39:1 in Arena Night. Under the 4.5:1
+   floor, for a nicer gradient. The veil is the right value for a surface
+   carrying only `--text-primary`; this card is not one. */
 .pk-game-card[data-featured="true"] {
   border-color: color-mix(in srgb, var(--peak-accent) 38%, var(--border-subtle));
   background-image: linear-gradient(
     160deg,
-    rgba(245, 200, 66, 0.07),
-    rgba(245, 200, 66, 0.015) 55%,
+    var(--peak-accent-wash),
+    color-mix(in srgb, var(--peak-accent-wash) 25%, transparent) 55%,
     transparent
   );
-  box-shadow: var(--pk-elev-2);
+  box-shadow:
+    var(--pk-rim-strong),
+    var(--pk-elev-3),
+    0 4px 20px -12px var(--pk-glow-strong);
 }
 
 /* The top rail is the non-colour hover/focus signal: a physical
@@ -383,16 +582,28 @@
   width: 34%;
 }
 
+/* THE MOVE AND THE SHADOW ARE `.pk-lift`'S NOW. This rule used to set
+   `transform: translateY(-2px)` and `box-shadow: var(--pk-elev-3)` itself,
+   which is the same hover state `.pk-lift` expresses — and expresses at
+   the same specificity, from a later position in the cascade, so the two
+   silently agreed only for as long as the numbers happened to match. What
+   is left here is the border colour, which is this card's own identity and
+   which `.pk-lift` deliberately only transitions rather than sets. */
 .pk-game-card:hover,
 .pk-game-card:focus-visible {
   border-color: var(--border-emphasis);
-  box-shadow: var(--pk-elev-3);
-  transform: translateY(-2px);
 }
 
+/* (0,3,0) — a class, an attribute and a pseudo-class — so the flagship
+   card's gold halo composes with `.pk-lift`'s shadow instead of being
+   replaced by it at the moment the card is being pointed at. */
 .pk-game-card[data-featured="true"]:hover,
 .pk-game-card[data-featured="true"]:focus-visible {
   border-color: color-mix(in srgb, var(--peak-accent) 66%, var(--border-default));
+  box-shadow:
+    var(--pk-rim-strong),
+    var(--pk-elev-4),
+    0 10px 34px -14px var(--pk-glow-strong);
 }
 
 .pk-game-card:hover .pk-game-card-rail,
@@ -413,7 +624,13 @@
   gap: var(--pk-space-1, 4px);
   margin-top: auto;
   padding-top: var(--pk-space-4, 16px);
-  font-size: 11px;
+  /* 12px, up from 11px. This is the words on the button — "Start a run",
+     "Play today's grid" — not a metadata chip, and 11px uppercase at 0.1em
+     tracking is the size at which a label stops being read and starts being
+     recognised by shape. The type ramp on this page now bottoms out at
+     11px for genuinely tertiary text; a primary action does not belong
+     there. */
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -433,6 +650,45 @@
 .pk-game-card-action-text {
   border-bottom: 1px solid transparent;
   transition: border-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard);
+}
+
+/* A PRIMARY ACTION HAS TO LOOK CLICKABLE AT REST (SHARED-04).
+   `START A RUN ->` was 11px uppercase text with a transparent underline that
+   only appeared on hover, and it is the entry point to the flagship mode --
+   on the surface both Arena games launch from. Hover is an enhancement; it
+   was the ONLY affordance. It is now a filled pill on the featured card and
+   an outlined one elsewhere, so the hierarchy between "the thing to press"
+   and "the other things on this card" survives a first glance and a touch
+   device. */
+.pk-game-card-action {
+  align-self: flex-start;
+  padding: var(--pk-space-2, 8px) var(--pk-space-3, 12px);
+  border: 1px solid var(--border-edge);
+  border-radius: 999px;
+  color: var(--text-primary);
+  transition:
+    color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
+    background-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard),
+    border-color var(--pk-dur-fast, 120ms) var(--pk-ease-standard);
+}
+.pk-game-card[data-featured="true"] .pk-game-card-action {
+  background: var(--peak-accent);
+  border-color: var(--peak-accent);
+  /* Ink on gold: 11.25:1, and identical in both themes because the fill is. */
+  color: var(--peak-accent-on);
+}
+.pk-game-card[data-featured="true"] .pk-game-card-action-text {
+  color: var(--peak-accent-on);
+}
+.pk-game-card:hover .pk-game-card-action,
+.pk-game-card:focus-visible .pk-game-card-action {
+  background: color-mix(in srgb, var(--peak-accent) 16%, transparent);
+  border-color: var(--peak-accent);
+}
+.pk-game-card[data-featured="true"]:hover .pk-game-card-action,
+.pk-game-card[data-featured="true"]:focus-visible .pk-game-card-action {
+  background: var(--peak-accent);
+  border-color: var(--peak-accent-on);
 }
 
 .pk-game-card:hover .pk-game-card-action,
@@ -459,14 +715,23 @@
    Model proof strip
    ================================================================ */
 
+/* A FULL-BLEED BAND, WHICH MEANS IT HAS TO SEPARATE WITHOUT A BORDER RADIUS
+   OR A SHADOW TO CAST. It gets the court atmosphere instead — the same two
+   floodlights and grid the hero uses, at a tighter grid pitch so the strip
+   reads as a related-but-smaller piece of the same room rather than a
+   second hero. `--pk-rim` along the top edge does the "lit from above"
+   work a card would get from its shadow.
+
+   In Arena Day this is the difference between a visible band and nothing:
+   the old fill was `--bg-elevated` at 80% over `--bg-page`, i.e. two creams
+   1.05:1 apart, faded to transparent. */
 .home-proof {
+  --pk-court-grid-size: 32px;
+  position: relative;
   border-top: 1px solid var(--border-subtle);
   border-bottom: 1px solid var(--border-subtle);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--bg-elevated) 80%, transparent),
-    transparent
-  );
+  background-color: color-mix(in srgb, var(--bg-elevated) 70%, transparent);
+  box-shadow: var(--pk-rim);
 }
 
 .home-proof-grid {
@@ -491,21 +756,60 @@
    Section band — a quiet alternative to yet another bordered box
    ================================================================ */
 
+/* WAS A GRADIENT THAT FADED TO NOTHING, WHICH IN ARENA DAY MEANT IT WAS
+   NOTHING. `--bg-elevated` at 85% over `--bg-page` is a 1.04:1 difference
+   on cream, and it faded out by 70% of the box height, so the bottom half
+   of every "How a run works" step had no surface under it at all — the
+   border was drawing a box around the page background.
+
+   `--pk-grad-raised` is the volume ramp, `--pk-rim` the lit edge and
+   `--pk-elev-1` the shadow. The three together are what `.pk-depth` names;
+   this rule spells them out rather than adopting the class because
+   `.home-band` also has to carry the crown pseudo-element below and the
+   two would then be split across a class in the markup and a rule here. */
 .home-band {
   position: relative;
   border-radius: var(--pk-r-xl, 20px);
   border: 1px solid var(--pk-surface-quiet-border, var(--border-subtle));
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--bg-elevated) 85%, transparent),
-    transparent 70%
-  );
+  background: var(--pk-grad-raised);
+  box-shadow: var(--pk-rim), var(--pk-elev-1);
+}
+
+/* The lit hairline across the top, inset so it stops at the rounded
+   corners instead of running into them. Decorative and inert: no pointer
+   events, no content for assistive tech. */
+.home-band::before {
+  content: "";
+  position: absolute;
+  inset: 0 var(--pk-space-5, 20px) auto;
+  height: 1px;
+  background: var(--pk-hairline);
+  pointer-events: none;
+}
+
+/* The weights strip is the page's one statement of what the model IS, so
+   it gets the accent hairline rather than the neutral one — the same
+   distinction `.pk-crown-accent` draws, applied to the band that earns
+   it. */
+.home-band-accent::before {
+  background: var(--pk-hairline-accent);
 }
 
 /* A numbered step reads as an editorial figure, not a widget. */
 .home-step-index {
   font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--peak-accent) 55%, var(--text-muted));
+  /* WAS `color-mix(--peak-accent 55%, --text-muted)`, AND THAT MIX WAS NOT
+     A COLOUR ANYONE HAD MEASURED. Mixing the frozen FILL gold — the token
+     whose whole documented hazard is that it measures 1.5:1 as text on a
+     light surface — into the faintest ink on the page produces something
+     fainter than either: roughly 2.3:1 against Arena Day's `--bg-page`,
+     for a 14px bold numeral that is rendered, visible, and read.
+     `--peak-accent-text` is the measured sibling that exists for exactly
+     this (6.14:1 in Arena Day, 12.4:1 in Arena Night) and keeps the gold
+     identity the mix was reaching for. Same hue, deployed as ink instead
+     of as fill — the distinction this codebase has now drawn a dozen
+     times. */
+  color: var(--peak-accent-text);
 }
 
 /* ================================================================
@@ -521,6 +825,27 @@
   gap: var(--pk-space-1, 4px) var(--pk-space-4, 16px);
 }
 
+/* SHARED-04. This rule declared NO `color` and NO resting `text-decoration`, so
+   an inline link inherited body ink and was indistinguishable from the sentence
+   around it until a mouse hovered it -- which is no affordance at all on touch,
+   and the wrong one everywhere else. Hover is now an enhancement (it thickens),
+   not the thing that reveals the link exists. */
+/* SECONDARY, BUT STILL AN ACTION. `.arena-inline-link` declared no `color` at
+   all, so "Start a standard run" and "Resume a saved run" were
+   indistinguishable from body text until hovered -- the same hover-only
+   affordance as the CTA above, one level down. They stay links rather than
+   becoming buttons (they are genuinely secondary), but they now read as links
+   at rest. */
+.arena-inline-link {
+  color: var(--peak-accent-text);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.arena-inline-link:hover {
+  text-decoration-color: currentColor;
+}
 .arena-inline-link {
   display: inline-flex;
   align-items: center;
@@ -528,17 +853,42 @@
   gap: var(--pk-space-1, 4px);
   font-size: 12px;
   font-weight: 600;
+  color: var(--peak-accent-text);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
   text-underline-offset: 2px;
 }
 
 .arena-inline-link:hover {
-  text-decoration: underline;
+  text-decoration-thickness: 2px;
 }
 
 .arena-inline-link:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--pk-r-sm, 6px);
+}
+
+/* ================================================================
+   Leaderboard preview panels
+   ================================================================
+   These two panels ("82-0 · All-Time", "82-0 · Today") were the last
+   hand-rolled surface on the homepage: `rounded-xl border p-4` with
+   `borderColor`/`background` inline, no shadow, no rim. Beside the mode
+   cards above them — which now read as objects — they read as table
+   cells, and in Arena Day a `--bg-surface` fill inside a
+   `--border-default` hairline on a `--bg-page` section is close to
+   invisible.
+
+   `--home-panel-fill` is a local knob, not a token: it exists so the
+   fill can be stated once and the rim/shadow composed around it. */
+.home-lb-panel {
+  --home-panel-fill: var(--pk-grad-raised);
+  position: relative;
+  border-radius: var(--pk-r-lg, 14px);
+  border: 1px solid var(--pk-surface-raised-border, var(--border-default));
+  background: var(--home-panel-fill);
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
 }
 
 /* ================================================================
@@ -560,49 +910,137 @@
 }
 
 /* ---------------------------------------------------------------------------
-   NBA Fact of the Day.
+   NBA Fact of the Day (HOME-03).
 
-   WHAT THIS REPLACES. A heading, two tiny tags, one paragraph, and — as the
-   card's most prominent interaction — a `<details>` reading "Show source rows"
-   that opened a four-column table of (player, season, team, games). Two
-   findings in the manual review, one cause between them: "visually weak" and
-   "too dull to deserve homepage prominence". The design was one type size and
-   one call to action, and the call to action was an invitation to audit it.
+   WHAT THIS REPLACES. The card had already lost its "Show source rows"
+   disclosure and its four-column evidence table, and it had a featured value
+   and a court motif. What it still did not have was an IDENTITY: one gold
+   accent whatever the fact was about, one court drawing whatever the fact was
+   about, three tags in the same faint grey, and a single 11px underlined link
+   in `--text-secondary` as its only control. Beside the homepage hero it read
+   as a notice.
 
-   THE CARD NOW HAS A FOCAL POINT. Every published fact carries a `feature` --
-   the number, name or date it turns on -- and that is set large against a
-   court-line motif on the left, with the headline and its supporting sentence
-   beside it. Three type sizes instead of one, and something to look at.
+   SIX ACCENT GROUPS, ONE CUSTOM PROPERTY. `data-accent` on the section sets
+   `--fotd-accent` (the fill, for washes, rules and edges) and `--fotd-ink` (the
+   text-safe sibling, for anything a reader has to READ). Every colour in the
+   card derives from those two, so a new category is one line in the component's
+   `ACCENT_GROUPS` map and nothing here. The fills are the component palette's
+   own hues -- the strongest existing element in the product supplies the
+   accents rather than a second palette being invented beside it, which is the
+   same call `globals.css` makes for the competitive seat colours.
 
-   EVERY SOURCE-ROW RULE IS DELETED, not hidden. `.fotd-evidence`,
-   `.fotd-source`, `.fotd-provenance` and the disclosure-marker rules are gone
-   because the markup is gone; the rows themselves are still in the payload and
-   still re-derived by the model tests.
+   THE FILL/INK SPLIT IS NOT OPTIONAL. `--comp-*` and `--peak-accent` are tuned
+   for 4px bars and lose contrast as text; the `-text` siblings are the ones
+   measured against a surface in both themes. Text uses `--fotd-ink`, never
+   `--fotd-accent`.
 
-   THE MOTIF IS `currentColor`. Light and dark are one declaration rather than a
+   NO SOURCE-ROW RULES EXIST. `.fotd-evidence`, `.fotd-source`,
+   `.fotd-provenance` and the disclosure-marker rules were deleted with the
+   markup; the rows themselves are still in the payload and still re-derived by
+   the model tests.
+
+   MOTIFS ARE `currentColor`. Light and dark are one declaration rather than a
    media query somebody has to remember to update.
    --------------------------------------------------------------------------- */
 
 .fotd {
   padding: 0 1rem;
+  /* The default, and the fallback for any category the fact-bank rebuild
+     invents that the component has not been taught yet: brand gold, i.e.
+     exactly what every card looked like before this pass. */
+  --fotd-accent: var(--peak-accent);
+  --fotd-ink: var(--peak-accent-text);
+}
+
+.fotd[data-accent="rules"] {
+  --fotd-accent: var(--comp-si);
+  --fotd-ink: var(--comp-si-text);
+}
+
+.fotd[data-accent="records"] {
+  --fotd-accent: var(--comp-tp);
+  --fotd-ink: var(--comp-tp-text);
+}
+
+.fotd[data-accent="playoffs"] {
+  --fotd-accent: var(--comp-po);
+  --fotd-ink: var(--comp-po-text);
+}
+
+.fotd[data-accent="global"] {
+  --fotd-accent: var(--comp-team);
+  --fotd-ink: var(--comp-team-text);
+}
+
+.fotd[data-accent="people"] {
+  --fotd-accent: var(--comp-rec);
+  --fotd-ink: var(--comp-rec-text);
 }
 
 .fotd-inner {
+  /* Positioned so the crown hairline below has something to anchor to. */
+  position: relative;
   margin-inline: auto;
   max-width: 64rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 1.15rem 1.35rem;
+  display: grid;
+  grid-template-columns: 9.75rem minmax(0, 1fr);
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.35rem 1.5rem;
   border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--peak-accent);
-  border-radius: 0.75rem;
-  background: var(--bg-elevated);
+  border-left: 3px solid var(--fotd-accent);
+  border-radius: 0.9rem;
+  /* A WASH RATHER THAN A FLAT PANEL. The accent enters the card as a tinted
+     corner behind the figure and fades out under the copy, so the colour is
+     composition rather than a stripe. 10% is the most the mix can carry before
+     `--fotd-ink` starts losing measurable contrast against it in light mode. */
+  background:
+    linear-gradient(
+      118deg,
+      color-mix(in srgb, var(--fotd-accent) 10%, var(--bg-elevated)) 0%,
+      color-mix(in srgb, var(--fotd-accent) 3%, var(--bg-elevated)) 42%,
+      var(--bg-elevated) 100%
+    );
+  /* THE CARD IS AN OBJECT NOW, LIKE EVERY OTHER PANEL ON THIS PAGE.
+     It had a 3px accent spine on the left and nothing else — no shadow, no
+     rim — so it sat flat between a hero that glows and a catalogue of
+     cards that lift. The rim reads as light on the top edge in both
+     themes (white on near-black, warm ink on cream) and the two-tier
+     shadow is what actually lifts it off `--bg-page` in Arena Day, where
+     the wash it is filled with is only a few percent from the page.
+
+     The shadow is tinted by the card's own category accent rather than by
+     neutral black: this is the one panel on the homepage whose colour
+     changes daily, and a coloured shadow is the cheapest way to make that
+     read as a deliberate identity instead of as a stripe. */
+  box-shadow:
+    var(--pk-rim),
+    var(--pk-elev-2),
+    0 6px 24px -16px color-mix(in srgb, var(--fotd-accent) 60%, transparent);
   /* A TASTEFUL ENTRANCE, AND IT MOVES ONLY THE PANEL. Never `opacity` on a
      container: that applies to every descendant and drags text below AA
      mid-transition, which is the exact contrast defect an earlier pass in this
      repository had to chase down three times. This translates. */
   animation: fotd-rise 320ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* The accent hairline across the top edge — `.pk-crown-accent`'s treatment,
+   written here because the markup belongs to another owner this pass.
+   Inset so it terminates before the rounded corners, and stopping short of
+   the 3px accent spine on the left so the two do not overlap into a
+   thicker corner. Inert to the pointer and to assistive tech. */
+.fotd-inner::before {
+  content: "";
+  position: absolute;
+  inset: 0 0.9rem auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--fotd-accent),
+    color-mix(in srgb, var(--fotd-accent) 20%, transparent) 70%,
+    transparent
+  );
+  pointer-events: none;
 }
 
 @keyframes fotd-rise {
@@ -614,60 +1052,23 @@
   .fotd-inner { animation: none; }
 }
 
-.fotd-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.fotd-title {
-  font-size: 0.6875rem;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--peak-accent-text);
-}
-
-.fotd-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-}
-
-.fotd-tag {
-  padding: 0.1rem 0.45rem;
-  border-radius: 0.25rem;
-  border: 1px solid var(--border-subtle);
-  font-size: 0.5625rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.fotd-body {
-  display: flex;
-  align-items: center;
-  gap: 1.25rem;
-}
-
-/* THE FOCAL POINT. Fixed-width so the copy beside it starts at the same place
-   whatever the featured value is -- a card whose text origin moved with the
-   length of a number would flicker between days. */
-.fotd-feature {
+/* ---- The figure ---------------------------------------------------------
+   ALWAYS PRESENT, so the composition does not collapse into a paragraph on the
+   days the bank has no number to lead with. With a `feature` it is that value
+   set large over the motif; without one the motif becomes the mark itself. */
+.fotd-figure {
   position: relative;
-  flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.15rem;
-  width: 8.5rem;
-  min-height: 6.25rem;
-  padding: 0.5rem;
-  color: var(--peak-accent-text);
+  min-height: 7.25rem;
+  padding: 0.6rem;
+  border-radius: 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--fotd-accent) 34%, transparent);
+  background: color-mix(in srgb, var(--fotd-accent) 11%, var(--bg-surface));
+  /* Sets `currentColor` for both motif variants and the featured value. */
+  color: var(--fotd-ink);
+  overflow: hidden;
 }
 
 .fotd-motif {
@@ -677,21 +1078,18 @@
   height: 100%;
   /* Low enough to sit behind the value, high enough to be visible in both
      themes. It carries no text, so opacity here costs no contrast. */
-  opacity: 0.16;
+  opacity: 0.18;
   pointer-events: none;
-  /* AND IT FADES WHERE THE LABEL IS. The motif's densest region — the top edge
-     of the key, and the arc crossing it — sits at exactly the height a
-     two-line `feature_label` occupies, and that label is 9px uppercase at
-     0.12em tracking in `--text-muted`. A one-line label ("first-place votes")
-     cleared it; "straight titles, from the start" was read through the
-     rectangle and the arc at once, in both themes.
+  /* AND IT FADES WHERE THE LABEL IS. The motif's densest region sits at exactly
+     the height a two-line `feature_label` occupies, and that label is 9px
+     uppercase at 0.12em tracking. A one-line label ("first-place votes")
+     cleared it; "straight titles, from the start" was read through the drawing
+     in both themes.
 
-     A mask rather than a smaller motif or a shorter label: the composition is
-     a number standing on a court, and cropping the court to avoid the text
+     A mask rather than a smaller motif or a shorter label: the composition is a
+     number standing inside a mark, and cropping the mark to avoid the text
      would lose the thing the frame is for. The lower band drops to a quarter
-     strength rather than to nothing, so the baseline and the key are still
-     there — just no longer competing with type at the size type stops
-     winning. */
+     strength rather than to nothing. */
   -webkit-mask-image: linear-gradient(
     to bottom,
     #000 0%,
@@ -708,40 +1106,172 @@
   );
 }
 
-.fotd-feature-value {
-  position: relative;
-  font-family: var(--font-display, inherit);
-  font-size: clamp(1.5rem, 1rem + 2.2vw, 2.25rem);
-  font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: -0.02em;
-  text-align: center;
-  text-wrap: balance;
+/* The standalone variant: no watermark behind it, so it is drawn at full
+   strength and at a size that reads as an illustration rather than a texture.
+   No mask -- there is no label to protect. */
+.fotd-glyph {
+  display: block;
+  width: 4.5rem;
+  height: 4.5rem;
 }
 
-.fotd-feature-label {
+.fotd-motif-glyph {
+  position: static;
+  opacity: 0.75;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.fotd-feature {
   position: relative;
-  font-size: 0.5625rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+}
+
+.fotd-feature-value {
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 1rem + 2.4vw, 2.4rem);
+  font-weight: 800;
+  line-height: 1.02;
+  letter-spacing: -0.025em;
+  text-align: center;
+  text-wrap: balance;
+  color: var(--fotd-ink);
+  /* THE FIGURE PANEL CLIPS (`overflow: hidden`), so the hook has to fit inside
+     it rather than rely on not being too long. `feature` is not always a
+     numeral: across the featured tier it runs from "3" to "31 October 1950",
+     and at the display size a long one overflowed and was clipped mid-word --
+     the Jordan-shoes fact rendered as "anne". */
+  max-width: 100%;
+  /* `break-word`, NOT `anywhere`: `anywhere` splits a word the instant it
+     helps the line box, so "Banned" came back as "Bann / ed" once it fitted
+     the panel. This only breaks a word that genuinely cannot fit on a line of
+     its own, which -- with the size bands below -- is nothing in the current
+     tier. */
+  overflow-wrap: break-word;
+}
+
+/* The size follows the length band the component measured. A date needs to be
+   readable more than it needs to be enormous; a bare number can be both. */
+.fotd-feature[data-length="medium"] .fotd-feature-value {
+  font-size: clamp(1.05rem, 0.75rem + 1.1vw, 1.4rem);
+  letter-spacing: -0.02em;
+}
+.fotd-feature[data-length="long"] .fotd-feature-value {
+  font-size: clamp(0.9rem, 0.7rem + 0.6vw, 1.1rem);
+  letter-spacing: -0.005em;
+  line-height: 1.15;
+}
+
+/* 10px, up from 9px. This is the caption that says what the big number IS
+   ("first-place votes", "straight titles") — without it the figure is a
+   number with no unit — and 9px uppercase at 0.12em tracking is below the
+   size at which a phrase is read rather than glanced at. */
+.fotd-feature-label {
+  font-size: 0.625rem;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   text-align: center;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
-.fotd-copy {
+/* ---- The copy ----------------------------------------------------------- */
+
+.fotd-main {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.5rem;
   min-width: 0;
 }
 
-.fotd-headline {
-  font-family: var(--font-display, inherit);
-  font-size: clamp(1.05rem, 0.9rem + 1vw, 1.375rem);
+/* ONE EYEBROW LINE, WITH A HIERARCHY IN IT. Previously the title sat on one row
+   and three identical grey chips on another; the category -- the only one of
+   the three that tells a reader what they are about to read -- was styled
+   exactly like the era. */
+.fotd-eyebrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+/* THE STANDING TITLE, AND THE PAGE'S TRACKING TOKEN RATHER THAN A FOURTH
+   HAND-PICKED VALUE. Every other uppercase micro-label on this page now
+   sits at `--pk-track-eyebrow`; this one was at 0.16em for no reason
+   except that it was written on a different day. Size up to 12px so the
+   card's own name is not the smallest thing on it. */
+.fotd-title {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: var(--pk-track-eyebrow);
+  text-transform: uppercase;
+  color: var(--fotd-ink);
+}
+
+/* A short accent rule between the standing title and the per-fact tags, so the
+   eyebrow reads as two things rather than one run-on row. */
+.fotd-rule {
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(
+    to right,
+    var(--fotd-accent),
+    color-mix(in srgb, var(--fotd-accent) 15%, transparent)
+  );
+}
+
+/* THE SECONDARY TAGS — era, geography. Genuinely tertiary metadata, so
+   they stay in `--text-secondary` and stay a bare outlined chip, but 9px
+   was small enough that "1946-1970" was a smudge. 10px.
+
+   Deliberately NO background added: `--text-secondary`'s contrast is
+   measured against the surface tiers, and putting a translucent fill of a
+   DIFFERENT tier behind it would move the composite in opposite directions
+   per theme (`--bg-surface` is lighter than `--bg-elevated` in both, which
+   helps on cream and hurts on near-black). The hierarchy against the
+   category tag is carried by size, ink and edge instead, none of which
+   costs a measured ratio. */
+.fotd-tag {
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--border-subtle);
+  font-size: 0.625rem;
   font-weight: 700;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* THE CATEGORY IS THE ONE TAG THAT TELLS A READER WHAT THEY ARE ABOUT TO
+   READ, so it is the one tag that is allowed to be loud: the accent ink,
+   a denser wash of the accent behind it, a full accent edge, and 11px
+   against the others' 10px. The hierarchy is now expressed in three
+   dimensions rather than only in colour, which is what keeps it legible in
+   greyscale and under a colour-vision deficiency. */
+.fotd-tag-category {
+  border-color: var(--fotd-accent);
+  /* 13%, UNCHANGED AND ON PURPOSE. `--fotd-ink` is measured against this
+     exact wash in both themes (the panel comment above sets the ceiling),
+     and the hierarchy this pass wanted is bought with size, edge and
+     tracking instead — none of which moves a contrast ratio. */
+  background: color-mix(in srgb, var(--fotd-accent) 13%, transparent);
+  color: var(--fotd-ink);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+}
+
+.fotd-headline {
+  font-family: var(--font-display);
+  font-size: clamp(1.15rem, 0.92rem + 1.15vw, 1.55rem);
+  font-weight: 700;
+  line-height: 1.26;
+  letter-spacing: -0.015em;
   color: var(--text-primary);
   text-wrap: balance;
 }
@@ -749,55 +1279,104 @@
 .fotd-support {
   font-size: 0.875rem;
   line-height: 1.6;
+  max-width: 56ch;
   color: var(--text-secondary);
 }
 
-/* A phone gets the motif above the copy rather than beside it: at 390px a
-   fixed 8.5rem column leaves the headline about eleven characters wide. */
-@media (max-width: 40rem) {
-  .fotd-body {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-  .fotd-feature {
-    width: 100%;
-    min-height: 5rem;
-    align-items: flex-start;
-    padding-left: 0;
-  }
-  .fotd-feature-value,
-  .fotd-feature-label {
-    text-align: left;
-  }
-  .fotd-motif {
-    width: 7rem;
-    left: auto;
-    right: 0;
-  }
-}
-
+/* ---- The one action, when there is one ----------------------------------
+   HOME-03 removed the default "See their PEAK3 profile" row: it appeared on
+   roughly three quarters of the bank, in `--text-secondary` at 0.6875rem with
+   an underline, and it was the card's only interactive element. What survives
+   appears only where the player is the SUBJECT of the fact, and it is a real
+   control with a resting affordance rather than faint underlined body text
+   (SHARED-04). */
 .fotd-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+  margin-top: 0.15rem;
 }
 
-.fotd-link {
-  font-size: 0.6875rem;
+.fotd-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.5rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--fotd-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--fotd-accent) 12%, transparent);
+  font-size: 0.8125rem;
   font-weight: 700;
-  color: var(--text-secondary);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  line-height: 1.2;
+  color: var(--fotd-ink);
+  text-decoration: none;
+  transition: background-color 140ms ease, border-color 140ms ease;
 }
 
-.fotd-link:hover,
-.fotd-link:focus-visible {
-  color: var(--peak-accent-text);
+.fotd-cta-arrow {
+  transition: transform 140ms ease;
 }
 
-.fotd-link:focus-visible {
+.fotd-cta:hover {
+  background: color-mix(in srgb, var(--fotd-accent) 22%, transparent);
+  border-color: var(--fotd-accent);
+}
+
+.fotd-cta:hover .fotd-cta-arrow {
+  transform: translateX(2px);
+}
+
+.fotd-cta:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
-  border-radius: 0.2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fotd-cta,
+  .fotd-cta-arrow {
+    transition: none;
+  }
+  .fotd-cta:hover .fotd-cta-arrow {
+    transform: none;
+  }
+}
+
+/* ---- Phone --------------------------------------------------------------
+   A fixed 9.75rem figure column at 390px leaves the headline about eleven
+   characters wide, so the figure goes above the copy and becomes a short wide
+   band: the motif anchors to the right, the value reads from the left, and the
+   headline gets the full measure. */
+@media (max-width: 44rem) {
+  .fotd-inner {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.9rem;
+    padding: 1.1rem 1.15rem;
+  }
+
+  .fotd-figure {
+    min-height: 4.75rem;
+    justify-content: flex-start;
+    padding: 0.6rem 0.85rem;
+  }
+
+  .fotd-motif {
+    left: auto;
+    right: 0;
+    width: 7rem;
+  }
+
+  .fotd-feature {
+    align-items: flex-start;
+  }
+
+  .fotd-feature-value,
+  .fotd-feature-label {
+    text-align: left;
+  }
+
+  .fotd-glyph {
+    width: 3.25rem;
+    height: 3.25rem;
+  }
 }

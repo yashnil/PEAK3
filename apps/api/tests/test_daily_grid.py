@@ -66,7 +66,12 @@ IDENTITY_KEYS = {
 # the boolean the UI's button needs. Neither is a score.
 SEARCH_VERDICT_KEYS = {"eligible", "status", "selectable"}
 # The revealed shape, valid only in the post-completion result comparison.
-CARD_KEYS = IDENTITY_KEYS | {"prime_score"}
+# `headshot_url` is identity, not score: it is the committed manifest's
+# photograph URL for this player, null unless the API is running with
+# ENABLE_EXTERNAL_ASSET_URLS (off by default) and null for ~4 identities in 5
+# even then. It is in the CARD shape and NOT in IDENTITY_KEYS because only the
+# post-completion comparison carries it -- a search hit still has no image.
+CARD_KEYS = IDENTITY_KEYS | {"prime_score", "headshot_url"}
 CELL_SCORE_KEYS = {
     "arena_points",
     "quality_points",
@@ -943,6 +948,87 @@ def test_result_rejects_oversized_payload(client: TestClient):
     filled = _complete_board_payload() * 3
     response = client.post(RESULT_URL, json={"date": FIXED_DATE, "filled": filled})
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Player imagery on the result comparison
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def asset_urls_on():
+    """The licensing gate, opened for one test.
+
+    `ENABLE_EXTERNAL_ASSET_URLS` defaults to False and that default is a
+    licensing decision, not an implementation one -- so it is flipped here and
+    restored, never changed in config.
+    """
+    from app.core.config import settings
+
+    original = settings.ENABLE_EXTERNAL_ASSET_URLS
+    settings.ENABLE_EXTERNAL_ASSET_URLS = True
+    yield
+    settings.ENABLE_EXTERNAL_ASSET_URLS = original
+
+
+def test_result_cards_carry_no_image_url_with_the_default_gate(client: TestClient):
+    """THE PRODUCTION DEFAULT. With the gate shut every card carries the field
+    as null -- the client renders its medallion and no external host is ever
+    contacted from a PEAK3 page."""
+    body = client.post(
+        RESULT_URL, json={"date": FIXED_DATE, "filled": _complete_board_payload()}
+    ).json()
+    for cell in body["cells"]:
+        assert cell["user_player_season"]["headshot_url"] is None
+        assert cell["optimal_player_season"]["headshot_url"] is None
+
+
+def test_result_cards_carry_the_manifest_url_when_the_gate_is_open(
+    client: TestClient, asset_urls_on
+):
+    """With the gate open, a card whose slug IS resolved in the committed
+    manifest carries that manifest's own URL -- proving the payload is joined
+    to `player_assets.v3.json` rather than to a second, invented source.
+
+    Asserted against the manifest lookup itself, for every card on the board:
+    an identity the manifest cannot resolve must stay null, because a
+    fabricated URL is worse than no photograph.
+    """
+    from nba_peak.perfect_season.assets import get_player_headshot_url
+
+    body = client.post(
+        RESULT_URL, json={"date": FIXED_DATE, "filled": _complete_board_payload()}
+    ).json()
+    cards = [
+        card
+        for cell in body["cells"]
+        for card in (cell["user_player_season"], cell["optimal_player_season"])
+    ]
+    for card in cards:
+        assert card["headshot_url"] == get_player_headshot_url(card["player_slug"])
+    # A board that resolved nothing at all would make the assertion above
+    # vacuous, so the coverage floor is stated: at least one identity on this
+    # fixed board is in the manifest.
+    assert any(card["headshot_url"] for card in cards)
+
+
+def test_a_pre_completion_payload_gains_no_image_field(client: TestClient, asset_urls_on):
+    """Imagery is added to the REVEALED card only. A search hit and a locked
+    answer are identity-shaped and must stay that way with the gate open --
+    the pass that added photographs must not have widened a pre-completion
+    payload by one field."""
+    answer = _known_good_answer()
+
+    hits = client.get(
+        SEARCH_URL, params={"q": answer.player_name[:6], "date": FIXED_DATE}
+    ).json()["results"]
+    for hit in hits:
+        assert set(hit) == IDENTITY_KEYS | SEARCH_VERDICT_KEYS
+
+    locked = client.post(
+        ANSWER_URL,
+        json={"date": FIXED_DATE, "row": 0, "col": 0, "answer_id": answer.id},
+    ).json()
+    assert set(locked["player_season"]) == IDENTITY_KEYS
 
 
 def test_board_payload_still_hides_the_maximum(client: TestClient):

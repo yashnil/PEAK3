@@ -110,7 +110,7 @@ export default function RevealSequenceSurface({
     >
       <header className="flex flex-col gap-1">
         <span className="rtt-node-kind">{kind === "roster" ? "Opening roster" : "Boss lineup"}</span>
-        <h2 className="text-xl font-bold" style={{ color: "var(--text-primary)" }}>
+        <h2 className="font-display text-xl font-bold" style={{ color: "var(--text-primary)" }}>
           {title}
         </h2>
         {subtitle && (
@@ -136,17 +136,20 @@ export default function RevealSequenceSurface({
           data-testid={`rtt-reveal-start-${kind}`}
           onClick={handleReveal}
           disabled={busy}
-          className="rtt-tap self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide disabled:opacity-60"
+          className="rtt-tap pk-lift pk-press pk-sheen self-start rounded-lg px-6 text-sm font-bold uppercase tracking-wide disabled:opacity-60"
           style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           {busy ? "Working…" : kind === "roster" ? "Reveal your roster" : "Reveal the lineup"}
         </button>
       ) : (
         <>
+          {/* WAS `--text-muted`. It is the progress readout for the reveal
+              the player is watching — the only thing on screen that says how
+              much is left. */}
           <p
             className="text-xs font-semibold uppercase tracking-wide"
             data-testid={`rtt-reveal-progress-${kind}`}
-            style={{ color: "var(--text-muted)" }}
+            style={{ color: "var(--text-secondary)" }}
           >
             {sequence.presentationCursor} of {track.total} revealed
           </p>
@@ -185,7 +188,7 @@ export default function RevealSequenceSurface({
                   type="button"
                   data-testid={`rtt-reveal-resume-${kind}`}
                   onClick={sequence.resume}
-                  className="rtt-tap rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
+                  className="rtt-tap pk-lift pk-press rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
                   style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
                 >
                   Resume
@@ -195,7 +198,7 @@ export default function RevealSequenceSurface({
                   type="button"
                   data-testid={`rtt-reveal-pause-${kind}`}
                   onClick={sequence.pause}
-                  className="rtt-tap rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
+                  className="rtt-tap pk-lift pk-press rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
                   style={{
                     background: "var(--bg-surface)",
                     color: "var(--text-primary)",
@@ -209,7 +212,7 @@ export default function RevealSequenceSurface({
                 type="button"
                 data-testid={`rtt-reveal-skip-${kind}`}
                 onClick={sequence.skipAll}
-                className="rtt-tap rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
+                className="rtt-tap pk-lift pk-press rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
                 style={{
                   background: "var(--bg-surface)",
                   color: "var(--text-primary)",
@@ -221,7 +224,16 @@ export default function RevealSequenceSurface({
             </div>
           )}
 
-          {sequence.complete && footer}
+          {/* The continue control arrives WITH the last card rather than
+              having been sitting there through the whole sequence. One fade
+              and rise at index 0 — the reveal already owns this screen's
+              rhythm (`useRevealSequence`), so this adds no second clock, only
+              a landing for the thing that appears once the clock stops. */}
+          {sequence.complete && footer && (
+            <div className="pk-reveal" style={{ "--pk-reveal-index": 0 } as React.CSSProperties}>
+              {footer}
+            </div>
+          )}
         </>
       )}
     </section>

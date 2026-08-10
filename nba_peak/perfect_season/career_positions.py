@@ -103,6 +103,8 @@ _SLUG_ALIASES: tuple[tuple[str, str], ...] = (
 )
 
 _CACHE: Optional[dict[str, frozenset[str]]] = None
+#: (slug_variant, season) -> the gated position listed for that one season.
+_SEASON_CACHE: Optional[dict[tuple[str, str], str]] = None
 
 
 def _normalize_slug(player_slug: str) -> str:
@@ -226,10 +228,82 @@ def career_positions(player_slug: str | None) -> frozenset[str]:
     return frozenset()
 
 
+def _build_season_index() -> dict[tuple[str, str], str]:
+    """(slug_variant, season) -> that season's listed position.
+
+    THE SAME ROWS AND THE SAME GATE as `_build`, kept per-season instead of
+    unioned. It exists because the union is the right grain for a fit LABEL and
+    the wrong grain for a hard legality RULE: a career-wide union lets one
+    anomalous season grant a position for every other season a player ever
+    played. `russell-westbrook` is listed `PG` for seventeen seasons and `SF`
+    for exactly one (2025-26, SAC, 64 games); unioned, that made small forward
+    a legal starting slot for him on a 2010s Thunder roster.
+
+    The curated supplements are deliberately NOT folded in here. They are
+    career-grain statements ("this player was a flexible forward"), so they
+    have no season to attach to; `three_man_weave.positions` unions them back
+    in and then clamps, which keeps them additive without letting them relabel
+    a specific season.
+    """
+    if not ALL_SEASONS_PATH.exists():
+        return {}
+    try:
+        rows = json.loads(ALL_SEASONS_PATH.read_text()).get("rows", [])
+    except (OSError, ValueError):
+        return {}
+
+    minutes = _load_season_minutes()
+    out: dict[tuple[str, str], str] = {}
+    for row in rows:
+        position = row.get("position")
+        if position not in _POSITION_TOKENS:
+            continue
+        games = row.get("games_played")
+        if games is None or float(games) < MIN_GAMES_PLAYED:
+            continue
+        row_slug = _normalize_slug(row.get("player_slug") or "")
+        season = str(row.get("season") or "")
+        if not row_slug or not season:
+            continue
+        mp = minutes.get((row_slug, season))
+        if mp is not None and mp < MIN_SEASON_MINUTES:
+            continue
+        # A traded season can appear as several per-team rows plus a multi-team
+        # aggregate. They carry the same listed position, so first-write-wins
+        # is stable; a disagreement would be a source defect and is not
+        # silently averaged into a third answer.
+        for variant in slug_variants(row_slug):
+            out.setdefault((variant, season), position)
+    return out
+
+
+def listed_position(player_slug: str | None, season: str | None) -> Optional[str]:
+    """The position the source lists for this exact player-season, or None.
+
+    None means "the source does not gate-qualify a position for that season" --
+    an unrecognised slug, a season outside the committed window, or a season
+    that failed the games/minutes gate. Callers must treat None as "no
+    season-grain information" and fall back deliberately, never as "no
+    position".
+    """
+    global _SEASON_CACHE
+    if _SEASON_CACHE is None:
+        _SEASON_CACHE = _build_season_index()
+    if not player_slug or not season:
+        return None
+    season = str(season)
+    for variant in slug_variants(player_slug):
+        found = _SEASON_CACHE.get((variant, season))
+        if found:
+            return found
+    return None
+
+
 def clear_cache() -> None:
-    """Drop the module cache -- for tests that patch the source paths."""
-    global _CACHE
+    """Drop the module caches -- for tests that patch the source paths."""
+    global _CACHE, _SEASON_CACHE
     _CACHE = None
+    _SEASON_CACHE = None
 
 
 __all__ = [
@@ -239,5 +313,6 @@ __all__ = [
     "MIN_SEASON_MINUTES",
     "career_positions",
     "clear_cache",
+    "listed_position",
     "slug_variants",
 ]

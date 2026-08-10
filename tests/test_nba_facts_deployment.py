@@ -460,3 +460,158 @@ def test_the_image_asserts_its_inputs_before_generating_anything():
     assert dockerfile.index("assert_inputs_present") < run_line.start(), (
         "the input assertion must run BEFORE the generator, or it adds nothing"
     )
+
+
+# ---------------------------------------------------------------------------
+# The build's DEPENDENCIES, which is a third way for the same drift to happen
+# ---------------------------------------------------------------------------
+#
+# This file was written because the fact generator was wired into CI and not
+# into the Dockerfile: one build had a STEP the other lacked. The same shape
+# recurred one layer down, in dependencies rather than steps.
+#
+# `nba_peak/nba_facts/awards.py` reads
+# `data/generated/player_season_context.parquet`, and pandas ships no parquet
+# reader of its own. Two environments run the generator and each had made its
+# own guess about what that needed:
+#
+#   * CI's `web-dataset` job: `pip install pandas unidecode`, written by hand.
+#   * The image: `apps/api/requirements.txt` plus an inline `"unidecode>=1.3"`.
+#
+# The image kept building only because the API's RUNTIME set carries
+# `pyarrow>=17.0.0` for unrelated request-time paths — a coincidence, not a
+# declaration. CI had no such accident and failed with `ImportError: Unable to
+# find a usable engine`.
+#
+# `requirements-build.txt` is now the single statement of what the build needs.
+# The tests below assert that it says the load-bearing thing, that both
+# environments read it, and — because a contract nobody exercises is a
+# document — that the parquet it exists for can actually be opened.
+
+BUILD_REQUIREMENTS = REPO_ROOT / "requirements-build.txt"
+
+
+def _requirement_names(path: Path) -> set[str]:
+    """Distribution names in a requirements file, lowercased, no versions."""
+    names = set()
+    for raw in path.read_text().splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line or line.startswith("-"):
+            continue
+        names.add(re.split(r"[<>=!\[;]", line, maxsplit=1)[0].strip().lower())
+    return names
+
+
+def test_the_build_contract_declares_a_parquet_engine():
+    """The one dependency whose absence is silent until a generator runs.
+
+    pandas is not enough and never was: `pd.read_parquet` raises ImportError
+    rather than failing at install time, so a missing engine is invisible in
+    every environment that does not happen to read a parquet.
+    """
+    assert BUILD_REQUIREMENTS.exists(), (
+        "requirements-build.txt is the build's dependency contract; CI and the "
+        "Dockerfile both install it."
+    )
+    declared = _requirement_names(BUILD_REQUIREMENTS)
+    assert declared & {"pyarrow", "fastparquet"}, (
+        "the data build reads a parquet (nba_peak/nba_facts/awards.py) and "
+        f"declares no engine to read it with. Declared: {sorted(declared)}"
+    )
+
+
+def test_every_ci_job_that_builds_the_dataset_gets_a_parquet_engine():
+    """A job may not hand-list what the build needs.
+
+    THE EXACT DEFECT. `pip install pandas unidecode` was correct when it was
+    typed and became wrong the day the generator started reading a parquet,
+    because nothing tied the list in the YAML to the build it was for.
+
+    WHAT IS ASSERTED IS THE INVARIANT, NOT A FILENAME. Three jobs run the build
+    script and they legitimately differ: `model-tests` and `lineup-tests`
+    already install the full root `requirements.txt` because they go on to run
+    the model suite, while `web-dataset` only builds. Demanding one specific
+    file of all of them would be a style rule. What actually matters is that a
+    job's dependencies come from a declared requirements FILE, and that at
+    least one of the files it installs names a parquet engine — which is
+    exactly what a hand-written `pip install pandas unidecode` cannot satisfy.
+    """
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+
+    # Job blocks: a two-space-indented `name:` key, up to the next one.
+    blocks = re.split(r"\n(?=  [a-z0-9-]+:\n)", workflow)
+    builders = [b for b in blocks if "build-web-data.sh" in b]
+    assert builders, "no CI job runs scripts/ci/build-web-data.sh any more"
+
+    for block in builders:
+        job = re.match(r"\s*([a-z0-9-]+):", block)
+        label = job.group(1) if job else "<unknown job>"
+
+        referenced = re.findall(r"-r\s+(\S+\.txt)", block)
+        assert referenced, (
+            f"CI job {label!r} runs scripts/ci/build-web-data.sh but installs "
+            "no requirements file — its dependencies are hand-listed in YAML, "
+            "which is how this drifted from what the build actually needs."
+        )
+
+        engines = set()
+        for rel in referenced:
+            path = REPO_ROOT / rel
+            if path.exists():
+                engines |= _requirement_names(path) & {"pyarrow", "fastparquet"}
+        assert engines, (
+            f"CI job {label!r} builds the dataset, but none of the requirements "
+            f"files it installs ({referenced}) declares a parquet engine. "
+            "nba_peak/nba_facts/awards.py reads a parquet, so this job would "
+            "fail with ImportError at generation time."
+        )
+
+
+def test_the_image_installs_the_same_build_contract_as_ci():
+    """CI and Docker must not drift on what the build needs.
+
+    The image could satisfy the generator by accident — its runtime set happens
+    to include pyarrow — and did. Asserting it installs the CONTRACT means the
+    build no longer depends on that coincidence, and means a change to the
+    contract reaches both environments at once.
+    """
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    assert "requirements-build.txt" in dockerfile, (
+        "the image runs scripts/build_nba_facts.py but does not install "
+        "requirements-build.txt, so it is relying on the API runtime set "
+        "happening to contain a parquet engine."
+    )
+    # Copied before it is installed, or the COPY is decorative.
+    copy_at = dockerfile.find("COPY requirements-build.txt")
+    install_at = dockerfile.find("-r requirements-build.txt")
+    assert copy_at != -1, "requirements-build.txt is never COPYed into the image"
+    assert install_at > copy_at, (
+        "requirements-build.txt is installed before it is copied in"
+    )
+
+
+def test_the_committed_context_parquet_is_actually_readable():
+    """The generator's parquet input opens, for real.
+
+    NOT MOCKED, DELIBERATELY. A fake `read_parquet` would pass in exactly the
+    environment this test exists to catch — one with pandas and no engine — and
+    would have reported green through the whole CI failure. This calls the real
+    loader against the real committed file, so the assertion fails wherever the
+    dependency contract is not satisfied.
+    """
+    from nba_peak.nba_facts import awards
+
+    # `load_context` merges the committed rows against the parquet and returns
+    # records, so reaching a non-empty result means the parquet was opened AND
+    # joined — a stub engine returning an empty frame would produce an empty
+    # inner join here, not a passing test.
+    context = awards.load_context()
+    assert len(context) > 0, (
+        "the committed player-season context produced no rows; either the "
+        "parquet did not load or the join key changed"
+    )
+    for field in ("player", "season_end"):
+        assert field in context[0], (
+            f"the merged context has no {field!r} field, so the award "
+            "generators cannot read it"
+        )

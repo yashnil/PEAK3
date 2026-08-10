@@ -28,7 +28,7 @@ interface Props {
 export default function RecentResults({ entries, emptyMessage, linkToBoards }: Props) {
   if (entries.length === 0) {
     return (
-      <p data-testid="recent-results-empty" className="text-xs" style={{ color: "var(--text-muted)" }}>
+      <p data-testid="recent-results-empty" className="text-xs" style={{ color: "var(--text-secondary)" }}>
         {emptyMessage ?? "No completed grids yet. Finish today's board to start your history."}
       </p>
     );
@@ -44,7 +44,9 @@ export default function RecentResults({ entries, emptyMessage, linkToBoards }: P
                 <span className="font-semibold" style={{ color: "var(--text-primary)" }}>
                   {entry.date}
                 </span>
-                <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                {/* WAS `--text-muted`. The theme is what made that day's board
+                    different from every other one in the list. */}
+                <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
                   {entry.theme}
                 </span>
                 {!entry.counted_for_streak && (
@@ -84,10 +86,12 @@ export default function RecentResults({ entries, emptyMessage, linkToBoards }: P
           </>
         );
 
+        /* The row is a raised plate. `.pk-lift` is added only on the LINKED
+           variant below — a row that cannot be clicked must not respond to a
+           pointer as though it could. */
         const className =
-          "flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-xs";
+          "pk-depth pk-crown flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-xs";
         const style = {
-          background: "var(--bg-surface)",
           border: "1px solid var(--border-subtle)",
         } as const;
 
@@ -96,7 +100,7 @@ export default function RecentResults({ entries, emptyMessage, linkToBoards }: P
             {linkToBoards ? (
               <Link
                 href={`/daily/grid?date=${entry.date}`}
-                className={`${className} transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]`}
+                className={`${className} pk-lift pk-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]`}
                 style={style}
                 aria-label={`Review the ${entry.date} grid, ${entry.theme}, ${entry.score} points`}
               >

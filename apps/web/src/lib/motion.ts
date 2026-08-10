@@ -39,6 +39,9 @@ export const MOTION_DURATION_MS = {
   // existing scale rather than a new hardcoded number at each call site.
   reveal: 400,
   count: 600,
+  // Visual-identity pass. Mirrors `--pk-dur-lift` / `--pk-dur-pulse`.
+  lift: 160,
+  pulse: 2000,
 } as const;
 
 /** The same durations in seconds, the unit `motion` transitions expect. */
@@ -50,7 +53,34 @@ export const MOTION_DURATION_S = {
   slower: 0.48,
   reveal: 0.4,
   count: 0.6,
+  lift: 0.16,
+  pulse: 2,
 } as const;
+
+/**
+ * Stagger step between siblings in a revealed list, in ms and seconds.
+ *
+ * Mirrors `--pk-stagger`. The CSS `.pk-reveal` primitive caps the index at 8;
+ * `staggerDelay` below applies the same cap, so a CSS-driven list and a
+ * `motion`-driven one cannot disagree about when the ninth item appears.
+ */
+export const MOTION_STAGGER_MS = 55;
+export const MOTION_STAGGER_S = 0.055;
+
+/** The index cap — see `.pk-reveal` in globals.css for why it exists. */
+export const MOTION_STAGGER_MAX_INDEX = 8;
+
+/**
+ * Delay for the `index`-th item of a staggered reveal, in seconds.
+ *
+ * Returns 0 under reduced motion rather than a shortened delay: a delay with
+ * no animation to delay is just a period of invisibility.
+ */
+export function staggerDelay(index: number, reducedMotion = false): number {
+  if (reducedMotion) return 0;
+  const clamped = Math.min(Math.max(index, 0), MOTION_STAGGER_MAX_INDEX);
+  return clamped * MOTION_STAGGER_S;
+}
 
 export type MotionDurationName = keyof typeof MOTION_DURATION_MS;
 
@@ -61,13 +91,18 @@ export type MotionDurationName = keyof typeof MOTION_DURATION_MS;
  * mutable `number[]`; a readonly tuple would not assign.
  */
 export const MOTION_EASE: Record<
-  "standard" | "out" | "in" | "emphasized",
+  "standard" | "out" | "in" | "emphasized" | "settle" | "decel",
   [number, number, number, number]
 > = {
   standard: [0.2, 0, 0, 1],
   out: [0, 0, 0.2, 1],
   in: [0.4, 0, 1, 1],
   emphasized: [0.34, 1.56, 0.64, 1],
+  // Visual-identity pass. Mirrors `--pk-ease-settle` / `--pk-ease-decel`.
+  // `settle` overshoots and stops dead — a card locking into a slot.
+  // `decel` starts at full speed — anything the user just committed to.
+  settle: [0.16, 1, 0.3, 1],
+  decel: [0.05, 0.7, 0.1, 1],
 };
 
 export type MotionEaseName = keyof typeof MOTION_EASE;

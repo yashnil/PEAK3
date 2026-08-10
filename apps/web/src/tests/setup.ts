@@ -15,7 +15,10 @@ vi.mock("next/navigation", () => ({
 // Mock next/font/google
 vi.mock("next/font/google", () => ({
   Inter: () => ({ variable: "--font-inter", className: "inter" }),
-  Syne: () => ({ variable: "--font-syne", className: "syne" }),
+  Space_Grotesk: () => ({
+    variable: "--font-space-grotesk",
+    className: "space-grotesk",
+  }),
 }));
 
 // Mock localStorage

@@ -50,6 +50,7 @@ import {
   TMW_SLOT_LABELS,
   TMW_SLOT_TYPES,
   TMW_STARTER_SLOTS,
+  TMW_TURN_PHASE_REVEAL,
 } from "@/types/three-man-weave";
 
 // ---------------------------------------------------------------------------
@@ -58,12 +59,32 @@ import {
 
 export type TmwPhase = "waiting" | "revealing" | "picking" | "complete";
 
+/**
+ * IS THE FRANCHISE × DECADE CEREMONY RUNNING?
+ *
+ * Read from the server's own `turn_phase` and from nothing else. The ceremony
+ * used to be a client `setTimeout` that the room tried to keep out of the way
+ * of a server deadline already counting down; it is now a turn the server opens
+ * and closes, so this is a question about state rather than about an animation
+ * some client happens to be part-way through. That is what makes a reload
+ * mid-ceremony resolve to the same answer everywhere.
+ *
+ * TRUE FOR EVERY SEAT, including the one that picks next: nobody drafts under
+ * the ceremony, so there is no seat for which it is not running.
+ */
+export function isRevealing(match: TmwMatchView | null): boolean {
+  return !!match && match.turn_phase === TMW_TURN_PHASE_REVEAL;
+}
+
 /** Map the server's state onto a phase the UI can switch on. */
 export function phaseOf(match: TmwMatchView | null): TmwPhase {
   if (!match) return "waiting";
   const state = match.public_state;
   if (state?.is_complete || match.status === "completed") return "complete";
   if (match.status === "forming") return "waiting";
+  // The roll exists during the reveal -- that is the point of the ceremony --
+  // so the phase is read from the turn, not from the roll's absence.
+  if (isRevealing(match)) return "revealing";
   if (!state?.current_roll) return "revealing";
   return "picking";
 }
@@ -73,10 +94,19 @@ export function isYourTurn(match: TmwMatchView | null): boolean {
   return match.current_turn_seat_index === match.your_seat_index;
 }
 
-/** Can this seat act right now? The server's own `legal_commands` decides —
- * never a local re-derivation of the rules. */
+/**
+ * Can this seat act right now? The server's own `legal_commands` decides —
+ * never a local re-derivation of the rules.
+ *
+ * WITH ONE SUBTRACTION THE SERVER CANNOT MAKE FOR US. `project` derives
+ * `legal_commands` from the SNAPSHOT's `current_seat`, which during the reveal
+ * already names the seat that picks next — so `tmw_pick` is advertised while
+ * the ceremony is still running and the reducer would refuse it. The turn phase
+ * is the authority on *when*, so it is applied here rather than at each of the
+ * three call sites that ask this question.
+ */
 export function canPick(match: TmwMatchView | null): boolean {
-  return !!match && match.legal_commands.includes("tmw_pick");
+  return !!match && !isRevealing(match) && match.legal_commands.includes("tmw_pick");
 }
 
 // ---------------------------------------------------------------------------
@@ -576,4 +606,312 @@ export function connectionState(consecutiveFailures: number): TmwConnection {
 export function rollHeadline(roll: TmwRoll | null): string {
   if (!roll) return "Rolling…";
   return `${roll.franchise_display_name} · ${roll.decade}`;
+}
+
+// ---------------------------------------------------------------------------
+// Seat identity
+// ---------------------------------------------------------------------------
+
+/**
+ * WHICH OF THE THREE SEAT ACCENTS THIS SEAT WEARS.
+ *
+ * All three courts used to be painted in the single brand gold and were told
+ * apart by a capital letter in the corner, which is the weakest possible
+ * identity signal on a screen whose whole job is "three competing teams". The
+ * palette (`--seat-1-*` gold, `--seat-2-*` blue, `--seat-3-*` emerald) is
+ * defined once in globals.css with per-theme inks, and this is the only place
+ * a seat index turns into one of them — so the court, the tab, the turn status
+ * and the result card cannot disagree about which colour a seat is.
+ *
+ * Returned as the token SUFFIX rather than a `var(...)` string so a caller can
+ * build `--seat-N-fill` or `--seat-N-ink` from it, and so it can also be
+ * written to the DOM as `data-seat-accent` for the stylesheet to key off.
+ */
+export function seatAccent(seatIndex: number): "1" | "2" | "3" {
+  return (["1", "2", "3"] as const)[((seatIndex % 3) + 3) % 3];
+}
+
+// ---------------------------------------------------------------------------
+// The one turn-status line
+// ---------------------------------------------------------------------------
+
+/**
+ * Whose pick it is, in words that need no legend.
+ *
+ * ONE SURFACE READS THIS, NOT THREE. The room used to stack a spinner banner, a
+ * "X is selecting" band and a "X is scouting / X drafted" tray, all describing
+ * the same fact in three different registers a few pixels apart. This sentence
+ * is the single source for the turn-status region; nothing else restates it.
+ *
+ * Moved here from the deleted `BotPickReveal` so that deleting a component
+ * could not delete the copy rule with it.
+ */
+export function turnHeadline(
+  seats: ArenaSeatPublic[],
+  currentTurnSeatIndex: number | null,
+  yourSeatIndex: number | null,
+  complete: boolean,
+): string {
+  if (complete) return "Draft complete";
+  if (currentTurnSeatIndex === null) return "Rolling the next franchise and decade";
+  if (currentTurnSeatIndex === yourSeatIndex) return "Your pick";
+  return `${seatLabel(seats, currentTurnSeatIndex)} is on the clock`;
+}
+
+/** "The Spark selected Bradley Beal" — the brief post-pick beat, same surface. */
+export function pickedHeadline(
+  seats: ArenaSeatPublic[],
+  pick: TmwPick,
+  yourSeatIndex: number | null,
+): string {
+  const who =
+    pick.seat_index === yourSeatIndex
+      ? "You drafted"
+      : `${seatLabel(seats, pick.seat_index)} selected`;
+  return `${who} ${pick.player_name}`;
+}
+
+// ---------------------------------------------------------------------------
+// What running out of time actually does (TMW-01, UI half)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT EXPIRY WILL DO, said before it happens.
+ *
+ * The overlay used to promise "Timeout drafts the best available player for
+ * you", which was both false and an instruction to exploit it: a player who
+ * knew nothing about the roll did strictly better by not clicking. The server
+ * policy now draws deterministically from the LOWER-VALUE half of the legal,
+ * completability-preserving pool, so the copy must never say "best available"
+ * and must make inaction the worse option in plain words.
+ *
+ * Authored once, here, because it is printed by both the turn-status clock and
+ * the pick surface's clock and they must not drift.
+ */
+export const TMW_TIMEOUT_CONSEQUENCE =
+  "Running out drafts a weaker legal fallback for you.";
+
+/** The locked state shown WHILE the server resolves an expired turn. */
+export const TMW_TIMEOUT_RESOLVING = "Time expired — assigning a legal fallback.";
+
+// ---------------------------------------------------------------------------
+// Rearrangement legality (TMW-10)
+// ---------------------------------------------------------------------------
+
+/**
+ * MAY THIS EXACT PLAYER-SEASON OCCUPY THIS EXACT SLOT?
+ *
+ * `positions` is the model's own canonical starter-position list, published on
+ * every pick payload, and the bench accepts any drafted player. There is no
+ * "someone else can move, therefore this player can go anywhere" rule here and
+ * there must never be one — see TMW-02. Every edge a drag, a click or a
+ * keyboard move can produce is checked against this single predicate, and the
+ * server re-validates the complete final assignment regardless.
+ */
+export function slotAcceptsPick(slotType: TmwSlotType, pick: TmwPick): boolean {
+  if (slotType === "bench_1") return true;
+  return (pick.positions ?? []).includes(slotType);
+}
+
+/**
+ * Why this move is illegal, or null when it is legal.
+ *
+ * BOTH HALVES OF A SWAP ARE CHECKED. Dropping onto an occupied slot moves two
+ * players, and validating only the one being dragged is exactly how a
+ * Westbrook-at-SF assignment gets created by an interaction that looked
+ * careful. The returned string is the message the surface shows immediately on
+ * rejection — it names the player and the rule, never "invalid move".
+ */
+export function moveRejection(
+  roster: TmwRoster | null,
+  from: TmwSlotType,
+  to: TmwSlotType,
+): string | null {
+  if (!roster) return "That roster is not yours to move.";
+  if (from === to) return null;
+  const moving = roster.slots[from] ?? null;
+  if (!moving) return "That slot is empty.";
+  if (!slotAcceptsPick(to, moving)) {
+    return `${moving.player_name} plays ${positionsLine(moving)} — not ${slotLabel(to).toLowerCase()}.`;
+  }
+  const displaced = roster.slots[to] ?? null;
+  if (displaced && !slotAcceptsPick(from, displaced)) {
+    return `Swapping would put ${displaced.player_name} at ${slotLabel(from).toLowerCase()}, which they do not play.`;
+  }
+  return null;
+}
+
+/** Every slot this occupant may legally move to right now. */
+export function legalMoveTargets(
+  roster: TmwRoster | null,
+  from: TmwSlotType,
+): TmwSlotType[] {
+  if (!roster || !roster.slots[from]) return [];
+  return TMW_SLOT_TYPES.filter(
+    (slot) => slot !== from && moveRejection(roster, from, slot) === null,
+  );
+}
+
+/**
+ * The COMPLETE final assignment after a move or swap — the only shape the
+ * server's `tmw_rearrange` command accepts, and the reason no half-move can
+ * exist even if a request is retried.
+ */
+export function placementsAfterMove(
+  roster: TmwRoster,
+  from: TmwSlotType,
+  to: TmwSlotType,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const slotType of TMW_SLOT_TYPES) {
+    const occupant = roster.slots[slotType];
+    if (occupant) out[slotType] = occupant.player_slug;
+  }
+  const moving = roster.slots[from];
+  const displaced = roster.slots[to] ?? null;
+  if (!moving) return out;
+  out[to] = moving.player_slug;
+  if (displaced) out[from] = displaced.player_slug;
+  else delete out[from];
+  return out;
+}
+
+/** "SF / PF", or "no listed position" — used in rejection copy and on cards. */
+export function positionsLine(player: TmwCandidatePublic): string {
+  const positions = player.positions ?? [];
+  return positions.length ? positions.join(" / ") : "no listed position";
+}
+
+// ---------------------------------------------------------------------------
+// Why a name is not in the pool (TMW-11)
+// ---------------------------------------------------------------------------
+
+/**
+ * The drafted-but-locked identities whose NAME matches a search.
+ *
+ * THE DENNIS RODMAN REPORT WAS A UI DEFECT, NOT A MISSING PLAYER. The lock is
+ * global: a Rodman taken off a Pistons roll is gone from a later Spurs roll,
+ * and the empty state said only "No eligible player matches that search" — the
+ * same sentence it printed for a position filter and for genuine ineligibility.
+ * The client already receives `drafted_identities` and the full pick feed, so
+ * it can name the seat and the round instead of implying the pool is broken.
+ */
+export function lockedMatches(
+  entries: TmwLockEntry[],
+  query: string,
+): TmwLockEntry[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  return entries.filter((entry) => entry.playerName.toLowerCase().includes(needle));
+}
+
+/** Why the candidate list is showing nothing. Three genuinely different facts. */
+export type TmwEmptyReason =
+  | { kind: "locked"; entries: TmwLockEntry[] }
+  | { kind: "filtered"; hidden: number }
+  | { kind: "not_eligible"; query: string }
+  | { kind: "no_pool" };
+
+export function emptyPoolReason(input: {
+  poolSize: number;
+  hiddenByFilter: number;
+  query: string;
+  locked: TmwLockEntry[];
+}): TmwEmptyReason {
+  if (input.locked.length) return { kind: "locked", entries: input.locked };
+  if (input.hiddenByFilter > 0) return { kind: "filtered", hidden: input.hiddenByFilter };
+  if (input.query.trim()) return { kind: "not_eligible", query: input.query.trim() };
+  if (input.poolSize === 0) return { kind: "no_pool" };
+  return { kind: "not_eligible", query: "" };
+}
+
+// ---------------------------------------------------------------------------
+// The result response bank (TMW-14)
+// ---------------------------------------------------------------------------
+
+export type TmwResultBand =
+  | "won_clear"
+  | "won_close"
+  | "drawn"
+  | "close_loss"
+  | "clear_loss"
+  | "unknown";
+
+/** Lineup-score gap, in points, below which a result counts as close. */
+const CLOSE_MARGIN = 2.0;
+
+/**
+ * How this match ENDED, for the human — placement plus how near it was.
+ *
+ * Derived from the server's own placements and scores; nothing is re-ranked and
+ * no number is invented. A roster that could not be scored yields "unknown"
+ * rather than a fabricated margin.
+ */
+export function resultBand(
+  rows: TmwPodiumRow[],
+  yourSeatIndex: number | null,
+): TmwResultBand {
+  const yours = rows.find((row) => row.result.seat_index === yourSeatIndex) ?? null;
+  if (!yours) return "unknown";
+  if (yours.tied && yours.result.placement === 1) return "drawn";
+  const scored = rows.filter((row) => row.score.kind === "scored");
+  const best = scored.length
+    ? Math.max(...scored.map((row) => (row.score.kind === "scored" ? row.score.value : 0)))
+    : null;
+  if (yours.score.kind !== "scored" || best === null) {
+    return yours.result.placement === 1 ? "won_clear" : "clear_loss";
+  }
+  if (yours.result.placement === 1) {
+    const runnerUp = scored
+      .filter((row) => row.result.seat_index !== yours.result.seat_index)
+      .map((row) => (row.score.kind === "scored" ? row.score.value : 0))
+      .sort((a, b) => b - a)[0];
+    if (runnerUp === undefined) return "won_clear";
+    return yours.score.value - runnerUp <= CLOSE_MARGIN ? "won_close" : "won_clear";
+  }
+  return best - yours.score.value <= CLOSE_MARGIN ? "close_loss" : "clear_loss";
+}
+
+/**
+ * The celebration line, per band.
+ *
+ * TASTEFUL AND FINITE. TMW-14 rejects the robotic "You finished 3rd" and also
+ * rejects overdone slang, so the bank is short, plain and written for a
+ * basketball room rather than a scoreboard. Nothing here is generated.
+ */
+const RESULT_LINES: Record<Exclude<TmwResultBand, "unknown">, readonly string[]> = {
+  won_clear: ["That's the board.", "You took the room.", "Built different.", "Never in doubt."],
+  won_close: ["Won it by a hair.", "You held on.", "Close one. Yours.", "Held the room."],
+  drawn: ["Dead level.", "Nothing between you.", "Split the room."],
+  close_loss: ["One pick away.", "That was close.", "Run it back.", "So near."],
+  clear_loss: [
+    "The room got you this time.",
+    "Better luck next draft.",
+    "They out-drafted you.",
+    "Not your night.",
+  ],
+};
+
+/**
+ * A deterministic line from the bank.
+ *
+ * DETERMINISTIC PER COMPLETED MATCH, not random per render: a hero line that
+ * changed on every poll or resize would read as a glitch, and a screen reader
+ * would re-announce it. `seed` should be the match id, so repeat plays vary and
+ * a reload of the SAME result says the same thing.
+ */
+export function resultLine(band: TmwResultBand, seed: string): string {
+  if (band === "unknown") return "Match complete.";
+  const bank = RESULT_LINES[band];
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) | 0;
+  }
+  return bank[Math.abs(hash) % bank.length];
+}
+
+/** "1st" / "2nd" / "3rd". */
+export function ordinal(value: number): string {
+  const suffix = value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th";
+  return `${value}${suffix}`;
 }

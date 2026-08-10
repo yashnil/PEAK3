@@ -19,7 +19,7 @@
  * ever scheduled.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { usePrefersReducedMotion } from "@/lib/a11y";
 import { MOTION_DURATION_MS } from "@/lib/motion";
@@ -36,6 +36,15 @@ export interface AnimatedNumberProps {
   prefix?: string;
   suffix?: string;
   className?: string;
+  /**
+   * Applied to the root span.
+   *
+   * Exists because a caller that controls the number's SIZE could not
+   * previously say so: `ScorePill` sizes its static branch with an inline
+   * `fontSize` and had no way to size this one, so every animated pill
+   * silently rendered at its inherited size.
+   */
+  style?: CSSProperties;
   "data-testid"?: string;
 }
 
@@ -51,6 +60,7 @@ export function AnimatedNumber({
   prefix = "",
   suffix = "",
   className,
+  style,
   "data-testid": testId,
 }: AnimatedNumberProps) {
   const reducedMotion = usePrefersReducedMotion();
@@ -99,6 +109,7 @@ export function AnimatedNumber({
   return (
     <span
       className={cn("score-number", className)}
+      style={style}
       data-testid={testId}
       data-value={String(value)}
       data-settled={display === value ? "true" : "false"}

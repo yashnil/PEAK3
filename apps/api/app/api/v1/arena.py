@@ -358,6 +358,7 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
 
     turn = await repo.get_open_turn(match.match_id)
     seconds_remaining = None
+    turn_phase = turn.phase if turn is not None else None
     if turn is not None and seat_index is not None:
         if turn.seat_index is None or turn.seat_index == seat_index:
             from app.repositories.arena_protocols import _utc
@@ -395,6 +396,7 @@ async def _build_view(repo, mode, match: ArenaMatch, seat: Optional[ArenaSeat]):
         legal_commands=list(legal),
         current_turn_seat_index=turn.seat_index if turn else None,
         seconds_remaining=seconds_remaining,
+        turn_phase=turn_phase,
         latest_event_seq=latest_seq,
         # The room code goes only to a seat holder, and only while the room is
         # still filling -- it is how they invite the second player. Once the

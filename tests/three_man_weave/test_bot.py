@@ -39,11 +39,11 @@ from nba_peak.three_man_weave.config import stream_rng
 SEEDS = 60
 
 
-def _projection(state: D.DraftState, seat: int) -> tuple[dict, dict]:
+def _projection(state: D.DraftState, index, seat: int) -> tuple[dict, dict]:
     """The two dicts the mode's own `project` produces, built from the state."""
     roll = state.current_roll
     assert roll is not None
-    fits = D.candidate_fits(state, seat)
+    fits = D.candidate_fits(state, index, seat)
     public = {
         "current_roll": {
             **roll.as_dict(),
@@ -117,7 +117,7 @@ def _play(index, seed: int, record: list | None = None) -> D.DraftState:
 
         seat = state.current_seat
         assert seat is not None
-        public, private = _projection(state, seat)
+        public, private = _projection(state, index, seat)
         bot = ThreeManWeaveBot()
         options = bot.options(public, private)
         decision = bot.decide(public, private, random.Random(f"tmw:{seed}:{state.turn_index}"))
@@ -129,6 +129,7 @@ def _play(index, seed: int, record: list | None = None) -> D.DraftState:
 
         state = D.apply_pick(
             state,
+            index,
             payload["player_slug"],
             payload.get("slot_type"),
             seat_index=seat,
@@ -252,7 +253,7 @@ def test_the_bot_never_simply_takes_the_highest_scoring_candidate(index):
                 assert roll is not None
                 state = D.set_roll(state, roll)
             seat = state.current_seat
-            public, private = _projection(state, seat)
+            public, private = _projection(state, index, seat)
             decision = ThreeManWeaveBot().decide(
                 public, private, random.Random(f"tmw:{seed}:{state.turn_index}")
             )
@@ -264,6 +265,7 @@ def test_the_bot_never_simply_takes_the_highest_scoring_candidate(index):
                 agreements += 1
             state = D.apply_pick(
                 state,
+                index,
                 payload["player_slug"],
                 payload.get("slot_type"),
                 seat_index=seat,

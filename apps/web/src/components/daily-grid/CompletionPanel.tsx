@@ -107,7 +107,19 @@ function ScoreTile({
   large?: boolean;
 }) {
   return (
-    <div className="card-surface flex-1 px-3 py-3 text-center">
+    /* A raised plate with a lit top edge rather than a flat rectangle: these
+       three tiles ARE the result, and they were carrying the same visual
+       weight as the explanatory paragraphs further down the panel.
+
+       THE NUMBER IS DELIBERATELY NOT A COUNT-UP. `complete-total-score`,
+       `complete-optimal-total` and `complete-percent-of-best` are asserted
+       with Playwright's EXACT `toHaveText(/^\d+$/)` in `daily-grid.spec.ts`,
+       and every count-up component in this app carries a visually-hidden
+       sibling holding the authoritative value — which doubles the element's
+       `textContent` and would fail those assertions. The choice here is
+       between a count-up and a green suite; the suite wins, and this note
+       exists so the next person does not rediscover it the hard way. */
+    <div className="card-surface pk-depth pk-crown flex-1 px-3 py-3 text-center">
       <p
         data-testid={testId}
         className={`score-number font-display font-bold leading-none ${large ? "text-3xl sm:text-4xl" : "text-2xl"}`}
@@ -115,9 +127,11 @@ function ScoreTile({
       >
         {value}
       </p>
+      {/* WAS 9px `--text-muted`. Three big numbers in a row are unreadable
+          without the words that say which is which. */}
       <p
-        className="mt-1.5 text-[9px] font-bold uppercase tracking-[0.12em]"
-        style={{ color: "var(--text-muted)" }}
+        className="mt-1.5 text-[10px] font-bold uppercase tracking-[0.12em]"
+        style={{ color: "var(--text-secondary)" }}
       >
         {label}
       </p>
@@ -152,7 +166,6 @@ export default function CompletionPanel({
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
-  const [showAll, setShowAll] = useState(false);
   // Ticks once a minute so the countdown to the next board stays roughly
   // right without a per-second timer for something hours away.
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -170,11 +183,10 @@ export default function CompletionPanel({
   // whichever one is actually true (see optimal.py's module docstring).
   const maxLabel = result?.exact_optimal ? "Today's max" : "Best known";
   const grade = result ? resultGrade(result.percent_of_best) : null;
-  // Which squares the maximum would have filled differently. That is the whole
-  // content of "what PEAK3 would have used" -- listing the nine squares when
-  // six of them matched buries the three that did not.
+  // Which squares the maximum would have filled differently. Now used only to
+  // say how many, in one sentence over the optimal board -- the nine-line list
+  // this used to feed is gone (DG-01).
   const changed = result ? result.cells.filter((c) => !c.matched_optimal) : [];
-  const shown = result ? (showAll ? result.cells : changed) : [];
   // Launch-polish §4: `result.cells` arrives in FILL order (the order the
   // player locked squares in -- see filled_list in optimal.py), not board
   // order. The mini-grid below is a `grid-cols-3` that fills left-to-right,
@@ -203,16 +215,29 @@ export default function CompletionPanel({
     // `CompletionModal` renders this inside `Dialog`, which already owns the
     // surface. A second card drawn here would nest one card inside another.
     <section data-testid="daily-grid-complete" aria-label="Grid complete">
-      <div className="flex items-start justify-between gap-4">
+      {/* Four bands, in reading order: the verdict, the three numbers, the
+          per-square recap, then the biggest miss. `.pk-reveal` only fades and
+          rises them — every band is in the DOM and in the accessibility tree
+          from the first paint, and the shared reduced-motion block zeroes both
+          the delay and the movement. */}
+      <div
+        className="pk-reveal flex items-start justify-between gap-4"
+        style={{ "--pk-reveal-index": 0 } as React.CSSProperties}
+      >
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: "var(--peak-accent-text)" }}>
             {board.date}
             {board.theme ? ` · ${board.theme}` : ""}
           </p>
+          {/* The verdict. WAS `text-2xl font-bold` — one step above the
+              paragraph under it. Whether the grid was a Perfect Grid or Room
+              to Improve is the single fact this panel exists to state, so it
+              now reads at display scale. The TEXT is unchanged: `daily-grid.
+              spec.ts` matches it exactly. */}
           <h2
             id="daily-grid-complete-heading"
             data-testid="complete-headline"
-            className="font-display mt-1 text-2xl font-bold sm:text-3xl"
+            className="font-display mt-1 text-3xl font-extrabold sm:text-4xl"
           >
             {grade ? grade.headline : "Grid complete"}
           </h2>
@@ -231,7 +256,7 @@ export default function CompletionPanel({
             data-testid="daily-grid-complete-close"
             onClick={onClose}
             aria-label="Close and return to the board"
-            className="shrink-0 rounded-md border p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            className="pk-lift pk-press shrink-0 rounded-md border p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
             style={{ borderColor: "var(--border-default)", color: "var(--text-secondary)" }}
           >
             <X size={14} aria-hidden="true" />
@@ -239,7 +264,10 @@ export default function CompletionPanel({
         )}
       </div>
 
-      <div className="mt-4 flex gap-2">
+      <div
+        className="pk-reveal mt-4 flex gap-2"
+        style={{ "--pk-reveal-index": 1 } as React.CSSProperties}
+      >
         <ScoreTile
           testId="complete-total-score"
           value={String(result ? result.user_total : total)}
@@ -289,7 +317,8 @@ export default function CompletionPanel({
             data-testid="complete-mini-grid"
             role="group"
             aria-label="Per-square recap, laid out to match the board"
-            className="mt-4 grid grid-cols-3 gap-1.5"
+            className="pk-reveal mt-4 grid grid-cols-3 gap-1.5"
+            style={{ "--pk-reveal-index": 2 } as React.CSSProperties}
           >
             {mapCells.map((cell: ResultCell) => {
               const cellIsBiggestMiss =
@@ -320,9 +349,12 @@ export default function CompletionPanel({
                   >
                     {cell.user_points}
                   </p>
+                  {/* WAS 9px `--text-muted`. "Beat" / "Max" / "−12" is the
+                      verdict for the square; it is the reason the recap grid
+                      exists at all. */}
                   <p
-                    className="mt-1 truncate text-[9px] uppercase tracking-[0.06em]"
-                    style={{ color: "var(--text-muted)" }}
+                    className="mt-1 truncate text-[10px] font-semibold uppercase tracking-[0.06em]"
+                    style={{ color: "var(--text-secondary)" }}
                     title={cellShortTitle(board, cell.row, cell.col)}
                   >
                     {GRADE_CHIP[g] || `−${cell.points_left}`}
@@ -331,7 +363,9 @@ export default function CompletionPanel({
               );
             })}
           </div>
-          <p className="mt-1.5 text-[10px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
+          {/* WAS 10px `--text-muted`. It is the legend for the grid above it
+              — the only place "Max" and "Beat" are defined. */}
+          <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
             Points scored per square.{" "}
             <span style={{ color: "var(--comp-team-text)" }}>Max</span> means the best legal grid scored the
             same here; <span style={{ color: "var(--peak-accent-text)" }}>Beat</span> means you scored more
@@ -341,8 +375,8 @@ export default function CompletionPanel({
           {result.biggest_miss ? (
             <div
               data-testid="complete-biggest-miss"
-              className="mt-4 rounded-lg p-3"
-              style={{ background: "var(--bg-surface)", borderLeft: "3px solid var(--incorrect)" }}
+              className="pk-reveal pk-depth mt-4 rounded-lg p-3"
+              style={{ "--pk-reveal-index": 3, borderLeft: "3px solid var(--incorrect)" } as React.CSSProperties}
             >
               <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--incorrect)" }}>
                 Biggest miss · {result.biggest_miss.points_left} points left
@@ -352,7 +386,9 @@ export default function CompletionPanel({
               </p>
               <div className="mt-2 grid gap-1.5 text-xs sm:grid-cols-2">
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.1em]" style={{ color: "var(--text-muted)" }}>
+                  {/* Both column labels WERE `--text-muted`. They are the
+                      only thing distinguishing your answer from the model's. */}
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{ color: "var(--text-secondary)" }}>
                     You used
                   </p>
                   <p style={{ color: "var(--text-primary)" }}>
@@ -360,7 +396,7 @@ export default function CompletionPanel({
                   </p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.1em]" style={{ color: "var(--text-muted)" }}>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em]" style={{ color: "var(--text-secondary)" }}>
                     PEAK3 would have used
                   </p>
                   <p style={{ color: "var(--comp-team-text)" }}>
@@ -379,98 +415,40 @@ export default function CompletionPanel({
             </p>
           )}
 
+          {/* DG-01: ONE EXPLANATION, NOT TWO. This block used to open with a
+              nine-line text list — square, your pick, the grid's pick,
+              matched/replaced — and then render the identical nine facts again
+              as the board below it. The list is gone. Everything it said,
+              including the "you played them on X" overlap note it uniquely
+              carried, now sits on the square it is about, where a reader finds
+              it by looking rather than by cross-referencing three coordinates
+              per line. */}
           <div
             data-testid="complete-comparison"
             className="mt-4 rounded-lg p-3"
             style={{ background: "var(--bg-surface)", border: "1px solid var(--border-subtle)" }}
           >
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--text-muted)" }}>
-                The best legal grid
-              </p>
-              {changed.length > 0 && (
-                <button
-                  type="button"
-                  data-testid="complete-per-cell-toggle"
-                  onClick={() => setShowAll((v) => !v)}
-                  className="text-[11px] font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-                  style={{ color: "var(--peak-accent-text)" }}
-                >
-                  {showAll ? "Show only what changed" : `Show all ${TOTAL_CELLS} squares`}
-                </button>
-              )}
-            </div>
-
-            {shown.length === 0 ? (
-              <p className="mt-2 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Nothing to change — your grid matched the best legal grid on every square.
-              </p>
-            ) : (
-              <ul className="mt-2 space-y-1.5">
-                {shown.map((cell: ResultCell) => (
-                  <li
-                    key={`${cell.row}-${cell.col}`}
-                    data-testid="complete-per-cell-row"
-                    data-beat-optimal={cell.beat_optimal ? "true" : "false"}
-                    className="flex flex-wrap items-baseline gap-x-2 text-xs leading-relaxed"
-                  >
-                    <span className="font-semibold" style={{ color: "var(--text-muted)" }}>
-                      {cellShortTitle(board, cell.row, cell.col)}
-                    </span>
-                    <span style={{ color: "var(--text-secondary)" }}>
-                      {cell.user_player_season.label} ({cell.user_points})
-                    </span>
-                    {cell.beat_optimal ? (
-                      <span data-testid="complete-beat-note" style={{ color: GRADE_COLOR.beat }}>
-                        — you beat it here ({cell.optimal_points})
-                      </span>
-                    ) : cell.matched_optimal ? (
-                      <span style={{ color: "var(--comp-team-text)" }}>— matched</span>
-                    ) : (
-                      <span style={{ color: "var(--comp-team-text)" }}>
-                        → {cell.optimal_player_season.label} ({cell.optimal_points})
-                      </span>
-                    )}
-                    {/* The same name can legitimately appear twice down this
-                        list — once as the player's pick, once as the optimal
-                        grid's. Saying where they spent them turns what looks
-                        like a duplicate bug into the actual insight: the grid
-                        wanted that player somewhere else. */}
-                    {cell.optimal_player_user_square && !cell.matched_optimal && !cell.beat_optimal && (
-                      <span
-                        data-testid="complete-overlap-note"
-                        className="text-[11px]"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        (you played {cell.optimal_player_season.player_name} on{" "}
-                        {cell.optimal_player_user_square})
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {/* The same nine facts, on the board they came from. The list
-                above is complete and reading it means holding three
-                coordinates in your head at once; this is read by looking. It
-                is placed INSIDE the same block, under the text, because it is
-                the same answer told a second way rather than a new section. */}
-            <div className="mt-3 border-t pt-3" style={{ borderColor: "var(--border-subtle)" }}>
-              <p
-                className="text-[10px] font-bold uppercase tracking-[0.14em]"
-                style={{ color: "var(--text-muted)" }}
-              >
-                The optimal 3×3
-              </p>
-              <OptimalGrid board={board} cells={result.cells} />
-            </div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--text-muted)" }}>
+              The best legal grid
+            </p>
+            <p
+              data-testid="complete-comparison-summary"
+              className="mt-1 text-xs leading-relaxed"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {changed.length === 0
+                ? "Your grid matched the best legal grid on every square."
+                : `The highest-scoring board legal under these six constraints uses nine different players. It agrees with you on ${
+                    TOTAL_CELLS - changed.length
+                  } of ${TOTAL_CELLS} squares; the rest show what it would have played instead.`}
+            </p>
+            <OptimalGrid board={board} cells={result.cells} />
           </div>
         </>
       )}
 
       {!result && resultError && (
-        <p data-testid="complete-result-error" className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
+        <p data-testid="complete-result-error" className="mt-3 text-xs" style={{ color: "var(--text-secondary)" }}>
           {resultError} Your score still stands — the comparison against today&rsquo;s maximum could not be
           loaded.
         </p>
@@ -518,7 +496,7 @@ export default function CompletionPanel({
           </div>
 
           <div className="mt-2 flex gap-2">
-            <div className="card-surface flex-1 px-2 py-2 text-center">
+            <div className="card-surface pk-depth pk-crown flex-1 px-2 py-2 text-center">
               <p
                 data-testid="complete-current-streak"
                 className="score-number font-display text-xl font-bold leading-none"
@@ -527,13 +505,13 @@ export default function CompletionPanel({
                 {archive.current_streak}
               </p>
               <p
-                className="mt-1 text-[9px] font-bold uppercase tracking-[0.1em]"
-                style={{ color: "var(--text-muted)" }}
+                className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em]"
+                style={{ color: "var(--text-secondary)" }}
               >
                 Day streak
               </p>
             </div>
-            <div className="card-surface flex-1 px-2 py-2 text-center">
+            <div className="card-surface pk-depth pk-crown flex-1 px-2 py-2 text-center">
               <p
                 data-testid="complete-longest-streak"
                 className="score-number font-display text-xl font-bold leading-none"
@@ -541,13 +519,13 @@ export default function CompletionPanel({
                 {archive.longest_streak}
               </p>
               <p
-                className="mt-1 text-[9px] font-bold uppercase tracking-[0.1em]"
-                style={{ color: "var(--text-muted)" }}
+                className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em]"
+                style={{ color: "var(--text-secondary)" }}
               >
                 Longest
               </p>
             </div>
-            <div className="card-surface flex-1 px-2 py-2 text-center">
+            <div className="card-surface pk-depth pk-crown flex-1 px-2 py-2 text-center">
               <p
                 data-testid="complete-total-played"
                 className="score-number font-display text-xl font-bold leading-none"
@@ -555,8 +533,8 @@ export default function CompletionPanel({
                 {archive.total_completed}
               </p>
               <p
-                className="mt-1 text-[9px] font-bold uppercase tracking-[0.1em]"
-                style={{ color: "var(--text-muted)" }}
+                className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em]"
+                style={{ color: "var(--text-secondary)" }}
               >
                 Grids played
               </p>
@@ -625,7 +603,7 @@ export default function CompletionPanel({
           type="button"
           data-testid="daily-grid-share"
           onClick={handleShare}
-          className="rounded-lg px-4 py-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+          className="pk-lift pk-press pk-sheen rounded-lg px-4 py-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
           style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           {copied ? "Copied" : "Share result"}

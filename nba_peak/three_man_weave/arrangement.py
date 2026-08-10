@@ -54,7 +54,7 @@ from nba_peak.three_man_weave.config import SLOT_TYPES
 from nba_peak.three_man_weave.matching import find_assignment
 from nba_peak.three_man_weave.positions import (
     IllegalPlacement,
-    canonical_positions,
+    SlotRights,
     legal_slots,
     validate_roster,
 )
@@ -128,16 +128,17 @@ def open_slots_for(assignment: Mapping[str, Optional[str]]) -> tuple[str, ...]:
 
 
 def direct_slots_for(
-    assignment: Mapping[str, Optional[str]], player_slug: str
+    assignment: Mapping[str, Optional[str]], player_slug: str, rights: SlotRights
 ) -> tuple[str, ...]:
     """Open slots this player may occupy with nothing else moving."""
-    allowed = legal_slots(player_slug)
+    allowed = legal_slots(player_slug, rights)
     return tuple(slot for slot in open_slots_for(assignment) if slot in allowed)
 
 
 def arrangement_for(
     assignment: Mapping[str, Optional[str]],
     player_slug: str,
+    rights: SlotRights,
 ) -> Optional[dict[str, str]]:
     """A complete legal assignment admitting `player_slug`, or None.
 
@@ -155,7 +156,7 @@ def arrangement_for(
         return None
 
     adjacency = {
-        slug: tuple(slot for slot in SLOT_TYPES if slot in legal_slots(slug))
+        slug: tuple(slot for slot in SLOT_TYPES if slot in legal_slots(slug, rights))
         for slug in players
     }
     by_player = find_assignment(players, adjacency)
@@ -167,22 +168,23 @@ def arrangement_for(
 def candidate_fit(
     assignment: Mapping[str, Optional[str]],
     player_slug: str,
+    rights: SlotRights,
 ) -> CandidateFit:
     """Classify one candidate against one roster. Never raises."""
-    if not canonical_positions(player_slug):
+    if not legal_slots(player_slug, rights):
         return CandidateFit(
             player_slug=player_slug,
             state=NO_LEGAL_ARRANGEMENT,
             reason=REASON_NO_POSITION_DATA,
         )
 
-    direct = direct_slots_for(assignment, player_slug)
+    direct = direct_slots_for(assignment, player_slug, rights)
     if direct:
         return CandidateFit(
             player_slug=player_slug, state=FITS_NOW, direct_slots=direct
         )
 
-    plan = arrangement_for(assignment, player_slug)
+    plan = arrangement_for(assignment, player_slug, rights)
     if plan is None:
         return CandidateFit(
             player_slug=player_slug,
@@ -221,6 +223,7 @@ def plan_moves(
 def validate_arrangement(
     assignment: Mapping[str, Optional[str]],
     plan: Mapping[str, str],
+    rights: SlotRights,
     incoming: Optional[str] = None,
 ) -> dict[str, Optional[str]]:
     """Check a client-supplied arrangement and return the roster it produces.
@@ -273,7 +276,7 @@ def validate_arrangement(
     for slot, slug in plan.items():
         produced[slot] = slug
 
-    check = validate_roster(produced)
+    check = validate_roster(produced, rights)
     if not check.ok:
         raise IllegalPlacement(
             check.code or "illegal_roster", check.message or "illegal roster"
@@ -284,6 +287,7 @@ def validate_arrangement(
 def fits_for_candidates(
     assignment: Mapping[str, Optional[str]],
     player_slugs: Sequence[str],
+    rights: SlotRights,
 ) -> dict[str, CandidateFit]:
     """`candidate_fit` over a whole candidate list, in the order given.
 
@@ -291,7 +295,7 @@ def fits_for_candidates(
     matching, over at most a few dozen candidates on the largest roll. No data
     file is read, so this is safe to call from a projection on every poll.
     """
-    return {slug: candidate_fit(assignment, slug) for slug in player_slugs}
+    return {slug: candidate_fit(assignment, slug, rights) for slug in player_slugs}
 
 
 __all__ = [

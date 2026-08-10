@@ -181,6 +181,19 @@ export interface PlayerSeasonIdentity {
 export interface PlayerSeasonCard extends PlayerSeasonIdentity {
   /** PEAK3 calibrated 0-100 single-season score. */
   prime_score: number;
+  /**
+   * This player's photograph, from the committed asset manifest
+   * (`data/game/assets/player_assets.v3.json`), resolved server-side through
+   * the same lookup 82-0 uses and keyed on the same `player_slug`.
+   *
+   * Null for roughly four identities in five — resolution needs a current NBA
+   * roster entry and a Daily Grid board is mostly historical — and null for
+   * ALL of them unless the API is running with
+   * `PEAK3_ENABLE_EXTERNAL_ASSET_URLS`, which is off by default as a licensing
+   * decision. `PlayerAvatar` draws its medallion in the identical reserved
+   * box, so null is a design state rather than a missing asset.
+   */
+  headshot_url?: string | null;
 }
 
 /** What the player can do with one search result.

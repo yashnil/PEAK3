@@ -641,6 +641,55 @@ def _revalidate_completed_board(board: GridBoard, filled) -> None:
             )
         used.append(result.player_season.player_slug)
 
+def _headshot(player_slug: str) -> Optional[str]:
+    """This identity's photograph URL, or None.
+
+    THE SAME PIPELINE 82-0 USES, not a second one: the committed manifest
+    `data/game/assets/player_assets.v3.json`, read through
+    `nba_peak.perfect_season.assets.get_player_headshot_url`, keyed on the
+    `player_slug` the Daily Grid pool already carries, and behind the same
+    `ENABLE_EXTERNAL_ASSET_URLS` gate `apps/api/app/api/v1/perfect_season.py`
+    uses. A surface that resolved its own images would be a second source of
+    truth for the one thing the licensing gate exists to control.
+
+    None is the ordinary answer for most of this board. The manifest resolves
+    283 of the pool's 1,384 distinct identities (20.4%) because resolution
+    needs a current roster entry, and a Daily Grid board is mostly historical.
+    The client draws its medallion in exactly the same reserved box.
+    """
+    if not settings.ENABLE_EXTERNAL_ASSET_URLS:
+        return None
+    from nba_peak.perfect_season.assets import get_player_headshot_url
+
+    return get_player_headshot_url(player_slug)
+
+
+def _add_player_imagery(payload: dict) -> dict:
+    """Attach `headshot_url` to every revealed player-season in a result
+    payload, in place, and to nothing else.
+
+    Done HERE rather than in `nba_peak/daily_grid/optimal.py` for the same
+    reason the Showdown does it at its own foundation boundary: the model
+    package answers what the best legal grid is, and the licensing gate lives
+    in `app.core.config`. Only post-completion cards are touched -- this route
+    is already the one that returns answer-key material, so no field crosses
+    here that was not crossing before.
+    """
+    def decorate(cell: Optional[dict]) -> None:
+        if not cell:
+            return
+        for key in ("user_player_season", "optimal_player_season"):
+            card = cell.get(key)
+            if card:
+                card["headshot_url"] = _headshot(card["player_slug"])
+
+    for cell in payload.get("cells") or []:
+        decorate(cell)
+    decorate(payload.get("best_cell"))
+    decorate(payload.get("biggest_miss"))
+    return payload
+
+
 @router.post("/daily-grid/result", response_model=GridResultResponse)
 def get_daily_grid_result(request: Request, body: GridResultRequest) -> GridResultResponse:
     """Compare a COMPLETED board against today's maximum.
@@ -675,7 +724,7 @@ def get_daily_grid_result(request: Request, body: GridResultRequest) -> GridResu
         filled=[(cell.row, cell.col, cell.answer_id) for cell in body.filled],
         incorrect_attempts=body.incorrect_attempts,
     )
-    return GridResultResponse(**grid_result.as_dict())
+    return GridResultResponse(**_add_player_imagery(grid_result.as_dict()))
 
 
 # ---------------------------------------------------------------------------

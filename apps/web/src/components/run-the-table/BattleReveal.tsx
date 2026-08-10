@@ -3,7 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { BattlePublic, BossPublic } from "@/types/run-the-table";
 import { Coachmark } from "@/components/ui/GuidedTour";
-import { Explainer } from "@/components/ui";
+// Deep imports, not the `@/components/ui` barrel — see the note in
+// `game/result-number.tsx`. This route already carries `lucide-react`, so the
+// saving here is smaller, but the barrel is the wrong default either way.
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
+import { Explainer } from "@/components/ui/Tooltip";
+import { MOTION_DURATION_MS } from "@/lib/motion";
 import {
   battleVerdict,
   decisiveLane,
@@ -164,9 +169,12 @@ export default function BattleReveal({
             Your five vs {boss?.name ?? battle.boss_id}
           </h2>
           {lanesToWin != null && (
+            /* WAS `--text-muted`. This is the rule of the game being played on
+               this screen, and the sentence that stops a player believing a
+               basketball game was simulated. */
             <span
               className="text-[11px]"
-              style={{ color: "var(--text-muted)" }}
+              style={{ color: "var(--text-secondary)" }}
               data-testid="rtt-battle-win-condition"
             >
               First to <span className="score-number">{lanesToWin}</span> of five component lanes.
@@ -195,7 +203,7 @@ export default function BattleReveal({
                 type="button"
                 data-testid="rtt-battle-resume"
                 onClick={() => setPaused(false)}
-                className="rtt-tap rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
+                className="rtt-tap pk-lift pk-press rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
                 style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
               >
                 Resume
@@ -205,7 +213,7 @@ export default function BattleReveal({
                 type="button"
                 data-testid="rtt-battle-pause"
                 onClick={() => setPaused(true)}
-                className="rtt-tap rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
+                className="rtt-tap pk-lift pk-press rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
                 style={{
                   background: "var(--bg-surface)",
                   color: "var(--text-secondary)",
@@ -219,7 +227,7 @@ export default function BattleReveal({
             type="button"
             data-testid="rtt-battle-skip"
             onClick={() => setSkipped(true)}
-            className="rtt-tap rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
+            className="rtt-tap pk-lift pk-press rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
             style={{
               background: "var(--bg-surface)",
               color: "var(--text-secondary)",
@@ -236,7 +244,7 @@ export default function BattleReveal({
               type="button"
               data-testid="rtt-battle-replay"
               onClick={handleReplay}
-              className="rtt-tap rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
+              className="rtt-tap pk-lift pk-press rounded-lg px-3 text-[11px] font-semibold uppercase tracking-wide"
               style={{
                 background: "var(--bg-surface)",
                 color: "var(--text-secondary)",
@@ -261,15 +269,29 @@ export default function BattleReveal({
         data-testid="rtt-battle-series"
         data-locked-in={lockedIn ? "true" : "false"}
       >
-        <span className="score-number text-2xl font-bold" style={{ color: "var(--correct)" }}>
-          {series.player}
-        </span>
-        <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+        {/* The two numbers that move while the lanes resolve. `AnimatedNumber`
+            rather than a plain readout: these already CHANGE lane by lane, so
+            they tween between real values on their own — no count-from-zero
+            wrapper, and no second clock racing the reveal interval. */}
+        <AnimatedNumber
+          value={series.player}
+          className="pk-counting font-display text-2xl font-bold"
+          style={{ color: "var(--correct)" }}
+          durationMs={reduced ? 0 : MOTION_DURATION_MS.fast}
+        />
+        {/* WAS `--text-muted`. It is the label for the score of the battle. */}
+        <span
+          className="text-[10px] font-bold uppercase tracking-widest"
+          style={{ color: "var(--text-secondary)" }}
+        >
           Lanes won
         </span>
-        <span className="score-number text-2xl font-bold" style={{ color: "var(--text-secondary)" }}>
-          {series.opponent}
-        </span>
+        <AnimatedNumber
+          value={series.opponent}
+          className="pk-counting font-display text-2xl font-bold"
+          style={{ color: "var(--text-secondary)" }}
+          durationMs={reduced ? 0 : MOTION_DURATION_MS.fast}
+        />
         {series.ties > 0 && (
           <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
             <span className="score-number">{series.ties}</span> tied
@@ -435,7 +457,10 @@ export default function BattleReveal({
                   >
                     {lane.top_contributor ? lane.top_contributor.own_lane_index_value.toFixed(1) : "—"}
                   </span>
-                  <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  {/* WAS `--text-muted`. A player's name is never metadata,
+                      and this row exists specifically so the top contributor
+                      is legible as its own fact. */}
+                  <span className="truncate text-[10px]" style={{ color: "var(--text-secondary)" }}>
                     {lane.top_contributor?.name ?? "—"}
                   </span>
                 </span>
@@ -446,7 +471,7 @@ export default function BattleReveal({
                   {LANE_RATING_LABELS.topContributor}
                 </span>
                 <span className="flex items-center gap-1.5 min-w-0">
-                  <span className="truncate text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  <span className="truncate text-[10px]" style={{ color: "var(--text-secondary)" }}>
                     {lane.opponent_top_contributor?.name ?? "—"}
                   </span>
                   <span
@@ -563,17 +588,24 @@ export default function BattleReveal({
         /* A win gets ONE brief accent sweep; a loss gets the same layout in a
            neutral frame with no shaming treatment at all. Reduced motion (and
            the skip button) drop the sweep entirely. */
-        className={`rounded-xl border p-3 flex flex-col gap-1${
+        /* `pk-depth-decision` + `pk-crown`: the stamp is the conclusion of the
+           whole reveal and was rendering on the same flat `--bg-elevated` fill
+           as the receipt rows above it. The crown is the NEUTRAL hairline, not
+           the accent one — a lost battle must not be crowned in gold, and the
+           border already carries the outcome colour. */
+        className={`pk-depth-decision pk-crown rounded-xl border p-3 flex flex-col gap-1${
           done && !instant && battle.outcome === "win" ? " rtt-victory-accent" : ""
         }`}
         style={{
-          background: "var(--bg-elevated)",
           borderColor: stampColor,
         }}
       >
+        {/* WAS `text-lg`. This is the verdict; it was smaller than the running
+            series count above it and only fractionally larger than the body
+            copy beneath it. */}
         <span
-          className="text-lg font-black uppercase tracking-[0.2em]"
-          style={{ color: stampColor }}
+          className="font-display text-2xl font-black uppercase leading-none sm:text-3xl"
+          style={{ color: stampColor, letterSpacing: "0.14em" }}
         >
           {verdict.stamp}
         </span>
@@ -591,14 +623,19 @@ export default function BattleReveal({
             {decisive.sentence}
           </span>
         )}
-        <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+        {/* Both lines WERE `--text-muted`. Every figure on them — the summed
+            margin, the two roster totals, the bench weight, the credits and
+            the lives — is a result of the battle that just happened, and the
+            lives count in particular is the one number that decides whether
+            the run continues. None of that is tertiary metadata. */}
+        <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
           Summed lane margin{" "}
           <span className="score-number">{battle.summed_margin.toFixed(2)}</span> · roster totals{" "}
           <span className="score-number">{battle.player_roster_total.toFixed(1)}</span> vs{" "}
           <span className="score-number">{battle.opponent_roster_total.toFixed(1)}</span> · bench
           weight <span className="score-number">{battle.bench_weight.toFixed(2)}</span>
         </span>
-        <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+        <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
           <span className="score-number">{battle.credits_awarded}</span> credits awarded ·{" "}
           <span className="score-number">{battle.lives_after}</span> lives remaining
         </span>
@@ -610,7 +647,7 @@ export default function BattleReveal({
           data-testid="rtt-battle-advance"
           onClick={onAdvance}
           disabled={busy}
-          className="rtt-tap rounded-lg px-6 text-sm font-bold uppercase tracking-wide disabled:opacity-60"
+          className="rtt-tap pk-lift pk-press rounded-lg px-6 text-sm font-bold uppercase tracking-wide disabled:opacity-60"
           style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
         >
           {busy ? "Working…" : advanceLabel}

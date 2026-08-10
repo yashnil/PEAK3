@@ -52,15 +52,15 @@ function ScoreCol({
 
   return (
     <div
-      className="rounded-xl p-4 flex flex-col gap-2"
+      className="pk-depth pk-crown rounded-xl p-4 flex flex-col gap-2"
       style={{
-        background: "var(--bg-elevated)",
         border: `1px solid ${isWinner ? "var(--peak-accent)" : "var(--border-default)"}`,
       }}
     >
+      {/* WAS `--text-muted`. It says whose column this is. */}
       <div
         className="text-xs uppercase tracking-wider font-semibold"
-        style={{ color: "var(--text-muted)" }}
+        style={{ color: "var(--text-secondary)" }}
       >
         {label}
       </div>
@@ -183,7 +183,7 @@ function PicksCol({
           <div className="flex items-center justify-between gap-1">
             <span
               className="text-xs truncate"
-              style={{ color: "var(--text-muted)" }}
+              style={{ color: "var(--text-secondary)" }}
             >
               R{card.round} · {ROLE_LABELS[card.role]}
             </span>
@@ -255,12 +255,17 @@ export default function ChallengeComparison({
           role="status"
           aria-live="polite"
           tabIndex={-1}
-          className="text-3xl font-bold tracking-tight text-center outline-none"
-          style={{ color: outcomeBadgeColor }}
+          /* The verdict of the whole challenge. Display face and one step
+             larger, so it is unmistakably the loudest thing on the screen
+             rather than merely the biggest paragraph. */
+          className="pk-reveal font-display text-4xl font-extrabold text-center outline-none sm:text-5xl"
+          style={{ color: outcomeBadgeColor, "--pk-reveal-index": 0 } as React.CSSProperties}
         >
           {OUTCOME_TEXT[outcome]}
         </h2>
-        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+        {/* WAS `--text-muted`. It names the board the two lineups were drafted
+            from, which is what makes the comparison mean anything. */}
+        <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
           {board_label}
         </p>
       </div>

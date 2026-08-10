@@ -50,24 +50,29 @@ export default function EndlessPage() {
           {/* Stats */}
           {(progress.endless_high_score > 0 || progress.endless_best_streak > 0) && (
             <div className="grid grid-cols-2 gap-3">
-              <div className="card-surface p-3 text-center">
-                <p className="text-lg font-bold score-number text-[var(--peak-accent-text)]">
+              {/* Standing personal bests, not a result: they are DISPLAYED,
+                  so they do not count up. The captions were 10px muted, which
+                  is the weakest ink in the app under the two numbers a
+                  returning player is here to beat. */}
+              <div className="card-surface pk-depth pk-crown p-3 text-center">
+                <p className="font-display text-lg font-bold score-number text-[var(--peak-accent-text)]">
                   {progress.endless_high_score.toLocaleString()}
                 </p>
-                <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Best score</p>
+                <p className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Best score</p>
               </div>
-              <div className="card-surface p-3 text-center">
-                <p className="text-lg font-bold score-number text-[var(--peak-accent-text)]">
+              <div className="card-surface pk-depth pk-crown p-3 text-center">
+                <p className="font-display text-lg font-bold score-number text-[var(--peak-accent-text)]">
                   {progress.endless_best_streak}
                 </p>
-                <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider">Best streak</p>
+                <p className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider">Best streak</p>
               </div>
             </div>
           )}
 
           {/* Duration selector */}
           <div>
-            <p className="text-xs text-[var(--text-muted)] mb-3 uppercase tracking-wider">
+            {/* WAS `--text-muted`. It labels the control group beneath it. */}
+            <p className="text-xs font-semibold text-[var(--text-secondary)] mb-3 uppercase tracking-wider">
               Peak window
             </p>
             <div className="grid grid-cols-4 gap-2">
@@ -78,7 +83,7 @@ export default function EndlessPage() {
                   onClick={() => setYears(y)}
                   aria-pressed={years === y}
                   className={cn(
-                    "rounded-lg border py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
+                    "pk-lift pk-press rounded-lg border py-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
                     years === y
                       ? "border-[var(--peak-accent)] bg-[var(--peak-accent-bg)] text-[var(--peak-accent-text)]"
                       : "border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--border-emphasis)]"
@@ -98,7 +103,7 @@ export default function EndlessPage() {
             type="button"
             onClick={() => startSession(years)}
             disabled={loading}
-            className="w-full rounded-lg bg-[var(--peak-accent)] py-3 font-semibold text-[var(--text-inverse)] hover:bg-[var(--peak-accent-dim)] transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            className="pk-lift pk-press pk-sheen w-full rounded-lg bg-[var(--peak-accent)] py-3 font-semibold text-[var(--text-inverse)] hover:bg-[var(--peak-accent-dim)] disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
           >
             {loading ? "Loading…" : "Start Endless"}
           </button>
@@ -113,7 +118,7 @@ export default function EndlessPage() {
         <div className="pt-8 flex items-center justify-between">
           <div>
             <h1 className="font-display text-xl font-bold">Endless Mode</h1>
-            <p className="text-xs text-[var(--text-muted)]">{years}-year windows</p>
+            <p className="text-xs text-[var(--text-secondary)]">{years}-year windows</p>
           </div>
           <button
             type="button"
@@ -121,7 +126,7 @@ export default function EndlessPage() {
               setSession(null);
               setError(null);
             }}
-            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline"
+            className="pk-press text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline"
           >
             Change duration
           </button>
