@@ -97,9 +97,17 @@ function reducedMotionBlocks(css: string): string {
 
 describe("the display face has exactly one source of truth", () => {
   it("the root layout loads Space Grotesk under the variable the token names", () => {
-    // The layout must create the variable...
-    expect(rootLayout).toContain("Space_Grotesk");
+    // The layout must create the variable, from a SELF-HOSTED face. Asserting
+    // the fontsource path as well as the variable is deliberate: reverting to
+    // `next/font/google` would keep the variable working locally and reinstate
+    // the build-time dependency on fonts.gstatic.com that broke CI once
+    // already, with nothing else in the suite noticing.
+    expect(rootLayout).toContain("next/font/local");
+    expect(rootLayout).toMatch(/@fontsource-variable\/space-grotesk[^"]*\.woff2/);
     expect(rootLayout).toContain('variable: "--font-space-grotesk"');
+    expect(rootLayout, "the Google-hosted font API must not come back").not.toMatch(
+      /from ["']next\/font\/google["']/,
+    );
     // ...and `--font-display` must be the thing that names it. If someone
     // swaps the face in one place and not the other, this is where it shows.
     expect(tokenValue(globals, "--font-display")).toContain("--font-space-grotesk");
