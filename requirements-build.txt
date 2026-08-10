@@ -1,0 +1,55 @@
+# What the OFFLINE DATA BUILD needs, and nothing else.
+#
+# WHY THIS FILE EXISTS
+# ====================
+# `scripts/ci/build-web-data.sh` runs three generators — `build_web_dataset.py`,
+# `build_nba_facts.py` and `build_card_profiles.py`. Two environments run it,
+# and until this file they disagreed about what it needed:
+#
+#   * CI's `web-dataset` job hand-listed `pip install pandas unidecode` in YAML.
+#   * The Docker image installed `apps/api/requirements.txt` (which happens to
+#     carry pandas and pyarrow for the request-time paths) plus an inline
+#     `"unidecode>=1.3"`.
+#
+# Neither was a statement of what the BUILD requires. They were two separate
+# guesses that happened to overlap, and the moment the fact generator started
+# reading a parquet — `nba_peak/nba_facts/awards.py` calls
+# `pd.read_parquet(data/generated/player_season_context.parquet)` — the guesses
+# stopped agreeing. Docker kept working because the API's runtime set includes
+# `pyarrow>=17.0.0`; CI failed with
+#
+#     ImportError: Unable to find a usable engine; tried using: 'pyarrow',
+#     'fastparquet'.
+#
+# That is the same failure shape as the one `tests/test_nba_facts_deployment.py`
+# was written for: a generator wired into one build and not the other. There the
+# drift was a missing STEP; here it is a missing DEPENDENCY. The fix is the
+# same in kind — say it once, in a file, and have every environment read it.
+#
+# WHY NOT JUST `-r requirements.txt`
+# ==================================
+# The root set is the offline MODEL environment: scraping (requests,
+# beautifulsoup4, lxml, html5lib), solving (scipy) and the test runner. A CI job
+# whose whole purpose is to turn committed CSVs into JSON should not install a
+# scraper stack to do it, and the Docker image must not carry one at all. This
+# is the smaller, exact contract those two share.
+#
+# WHY PYARROW RATHER THAN FASTPARQUET
+# ===================================
+# pandas tries pyarrow first, `apps/api/requirements.txt` already pins
+# `pyarrow>=17.0.0` for the request-time paths, and the committed parquet was
+# written by it. Naming the same engine keeps the image from resolving two
+# readers, and keeps the build reading its input through the writer's library.
+
+# The dataframe layer every generator is built on.
+pandas>=2.0
+
+# The parquet engine. NOT optional and NOT transitive: pandas declares no
+# parquet reader of its own, so `pd.read_parquet` is an ImportError without it.
+# Floor matches apps/api/requirements.txt so an image installing both resolves
+# to one version rather than downgrading the runtime's.
+pyarrow>=17.0.0
+
+# ASCII-folding for player slugs (`michael-jordan`, and the ones with
+# apostrophes and accents that make slugs interesting).
+unidecode>=1.3

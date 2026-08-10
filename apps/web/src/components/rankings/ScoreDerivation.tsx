@@ -701,7 +701,48 @@ export function ScoreCalculationSection({
           index the model actually orders by. */}
       {arithmetic && (
         <Section title="The arithmetic" testId="score-explain-arithmetic">
-          <div className="overflow-x-auto">
+          {/* A KEYBOARD-REACHABLE SCROLL REGION, NOT A BARE `overflow-x-auto`.
+              (axe `scrollable-region-focusable`, WCAG 2.1.1 Keyboard.)
+
+              THE SCROLL IS KEPT ON PURPOSE. Five columns — component,
+              percentile, component score, weight, contribution — is what makes
+              this a receipt rather than a summary, and the panel it sits in is
+              a narrow drawer. Wrapping or collapsing the columns to avoid the
+              overflow would destroy the alignment that lets someone read a
+              multiplication down the row, and `rankings.spec.ts` already
+              asserts the table scrolls INSIDE ITS OWN BOX rather than pushing
+              the page sideways. So the overflow is correct and the defect was
+              only that a pointer could reach the clipped columns and a
+              keyboard could not.
+
+              WHY A TAB STOP IS THE RIGHT MECHANISM HERE. The rule is satisfied
+              either by focusable CONTENT or by a focusable container, and
+              content is preferred — the sibling scroll region in
+              `RankingsTable` needs nothing because its rows are buttons. This
+              table is pure data: no links, no controls, nothing focusable
+              inside it at all. There is no descendant that could carry the
+              access, so the container has to.
+
+              `role="group"` rather than `role="region"`: it gives the stop a
+              real accessible name without minting a landmark, so two open
+              analyses can never collide on `landmark-unique`. The name carries
+              the player and window, so what a keyboard user lands on is
+              announced as the thing it is.
+
+              The focus ring is the global `*:focus-visible` outline and needs
+              no override here. Measured rather than assumed, because a scroll
+              container is a plausible place for an outset ring to be clipped:
+              reaching this element by real Tab presses gives
+              `outline: 2px solid var(--focus-ring)` at `outline-offset: 2px`
+              with `:focus-visible` matching, and at 390px the ring's box sits
+              at 29-361 inside a 390 viewport — visible, not cut off. */}
+          <div
+            className="overflow-x-auto"
+            tabIndex={0}
+            role="group"
+            aria-label={`The arithmetic for ${subject.player_name} ${subject.label}`}
+            data-testid="rk-formula-scroll"
+          >
             <table className="rk-formula-table" data-testid="rk-formula-table">
               <caption>
                 How {subject.player_name} {subject.label} reaches its PEAK3 total. Every

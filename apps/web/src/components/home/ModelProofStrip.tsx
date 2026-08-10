@@ -127,17 +127,29 @@ export default function ModelProofStrip({
   if (facts.length === 0) return null;
 
   return (
+    /* `.pk-atmosphere` GIVES THIS BAND A ROOM TO BE IN. It is a full-bleed
+       strip, so it has no radius and casts no shadow — the two things every
+       other surface on the homepage uses to separate itself. It borrowed a
+       `--bg-elevated`-at-80% fill instead, which on Arena Day is a 1.05:1
+       difference from the page and read as a pair of horizontal rules with
+       nothing between them. The court floodlights and grid are the same
+       lighting the hero uses, at a tighter pitch (`--pk-court-grid-size` is
+       scoped down to 32px in home.css), so the strip reads as a smaller piece
+       of the same arena rather than as a second hero. */
     <section
-      className="home-proof px-4 py-8"
+      className="home-proof pk-atmosphere px-4 py-8"
       aria-labelledby="model-proof-heading"
       data-testid="home-model-proof"
     >
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
+          {/* PROMOTED, --text-muted -> --text-secondary. It is the heading of
+              the section (`aria-labelledby` points at it), and it was the
+              faintest ink on the page. */}
           <h2
             id="model-proof-heading"
-            className="text-[11px] font-bold uppercase tracking-[0.18em]"
-            style={{ color: "var(--text-muted)" }}
+            className="home-eyebrow"
+            style={{ color: "var(--text-secondary)" }}
           >
             The model behind every game
           </h2>
@@ -153,12 +165,19 @@ export default function ModelProofStrip({
         </div>
 
         <dl className="home-proof-grid mt-4">
-          {facts.map((fact) => (
-            <div key={fact.key} className="home-proof-item" data-proof-fact={fact.key}>
-              <dt
-                className="text-[10px] font-bold uppercase tracking-[0.14em]"
-                style={{ color: "var(--text-muted)" }}
-              >
+          {facts.map((fact, index) => (
+            <div
+              key={fact.key}
+              className="home-proof-item pk-reveal"
+              data-proof-fact={fact.key}
+              style={{ "--pk-reveal-index": index } as React.CSSProperties}
+            >
+              {/* PROMOTED AND ENLARGED, --text-muted -> --text-secondary and
+                  10px -> 11px. This is the <dt> of a definition list — the
+                  word that says what the number under it MEANS ("Data
+                  through", "Players evaluated"). A term is not metadata about
+                  its own definition. */}
+              <dt className="home-eyebrow" style={{ color: "var(--text-secondary)" }}>
                 {fact.label}
               </dt>
               {/* The detail lives INSIDE the <dd>, not beside it.

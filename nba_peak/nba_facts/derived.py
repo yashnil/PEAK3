@@ -201,12 +201,24 @@ _CATEGORY_MAP = {
 #: PATTERN; whether the pattern is interesting is a separate question, and it
 #: had never been asked.
 #:
-#: So each generator's output is scored on the seven axes, and three of the nine
-#: score below the floor on purpose:
+#: So each generator's output is scored on the seven axes, and — after the
+#: homepage audit — ALL NINE score below the floor on purpose:
 #:
 #:   one-and-done stints        broad_interest 2 — the fact the review quoted
 #:   heavy-minute role players  broad_interest 2, homepage 2
 #:   franchise era anchors      total 22, under the 23 floor
+#:   many-franchise journeymen  broad_interest 2
+#:   franchise returns          broad_interest 2
+#:   one-team careers           broad_interest 2, homepage 2
+#:   twentieth seasons          broad_interest 2, homepage 2
+#:   iron-man runs              homepage 3, total 26 — kept, see below
+#:   four-decade careers        kept
+#:
+#: which is the honest end of a long argument rather than a purge: this file
+#: reads a table of player, team, season and games played, and seven of the nine
+#: shapes it can express are roster bookkeeping. Two survive because the number
+#: itself is the fact rather than a count of rows — an 80-game season repeated
+#: for years, and a career that touched four decades.
 #:
 #: They are still GENERATED, still counted in the report, and still rejected by
 #: name, which is more useful than deleting the generator: the report says how
@@ -223,13 +235,32 @@ _CATEGORY_MAP = {
 #: restates the headline. `franchise_return` and `many_franchise` are both that
 #: shape, and both now score `broad_interest: 2`, under the floor. Scoring them
 #: honestly rather than deleting them keeps the count visible in the report.
+#:
+#: AND TWO MORE AFTER THE HOMEPAGE AUDIT, for the same reason one step further
+#: on. `franchise_tenure` and `late_career` were the last two profiles scoring a
+#: bare pass, and what they publish is:
+#:
+#:     "Udonis Haslem played all 20 of his recorded seasons for one franchise."
+#:     "Chris Paul was still on an NBA roster in his 21st recorded season."
+#:
+#: The homepage brief names this exact shape in its reject list — "mundane
+#: roster-tenure counting" — and both are counting rows in a tenure table, which
+#: is the one thing this generator file can do and not a reason to publish it.
+#: They score `broad_interest: 2, homepage_suitability: 2` now, under the floor.
+#:
+#: WHY RE-SCORED RATHER THAN DELETED, when the two model-dependent AWARD
+#: generators were deleted outright: these facts are true and checkable and the
+#: objection is that nobody wants to read them, which is a score. The award pair
+#: was making a claim that cannot be sourced at all, which is not a score — it
+#: is a fact that does not exist. Different defects, different remedies; the
+#: report still counts every candidate either produced.
 _QUALITY = {
-    "franchise_tenure": dict(surprise=3, significance=3, clarity=4, broad_interest=3,
-                             novelty=3, source_confidence=5, homepage_suitability=3),
+    "franchise_tenure": dict(surprise=3, significance=3, clarity=4, broad_interest=2,
+                             novelty=3, source_confidence=5, homepage_suitability=2),
     "many_franchise": dict(surprise=3, significance=2, clarity=4, broad_interest=2,
                            novelty=3, source_confidence=5, homepage_suitability=2),
-    "late_career": dict(surprise=3, significance=3, clarity=4, broad_interest=3,
-                        novelty=3, source_confidence=5, homepage_suitability=3),
+    "late_career": dict(surprise=3, significance=3, clarity=4, broad_interest=2,
+                        novelty=3, source_confidence=5, homepage_suitability=2),
     "iron_man": dict(surprise=4, significance=3, clarity=4, broad_interest=3,
                      novelty=4, source_confidence=5, homepage_suitability=3),
     "era_anchor": dict(surprise=2, significance=3, clarity=4, broad_interest=3,

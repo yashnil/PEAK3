@@ -355,6 +355,30 @@ describe("the arithmetic", () => {
     expect(section).toHaveTextContent(/calibrate_score/);
   });
 
+  it("makes the scrolling arithmetic reachable by keyboard, with a name", async () => {
+    // axe `scrollable-region-focusable` / WCAG 2.1.1. The five-column receipt
+    // scrolls horizontally inside its own box by design, and it holds no link,
+    // button or field — so there is no focusable descendant that could carry
+    // the access and the CONTAINER has to be the tab stop. Without it a mouse
+    // user can reach the clipped columns and a keyboard user cannot.
+    //
+    // Asserted here as well as in the browser suite because axe only reports
+    // the rule when the element is ACTUALLY overflowing, which depends on the
+    // viewport and on font metrics — it fired on CI's Linux Chromium and not
+    // on a local macOS run of the same spec. This assertion does not depend on
+    // whether it happens to overflow today.
+    renderAnalysis();
+    const scroll = await screen.findByTestId("rk-formula-scroll");
+    expect(scroll).toHaveAttribute("tabindex", "0");
+    // A name, so what the keyboard lands on is announced as something.
+    expect(scroll).toHaveAccessibleName(/arithmetic/i);
+    // `group`, not `region`: a name without minting a landmark, so two open
+    // analyses cannot collide on axe's `landmark-unique`.
+    expect(scroll).toHaveAttribute("role", "group");
+    // The table really is inside the region it claims to describe.
+    expect(within(scroll).getByTestId("rk-formula-table")).toBeInTheDocument();
+  });
+
   it("omits a weight it was never given rather than inventing one", async () => {
     renderAnalysis({ fetchExplain: fetcher({ ...KOBE_EXPLAIN, weights: {} }) });
     const table = await screen.findByTestId("rk-formula-table");

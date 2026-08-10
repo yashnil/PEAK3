@@ -1,38 +1,102 @@
 "use client";
 import Link from "next/link";
-import type {
-  SeatPublic,
-  TwentyDollarPublicState,
-} from "@/lib/twenty-dollar-api";
+import type { CSSProperties } from "react";
+import type { SeatPublic, TwentyDollarPublicState } from "@/lib/twenty-dollar-api";
+import { formatDollars } from "@/lib/twenty-dollar-api";
 import type { TwentyDollarReceiptData } from "./TwentyDollarReceipt";
 import Celebration from "@/components/shared/Celebration";
+import PlayerAvatar from "@/components/court/PlayerAvatar";
+// Deep import, not the `@/components/ui` barrel: the barrel re-exports
+// `ThemeToggle`, which reaches `lucide-react`, and paying for that whole
+// dependency to render one number costs a route ~15 kB of First Load JS.
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 
 /**
- * The dedicated result state. It REPLACES the auction rather than following it.
+ * The result state (S20-15). It REPLACES the auction rather than following it.
  *
- * WHY THAT IS THE FIX. The receipt used to be appended below a frozen auction
- * board, so finishing a match meant scrolling past the candidate you had just
- * bid on, both budget meters, both roster panels and the lot history before
- * reaching the word "wins". The single most important sentence in the mode was
- * the last thing on the page.
+ * THE BRIEF REJECTED THE PREVIOUS SCREEN AS "too sparse and administrative",
+ * and that was fair. It had a headline, a margin, a grey sentence about what
+ * the score was derived from, two roster lists at 12 px, and a `<dl>` of three
+ * report labels in 9 px uppercase grey — the biggest bargain and the decisive
+ * lot of the whole match rendered as footnotes. "Play again" and "Back to
+ * Arena" were the loudest things on the page by default.
  *
- * WHAT THE FIRST VIEWPORT OWES A PLAYER, and everything here is in it: who won,
- * both totals, both complete rosters, what each seat spent and kept, the best
- * bargain, the biggest overpay, the decisive lot, and the two things they will
- * do next. The itemised receipt -- per-slot comparison, settlement ladder,
- * component disclosure -- lives below, because it answers "how exactly" rather
- * than "what happened", and nobody needs it before they need the score.
+ * WHAT THIS ONE IS BUILT AROUND
+ * -----------------------------
+ *   * A HERO THAT SAYS WON OR LOST IN A WORD, with the margin as a number and a
+ *     head-to-head bar underneath. Never colour alone: `WON` / `LOST` / `DREW`
+ *     is the word, `data-outcome` is the attribute, and the bar is labelled.
+ *   * A DETERMINISTIC RESPONSE LINE. One sentence, chosen from a bank by the
+ *     match's own numbers (see `responseLine`) — so a 0.4 margin and a 40
+ *     margin read differently, and the same result always produces the same
+ *     line. No randomness, because a result screen that says something
+ *     different on reload is a result screen nobody trusts.
+ *   * TWO RICH TEAM CARDS, five players each, with the avatar primitive, the
+ *     slot, the price paid and the PEAK3 value on every row, plus the total and
+ *     the spend/unspent split.
+ *   * THE THREE CALLOUTS AS CARDS, not labels. Best bargain, biggest overpay
+ *     and the decisive lot each get a headline number.
+ *   * THE ITEMISED RECEIPT one disclosure below, because it answers "how
+ *     exactly" rather than "what happened".
  *
  * EVERY NUMBER IS THE SERVER'S. Totals, prices and scores come from the settled
  * snapshot the results rows were written from, so this panel and the stored
  * result cannot disagree.
  */
+
+/**
+ * The response bank.
+ *
+ * DETERMINISTIC BY CONSTRUCTION: the tier is decided by the margin, and the
+ * line within a tier by an integer derived from the match's own totals. There
+ * is no `Math.random` and no clock read, so the same finished match always
+ * reads the same way — on reload, in a screenshot, and in a test.
+ */
+export function responseLine(
+  outcome: "win" | "loss" | "draw",
+  margin: number,
+  fingerprint: number,
+): string {
+  if (outcome === "draw") return "Dead level. Twenty dollars each, nothing between you.";
+  const tier = margin < 2 ? "thin" : margin < 12 ? "clear" : "wide";
+  const bank: Record<string, string[]> = {
+    "win:thin": [
+      "Won it by a whisker. One more dollar anywhere and this reads the other way.",
+      "That was the thinnest kind of win — a single lot decided it.",
+    ],
+    "win:clear": [
+      "A clean win. You bought the right five and left nothing important on the board.",
+      "Comfortable. Your money went where the value was.",
+    ],
+    "win:wide": [
+      "A rout. You were never in danger after the middle of the market.",
+      "Not close. That roster wins most nights by that margin.",
+    ],
+    "loss:thin": [
+      "Lost by a whisker. One more dollar in the right lot and this is a win.",
+      "That close. A single lot was the difference.",
+    ],
+    "loss:clear": [
+      "Outbid where it counted. The value went the other way in the middle rounds.",
+      "A clear loss — the winning five did more with the same twenty dollars.",
+    ],
+    "loss:wide": [
+      "Comprehensively beaten. The money went to the wrong lots.",
+      "A heavy one. Worth reading the receipt to see where the twenty went.",
+    ],
+  };
+  const lines = bank[`${outcome}:${tier}`];
+  return lines[Math.abs(Math.trunc(fingerprint)) % lines.length];
+}
+
 export default function ShowdownResult({
   receipt,
   publicState,
   seatNames,
   yourSeat,
   onPlayAgain,
+  onCopy,
+  copied,
   children,
 }: {
   receipt: TwentyDollarReceiptData;
@@ -40,87 +104,183 @@ export default function ShowdownResult({
   seatNames: string[];
   yourSeat: number | null;
   onPlayAgain: () => void;
+  onCopy: () => void;
+  copied: boolean;
   /** The itemised receipt, rendered below the fold. */
   children?: React.ReactNode;
 }) {
   const winner = receipt.settlement?.winner_seat ?? null;
-  const drawn = receipt.settlement?.outcome === "draw";
+  const drawn = receipt.settlement?.outcome === "draw" || winner === null;
   const youWon = winner !== null && winner === yourSeat;
+  const outcome: "win" | "loss" | "draw" = drawn ? "draw" : youWon ? "win" : "loss";
   const totals = receipt.seats.map((seat) => seat.roster_total);
-  const margin =
-    totals.length === 2 ? Math.abs(totals[0] - totals[1]) : null;
+  const margin = totals.length === 2 ? Math.abs(totals[0] - totals[1]) : 0;
+  const sum = totals.reduce((a, b) => a + b, 0);
+  // The fingerprint is the match's own arithmetic, so the same result always
+  // picks the same line. Scaled to whole numbers before truncation so two
+  // matches a hundredth apart do not collide.
+  const fingerprint = Math.round(sum * 100 + receipt.rounds_played);
 
   function nameOf(seat: number): string {
     return seat === yourSeat ? "You" : (seatNames[seat] ?? `Seat ${seat + 1}`);
   }
 
+  const yourTotal = yourSeat !== null ? (totals[yourSeat] ?? 0) : (totals[0] ?? 0);
+  const theirTotal = yourSeat !== null ? (totals[1 - yourSeat] ?? 0) : (totals[1] ?? 0);
+  const yourShare = sum > 0 ? Math.round((yourTotal / sum) * 100) : 50;
+
   return (
     <section
       className="td-result"
       data-testid="td-result"
-      data-outcome={drawn ? "draw" : youWon ? "win" : "loss"}
+      data-outcome={outcome}
     >
       <Celebration active={youWon} testId="td-celebration" />
 
-      <header className="td-result-head" data-tier={youWon ? "win" : drawn ? "draw" : "loss"}>
-        <p className="td-result-eyebrow">Auction closed · {receipt.rounds_played} lots</p>
-        <h2 className="td-result-headline" data-testid="td-result-headline">
-          {drawn
-            ? "A draw"
-            : winner === null
-              ? "Match complete"
-              : `${nameOf(winner)} ${winner === yourSeat ? "win" : "wins"}`}
-        </h2>
-        {/* THE MARGIN, NOT ONLY THE TOTALS (PART 20). Two numbers side by side
-            make a reader do the subtraction; a match decided by 0.4 and one
-            decided by 40 are different stories and should read differently. */}
-        {margin !== null ? (
-          <p className="td-result-margin" data-testid="td-result-margin">
-            {drawn ? "Level on PEAK3" : `by ${margin.toFixed(2)} PEAK3`}
-          </p>
-        ) : null}
-        <p className="td-result-basis">
-          Decided on the sum of five career-best 1Y PEAK3 seasons.
+      {/* THE HERO LANDS IN THE ORDER IT WOULD BE SAID: what this was, the
+          verdict in a word, the margin, the sentence, then the head-to-head
+          bar. Same `.pk-reveal` index rhythm as the lot reveal and the draft
+          podium; every line is present and readable from the first frame. */}
+      <header className="td-result-head td-enter pk-crown pk-crown-accent" data-tier={outcome}>
+        <p
+          className="td-result-eyebrow pk-reveal"
+          style={{ "--pk-reveal-index": 0 } as CSSProperties}
+        >
+          Auction closed · {receipt.rounds_played} lots · {formatDollars(receipt.starting_budget)} each
         </p>
+        {/* THE WORD, NOT THE COLOUR. `WON` / `LOST` / `DREW` survives
+            greyscale, a screenshot and a colour-blind reader. */}
+        <h2
+          className="td-result-headline pk-reveal"
+          data-testid="td-result-headline"
+          style={{ "--pk-reveal-index": 1 } as CSSProperties}
+        >
+          {drawn ? "DREW" : youWon ? "WON" : "LOST"}
+        </h2>
+        <p
+          className="td-result-margin pk-numeral pk-reveal"
+          data-testid="td-result-margin"
+          style={{ "--pk-reveal-index": 2 } as CSSProperties}
+        >
+          {drawn ? (
+            "Level on PEAK3"
+          ) : (
+            <>
+              by <AnimatedNumber value={margin} precision={2} /> PEAK3
+            </>
+          )}
+        </p>
+        <p
+          className="td-result-response pk-reveal"
+          data-testid="td-result-response"
+          style={{ "--pk-reveal-index": 3 } as CSSProperties}
+        >
+          {responseLine(outcome, margin, fingerprint)}
+        </p>
+
+        {/* HEAD-TO-HEAD, as one bar with both totals on it. */}
+        <div
+          className="td-result-bar pk-reveal"
+          style={{ "--pk-reveal-index": 4 } as CSSProperties}
+          data-testid="td-result-bar"
+          role="img"
+          aria-label={`You ${yourTotal.toFixed(2)} PEAK3, opponent ${theirTotal.toFixed(2)} PEAK3.`}
+        >
+          <span className="td-result-bar-fill" data-seat="a" style={{ width: `${yourShare}%` }} />
+          <span className="td-result-bar-fill" data-seat="b" style={{ width: `${100 - yourShare}%` }} />
+        </div>
+        <div className="td-result-bar-keys">
+          <span className="td-result-bar-key" data-seat="a">
+            You <b className="pk-numeral">{yourTotal.toFixed(2)}</b>
+          </span>
+          <span className="td-result-bar-key" data-seat="b">
+            {seatNames[yourSeat === 0 ? 1 : 0] ?? "Opponent"}{" "}
+            <b className="pk-numeral">{theirTotal.toFixed(2)}</b>
+          </span>
+        </div>
       </header>
 
       <div className="td-result-seats" data-testid="td-result-seats">
         {receipt.seats.map((seat, index) => {
           const live: SeatPublic | undefined = publicState.seats[index];
-          const spent = receipt.starting_budget - (live?.budget ?? 0);
+          const spent = receipt.starting_budget - (live?.budget ?? seat.budget_remaining);
           return (
             <article
               key={index}
-              className="td-result-seat"
+              className="td-result-seat pk-crown pk-reveal"
+              // Continues the hero's count, so the team cards arrive after the
+              // verdict rather than beside it.
+              style={{ "--pk-reveal-index": 5 + index } as CSSProperties}
               data-testid={`td-result-seat-${index}`}
               data-winner={winner === index ? "true" : "false"}
+              data-seat={index === yourSeat ? "a" : "b"}
             >
               <header className="td-result-seat-head">
                 <h3>{nameOf(index)}</h3>
-                <span className="td-result-total" data-testid={`td-result-total-${index}`}>
-                  {seat.roster_total.toFixed(2)}
+                {winner === index ? (
+                  <span className="td-result-crown" data-testid={`td-result-crown-${index}`}>
+                    Winner
+                  </span>
+                ) : null}
+                {/* THE FINAL SCORE RESOLVES. It is the number the whole
+                    auction was for, and it is the server's own value exactly
+                    at the final frame -- `AnimatedNumber` never settles on an
+                    interpolation, and it hands the true value to assistive
+                    tech from the first paint. */}
+                {/* `.pk-counting` on the WINNER only. It is an accent-ink
+                    treatment, and painting both totals gold would spend the
+                    one colour that says which of them won. */}
+                <span
+                  className={
+                    winner === index
+                      ? "td-result-total pk-numeral pk-counting"
+                      : "td-result-total pk-numeral"
+                  }
+                  data-testid={`td-result-total-${index}`}
+                >
+                  <AnimatedNumber value={seat.roster_total} precision={2} />
                 </span>
               </header>
-              <p className="td-result-money" data-testid={`td-result-money-${index}`}>
-                ${spent} spent · ${live?.budget ?? 0} unspent
+              <p className="td-result-money pk-numeral" data-testid={`td-result-money-${index}`}>
+                {formatDollars(spent)} spent · {formatDollars(live?.budget ?? seat.budget_remaining)} unspent
               </p>
               <ol className="td-result-roster">
                 {publicState.slots.map((slot) => {
                   const entry = (live?.roster ?? []).find((row) => row.slot === slot);
                   return (
                     <li key={slot} className="td-result-slot" data-slot={slot}>
-                      <span className="td-result-slot-tag">{slot}</span>
-                      <span className="td-result-slot-name">
-                        {entry?.player_name ?? "—"}
-                        {entry?.autofilled ? " · auto-filled" : ""}
+                      <span className="td-result-slot-figure">
+                        {entry ? (
+                          // The LIVE roster row, which is where the imagery
+                          // is: `SeatPublic.roster` carries `headshot_url`
+                          // alongside the price and the score, so the two team
+                          // cards and the board rosters draw the same face for
+                          // the same player.
+                          <PlayerAvatar
+                            name={entry.player_name}
+                            size={30}
+                            imageUrl={entry.headshot_url}
+                          />
+                        ) : (
+                          <span className="td-slot-vacant" aria-hidden="true" />
+                        )}
+                        <span className="td-result-slot-tag">{slot}</span>
                       </span>
-                      <span className="td-result-slot-price">
-                        ${entry?.price ?? 0}
+                      <span className="td-result-slot-body">
+                        <span className="td-result-slot-name">
+                          {entry?.player_name ?? "—"}
+                        </span>
+                        <span className="td-result-slot-sub pk-numeral">
+                          {entry
+                            ? `${entry.anchor_season}${entry.autofilled ? " · auto-filled" : ""}`
+                            : "No player"}
+                        </span>
                       </span>
-                      <span className="td-result-slot-score">
-                        {entry?.prime_score != null
-                          ? entry.prime_score.toFixed(1)
-                          : "—"}
+                      <span className="td-result-slot-price pk-numeral">
+                        {entry ? formatDollars(entry.price) : "—"}
+                      </span>
+                      <span className="td-result-slot-score pk-numeral">
+                        {entry?.prime_score != null ? entry.prime_score.toFixed(1) : "—"}
                       </span>
                     </li>
                   );
@@ -131,51 +291,88 @@ export default function ShowdownResult({
         })}
       </div>
 
-      <dl className="td-result-facts" data-testid="td-result-facts">
-        {receipt.best_bargain && (
-          <div>
-            <dt>Best bargain</dt>
-            <dd>
-              {receipt.best_bargain.player_name} —{" "}
-              {receipt.best_bargain.prime_score.toFixed(1)} for $
-              {receipt.best_bargain.price} ({nameOf(receipt.best_bargain.seat_index)})
-            </dd>
-          </div>
-        )}
-        {receipt.biggest_overpay && (
-          <div>
-            <dt>Biggest overpay</dt>
-            <dd>
-              {receipt.biggest_overpay.player_name} — $
-              {receipt.biggest_overpay.price} for{" "}
-              {receipt.biggest_overpay.prime_score.toFixed(1)} (
-              {nameOf(receipt.biggest_overpay.seat_index)})
-            </dd>
-          </div>
-        )}
-        {receipt.most_decisive && (
-          <div>
-            <dt>Decisive lot</dt>
-            <dd>
-              {receipt.most_decisive.player_name} — ${receipt.most_decisive.price} to{" "}
-              {nameOf(receipt.most_decisive.winner_seat)}
-            </dd>
-          </div>
-        )}
-      </dl>
+      {/* THE CALLOUTS ARE CARDS WITH A HEADLINE NUMBER, not a `<dl>` of 9 px
+          grey labels. Each one is the most interesting fact of a whole match. */}
+      <div className="td-result-facts" data-testid="td-result-facts">
+        {receipt.best_bargain ? (
+          <article
+            className="td-callout pk-crown pk-reveal"
+            style={{ "--pk-reveal-index": 7 } as CSSProperties}
+            data-kind="bargain"
+            data-testid="td-callout-bargain"
+          >
+            <p className="td-callout-tag">Steal of the night</p>
+            <p className="td-callout-headline pk-numeral">
+              {receipt.best_bargain.prime_score.toFixed(1)}
+              <span className="td-callout-unit"> for {formatDollars(receipt.best_bargain.price)}</span>
+            </p>
+            <p className="td-callout-body">
+              {receipt.best_bargain.player_name} — {nameOf(receipt.best_bargain.seat_index)}
+            </p>
+          </article>
+        ) : null}
+        {receipt.biggest_overpay ? (
+          <article
+            className="td-callout pk-crown pk-reveal"
+            style={{ "--pk-reveal-index": 8 } as CSSProperties}
+            data-kind="overpay"
+            data-testid="td-callout-overpay"
+          >
+            <p className="td-callout-tag">Biggest overpay</p>
+            <p className="td-callout-headline pk-numeral">
+              {formatDollars(receipt.biggest_overpay.price)}
+              <span className="td-callout-unit"> for {receipt.biggest_overpay.prime_score.toFixed(1)}</span>
+            </p>
+            <p className="td-callout-body">
+              {receipt.biggest_overpay.player_name} — {nameOf(receipt.biggest_overpay.seat_index)}
+            </p>
+          </article>
+        ) : null}
+        {receipt.most_decisive ? (
+          <article
+            className="td-callout pk-crown pk-reveal"
+            style={{ "--pk-reveal-index": 8 } as CSSProperties}
+            data-kind="decisive"
+            data-testid="td-callout-decisive"
+          >
+            <p className="td-callout-tag">Decisive lot</p>
+            <p className="td-callout-headline pk-numeral">
+              {formatDollars(receipt.most_decisive.price)}
+            </p>
+            <p className="td-callout-body">
+              {receipt.most_decisive.player_name} — to {nameOf(receipt.most_decisive.winner_seat)}
+            </p>
+          </article>
+        ) : null}
+      </div>
 
-      <footer className="td-result-actions">
+      <footer
+        className="td-result-actions pk-reveal"
+        style={{ "--pk-reveal-index": 8 } as CSSProperties}
+      >
         <button
           type="button"
-          className="btn-primary"
+          className="btn-primary pk-lift pk-press"
           data-testid="td-play-again"
           onClick={onPlayAgain}
         >
           Play again
         </button>
-        <Link href="/arena" className="btn-secondary" data-testid="td-back-to-arena">
+        <Link
+          href="/arena"
+          className="btn-secondary pk-lift pk-press"
+          data-testid="td-back-to-arena"
+        >
           Back to Arena
         </Link>
+        <button
+          type="button"
+          className="btn-secondary pk-lift pk-press"
+          data-testid="td-share"
+          onClick={onCopy}
+        >
+          {copied ? "Copied" : "Copy result"}
+        </button>
       </footer>
 
       {children ? (

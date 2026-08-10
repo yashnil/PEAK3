@@ -39,7 +39,10 @@ export default function ComponentComparison({ methodology }: ComponentComparison
     <section className="px-4 py-14" aria-labelledby="comparison-heading">
       <div className="mx-auto max-w-5xl">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 id="comparison-heading" className="font-display text-xl font-bold">
+          <h2
+            id="comparison-heading"
+            className="home-section-title font-display text-2xl font-bold"
+          >
             Compare the five components
           </h2>
           <Link
@@ -89,11 +92,22 @@ function ComponentRow({
   const textColor = componentTextColor(component.id);
 
   return (
+    /* THE ROW IS A SURFACE NOW, NOT A FILL. `--pk-grad-raised` plus
+       `--pk-rim` is the same two-declaration treatment every card on the
+       homepage takes; without it five identical `--bg-elevated` rectangles on
+       an `--bg-page` section were, in Arena Day, five hairlines.
+
+       The shadow is stated inline rather than through `.pk-lift` on purpose:
+       this row is an accordion header, not a link, and a row that rises off
+       the page when pointed at would promise navigation it does not perform.
+       Its feedback is the open/closed state and the border taking the
+       component's own colour. */
     <li
       className="overflow-hidden rounded-xl border"
       style={{
         borderColor: open ? color : "var(--border-subtle)",
-        background: "var(--pk-surface-inset, var(--bg-elevated))",
+        background: "var(--pk-grad-raised)",
+        boxShadow: "var(--pk-rim), var(--pk-elev-1)",
       }}
     >
       <button
@@ -141,10 +155,11 @@ function ComponentRow({
           </p>
           {component.key_inputs.length > 0 && (
             <div className="mt-3">
-              <p
-                className="text-[10px] font-bold uppercase tracking-[0.14em]"
-                style={{ color: "var(--text-muted)" }}
-              >
+              {/* PROMOTED AND ENLARGED, --text-muted -> --text-secondary and
+                  10px -> 11px. It labels the list of the actual statistics a
+                  component is computed from — the most concrete claim on the
+                  homepage — and it was set as a footnote. */}
+              <p className="home-eyebrow" style={{ color: "var(--text-secondary)" }}>
                 Key inputs
               </p>
               <ul role="list" className="mt-1.5 flex flex-wrap gap-1.5">

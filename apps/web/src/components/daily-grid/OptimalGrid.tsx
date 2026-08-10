@@ -1,5 +1,6 @@
 "use client";
 
+import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { DailyGridBoard, ResultCell } from "@/types/daily-grid";
 import {
   OptimalCellState,
@@ -9,30 +10,52 @@ import {
 } from "@/lib/daily-grid-state";
 
 /**
- * The best legal grid, drawn as a board.
+ * The best legal grid, drawn as a board. THE ONLY PLACE THE COMPARISON LIVES.
  *
- * WHY THIS EXISTS NEXT TO A LIST THAT SAYS THE SAME THING. The comparison list
- * above it is complete and, square by square, correct — and reading it means
- * holding three coordinates in your head at once: which square this line is
- * about, who you put there, who the grid wanted. Nine lines of that is a
- * cross-reference exercise, not an explanation. The same nine facts placed on
- * the board they came from are read by looking.
+ * WHAT THIS REPLACED (DG-01). Until this pass the same nine facts were printed
+ * twice on one screen: once as a nine-line text list above ("square — you used
+ * X (n) → Y (m)") and once here. The list required holding three coordinates in
+ * your head per line — which square, who you played, who the grid wanted — and
+ * it had to grow a "show only what changed" toggle precisely because nine lines
+ * of that is a cross-reference exercise rather than an explanation. The list is
+ * deleted. Everything it carried is now on the square it was about:
  *
- * THE LIST STAYS. It carries two things this cannot: the "you played them on
- * X" overlap note, which is about a relationship between two squares rather
- * than about either of them, and a compact "show only what changed" view. This
- * is an augmentation, not a replacement.
+ *   * the player's own answer, under the one the grid would have used;
+ *   * the "you played them on X" overlap note, which is the one genuinely
+ *     two-square fact the list had — a name appearing twice on this board is
+ *     not a duplicate bug, it is the grid saying it wanted that player
+ *     somewhere else;
+ *   * the verdict, in a word, on every square.
  *
- * WHAT EACH SQUARE SHOWS. The optimal player-season is the content, because
- * this is the optimal board. The player's own answer appears underneath, in
- * smaller type, on the squares where the two differ — the whole point is that
- * nobody should have to look back up at the list to find out what they had
- * there.
+ * WHAT EACH SQUARE SHOWS (DG-02). A portrait — a real photograph where the
+ * manifest resolves one, the medallion otherwise — the player name, the season
+ * and team, the points that square was worth, and the state treatment, all for
+ * the optimal player-season, because this is the optimal board. On a changed
+ * square the player's own answer sits underneath in smaller type.
  *
- * COLOUR IS NEVER THE ONLY CARRIER. Every square also states its verdict in a
- * word, for the same reason the recap grid above does: the three states have to
- * survive a colourblind reader, a printed screenshot and a dark-on-dark phone
- * in sunlight.
+ * THE PORTRAIT IS `PlayerAvatar`, THE ONE PRIMITIVE (SHARED-03). No second
+ * image component and no second fetcher. It is fed the `headshot_url` the
+ * result route resolved from the committed asset manifest — the same lookup
+ * 82-0 uses, keyed on the same `player_slug`.
+ *
+ * WHAT ACTUALLY LANDS HERE IS MOSTLY THE MEDALLION, and that is the design
+ * rather than a shortfall: the manifest resolves 283 of the pool's 1,384
+ * distinct identities (20.4%) because resolution needs a current NBA roster
+ * entry, and a Daily Grid board is mostly historical. On top of that the API
+ * gate (`PEAK3_ENABLE_EXTERNAL_ASSET_URLS`) is off by default pending a
+ * licensing review, so with the shipped posture every square draws the
+ * medallion. The avatar reserves the same box in both branches, so a
+ * photograph arriving — or failing — cannot shift the grid by a pixel.
+ *
+ * COLOUR IS NEVER THE ONLY CARRIER. Every square states its verdict in a word,
+ * carries it in its accessible name, and the legend below names all three — for
+ * a colourblind reader, a printed screenshot and a dark-on-dark phone in
+ * sunlight.
+ *
+ * MOBILE. Three columns plus a header column at 390px leaves roughly 80px of
+ * content per square, so the avatar is a deliberate 28px and it stacks ABOVE
+ * the name below `sm` rather than beside it — an avatar and a wrapped player
+ * name sharing 80px is how imagery makes a grid unreadable.
  */
 
 interface Props {
@@ -40,15 +63,20 @@ interface Props {
   cells: ResultCell[];
 }
 
+/** Avatar edge, in px. Chosen against the narrowest real case: at a 390px
+ *  viewport a square's content box is ~80px wide, and 28px leaves room for the
+ *  points figure beside it on the same line. */
+const AVATAR_PX = 28;
+
 /** Colour per state, aligned with the recap grid directly above this one.
  *
- *  The two grids sit four inches apart on the same screen and each has its own
- *  legend, so a colour that means one thing in one and something else in the
- *  other is a contradiction a reader has to notice and resolve. Green means
- *  "the max grid agrees with you" in both, and gold means "you beat it" in
- *  both — `GRADE_COLOR` in CompletionPanel moved `beat` onto gold for exactly
- *  this reason. Violet belongs only to this grid, because "the swap to make"
- *  is a claim only this grid makes. */
+ *  The two grids sit on the same screen and each has its own legend, so a
+ *  colour that means one thing in one and something else in the other is a
+ *  contradiction a reader has to notice and resolve. Green means "the max grid
+ *  agrees with you" in both, and gold means "you beat it" in both —
+ *  `GRADE_COLOR` in CompletionPanel moved `beat` onto gold for exactly this
+ *  reason. Violet belongs only to this grid, because "the swap to make" is a
+ *  claim only this grid makes. */
 const STATE_COLOR: Record<OptimalCellState, string> = {
   matched: "var(--comp-team)",
   beat: "var(--peak-accent)",
@@ -77,6 +105,13 @@ const STATE_SPOKEN: Record<OptimalCellState, string> = {
   replacement: "the best legal grid would use this instead of your answer",
 };
 
+/** The legend, in reading order of how good the news is. */
+const LEGEND: { state: OptimalCellState; gloss: string }[] = [
+  { state: "matched", gloss: "you already played it" },
+  { state: "beat", gloss: "you scored more here" },
+  { state: "replacement", gloss: "the grid would swap it" },
+];
+
 export default function OptimalGrid({ board, cells }: Props) {
   // `cells` arrives in FILL order — the order the player locked squares in.
   // A `grid-cols-3` fills left to right, top to bottom, so rendering straight
@@ -99,8 +134,8 @@ export default function OptimalGrid({ board, cells }: Props) {
           rather than nine cards in a square — without them a reader has to
           take on trust that position maps to position. */}
       <div
-        className="grid gap-1.5"
-        style={{ gridTemplateColumns: "minmax(0,0.7fr) repeat(3, minmax(0,1fr))" }}
+        className="grid gap-1 sm:gap-1.5"
+        style={{ gridTemplateColumns: "minmax(0,0.62fr) repeat(3, minmax(0,1fr))" }}
       >
         <div aria-hidden="true" />
         {cols.map((col) => (
@@ -108,7 +143,7 @@ export default function OptimalGrid({ board, cells }: Props) {
             key={`col-${col}`}
             data-testid="complete-optimal-col-header"
             className="self-end break-words pb-0.5 text-center text-[9px] font-bold uppercase leading-tight tracking-[0.08em]"
-            style={{ color: "var(--text-muted)" }}
+            style={{ color: "var(--text-secondary)" }}
             title={colConstraint(board, col)?.label ?? `Column ${col + 1}`}
           >
             {colConstraint(board, col)?.short_label ?? `Col ${col + 1}`}
@@ -126,13 +161,27 @@ export default function OptimalGrid({ board, cells }: Props) {
         ))}
       </div>
 
-      <p className="mt-2 text-[10px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
-        The highest-scoring legal version of this board.{" "}
-        <span style={{ color: STATE_TEXT.matched }}>Green</span> — you already played it.{" "}
-        <span style={{ color: STATE_TEXT.replacement }}>Violet</span> — the grid would use this
-        instead. <span style={{ color: STATE_TEXT.beat }}>Gold</span> — you scored more here than
-        it did.
-      </p>
+      <ul
+        data-testid="complete-optimal-legend"
+        className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1"
+      >
+        {LEGEND.map(({ state, gloss }) => (
+          <li key={state} className="flex items-center gap-1.5 text-[10px] leading-tight">
+            <span
+              aria-hidden="true"
+              className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+              style={{
+                background: `color-mix(in srgb, ${STATE_COLOR[state]} 30%, transparent)`,
+                border: `1px solid ${STATE_COLOR[state]}`,
+              }}
+            />
+            <span className="font-bold" style={{ color: STATE_TEXT[state] }}>
+              {STATE_LABEL[state]}
+            </span>
+            <span style={{ color: "var(--text-muted)" }}>— {gloss}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -153,7 +202,7 @@ function FragmentRow({
       <p
         data-testid="complete-optimal-row-header"
         className="self-center break-words pr-1 text-right text-[9px] font-bold uppercase leading-tight tracking-[0.08em]"
-        style={{ color: "var(--text-muted)" }}
+        style={{ color: "var(--text-secondary)" }}
         title={rowConstraint(board, row)?.label ?? `Row ${row + 1}`}
       >
         {rowConstraint(board, row)?.short_label ?? `Row ${row + 1}`}
@@ -184,6 +233,7 @@ function OptimalCell({ cell }: { cell: ResultCell }) {
   const color = STATE_COLOR[state];
   const text = STATE_TEXT[state];
   const changed = state !== "matched";
+  const optimal = cell.optimal_player_season;
   // What the swap is worth, next to the claim that it is one. "+0" is noise,
   // so a swap that scores the same says so instead: it is still a real swap —
   // the optimal board does play somebody else there — and `points_left` being
@@ -196,17 +246,27 @@ function OptimalCell({ cell }: { cell: ResultCell }) {
           ? `+${cell.points_left}`
           : "="
         : "";
+  // The one fact the deleted list carried that is about TWO squares rather
+  // than one. Only meaningful where the grid is asking for a swap: on a matched
+  // or beaten square "you played them on X" is either trivially this square or
+  // about a player the grid did not get.
+  const overlap =
+    state === "replacement" && cell.optimal_player_user_square
+      ? cell.optimal_player_user_square
+      : null;
 
   return (
     <div
       data-testid="complete-optimal-cell"
       data-state={state}
-      className="flex min-w-0 flex-col rounded-lg px-2 py-1.5 text-left"
+      className="flex min-w-0 flex-col gap-1 rounded-lg px-1.5 py-1.5 text-left sm:px-2"
       aria-label={
         `${cell.row_constraint_label} by ${cell.col_constraint_label}: ` +
-        `the best legal grid plays ${cell.optimal_player_season.label} for ${cell.optimal_points} points — ` +
-        `${STATE_SPOKEN[state]}` +
-        (changed ? `. You played ${cell.user_player_season.label} for ${cell.user_points} points.` : ".")
+        `the best legal grid plays ${optimal.label}${optimal.team ? `, ${optimal.team}` : ""} ` +
+        `for ${cell.optimal_points} points — ${STATE_SPOKEN[state]}` +
+        (changed ? `. You played ${cell.user_player_season.label} for ${cell.user_points} points` : "") +
+        (overlap ? `, and you played ${optimal.player_name} on ${overlap}` : "") +
+        "."
       }
       style={{
         background: `color-mix(in srgb, ${color} 9%, var(--bg-surface))`,
@@ -240,26 +300,57 @@ function OptimalCell({ cell }: { cell: ResultCell }) {
         </span>
       </div>
 
-      <p
-        className="mt-1 text-[10px] font-semibold leading-tight"
-        style={{ color: "var(--text-primary)" }}
-        title={cell.optimal_player_season.label}
-      >
-        {cell.optimal_player_season.season}
-        <br />
-        {cell.optimal_player_season.player_name}
-      </p>
+      {/* THE IDENTITY BLOCK. Stacked below `sm` — three columns plus a header
+          column at 390px leaves ~80px of content per square, and an avatar
+          beside a wrapping player name inside 80px is unreadable. */}
+      <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-1.5">
+        {/* No `alt`: the avatar sits directly beside the name in text and the
+            square's own `aria-label` already names the player. */}
+        <PlayerAvatar
+          name={optimal.player_name}
+          size={AVATAR_PX}
+          imageUrl={optimal.headshot_url}
+        />
+        <p
+          className="min-w-0 text-[10px] font-semibold leading-tight"
+          style={{ color: "var(--text-primary)" }}
+          title={optimal.label}
+        >
+          {optimal.player_name}
+          <span
+            className="pk-numeral mt-0.5 block text-[9px] font-medium"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            {optimal.season}
+            {optimal.team ? ` · ${optimal.team}` : ""}
+          </span>
+        </p>
+      </div>
 
-      {/* THE LINE THAT REMOVES THE CROSS-REFERENCE. On a changed square the
+      {/* THE LINE THAT REMOVED THE CROSS-REFERENCE. On a changed square the
           player's own answer is right here, under the one they should have
           used, instead of nine lines further up the panel. */}
       {changed && (
         <p
           data-testid="complete-optimal-your-answer"
-          className="mt-1 text-[9px] leading-tight"
+          className="text-[9px] leading-tight"
           style={{ color: "var(--text-muted)" }}
         >
           You used: {cell.user_player_season.label} · {cell.user_points} pts
+        </p>
+      )}
+
+      {/* The same name can legitimately appear twice on this board — once as
+          the player's pick, once as the optimal grid's. Saying where they spent
+          them turns what looks like a duplicate bug into the actual insight:
+          the grid wanted that player somewhere else. */}
+      {overlap && (
+        <p
+          data-testid="complete-optimal-overlap"
+          className="text-[9px] leading-tight"
+          style={{ color: "var(--text-muted)" }}
+        >
+          You played {optimal.player_name} on {overlap}.
         </p>
       )}
     </div>

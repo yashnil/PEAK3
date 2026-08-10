@@ -98,7 +98,7 @@ jobs:
 
       - name: Run lineup model tests (need v3 profiles)
         run: |
-          pip install pandas unidecode
+          pip install -r requirements-build.txt
           scripts/ci/build-web-data.sh
           scripts/ci/lineup-tests.sh
 
@@ -114,8 +114,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install pandas unidecode
+      # The build's OWN dependency contract, not a hand-list. `pandas
+      # unidecode` was written here by hand and was correct until the fact
+      # generator started reading a parquet; then this job was the only place
+      # in the repository that claimed the build needed no parquet engine.
+      - name: Install build dependencies
+        run: pip install -r requirements-build.txt
 
       - name: Build web dataset + card profiles v3
         run: scripts/ci/build-web-data.sh
@@ -244,9 +248,25 @@ jobs:
 
   # ── Playwright e2e + accessibility ───────────────────────────────────────────
   playwright:
-    name: Playwright browser tests + axe accessibility (0 retries)
+    # SPLIT BY PLAYWRIGHT PROJECT, NOT BY A HAND-MAINTAINED TEST LIST.
+    #
+    # The two projects already partition the suite exactly: `chromium` is
+    # `grepInvert: /@mobile/` and `mobile-chrome` is `grep: /@mobile/`, so
+    # 377 + 34 = 411, every test in exactly one job and none in neither. That
+    # is why this is a matrix over the project NAME and not a list of files —
+    # a file list would rot the first time a spec was added, and the inventory
+    # assertion below fails the build if the partition ever stops adding up.
+    #
+    # `fail-fast: false` because the entire point is failure ISOLATION: a
+    # desktop regression must not cancel the mobile job and hide a second,
+    # independent failure for another 55-minute round trip.
+    name: Playwright ${{ matrix.project }} + axe (0 retries)
     runs-on: ubuntu-latest
     needs: [web-dataset, frontend]
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, mobile-chrome]
     steps:
       - uses: actions/checkout@v4
 
@@ -297,6 +317,11 @@ jobs:
 
       # CI=true forces reuseExistingServer=false so Playwright always starts
       # its own services from the current working tree.
+      # Coverage cannot silently shrink: the matrix is only equivalent to the
+      # old single job while the two projects still partition the suite.
+      - name: Assert the project split still covers every test
+        run: scripts/ci/assert-e2e-inventory.sh
+
       - name: Run Playwright tests (fresh services, 0 retries)
         # The SAME script `make test-e2e` runs. Every feature flag the API
         # refuses to serve without now lives in that one file rather than
@@ -309,7 +334,7 @@ jobs:
         # playwright.setup.ts then probes the running services, including that
         # the account surface actually renders — the check whose absence let a
         # clean checkout fail ten auth assertions 28 minutes in.
-        run: scripts/ci/e2e-tests.sh
+        run: scripts/ci/e2e-tests.sh --project=${{ matrix.project }}
         env:
           CI: true
           PLAYWRIGHT_RETRIES: "0"
@@ -318,7 +343,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.project }}
           path: apps/web/playwright-report/
           retention-days: 7
 
@@ -326,7 +351,7 @@ jobs:
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-traces
+          name: playwright-traces-${{ matrix.project }}
           path: apps/web/test-results/
           retention-days: 7
 

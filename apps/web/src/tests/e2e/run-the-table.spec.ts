@@ -146,7 +146,13 @@ interface StoredRun {
 /** Land on the route with no stored run, so the Start gate is what renders.
  *  Navigates FIRST, then clears storage — see the file docstring. */
 async function freshGate(page: Page, path: string = ROUTE): Promise<void> {
-  await page.goto(path, { waitUntil: "load" });
+  // `commit`, not `load`, for THIS one. The only reason this first navigation
+  // exists is to obtain an origin to clear `localStorage` on — nothing below
+  // reads the rendered page, and the SECOND `goto` is the load whose result
+  // the gate assertion actually inspects. Waiting for every subresource here
+  // was ~4s of the cold-CI critical path spent on a document that is about to
+  // be thrown away and reloaded.
+  await page.goto(path, { waitUntil: "commit" });
   await page.evaluate((key) => window.localStorage.removeItem(key), STORAGE_KEY);
   // Returning-player tour state — see the TOUR_STORAGE_KEY block above.
   await suppressTour(page);
@@ -984,6 +990,41 @@ test.describe("RUN THE TABLE start gate", () => {
   test("going back to the launcher link and forward again creates no second run", async ({
     page,
   }) => {
+    // WHY THIS ONE TEST DOES NOT FIT THE DEFAULT 30s BUDGET.
+    //
+    // It is navigation, end to end, and there is no way to prove what it
+    // proves with fewer navigations. From the CI trace of the run that timed
+    // out (workflow 31288442499), on a cold runner:
+    //
+    //      0.1s  4.0s  goto /arena/run-the-table      (freshGate, origin)
+    //      4.1s  5.8s  goto /arena/run-the-table      (freshGate, the fresh load)
+    //     10.0s  4.0s  goto /arena/run-the-table?start=standard
+    //     14.0s  5.6s  goto /arena
+    //     19.6s  4.9s  goBack
+    //     24.6s  2.8s  goForward
+    //     27.4s  4.3s  goBack   -> still running at 31.6s
+    //     ----
+    //     ~31.6s of real navigation, with the final shell wait and the two
+    //     invariant assertions still to run.
+    //
+    // The 30s budget expired inside the third history traversal. Every
+    // navigation before it COMPLETED — nothing hung, nothing was waiting on an
+    // event that never came, and no second run was created. Four cold Next
+    // route compiles plus three history traversals simply cost more than 30s
+    // on a two-core runner.
+    //
+    // 60s is that measured ~32s critical path, plus the ~2s it had left, with
+    // roughly 1.7x for a loaded shared runner. Derived from the trace, not
+    // rounded up until it went green.
+    //
+    // NOTHING HERE IS PADDING TO REMOVE. There are no fixed sleeps in this
+    // test: every wait is either a real navigation, `waitForResponse` on the
+    // create-run POST, `waitForURL`, or the shell becoming visible. The
+    // invariant it exists for — exactly one POST /run-the-table/runs across
+    // the whole history dance, and the same run_id at the end — is asserted
+    // unchanged below.
+    test.setTimeout(60_000);
+
     // `history.replaceState` rewrites the CURRENT entry, so the entry the
     // player can navigate back to is the one before the deep link, never the
     // deep link itself. Anything else would let the back/forward buttons spend

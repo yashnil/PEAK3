@@ -58,10 +58,16 @@ export function SectionHeader({
       <div className="min-w-0">
         {eyebrow ? (
           <p
-            className="font-bold uppercase leading-none tracking-[0.14em]"
+            className="font-display font-bold uppercase leading-none"
             style={{
-              color: "var(--text-muted)",
-              fontSize: 10,
+              // WAS 10px at `--text-muted`. An eyebrow is the label that says
+              // what section you are in; at 10px in the faintest ink tier it
+              // was decoration that happened to contain words. 11px at
+              // `--text-secondary` is still unmistakably subordinate to the
+              // heading and is legible while being so.
+              color: "var(--text-secondary)",
+              fontSize: 11,
+              letterSpacing: "var(--pk-track-eyebrow, 0.14em)",
               marginBottom: "var(--pk-space-2, 8px)",
             }}
           >
@@ -71,15 +77,28 @@ export function SectionHeader({
         <Heading
           id={id}
           className={cn("font-display font-bold", SIZE_CLASS[size])}
-          style={{ color: "var(--text-primary)" }}
+          style={{
+            color: "var(--text-primary)",
+            // Tracking follows the SIZE, which is the whole reason the scale
+            // exists: `.font-display`'s own -0.022em is drawn for a hero and
+            // closes up the counters on a 14px `size="sm"` heading.
+            letterSpacing:
+              size === "lg"
+                ? "var(--pk-track-display, -0.022em)"
+                : "var(--pk-track-heading, -0.014em)",
+            lineHeight: "var(--pk-leading-heading, 1.18)",
+          }}
         >
           {title}
         </Heading>
         {description ? (
           <p
-            className="text-xs"
             style={{
               color: "var(--text-secondary)",
+              // 13px rather than Tailwind's `text-xs` (12px). This is the one
+              // line of orientation a section gets; it is read, not skimmed.
+              fontSize: 13,
+              lineHeight: 1.5,
               marginTop: "var(--pk-space-2, 8px)",
               maxWidth: "68ch",
             }}

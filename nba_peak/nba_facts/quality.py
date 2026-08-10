@@ -21,6 +21,13 @@ THE THRESHOLDS ARE FLOORS ON THE AXES THAT MATTER, NOT ON THE TOTAL. A fact
 with a perfect total but `clarity: 1` is a fact a reader will not follow, and
 letting five strong axes carry a weak one is how "technically correct" gets
 published.
+
+WHAT THIS FILE DECIDES, AND WHAT IT DOES NOT. It decides what may be PUBLISHED —
+what goes in the bank, which is the reservoir every surface draws on. It is NOT
+the homepage's standard, and the reason is in `MAX_PER_DERIVED_PATTERN` below:
+a derived fact's seven axes are constants of its template, so this gate can only
+admit or reject a whole family and has no way to prefer one member of it.
+`featured.py` is the second gate and the one `rotation.fact_for_date` reads.
 """
 from __future__ import annotations
 
@@ -126,6 +133,16 @@ NEAR_DUPLICATE_THRESHOLD = 0.6
 #: so the survivors are the first eight by id. The build report counts them
 #: under `pattern_cap` precisely so this does not read as "the generator only
 #: found eight".
+#:
+#: AND THAT SENTENCE IS WHY THIS FILE IS NOT A HOMEPAGE STANDARD. "Within a
+#: generator every fact scores identically" means this gate admits and rejects
+#: FAMILIES: the moment a profile clears the floor, everything it will ever emit
+#: clears it, and the only remaining control is a cap that takes the first eight
+#: by hash. Eight of a ninety-fact daily rotation is a reader meeting the same
+#: sentence about once a month. `featured.py` is the second gate, and it is the
+#: one the homepage draws from — it caps at three, requires the three to come
+#: from three different eras, and ranks within a template by the per-fact number
+#: the generator already computed and this file never reads.
 MAX_PER_DERIVED_PATTERN = 8
 
 #: AND NO ROTATION GROUP MAY EXCEED THIS SHARE OF THE BANK.

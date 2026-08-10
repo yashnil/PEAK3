@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import type { DuelCard } from "@/types";
 import { motion } from "motion/react";
+import { ResultNumber } from "./result-number";
 
 interface DuelCardProps {
   card: DuelCard;
@@ -28,7 +29,7 @@ export function DuelCardComponent({
   const isInteractive = !revealed && !disabled;
 
   return (
-    <motion.button
+    <button
       type="button"
       data-testid={`duel-card-${side}`}
       onClick={isInteractive ? onClick : undefined}
@@ -36,9 +37,21 @@ export function DuelCardComponent({
       aria-pressed={selected}
       aria-label={`Select ${card.player_name}, ${card.duration_years}-year peak, ${card.start_season}${card.start_season !== card.end_season ? ` to ${card.end_season}` : ""}`}
       className={cn(
-        "relative w-full rounded-xl border-2 p-6 text-left transition-[background-color,border-color,opacity] duration-200",
+        "relative w-full rounded-xl border-2 p-6 text-left",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]",
-        isInteractive && "cursor-pointer",
+        /* THE WHOLE CARD IS THE TARGET, so it gets the larger of the two lift
+           steps plus the press. `whileTap={{ scale: 0.98 }}` used to be the
+           only half of this that existed -- a card that sank on click and did
+           nothing on hover, which reads as unresponsive rather than as
+           restrained. `.pk-lift-lg` needs `.pk-lift`'s transition, which is
+           why both are named.
+
+           The Tailwind `transition-[...]` utility that used to live here is
+           gone deliberately: Tailwind v4 emits utilities inside `@layer`, and
+           the `.pk-*` primitives are unlayered, so an unlayered
+           `transition-property` always wins the cascade. Keeping the utility
+           would have looked like a transition and been dead. */
+        isInteractive && "pk-lift pk-lift-lg pk-press cursor-pointer",
         // Default state
         !selected && !revealed && "border-[var(--border-default)] bg-[var(--bg-elevated)] hover:border-[var(--border-emphasis)] hover:bg-[var(--bg-surface)]",
         // Selected (before reveal)
@@ -48,7 +61,6 @@ export function DuelCardComponent({
         // Revealed — loser
         revealed && !isWinner && "border-[var(--border-subtle)] bg-[var(--bg-elevated)] opacity-60",
       )}
-      whileTap={isInteractive ? { scale: 0.98 } : undefined}
     >
       {/* Side label */}
       <p className="mb-4 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">
@@ -93,15 +105,22 @@ export function DuelCardComponent({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.15 }}
         >
+          {/* The number the whole duel was about — it counts to itself rather
+              than appearing already-final. `ResultNumber` starts the tween in
+              a layout effect, so the reserved 3.75rem block above never sees a
+              zero frame and the accessible text is the real score from the
+              first paint. */}
           <p
             className={cn(
-              "text-3xl font-bold score-number font-display",
-              isWinner ? "text-[var(--correct)]" : "text-[var(--text-muted)]"
+              "text-3xl font-bold font-display",
+              isWinner ? "text-[var(--correct)]" : "text-[var(--text-secondary)]"
             )}
           >
-            {primeScore.toFixed(1)}
+            <ResultNumber value={primeScore} precision={1} />
           </p>
-          <p className="text-xs text-[var(--text-muted)]">Prime Score</p>
+          {/* WAS `--text-muted`. Two 3xl numbers side by side mean nothing
+              without the two words that say what they are. */}
+          <p className="text-xs font-medium text-[var(--text-secondary)]">Prime Score</p>
         </motion.div>
       )}
       </div>
@@ -129,6 +148,6 @@ export function DuelCardComponent({
           ← your pick
         </motion.div>
       )}
-    </motion.button>
+    </button>
   );
 }

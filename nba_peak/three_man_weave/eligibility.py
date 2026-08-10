@@ -98,10 +98,10 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from nba_peak.franchises import FRANCHISES, franchise_for_team_code
 from nba_peak.three_man_weave.config import (
@@ -243,6 +243,12 @@ class EligibilityIndex:
     # because the card answers a question about the same three things.
     _scoring: dict[tuple[str, str, str], ScoringCard]
     _names: dict[str, str]
+    #: Lazily-filled memo for `potential_slot_rights`. A plain dict on a frozen
+    #: dataclass: the INDEX is immutable, this is a cache of answers derived
+    #: from it, and every answer is a pure function of fields that never
+    #: change. Filled on demand rather than in `build_index` because a match
+    #: touches a few hundred identities and the index holds thousands.
+    _rights_memo: dict[str, frozenset[str]] = field(default_factory=dict, repr=False)
 
     # -- eligibility -------------------------------------------------------
     def eligible_slugs(self, franchise_id: str, decade: str) -> frozenset[str]:
@@ -278,6 +284,59 @@ class EligibilityIndex:
 
     def player_name(self, player_slug: str) -> Optional[str]:
         return self._names.get(player_slug)
+
+    # -- position rights ---------------------------------------------------
+    #
+    # LEGALITY IS A PROPERTY OF THE CARD, NOT OF THE PERSON. The index is the
+    # only object that knows which SEASON a (player, franchise, decade) card
+    # names, so it is the only place that can answer a position question at
+    # the grain `positions` requires. See that module's docstring for what
+    # answering it at career grain did to Russell Westbrook.
+
+    def card_slot_rights(
+        self, player_slug: str, franchise_id: str, decade: str
+    ) -> frozenset[str]:
+        """The slots this identity may occupy if drafted off THIS roll.
+
+        Empty when there is no card -- which, by construction, also means the
+        identity is not eligible for that roll, so "no rights" and "not on the
+        board" are the same answer rather than two that could disagree.
+        """
+        from nba_peak.three_man_weave.positions import season_slot_rights
+
+        card = self.scoring_card(player_slug, franchise_id, decade)
+        if card is None:
+            return frozenset()
+        return season_slot_rights(player_slug, card.season)
+
+    def potential_slot_rights(self, player_slug: str) -> frozenset[str]:
+        """The union of this identity's rights across every card they hold.
+
+        THE RIGHT ANSWER FOR A FEASIBILITY QUESTION AND THE WRONG ONE FOR A
+        PLACEMENT. Feasibility asks "could this still-undrafted player fill
+        that slot on some future roll?", and the honest answer spans every
+        roll they remain eligible for -- narrowing it to one season would
+        declare matches unplayable that are perfectly playable. A placement
+        asks about the card actually on the board, and must use
+        `card_slot_rights`. Callers that mix the two must order their map so
+        the committed card wins; `rights_for_state` does.
+        """
+        if not self._rights_memo:
+            # Built for EVERY identity in one pass rather than per-slug: the
+            # per-slug form is a full scan of `_scoring` each time, and a
+            # feasibility check asks about the whole undrafted pool, which
+            # turned one matching into a quadratic sweep of the index.
+            from nba_peak.three_man_weave.positions import season_slot_rights
+
+            accumulated: dict[str, set[str]] = {}
+            for (slug, _franchise_id, _decade), card in self._scoring.items():
+                accumulated.setdefault(slug, set()).update(
+                    season_slot_rights(slug, card.season)
+                )
+            self._rights_memo.update(
+                {slug: frozenset(slots) for slug, slots in accumulated.items()}
+            )
+        return self._rights_memo.get(player_slug, frozenset())
 
     # -- roll space --------------------------------------------------------
     def rolls(self) -> tuple[tuple[str, str], ...]:
@@ -588,6 +647,34 @@ def get_index() -> EligibilityIndex:
 def clear_cache() -> None:
     """Drop the process-wide index -- for tests that patch the source paths."""
     get_index.cache_clear()
+
+
+def rights_for_cards(
+    index: "EligibilityIndex",
+    committed: "Iterable[tuple[str, str, str]]" = (),
+    potential: "Iterable[str]" = (),
+) -> dict[str, frozenset[str]]:
+    """Assemble one match's `SlotRights` map.
+
+    `committed` is (player_slug, franchise_id, decade) for every identity whose
+    card is already decided -- the picks on a roster, and the candidates on the
+    roll currently revealed. Those get the exact season's rights.
+
+    `potential` is the still-undrafted pool, whose card is not decided yet.
+    Those get the union across every roll they remain eligible for, which is
+    the only honest answer to "could they fill that slot later".
+
+    COMMITTED WINS. It is applied second so a slug that appears in both ends up
+    with the card actually on the board -- the whole point of the season grain
+    is that an identity's rights follow the card, and a feasibility union must
+    never be able to widen a placement.
+    """
+    out: dict[str, frozenset[str]] = {
+        slug: index.potential_slot_rights(slug) for slug in potential
+    }
+    for slug, franchise_id, decade in committed:
+        out[slug] = index.card_slot_rights(slug, franchise_id, decade)
+    return out
 
 
 def all_franchise_ids() -> tuple[str, ...]:

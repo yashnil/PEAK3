@@ -1,637 +1,156 @@
 /*
  * The $20 Showdown.
  *
- * MOTION IS CSS-FIRST, matching the house approach: the two animated moments
- * (a candidate arriving, a card landing in a slot) are keyframes on a class,
- * never a JavaScript timer. That is what lets `prefers-reduced-motion` switch
- * them off completely at the bottom of this file with no branch in any
- * component -- the reduced-motion path is not a second implementation, it is
- * the same markup with the animation removed.
+ * THIS FILE WAS REWRITTEN RATHER THAN PATCHED, for three reasons that were all
+ * live defects rather than tidiness:
  *
- * Durations mirror `lib/motion.ts` (`--pk-dur-reveal` 400ms, `--pk-dur-base`
- * 200ms) rather than inventing new numbers, so a JS-driven transition and a CSS
- * one on the same surface cannot drift apart.
+ *  1. DUPLICATE SELECTORS. `.td-reveal` and `.td-candidate` were each defined
+ *     twice — a v1 block near the top and a v2 block 600 lines later — and the
+ *     later one silently won. Editing the first had no effect, which is how a
+ *     "fix" gets made twice and shipped never.
+ *  2. LIGHT-MODE CONTRAST. Nine rules used the raw `--peak-accent` as a text
+ *     `color:`. That token is a FILL: on the light canvas it measures
+ *     1.29–1.50:1, which is invisible. Among them was `.td-btn-primary`, the
+ *     label of the mode's single most important control. Text now uses
+ *     `--peak-accent-text` (re-derived per theme) and `--peak-accent` is used
+ *     only where something is filled with it.
+ *  3. TWENTY HAND-ROLLED `font-variant-numeric` DECLARATIONS. There is now one
+ *     class, `.pk-numeral`, defined in globals.css, and the markup carries it.
  *
- * NO `opacity` ON BODY TEXT. This file used to dim secondary copy with
- * `opacity: 0.4`-`0.75`, which reads as a styling preference and is in fact a
- * contrast bug: globals.css states that `--text-muted` and `--text-secondary`
- * are MEASURED to clear 4.5:1 against the surfaces they sit on, and multiplying
- * a measured colour by 0.4 discards the measurement. An axe pass over a live
- * auction found twelve serious violations from exactly that -- every empty
- * roster slot, the lot label and the status line. Secondary text now picks the
- * calibrated token instead. `opacity` survives only on DISABLED controls, which
- * the contrast rule exempts and for which dimming IS the affordance.
+ * MOTION IS CSS-FIRST. The animated moments (a candidate arriving, a card
+ * landing in a slot, the result hero) are keyframes on a class, never a
+ * JavaScript timer, so `prefers-reduced-motion` switches them off at the bottom
+ * of this file with no branch in any component. The GAME's timing — the intro,
+ * the lot reveal beat, the inter-turn handoff — is not motion and is not
+ * removed by that query: those are reading time, and a reduced-motion user
+ * needs them at least as much (see `useShowdownPhase`).
+ *
+ * NO `opacity` ON BODY TEXT. Secondary copy uses the calibrated tokens.
+ * `opacity` survives only on DISABLED controls, which the contrast rule exempts
+ * and for which dimming is part of the affordance.
+ *
+ * SEAT COLOUR. `--seat-a-*` is you (gold), `--seat-b-*` is the opponent
+ * (violet). Fills are stable across themes; inks are re-derived. Colour is
+ * never the only signal — every seat-coloured surface also carries the seat's
+ * name in text.
+ *
+ * GAME-FEEL PASS (ADDITIVE)
+ * -------------------------
+ * An auction room is a room with a hammer in it, and this one read as a
+ * three-column form. What changed, and why each one is a defect rather than a
+ * preference:
+ *
+ *  * THE TURN DOT FADED ITS OWN OPACITY. `td-pulse` animated `opacity` from 1
+ *    to 0.35 — the exact pattern Three-Man Weave's on-clock badge was rebuilt
+ *    away from after axe measured it at 4.13:1 mid-fade. The dot carries no
+ *    text of its own, so it was not a contrast failure here, but it was a
+ *    second, different answer to a question the app had already answered. The
+ *    dot now wears `.pk-turn-pulse`, the shared ring, coloured from the seat's
+ *    own fill. `td-pulse` is deleted.
+ *  * DEPTH IS COMPOSED WHERE A SURFACE OWNS ITS OWN STATES, and taken from the
+ *    `.pk-depth*` utilities where nothing conflicts. globals.css is imported
+ *    AFTER this file (its `@import`s sit at the top), so an equal-specificity
+ *    utility WINS over a rule here — `.pk-depth` on `.td-seat` would have
+ *    erased the active-seat ring. `.td-candidate` takes `.pk-depth-decision`
+ *    outright, because the lot under the hammer IS the thing being acted on
+ *    and it owns no competing state.
+ *  * FIVE `--text-muted` VALUES MOVED UP A TIER. The unopened `$0` at 4rem,
+ *    the sealed-score rule, the held clock's window length, the `/5` in a
+ *    roster count and an empty roster slot are all things a bidder reads while
+ *    deciding. Disabled controls and the decorative "vs" stay muted — those
+ *    genuinely are tertiary, and SHARED-04 explicitly wants a disabled control
+ *    neutral rather than loud.
+ *  * ONE SHEEN, ON ONE CONTROL. `.pk-sheen` is on the primary bid button and
+ *    nowhere else in the mode. It is the effect in the set that becomes noise
+ *    the moment a second element has it.
  */
 
 .td-game {
+  /* THE ROOM IS LIT. `.pk-atmosphere` is applied on the element; the grid is
+     opened out from its 48px default because the auction's three columns are
+     already a strong lattice and a tight floor grid behind them reads as
+     moiré rather than as a room. */
+  --pk-court-grid-size: 80px;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-  /* Wider than the old 60rem single column: the auction room puts both
-     budgets, both rosters and the block on ONE screen, which is the whole
-     point of the three-column table below. */
-  max-width: 78rem;
+  gap: 0.85rem;
+  /* Wide enough to hold both budgets, both rosters and the block on ONE
+     screen, which is the whole point of the three-column table below. */
+  max-width: 82rem;
   margin: 0 auto;
   padding: 1.25rem 1rem 3rem;
 }
 
-.td-header {
+/* ==========================================================================
+   The turn banner (S20-03)
+   ========================================================================== */
+
+.td-turn {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.55rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--border-edge);
+  border-left-width: 4px;
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--pk-grad-raised);
+  /* A lit top edge and a shadow, so the room's one turn statement reads as a
+     board above the table rather than as a tinted strip in it. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: var(--pk-track-tight);
+  color: var(--text-primary);
 }
 
-.td-title {
-  font-size: 1.5rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-/* -- tie priority ---------------------------------------------------------- */
-
-.td-token {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.7rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  font-size: 0.85rem;
-}
-
-.td-token-yours {
-  border-color: var(--peak-accent);
-}
-
-.td-token-dot {
+.td-turn-dot {
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 50%;
-  background: var(--peak-accent);
+  background: var(--text-muted);
+  flex-shrink: 0;
 }
 
-.td-token-hint {
-  color: var(--text-muted);
-  font-size: 0.75rem;
+/* The single strongest signal on the board: it is your move. A fill, a rail,
+   a dot AND the words "Your move", so it survives greyscale. */
+.td-turn[data-seat="a"] {
+  border-left-color: var(--seat-a-fill);
+  background: var(--peak-accent-bg);
 }
 
-/* -- budgets --------------------------------------------------------------- */
-
-.td-budgets {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-  gap: 1rem;
-}
-
-.td-budget-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  margin-bottom: 0.35rem;
-}
-
-.td-budget-amount {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: var(--peak-accent);
-}
-
-.td-budget-track {
-  height: 0.5rem;
-  border-radius: 999px;
-  background: var(--border-subtle);
-  overflow: hidden;
-}
-
-.td-budget-fill {
-  height: 100%;
-  background: var(--peak-accent);
-  /* The only transition on the meter. Width is a percentage of the server's
-     own budget number; nothing here recomputes it. */
-  transition: width var(--pk-dur-base, 200ms) ease;
-}
-
-.td-budget-slots {
-  margin-top: 0.3rem;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
-
-/* -- candidate ------------------------------------------------------------- */
-
-.td-candidate {
-  text-align: center;
-  padding: 1.5rem 1rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.75rem;
-}
-
-.td-candidate-lot {
-  font-size: 0.75rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.td-candidate-name {
-  font-size: clamp(1.5rem, 5vw, 2.25rem);
-  font-weight: 600;
-  margin: 0.25rem 0;
-}
-
-.td-candidate-meta {
-  color: var(--text-muted);
-}
-
-.td-candidate-hint {
-  margin-top: 0.75rem;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
-
-.td-position-list {
-  display: flex;
-  justify-content: center;
-  gap: 0.4rem;
-  margin-top: 0.75rem;
-  list-style: none;
-  padding: 0;
-}
-
-.td-position {
-  padding: 0.2rem 0.55rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.4rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-/* A position this seat can actually use. Emphasis only -- legality is the
-   server's answer, carried in `private_state.candidate_fits`. */
-.td-position-open {
-  opacity: 1;
-  border-color: var(--peak-accent);
-  color: var(--peak-accent);
-}
-
-/* -- bidding --------------------------------------------------------------- */
-
-.td-bid {
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.75rem;
-  padding: 1rem;
-}
-
-.td-bid-row {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.td-bid-amount {
-  min-width: 4.5rem;
-  text-align: right;
-  font-size: 1.5rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--peak-accent);
-}
-
-.td-bid-hint {
-  margin-top: 0.5rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-.td-bid-actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.85rem;
-}
-
-.td-bid-locked {
-  text-align: center;
-}
-
-.td-bid-locked-amount {
-  font-size: 2rem;
-  font-weight: 600;
-  color: var(--peak-accent);
-}
-
-.td-btn {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.5rem;
-  background: transparent;
-  cursor: pointer;
-}
-
-.td-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.td-btn-primary {
-  border-color: var(--peak-accent);
-  color: var(--peak-accent);
-}
-
-/* -- rosters --------------------------------------------------------------- */
-
-.td-rosters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-  gap: 1rem;
-}
-
-.td-slot-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.td-slot {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.5rem;
-  min-height: 2.75rem;
-}
-
-.td-slot-tag {
-  width: 2rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.td-slot-body {
-  display: flex;
-  flex: 1;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.td-slot-price {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-}
-
-.td-slot-empty {
-  color: var(--text-muted);
-  font-size: 0.85rem;
-}
-
-.td-slot-filled {
-  border-color: var(--peak-accent);
-}
-
-/* -- reveal ---------------------------------------------------------------- */
-
-.td-reveal {
-  text-align: center;
-  padding: 1.25rem;
-  border: 1px solid var(--peak-accent);
-  border-radius: 0.75rem;
-}
-
-.td-reveal-score {
-  font-size: 2.5rem;
-  font-weight: 600;
-  color: var(--peak-accent);
-  font-variant-numeric: tabular-nums;
-}
-
-.td-reveal-score-label {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  font-weight: 400;
-}
-
-.td-reveal-bids,
-.td-history-bids {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  margin: 0.75rem 0;
-}
-
-.td-bid-chip {
-  padding: 0.2rem 0.6rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.td-bid-chip-won {
-  border-color: var(--peak-accent);
-  color: var(--peak-accent);
-}
-
-.td-silhouette {
-  margin: 0.75rem auto;
-}
-
-.td-silhouette-caption {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-}
-
-/* -- history --------------------------------------------------------------- */
-
-.td-history-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.td-history-row {
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.5rem;
-  padding: 0.6rem 0.75rem;
-}
-
-.td-history-main {
-  display: flex;
-  justify-content: space-between;
-  font-weight: 500;
-}
-
-.td-history-score {
-  font-variant-numeric: tabular-nums;
-  color: var(--peak-accent);
-}
-
-.td-history-verdict {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-/* -- receipt --------------------------------------------------------------- */
-
-.td-receipt {
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 1.25rem;
-}
-
-.td-receipt-totals {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  gap: 0.75rem;
-  margin: 1rem 0;
-}
-
-.td-total {
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.5rem;
-  padding: 0.75rem;
-  display: flex;
-  flex-direction: column;
-}
-
-.td-total-won {
-  border-color: var(--peak-accent);
-}
-
-.td-total-score {
-  font-size: 1.75rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.td-total-meta {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
-
-/* Wide content scrolls inside its own container so the page body never
-   scrolls horizontally on a phone. */
-.td-table-scroll {
-  overflow-x: auto;
-}
-
-.td-levels,
-.td-positional {
-  width: 100%;
-  min-width: 22rem;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.td-levels th,
-.td-levels td,
-.td-positional th,
-.td-positional td {
-  text-align: left;
-  padding: 0.45rem 0.6rem;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.td-level-decided {
-  font-weight: 600;
-}
-
-/* Reported, not omitted -- see TwentyDollarReceipt's header. */
-.td-level-muted {
-  color: var(--text-muted);
-}
-
-.td-level-index {
-  color: var(--text-muted);
-  margin-right: 0.5rem;
-}
-
-.td-positional-won {
-  color: var(--peak-accent);
-}
-
-.td-positional-name {
-  display: block;
-}
-
-.td-positional-score {
-  display: block;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.td-highlights {
-  list-style: none;
-  padding: 0;
-  margin: 1rem 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  font-size: 0.9rem;
-}
-
-.td-counterfactual {
-  border-left: 2px solid var(--peak-accent);
-  padding-left: 0.85rem;
-  margin: 1rem 0;
-}
-
-.td-assumption,
-.td-autofill-note {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
-
-.td-disclosure {
-  margin-top: 1.25rem;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--border-subtle);
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-.td-model-version {
-  margin-top: 0.35rem;
-  color: var(--text-muted);
-}
-
-.td-error {
-  color: var(--danger, #f87171);
-}
-
-.td-waiting {
-  text-align: center;
-  font-size: 0.9rem;
-  color: var(--text-muted);
-}
-
-/* -- motion ---------------------------------------------------------------- */
-
-@keyframes td-enter {
-  from {
-    opacity: 0;
-    transform: translateY(0.75rem) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-@keyframes td-land {
-  from {
-    opacity: 0.4;
-    transform: translateY(-0.5rem);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* The dramatic candidate reveal. Keyed on round index in the component, so a
-   new lot restarts it. */
-.td-enter {
-  animation: td-enter var(--pk-dur-reveal, 400ms) var(--pk-ease-out, ease-out) both;
-}
-
-/* The card flight into a roster slot. */
-.td-land {
-  animation: td-land var(--pk-dur-base, 200ms) var(--pk-ease-out, ease-out) both;
-}
-
-/*
- * REDUCED MOTION. Everything above is decoration: no layout, no meaning, no
- * information is carried by the animation, so removing it entirely leaves a
- * complete game rather than a degraded one. The budget meter's width
- * transition goes too -- an animated bar is the same information arriving
- * slower.
- */
-@media (prefers-reduced-motion: reduce) {
-  .td-enter,
-  .td-land {
-    animation: none;
-  }
-
-  .td-budget-fill {
-    transition: none;
-  }
-}
-
-/* -- lobby ----------------------------------------------------------------- */
-
-/* The lobby reuses the mode's slot/card furniture rather than introducing a
-   parallel set, so a second mode plugging in inherits the look for free. */
-
-.td-mode-card {
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
+/* THE DOT BREATHES AS A RING, NOT AS AN OPACITY FADE. `.pk-turn-pulse` is on
+   the element; this supplies the one variable the primitive asks for. The old
+   `td-pulse` keyframe dropped the dot to 35% opacity, which is the same
+   pattern the on-clock badge in Three-Man Weave was rebuilt away from, and
+   which also made the dot briefly ambiguous with its own inactive state. */
+.td-turn[data-seat="a"] .td-turn-dot {
+  background: var(--seat-a-fill);
+  --pk-pulse-color: var(--seat-a-fill);
 }
 
-.td-mode-card:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.td-turn[data-seat="b"] {
+  border-left-color: var(--seat-b-fill);
 }
 
-.td-mode-card:hover:not(:disabled) {
-  border-color: var(--peak-accent);
+.td-turn[data-seat="b"] .td-turn-dot {
+  background: var(--seat-b-fill);
+  --pk-pulse-color: var(--seat-b-fill);
 }
 
-/* Rated state, shown on the button a player is about to press. Never a
-   tooltip and never a later screen -- a match that did not count must not be
-   a discovery made afterwards. */
-.td-rated {
-  align-self: center;
-  padding: 0.15rem 0.5rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  font-size: 0.7rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  white-space: nowrap;
+.td-turn[data-phase="pending"],
+.td-turn[data-phase="settling"] {
+  border-left-color: var(--border-edge);
 }
-
-.td-rated-on {
-  border-color: var(--peak-accent);
-  color: var(--peak-accent);
-  opacity: 1;
-}
-
-.td-code-input {
-  flex: 1;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.5rem;
-  background: transparent;
-  color: inherit;
-  font-size: 1.1rem;
-  letter-spacing: 0.25em;
-  text-transform: uppercase;
-}
-
 
 /* ==========================================================================
-   v2 — the ascending auction room.
+   The table
    ==========================================================================
-   The sealed-bid surface was a single scrolling column: candidate, then a
-   slider, then two rosters far below the fold. An alternating auction needs
-   the opposite -- the standing bid, both budgets and both rosters visible at
-   the moment you decide. Hence a three-column table on desktop that collapses
-   to reading order (you, the block, your opponent) on a phone.
+   Three columns on desktop, collapsing to reading order (you, the block, your
+   opponent) on a phone. The side columns get equal, generous tracks: S20-14
+   asks for room for an avatar, a name, a season and a price without an
+   ordinary name wrapping onto three lines, and 15rem did not have it.
    ========================================================================== */
 
 .td-table {
@@ -641,9 +160,15 @@
   align-items: start;
 }
 
-@media (min-width: 62rem) {
+@media (min-width: 64rem) {
   .td-table {
-    grid-template-columns: minmax(0, 15rem) minmax(0, 1.4fr) minmax(0, 15rem);
+    grid-template-columns: minmax(0, 17.5rem) minmax(0, 1.3fr) minmax(0, 17.5rem);
+  }
+}
+
+@media (min-width: 82rem) {
+  .td-table {
+    grid-template-columns: minmax(0, 19.5rem) minmax(0, 1.25fr) minmax(0, 19.5rem);
   }
 }
 
@@ -658,129 +183,322 @@
   order: -1;
 }
 
-@media (min-width: 62rem) {
+@media (min-width: 64rem) {
   .td-column-centre {
     order: 0;
   }
 }
 
-/* -- candidate, v2 --------------------------------------------------------- */
-
-.td-candidate {
-  background: var(--bg-elevated);
-  border-radius: var(--pk-r-lg, 14px);
-  padding: 1.25rem 1.25rem 1.1rem;
-}
-
-.td-candidate-head {
+.td-column-stack {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.35rem;
+  flex-direction: column;
+  gap: 0.85rem;
+  min-width: 0;
 }
 
-.td-candidate-lot,
-.td-turn {
+/* THE CENTRE COLUMN KEEPS ITS CONTROLS IN VIEW. On a short laptop (1440x700 is
+   the review size) the stage scrolls INSIDE itself rather than pushing the bid
+   buttons past the viewport. */
+@media (min-width: 64rem) and (min-height: 40rem) {
+  .td-column-centre {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    /* Room for a focus ring on the last control inside the scroll area. */
+    padding: 2px;
+  }
+}
+
+/* ==========================================================================
+   The stage (S20-04)
+   ========================================================================== */
+
+/* THE LOT UNDER THE HAMMER IS THE DECISION SURFACE, and it takes
+   `.pk-depth-decision` outright: the warm gradient, the strong rim and the
+   accent edge that globals reserves for "the thing the player is meant to act
+   on". It can take the utility wholesale because, unlike the seat cards, it
+   owns no competing state of its own — a lot is either on the block or gone.
+   The background, border-colour and box-shadow below are therefore
+   deliberately absent rather than overridden. */
+.td-candidate {
+  position: relative;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-lg, 14px);
+  padding: 1.1rem 1.25rem 1rem;
+}
+
+.td-stage-lot {
+  font-family: var(--font-display);
   font-size: 0.6875rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: var(--pk-track-eyebrow);
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
-.td-turn {
-  display: inline-flex;
+/* "OF 24 · STANDARD MARKET" IS ORIENTATION, NOT METADATA. How many lots are
+   left is half of every bidding decision in the mode — spend now or wait —
+   and it was set in the faintest ink the theme has. It stays lighter than the
+   lot number beside it by WEIGHT, which is what the weight was for. */
+.td-stage-lot-of {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.td-stage-identity {
+  display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.2rem 0.55rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
+  gap: 0.85rem;
+  margin-top: 0.6rem;
 }
 
-/* The single strongest signal on the board: it is your move. Colour AND a
-   border change AND the word "Your move", so it survives greyscale. */
-.td-turn-yours {
+.td-stage-who {
+  min-width: 0;
+}
+
+.td-candidate-name {
+  font-family: var(--font-display);
+  font-size: clamp(1.35rem, 3.6vw, 2rem);
+  font-weight: 700;
+  /* Display steps, from the tokens — this is the largest identity on the
+     board and it should be set like one. */
+  line-height: var(--pk-leading-heading);
+  letter-spacing: var(--pk-track-display);
+  color: var(--text-primary);
+}
+
+.td-candidate-meta {
+  margin-top: 0.15rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.td-position-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  list-style: none;
+  padding: 0;
+}
+
+.td-position {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border-edge);
+  border-radius: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* A position this seat can actually use. Emphasis only — legality is the
+   server's answer, carried in `private_state.candidate_fits`. */
+.td-position-open {
   border-color: var(--peak-accent);
   background: var(--peak-accent-bg);
   color: var(--peak-accent-text);
 }
 
-.td-turn-clock {
-  font-variant-numeric: tabular-nums;
-}
-
-.td-standing {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 0.5rem;
+/* THE NUMBER THE DECISION TURNS ON. */
+.td-stage-bid {
   margin-top: 1rem;
   padding-top: 0.85rem;
   border-top: 1px solid var(--border-subtle);
+  text-align: center;
 }
 
-.td-standing-label {
+.td-stage-bid-label {
   font-size: 0.6875rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
-.td-standing-amount {
-  font-size: 1.75rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+.td-stage-bid-amount {
+  font-family: var(--font-display);
+  font-size: clamp(2.75rem, 9vw, 4rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
   color: var(--peak-accent-text);
 }
 
-.td-standing-holder {
+/* A REAL, READABLE ZERO. The floor being open is a fact, not an absence, and
+   the muted tier at `clamp(2.75rem, 9vw, 4rem)` is the same visual as the em
+   dash this rendered before it — a big grey shape that reviewers read as a
+   loading skeleton. It stays quieter than an OPENED bid, which is gold, but
+   it is now clearly a value. */
+.td-stage-bid[data-opened="false"] .td-stage-bid-amount {
+  color: var(--text-secondary);
+}
+
+.td-stage-bid-holder {
+  margin-top: 0.15rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.td-stage-last {
+  margin-top: 0.1rem;
   font-size: 0.8125rem;
   color: var(--text-secondary);
 }
 
-/* -- live lot ticker ------------------------------------------------------- */
-
-.td-ticker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  list-style: none;
-  padding: 0;
-  margin: 0;
+/* THIS SENTENCE IS THE MODE'S CENTRAL RULE. "The PEAK3 score is sealed until
+   this lot sells" is why the auction is a game rather than a lookup; a player
+   who has not read it is playing a different game. Not tertiary. */
+.td-candidate-hint {
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
-.td-ticker-item {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.35rem;
-  padding: 0.15rem 0.5rem;
+/* ==========================================================================
+   The clock (S20-04 item 5)
+   ==========================================================================
+   FOUR MODES, AND NONE OF THEM IS EMPTY. A review capture of a live auction
+   showed this band containing the word "YOUR TURN" and nothing else: the
+   server sends `seconds_remaining` only to the seat on the clock, so the null
+   it sends for every other case reached `ArenaTimer`, which correctly rendered
+   its label-only idle state. See `ShowdownClock` for the four modes.
+   ========================================================================== */
+
+.td-clock {
+  display: block;
+}
+
+/* -- held: a decision is coming but has not opened ------------------------- */
+
+.td-clock-held,
+.td-clock-elapsed {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.15rem 0.75rem;
+  padding: 0.7rem 0.95rem;
   border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  background: var(--pk-surface-inset, var(--bg-surface));
-  font-size: 0.6875rem;
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-elevated);
+  box-shadow: var(--pk-rim);
 }
 
-.td-ticker-who {
-  font-weight: 600;
+.td-clock-held-label,
+.td-clock-elapsed-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--text-secondary);
 }
 
-.td-ticker-what {
-  font-variant-numeric: tabular-nums;
+.td-clock-held-value,
+.td-clock-elapsed-value {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  font-family: var(--font-display);
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1;
   color: var(--text-primary);
 }
 
-/* -- bid controls, v2 ------------------------------------------------------ */
+/* THE WINDOW LENGTH, WHILE THE CLOCK IS HELD. It is deliberately quieter than
+   a RUNNING countdown — it is not counting, and pretending otherwise would be
+   the defect this whole panel was rebuilt to fix — but "25s" at 2rem in the
+   faintest ink reads as disabled rather than as pending. */
+.td-clock-held-value {
+  color: var(--text-secondary);
+}
 
-.td-bid {
-  background: var(--bg-elevated);
-  border-radius: var(--pk-r-lg, 14px);
-  padding: 1rem 1.1rem 1.1rem;
+.td-clock-held-sub {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+/* -- elapsed: the opponent is on a clock we cannot see --------------------- */
+
+.td-clock-elapsed-value {
+  color: var(--seat-b-ink);
+}
+
+.td-clock-elapsed-track {
+  grid-column: 1;
+  height: 0.25rem;
+  margin-top: 0.3rem;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+/* An indeterminate sweep: it says "something is happening" without implying a
+   remaining time this client has not been told. */
+.td-clock-elapsed-fill {
+  display: block;
+  width: 35%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--seat-b-fill);
+  animation: td-sweep 1.4s ease-in-out infinite;
+}
+
+/* -- pending: we have submitted (S20-08) ----------------------------------- */
+
+.td-pending {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--peak-accent);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--peak-accent-bg);
+  text-align: center;
+}
+
+.td-pending-mark {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 2px solid var(--peak-accent);
+  border-top-color: transparent;
+  animation: td-spin 900ms linear infinite;
+}
+
+.td-pending-text {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.td-pending-sub {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   The bid controls (S20-05)
+   ========================================================================== */
+
+.td-bid {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-lg, 14px);
+  /* Raised, but NOT `.pk-depth-decision`: the stage above already carries the
+     decision treatment, and two accent-edged surfaces stacked on one screen
+     is two primaries. Composed rather than classed so the mobile dock's
+     upward shadow at the bottom of this file still wins. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
+  padding: 0.9rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
 }
 
 .td-bid-head {
@@ -795,13 +513,13 @@
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .td-bid-range {
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .td-stepper {
@@ -814,9 +532,9 @@
   flex: 0 0 auto;
   width: var(--pk-tap-min, 44px);
   min-height: var(--pk-tap-min, 44px);
-  border: 1px solid var(--border-default, var(--border-subtle));
+  border: 1px solid var(--border-edge);
   border-radius: var(--pk-r-md, 10px);
-  background: var(--pk-surface-raised, var(--bg-surface));
+  background: var(--bg-surface);
   color: var(--text-primary);
   font-size: 1.25rem;
   line-height: 1;
@@ -825,18 +543,7 @@
 
 .td-step:hover:not(:disabled) {
   border-color: var(--peak-accent);
-}
-
-.td-step:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.td-step:focus-visible,
-.td-chip-btn:focus-visible,
-.td-btn:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  background: var(--bg-surface-hover, var(--bg-surface));
 }
 
 .td-bid-amount {
@@ -846,12 +553,12 @@
   justify-content: center;
   min-width: 0;
   min-height: var(--pk-tap-min, 44px);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-edge);
   border-radius: var(--pk-r-md, 10px);
-  background: var(--pk-surface-inset, var(--bg-surface));
-  font-size: 1.5rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  background: var(--bg-surface);
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 800;
   text-align: center;
   color: var(--peak-accent-text);
 }
@@ -863,13 +570,14 @@
 }
 
 .td-chip-btn {
-  min-height: 2rem;
-  padding: 0.25rem 0.65rem;
-  border: 1px solid var(--border-subtle);
+  min-height: 2.25rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border-edge);
   border-radius: 999px;
-  background: var(--pk-surface-inset, var(--bg-surface));
+  background: var(--bg-surface);
   color: var(--text-secondary);
-  font-size: 0.75rem;
+  font-family: inherit;
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -879,13 +587,115 @@
   color: var(--text-primary);
 }
 
-.td-chip-btn:disabled {
-  opacity: 0.4;
+.td-bid-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* -- the buttons ----------------------------------------------------------- */
+
+.td-btn {
+  flex: 1 1 10rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.6rem 1.1rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 90ms ease;
+}
+
+/* A REAL FILLED PRIMARY (S20-05, SHARED-04).
+   It was `background: transparent` with an accent border and accent TEXT — so
+   in light mode the label measured 1.50:1 against its own background, and in
+   both themes the mode's most important control was quieter than the
+   `.btn-secondary` links on the result screen. */
+.td-btn-primary {
+  background: var(--peak-accent);
+  border-color: var(--peak-accent);
+  color: var(--peak-accent-on);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.25), 0 6px 18px -10px var(--peak-accent);
+}
+
+/* THE GOLD GLOW SURVIVES THE HOVER. `.pk-lift:hover` is a neutral rim-plus-
+   elevation shadow defined later in the cascade, so without this the mode's
+   primary control would LOSE its accent glow at the exact moment the pointer
+   is on it. Lift is still doing its job — the transform comes from the
+   utility and is not restated here. */
+.td-btn-primary:hover:not(:disabled),
+.td-btn-primary.pk-lift:hover,
+.td-btn-primary.pk-lift:focus-visible {
+  background: var(--peak-accent-dim);
+  border-color: var(--peak-accent-dim);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 8px 22px -8px var(--peak-accent);
+}
+
+/* A DISABLED BUTTON DOES NOT RISE. `.pk-lift` does not exclude `:disabled`,
+   and the bid control is disabled for most of every lot. */
+.td-btn.pk-lift:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* `.pk-sheen` clips to its host, which needs a paint containment box. This is
+   the ONE element in the mode carrying it. */
+.td-btn-primary.pk-sheen {
+  overflow: hidden;
+}
+
+/* The alternate action is a real button too, just outlined — S20-05's "strong
+   filled/outlined hierarchy". */
+.td-btn-decline:hover:not(:disabled) {
+  border-color: var(--text-secondary);
+  background: var(--bg-surface-hover, var(--bg-elevated));
+}
+
+.td-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* A DISABLED CONTROL IS DELIBERATELY NEUTRAL, not a faded accent (SHARED-04).
+   `opacity` over the gold produced a murky olive that read as "some other
+   colour" rather than as "not ready". */
+.td-btn:disabled {
+  background: var(--bg-surface);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  box-shadow: none;
   cursor: not-allowed;
 }
 
-/* The explanation beside a disabled bid. Never colour alone: it is a full
-   sentence, in the flow, announced as a status. */
+.td-step:disabled,
+.td-chip-btn:disabled {
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.td-step:focus-visible,
+.td-chip-btn:focus-visible,
+.td-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* One supporting line, at readable contrast, in the flow — never a tooltip and
+   never colour alone. */
 .td-bid-blocked {
   font-size: 0.8125rem;
   line-height: 1.45;
@@ -894,7 +704,279 @@
   padding-left: 0.6rem;
 }
 
-/* -- rosters, v2 ----------------------------------------------------------- */
+.td-bid-hint {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.td-waiting {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* ==========================================================================
+   The auction log (S20-04)
+   ========================================================================== */
+
+.td-log {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+}
+
+.td-log > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: var(--pk-tap-min, 44px);
+  padding: 0.5rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.td-log > summary::-webkit-details-marker {
+  display: none;
+}
+
+.td-log > summary:hover {
+  color: var(--text-primary);
+}
+
+.td-log > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.td-log-count {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 0.6875rem;
+}
+
+.td-log-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 12rem;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0 0.85rem 0.6rem;
+}
+
+.td-log-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.8125rem;
+}
+
+.td-log-item:last-child {
+  border-bottom: 0;
+}
+
+.td-log-who {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.td-log-what {
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   Seat cards (S20-03, S20-06)
+   ========================================================================== */
+
+.td-seat {
+  position: relative;
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid var(--border-edge);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-elevated);
+  /* Composed rather than `.pk-depth`, because `[data-active="true"]` below
+     owns this element's background AND its box-shadow, and the utility is a
+     single declaration defined later in the cascade — it would have replaced
+     the active-seat ring with a generic elevation. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
+  padding: 0.8rem 0.9rem;
+}
+
+.td-seat[data-seat="a"] {
+  border-left-color: color-mix(in srgb, var(--seat-a-fill) 55%, transparent);
+}
+
+.td-seat[data-seat="b"] {
+  border-left-color: color-mix(in srgb, var(--seat-b-fill) 55%, transparent);
+}
+
+/* THE ACTIVE SEAT IS UNMISTAKABLE: a full-strength rail, a ring, a lifted
+   surface and the words "On the clock" inside it. */
+.td-seat[data-active="true"] {
+  background: var(--bg-surface);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 0 1px var(--border-edge),
+    /* `--pk-elev-3`, not a black literal. The literal was theme-blind: pure
+       black under a seat sitting on Arena Day's warm cream reads as soot,
+       which is the exact "neutral grey haze" failure the elevation tokens
+       were re-tuned for light mode to avoid. The token already carries a
+       warm-ink value there and a black one here. */
+    var(--pk-elev-3);
+}
+
+/* THE ACTIVE SEAT IS LIT FROM ACROSS THE ROOM. A 1px ring alone was the
+   "signalled by a single border colour" finding; the outer bloom is what makes
+   it readable from the other side of a 1440px board. Still never colour
+   alone — the words "On the clock" are inside the card. */
+.td-seat[data-active="true"][data-seat="a"] {
+  border-left-color: var(--seat-a-fill);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 0 1px color-mix(in srgb, var(--seat-a-fill) 45%, transparent),
+    0 0 28px -8px color-mix(in srgb, var(--seat-a-fill) 60%, transparent);
+}
+
+.td-seat[data-active="true"][data-seat="b"] {
+  border-left-color: var(--seat-b-fill);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 0 1px color-mix(in srgb, var(--seat-b-fill) 45%, transparent),
+    0 0 28px -8px color-mix(in srgb, var(--seat-b-fill) 60%, transparent);
+}
+
+.td-seat-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.td-seat-name {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: var(--pk-track-tight);
+  color: var(--text-primary);
+}
+
+.td-seat[data-seat="a"] .td-seat-name {
+  color: var(--seat-a-ink);
+}
+
+.td-seat[data-seat="b"] .td-seat-name {
+  color: var(--seat-b-ink);
+}
+
+.td-seat-live {
+  margin-left: auto;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--peak-accent);
+  color: var(--peak-accent-on);
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* The badge wears `.pk-turn-pulse`; this is the colour it breathes in. It
+     defaults to the brand gold, which is correct for seat A and wrong for
+     seat B, so the seat rules below re-point it. */
+  --pk-pulse-color: var(--seat-a-fill);
+}
+
+.td-seat[data-seat="b"] .td-seat-live {
+  background: var(--seat-b-fill);
+  --pk-pulse-color: var(--seat-b-fill);
+}
+
+.td-opener {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border-edge);
+  border-radius: 999px;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* THREE STATS OF EQUAL RANK: money, roster, skips (S20-06). */
+.td-seat-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0.6rem 0 0.5rem;
+}
+
+.td-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+}
+
+.td-stat-value {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: var(--pk-track-heading);
+  color: var(--text-primary);
+}
+
+/* THE DENOMINATOR IS PART OF THE NUMBER. "3/5" says something "3" does not,
+   and the "/5" was set two tiers below the digit it belongs to. */
+.td-stat-of {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.td-stat-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.td-stat-skips[data-remaining="0"] .td-stat-value {
+  color: var(--comp-po);
+}
+
+.td-budget-track {
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.td-budget-fill {
+  height: 100%;
+  background: var(--peak-accent);
+  transition: width var(--pk-dur-base, 200ms) ease;
+}
+
+.td-seat[data-seat="b"] .td-budget-fill {
+  background: var(--seat-b-fill);
+}
+
+.td-seat-note {
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Rosters (S20-14)
+   ========================================================================== */
 
 .td-roster {
   border: 1px solid var(--border-subtle);
@@ -908,47 +990,116 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   margin-bottom: 0.5rem;
 }
 
-.td-slot-sub {
-  display: block;
-  font-size: 0.6875rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
+.td-slot-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
-.td-budget {
+/* ONE ROW, ONE LINE PER FIELD. A fixed grid rather than a flexed name that
+   could steal the price's width: avatar+tag, then name over season, then the
+   price. "Shai Gilgeous-Alexander" fits on one line at 390px. */
+.td-slot {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.5rem;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--pk-r-lg, 14px);
-  background: var(--bg-elevated);
-  padding: 0.75rem 0.85rem;
+  border-radius: var(--pk-r-md, 10px);
+  min-height: 3rem;
 }
 
-.td-budget-active {
-  border-color: var(--peak-accent);
+.td-slot-filled {
+  border-color: var(--border-edge);
+  background: var(--bg-surface);
 }
 
-.td-opener {
-  margin-left: 0.4rem;
-  padding: 0.05rem 0.35rem;
-  border: 1px solid var(--border-subtle);
+.td-slot-figure {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2rem;
+}
+
+.td-slot-vacant {
+  width: 1.9rem;
+  height: 1.9rem;
   border-radius: 999px;
-  font-size: 0.5625rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  border: 1px dashed var(--border-edge);
 }
 
-/* -- reveal, v2 ------------------------------------------------------------ */
+.td-slot-tag {
+  position: absolute;
+  left: 0;
+  bottom: -0.35rem;
+  padding: 0 0.25rem;
+  border-radius: 0.3rem;
+  background: var(--bg-elevated);
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.td-slot-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.td-slot-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.td-slot-sub {
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+}
+
+/* An unfilled roster slot is what a bidder is shopping FOR. Same call as
+   `.tmw-slot-open` in the draft room, for the same reason. */
+.td-slot-empty {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.td-slot-price {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   The settlement reveal
+   ========================================================================== */
 
 .td-reveal {
+  position: relative;
   border: 1px solid var(--peak-accent);
   border-radius: var(--pk-r-lg, 14px);
   background: var(--bg-elevated);
-  padding: 1.1rem;
+  /* The payoff panel is lit: a strong rim and a warm bloom, because this is
+     the moment the sealed number becomes visible. */
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 34px -14px var(--pk-glow-strong),
+    var(--pk-elev-3);
+  padding: 1rem 1.1rem;
   text-align: center;
 }
 
@@ -960,426 +1111,328 @@
   color: var(--peak-accent-text);
 }
 
+.td-reveal-identity {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin: 0.4rem 0;
+  text-align: left;
+}
+
+.td-reveal-name {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
 .td-reveal-season {
   font-size: 0.8125rem;
   color: var(--text-secondary);
 }
 
-.td-reveal-verdict {
-  margin-top: 0.6rem;
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-}
-
-.td-waiting {
-  font-size: 0.8125rem;
-  color: var(--text-secondary);
-}
-
-/* -- history, v2 ----------------------------------------------------------- */
-
-.td-history {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--pk-r-lg, 14px);
-  background: var(--bg-elevated);
-  padding: 0.85rem;
-}
-
-.td-history-heading {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-  margin-bottom: 0.5rem;
-}
-
-.td-history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  max-height: 22rem;
-  overflow-y: auto;
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.td-history-list:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-  border-radius: var(--pk-r-md, 10px);
-}
-
-.td-history-name {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.td-history-score {
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
+.td-reveal-score {
+  font-family: var(--font-display);
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: var(--pk-leading-display);
+  letter-spacing: var(--pk-track-display);
   color: var(--peak-accent-text);
 }
 
-.td-history-verdict {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-}
-
-.td-error {
-  padding: 0.7rem 0.9rem;
-  border: 1px solid var(--peak-accent);
-  border-radius: var(--pk-r-md, 10px);
-  background: var(--peak-accent-bg);
-  color: var(--text-primary);
+.td-reveal-score-label {
   font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .td-step,
-  .td-chip-btn,
-  .td-budget-fill {
-    transition: none;
-  }
+.td-reveal-verdict {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
 }
 
-/* ---------------------------------------------------------------------------
-   W7: the skip economy, the market phase, and the dedicated result state.
-   --------------------------------------------------------------------------- */
+.td-reveal-queued {
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
 
-.td-budget-skips {
+.td-reveal-breakdown > summary {
+  min-height: var(--pk-tap-min, 44px);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-sm, 6px);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.td-reveal-breakdown > summary::-webkit-details-marker { display: none; }
+.td-reveal-breakdown > summary:hover { color: var(--text-primary); border-color: var(--peak-accent); }
+.td-reveal-breakdown > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.td-reveal-breakdown[open] > summary { margin-bottom: 0.5rem; }
+
+.td-silhouette {
+  margin: 0.75rem auto;
+}
+
+.td-silhouette-caption {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   The pre-match intro (S20-01)
+   ========================================================================== */
+
+.td-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  margin-top: 0.2rem;
-  font-size: 0.625rem;
-  color: var(--text-muted);
-}
-
-.td-skip-pips {
-  display: inline-flex;
-  gap: 0.12rem;
-}
-
-.td-skip-pips i {
-  width: 0.35rem;
-  height: 0.35rem;
-  border-radius: 50%;
-  background: var(--peak-accent);
-}
-
-.td-skip-pips i[data-spent="true"] {
-  background: var(--border-default);
-}
-
-.td-budget-skips[data-remaining="0"] {
-  color: var(--text-primary);
-  font-weight: 700;
-}
-
-.td-btn[data-costs-skip="true"] {
-  border-color: var(--comp-po);
-}
-
-/* --- the result state ----------------------------------------------------- */
-
-.td-result {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.td-result-head {
+  justify-content: center;
   padding: 1rem;
-  border-radius: 0.75rem;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
+  background: color-mix(in srgb, var(--bg-page) 88%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.td-intro-card {
+  position: relative;
+  width: min(28rem, 100%);
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  padding: 1.5rem 1.4rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-lg, 14px);
+  /* The warm decision gradient, because this card IS the thing being acted on
+     — it is a dialog with exactly one button. Composed rather than classed so
+     the deep drop shadow that lifts it off the scrim survives; `.pk-depth-
+     decision` is one box-shadow declaration and would have flattened it. */
+  background: var(--pk-grad-decision);
   text-align: center;
+  box-shadow:
+    var(--pk-rim-strong),
+    /* `--pk-elev-4` is the deep-lift tier and is already theme-tuned: a
+       black literal here cast soot across Arena Day's cream scrim, which
+       this card floats directly on top of. */
+    var(--pk-elev-4);
 }
 
-.td-result-head[data-tier="win"] {
-  border-color: var(--peak-accent);
-  background: var(--peak-accent-bg);
-}
-
-.td-result-eyebrow {
+.td-intro-eyebrow {
   font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.td-result-headline {
-  font-size: clamp(1.2rem, 4vw, 1.8rem);
   font-weight: 800;
-  color: var(--text-primary);
-}
-
-.td-result-basis {
-  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
   color: var(--text-secondary);
 }
 
-.td-result-seats {
-  display: grid;
-  gap: 0.6rem;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
-}
-
-.td-result-seat {
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.65rem;
-  background: var(--bg-elevated);
-  padding: 0.6rem 0.75rem;
-}
-
-.td-result-seat[data-winner="true"] {
-  border-color: var(--peak-accent);
-}
-
-.td-result-seat-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.td-result-seat-head h3 {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.td-result-total {
-  font-size: 1.25rem;
+.td-intro-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 6vw, 2.25rem);
   font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  color: var(--peak-accent-text);
-}
-
-.td-result-money {
-  font-size: 0.6875rem;
-  color: var(--text-muted);
-}
-
-.td-result-roster {
-  margin-top: 0.35rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.td-result-slot {
-  display: grid;
-  grid-template-columns: 2rem minmax(0, 1fr) 2.6rem 3rem;
-  align-items: baseline;
-  gap: 0.3rem;
-  font-size: 0.75rem;
+  letter-spacing: var(--pk-track-display);
+  line-height: var(--pk-leading-display);
   color: var(--text-primary);
 }
 
-.td-result-slot-tag {
-  font-size: 0.5625rem;
-  font-weight: 700;
-  color: var(--text-muted);
+.td-intro-versus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: 0.9rem 0;
 }
 
-.td-result-slot-name {
+.td-intro-side {
+  flex: 1 1 0;
+  padding: 0.5rem 0.4rem;
+  border-radius: var(--pk-r-md, 10px);
+  border: 1px solid var(--border-edge);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.td-result-slot-price,
-.td-result-slot-score {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
+.td-intro-side[data-seat="a"] {
+  border-color: var(--seat-a-fill);
+  color: var(--seat-a-ink);
 }
 
-.td-result-facts {
-  display: grid;
-  gap: 0.4rem;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 0.65rem;
-  background: var(--bg-elevated);
+.td-intro-side[data-seat="b"] {
+  border-color: var(--seat-b-fill);
+  color: var(--seat-b-ink);
 }
 
-.td-result-facts dt {
-  font-size: 0.5625rem;
+.td-intro-vs {
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
 
-.td-result-facts dd {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-}
-
-.td-result-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.td-result-detail summary {
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--text-secondary);
-  padding: 0.4rem 0;
-}
-
-/* ==========================================================================
-   RESCUE PASS: the balanced stage, the settled tray, and the gap summary.
-   ==========================================================================
-   THREE LAYOUT DEFECTS, ONE CAUSE. The settled-lot history lived inside the
-   right-hand column, above the opponent's roster. As lots piled up it grew,
-   crushed the roster panel a player most needs to read, and pushed the
-   opponent's budget meter off screen — so the two participants ended up with
-   structurally different panels even though the markup intended symmetry
-   (PART 19). It is now a full-width tray BELOW the stage, collapsed by
-   default, holding its own scroll.
-
-   The side columns are also given equal, fixed track widths, so neither can
-   be squeezed by its own content.
-   ========================================================================== */
-
-.td-column-seat {
-  gap: 0.85rem;
-}
-
-.td-column-stack {
+.td-intro-rules {
+  list-style: none;
+  margin: 0 0 0.9rem;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  min-width: 0;
+  gap: 0.5rem;
+  text-align: left;
 }
 
-/* THE CENTRE COLUMN KEEPS ITS CONTROLS IN VIEW. PART 19's "no active controls
-   pushed below the fold": on a short laptop the stage scrolls INSIDE itself
-   rather than pushing the bid buttons past the viewport. */
-@media (min-width: 62rem) and (min-height: 44rem) {
-  .td-column-centre {
-    position: sticky;
-    top: 1rem;
-    max-height: calc(100vh - 2rem);
-    overflow-y: auto;
-    /* Room for a focus ring on the last control inside the scroll area. */
-    padding: 2px;
-  }
+.td-intro-rules li {
+  display: grid;
+  /* AUTO, NOT A FIXED 2.6rem. The three values are "$20", "5" and "5", and
+     "$20" in the display face at 1.35rem is wider than 2.6rem -- so the
+     numeral overran its column and collided with the sentence beside it
+     ("$20ach, for the whole auction"). A fixed column that fits the widest
+     value would leave the two single digits floating; `auto` sizes to the
+     widest of the three and keeps all of them aligned. */
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.7rem;
 }
 
-/* -- the dismissible, self-clearing error ---------------------------------- */
-
-.td-error {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
+.td-intro-rule-value {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--peak-accent-text);
+  /* Tabular figures already come from `.pk-numeral`; this stops the value
+     wrapping if a future rule carries a longer one. */
+  white-space: nowrap;
 }
 
-.td-error-text {
-  margin: 0;
-  line-height: 1.5;
-}
-
-.td-error-dismiss {
-  flex-shrink: 0;
-  padding: 0.2rem 0.5rem;
-  border: 1px solid var(--border-default, var(--border-subtle));
-  border-radius: var(--pk-r-sm, 6px);
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.td-error-dismiss:hover {
-  color: var(--text-primary);
-  border-color: var(--peak-accent);
-}
-
-.td-error-dismiss:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.td-bid-expired {
-  margin-top: 0.5rem;
-  font-size: 0.75rem;
+.td-intro-rule-text {
+  font-size: 0.8125rem;
   line-height: 1.45;
   color: var(--text-secondary);
 }
 
-/* -- "while you were away" ------------------------------------------------- */
+.td-intro-basis {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+}
 
-.td-missed {
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--peak-accent-dim);
+.td-intro-go {
+  width: 100%;
+}
+
+/* ==========================================================================
+   The resume recap (S20-10)
+   ==========================================================================
+   Compact by construction: three rows, a "View N more", a dismiss control, and
+   it sits ABOVE a board that is still fully rendered underneath — it can never
+   push the current lot below the fold, and it never replaces the reveal.
+   ========================================================================== */
+
+.td-recap {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border-edge);
   border-radius: var(--pk-r-md, 10px);
   background: var(--bg-elevated);
 }
 
-.td-missed-title {
-  font-family: var(--font-display, inherit);
-  font-size: 1rem;
+.td-recap-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+}
+
+.td-recap-title {
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.td-missed-sub {
-  margin-top: 0.15rem;
-  font-size: 0.75rem;
+.td-recap-sub {
+  flex: 1 1 auto;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
 }
 
-.td-missed-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  margin: 0.7rem 0;
+.td-recap-dismiss,
+.td-recap-more {
+  min-height: 2rem;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
 }
 
-.td-missed-row {
+.td-recap-dismiss:hover,
+.td-recap-more:hover {
+  border-color: var(--peak-accent);
+}
+
+.td-recap-dismiss:focus-visible,
+.td-recap-more:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.td-recap-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.td-recap-row {
   display: grid;
-  grid-template-columns: 3.2rem minmax(0, 1fr) auto;
-  grid-template-areas:
-    "lot name score"
-    "lot verdict verdict";
-  gap: 0.1rem 0.6rem;
-  padding: 0.4rem 0.5rem;
+  grid-template-columns: 3.4rem minmax(0, 10rem) minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0.4rem;
   border-radius: var(--pk-r-sm, 6px);
   background: var(--bg-surface);
   font-size: 0.8125rem;
 }
 
-.td-missed-lot {
-  grid-area: lot;
-  align-self: center;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  color: var(--text-muted);
+.td-recap-lot { font-size: 0.6875rem; font-weight: 700; color: var(--text-secondary); }
+.td-recap-name { font-weight: 600; color: var(--text-primary); }
+.td-recap-verdict { font-size: 0.75rem; color: var(--text-secondary); }
+.td-recap-score { color: var(--peak-accent-text); }
+.td-recap-more { margin-top: 0.5rem; }
+
+@media (max-width: 40rem) {
+  .td-recap-row {
+    grid-template-columns: 3.4rem minmax(0, 1fr) auto;
+    grid-template-areas:
+      "lot name score"
+      "lot verdict verdict";
+  }
+  .td-recap-lot { grid-area: lot; align-self: center; }
+  .td-recap-name { grid-area: name; }
+  .td-recap-verdict { grid-area: verdict; }
+  .td-recap-score { grid-area: score; }
 }
 
-.td-missed-name { grid-area: name; font-weight: 600; color: var(--text-primary); }
-.td-missed-verdict { grid-area: verdict; font-size: 0.75rem; color: var(--text-secondary); }
-.td-missed-score {
-  grid-area: score;
-  font-variant-numeric: tabular-nums;
-  color: var(--peak-accent-text, var(--peak-accent));
-}
-
-/* -- the settled tray ------------------------------------------------------ */
+/* ==========================================================================
+   The settled-lot tray
+   ========================================================================== */
 
 .td-tray {
   border: 1px solid var(--border-subtle);
@@ -1412,9 +1465,8 @@
   padding: 0.05rem 0.45rem;
   border-radius: 999px;
   background: var(--peak-accent-bg);
-  color: var(--peak-accent-text, var(--peak-accent));
+  color: var(--peak-accent-text);
   font-size: 0.6875rem;
-  font-variant-numeric: tabular-nums;
 }
 
 .td-tray-chevron {
@@ -1437,7 +1489,7 @@
 
 .td-tray-panel:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 
-.td-tray-list { display: flex; flex-direction: column; }
+.td-tray-list { display: flex; flex-direction: column; list-style: none; margin: 0; padding: 0; }
 
 .td-tray-row {
   display: grid;
@@ -1451,13 +1503,10 @@
 
 .td-tray-row:last-child { border-bottom: 0; }
 
-.td-tray-lot { font-size: 0.6875rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.td-tray-lot { font-size: 0.6875rem; color: var(--text-secondary); }
 .td-tray-name { font-weight: 600; color: var(--text-primary); }
 .td-tray-verdict { font-size: 0.75rem; color: var(--text-secondary); }
-.td-tray-score {
-  font-variant-numeric: tabular-nums;
-  color: var(--peak-accent-text, var(--peak-accent));
-}
+.td-tray-score { color: var(--peak-accent-text); }
 
 @media (max-width: 40rem) {
   .td-tray-row {
@@ -1472,66 +1521,602 @@
   .td-tray-score { grid-area: score; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .td-tray-chevron { transition: none; }
+/* ==========================================================================
+   The error banner
+   ========================================================================== */
+
+.td-error {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--border-edge);
+  border-left: 4px solid var(--peak-accent);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 0.875rem;
 }
 
-/* The margin, and the result actions as real buttons. `.btn-primary` and
-   `.btn-secondary` are defined in `arena.css` -- they were used here and by
-   three Weave surfaces and defined nowhere, which is why every one of them
-   painted as plain text. */
-.td-result-margin {
-  margin-top: 0.15rem;
-  font-size: 1rem;
+.td-error[data-tone="reload"] { border-left-color: var(--comp-po); }
+
+.td-error-text {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.td-error-dismiss {
+  flex-shrink: 0;
+  min-height: 2rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.6875rem;
   font-weight: 700;
-  color: var(--peak-accent-text, var(--peak-accent));
+  cursor: pointer;
+}
+
+.td-error-dismiss:hover {
+  color: var(--text-primary);
+  border-color: var(--peak-accent);
+}
+
+.td-error-dismiss:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   The result screen (S20-15)
+   ========================================================================== */
+
+.td-result {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.td-result-head {
+  position: relative;
+  padding: 1.5rem 1.25rem 1.25rem;
+  border: 1px solid var(--border-edge);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-elevated);
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
+  text-align: center;
+}
+
+.td-result-head[data-tier="win"] {
+  border-color: var(--peak-accent);
+  background: var(--peak-accent-bg);
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 44px -18px var(--pk-glow-strong),
+    var(--pk-elev-3);
+}
+
+.td-result-eyebrow {
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+/* THE WORD IS THE SIGNAL. Colour is an accompaniment, never the message. */
+.td-result-headline {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 11vw, 4.5rem);
+  font-weight: 800;
+  line-height: var(--pk-leading-display);
+  /* WON / LOST / DREW is three or four capitals at 4.5rem. Positive tracking
+     is right for that — it is closer to a word mark than to a headline — but
+     it is the one deliberate exception to the display token in this file, and
+     it is stated rather than left looking like an oversight. */
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
+}
+
+.td-result[data-outcome="win"] .td-result-headline { color: var(--peak-accent-text); }
+
+.td-result-margin {
+  margin-top: 0.2rem;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.td-result-response {
+  margin: 0.5rem auto 0;
+  max-width: 34rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.td-result-bar {
+  display: flex;
+  height: 0.75rem;
+  margin-top: 1rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--border-subtle);
+}
+
+.td-result-bar-fill[data-seat="a"] { background: var(--seat-a-fill); }
+.td-result-bar-fill[data-seat="b"] { background: var(--seat-b-fill); }
+
+.td-result-bar-keys {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.td-result-bar-key[data-seat="a"] b { color: var(--seat-a-ink); }
+.td-result-bar-key[data-seat="b"] b { color: var(--seat-b-ink); }
+
+.td-result-seats {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
+}
+
+.td-result-seat {
+  position: relative;
+  border: 1px solid var(--border-subtle);
+  border-top: 3px solid var(--border-edge);
+  border-radius: var(--pk-r-lg, 14px);
+  background: var(--bg-elevated);
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
+  padding: 0.85rem 0.95rem;
+}
+
+/* THE WINNING TEAM CARD IS RAISED. Never colour alone — the card also carries
+   the word "Winner" and `data-winner`. */
+.td-result-seat[data-winner="true"] {
+  box-shadow:
+    var(--pk-rim-strong),
+    0 0 36px -16px var(--pk-glow-strong),
+    var(--pk-elev-3);
+}
+
+.td-result-seat[data-seat="a"] { border-top-color: var(--seat-a-fill); }
+.td-result-seat[data-seat="b"] { border-top-color: var(--seat-b-fill); }
+
+.td-result-seat-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.td-result-seat-head h3 {
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.td-result-crown {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--peak-accent);
+  color: var(--peak-accent-on);
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.td-result-total {
+  margin-left: auto;
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.td-result-money {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.td-result-roster {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  list-style: none;
+  padding: 0;
+}
+
+.td-result-slot {
+  display: grid;
+  grid-template-columns: 2.4rem minmax(0, 1fr) 3rem 3.2rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.35rem;
+  border-radius: var(--pk-r-sm, 6px);
+  background: var(--bg-surface);
+}
+
+.td-result-slot-figure {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.4rem;
+  height: 1.9rem;
+}
+
+.td-result-slot-tag {
+  position: absolute;
+  left: 0;
+  bottom: -0.3rem;
+  padding: 0 0.22rem;
+  border-radius: 0.3rem;
+  background: var(--bg-elevated);
+  font-size: 0.5625rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.td-result-slot-body { display: flex; flex-direction: column; min-width: 0; }
+
+.td-result-slot-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.td-result-slot-sub { font-size: 0.6875rem; color: var(--text-secondary); }
+
+.td-result-slot-price,
+.td-result-slot-score {
+  text-align: right;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.td-result-slot-score { color: var(--peak-accent-text); }
+
+/* THE CALLOUTS ARE CARDS, not a `<dl>` of 9px grey labels. */
+.td-result-facts {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+}
+
+.td-callout {
+  position: relative;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--pk-r-md, 10px);
+  background: var(--bg-elevated);
+  box-shadow: var(--pk-rim), var(--pk-elev-1);
+}
+
+.td-callout[data-kind="bargain"] { border-left: 3px solid var(--comp-team); }
+.td-callout[data-kind="overpay"] { border-left: 3px solid var(--comp-po); }
+.td-callout[data-kind="decisive"] { border-left: 3px solid var(--comp-si); }
+
+.td-callout-tag {
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.td-callout-headline {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+
+.td-callout-unit {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.td-callout-body {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
 }
 
 .td-result-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
-  margin-top: 1rem;
+  margin-top: 0.4rem;
 }
 
 .td-result-actions .btn-primary { flex: 1 1 12rem; }
 .td-result-actions .btn-secondary { flex: 1 1 10rem; }
 
-/* The settled-lot breakdown, behind a disclosure. See `LotReveal`: the
-   silhouette inline was most of the panel's height, which pushed the revealed
-   score below the fold. */
-.td-reveal-breakdown > summary {
+.td-result-detail > summary {
   min-height: var(--pk-tap-min, 44px);
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--border-default, var(--border-subtle));
-  border-radius: var(--pk-r-sm, 6px);
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-secondary);
   cursor: pointer;
-  list-style: none;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-secondary);
 }
 
-.td-reveal-breakdown > summary::-webkit-details-marker { display: none; }
-.td-reveal-breakdown > summary:hover { color: var(--text-primary); border-color: var(--peak-accent); }
-.td-reveal-breakdown > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.td-reveal-breakdown[open] > summary { margin-bottom: 0.5rem; }
+.td-result-detail > summary:hover { color: var(--text-primary); }
+.td-result-detail > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-/* THE ACTION DOCK, ON A PHONE.
-   The 390x844 review frame showed the auction's primary controls -- Open at
-   $1, Market Skip -- sitting entirely below the fold, behind a scroll, and on
-   a 667px handset it would have been worse. PART 19 asks for controls that are
-   comfortably in the viewport, not technically reachable from it.
-   So on a phone the bid block docks to the bottom of the screen. The WHOLE
-   block docks, not just the buttons: docking the buttons alone would leave you
-   confirming an amount chosen by a stepper you had scrolled away from. The
-   candidate, the clock and the feed scroll underneath it.
-   `max-height` keeps the dock from eating the board if the block grows, and
-   `.td-game`'s padding reserves the space so the settled tray and the footer
-   are still reachable rather than trapped under it. */
+/* ==========================================================================
+   The itemised receipt (secondary detail)
+   ========================================================================== */
+
+.td-receipt {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 1.25rem;
+}
+
+.td-receipt-heading {
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.td-receipt-subheading {
+  margin-top: 1rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.td-receipt-outcome {
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+
+.td-receipt-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.td-total {
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.td-total-won {
+  border-color: var(--peak-accent);
+}
+
+.td-total-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.td-total-score {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-primary);
+}
+
+.td-total-meta {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+/* Wide content scrolls inside its own container so the page body never
+   scrolls horizontally on a phone. */
+.td-table-scroll {
+  overflow-x: auto;
+}
+
+.td-levels,
+.td-positional {
+  width: 100%;
+  min-width: 22rem;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.td-levels th,
+.td-levels td,
+.td-positional th,
+.td-positional td {
+  text-align: left;
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.td-level-decided {
+  font-weight: 700;
+}
+
+/* Reported, not omitted — see TwentyDollarReceipt's header. */
+.td-level-muted {
+  color: var(--text-secondary);
+}
+
+.td-level-index {
+  color: var(--text-secondary);
+  margin-right: 0.5rem;
+}
+
+.td-positional-won {
+  color: var(--peak-accent-text);
+  font-weight: 700;
+}
+
+.td-positional-name {
+  display: block;
+}
+
+.td-positional-score {
+  display: block;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--text-secondary);
+}
+
+.td-highlights {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.td-autofill-note {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.td-disclosure {
+  margin-top: 1.25rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.td-model-version {
+  margin-top: 0.35rem;
+  color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   Motion
+   ========================================================================== */
+
+@keyframes td-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes td-land {
+  from {
+    opacity: 0.4;
+    transform: translateY(-0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* `td-pulse` used to live here: an opacity fade on the turn dot. It is gone,
+   replaced by `.pk-turn-pulse` in globals — one ring animation for the whole
+   product, coloured per seat through `--pk-pulse-color`, animating a
+   box-shadow so it never touches an element's own contrast. */
+
+@keyframes td-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* The opponent's indeterminate sweep. Deliberately NOT a progress bar: this
+   client has never been told the other seat's deadline (`arena.py` reports
+   `seconds_remaining` to exactly one seat), so a bar that appeared to drain
+   would be an invention. */
+@keyframes td-sweep {
+  0% { transform: translateX(-20%); }
+  50% { transform: translateX(200%); }
+  100% { transform: translateX(-20%); }
+}
+
+/* The candidate reveal. Keyed on lot index in the component, so a new lot
+   restarts it. */
+.td-enter {
+  animation: td-enter var(--pk-dur-reveal, 400ms) var(--pk-ease-out, ease-out) both;
+}
+
+/* The card flight into a roster slot. */
+.td-land {
+  animation: td-land var(--pk-dur-base, 200ms) var(--pk-ease-out, ease-out) both;
+}
+
+/*
+ * REDUCED MOTION. Everything above is decoration: no layout, no meaning and no
+ * information is carried by the animation, so removing it leaves a complete
+ * game rather than a degraded one. The pending spinner becomes a static ring —
+ * it still marks the state, it just stops moving.
+ *
+ * The game's PHASES are not animation and are not removed here. The intro, the
+ * lot reveal beat and the inter-turn handoff are reading time; see
+ * `useShowdownPhase`.
+ */
+@media (prefers-reduced-motion: reduce) {
+  /* The turn dot is no longer listed here: it wears `.pk-turn-pulse`, whose
+     own reduced-motion form (in globals) stops the breathing and leaves a
+     static lit ring — the state, without the movement. */
+  .td-enter,
+  .td-land,
+  .td-clock-elapsed-fill,
+  .td-pending-mark {
+    animation: none;
+  }
+
+  .td-pending-mark {
+    border-top-color: var(--peak-accent);
+  }
+
+  /* The sweep is the only thing marking the opponent's bar as live, so with
+     motion off it becomes a full static bar rather than a 35% stub that would
+     read as a stalled progress meter. */
+  .td-clock-elapsed-fill {
+    width: 100%;
+  }
+
+  .td-budget-fill,
+  .td-tray-chevron,
+  .td-step,
+  .td-chip-btn,
+  .td-btn {
+    transition: none;
+  }
+}
+
+/* ==========================================================================
+   The phone (390x844)
+   ==========================================================================
+   The auction's primary controls used to sit entirely below the fold behind a
+   scroll. The WHOLE bid block docks to the bottom of the screen — docking the
+   buttons alone would leave a player confirming an amount chosen by a stepper
+   they had scrolled away from. The candidate, the clock and the feed scroll
+   underneath it.
+   ========================================================================== */
+
 @media (max-width: 48rem) {
   .td-bid {
     position: fixed;
@@ -1544,26 +2129,24 @@
     margin: 0;
     padding: 0.8rem 1rem calc(0.9rem + env(safe-area-inset-bottom, 0px));
     border-radius: 0;
-    border-top: 1px solid var(--border-default, var(--border-subtle));
+    border: 0;
+    border-top: 1px solid var(--border-edge);
     background: var(--bg-elevated);
-    box-shadow: 0 -12px 28px rgb(0 0 0 / 0.5);
+    box-shadow: 0 -12px 28px -8px rgb(0 0 0 / 0.5);
   }
 
+  /* Reserve the dock's space so the settled tray and the footer stay reachable
+     rather than trapped under it. */
   .td-game {
-    padding-bottom: 15rem;
+    padding-bottom: 16rem;
   }
-}
 
-/* THE ROOM HEADER GIVES BACK ITS HEIGHT ON A PHONE.
-   With the bid dock pinned to the bottom of a 390x844 screen, the review frame
-   showed the countdown half underneath it: 130px of title, badges and rule
-   disclosure above the block pushed the clock down into the dock's edge. The
-   clock is the one thing a player needs at the same time as the controls.
-   The title drops a size, the meta row tightens, and the STANDARD-market badge
-   goes -- the lot badge beside it already says which lot this is, and the
-   phase only carries information once it changes, which is why the closeout
-   badge is explicitly kept. */
-@media (max-width: 48rem) {
+  /* THE ROOM HEADER GIVES BACK ITS HEIGHT. With the dock pinned to the bottom
+     of an 844px screen, 130px of title, badges and rule disclosure pushed the
+     clock into the dock's edge — and the clock is the one thing a player needs
+     at the same time as the controls. The STANDARD-market badge goes because
+     the lot badge beside it already says which lot this is; the CLOSEOUT badge
+     is explicitly kept, because that one carries information. */
   .td-game .ar-room-head {
     gap: 0.4rem;
     padding-bottom: 0.5rem;
@@ -1575,5 +2158,62 @@
 
   .td-game [data-testid="td-market-phase"][data-phase="standard"] {
     display: none;
+  }
+
+  .td-seat-stats {
+    gap: 0.4rem;
+  }
+
+  .td-stat-value {
+    font-size: 1.25rem;
+  }
+
+  /* THE CLOCK MUST CLEAR THE DOCK. On an 844 px screen the header, the turn
+     banner and the stage card left the clock landing exactly on the dock's top
+     edge, so the review frame showed "TIME REMAINING" with its digits sheared
+     off — the one number a player needs at the same moment as the controls.
+     Rather than move the clock (which would break S20-04's hierarchy: identity,
+     bid, leader, last action, THEN time), the stage and the clock each give
+     back the height they can spare. */
+  .td-candidate {
+    padding: 0.85rem 0.9rem 0.8rem;
+  }
+
+  .td-stage-identity {
+    margin-top: 0.4rem;
+    gap: 0.65rem;
+  }
+
+  .td-stage-bid {
+    margin-top: 0.65rem;
+    padding-top: 0.6rem;
+  }
+
+  .td-stage-bid-amount {
+    font-size: 2.5rem;
+  }
+
+  .td-candidate-hint {
+    margin-top: 0.45rem;
+  }
+
+  /* `.ar-timer` belongs to the shared component, so it is reached only THROUGH
+     this mode's own wrapper — Three-Man Weave's clock is untouched. */
+  .td-clock .ar-timer {
+    padding: 0.55rem 0.8rem;
+  }
+
+  .td-clock .ar-timer-value {
+    font-size: 2rem;
+  }
+
+  .td-clock-held,
+  .td-clock-elapsed {
+    padding: 0.55rem 0.8rem;
+  }
+
+  .td-clock-held-value,
+  .td-clock-elapsed-value {
+    font-size: 1.6rem;
   }
 }

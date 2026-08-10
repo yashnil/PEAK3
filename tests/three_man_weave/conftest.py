@@ -24,6 +24,21 @@ from nba_peak.three_man_weave import feasibility as F  # noqa: E402
 from nba_peak.three_man_weave.autopick import auto_pick  # noqa: E402
 from nba_peak.three_man_weave.config import stream_rng  # noqa: E402
 from nba_peak.three_man_weave.eligibility import get_index  # noqa: E402
+from nba_peak.three_man_weave.positions import career_slot_rights  # noqa: E402
+
+
+def career_rights(*slugs: str) -> dict[str, frozenset[str]]:
+    """A `SlotRights` map at the CAREER grain, for tests about the machinery.
+
+    The matching, the reposition atomicity and the completion search are
+    properties of the algorithms, not of any particular season, so the tests
+    that exercise them supply the career-grain rights rather than inventing a
+    season for every synthetic slug.
+
+    Season-anchored legality -- the rule the game actually enforces -- is
+    tested on its own in `test_position_seasons.py`, against real cards.
+    """
+    return {slug: career_slot_rights(slug) for slug in slugs}
 
 
 @pytest.fixture(scope="session")
@@ -60,7 +75,7 @@ def play_match(index, seed: int):
             state = D.set_roll(state, roll)
         pick = auto_pick(state, index)
         assert pick is not None, f"no legal auto-pick at turn {state.turn_index}"
-        state = D.apply_pick(state, pick.player_slug, pick.slot_type)
+        state = D.apply_pick(state, index, pick.player_slug, pick.slot_type)
     return state
 
 

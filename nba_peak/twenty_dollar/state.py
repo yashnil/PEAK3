@@ -258,13 +258,50 @@ def market_skips(state: dict, seat_index: int) -> int:
     return int(state["seats"][seat_index].get("market_skips", MARKET_SKIPS_PER_SEAT))
 
 
+#: The three ways a seat can decline, named. They had one name between them,
+#: which is why a player could not tell why a token had gone.
+PASS_MARKET_SKIP = "market_skip"
+PASS_FOLLOW = "follow_pass"
+PASS_AUCTION = "auction_pass"
+
+
+def lot_has_prior_rejection(state: dict) -> bool:
+    """Has any seat already declined this UNOPENED lot?
+
+    Read from `lot_actions` rather than from `passed`, and the difference is
+    load-bearing: `_advance_lot` pre-seeds `passed` for a seat that cannot
+    legally acquire the candidate, WITHOUT recording an action. That seat never
+    saw the lot and never made a decision, so following it is not following a
+    rejection. Only a real, recorded decline opens the lot to a free follow.
+    """
+    return any(
+        action.get("action") == COMMAND_PASS
+        for action in (state.get("lot_actions") or [])
+    )
+
+
+def pass_kind(
+    state: dict, seat_index: int, pool: Optional[CandidatePool] = None
+) -> str:
+    """Which of the three declines passing right now would be.
+
+    Published so the control can name the action it is about to take instead
+    of calling all three "skip" and letting the counter explain afterwards.
+    """
+    if state.get("high_bidder") is not None or int(state.get("current_bid") or 0) > 0:
+        return PASS_AUCTION
+    if pass_consumes_skip(state, seat_index, pool):
+        return PASS_MARKET_SKIP
+    return PASS_FOLLOW
+
+
 def pass_consumes_skip(
     state: dict, seat_index: int, pool: Optional[CandidatePool] = None
 ) -> bool:
     """Would passing right now spend one of this seat's market skips?
 
-    THE THREE CONDITIONS, ALL REQUIRED. A skip is the price of declining a
-    player you could have had, so it is charged only when all three hold:
+    THE FOUR CONDITIONS, ALL REQUIRED. A skip is the price of being the one who
+    takes a player off the board, so it is charged only when all four hold:
 
       1. NO STANDING BID. Passing after someone has bid is ordinary auction
          concession -- you were outbid, not uninterested -- and costs nothing.
@@ -274,6 +311,17 @@ def pass_consumes_skip(
          not a decision, so it is free (and is usually an automatic pass the
          seat never even saw).
       3. YOUR ROSTER IS INCOMPLETE. A finished seat has nothing to decline.
+      4. NOBODY HAS ALREADY REJECTED THIS LOT. This is the condition that was
+         missing, and it was the expensive one.
+
+    WHY (4) EXISTS. A market skip buys the right to take a player off the
+    board. The FIRST seat to reject an unopened lot is the one making that
+    call; the second is answering a lot that is already dead either way -- the
+    player is gone whatever they do, and their decision carries strictly less
+    information. Charging both meant one worthless candidate burned two of the
+    ten skips in a match, and a player who happened to act second on five
+    unopened lots was pushed into `REJECT_NO_MARKET_SKIPS` -- forced to open
+    the bidding on players they did not want -- purely for being second.
 
     Published as its own function, and projected, so the UI can warn BEFORE
     the click rather than reporting the charge afterwards.
@@ -281,6 +329,8 @@ def pass_consumes_skip(
     if state["phase"] != PHASE_AUCTION:
         return False
     if state.get("high_bidder") is not None or int(state.get("current_bid") or 0) > 0:
+        return False
+    if lot_has_prior_rejection(state):
         return False
     seat = state["seats"][seat_index]
     if _roster_full(seat):
@@ -865,11 +915,19 @@ def _apply_pass(
     # (`timeout_outcome`) rather than have it re-derived here from a state that
     # has not moved yet but soon will. A deliberate pass passes None and the
     # rule below decides, which is the only path that may charge implicitly.
+    # NAMED BEFORE THE PASS IS APPLIED, for the same reason the charge is:
+    # `pass_kind` reads the live lot, and applying the pass moves it.
+    kind = pass_kind(state, seat_index, pool)
     charged = (
         pass_consumes_skip(state, seat_index, pool)
         if charge_skip is None
         else bool(charge_skip)
     )
+    if not charged and kind == PASS_MARKET_SKIP:
+        # The timeout path can override the charge (it passes the answer
+        # `timeout_outcome` already published). The recorded name must follow
+        # the money, or a receipt would claim a token was spent that was not.
+        kind = PASS_FOLLOW
     if charged:
         seat = state["seats"][seat_index]
         seat["market_skips"] = max(0, int(seat.get("market_skips", 0)) - 1)
@@ -885,6 +943,11 @@ def _apply_pass(
             # something rather than inferring it from a counter that has since
             # changed.
             "consumed_skip": bool(charged),
+            # ...and WHICH of the three declines it was. `consumed_skip` alone
+            # cannot distinguish "you followed the other seat's rejection" from
+            # "you conceded a live auction"; both are free and they mean
+            # completely different things to a player.
+            "pass_kind": kind,
         }
     )
     if timed_out:
@@ -1230,6 +1293,14 @@ def project(
         # before the click instead of reporting the charge afterwards, and so
         # a player can tell an ordinary concession (free) from a genuine skip.
         "pass_consumes_skip": pass_consumes_skip(state, seat_index, pool),
+        # ...and WHICH decline it would be, by name: `market_skip` (you are the
+        # first to reject an unopened lot, and it costs a token), `follow_pass`
+        # (the other seat already rejected it, so the player is gone either way
+        # and this is free) or `auction_pass` (conceding a live auction, also
+        # free). The control says the name; the count is not left to explain it
+        # after the fact.
+        "pass_kind": pass_kind(state, seat_index, pool),
+        "lot_already_rejected": lot_has_prior_rejection(state),
         "can_pass": may_pass(state, seat_index, pool),
         # WHAT THE CLOCK WILL DO IF IT REACHES ZERO, named before it does.
         # One of `skip_used` / `auto_open` / `free_pass` / `conceded`. The four

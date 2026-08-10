@@ -21,6 +21,15 @@ import {
 export default function SideBySideReceipt({ receipt }: { receipt: HeadToHeadReceipt }) {
   const { settlement } = receipt;
   const decided = settlement.levels.find((l) => l.level === settlement.decided_by);
+  /* The verdict's colour, from the server's own `your_outcome` — never
+     re-derived from the table below. A draw is deliberately neutral rather
+     than a third hue. */
+  const outcomeColor =
+    receipt.your_outcome === "won"
+      ? "var(--correct)"
+      : receipt.your_outcome === "lost"
+        ? "var(--incorrect)"
+        : "var(--text-primary)";
 
   return (
     <section aria-labelledby="h2h-receipt-heading">
@@ -28,10 +37,26 @@ export default function SideBySideReceipt({ receipt }: { receipt: HeadToHeadRece
         Head-to-Head result
       </h2>
 
-      <p className="mt-2 text-lg" data-testid="h2h-outcome">
+      {/* THE VERDICT, as the loudest thing on the receipt. It used to be
+          `text-lg` in body ink — one step above the sentence beneath it and
+          two below the table's own header row, which is backwards for the one
+          line that says who won. The SENTENCE is unchanged; only its weight,
+          face and colour are. */}
+      <p
+        className="pk-reveal font-display mt-2 text-2xl font-extrabold leading-tight sm:text-3xl"
+        style={{ color: outcomeColor, "--pk-reveal-index": 0 } as React.CSSProperties}
+        data-testid="h2h-outcome"
+      >
         {outcomeSentence(receipt)}
       </p>
-      <p className="mt-1 text-sm opacity-75" data-testid="h2h-decided-by">
+      {/* WAS `opacity-75`, which dims the ink AND everything about it. This is
+          the sentence that explains WHY the match ended the way it did, so it
+          keeps full opacity at the secondary tier instead. */}
+      <p
+        className="pk-reveal mt-1 text-sm"
+        style={{ color: "var(--text-secondary)", "--pk-reveal-index": 1 } as React.CSSProperties}
+        data-testid="h2h-decided-by"
+      >
         {decided
           ? `Decided on ${decided.label.toLowerCase()}.`
           : "Every tie-breaker was level — this one is a draw."}

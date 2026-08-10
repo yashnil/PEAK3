@@ -21,13 +21,49 @@
    1. The bar
    ---------------------------------------------------------------- */
 
+/*
+ * THE BAR HAS A MATERIAL NOW, NOT JUST A HAIRLINE.
+ *
+ * `background: var(--bg-page)` meant the header was painted in EXACTLY the
+ * page's own colour, so the only thing separating the chrome from the content
+ * was a 1px `--border-subtle` line and a one-tier shadow. On Arena Night that
+ * shadow does enough work to sell it. On Arena Day it does not: `--pk-elev-1`
+ * there is `--text-primary` at 8% alpha, a warm ink whisper, and the result was
+ * a sticky bar you could only locate by its border — which is the single most
+ * common note about Arena Day and the reason this pass exists.
+ *
+ * `--nav-surface` is a LOCAL custom property, scoped to this class. It is not a
+ * design token and nothing else may read it; it exists so the per-theme value
+ * below is one declaration rather than a duplicated gradient.
+ *
+ * Still no blur, still no glass. The comment this replaces was right about
+ * why: the bar sits over game rails and a blurred pane behind a moving spinner
+ * reel reads as a rendering fault.
+ */
 .pk-nav-header {
-  /* A flat surface with one hairline, not a blurred pane. The bar sits
-     over game rails, and a blur behind a moving spinner reel reads as a
-     rendering fault. */
-  background: var(--bg-page);
+  /*
+   * ONE DECLARATION FOR BOTH THEMES, and that is the point rather than a
+   * shortcut. Both palettes stack page < elevated < surface in ASCENDING
+   * lightness (Arena Night's own token comment says so, and Arena Day was
+   * deliberately built to the same structure rather than as an inversion),
+   * so "elevated at the top, page at the bottom" means "lighter at the top"
+   * in both — which is what a surface lit from above looks like either way.
+   *
+   * It also stays clear of `--bg-surface`, and that is load-bearing: the
+   * active nav link is tinted `bg-[var(--bg-surface)]` by a class string
+   * `play-routing.spec.ts` asserts literally. Painting the bar in the same
+   * tier would have erased the active state to buy the bar its own, which
+   * is a trade nobody asked for.
+   */
+  --nav-surface: linear-gradient(180deg, var(--bg-elevated), var(--bg-page));
+  background: var(--nav-surface);
   border-bottom: 1px solid var(--border-subtle);
-  box-shadow: var(--pk-elev-1);
+  /* The rim is the lit top edge; the shadow is what the bar casts onto the
+     content scrolling under it. Two tiers rather than one, because a sticky
+     element that overlaps content has to say so — and because Arena Day's
+     `--pk-elev-1` is `--text-primary` at 8%, a warm ink whisper that on
+     cream did not read as a shadow at all. */
+  box-shadow: var(--pk-rim), var(--pk-elev-2);
 }
 
 .pk-nav-bar {
@@ -70,16 +106,59 @@
   white-space: nowrap;
 }
 
-.pk-nav-link[aria-current="page"]::after,
-.pk-playmenu > button[aria-current="page"]::after {
+/*
+ * THE INDICATOR IS NOW ONE PSEUDO-ELEMENT WITH THREE STATES, not a rule that
+ * exists only when a page is current.
+ *
+ * What it was: a 1.25rem (20px) centred stub, present only under
+ * `[aria-current="page"]`. Two problems, one of each kind.
+ *
+ *   - AS AN ACTIVE INDICATOR it was 20px wide under labels between 32px
+ *     ("About") and 84px ("Methodology"), so it read as a bullet under the
+ *     word rather than as an underline OF the word, and it carried no
+ *     relationship to which label it belonged to.
+ *   - AS FEEDBACK there was nothing at all. A nav link's entire response to a
+ *     pointer was `hover:bg-[var(--bg-elevated)]` — a 4% background change,
+ *     which in Arena Day is a 1.03:1 shift and is, in practice, no response.
+ *
+ * Now it exists on every link, sized to the label (100% minus the horizontal
+ * padding, so it measures the WORD, not the tap target), and it grows: zero at
+ * rest, a partial dim rule on hover/focus, full accent when the route is
+ * current. Growth is a width transition on a 2px bar — no layout, no reflow,
+ * no repaint of anything but the bar.
+ */
+.pk-nav-link::after,
+.pk-playmenu > button::after {
   content: "";
   position: absolute;
-  left: 50%;
+  left: var(--pk-space-3);
+  right: var(--pk-space-3);
   bottom: -0.35rem;
-  width: 1.25rem;
   height: 2px;
-  transform: translateX(-50%);
+  /* Scaled rather than animated on `width`: `transform` runs on the
+     compositor and cannot trigger layout, and `transform-origin: left`
+     makes the rule measure out from the start of the word the way an
+     underline is drawn. */
+  transform: scaleX(0);
+  transform-origin: left center;
   border-radius: var(--pk-r-pill);
+  background: var(--border-emphasis);
+  transition: transform var(--pk-dur-lift) var(--pk-ease-decel);
+}
+
+.pk-nav-link:hover::after,
+.pk-nav-link:focus-visible::after,
+.pk-playmenu > button:hover::after,
+.pk-playmenu > button:focus-visible::after {
+  /* Deliberately short of full: "you are pointing at this" and "you are on
+     this" must not look the same, or the bar acquires two current
+     sections. */
+  transform: scaleX(0.45);
+}
+
+.pk-nav-link[aria-current="page"]::after,
+.pk-playmenu > button[aria-current="page"]::after {
+  transform: scaleX(1);
   /* Launch-polish IMPLEMENTATION_CONTRACT.md §10: the "ONE gold signal"
      comment above is still correct in spirit, but the frozen
      `--peak-accent` hex measures 1.29:1 against Arena Day's `--bg-page` --
@@ -92,6 +171,15 @@
      `--peak-accent` in Arena Night (12.4:1, no change there) and clears
      5.28:1 in Arena Day. */
   background: var(--peak-accent-text);
+}
+
+/* Hovering the CURRENT section must not shrink its own indicator back to
+   45%, which is what the hover rule above would otherwise do to it. */
+.pk-nav-link[aria-current="page"]:hover::after,
+.pk-nav-link[aria-current="page"]:focus-visible::after,
+.pk-playmenu > button[aria-current="page"]:hover::after,
+.pk-playmenu > button[aria-current="page"]:focus-visible::after {
+  transform: scaleX(1);
 }
 
 .pk-nav-link:focus-visible,
@@ -213,10 +301,18 @@
   overscroll-behavior: contain;
 
   padding: var(--pk-space-3);
-  background: var(--pk-surface-decision);
+  /* `--pk-grad-decision` rather than the flat `--pk-surface-decision` fill:
+     this panel is the one place in the chrome where a visitor chooses what
+     to play, and the decision gradient carries a few percent of the brand
+     gold into the top of the surface — enough that the panel reads as part
+     of the arena rather than as a generic dropdown, without tinting any
+     text it contains. The rim and the deeper shadow are what separate a
+     floating panel from the page in Arena Day, where a cream panel over a
+     cream page had only its border to argue with. */
+  background: var(--pk-grad-decision);
   border: 1px solid var(--pk-surface-decision-border);
   border-radius: var(--pk-r-lg);
-  box-shadow: var(--pk-elev-3);
+  box-shadow: var(--pk-rim-strong), var(--pk-elev-4);
 
   animation: pk-playmenu-in var(--pk-dur-fast) var(--pk-ease-out);
 }
@@ -276,12 +372,17 @@
   color: var(--text-secondary);
 }
 
+/* PROMOTED, --text-muted -> --text-secondary. This is the one line that
+   explains what a whole group of games IS ("one board a day, same for
+   everyone") — a nav-model field the build fails without — and it was set
+   in the faintest ink the palette has, beside a heading in a stronger one.
+   Real copy is not metadata. Moving up a tier can only increase contrast. */
 .pk-playmenu-group-hint {
   font-size: 0.6875rem;
   font-weight: 500;
   letter-spacing: 0.02em;
   text-transform: none;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .pk-playmenu-list {
@@ -300,16 +401,24 @@
   color: var(--text-primary);
   transition:
     background-color var(--pk-dur-fast) var(--pk-ease-standard),
-    border-color var(--pk-dur-fast) var(--pk-ease-standard);
+    border-color var(--pk-dur-fast) var(--pk-ease-standard),
+    box-shadow var(--pk-dur-fast) var(--pk-ease-standard);
 }
 
-.pk-playmenu-row:hover {
+/* A ROW HAD ONE HOVER SIGNAL AND IT WAS A BACKGROUND SWAP, which on Arena
+   Day is `--bg-elevated` to `--bg-surface`: 1.05:1, i.e. nothing you can
+   see. It now also gains an edge and a lit rim, so "this row is under the
+   pointer" survives a light palette, greyscale and forced colours. */
+.pk-playmenu-row:hover,
+.pk-playmenu-row:focus-visible {
   background: var(--bg-surface);
+  border-color: var(--border-default);
+  box-shadow: var(--pk-rim);
 }
 
 .pk-playmenu-row[aria-current="page"] {
   background: var(--bg-surface);
-  border-color: var(--border-default);
+  border-color: var(--border-emphasis);
 }
 
 .pk-playmenu-row-featured {
@@ -484,12 +593,15 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
+/* PROMOTED, --text-muted -> --text-secondary. The drawer's own name, at the
+   top of a full-height panel, in the palette's faintest ink — the one label
+   that tells a phone user what they just opened. */
 .pk-nav-drawer-title {
   font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .pk-nav-drawer-close {
@@ -582,13 +694,18 @@
   margin-top: var(--pk-space-2);
 }
 
+/* PROMOTED, --text-muted -> --text-secondary, and 10px -> 11px. These are
+   the subgroup headings inside an expanded drawer section ("Quick play",
+   "Full season") — the structure of the menu, not a footnote about it. At
+   10px in the faintest ink they were the least readable text in the app on
+   the smallest screen it ships to, which is the wrong way round. */
 .pk-nav-drawer-subtitle {
   padding: var(--pk-space-1) var(--pk-space-2);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .pk-nav-drawer-row,
@@ -655,5 +772,21 @@
 
   .pk-playmenu-panel {
     animation: none;
+  }
+
+  /*
+   * THE SELECTION RULE STOPS GROWING, IT DOES NOT STOP EXISTING.
+   *
+   * The global reduced-motion block collapses transition-duration, which
+   * would leave the rule snapping between three widths — a jump is not an
+   * improvement on a slide. Removing the transition entirely is the intent:
+   * every state below still paints its full indicator instantly, so "you
+   * are here" and "you are pointing at this" are both still expressed, as
+   * states rather than as movement. The information was never in the
+   * travel.
+   */
+  .pk-nav-link::after,
+  .pk-playmenu > button::after {
+    transition: none;
   }
 }

@@ -231,17 +231,46 @@ def initial_turn_seat(mode: ArenaMode, snapshot: dict) -> Optional[int]:
     return hook(snapshot)
 
 
+def phase_seconds(mode: ArenaMode, phase: str) -> float:
+    """How long a turn in `phase` lasts for this mode.
+
+    `mode.turn_seconds` is the DECISION window, and for most modes every turn
+    is a decision, so the default simply returns it.
+
+    IT IS NOT ALWAYS A DECISION. A mode may open a turn nobody acts on --
+    Three-Man Weave opens its franchise x decade ceremony that way. The first
+    turn of a match is opened by MATCHMAKING, not by the mode's own reducer,
+    and matchmaking asked `initial_phase()` which phase to open and then
+    stamped `turn_seconds` regardless. Round one's 3.2-second ceremony was
+    therefore given the 45-second decision window, so a player waited
+    three quarters of a minute for the first panel while rounds two through
+    six were correct. This hook is the seam that was missing.
+    """
+    hook = getattr(mode, "phase_seconds", None)
+    if hook is None:
+        return float(mode.turn_seconds)
+    try:
+        seconds = float(hook(phase))
+    except Exception:  # pragma: no cover - a broken hook must not wedge a match
+        return float(mode.turn_seconds)
+    # A non-positive duration would ship a deadline at or before `opened_at`,
+    # which `arena_turns_deadline_after_open` rejects at the database -- a 500
+    # rather than a playable game.
+    return seconds if seconds > 0 else float(mode.turn_seconds)
+
+
 def turn_deadline(mode: ArenaMode, opened_at) -> TurnDraft:
     """Helper for the common 'open the next turn for this seat' case.
 
-    Exists so `deadline_at` is always `opened_at + mode.turn_seconds` computed
-    in one place. A mode that computed its own could ship a turn whose deadline
-    is in the past, which `arena_turns_deadline_after_open` would reject at the
-    database -- a 500 rather than a playable game.
+    Exists so `deadline_at` is computed in one place. A mode that computed its
+    own could ship a turn whose deadline is in the past, which
+    `arena_turns_deadline_after_open` would reject at the database -- a 500
+    rather than a playable game.
     """
     from datetime import timedelta
 
+    phase = mode.initial_phase()
     return TurnDraft(
-        phase=mode.initial_phase(),
-        deadline_at=opened_at + timedelta(seconds=mode.turn_seconds),
+        phase=phase,
+        deadline_at=opened_at + timedelta(seconds=phase_seconds(mode, phase)),
     )

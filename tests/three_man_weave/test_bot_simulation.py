@@ -41,10 +41,10 @@ SIMULATION_MATCHES = 120
 REQUIRED_PICKS = 2000
 
 
-def _projection(state: D.DraftState, seat: int) -> tuple[dict, dict]:
+def _projection(state: D.DraftState, index, seat: int) -> tuple[dict, dict]:
     roll = state.current_roll
     assert roll is not None
-    fits = D.candidate_fits(state, seat)
+    fits = D.candidate_fits(state, index, seat)
     return (
         {
             "current_roll": {
@@ -105,7 +105,7 @@ def simulation_report(index) -> dict:
 
             seat = state.current_seat
             assert seat is not None
-            public, private = _projection(state, seat)
+            public, private = _projection(state, index, seat)
             options = bot.options(public, private)
             decision = bot.decide(
                 public, private, random.Random(f"tmw:{seed}:{state.turn_index}")
@@ -170,6 +170,7 @@ def simulation_report(index) -> dict:
             try:
                 state = D.apply_pick(
                     state,
+                    index,
                     payload["player_slug"],
                     payload.get("slot_type"),
                     seat_index=seat,

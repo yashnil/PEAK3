@@ -11,6 +11,15 @@ from nba_peak.three_man_weave.schemas import Roll
 
 
 def _roll(round_number: int, slugs, franchise="CHI", decade="1990s") -> Roll:
+    """A revealed roll for a test.
+
+    THE SLUGS MUST GENUINELY HOLD A CARD FOR `franchise` x `decade`. Position
+    legality is season-anchored, and the season comes from the card the roll
+    resolves -- so a roll that lists a player who never played for that
+    franchise in that decade gives them no rights at all and every placement
+    is refused. That is the rule working, not a fixture inconvenience: these
+    tests used to draft Hakeem Olajuwon off a Chicago Bulls roll.
+    """
     return Roll(
         round_number=round_number,
         franchise_id=franchise,
@@ -73,25 +82,25 @@ def test_a_fresh_match_starts_at_round_one_seat_zero():
     assert all(roster.open_slots() == SLOT_TYPES for roster in state.rosters)
 
 
-def test_a_pick_out_of_turn_is_refused():
+def test_a_pick_out_of_turn_is_refused(index):
     state = D.create_match(1)
     state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
     with pytest.raises(D.DraftError) as excinfo:
-        D.apply_pick(state, "michael-jordan", "SG", seat_index=2)
+        D.apply_pick(state, index, "michael-jordan", "SG", seat_index=2)
     assert excinfo.value.code == "not_your_turn"
 
 
-def test_picking_without_a_revealed_roll_is_refused():
+def test_picking_without_a_revealed_roll_is_refused(index):
     state = D.create_match(1)
     with pytest.raises(D.DraftError) as excinfo:
-        D.apply_pick(state, "michael-jordan", "SG")
+        D.apply_pick(state, index, "michael-jordan", "SG")
     assert excinfo.value.code == "no_roll"
 
 
-def test_a_pick_advances_the_turn_and_returns_a_new_state():
+def test_a_pick_advances_the_turn_and_returns_a_new_state(index):
     state = D.create_match(1)
     state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
-    after = D.apply_pick(state, "michael-jordan", "SG")
+    after = D.apply_pick(state, index, "michael-jordan", "SG")
 
     assert after is not state
     assert after.turn_index == 1
@@ -100,15 +109,15 @@ def test_a_pick_advances_the_turn_and_returns_a_new_state():
     assert state.rosters[0].slots["SG"] is None
 
 
-def test_the_roll_is_cleared_at_a_round_boundary():
+def test_the_roll_is_cleared_at_a_round_boundary(index):
     """A round must not be played on the previous round's roll."""
     state = D.create_match(1)
     state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
-    state = D.apply_pick(state, "michael-jordan", "SG")
+    state = D.apply_pick(state, index, "michael-jordan", "SG")
     assert state.current_roll is not None
-    state = D.apply_pick(state, "scottie-pippen", "SF")
+    state = D.apply_pick(state, index, "scottie-pippen", "SF")
     assert state.current_roll is not None
-    state = D.apply_pick(state, "dennis-rodman", "PF")
+    state = D.apply_pick(state, index, "dennis-rodman", "PF")
     assert state.current_roll is None
     assert state.current_round == 2
 
@@ -116,15 +125,15 @@ def test_the_roll_is_cleared_at_a_round_boundary():
 # ---------------------------------------------------------------------------
 # The identity lock
 # ---------------------------------------------------------------------------
-def test_an_identity_drafted_by_one_seat_is_gone_for_everyone():
+def test_an_identity_drafted_by_one_seat_is_gone_for_everyone(index):
     state = D.create_match(1)
     state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
-    state = D.apply_pick(state, "michael-jordan", "SG")
+    state = D.apply_pick(state, index, "michael-jordan", "SG")
 
     assert "michael-jordan" in state.drafted_identities()
-    assert "michael-jordan" not in D.legal_picks(state)
+    assert "michael-jordan" not in D.legal_picks(state, index)
     with pytest.raises(D.DraftError) as excinfo:
-        D.apply_pick(state, "michael-jordan", "SG")
+        D.apply_pick(state, index, "michael-jordan", "SG")
     assert excinfo.value.code == "identity_already_drafted"
 
 
@@ -135,14 +144,14 @@ def test_the_lock_is_identity_grained_not_card_grained(index):
     state = D.set_roll(
         state, _roll(1, ["lebron-james", "dwyane-wade", "chris-bosh"], "CLE", "2000s")
     )
-    state = D.apply_pick(state, "lebron-james", "SF")
+    state = D.apply_pick(state, index, "lebron-james", "SF")
 
     state = D.set_roll(
         state, _roll(1, ["lebron-james", "ray-allen", "udonis-haslem"], "MIA", "2010s")
     )
-    assert "lebron-james" not in D.legal_picks(state)
+    assert "lebron-james" not in D.legal_picks(state, index)
     with pytest.raises(D.DraftError) as excinfo:
-        D.apply_pick(state, "lebron-james", "PG")
+        D.apply_pick(state, index, "lebron-james", "PG")
     assert excinfo.value.code == "identity_already_drafted"
 
 
@@ -156,56 +165,62 @@ def test_the_lock_is_exposed_as_a_plain_set_for_transactional_enforcement(comple
 # ---------------------------------------------------------------------------
 # Placement legality
 # ---------------------------------------------------------------------------
-def test_an_illegal_slot_is_refused_at_pick_time():
+def test_an_illegal_slot_is_refused_at_pick_time(index):
     state = D.create_match(1)
     state = D.set_roll(state, _roll(1, ["shaquille-o-neal", "scottie-pippen", "dennis-rodman"]))
     with pytest.raises(D.DraftError) as excinfo:
-        D.apply_pick(state, "shaquille-o-neal", "SF")
+        D.apply_pick(state, index, "shaquille-o-neal", "SF")
     assert excinfo.value.code == "illegal_slot"
 
 
-def test_a_player_not_on_the_roll_is_refused():
+def test_a_player_not_on_the_roll_is_refused(index):
     state = D.create_match(1)
     state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
     with pytest.raises(D.DraftError) as excinfo:
-        D.apply_pick(state, "magic-johnson", "PG")
+        D.apply_pick(state, index, "magic-johnson", "PG")
     assert excinfo.value.code == "not_on_roll"
 
 
-def test_a_filled_slot_is_refused():
+def test_a_filled_slot_is_refused(index):
     state = D.create_match(1)
     state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
-    state = D.apply_pick(state, "michael-jordan", "SG")
-    state = D.apply_pick(state, "scottie-pippen", "SF")
-    state = D.apply_pick(state, "dennis-rodman", "PF")
-    state = D.set_roll(state, _roll(2, ["clyde-drexler", "hakeem-olajuwon", "john-stockton"]))
-    state = D.apply_pick(state, "hakeem-olajuwon", "C")  # seat 2
-    state = D.apply_pick(state, "john-stockton", "PG")  # seat 1
+    state = D.apply_pick(state, index, "michael-jordan", "SG")
+    state = D.apply_pick(state, index, "scottie-pippen", "SF")
+    state = D.apply_pick(state, index, "dennis-rodman", "PF")
+    state = D.set_roll(
+        state, _roll(2, ["clyde-drexler", "hakeem-olajuwon", "kenny-smith"], "HOU")
+    )
+    state = D.apply_pick(state, index, "hakeem-olajuwon", "C")  # seat 2
+    state = D.apply_pick(state, index, "kenny-smith", "PG")  # seat 1
     with pytest.raises(D.DraftError) as excinfo:
-        D.apply_pick(state, "clyde-drexler", "SG")  # seat 0 already used SG
+        D.apply_pick(state, index, "clyde-drexler", "SG")  # seat 0 already used SG
     assert excinfo.value.code == "slot_filled"
 
 
-def test_legal_picks_reports_the_slots_each_identity_could_fill():
+def test_legal_picks_reports_the_slots_each_identity_could_fill(index):
     state = D.create_match(1)
-    state = D.set_roll(state, _roll(1, ["shaquille-o-neal", "lebron-james"]))
-    options = D.legal_picks(state)
+    state = D.set_roll(
+        state, _roll(1, ["shaquille-o-neal", "kobe-bryant"], "LAL", "2000s")
+    )
+    options = D.legal_picks(state, index)
+    # A true centre reaches exactly one starting slot; a wing reaches three.
+    # Neither is "every slot", which is what the career grain used to report.
     assert options["shaquille-o-neal"] == ("C", "bench_1")
-    assert set(options["lebron-james"]) == set(SLOT_TYPES)
+    assert set(options["kobe-bryant"]) == {"SG", "SF", "bench_1"}
 
 
 # ---------------------------------------------------------------------------
 # Repositioning
 # ---------------------------------------------------------------------------
-def test_repositioning_keeps_the_pick_and_the_slot_in_agreement():
+def test_repositioning_keeps_the_pick_and_the_slot_in_agreement(index):
     state = D.create_match(1)
-    state = D.set_roll(state, _roll(1, ["lebron-james", "scottie-pippen", "dennis-rodman"]))
-    state = D.apply_pick(state, "lebron-james", "PG")
-    moved = D.reposition(state, 0, "PG", "SF")
+    state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
+    state = D.apply_pick(state, index, "michael-jordan", "PG")
+    moved = D.reposition(state, index, 0, "PG", "SF")
 
     assert moved.rosters[0].slots["PG"] is None
     placed = moved.rosters[0].slots["SF"]
-    assert placed.player_slug == "lebron-james"
+    assert placed.player_slug == "michael-jordan"
     assert placed.slot_type == "SF", "the pick must carry its new slot"
     assert all(pick.slot_type == slot for slot, pick in moved.rosters[0].slots.items() if pick)
 
@@ -214,35 +229,42 @@ def test_repositioning_keeps_the_pick_and_the_slot_in_agreement():
     for pick in moved.picks:
         holder = moved.rosters[pick.seat_index].slots[pick.slot_type]
         assert holder is not None and holder.player_slug == pick.player_slug
-    assert state.rosters[0].slots["PG"].player_slug == "lebron-james", "input untouched"
+    assert state.rosters[0].slots["PG"].player_slug == "michael-jordan", "input untouched"
     assert state.picks[0].slot_type == "PG"
 
 
-def test_an_illegal_reposition_raises_and_leaves_the_state_unchanged():
+def test_an_illegal_reposition_raises_and_leaves_the_state_unchanged(index):
     state = D.create_match(1)
-    state = D.set_roll(state, _roll(1, ["shaquille-o-neal", "scottie-pippen", "dennis-rodman"]))
-    state = D.apply_pick(state, "shaquille-o-neal", "C")
+    state = D.set_roll(
+        state, _roll(1, ["shaquille-o-neal", "kobe-bryant", "derek-fisher"], "LAL", "2000s")
+    )
+    state = D.apply_pick(state, index, "shaquille-o-neal", "C")
 
     with pytest.raises(IllegalPlacement):
-        D.reposition(state, 0, "C", "SF")
+        D.reposition(state, index, 0, "C", "SF")
     assert state.rosters[0].slots["C"].player_slug == "shaquille-o-neal"
     assert state.rosters[0].slots["SF"] is None
 
 
-def test_a_legal_swap_of_two_filled_slots_is_allowed():
+def test_a_legal_swap_of_two_filled_slots_is_allowed(index):
     state = D.create_match(1)
-    state = D.set_roll(state, _roll(1, ["lebron-james", "scottie-pippen", "dennis-rodman"]))
-    state = D.apply_pick(state, "lebron-james", "PG")
-    state = D.apply_pick(state, "scottie-pippen", "SF")
-    state = D.apply_pick(state, "dennis-rodman", "PF")
-    state = D.set_roll(state, _roll(2, ["michael-jordan", "john-stockton", "hakeem-olajuwon"]))
-    state = D.apply_pick(state, "hakeem-olajuwon", "C")  # seat 2
-    state = D.apply_pick(state, "john-stockton", "PG")  # seat 1
-    state = D.apply_pick(state, "michael-jordan", "SG")  # seat 0
+    state = D.set_roll(state, _roll(1, ["ron-harper", "scottie-pippen", "dennis-rodman"]))
+    state = D.apply_pick(state, index, "ron-harper", "PG")
+    state = D.apply_pick(state, index, "scottie-pippen", "SF")
+    state = D.apply_pick(state, index, "dennis-rodman", "PF")
+    state = D.set_roll(
+        state, _roll(2, ["michael-jordan", "kenny-smith", "hakeem-olajuwon"], "HOU")
+    )
+    state = D.apply_pick(state, index, "hakeem-olajuwon", "C")  # seat 2
+    state = D.apply_pick(state, index, "kenny-smith", "PG")  # seat 1
+    state = D.set_roll(state, _roll(2, ["michael-jordan"], "CHI"))
+    state = D.apply_pick(state, index, "michael-jordan", "SG")  # seat 0
 
-    swapped = D.reposition(state, 0, "PG", "SG")
+    # Both directions must be legal: Harper's 1996-97 card admits PG and SG,
+    # Jordan's 1990-91 card admits PG, SG and SF.
+    swapped = D.reposition(state, index, 0, "PG", "SG")
     assert swapped.rosters[0].slots["PG"].player_slug == "michael-jordan"
-    assert swapped.rosters[0].slots["SG"].player_slug == "lebron-james"
+    assert swapped.rosters[0].slots["SG"].player_slug == "ron-harper"
 
 
 # ---------------------------------------------------------------------------
@@ -266,11 +288,25 @@ def test_no_identity_appears_on_two_rosters(completed_match):
         seen |= slugs
 
 
-def test_every_placement_in_a_completed_match_is_legal(completed_match):
-    from nba_peak.three_man_weave.positions import validate_roster
+def test_every_placement_in_a_completed_match_is_legal(completed_match, index):
+    """Every starter in a finished match stands where THEIR OWN CARD allows.
+
+    Checked against the season-anchored rights the picks actually carry, not
+    against the career union -- the career union is what let a bot start
+    Russell Westbrook at small forward.
+    """
+    from nba_peak.three_man_weave.positions import rights_for, validate_roster
 
     for roster in completed_match.rosters:
-        assert validate_roster(roster.assignment()).ok
+        rights = rights_for(
+            (pick.player_slug, card.season)
+            for pick, card in (
+                (p, index.scoring_card(p.player_slug, p.franchise_id, p.decade))
+                for p in roster.picks()
+            )
+            if card is not None
+        )
+        assert validate_roster(roster.assignment(), rights).ok
 
 
 def test_every_pick_records_the_roll_it_came_from(completed_match, index):
@@ -299,7 +335,7 @@ def test_undrafted_pool_shrinks_by_exactly_the_drafted_identities(index):
     state = D.create_match(1)
     before = set(D.undrafted_pool(state, index))
     state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
-    state = D.apply_pick(state, "michael-jordan", "SG")
+    state = D.apply_pick(state, index, "michael-jordan", "SG")
     after = set(D.undrafted_pool(state, index))
     assert before - after == {"michael-jordan"}
 
@@ -323,10 +359,10 @@ def test_state_survives_a_dict_round_trip_exactly(completed_match):
     assert restored.used_roll_ids == completed_match.used_roll_ids
 
 
-def test_a_mid_match_state_round_trips_including_the_current_roll():
+def test_a_mid_match_state_round_trips_including_the_current_roll(index):
     state = D.create_match(1)
     state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
-    state = D.apply_pick(state, "michael-jordan", "SG")
+    state = D.apply_pick(state, index, "michael-jordan", "SG")
 
     restored = D.DraftState.from_dict(state.as_dict())
     assert restored.current_roll is not None
@@ -337,15 +373,15 @@ def test_a_mid_match_state_round_trips_including_the_current_roll():
         state.current_round,
     )
     # A rehydrated state must be playable, not merely readable.
-    assert D.apply_pick(restored, "scottie-pippen", "SF").turn_index == 2
+    assert D.apply_pick(restored, index, "scottie-pippen", "SF").turn_index == 2
 
 
-def test_round_trip_recomputes_derived_fields_rather_than_trusting_them():
+def test_round_trip_recomputes_derived_fields_rather_than_trusting_them(index):
     """`current_seat` / `is_complete` / `drafted_identities` are properties, so
     a hand-edited snapshot cannot make them disagree with the real state."""
     state = D.create_match(1)
     state = D.set_roll(state, _roll(1, ["michael-jordan", "scottie-pippen", "dennis-rodman"]))
-    state = D.apply_pick(state, "michael-jordan", "SG")
+    state = D.apply_pick(state, index, "michael-jordan", "SG")
 
     tampered = state.as_dict()
     tampered["current_seat"] = 2
@@ -358,9 +394,9 @@ def test_round_trip_recomputes_derived_fields_rather_than_trusting_them():
     assert restored.drafted_identities() == frozenset({"michael-jordan"})
 
 
-def test_a_completed_match_refuses_further_picks(completed_match):
+def test_a_completed_match_refuses_further_picks(index, completed_match):
     with pytest.raises(D.DraftError) as excinfo:
-        D.apply_pick(completed_match, "michael-jordan", "SG")
+        D.apply_pick(completed_match, index, "michael-jordan", "SG")
     assert excinfo.value.code == "match_complete"
 
 

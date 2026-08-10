@@ -114,10 +114,27 @@ export default function DraftCard({
         {card.player_name}
       </div>
 
-      {/* Season window */}
+      {/* Season window.
+
+          `--text-secondary`, NOT `--text-muted`, and this one is a measured
+          accessibility fix rather than a preference. `--text-muted` is
+          documented at 5.7:1 on `--bg-surface` and 4.6:1 on
+          `--bg-surface-hover` — and this card IS hoverable and selectable, so
+          the number that applies is the 4.6:1 one. That clears AA by a tenth
+          of a point, which is not a margin: axe reported it as a serious
+          `color-contrast` violation on exactly these nodes ("1982-83",
+          "1987-88") once the role selector was open, and the same assertion
+          had passed on an earlier run. A threshold that depends on which run
+          you are looking at has already failed.
+
+          It is also the wrong tier on the merits. `--text-muted` is for
+          tertiary metadata; the season window is WHICH PEAK this card is, and
+          the whole draft turns on comparing them. `--text-secondary` measures
+          9.1:1 on the same surface, so this can only increase contrast — no
+          new ink is introduced and nothing needs re-measuring. */}
       <div
         className="text-xs"
-        style={{ color: "var(--text-muted)" }}
+        style={{ color: "var(--text-secondary)" }}
       >
         {yearLabel}
       </div>

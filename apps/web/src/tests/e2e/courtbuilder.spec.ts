@@ -1668,18 +1668,89 @@ test.describe("Start gate (Phase 9B)", () => {
 
 /** The label of the row currently sitting under a reel window's centre payline,
  * read from live layout geometry rather than from React state. */
-async function labelUnderPayline(page: Page, windowTestId: string): Promise<string | null> {
-  return page.evaluate((wid) => {
-    const win = document.querySelector(`[data-testid="${wid}"]`);
-    if (!win) return null;
-    const wr = win.getBoundingClientRect();
-    const y = wr.top + wr.height / 2;
-    const row = [...win.querySelectorAll('[data-testid="reel-row"]')].find((r) => {
-      const b = r.getBoundingClientRect();
-      return y >= b.top && y < b.bottom;
-    });
-    return row?.getAttribute("data-label") ?? null;
+/**
+ * Record, from inside the page, which row sits under a reel window's payline —
+ * every animation frame, until the strip unmounts.
+ *
+ * WHY A RECORDER AND NOT A SAMPLE. This was a single `page.evaluate` that
+ * measured once, called after waiting for `data-stage="settling"`. That is a
+ * 220ms window (`SETTLE_MS` in `SpinStage.tsx`), and at `done` the strip
+ * UNMOUNTS by design — the component's own docstring says so, because
+ * `team-wheel.innerText()` would otherwise return every strip label. On CI the
+ * three round-trips that window had to survive cost about as much as the
+ * window itself: the trace of the failing run shows `getAttribute` at +30ms
+ * and the geometry `evaluate` starting at +60ms and taking 137ms, so the probe
+ * executed roughly 200ms after `settling` was observed. The strip was already
+ * gone, `querySelectorAll('[data-testid="reel-row"]')` was empty, and the
+ * helper correctly returned null. Nothing about the product was wrong.
+ *
+ * The fix is to stop reaching across the process boundary during a 220ms
+ * window. This installs a `requestAnimationFrame` loop BEFORE the reel settles
+ * and keeps the last label it saw under the payline; the test then reads the
+ * recording after the strip has unmounted. No round-trip can land in the wrong
+ * frame because there are no round-trips while it matters.
+ *
+ * IT ALSO MEASURES A STRICTLY BETTER MOMENT. The old sample fired at the START
+ * of the settle, while the back-eased rebound transition was still running, so
+ * it was asserting mid-flight geometry and only passing because the rebound is
+ * short. `last` is the FINAL rendered frame before unmount — which is what
+ * "the row under the payline at rest" actually means.
+ *
+ * THE GEOMETRY IS UNCHANGED, deliberately, including the strict `< bottom`.
+ * Rows are contiguous, so row N's bottom IS row N+1's top and a centre landing
+ * exactly on a boundary resolves to N+1 rather than to nothing — there is no
+ * boundary case that yields a false null, and no epsilon is warranted. A
+ * tolerance here would be the one change that could let a NEIGHBOURING row
+ * satisfy the assertion, which is precisely what this test exists to catch.
+ */
+async function installPaylineRecorder(page: Page, windowTestId: string): Promise<void> {
+  await page.evaluate((wid) => {
+    const state = { last: null as string | null, frames: 0, nulls: 0, sawRows: false };
+    (window as unknown as Record<string, unknown>).__paylineRecording = state;
+
+    const labelUnderPayline = (): string | null => {
+      const win = document.querySelector(`[data-testid="${wid}"]`);
+      if (!win) return null;
+      const wr = win.getBoundingClientRect();
+      const y = wr.top + wr.height / 2;
+      const rows = [...win.querySelectorAll('[data-testid="reel-row"]')];
+      if (rows.length > 0) state.sawRows = true;
+      const row = rows.find((r) => {
+        const b = r.getBoundingClientRect();
+        return y >= b.top && y < b.bottom;
+      });
+      return row?.getAttribute("data-label") ?? null;
+    };
+
+    const tick = () => {
+      const strip = document.querySelector(`[data-testid="team-reel-strip"]`);
+      // The strip unmounting IS the end of the recording: there is no "at
+      // rest, still mounted" state to keep polling for afterwards.
+      if (!strip) return;
+      state.frames += 1;
+      const label = labelUnderPayline();
+      if (label === null) state.nulls += 1;
+      else state.last = label;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }, windowTestId);
+}
+
+interface PaylineRecording {
+  /** The label under the payline on the last frame the strip existed. */
+  last: string | null;
+  frames: number;
+  nulls: number;
+  sawRows: boolean;
+}
+
+async function readPaylineRecording(page: Page): Promise<PaylineRecording> {
+  return page.evaluate(
+    () =>
+      (window as unknown as Record<string, unknown>)
+        .__paylineRecording as unknown as PaylineRecording,
+  );
 }
 
 test.describe("Spinner reel rebuild (Phase 9B)", () => {
@@ -1747,13 +1818,37 @@ test.describe("Spinner reel rebuild (Phase 9B)", () => {
 
   test("the row under the payline at rest equals the backend value (geometric)", async ({ page }) => {
     await startCourtBuilder(page);
-    // Sample the frame the team reel finishes its settle, before the strip
-    // unmounts -- this is the visual claim the user actually cares about.
+
+    // Start recording BEFORE the reel settles. The reel is still spinning here
+    // (`startCourtBuilder` returns once the board exists, and the settle is
+    // ~1.9s later on CI), so the recorder is in place for every frame of the
+    // settle and for the final one before the strip unmounts.
+    await installPaylineRecorder(page, "team-reel-window");
+
+    // The strip detaching is the authoritative end of the reel: stage `done`
+    // unmounts it. Waiting on that instead of on `settling` removes the 220ms
+    // window this test used to have to win a race against.
     await page
-      .locator('[data-testid="team-reel-window"][data-stage="settling"]')
-      .waitFor({ timeout: 6_000 });
-    const selectedTeam = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
-    expect(await labelUnderPayline(page, "team-reel-window")).toBe(selectedTeam);
+      .locator('[data-testid="team-reel-strip"]')
+      .waitFor({ state: "detached", timeout: 20_000 });
+
+    const selectedTeam = await page
+      .locator('[data-testid="team-wheel"]')
+      .getAttribute("data-selected-team");
+    const recording = await readPaylineRecording(page);
+
+    // The recorder must actually have run — otherwise a silently broken probe
+    // would report `last: null` and read as a product failure.
+    expect(recording.sawRows, "the recorder never saw a mounted reel row").toBe(true);
+    expect(recording.frames, "the recorder captured no frames").toBeGreaterThan(0);
+
+    // THE GEOMETRIC CLAIM, unchanged and now measured at the final rendered
+    // frame: the row physically under the payline is the backend's team.
+    expect(
+      recording.last,
+      `the row under the payline at rest must be the backend value ` +
+        `(frames=${recording.frames}, nulls=${recording.nulls})`,
+    ).toBe(selectedTeam);
   });
 
   test("both reels reach 'done' and hand off to the settled value", async ({ page }) => {

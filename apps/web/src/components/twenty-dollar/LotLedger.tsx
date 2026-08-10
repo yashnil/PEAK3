@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   formatDollars,
@@ -15,95 +15,141 @@ import {
 } from "@/lib/twenty-dollar-seen";
 
 /**
- * Settled lots: the compact tray, and the "while you were away" summary.
+ * Settled lots: the reveal SEQUENCE, the resume recap, and the history tray.
  *
- * TWO DEFECTS, ONE CAUSE. The manual finding was "players appeared in settled
- * history without a sufficiently clear lot sequence, making it seem like random
- * players were being inserted without the user seeing the auction". The board
- * really can advance several lots between two client renders, for three
- * independent server-side reasons:
+ * WHAT WAS ACTUALLY WRONG WITH "WHILE YOU WERE AWAY"
+ * --------------------------------------------------
+ * The reported defect was that an actively-playing user got a "While you were
+ * away" banner listing players they had never had a chance to bid on, and that
+ * once it appeared it never went away. Three mechanisms, all verified, none of
+ * them a reconnect:
  *
- *   1. `_advance_lot` resolves an UNSOLD lot synchronously and recursively.
- *      When neither seat can legally acquire the drawn candidate there is no
- *      active seat, so the lot settles inside the same call that created it,
- *      which then draws the next one. A run of unusable candidates settles
- *      entirely within one command.
- *   2. `drive_pending_bots` advances up to twelve bot turns inside a single
- *      request, so several complete lots can resolve before one response is
- *      written.
- *   3. The room polls every two seconds. Anything that happens between two
- *      polls is only ever seen as a finished result.
+ *  1. ONE ACCEPTED COMMAND CAN SETTLE TWO OR MORE LOTS, and this is normal.
+ *     `state.py::_advance_lot` draws a candidate and, when neither seat can
+ *     legally acquire it, calls `_resolve_lot` on the lot it has just created;
+ *     `_resolve_lot` then calls `_advance_lot` again. The market draws from all
+ *     500 qualified players regardless of either roster, so unusable candidates
+ *     are common rather than rare. The old hook saw `unseen.length > 1` and
+ *     called that a reconnect.
+ *  2. IT WAS STICKY. The cursor advanced in exactly two places: a self-ack that
+ *     fired only when `unseen.length === 1`, and the "Caught up" button. Once a
+ *     gap of two or more went undismissed the cursor could never move again —
+ *     the banner was permanent and `reveal` was permanently null, so no lot was
+ *     revealed for the rest of the match.
+ *  3. BLOCKED STORAGE MADE BOTH PERMANENT. `readSeenCursor` answered `-1`
+ *     forever and writes did nothing, so the entire history read as missed and
+ *     "Caught up" was inert. Fixed in `twenty-dollar-seen.ts` with an in-memory
+ *     store; see its docstring.
  *
- * None of those is a bug on its own — the first is how termination stays
- * provable, the second is how a bot moves without a background worker. What was
- * a bug is that the surface said nothing about any of it: it rendered
- * `history[history.length - 1]` and appended the rest to a scrolling column.
+ * A CORRECTION. The previous version of this comment claimed
+ * `drive_pending_bots` "advances up to twelve bot turns inside a single
+ * request". It does not. It freezes `now` and compares against the stored
+ * `opened_at`, so at most ONE bot command runs per HTTP request; `clock.enforce`
+ * fires at most one timeout per call; and `mode.py:274` always opens a new turn
+ * at `data.now + TURN_SECONDS`, so a sweep cannot manufacture an already-expired
+ * human turn. That claim was load-bearing for the wrong design and it was false.
  *
- * SO THE CLIENT TRACKS WHAT IT HAS SHOWN, AND THAT RECORD SURVIVES A RELOAD.
- * `useLotVisibility` compares the authoritative history against a PERSISTED
- * cursor -- the highest `lot_index` this browser has actually displayed, kept
- * per match id (`lib/twenty-dollar-seen.ts`). One new lot is an ordinary
- * reveal. More than one is a gap, and a gap gets named and itemised rather than
- * silently absorbed.
+ * SO THE LEDGER DISTINGUISHES TWO THINGS THE OLD ONE CONFLATED
+ * ------------------------------------------------------------
+ *   * LOTS THAT SETTLE WHILE THIS CLIENT IS LIVE go into a REVEAL QUEUE and are
+ *     played one at a time, each holding centre stage for `REVEAL_HOLD_MS`.
+ *     Three lots settling inside one command is a three-beat sequence, not a
+ *     catch-up notice, and the player watches it happen.
+ *   * LOTS THAT SETTLED ACROSS A RESUME BOUNDARY go into the RECAP. There are
+ *     exactly two resume boundaries: first mount with a stored cursor behind
+ *     the history, and returning from a genuinely long hidden period
+ *     (`RESUME_HIDDEN_MS`). Anything else is live play.
  *
- * The cursor is what makes this work across a real reconnect. The first version
- * baselined at `history.length` on mount, so closing a tab and coming back
- * started a fresh slate and reported no gap at all -- correct for bursts within
- * one session, and wrong for the case the feature is named after.
+ * The recap is compact by construction — three rows, "View N more", a dismiss
+ * control — and it renders BESIDE the live board rather than in place of it, so
+ * it cannot push the current lot below the fold and cannot replace the reveal.
  */
 
+/** How long one settled lot holds centre stage before it counts as seen. */
+export const REVEAL_HOLD_MS = 1600;
+
+/**
+ * How long the tab must have been hidden for the return to count as a resume
+ * rather than as a glance away.
+ *
+ * Twenty seconds is just under one turn: shorter than this and any lot that
+ * settled was one the player could plausibly still narrate, so it plays as a
+ * reveal sequence. Longer and they have genuinely missed the auction.
+ */
+export const RESUME_HIDDEN_MS = 20_000;
+
+/** How many recap rows are shown before "View N more". */
+const RECAP_PREVIEW = 3;
+
 // ---------------------------------------------------------------------------
-// The gap summary
+// The recap
 // ---------------------------------------------------------------------------
 
-export function MissedLotsSummary({
+export function ResumeRecap({
   lots,
   seatNames,
   yourSeat,
   onDismiss,
 }: {
-  /** The lots that settled without this client ever rendering them live. */
+  /** Lots that settled across a genuine resume boundary. */
   lots: ResolvedLot[];
   seatNames: string[];
   yourSeat: number | null;
   onDismiss: () => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   if (lots.length === 0) return null;
+  const shown = expanded ? lots : lots.slice(-RECAP_PREVIEW);
+  const hidden = lots.length - shown.length;
+
   return (
     <section
-      className="td-missed"
+      className="td-recap"
       data-testid="td-missed-lots"
       data-count={lots.length}
       role="status"
-      aria-labelledby="td-missed-heading"
+      aria-labelledby="td-recap-heading"
     >
-      <header className="td-missed-head">
-        <h3 id="td-missed-heading" className="td-missed-title">
+      <div className="td-recap-head">
+        <h2 id="td-recap-heading" className="td-recap-title">
           While you were away
-        </h3>
-        <p className="td-missed-sub">
-          {lots.length} {lots.length === 1 ? "lot" : "lots"} settled before this
-          board caught up. Here is each one.
+        </h2>
+        <p className="td-recap-sub">
+          {lots.length} {lots.length === 1 ? "lot" : "lots"} settled before you got
+          back.
         </p>
-      </header>
-      <ol className="td-missed-list">
-        {lots.map((lot) => (
-          <li key={lot.lot_index} className="td-missed-row" data-testid={`td-missed-${lot.lot_index}`}>
-            <span className="td-missed-lot">Lot {lot.lot_index + 1}</span>
-            <span className="td-missed-name">{lot.candidate.player_name}</span>
-            <span className="td-missed-verdict">{verdictOf(lot, seatNames, yourSeat)}</span>
-            <span className="td-missed-score">{lot.candidate.prime_score.toFixed(1)}</span>
+        <button
+          type="button"
+          className="td-recap-dismiss"
+          data-testid="td-missed-dismiss"
+          onClick={onDismiss}
+        >
+          Caught up
+        </button>
+      </div>
+      <ol className="td-recap-list">
+        {shown.map((lot) => (
+          <li key={lot.lot_index} className="td-recap-row" data-testid={`td-missed-${lot.lot_index}`}>
+            <span className="td-recap-lot pk-numeral">Lot {lot.lot_index + 1}</span>
+            <span className="td-recap-name">{lot.candidate.player_name}</span>
+            <span className="td-recap-verdict">{verdictOf(lot, seatNames, yourSeat)}</span>
+            <span className="td-recap-score pk-numeral">
+              {lot.candidate.prime_score.toFixed(1)}
+            </span>
           </li>
         ))}
       </ol>
-      <button
-        type="button"
-        className="td-btn"
-        data-testid="td-missed-dismiss"
-        onClick={onDismiss}
-      >
-        Caught up
-      </button>
+      {hidden > 0 ? (
+        <button
+          type="button"
+          className="td-recap-more"
+          data-testid="td-missed-more"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(true)}
+        >
+          View {hidden} more
+        </button>
+      ) : null}
     </section>
   );
 }
@@ -114,8 +160,7 @@ export function MissedLotsSummary({
  * EVERY OUTCOME GETS ITS OWN WORDS, because four of them have different
  * consequences and the previous surface rendered three of them identically. A
  * timeout that spent a market skip and a concession that spent nothing must not
- * read the same, which is the whole of PART 15's "do not use the same visual
- * label for different consequences".
+ * read the same.
  */
 export function verdictOf(
   lot: ResolvedLot,
@@ -145,8 +190,7 @@ export function verdictOf(
   const conceded = (lot.actions ?? []).some(
     (a) => a.action === "pass" && a.seat_index !== lot.winner_seat && a.timed_out,
   );
-  const verb = winner === "You" ? "took" : "took";
-  return `${winner} ${verb} them for ${price}${conceded ? " — the other clock expired" : ""}.`;
+  return `${winner} took them for ${price}${conceded ? " — the other clock expired" : ""}.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,11 +200,10 @@ export function verdictOf(
 /**
  * Every settled lot, as a COLLAPSIBLE BOTTOM TRAY rather than a column.
  *
- * PART 19: "do not allow a tall history list to compress the opponent roster."
  * The previous layout put this in the right-hand column above the opponent's
  * five, so a match with fifteen settled lots squeezed the roster panel the
  * player most needed to read into a sliver. A tray owns the full width, holds
- * its own scroll, and is closed by default after the first few lots.
+ * its own scroll, and is closed by default.
  */
 export function SettledLotTray({
   history,
@@ -186,7 +229,7 @@ export function SettledLotTray({
         onClick={() => setOpen((value) => !value)}
       >
         <span className="td-tray-title">Settled lots</span>
-        <span className="td-tray-count" data-testid="td-tray-count">
+        <span className="td-tray-count pk-numeral" data-testid="td-tray-count">
           {history.length}
         </span>
         <span className="td-tray-chevron" aria-hidden="true" />
@@ -203,10 +246,12 @@ export function SettledLotTray({
         <ol className="td-tray-list">
           {recent.map((lot) => (
             <li key={lot.lot_index} className="td-tray-row" data-testid={`td-history-${lot.lot_index}`}>
-              <span className="td-tray-lot">{lot.lot_index + 1}</span>
+              <span className="td-tray-lot pk-numeral">{lot.lot_index + 1}</span>
               <span className="td-tray-name">{lot.candidate.player_name}</span>
               <span className="td-tray-verdict">{verdictOf(lot, seatNames, yourSeat)}</span>
-              <span className="td-tray-score">{lot.candidate.prime_score.toFixed(1)}</span>
+              <span className="td-tray-score pk-numeral">
+                {lot.candidate.prime_score.toFixed(1)}
+              </span>
             </li>
           ))}
         </ol>
@@ -219,70 +264,127 @@ export function SettledLotTray({
 // Tracking what this client has actually shown
 // ---------------------------------------------------------------------------
 
-export interface LotVisibility {
-  /** Lots that settled without ever being shown to this player. */
-  missed: ResolvedLot[];
-  /** The single lot to hold on centre stage, if exactly one just settled. */
+export interface LotLedgerState {
+  /** Lots that settled across a genuine RESUME boundary and are unacknowledged. */
+  recap: ResolvedLot[];
+  /** The lot currently holding centre stage, if any. */
   reveal: ResolvedLot | null;
-  /** Acknowledge the gap. Advances the persisted cursor past every missed lot. */
-  acknowledge: () => void;
+  /** How many further lots are queued behind `reveal`. */
+  queued: number;
+  /** Acknowledge the recap. Advances the persisted cursor past every recap lot. */
+  acknowledgeRecap: () => void;
 }
 
-/** How long a single settled lot holds centre stage before it counts as seen.
- *  PART 17 asks for "approximately 1.2-2 seconds". */
-const REVEAL_HOLD_MS = 1600;
+const maxLotIndex = (history: readonly ResolvedLot[]): number =>
+  history.reduce((best, lot) => Math.max(best, lot.lot_index), -1);
 
 /**
- * Which settled lots this client has already shown the player.
+ * Which settled lots this client has shown, and how the rest should be shown.
  *
- * THE CURSOR IS PERSISTED, and that is the whole of the reload fix. This hook
- * used to baseline itself at `history.length` on first render, so a reload
- * started a fresh slate and reported no gap -- correct for bursts within a
- * session, wrong for the case the feature is named after. It now reads
- * `readSeenCursor(matchId)`, the highest `lot_index` this browser has actually
- * displayed, so closing a tab and coming back reports every lot that settled in
- * between.
+ * THE RESUME CEILING is the one piece of state that makes this work. It is the
+ * highest `lot_index` that had already settled at the last resume boundary.
+ * Everything at or below it that the cursor has not reached is a genuine gap
+ * and belongs in the recap; everything above it settled while this client was
+ * live and rendering, and belongs in the reveal queue.
  *
- * WHAT ADVANCES THE CURSOR, and why the two paths differ:
+ *   * At mount the ceiling is the history's own maximum. A brand-new match has
+ *     none (`-1`), so nothing is ever recapped on a fresh start.
+ *   * Returning from more than `RESUME_HIDDEN_MS` hidden raises the ceiling to
+ *     whatever has settled by then.
+ *   * Ordinary polling never raises it, which is the whole point.
  *
- *   * ONE unseen lot is an ordinary reveal. It holds centre stage for
- *     `REVEAL_HOLD_MS` and then counts as seen, because it WAS seen -- the
- *     player was looking at the board when it landed.
- *   * MORE THAN ONE is a gap, and a gap needs a deliberate dismissal.
- *     Auto-advancing there would be the original defect wearing a cursor: the
- *     lots would be marked shown without anybody having read them.
- *
- * TWO TABS. The cursor lives in one place, so whichever tab acknowledges first
- * wins and the other stops reporting the same lots. `storage` fires only in the
- * OTHER tabs, which is exactly the direction that needs it: the acting tab
- * already knows, and re-reads through its own state bump.
+ * THE CURSOR ONLY MOVES FORWARD, and a played reveal does not jump it past an
+ * outstanding recap: those indexes are parked in `playedRef` and flushed when
+ * the recap is acknowledged. Without that, playing lot 6 would silently mark
+ * lots 2–5 as seen and the recap would vanish unread.
  */
-export function useLotVisibility(
+export function useLotLedger(
   matchId: string,
   state: TwentyDollarPublicState,
-): LotVisibility {
-  // Bumped whenever the cursor may have changed, in this tab or another. The
-  // cursor itself is not React state: localStorage is the single source, and a
-  // mirrored copy is a second thing that can disagree with it.
-  const [cursorEpoch, setCursorEpoch] = useState(0);
+): LotLedgerState {
   const history = state.history;
 
-  const unseen = useMemo(
-    () => partitionUnseen(history, readSeenCursor(matchId)),
-    // `cursorEpoch` is a real dependency: it is how an acknowledgement, or
-    // another tab's acknowledgement, re-runs this.
+  // Bumped whenever the cursor may have changed, here or in another tab. The
+  // cursor is not mirrored into React state: the store is the single source,
+  // and a copy is a second thing that can disagree with it.
+  const [cursorEpoch, setCursorEpoch] = useState(0);
+  const [resumeCeiling, setResumeCeiling] = useState(() => maxLotIndex(history));
+  const playedRef = useRef<Set<number>>(new Set());
+
+  const cursor = useMemo(
+    () => readSeenCursor(matchId),
+    // `cursorEpoch` is a real dependency: it is how an acknowledgement — this
+    // tab's or another's — re-reads a store the linter cannot see into.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [history, matchId, cursorEpoch],
+    [matchId, cursorEpoch],
   );
 
-  const acknowledge = useCallback(() => {
-    const highest = history.reduce(
-      (best, lot) => Math.max(best, lot.lot_index),
+  const unseen = useMemo(
+    () => partitionUnseen(history, cursor),
+    [history, cursor],
+  );
+
+  const recap = useMemo(
+    () => unseen.filter((lot) => lot.lot_index <= resumeCeiling),
+    [unseen, resumeCeiling],
+  );
+
+  // NOT MEMOISED, deliberately. `playedRef` is a ref — the parking lot for
+  // reveals that have played while a recap is still outstanding — so a memo
+  // could not name it as a dependency and would go stale. Filtering a handful
+  // of settled lots per render is free; a stale queue is a lot that never
+  // reveals.
+  const queue = unseen.filter(
+    (lot) => lot.lot_index > resumeCeiling && !playedRef.current.has(lot.lot_index),
+  );
+
+  const recapOutstanding = recap.length > 0;
+
+  const acknowledgeRecap = useCallback(() => {
+    const highest = Math.max(
       readSeenCursor(matchId),
+      resumeCeiling,
+      ...playedRef.current,
     );
+    playedRef.current.clear();
     writeSeenCursor(matchId, highest);
     setCursorEpoch((value) => value + 1);
-  }, [history, matchId]);
+  }, [matchId, resumeCeiling]);
+
+  // THE REVEAL QUEUE PLAYS ITSELF, one lot at a time. Keyed on the head's index
+  // so a poll returning the same state cannot restart the hold.
+  const headIndex = queue.length > 0 ? queue[0].lot_index : null;
+  useEffect(() => {
+    if (headIndex === null) return;
+    const timer = window.setTimeout(() => {
+      playedRef.current.add(headIndex);
+      if (!recapOutstanding) writeSeenCursor(matchId, headIndex);
+      setCursorEpoch((value) => value + 1);
+    }, REVEAL_HOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [headIndex, matchId, recapOutstanding]);
+
+  // A GENUINELY LONG HIDDEN PERIOD IS A RESUME BOUNDARY. A glance at another
+  // tab is not: the lots that settle in those few seconds still play as a
+  // reveal sequence, because the player is still in the room.
+  const hiddenSince = useRef<number | null>(null);
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  useEffect(() => {
+    function onVisibility() {
+      if (document.visibilityState === "hidden") {
+        hiddenSince.current = Date.now();
+        return;
+      }
+      const since = hiddenSince.current;
+      hiddenSince.current = null;
+      if (since === null || Date.now() - since < RESUME_HIDDEN_MS) return;
+      const settled = maxLotIndex(historyRef.current);
+      setResumeCeiling((current) => Math.max(current, settled));
+    }
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   // ANOTHER TAB ACKNOWLEDGED. `storage` does not fire in the tab that wrote,
   // so this only ever means "somebody else moved the cursor".
@@ -294,29 +396,19 @@ export function useLotVisibility(
     return () => window.removeEventListener("storage", onStorage);
   }, [matchId]);
 
-  // A SINGLE REVEAL ACKNOWLEDGES ITSELF, after its hold. Keyed on the lot index
-  // so a poll that returns the same state does not restart the timer.
-  const soloLotIndex = unseen.length === 1 ? unseen[0].lot_index : null;
-  useEffect(() => {
-    if (soloLotIndex === null) return;
-    const timer = window.setTimeout(() => {
-      writeSeenCursor(matchId, soloLotIndex);
-      setCursorEpoch((value) => value + 1);
-    }, REVEAL_HOLD_MS);
-    return () => window.clearTimeout(timer);
-  }, [soloLotIndex, matchId]);
-
-  // A COMPLETED MATCH HAS NOTHING LEFT TO CATCH UP ON. The result screen
-  // replaces the auction, so a "while you were away" over the top of it would
-  // be reporting a gap the player is about to see resolved in full anyway.
+  // A COMPLETED MATCH HAS NOTHING LEFT TO CATCH UP ON. The result screen shows
+  // every roster in full, so a recap over the top of it reports a gap the
+  // player is about to see resolved anyway.
   useEffect(() => {
     if (state.phase !== "complete" || history.length === 0) return;
     writeSeenCursor(matchId, history[history.length - 1].lot_index);
+    setCursorEpoch((value) => value + 1);
   }, [state.phase, history, matchId]);
 
   return {
-    missed: unseen.length > 1 ? unseen : [],
-    reveal: unseen.length === 1 ? unseen[0] : null,
-    acknowledge,
+    recap,
+    reveal: queue.length > 0 ? queue[0] : null,
+    queued: Math.max(0, queue.length - 1),
+    acknowledgeRecap,
   };
 }

@@ -125,12 +125,17 @@ export function Nav() {
       <div className="pk-nav-bar mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
         <Link
           href="/"
-          className="pk-nav-wordmark font-display text-lg font-bold tracking-tight"
+          className="pk-nav-wordmark pk-press font-display text-lg font-bold tracking-tight"
           aria-label="PEAK3 Arena home"
         >
           <span className="text-[var(--peak-accent-text)]">PEAK</span>
           <span className="text-[var(--text-secondary)]">3</span>{" "}
-          <span className="ml-1.5 text-xs font-medium text-[var(--text-muted)] tracking-widest uppercase">
+          {/* PROMOTED, --text-muted -> --text-secondary. It is the second half
+              of the product's NAME, sitting beside a "3" already set in
+              `--text-secondary` — two words of one wordmark in two different
+              tiers of ink, the fainter one carrying the word that says what
+              this site is. */}
+          <span className="ml-1.5 text-xs font-medium text-[var(--text-secondary)] tracking-widest uppercase">
             Arena
           </span>
         </Link>
@@ -147,8 +152,16 @@ export function Nav() {
                     href={link.href}
                     data-testid={`desktop-nav-${link.id}`}
                     aria-current={current ? "page" : undefined}
+                    /* `.pk-press` is additive and touches nothing else here.
+                       The active class string `bg-[var(--bg-surface)]` is
+                       asserted literally by `play-routing.spec.ts` and by
+                       `nav-components.test.tsx`, so it stays exactly as
+                       written; what the nav link gains is the missing half of
+                       its feedback — it responded to a pointer arriving (a
+                       background tint, and now a growing rule from nav.css)
+                       and did nothing at all when actually pressed. */
                     className={cn(
-                      "pk-nav-link px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                      "pk-nav-link pk-press px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                       current
                         ? "bg-[var(--bg-surface)] text-[var(--text-primary)]"
                         : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]",

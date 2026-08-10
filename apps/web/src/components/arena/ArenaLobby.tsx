@@ -377,7 +377,15 @@ function LobbyShell({
     ? arenaHeadline(capability)
     : { title: "Multiplayer", intro: "" };
   return (
-    <div className="ar-lobby" data-testid="arena-lobby" data-posture={capability?.posture ?? "loading"}>
+    // THE LOBBY IS THE CONCOURSE. `.pk-atmosphere` puts the same two
+    // floodlights and court grid behind the mode cards that both game rooms
+    // now sit on, so walking from the lobby into a match is one building
+    // rather than two pages. The grid pitch is set in `arena.css`.
+    <div
+      className="ar-lobby pk-atmosphere"
+      data-testid="arena-lobby"
+      data-posture={capability?.posture ?? "loading"}
+    >
       <header className="ar-lobby-head">
         <p className="ar-eyebrow">PEAK3 Arena</p>
         <h1 className="ar-lobby-title">{headline.title}</h1>
@@ -429,7 +437,7 @@ function Unavailable({
       <span className="ar-badge ar-badge-alpha">Closed alpha</span>
       <h2 className="ar-panel-title">{copy.headline}</h2>
       <p className="ar-panel-body">{copy.body}</p>
-      <a className="ar-btn" href="/arena">
+      <a className="ar-btn pk-lift pk-press" href="/arena">
         Browse every PEAK3 game
       </a>
     </section>
@@ -520,7 +528,13 @@ function GameCard({
 
   return (
     <article
-      className="ar-card"
+      // A mode card is the object you pick a match from. `.pk-lift` gives it
+      // the product's one hover behaviour -- the same two pixels and the same
+      // shadow tier every other card in the app uses -- and `.pk-crown` the
+      // lit top edge. No `.pk-press`: the card itself is not the control, the
+      // buttons inside it are, and a card that depresses under a click that
+      // lands on a button would be claiming the press.
+      className="ar-card pk-lift pk-crown"
       data-testid={`lobby-mode-${mode.id}`}
       data-highlighted={highlighted ? "true" : "false"}
     >
@@ -562,7 +576,7 @@ function GameCard({
             <div className="ar-action" key={id}>
               <button
                 type="button"
-                className={primary ? "ar-btn ar-btn-primary" : "ar-btn"}
+                className={`ar-btn pk-lift pk-press${primary ? " ar-btn-primary" : ""}`}
                 data-testid={`lobby-${mode.id}-${id}`}
                 disabled={Boolean(reason) || busyFor !== null}
                 onClick={() => (id === "private_room" ? onToggleJoin() : onStart(id))}
@@ -591,7 +605,7 @@ function GameCard({
         <div className="ar-private" data-testid={`lobby-${mode.id}-private`}>
           <button
             type="button"
-            className="ar-btn ar-btn-primary"
+            className="ar-btn ar-btn-primary pk-lift pk-press"
             data-testid={`lobby-${mode.id}-create-room`}
             disabled={busyFor !== null}
             onClick={() => onStart("private_room")}
@@ -617,7 +631,7 @@ function GameCard({
           />
           <button
             type="button"
-            className="ar-btn"
+            className="ar-btn pk-lift pk-press"
             data-testid={`lobby-${mode.id}-join-submit`}
             disabled={busyFor !== null || joinCode.length !== 6}
             onClick={onJoinSubmit}
@@ -695,7 +709,7 @@ function QueuePanel({
         {onFillNow ? (
           <button
             type="button"
-            className="ar-btn ar-btn-primary"
+            className="ar-btn ar-btn-primary pk-lift pk-press"
             data-testid="lobby-fill-now"
             onClick={onFillNow}
           >
@@ -704,7 +718,7 @@ function QueuePanel({
         ) : null}
         <button
           type="button"
-          className="ar-btn"
+          className="ar-btn pk-lift pk-press"
           data-testid="lobby-cancel-search"
           onClick={onCancel}
         >
@@ -748,14 +762,14 @@ function RoomPanel({
         {onFill && isHost ? (
           <button
             type="button"
-            className="ar-btn ar-btn-primary"
+            className="ar-btn ar-btn-primary pk-lift pk-press"
             data-testid="lobby-room-fill-bots"
             onClick={onFill}
           >
             Fill empty seats with bots
           </button>
         ) : null}
-        <button type="button" className="ar-btn" data-testid="lobby-leave-room" onClick={onLeave}>
+        <button type="button" className="ar-btn pk-lift pk-press" data-testid="lobby-leave-room" onClick={onLeave}>
           Back
         </button>
       </div>
