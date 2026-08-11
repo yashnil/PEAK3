@@ -1234,16 +1234,54 @@ describe("RunCard", () => {
     );
   });
 
-  it("still renders the eligible-role chips and any cost modifier behind disclosure when showFingerprint is off", () => {
+  it("still renders the role chips and any cost modifier when showFingerprint is off", () => {
     // TradeDesk's outgoing column passes `compact showFingerprint={false}`
     // — `showFingerprint` turns off the fingerprint BARS, never the whole
-    // receipt (see the trade-desk.test.tsx regression this fixes).
+    // receipt (see the trade-desk.test.tsx regression this fixes). The role
+    // chips moved OUT of the disclosure and onto the card body (F6), so they
+    // are asserted on the body here.
     render(<RunCard card={discountedCard()} cost={19} showFingerprint={false} />);
     expect(screen.getByTestId("rtt-card-breakdown")).toBeInTheDocument();
-    expect(screen.getByTestId("rtt-card-roles")).toBeInTheDocument();
+    expect(screen.getByTestId("rtt-role-chips")).toBeInTheDocument();
     expect(screen.getByTestId("rtt-card-modifier-moneyball")).toBeInTheDocument();
     expect(screen.queryByTestId("rtt-card-fingerprint")).not.toBeInTheDocument();
     expect(screen.queryByTestId("rtt-card-fingerprint-sr")).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // F6 — role eligibility chips, always visible
+  // -------------------------------------------------------------------------
+
+  it("renders a chip for EVERY eligible role, on the card body, not behind disclosure", () => {
+    // The defect: legal roles lived behind "Full breakdown" in muted prose, so
+    // a player deciding an acquisition or trade had to know to open a
+    // disclosure to learn where the card can play. The chips are a decision
+    // input and render unconditionally.
+    render(<RunCard card={card()} cost={10} />);
+    const chips = screen.getByTestId("rtt-role-chips");
+    // NOT inside the <details> receipt.
+    expect(chips.closest("details")).toBeNull();
+    for (const role of card().eligible_roles) {
+      expect(within(chips).getByTestId(`rtt-role-chip-${role}`)).toBeInTheDocument();
+    }
+    // Accessible as a named list, not decorative spans.
+    expect(chips).toHaveAttribute("aria-label", "Eligible roles");
+  });
+
+  it("chips come from the card's own eligibility, never a hardcoded set", () => {
+    const single = card({ eligible_roles: ["anchor"], primary_role: "anchor" });
+    render(<RunCard card={single} cost={10} />);
+    const chips = screen.getAllByTestId("rtt-role-chips").at(-1)!;
+    expect(within(chips).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(chips).getByTestId("rtt-role-chip-anchor")).toHaveTextContent("Anchor");
+    expect(within(chips).queryByTestId("rtt-role-chip-guard_wing")).toBeNull();
+  });
+
+  it("marks the primary role's chip distinctly", () => {
+    render(<RunCard card={card()} cost={10} />);
+    const chips = screen.getAllByTestId("rtt-role-chips").at(-1)!;
+    const primary = within(chips).getByTestId(`rtt-role-chip-${card().primary_role}`);
+    expect(primary).toHaveAttribute("data-primary", "true");
   });
 });
 
@@ -2192,6 +2230,11 @@ describe("RunResult", () => {
     );
     await userEvent.click(screen.getByTestId("rtt-run-it-back"));
     expect(onRunItBack).toHaveBeenCalledTimes(1);
+    // F1: the result offers a way OUT as well as ways onward — real
+    // navigation, not a button, so new-tab/middle-click behave.
+    const back = screen.getByTestId("rtt-back-to-arena");
+    expect(back.tagName).toBe("A");
+    expect(back).toHaveAttribute("href", "/arena");
     // "REPLAY THIS SEED" IS NO LONGER OFFERED (F2). It was a developer
     // affordance wearing a player's button: a run is a sequence of decisions,
     // and re-dealing the identical board beside "Run it back" asked the player

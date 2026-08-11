@@ -43,12 +43,70 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+# Running a script by path puts scripts/ on sys.path, not the repo root; the
+# v4 role derivation imports `nba_peak.perfect_season.career_positions`.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 WINDOWS_PATH = REPO_ROOT / "data" / "web" / "peak_windows.json"
 OUT_DIR = REPO_ROOT / "data" / "game" / "profiles"
 
 PROFILE_VERSION = "v3"
 CARD_POOL_VERSION = "v3"
-TRANSFORM_VERSION = "dna_v2_roles_v3"
+TRANSFORM_VERSION = "dna_v2_roles_v4_positional"
+
+# ---------------------------------------------------------------------------
+# Role eligibility — v4: POSITIONS DECIDE ROLES. (F7)
+#
+# THE DEFECT v4 REMOVES. The v2/v3 rules above (`ROLE_RULES_V2`, kept for
+# traces and for the no-position fallback) derive roles from COMPONENT-SCORE
+# PERCENTILES, because at the time "no position ... exists at the card-profile
+# layer" (their own docstring). The consequence is exactly the failure the
+# polish brief names: `guard_wing`'s only real requirement was SI >= 40th
+# percentile, and `lead_creator`'s was SI >= 75th — so any sufficiently GOOD
+# player became positionally universal. Shaquille O'Neal's committed v3
+# profile read `[lead_creator, guard_wing, wing_forward, forward_big]`:
+# a traditional center offered at point guard and NOT offered at anchor,
+# because his traditional-production percentile was too high for the anchor
+# rule's "non-scorer" filter. Player QUALITY was deciding positional
+# flexibility, which is the one thing a role model must never do.
+#
+# THE DATA EXISTS NOW. `nba_peak.perfect_season.career_positions` derives,
+# from committed season data alone (gated on >= 20 games and >= 500 minutes so
+# one-game cameos and father/son slug collisions don't count), the set of
+# positions each player actually logged real NBA minutes at. CourtBuilder and
+# Three-Man Weave already run their legality on it. v4 makes it the basis of
+# RTT role eligibility too.
+#
+# THE MAPPING. Each position a player genuinely played grants its adjacent
+# role families, and nothing else does:
+#
+#     PG -> lead_creator, guard_wing
+#     SG -> guard_wing
+#     SF -> guard_wing, wing_forward
+#     PF -> wing_forward, forward_big
+#     C  -> forward_big, anchor
+#
+# Flexibility is therefore EARNED IN THE DATA, never granted by stardom:
+# a combo guard (PG+SG seasons) gets lead_creator + guard_wing; a point
+# forward with real listings across families spans them; a pure traditional
+# center gets anchor + forward_big and can never reach guard_wing, whatever
+# his score. A one-position role player keeps exactly his one family.
+#
+# WHAT SURVIVES OF THE OLD RULES. `ROLE_RULES_V2` still runs and its traces
+# are still written (they are honest capability observations), and it remains
+# the ELIGIBILITY fallback for a card whose player has no derived position
+# data at all — a worse answer than positions, but better than excluding a
+# real card. As of this change every slug in the pool resolves positions, so
+# the fallback is a safety net rather than a live path, and `role_source` on
+# each profile says which path produced its roles.
+# ---------------------------------------------------------------------------
+POSITION_ROLE_MAP: dict[str, tuple[str, ...]] = {
+    "PG": ("lead_creator", "guard_wing"),
+    "SG": ("guard_wing",),
+    "SF": ("guard_wing", "wing_forward"),
+    "PF": ("wing_forward", "forward_big"),
+    "C":  ("forward_big", "anchor"),
+}
 
 # ---------------------------------------------------------------------------
 # Component normalisation constants (fixed for stable re-runs)
@@ -307,6 +365,23 @@ def _eligible_roles(
     return eligible, traces
 
 
+def _position_roles(player_slug: str) -> tuple[list[str], list[str]]:
+    """(roles, positions) derived from the player's real career positions.
+
+    Both lists are in canonical order. Empty when no position data resolves
+    for the slug — the caller falls back to the capability rules and records
+    that it did.
+    """
+    from nba_peak.perfect_season.career_positions import career_positions
+
+    positions = career_positions(player_slug)
+    roles: set[str] = set()
+    for position in positions:
+        roles.update(POSITION_ROLE_MAP.get(position, ()))
+    ordered_positions = [p for p in ("PG", "SG", "SF", "PF", "C") if p in positions]
+    return [r for r in ROLES if r in roles], ordered_positions
+
+
 def _compute_dna(window: dict) -> dict[str, float]:
     """Compute Lineup DNA v2 — 6 dimensions from 5 PEAK3 components + data_status.
 
@@ -391,7 +466,17 @@ def build_profiles(windows: list[dict]) -> tuple[list[dict], dict]:
         dur = w["duration_years"]
         pcts = pct_arrays[dur]
 
-        eligible, traces = _eligible_roles(w, pcts)
+        # CAPABILITY OBSERVATIONS FIRST — kept as traces either way, and as
+        # the eligibility fallback for a slug with no position data.
+        capability_roles, traces = _eligible_roles(w, pcts)
+        # POSITIONS DECIDE (v4). See POSITION_ROLE_MAP.
+        position_derived, positions = _position_roles(w["player_slug"])
+        if position_derived:
+            eligible = position_derived
+            role_source = "career_positions"
+        else:
+            eligible = capability_roles
+            role_source = "capability_fallback"
         primary = _primary_role(eligible)
         dna = _compute_dna(w)
 
@@ -432,6 +517,11 @@ def build_profiles(windows: list[dict]) -> tuple[list[dict], dict]:
             "prime_index":           w["prime_index"],
             "eligible_roles":        eligible,
             "primary_role":          primary,
+            # v4: which derivation produced `eligible_roles`, and the real
+            # career positions it came from — so a surprising role is
+            # auditable back to the seasons that earned it.
+            "role_source":           role_source,
+            "career_positions":      positions,
             "role_traces":           traces,
             "lineup_dna":            dna,
             "data_completeness":     w.get("data_status", "unknown"),
@@ -640,10 +730,16 @@ def main() -> int:
         "removed_from_v1":            ["peer_quality_adjustment"],
         "rank_derived_fields_removed": ["peak_tier", "prime_index_normalized"],
         "data_constraint": (
-            "No per-stat breakdowns (defensive rating, rebound rate, block rate, position) "
-            "exist at card-profile layer. 6 dimensions is the maximum defensible from available data."
+            "No per-stat breakdowns (defensive rating, rebound rate, block rate) "
+            "exist at card-profile layer. 6 DNA dimensions is the maximum defensible "
+            "from available data. Role eligibility (v4) is derived from real career "
+            "positions (nba_peak.perfect_season.career_positions), not from these "
+            "component scores."
         ),
         "norm_constants":  NORM,
+        # v4: positions decide eligibility; the capability rules survive as
+        # traces and as the fallback for a slug with no position data.
+        "position_role_map": {k: list(v) for k, v in POSITION_ROLE_MAP.items()},
         "role_rules": {
             k: {"id": v["id"], "description": v["description"]}
             for k, v in ROLE_RULES_V2.items()

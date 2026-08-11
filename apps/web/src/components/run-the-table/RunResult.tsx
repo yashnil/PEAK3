@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
-import { Camera, Check, Copy, Link as LinkIcon, RotateCcw } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Camera, Check, Copy, Link as LinkIcon, RotateCcw } from "lucide-react";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { MapAct, RunReceipt, RunVersions } from "@/types/run-the-table";
 import {
@@ -640,6 +641,20 @@ export default function RunResult({
           <RotateCcw size={13} aria-hidden="true" />
           Run it back
         </button>
+        {/* THE WAY OUT (F1). Every other action here starts, copies or shares
+            something; the screen offered no route back to game selection, so
+            a player who was done was stranded on their own result. A plain
+            link, not a router push wrapped in a button — it is navigation,
+            and middle-click/new-tab should work like navigation. */}
+        <Link
+          href="/arena"
+          data-testid="rtt-back-to-arena"
+          className="rtt-tap pk-lift pk-press inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide"
+          style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+        >
+          <ArrowLeft size={13} aria-hidden="true" />
+          Back to Arena
+        </Link>
         <button
           type="button"
           data-testid="rtt-challenge"

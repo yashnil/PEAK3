@@ -81,7 +81,11 @@ SEED_FILM_LAST = 239
 # survives changed wholesale. Note this file drives the policy with
 # `random.Random(5)`, NOT with the seed, so it needs its own constant --
 # `test_receipt_and_daily.py` has a separate one for a FLAWLESS (5-0) sweep.
-SEED_GREEDY_SWEEP = 1
+# Re-anchored under roles-v4: the deal changed with the role model (see
+# scripts/build_card_profiles.py POSITION_ROLE_MAP), so the seed that sweeps
+# under the greedy policy is a different one. Found by deterministic search
+# over seeds 1-59; 21 also sweeps 5-0 in test_receipt_and_daily.
+SEED_GREEDY_SWEEP = 21
 
 
 def _volatile(state: S.RunState) -> dict:
@@ -1044,7 +1048,10 @@ class TestBossProgression:
     def test_winning_a_boss_pays_the_published_win_reward(self, pool, blueprints):
         """v1 paid a winner NOTHING and a loser 8 credits, so the only battle
         income in the game went to the player who was losing."""
-        bp = blueprints(8)
+        # Seed 1: under roles-v4 the first-option path through act 1 wins for
+        # this seed (searched deterministically; the previous anchor, seed 8,
+        # now loses its act-1 battle on the re-dealt roster).
+        bp = blueprints(1)
         st = S.create_run(bp, "r", pool=pool)
         S.action_select_system(st, bp, bp.system_offers[0][0])
         for stage in range(1, STAGES_PER_ACT + 1):

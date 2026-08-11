@@ -1,13 +1,13 @@
 {
   "profile_version": "v3",
   "card_pool_version": "v3",
-  "transform_version": "dna_v2_roles_v3",
-  "generated_at": "2026-08-03T12:35:19.952733+00:00",
-  "source_commit": "aa3e055",
+  "transform_version": "dna_v2_roles_v4_positional",
+  "generated_at": "2026-08-11T07:08:17.804587+00:00",
+  "source_commit": "cfdb092",
   "source_file": "data/web/peak_windows.json",
   "total_profiles": 984,
-  "official_eligible": 713,
-  "excluded": 271,
+  "official_eligible": 984,
+  "excluded": 0,
   "supported_durations": [
     1,
     2,
@@ -38,7 +38,7 @@
     "peak_tier",
     "prime_index_normalized"
   ],
-  "data_constraint": "No per-stat breakdowns (defensive rating, rebound rate, block rate, position) exist at card-profile layer. 6 dimensions is the maximum defensible from available data.",
+  "data_constraint": "No per-stat breakdowns (defensive rating, rebound rate, block rate) exist at card-profile layer. 6 DNA dimensions is the maximum defensible from available data. Role eligibility (v4) is derived from real career positions (nba_peak.perfect_season.career_positions), not from these component scores.",
   "norm_constants": {
     "statistical_impact": {
       "max": 38.93,
@@ -60,6 +60,27 @@
       "max": 3.0,
       "min": 0.0
     }
+  },
+  "position_role_map": {
+    "PG": [
+      "lead_creator",
+      "guard_wing"
+    ],
+    "SG": [
+      "guard_wing"
+    ],
+    "SF": [
+      "guard_wing",
+      "wing_forward"
+    ],
+    "PF": [
+      "wing_forward",
+      "forward_big"
+    ],
+    "C": [
+      "forward_big",
+      "anchor"
+    ]
   },
   "role_rules": {
     "lead_creator": {
