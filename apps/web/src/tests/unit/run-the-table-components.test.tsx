@@ -265,6 +265,11 @@ function battleFixture(over: Partial<BattlePublic> = {}): BattlePublic {
       pre_perk_rating: 55 + i,
       perk_adjustment: 2.5,
       bench_adjustment: (60 + i) - (55 + i) - 2.5,
+      // F4: the bench's own contribution, signed. `starters_only_rating +
+      // bench_contribution === pre_perk_rating` by construction.
+      starters_only_rating: 58 + i,
+      bench_contribution: -3,
+      bench_suppressed_by: null,
       final_rating: 60 + i,
       top_contributor: { name: "Tim Duncan", own_lane_index_value: 72 },
       opponent_top_contributor: { name: "Kevin Garnett", own_lane_index_value: 72 },
@@ -1839,7 +1844,22 @@ describe("BattleReveal", () => {
     expect(contributors).not.toBe(lane.firstElementChild);
   });
 
-  it("expandable receipt: pre_perk_rating + bench_adjustment + perk_adjustment sums to final_rating, behind disclosure", () => {
+  it("expandable receipt: starters + bench + perk sums to final_rating, behind disclosure", () => {
+    /*
+     * F4. THIS ROW USED TO READ "Before perk 55.00 + Bench 0.00 + Perk 0.00"
+     * beside a fully populated bench, which reads as a bug. It was a MISSING
+     * LINE rather than bad arithmetic: the only bench figure the receipt had
+     * was `bench_adjustment`, the PERK residual, which is correctly zero when
+     * nothing has moved the bench weight. The bench was inside
+     * `pre_perk_rating` all along, because the lane rating is a weighted MEAN
+     * over starters AND bench.
+     *
+     * So the sum now starts one step earlier, at the starters alone, and the
+     * bench gets a line of its own:
+     *
+     *   starters_only_rating + bench_contribution  === pre_perk_rating
+     *   pre_perk_rating + bench_adjustment + perk  === final_rating
+     */
     render(
       <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
     );
@@ -1847,12 +1867,53 @@ describe("BattleReveal", () => {
     expect(receipt.tagName).toBe("DETAILS");
     // Collapsed by default — it must not compete with the at-a-glance numbers.
     expect(receipt).not.toHaveAttribute("open");
-    // battleFixture's lane 0: pre_perk_rating 55, bench_adjustment 2.5,
-    // perk_adjustment 2.5 → sums to final_rating 60 (player_lineup_rating).
-    expect(screen.getByTestId("rtt-lane-receipt-pre-statistical_impact")).toHaveTextContent("55.00");
-    expect(screen.getByTestId("rtt-lane-receipt-bench-statistical_impact")).toHaveTextContent("2.50");
-    expect(screen.getByTestId("rtt-lane-receipt-perk-statistical_impact")).toHaveTextContent("2.50");
+    // battleFixture lane 0: starters 58, bench -3 (=> pre_perk 55),
+    // bench_adjustment 2.5 + perk 2.5 => 5.00, final 60.
+    expect(
+      screen.getByTestId("rtt-lane-receipt-starters-statistical_impact"),
+    ).toHaveTextContent("58.00");
+    expect(screen.getByTestId("rtt-lane-receipt-bench-statistical_impact")).toHaveTextContent(
+      "-3.00",
+    );
+    expect(screen.getByTestId("rtt-lane-receipt-perk-statistical_impact")).toHaveTextContent("5.00");
     expect(screen.getByTestId("rtt-lane-receipt-final-statistical_impact")).toHaveTextContent("60.00");
+  });
+
+  it("a populated bench never reports a bare 0.00, and a suppressing rule is named", () => {
+    // THE REPORTED DEFECT AND ITS ONE HONEST EXCEPTION.
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    expect(
+      screen.getByTestId("rtt-lane-receipt-bench-statistical_impact").textContent,
+    ).not.toMatch(/Bench\s*0\.00/);
+
+    const suppressed = battleFixture({
+      lanes: battleFixture().lanes.map((lane) => ({
+        ...lane,
+        bench_contribution: 0,
+        bench_suppressed_by: "top_heavy",
+      })),
+    });
+    render(
+      <BattleReveal battle={suppressed} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    expect(
+      screen.getAllByTestId("rtt-lane-receipt-bench-statistical_impact").at(-1),
+    ).toHaveTextContent("Bench suppressed by top_heavy");
+  });
+
+  it("says in words that the lane is decided by the lineup ratings, not the contributors", () => {
+    // F5. "Your top contributor Shaq 71.2 / their top contributor Hakeem 49.5"
+    // printed above a LOST lane is not a bug — the lane is won by the
+    // depth-weighted team rating — but a screen that never says which number
+    // decided it is asking the player to infer the rule.
+    render(
+      <BattleReveal battle={battleFixture()} boss={null} busy={false} onAdvance={vi.fn()} advanceLabel="Next act" />,
+    );
+    const note = screen.getByTestId("rtt-lane-contributor-note-statistical_impact");
+    expect(note).toHaveTextContent(/decided by the lineup ratings/i);
+    expect(note).toHaveTextContent(/not by these/i);
   });
 
   // -------------------------------------------------------------------
@@ -2130,9 +2191,16 @@ describe("RunResult", () => {
       />,
     );
     await userEvent.click(screen.getByTestId("rtt-run-it-back"));
-    await userEvent.click(screen.getByTestId("rtt-replay-seed"));
     expect(onRunItBack).toHaveBeenCalledTimes(1);
-    expect(onReplaySeed).toHaveBeenCalledTimes(1);
+    // "REPLAY THIS SEED" IS NO LONGER OFFERED (F2). It was a developer
+    // affordance wearing a player's button: a run is a sequence of decisions,
+    // and re-dealing the identical board beside "Run it back" asked the player
+    // to choose between two things they had no way to tell apart.
+    // Deterministic seeds are untouched — they still drive the engine, the
+    // challenge link, the share card and every reproduction test — so the
+    // handler stays on the contract and only the control is gone.
+    expect(screen.queryByTestId("rtt-replay-seed")).not.toBeInTheDocument();
+    expect(onReplaySeed).not.toHaveBeenCalled();
   });
 
   it("makes the verdict the largest, first-in-DOM-order element — never a caption under the headline", () => {

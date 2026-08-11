@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
-import { Camera, Check, Copy, Link as LinkIcon, RotateCcw, Repeat } from "lucide-react";
+import { Camera, Check, Copy, Link as LinkIcon, RotateCcw } from "lucide-react";
 import PlayerAvatar from "@/components/court/PlayerAvatar";
 import { MapAct, RunReceipt, RunVersions } from "@/types/run-the-table";
 import {
@@ -69,6 +69,10 @@ interface Props {
    *  omitted, never faked. */
   map?: MapAct[] | null;
   onRunItBack: () => void;
+  /** Kept on the CONTRACT and deliberately not destructured by this surface:
+   *  deterministic seed replay is still how tests, the challenge link and
+   *  reproduction work — it is only the player-facing BUTTON that was removed
+   *  (F2), so callers keep passing a handler and this screen stops offering it. */
   onReplaySeed: () => void;
   onChallenge: () => Promise<string | null>;
 }
@@ -82,7 +86,6 @@ export default function RunResult({
   actsTotal,
   map,
   onRunItBack,
-  onReplaySeed,
   onChallenge,
 }: Props) {
   const [copied, setCopied] = useState<CopiedKind>(null);
@@ -609,8 +612,17 @@ export default function RunResult({
         </p>
       </section>
 
-      {/* Actions — five, per §6: run it back · replay this seed · challenge
-          a friend · copy summary · share card (image). */}
+      {/* Actions — four: run it back · challenge a friend · copy summary ·
+          share card (image).
+
+          "REPLAY THIS SEED" IS GONE FROM THE PLAYER-FACING SET (F2). It was a
+          developer affordance wearing a player's button: a run is a sequence of
+          decisions, and offering to re-deal the identical board next to "Run it
+          back" asked the player to choose between two things they had no way to
+          tell apart. Deterministic seeds are UNCHANGED and still drive the
+          engine, the challenge link, the share card and every test that
+          reproduces a run — only the button is removed. `onReplaySeed` remains
+          on the props for those callers. */}
       {challengeError && (
         <p role="alert" className="text-xs" style={{ color: "var(--incorrect)" }}>
           {challengeError}
@@ -627,17 +639,6 @@ export default function RunResult({
         >
           <RotateCcw size={13} aria-hidden="true" />
           Run it back
-        </button>
-        <button
-          type="button"
-          data-testid="rtt-replay-seed"
-          onClick={onReplaySeed}
-          disabled={busy}
-          className="rtt-tap pk-lift pk-press inline-flex items-center gap-1.5 rounded-lg px-4 text-xs font-semibold uppercase tracking-wide disabled:opacity-60"
-          style={{ background: "var(--bg-elevated)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-        >
-          <Repeat size={13} aria-hidden="true" />
-          Replay this seed
         </button>
         <button
           type="button"

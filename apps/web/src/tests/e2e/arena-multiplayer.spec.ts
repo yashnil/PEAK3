@@ -540,6 +540,185 @@ test.describe("Three-Man Weave", () => {
     }
   });
 
+  /**
+   * THE PICKER LAG REGRESSION (TMW-D3).
+   *
+   * THE REPORT. "The player list is open, I move over the player I want, the
+   * hover stutters, I click repeatedly and nothing selects, the clock runs out
+   * and the game drafts somebody I never chose." Named case: the drafter wanted
+   * John Stockton and the timeout fallback gave them a different legal player.
+   *
+   * THE CAUSE, measured rather than guessed. The candidate row carried
+   * `.pk-lift .pk-press` — `translateY(-2px)` on hover, `scale(0.985)` on press.
+   * The element that moves was the element receiving the pointer, so on a 44px
+   * row the hover state fed back into itself. With the pointer held COMPLETELY
+   * STATIONARY 1px above a row's bottom edge, instrumentation counted
+   * 29 `mouseenter` + 29 `mouseleave` in 1500ms — about 19 flips a second — and
+   * a ~2px band at the top of every row where the row had already lifted out
+   * from under the cursor. An oscillating row is also a row that can be under
+   * the cursor at `mousedown` and gone at `mouseup`, and `click` only fires when
+   * both land on the same element. After the fix the same measurement reads
+   * 1 enter / 0 leave and 0px of displacement.
+   *
+   * WHAT THIS TEST GUARDS, and why it is shaped this way. Two properties, and
+   * a count that is a requirement rather than a flourish:
+   *
+   *   1. PRECISION, 20/20. Twenty presses on twenty deliberately chosen rows,
+   *      each asserting that the row that highlighted and the name on the
+   *      commit button are the ones pressed. Run with the search box active,
+   *      with a position filter active, and on the unfiltered list, because all
+   *      three re-key the list and the original defect was reported while
+   *      searching. One miss fails the test.
+   *   2. NEAR-DEADLINE CORRECTNESS. Then it waits for the clock to run down,
+   *      presses a SPECIFIC NAMED player in the final seconds, commits, and
+   *      asserts THAT PLAYER — not a fallback, not nothing — is the one the
+   *      server recorded as drafted.
+   */
+  test("presses a specific player 20/20 and drafts exactly that player in the final seconds", async ({
+    browser,
+  }) => {
+    test.setTimeout(180_000);
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await signInAs(context, page, uniqueSub("tmw-precision"));
+      await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+      await page.getByTestId("lobby-three_man_weave-practice").click();
+      await page.waitForURL(/\/arena\/three-man-weave\/[0-9a-f-]{36}/, { timeout: 20_000 });
+
+      const overlay = page.getByTestId("tmw-pick-overlay");
+      await overlay.waitFor({ timeout: 60_000 });
+      const list = page.getByTestId("tmw-candidate-list");
+      const search = page.getByTestId("tmw-pick-search");
+      const confirm = page.getByTestId("tmw-confirm-pick");
+
+      /** One press, with a REAL POINTER, on a row chosen by index. */
+      async function pressRow(index: number): Promise<{ name: string; ok: boolean }> {
+        const row = list.locator("button:not([disabled])").nth(index);
+        const name = (await row.locator(".tmw-candidate-name").innerText()).trim();
+        // Raw pointer events do not scroll; `.click()` would. This has to be a
+        // raw pointer sequence to reproduce the defect at all, so the scroll is
+        // explicit. It also settles BEFORE the box is measured — measuring
+        // first and pressing after is how a harness invents its own miss.
+        await row.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(80);
+        const box = (await row.boundingBox())!;
+        // Approach, dwell, press, release — the human sequence. The dwell is
+        // what made the old row oscillate; the release is what it dropped.
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.85);
+        await page.waitForTimeout(60);
+        await page.mouse.down();
+        await page.waitForTimeout(50);
+        await page.mouse.up();
+        const ok = await row
+          .and(page.locator('[data-selected="true"]'))
+          .waitFor({ timeout: 2000 })
+          .then(() => true)
+          .catch(() => false);
+        return { name, ok };
+      }
+
+      // ---- 0. THE ROOT CAUSE, AS A GEOMETRIC INVARIANT ---------------------
+      // A row must not move when it is pointed at, and pointing at one must
+      // produce ONE `mouseenter` and no `mouseleave` while the pointer is
+      // still. Before the fix this read 29/29 in the same 1500ms.
+      {
+        const row = list.locator("button:not([disabled])").first();
+        await row.scrollIntoViewIfNeeded();
+        const rest = (await row.boundingBox())!;
+        await page.evaluate(() => {
+          const w = window as unknown as Record<string, number>;
+          w.__enter = 0;
+          w.__leave = 0;
+          const el = document.querySelector(
+            '[data-testid="tmw-candidate-list"] button:not([disabled])',
+          );
+          el?.addEventListener("mouseenter", () => { w.__enter += 1; });
+          el?.addEventListener("mouseleave", () => { w.__leave += 1; });
+        });
+        // 1px inside the bottom edge: the exact band the lift used to swing
+        // the row out of and back into.
+        await page.mouse.move(rest.x + rest.width / 2, rest.y + rest.height - 1);
+        await page.waitForTimeout(1500);
+        const hovered = (await row.boundingBox())!;
+        const flips = await page.evaluate(() => {
+          const w = window as unknown as Record<string, number>;
+          return { enter: w.__enter, leave: w.__leave };
+        });
+        expect(
+          Math.abs(hovered.y - rest.y),
+          "the candidate row moved under the pointer — a transform is back on it",
+        ).toBeLessThan(0.5);
+        expect(flips.leave, "the row oscillated in and out of hover with the pointer held still")
+          .toBe(0);
+        expect(flips.enter).toBe(1);
+      }
+
+      // ---- 1. TWENTY PRESSES, TWENTY EXACT MATCHES --------------------------
+      const misses: string[] = [];
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        // Rotate the list's shape so the stress covers the states the report
+        // came from: a plain list, a live search, and a position filter.
+        if (attempt === 7) await search.fill("a");
+        if (attempt === 14) {
+          await search.fill("");
+          await page.getByTestId("tmw-filter-bench_1").click();
+        }
+        const available = await list.locator("button:not([disabled])").count();
+        if (available === 0) continue;
+        const { name, ok } = await pressRow(attempt % available);
+        if (!ok) {
+          misses.push(`attempt ${attempt}: pressing "${name}" staged nothing`);
+          continue;
+        }
+        // THE NAME ON THE COMMIT BUTTON IS THE NAME PRESSED. Highlighting the
+        // right row while staging a different player would be the same defect
+        // wearing a disguise.
+        const label = await confirm.innerText();
+        if (!label.includes(name)) {
+          misses.push(`attempt ${attempt}: pressed "${name}" but the button reads "${label}"`);
+        }
+      }
+      expect(misses, `presses that did not land on the intended player:\n${misses.join("\n")}`)
+        .toEqual([]);
+
+      // ---- 2. THE FINAL SECONDS -------------------------------------------
+      await page.getByTestId("tmw-filter-bench_1").click(); // clear the filter
+      await search.fill("");
+
+      // Run the clock down. The whole point is to act inside the window where
+      // the old panel had already locked itself and the fallback was about to
+      // be assigned.
+      await expect
+        .poll(
+          async () =>
+            Number(await page.getByTestId("tmw-overlay-clock-value").innerText()),
+          { timeout: 60_000, intervals: [500], message: "the turn clock never ran down" },
+        )
+        .toBeLessThanOrEqual(6);
+
+      const intended = await pressRow(0);
+      expect(intended.ok, `"${intended.name}" did not stage in the final seconds`).toBe(true);
+      await expect(confirm).toContainText(intended.name);
+      // A candidate with more than one legal slot stages no destination on
+      // its own, by design — the drafter chooses. Supply one if it is needed.
+      if (await confirm.isDisabled()) {
+        await page.locator('[data-testid^="tmw-place-"][data-legal="true"]').first().click();
+      }
+      await expect(confirm).toBeEnabled();
+      await confirm.click();
+
+      // ---- 3. THAT EXACT PLAYER, AND NOT A FALLBACK ------------------------
+      // The identity lock is the server's own record of who came off the board.
+      await expect(page.getByTestId("tmw-identity-lock")).toContainText(intended.name, {
+        timeout: 20_000,
+      });
+      await expect(page.getByTestId("tmw-courts")).toContainText(intended.name);
+    } finally {
+      await context.close();
+    }
+  });
+
   test("the draft room has no serious accessibility violations", async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -564,6 +743,242 @@ test.describe("Three-Man Weave", () => {
 });
 
 test.describe("The $20 Showdown", () => {
+  /** Start a bot-practice auction and return once the first lot is live. */
+  async function openAuction(context: BrowserContext, page: Page, tag: string) {
+    await signInAs(context, page, uniqueSub(tag));
+    await page.goto("/arena/lobby", { waitUntil: "domcontentloaded" });
+    await page.getByTestId("lobby-twenty_dollar-practice").click();
+    await page.waitForURL(/\/arena\/twenty-dollar\/[0-9a-f-]{36}/, { timeout: 20_000 });
+    await expect(page.getByTestId("td-game")).toBeVisible({ timeout: 20_000 });
+  }
+
+  test("the intro is a real server phase: readable, skippable, and it costs no clock", async ({
+    browser,
+  }) => {
+    /*
+     * C1. The competitive intro used to be a CLIENT beat while the server had
+     * already stamped the first lot's 25-second deadline, so it was spending
+     * the player's own decision time to explain the rules — and
+     * `affordableBeat` truncated or skipped it whenever that would push the
+     * remaining window below its floor, i.e. exactly when the player was
+     * newest to the mode.
+     *
+     * It is a real turn now (`mode.PHASE_INTRO`), belonging to no seat and
+     * accepting no bid, and the first auction turn opens with a FULL window
+     * measured from the moment it ends.
+     */
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await openAuction(context, page, "td-intro");
+
+      const room = page.getByTestId("td-game");
+      await expect(page.getByTestId("td-intro")).toBeVisible();
+      await expect(room).toHaveAttribute("data-phase", "intro");
+
+      // NO DECISION CLOCK IS RUNNING. The controls are shut and the clock panel
+      // is in its held state rather than counting anything down.
+      await expect(page.getByTestId("td-bid-controls")).toHaveAttribute(
+        "data-live",
+        "false",
+      );
+      await expect(page.getByTestId("td-clock")).toHaveAttribute("data-mode", "held");
+
+      // IT IS LONG ENOUGH TO READ. Still up a full 2.5s in — the old beat could
+      // be cut to nothing.
+      await page.waitForTimeout(2500);
+      await expect(page.getByTestId("td-intro")).toBeVisible();
+
+      // AND SKIPPABLE, which really ends the server's turn rather than hiding
+      // an overlay over a board that still refuses every action.
+      await page.getByTestId("td-intro-start").click();
+      await expect(page.getByTestId("td-intro")).toHaveCount(0, { timeout: 10_000 });
+      await expect(room).not.toHaveAttribute("data-phase", "intro");
+      await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 15_000 });
+
+      // The first lot's window is genuinely full: the human's own countdown,
+      // when it is their turn, starts at the top rather than part-spent.
+      const controls = page.getByTestId("td-bid-controls");
+      await expect(controls).toHaveAttribute("data-live", "true", { timeout: 40_000 });
+      const seconds = Number(await page.getByTestId("td-timer-value").innerText());
+      expect(
+        seconds,
+        "the first lot's clock was already part-spent when it opened",
+      ).toBeGreaterThan(18);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("the lot on the block never blinks out between lots", async ({ browser }) => {
+    /*
+     * C4. "During manual play, an active auction player appeared and then
+     * visually disappeared during state transitions."
+     *
+     * IT WAS NOT A POLLING RACE. The server never publishes a null candidate
+     * for a live match — `_resolve_lot` clears it and `_advance_lot` sets the
+     * next one inside the SAME reducer call. It was the entry animation:
+     * `AuctionStage` keys its card on `lot_index`, so a new lot REMOUNTS it,
+     * and `.td-enter` plus the nested `.pk-reveal` blocks all animated
+     * `opacity: 0 -> 1` with `fill-mode: both`. Instrumented across a full
+     * auction, sampling every animation frame: 13 windows where the card was
+     * live but invisible, one per lot, 24-47ms each above a 0.05 threshold and
+     * the whole 400ms fade below it. After the fix: zero.
+     *
+     * The invariant: once a lot is on the block its player is painted in EVERY
+     * frame until the next lot replaces them.
+     */
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await openAuction(context, page, "td-continuity");
+      await page.getByTestId("td-intro-start").click().catch(() => undefined);
+      await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 20_000 });
+
+      await page.evaluate(() => {
+        const w = window as unknown as Record<string, unknown>;
+        w.__gaps = [] as unknown[];
+        let gapStart: number | null = null;
+        const sample = () => {
+          const game = document.querySelector('[data-testid="td-game"]');
+          const done = !!document.querySelector('[data-testid="td-result"]');
+          const el = document.querySelector(
+            '[data-testid="td-candidate"]',
+          ) as HTMLElement | null;
+          let visible = false;
+          if (el) {
+            const rect = el.getBoundingClientRect();
+            visible =
+              Number(getComputedStyle(el).opacity) > 0.05 &&
+              rect.width > 0 &&
+              rect.height > 0;
+          }
+          if (game && !done && !visible) {
+            if (gapStart === null) gapStart = performance.now();
+          } else if (gapStart !== null) {
+            (w.__gaps as unknown[]).push(Math.round(performance.now() - gapStart));
+            gapStart = null;
+          }
+          requestAnimationFrame(sample);
+        };
+        requestAnimationFrame(sample);
+      });
+
+      // Play several lots as fast as the board offers an action, so the sampler
+      // spans real lot transitions rather than one static board.
+      const stopAt = Date.now() + 60_000;
+      let lots = 0;
+      while (Date.now() < stopAt && lots < 4) {
+        if (await page.getByTestId("td-result").count()) break;
+        const pass = page.getByTestId("td-pass");
+        if (await pass.isEnabled({ timeout: 500 }).catch(() => false)) {
+          await pass.click({ timeout: 2000 }).catch(() => undefined);
+          lots += 1;
+          continue;
+        }
+        await page.waitForTimeout(250);
+      }
+      expect(lots, "the auction never advanced, so nothing was measured").toBeGreaterThan(1);
+
+      const gaps = await page.evaluate(
+        () => (window as unknown as Record<string, number[]>).__gaps,
+      );
+      expect(
+        gaps,
+        `the lot card was invisible while a lot was live, for ${gaps.join("ms, ")}ms`,
+      ).toEqual([]);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("forfeiting takes two deliberate actions, ends the match, and survives a reload", async ({
+    browser,
+  }) => {
+    // C2. Without this the only way out is closing the tab, which leaves the
+    // opponent watching a clock tick out and leaves a live match on the server
+    // for the same player to be dropped back into.
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await openAuction(context, page, "td-forfeit");
+      await page.getByTestId("td-intro-start").click().catch(() => undefined);
+      await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 20_000 });
+      const url = page.url();
+
+      // ONE CLICK DOES NOT CONCEDE. It only reveals the confirmation, and the
+      // destructive choice is not the one that takes focus.
+      await page.getByTestId("td-forfeit").click();
+      await expect(page.getByTestId("td-forfeit-confirm")).toBeVisible();
+      await expect(page.getByTestId("td-forfeit-cancel")).toBeFocused();
+      await expect(page.getByTestId("td-result")).toHaveCount(0);
+
+      // Escape backs out without conceding.
+      await page.keyboard.press("Escape");
+      await expect(page.getByTestId("td-forfeit-confirm")).toHaveCount(0);
+      await expect(page.getByTestId("td-candidate")).toBeVisible();
+
+      await page.getByTestId("td-forfeit").click();
+      await page.getByTestId("td-forfeit-confirm-button").click();
+
+      // THE MATCH IS OVER, SERVER-SIDE.
+      await expect(page.getByTestId("td-result")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId("td-result-headline")).toContainText(/\S/);
+
+      // AND IT CANNOT BE REVIVED BY A REFRESH: the status is what changed, so
+      // every later read projects a settled match rather than a live board.
+      await page.goto(url, { waitUntil: "domcontentloaded" });
+      await expect(page.getByTestId("td-result")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId("td-candidate")).toHaveCount(0);
+      await expect(page.getByTestId("td-bid-controls")).toHaveCount(0);
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("the opponent's clock counts DOWN, like the human's", async ({ browser }) => {
+    // C3. It used to read "TIME ELAPSED 2s" and count up, because the API sent
+    // `seconds_remaining` only to the seat holding the turn. A turn deadline is
+    // not hidden information; the server publishes `turn_seconds_remaining` to
+    // every seat now.
+    test.setTimeout(120_000);
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await openAuction(context, page, "td-opponent-clock");
+      await page.getByTestId("td-intro-start").click().catch(() => undefined);
+      await expect(page.getByTestId("td-candidate")).toBeVisible({ timeout: 20_000 });
+
+      // HAND THE TURN OVER. The opening bidder is drawn from the seed, so this
+      // seat may or may not be on the clock first; passing when it is makes the
+      // opponent's turn arrive without waiting out a 25-second timeout.
+      const pass = page.getByTestId("td-pass");
+      if (await pass.isEnabled({ timeout: 30_000 }).catch(() => false)) {
+        await pass.click();
+      }
+
+      const clock = page.getByTestId("td-clock");
+      await expect
+        .poll(async () => clock.getAttribute("data-mode"), {
+          timeout: 60_000,
+          message: "the opponent never took a turn",
+        })
+        .toBe("elapsed");
+
+      await expect(clock).toHaveAttribute("data-direction", "down");
+      await expect(page.getByTestId("td-timer")).toContainText("Time remaining");
+      // The value renders as "8s", so parse rather than coerce.
+      const read = async () =>
+        parseInt((await page.getByTestId("td-elapsed-value").innerText()).trim(), 10);
+      const first = await read();
+      await page.waitForTimeout(1200);
+      const second = await read();
+      expect(second, `the opponent clock went ${first} -> ${second}`).toBeLessThan(first);
+    } finally {
+      await context.close();
+    }
+  });
+
   test("bot practice reaches a live auction with precise bid controls", async ({
     browser,
   }) => {

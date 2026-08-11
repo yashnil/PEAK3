@@ -135,8 +135,6 @@ export interface ShowdownPhaseInput {
   yourSeat: number | null;
   /** `public_state.lot_actions.length` — bumps on every action in the lot. */
   actionCount: number;
-  /** `public_state.history.length`, used only to tell a fresh match from a resume. */
-  historyLength: number;
   /** `seconds_remaining` as the server last reported it. */
   secondsRemaining: number | null;
   /** The local monotonic deadline the room derived from `seconds_remaining`. */
@@ -145,6 +143,22 @@ export interface ShowdownPhaseInput {
   pending: boolean;
   /** `public_state.phase === "complete"`. */
   complete: boolean;
+  /**
+   * THE SERVER SAYS THE INTRO IS OPEN — `turn_phase === "intro"`.
+   *
+   * The intro used to be a purely local beat, started from "this looks like a
+   * fresh match" and priced against the human's own running clock by
+   * `affordableBeat`, because the server had already stamped the first lot's
+   * 25-second deadline. That is why the briefing was shortest exactly when the
+   * player was newest to the mode.
+   *
+   * It is a real server turn now (`mode.PHASE_INTRO`) belonging to no seat and
+   * accepting no bid, so it costs the opening bidder nothing and the decision
+   * clock genuinely does not start until it ends. This client no longer decides
+   * when it opens OR when it closes: it renders the phase the server published,
+   * and `onSkipIntro` asks the server to end it.
+   */
+  introOpen: boolean;
 }
 
 export interface ShowdownPhaseState {
@@ -157,8 +171,6 @@ export interface ShowdownPhaseState {
   clockDeadlineAt: number | null;
   /** May the human act right now? */
   controlsLive: boolean;
-  /** End the intro early, from its own button. */
-  dismissIntro: () => void;
 }
 
 export function useShowdownPhase(input: ShowdownPhaseInput): ShowdownPhaseState {
@@ -167,11 +179,11 @@ export function useShowdownPhase(input: ShowdownPhaseInput): ShowdownPhaseState 
     activeSeat,
     yourSeat,
     actionCount,
-    historyLength,
     secondsRemaining,
     deadlineAt,
     pending,
     complete,
+    introOpen,
   } = input;
 
   const onHumanClock = activeSeat !== null && activeSeat === yourSeat;
@@ -181,20 +193,13 @@ export function useShowdownPhase(input: ShowdownPhaseInput): ShowdownPhaseState 
   const clockRef = useRef({ secondsRemaining, onHumanClock });
   clockRef.current = { secondsRemaining, onHumanClock };
 
-  // A FRESH MATCH IS THE ONLY ONE THAT GETS AN INTRO. A reload three lots in
-  // must not replay it — the player has already been introduced, and the
-  // intro would be spending their clock to tell them something they know.
-  const [beat, setBeat] = useState<Beat | null>(() =>
-    !complete && historyLength === 0 && lotIndex === 0 && actionCount === 0
-      ? {
-          kind: "intro",
-          key: "intro",
-          // The intro opens before any human turn can have been rendered, so
-          // it is priced against the clock exactly like any other beat.
-          durationMs: affordableBeat(INTRO_MS, secondsRemaining, onHumanClock),
-        }
-      : null,
-  );
+  // THE INTRO IS NO LONGER A BEAT. It is the server's own turn phase, so it
+  // opens and closes exactly when the server says — including across a reload,
+  // where a player who refreshes mid-briefing resumes it with the time that is
+  // actually left rather than replaying it from full or losing it entirely.
+  // `historyLength`, `lotIndex` and `actionCount` no longer guess at "is this a
+  // fresh match"; the phase answers it.
+  const [beat, setBeat] = useState<Beat | null>(null);
 
   const openBeat = useCallback((kind: Beat["kind"], key: string, requestedMs: number) => {
     const { secondsRemaining: left, onHumanClock: mine } = clockRef.current;
@@ -251,23 +256,25 @@ export function useShowdownPhase(input: ShowdownPhaseInput): ShowdownPhaseState 
     if (complete) setBeat(null);
   }, [complete]);
 
-  const dismissIntro = useCallback(() => {
-    setBeat((current) => (current?.kind === "intro" ? null : current));
-  }, []);
-
   const phase: ShowdownPhase = complete
     ? "complete"
-    : // PENDING OUTRANKS EVERYTHING (S20-08). The moment this client submits,
-      // the countdown stops and the submitted action is what the surface says.
-      // It outranks a handoff beat too: the beat is about the OTHER seat's
-      // action landing, and our own in-flight command is the more urgent truth.
-      pending
-      ? "pending"
-      : beat
-        ? beat.kind
-        : activeSeat === null
-          ? "settling"
-          : "decide";
+    : // THE INTRO OUTRANKS EVERYTHING BELOW IT, because while the server's
+      // intro turn is open there is no auction turn at all: no seat is on a
+      // clock and no command would be accepted.
+      introOpen
+      ? "intro"
+      : // PENDING OUTRANKS THE REST (S20-08). The moment this client submits,
+        // the countdown stops and the submitted action is what the surface
+        // says. It outranks a handoff beat too: the beat is about the OTHER
+        // seat's action landing, and our own in-flight command is the more
+        // urgent truth.
+        pending
+        ? "pending"
+        : beat
+          ? beat.kind
+          : activeSeat === null
+            ? "settling"
+            : "decide";
 
   return {
     phase,
@@ -277,6 +284,5 @@ export function useShowdownPhase(input: ShowdownPhaseInput): ShowdownPhaseState 
     // grace window is about to accept.
     clockDeadlineAt: phase === "decide" ? deadlineAt : null,
     controlsLive: phase === "decide" && onHumanClock,
-    dismissIntro,
   };
 }

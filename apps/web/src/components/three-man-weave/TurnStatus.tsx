@@ -15,7 +15,7 @@ import {
   seatLabel,
   turnHeadline,
 } from "@/lib/three-man-weave-state";
-import ArenaTimer from "@/components/shared/ArenaTimer";
+import ArenaTimer, { useRemainingSeconds } from "@/components/shared/ArenaTimer";
 
 /**
  * ONE TURN-STATUS SURFACE (TMW-07, TMW-08).
@@ -38,18 +38,25 @@ import ArenaTimer from "@/components/shared/ArenaTimer";
  * for a moment on this same line and then returns to the next seat, instead of
  * appearing in a separate tray below. One state, one place.
  *
- * TWO CLOCKS, ONE OF THEM HONEST ABOUT WHAT IT KNOWS
- * --------------------------------------------------
+ * TWO CLOCKS, AND BOTH OF THEM COUNT DOWN
+ * ---------------------------------------
  * When the turn is YOURS the clock is `ArenaTimer` driven by the server's own
  * deadline, and it names its consequence.
  *
- * When the turn belongs to a bot the API sends `seconds_remaining: null` --
- * `_build_view` only publishes a duration to the seat that owns the turn -- so
- * there is no bot deadline to count down to. Rather than invent one, the bot's
- * clock counts UP from the moment this client first saw the turn open. It is a
- * visible clock on a visibly deliberating opponent (TMW-05), and every number
- * on it is something the client actually knows. The bot's own delay is real and
- * server-enforced against `arena_turns.opened_at` at 4-10 seconds.
+ * WHEN THE TURN BELONGS TO A BOT IT IS THE SAME CLOCK. This used to count UP
+ * -- "Deliberating 1s, 2s, 3s" -- for an honest reason: the API published
+ * `seconds_remaining` only to the seat that owned the turn, so there was no bot
+ * deadline to count down to and the room refused to invent one. The right fix
+ * was to publish the fact rather than to keep working around its absence: a
+ * turn deadline is not hidden information, and the server now sends
+ * `turn_seconds_remaining` to every seat. So the opponent's wait reads
+ * "Deliberating 8s, 7s, 6s" against the SERVER's deadline, in the same
+ * direction and the same language as the human's own clock, and a player can
+ * finally tell whether the bot is nearly done or has just started.
+ *
+ * The count-up remains as the fallback for the one case that still has no
+ * deadline -- a turn whose remaining time the server did not publish -- rather
+ * than showing nothing at all.
  *
  * ACCESSIBILITY. Exactly one polite live region, on the headline, so a turn
  * change is announced and a ticking number never is. `ArenaTimer` keeps its own
@@ -64,6 +71,7 @@ export default function TurnStatus({
   pickNumber,
   totalPicks,
   deadlineAt,
+  opponentDeadlineAt = null,
   turnSeconds,
   timeoutConsequence,
   onExpire,
@@ -76,6 +84,9 @@ export default function TurnStatus({
   pickNumber: number;
   totalPicks: number;
   deadlineAt: number | null;
+  /** The open turn's deadline when it belongs to SOMEBODY ELSE. See the
+   *  module docstring; `null` falls back to the count-up. */
+  opponentDeadlineAt?: number | null;
   turnSeconds: number;
   timeoutConsequence: string;
   onExpire?: () => void;
@@ -91,13 +102,26 @@ export default function TurnStatus({
       : (state.rosters.find((roster) => roster.seat_index === currentTurnSeatIndex) ?? null);
 
   const justPicked = useJustPicked(state);
+  const opponentOnClock = !complete && !yourTurn && !!activeSeat;
   const elapsed = useBotElapsed(
-    !complete && !yourTurn && !!activeSeat?.is_bot,
+    opponentOnClock,
     // The turn key. Restarts at a genuine turn boundary and at no other time --
     // seat index alone would miss the snake turnaround, where the same seat
     // takes two turns back to back across a round boundary.
     `${currentTurnSeatIndex}:${state.current_round}:${pickNumber}`,
   );
+  // THE SERVER'S DEADLINE FOR WHOEVER IS ON THE CLOCK. Null only when the
+  // server published none, in which case the count-up survives as the fallback
+  // rather than the panel showing nothing.
+  const remaining = useRemainingSeconds(opponentOnClock ? opponentDeadlineAt : null);
+  const botClock =
+    !opponentOnClock
+      ? null
+      : remaining !== null
+        ? { seconds: remaining, direction: "down" as const }
+        : elapsed !== null
+          ? { seconds: elapsed, direction: "up" as const }
+          : null;
 
   const headline = justPicked
     ? pickedHeadline(seats, justPicked, yourSeatIndex)
@@ -184,19 +208,23 @@ export default function TurnStatus({
           onExpire={onExpire}
           testId="tmw-turn-clock"
         />
-      ) : elapsed !== null && !justPicked ? (
-        /* THE BOT'S VISIBLE CLOCK. Counts up, because the server publishes no
-           deadline for a seat that is not yours; see the module docstring. */
+      ) : botClock !== null && !justPicked ? (
+        /* THE OPPONENT'S CLOCK, COUNTING DOWN against the server's own turn
+           deadline — the same direction and the same language as the human's.
+           `data-direction` is on the element so a test asserts which of the two
+           it is showing rather than inferring it from a number that happens to
+           be falling. See the module docstring. */
         <div
           className="tmw-bot-clock"
           data-testid="tmw-bot-clock"
+          data-direction={botClock.direction}
           data-seat-accent={
             currentTurnSeatIndex === null ? undefined : seatAccent(currentTurnSeatIndex)
           }
         >
           <span className="tmw-bot-clock-label">Deliberating</span>
           <span className="tmw-bot-clock-value pk-numeral" aria-hidden="true">
-            {elapsed}s
+            {botClock.seconds}s
           </span>
           <span className="tmw-bot-clock-dots" aria-hidden="true">
             <i />

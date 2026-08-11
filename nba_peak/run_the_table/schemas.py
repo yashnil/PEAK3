@@ -181,6 +181,39 @@ class LaneResult:
     # is a dataclass-construction safety net, not a real code path).
     pre_perk_rating: float = 0.0
     bench_adjustment: float = 0.0
+    # v5 (F4): THE BENCH'S ACTUAL CONTRIBUTION, because the receipt was
+    # printing "+ Bench 0.00" beside a populated bench and that read as a bug.
+    #
+    # It was not one. `bench_adjustment` is the PERK residual -- how far the
+    # bench weight the lane was scored at sits from the default -- so with no
+    # Deep Rotation and no boss rule it is exactly zero, correctly. The bench
+    # was contributing the whole time, inside `pre_perk_rating`, because
+    # `lane_score` is a weighted MEAN over starters and bench together. The
+    # receipt simply had no line for it.
+    #
+    # These two give it one, and they are defined so the receipt adds up:
+    #
+    #     starters_only_rating          starters at weight 1.0, bench excluded
+    #   + bench_contribution            what including the bench did to it
+    #   ( = pre_perk_rating )
+    #   + bench_adjustment              the perk/boss re-weighting
+    #   + player_prep_bonus             Scout & Prepare
+    #   = player_score
+    #
+    # `bench_contribution` is a RESIDUAL for the same reason `bench_adjustment`
+    # is: computed as `pre_perk_rating - starters_only_rating`, it is guaranteed
+    # to close the sum rather than merely agree after two roundings.
+    #
+    # IT IS SIGNED, and that is the point. A bench weaker than the starters
+    # pulls the weighted mean DOWN, so the honest number is negative -- which is
+    # the whole reason bench quality is a decision. Hiding that behind an
+    # absolute value would make a weak bench look free.
+    starters_only_rating: float = 0.0
+    bench_contribution: float = 0.0
+    # Named when a rule has taken the bench out of the calculation entirely, so
+    # the receipt can say "Bench suppressed by Top Heavy" instead of printing an
+    # unexplained 0.00. None when the bench counts normally.
+    bench_suppressed_by: Optional[str] = None
 
 
 @dataclass

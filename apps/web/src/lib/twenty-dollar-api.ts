@@ -358,9 +358,41 @@ export interface TwentyDollarMatchView {
   legal_commands: string[];
   current_turn_seat_index: number | null;
   seconds_remaining: number | null;
+  /**
+   * THE OPEN TURN'S REMAINING TIME, WHOEVER IS ON IT.
+   *
+   * `seconds_remaining` above is null while the opponent is deciding, which is
+   * why this room used to draw their turn as a count-UP of elapsed time. A turn
+   * deadline is not hidden information, so the server publishes it to every
+   * seat and the opponent's wait is a countdown like any other.
+   */
+  turn_seconds_remaining: number | null;
+  /**
+   * The open turn's phase. `"intro"` is a real server turn that belongs to no
+   * seat and accepts no bid — the pre-match briefing, which therefore costs the
+   * opening bidder none of their own 25 seconds. See `mode.PHASE_INTRO`.
+   */
+  turn_phase: string | null;
   latest_event_seq: number;
   room_code: string | null;
 }
+
+/**
+ * Every command a client may send in this mode.
+ *
+ * `showdown_skip_intro` and `showdown_forfeit` are lifecycle commands rather
+ * than auction moves: neither places a bid, and both are resolved server-side
+ * so that a skipped intro really opens the first lot and a concession really
+ * ends the match rather than merely navigating away from it.
+ */
+export type ShowdownCommand =
+  | "bid"
+  | "pass"
+  | "showdown_skip_intro"
+  | "showdown_forfeit";
+
+export const SHOWDOWN_COMMAND_SKIP_INTRO = "showdown_skip_intro" as const;
+export const SHOWDOWN_COMMAND_FORFEIT = "showdown_forfeit" as const;
 
 export interface SubmitCommandResult {
   accepted: boolean;
@@ -451,7 +483,7 @@ export const twentyDollarApi = {
    */
   submitCommand(
     matchId: string,
-    commandType: "bid" | "pass",
+    commandType: ShowdownCommand,
     payload: Record<string, unknown>,
     expectedStateVersion: number,
     idempotencyKey: string,

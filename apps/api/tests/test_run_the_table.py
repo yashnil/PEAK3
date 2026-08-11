@@ -2217,13 +2217,16 @@ def test_a_v2_snapshot_schema_is_409_not_500(client: TestClient):
     1, and it must arrive as the same 409 rather than as a server crash."""
     from app.services.run_the_table.serialization import SNAPSHOT_SCHEMA_VERSION
 
-    # 5 as of rtt_ruleset_v4, reached in two steps inside ONE unshipped release:
-    # 3 -> 4 added `boss_lineups` (the generated per-act boss slate) and 4 -> 5
-    # added `abandoned_at` / `successor_run_id` (the Start New Run flow, where
-    # the successor id is what makes a double-clicked restart idempotent).
+    # 6 as of rtt_ruleset_v4, reached in three steps inside ONE unshipped
+    # release: 3 -> 4 added `boss_lineups` (the generated per-act boss slate),
+    # 4 -> 5 added `abandoned_at` / `successor_run_id` (the Start New Run flow,
+    # where the successor id is what makes a double-clicked restart
+    # idempotent), and 5 -> 6 added the honest bench decomposition
+    # (`starters_only_rating` / `bench_contribution` / `bench_suppressed_by`),
+    # without which a receipt reads "+ Bench 0.00" beside a populated bench.
     # Pinned here so a future bump stays a deliberate one-line change, not a
     # silent drift this test stops noticing.
-    assert SNAPSHOT_SCHEMA_VERSION == 5
+    assert SNAPSHOT_SCHEMA_VERSION == 6
 
     state = _create(client, seed=30091)
     _stored(state["run_id"]).snapshot["schema_version"] = 1

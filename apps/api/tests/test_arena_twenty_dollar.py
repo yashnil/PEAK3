@@ -16,6 +16,7 @@ mode where a miss is a cheating bug rather than a crash.
 from __future__ import annotations
 
 import asyncio
+import copy
 import random
 from datetime import datetime, timedelta, timezone
 
@@ -33,6 +34,12 @@ from app.repositories.arena_protocols import (
     CommandRequest,
     ReducerInput,
     project_seat_view,
+)
+from app.services.twenty_dollar.mode import (
+    COMMAND_FORFEIT,
+    COMMAND_SKIP_INTRO,
+    INTRO_SECONDS,
+    PHASE_INTRO,
 )
 from app.services.twenty_dollar.mode import bot as td_bot
 from app.services.twenty_dollar.mode import mode as td_mode
@@ -84,9 +91,27 @@ TIMEOUT_CMD = CommandRequest(
 )
 
 
-def reduce(match, command, now=NOW):
+def reduce(match, command, now=NOW, open_turn=None):
     return td_mode.reduce(
-        ReducerInput(match=match, seats=SEATS, open_turn=None, command=command, now=now)
+        ReducerInput(
+            match=match, seats=SEATS, open_turn=open_turn, command=command, now=now
+        )
+    )
+
+
+def intro_turn(seq: int = 0) -> ArenaTurn:
+    """The pre-match intro turn: no seat, its own deadline.
+
+    A match now OPENS on this rather than on a live lot, so that the intro is
+    not spending the opening bidder's own 25 seconds. See `mode.PHASE_INTRO`.
+    """
+    return ArenaTurn(
+        match_id="m1",
+        turn_seq=seq,
+        phase=PHASE_INTRO,
+        seat_index=None,
+        deadline_at=NOW + timedelta(seconds=INTRO_SECONDS),
+        opened_at=NOW,
     )
 
 
@@ -112,7 +137,15 @@ class TestContract:
         assert td_mode.mode_version == "twenty_dollar_v3"
         assert td_mode.seat_count == 2
         assert td_mode.turn_seconds > 0
-        assert td_mode.initial_phase() == "auction"
+        # A MATCH OPENS ON THE INTRO, not on a live lot: the competitive intro
+        # used to run as a client beat while the server's 25-second deadline
+        # was already going, so it spent the player's own decision clock to
+        # tell them the rules. It is a real turn now, belonging to no seat.
+        assert td_mode.initial_phase() == "intro"
+        assert td_mode.phase_seconds("intro") == INTRO_SECONDS
+        assert td_mode.phase_seconds("auction") == td_mode.turn_seconds
+        assert td_mode.phase_accepts_action("intro") is False
+        assert td_mode.phase_accepts_action("auction") is True
 
     def test_is_registrable_and_retrievable_under_its_name(self):
         """Registration, without depending on global state other tests own.
@@ -200,22 +233,171 @@ class TestContract:
 
 
 class TestOpeningTurnBelongsToTheOpeningBidder:
-    """The foundation used to hardcode the first turn onto seat 0."""
+    """The foundation used to hardcode the first turn onto seat 0.
 
-    def test_the_mode_names_the_first_seat(self):
+    THE GUARANTEE IS UNCHANGED AND HAS MOVED ONE STEP LATER. A match now opens
+    on the intro, which belongs to NO seat -- so `initial_turn_seat` is `None`
+    by design, and the "first turn is the seed's opening bidder" rule is
+    asserted on the turn that actually takes an action: the one the intro's end
+    opens. That is a stricter place to assert it than a hook's return value,
+    because it is the turn a player is really handed.
+    """
+
+    def test_the_first_playable_turn_is_the_seeds_opening_bidder(self):
         for seed in (1, 2, 3, 4, 5, 6, 7, 8):
             snapshot = td_mode.initial_snapshot(seed, SEATS)
-            assert td_mode.initial_turn_seat(snapshot) == snapshot["opening_seat"]
+            out = reduce(
+                make_match(snapshot=snapshot, seed=seed),
+                TIMEOUT_CMD,
+                open_turn=intro_turn(),
+            )
+            assert out.accepted, (seed, out.rejection_message)
+            assert out.open_turn is not None
+            assert out.open_turn.phase == "auction"
+            assert out.open_turn.seat_index == snapshot["opening_seat"], seed
 
-    def test_the_foundation_seam_asks_the_mode(self):
+    def test_the_intro_turn_belongs_to_nobody_so_both_seats_see_its_clock(self):
+        # `project_seat_view` publishes `seconds_remaining` to EVERY seat when a
+        # turn names none, which is correct here: both players are watching the
+        # same intro.
         snapshot = td_mode.initial_snapshot(4242, SEATS)
-        assert initial_turn_seat(td_mode, snapshot) == snapshot["opening_seat"]
+        assert td_mode.initial_turn_seat(snapshot) is None
+        assert initial_turn_seat(td_mode, snapshot) is None
+
+    def test_the_intro_costs_the_opening_bidder_none_of_their_clock(self):
+        """THE WHOLE POINT OF THE PHASE.
+
+        The first lot's deadline is measured from the END of the intro, not
+        from match creation -- so a player who reads all of it still gets every
+        one of their 25 seconds.
+        """
+        ended = NOW + timedelta(seconds=INTRO_SECONDS)
+        out = reduce(make_match(), TIMEOUT_CMD, now=ended, open_turn=intro_turn())
+        assert out.accepted
+        assert out.open_turn.deadline_at == ended + timedelta(
+            seconds=td_mode.turn_seconds
+        )
+        # Stated the other way round too, because this is the shape of the bug.
+        assert out.open_turn.deadline_at != NOW + timedelta(
+            seconds=td_mode.turn_seconds
+        )
+
+    def test_the_intro_ending_commits_nothing(self):
+        """A clock transition, not a game action. If it went through the pass
+        path it would burn the opening seat's first move for standing still
+        through a beat they were never on the clock for."""
+        match = make_match()
+        before = copy.deepcopy(match.snapshot)
+        out = reduce(match, TIMEOUT_CMD, open_turn=intro_turn())
+        assert out.accepted
+        assert out.snapshot == before, "the intro changed the game state"
+        assert out.events == ()
+        assert out.snapshot["current_candidate"] == before["current_candidate"]
+
+    def test_skipping_the_intro_opens_the_first_lot_immediately(self):
+        at = NOW + timedelta(seconds=1)
+        out = reduce(
+            make_match(), cmd(0, COMMAND_SKIP_INTRO), now=at, open_turn=intro_turn()
+        )
+        assert out.accepted, out.rejection_message
+        assert out.open_turn.phase == "auction"
+        assert out.open_turn.seat_index == make_match().snapshot["opening_seat"]
+        # Skipping buys NO extra decision time: the clock still starts now.
+        assert out.open_turn.deadline_at == at + timedelta(seconds=td_mode.turn_seconds)
+
+    def test_a_skip_outside_the_intro_is_refused(self):
+        """Otherwise it would re-open a live auction turn -- resetting
+        somebody's clock on demand."""
+        out = reduce(make_match(), cmd(0, COMMAND_SKIP_INTRO), open_turn=None)
+        assert not out.accepted
+        assert out.rejection_code == "no_intro_open"
+
+    def test_nobody_bids_under_the_intro(self):
+        match = make_match()
+        out = reduce(
+            match, cmd(active(match), "bid", {"amount": 4}), open_turn=intro_turn()
+        )
+        assert not out.accepted
+        assert out.rejection_code == "not_your_turn"
 
     def test_it_is_not_always_seat_zero(self):
         openers = {
             td_mode.initial_snapshot(seed, SEATS)["opening_seat"] for seed in range(40)
         }
         assert openers == {0, 1}
+
+
+class TestForfeit:
+    """C2. Conceding is a SERVER-RESOLVED command, not a navigation.
+
+    A player who abandons a Showdown otherwise leaves the opponent watching a
+    clock tick out lot after lot, and leaves a live match on the server that
+    the same player rejoins on their next visit.
+    """
+
+    def test_a_forfeit_ends_the_match_and_names_the_loser(self):
+        match = make_match()
+        out = reduce(match, cmd(0, COMMAND_FORFEIT))
+        assert out.accepted, out.rejection_message
+        assert out.status == MATCH_STATUS_COMPLETED
+        assert out.open_turn is None, "a conceded match must leave nobody on a clock"
+        outcomes = {r.seat_index: r.outcome for r in out.results}
+        assert outcomes == {0: "loss", 1: "win"}
+        placements = {r.seat_index: r.placement for r in out.results}
+        assert placements == {0: 2, 1: 1}
+
+    def test_either_seat_may_concede_and_the_other_one_wins(self):
+        out = reduce(make_match(), cmd(1, COMMAND_FORFEIT))
+        assert out.accepted
+        assert {r.seat_index: r.outcome for r in out.results} == {0: "win", 1: "loss"}
+
+    def test_conceding_does_not_depend_on_whose_turn_it_is(self):
+        """The moment a player is most likely to quit is while WAITING."""
+        match = make_match()
+        waiting = 1 - active(match)
+        out = reduce(match, cmd(waiting, COMMAND_FORFEIT))
+        assert out.accepted
+
+    def test_a_conceded_match_cannot_be_revived_by_a_refresh_or_a_second_command(self):
+        """It survives a reconnect because the STATUS is what changed, and the
+        snapshot records it -- so every later read projects a settled match."""
+        out = reduce(make_match(), cmd(0, COMMAND_FORFEIT))
+        assert out.snapshot["phase"] == "complete"
+        assert out.snapshot["forfeited_by"] == 0
+        assert out.snapshot["active_seat"] is None
+
+        settled = make_match(snapshot=out.snapshot, status=MATCH_STATUS_COMPLETED)
+        again = reduce(settled, cmd(0, "bid", {"amount": 5}, key="k2"))
+        assert not again.accepted
+        assert again.rejection_code == "match_over"
+        twice = reduce(settled, cmd(1, COMMAND_FORFEIT, key="k3"))
+        assert not twice.accepted
+
+    def test_the_receipt_reports_the_real_rosters_and_names_the_concession(self):
+        """Conceding does not fabricate a scoreline: only the OUTCOME is
+        overridden, and the receipt still shows what was actually bought."""
+        match = make_match()
+        out = reduce(match, cmd(0, COMMAND_FORFEIT))
+        completed = next(
+            e for e in out.events if e.event_type == "match_completed"
+        )
+        assert completed.payload["forfeited_by"] == 0
+        assert any(e.event_type == "seat_forfeited" for e in out.events)
+        for result in out.results:
+            assert result.detail["forfeited"] is (result.seat_index == 0)
+            # Real numbers, not zeros.
+            assert result.detail["roster"] == []
+            assert result.detail["budget_remaining"] > 0
+
+    def test_the_projection_offers_the_concession_while_the_match_is_live(self):
+        match = make_match()
+        _public, _private, commands = td_mode.project(match, SEATS, 0)
+        assert COMMAND_FORFEIT in commands
+        out = reduce(match, cmd(0, COMMAND_FORFEIT))
+        settled = make_match(snapshot=out.snapshot, status=MATCH_STATUS_COMPLETED)
+        _p, _pr, after = td_mode.project(settled, SEATS, 0)
+        assert COMMAND_FORFEIT not in after
+        assert _p["forfeited_by"] == 0
 
 
 class TestActions:

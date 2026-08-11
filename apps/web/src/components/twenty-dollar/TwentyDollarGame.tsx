@@ -101,6 +101,10 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
   // A local monotonic deadline rather than a duration in state. See
   // `ArenaTimer`'s docstring for why a re-seeded duration drifts.
   const [deadlineAt, setDeadlineAt] = useState<number | null>(null);
+  // THE OPEN TURN'S DEADLINE, WHOEVER IS ON IT. Distinct from `deadlineAt`,
+  // which is null while the opponent decides — the null that made this room
+  // draw their turn as a count-UP of elapsed time. See `ShowdownClock`.
+  const [turnDeadlineAt, setTurnDeadlineAt] = useState<number | null>(null);
   const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
 
   // Guards a poll landing while a command is in flight from overwriting the
@@ -123,6 +127,7 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
     appliedVersion.current = next.state_version;
     setView(next);
     setDeadlineAt(deadlineFromSeconds(next.seconds_remaining));
+    setTurnDeadlineAt(deadlineFromSeconds(next.turn_seconds_remaining));
     setSecondsRemaining(next.seconds_remaining);
     setLocallyExpired(false);
     // ERRORS CLEAR ON AN AUTHORITATIVE TRANSITION. A rejection explains a
@@ -260,6 +265,69 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
     [matchId, view, busy, applyView],
   );
 
+  /**
+   * The two LIFECYCLE commands: end the intro, concede the match.
+   *
+   * Deliberately not routed through `submit`. That function exists to place an
+   * auction move and to explain a refused one in the language of bidding —
+   * `AttemptedAction` carries a standing bid and whether a skip would be spent,
+   * and neither means anything here. These two change the shape of the match
+   * rather than the state of a lot.
+   *
+   * BOTH ARE SERVER-RESOLVED, which is the whole point. A client that merely
+   * hid the intro would leave the player looking at a board that refuses every
+   * action; a client that merely navigated away from a forfeit would leave a
+   * live match on the server for the same player to rejoin.
+   */
+  const sendLifecycle = useCallback(
+    async (command: "showdown_skip_intro" | "showdown_forfeit") => {
+      if (!view || busy) return;
+      setBusy(true);
+      setError(null);
+      inFlight.current = true;
+      try {
+        const result = await twentyDollarApi.submitCommand(
+          matchId,
+          command,
+          {},
+          view.state_version,
+          showdownIdempotencyKey(
+            matchId,
+            view.your_seat_index,
+            view.state_version,
+            command,
+            {},
+          ),
+        );
+        applyView(result.match);
+        // A REFUSED SKIP IS NOT WORTH A BANNER: the only way it fails is that
+        // the intro already ended, which is what the player asked for. A
+        // refused FORFEIT is worth one — they meant to leave and are still here.
+        if (!result.accepted && command === "showdown_forfeit") {
+          setError(
+            explainTransportError(
+              409,
+              result.rejection_code ?? null,
+              result.message ?? "",
+              "load",
+            ),
+          );
+        }
+      } catch (err) {
+        const apiError = err as TwentyDollarAPIError;
+        if (command === "showdown_forfeit") {
+          setError(
+            explainTransportError(apiError.status, apiError.code, apiError.message, "load"),
+          );
+        }
+      } finally {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    },
+    [matchId, view, busy, applyView],
+  );
+
   const meta = modeMeta("twenty_dollar");
 
   // ---- gates -------------------------------------------------------------
@@ -309,12 +377,15 @@ export default function TwentyDollarGame({ matchId }: { matchId: string }) {
       busy={busy}
       inFlightAction={inFlightAction}
       deadlineAt={deadlineAt}
+      turnDeadlineAt={turnDeadlineAt}
       secondsRemaining={secondsRemaining}
       locallyExpired={locallyExpired}
       copied={copied}
       onExpire={() => setLocallyExpired(true)}
       onDismissError={() => setError(null)}
       onSubmit={submit}
+      onSkipIntro={() => void sendLifecycle("showdown_skip_intro")}
+      onForfeit={() => void sendLifecycle("showdown_forfeit")}
       onCopy={setCopied}
       onPlayAgain={() => router.push("/arena")}
     />
@@ -333,12 +404,15 @@ function AuctionRoom({
   busy,
   inFlightAction,
   deadlineAt,
+  turnDeadlineAt,
   secondsRemaining,
   locallyExpired,
   copied,
   onExpire,
   onDismissError,
   onSubmit,
+  onSkipIntro,
+  onForfeit,
   onCopy,
   onPlayAgain,
 }: {
@@ -348,12 +422,18 @@ function AuctionRoom({
   busy: boolean;
   inFlightAction: { command: "bid" | "pass"; amount: number } | null;
   deadlineAt: number | null;
+  /** The open turn's deadline, whoever holds it. See `ShowdownClock`. */
+  turnDeadlineAt: number | null;
   secondsRemaining: number | null;
   locallyExpired: boolean;
   copied: boolean;
   onExpire: () => void;
   onDismissError: () => void;
   onSubmit: (command: "bid" | "pass", amount: number) => void;
+  /** End the server's intro turn early. */
+  onSkipIntro: () => void;
+  /** Concede the match. Resolved server-side; see `mode._forfeit`. */
+  onForfeit: () => void;
   onCopy: (value: boolean) => void;
   onPlayAgain: () => void;
 }) {
@@ -372,16 +452,19 @@ function AuctionRoom({
     publicState,
   );
 
-  const { phase, clockDeadlineAt, controlsLive, dismissIntro } = useShowdownPhase({
+  const { phase, clockDeadlineAt, controlsLive } = useShowdownPhase({
     lotIndex: publicState.lot_index,
     activeSeat: publicState.active_seat,
     yourSeat,
     actionCount: publicState.lot_actions.length,
-    historyLength: publicState.history.length,
     secondsRemaining,
     deadlineAt,
     pending: busy,
     complete,
+    // THE SERVER'S OWN PHASE. The intro is a real turn now, so the room renders
+    // what the server published rather than guessing "this looks like a fresh
+    // match" and pricing a beat against a clock it does not own.
+    introOpen: view.turn_phase === "intro",
   });
 
   const yourTurn = privateState.is_your_turn && !complete;
@@ -447,6 +530,10 @@ function AuctionRoom({
         </div>
         <div className="ar-room-tools">
           {meta ? <HowToPlay title={meta.name} rules={meta.rules} testId="td-rules" /> : null}
+          {/* CONCEDING IS AVAILABLE FOR AS LONG AS THE MATCH IS LIVE, and is
+              deliberately NOT gated on whose turn it is: the moment a player
+              gives up on an auction is usually while they are WAITING. */}
+          <ForfeitControl onConfirm={onForfeit} busy={busy} />
         </div>
       </header>
 
@@ -536,6 +623,7 @@ function AuctionRoom({
             // together identify one turn: any of the three moving means the
             // previous turn is over.
             turnKey={`${publicState.lot_index}:${publicState.lot_actions.length}:${publicState.active_seat ?? "none"}`}
+            opponentDeadlineAt={turnDeadlineAt}
             pendingCommand={inFlightAction?.command ?? null}
             pendingAmount={inFlightAction?.amount ?? 0}
             onExpire={onExpire}
@@ -614,9 +702,78 @@ function AuctionRoom({
           slots={publicState.slots.length}
           marketSkips={publicState.market_skips_per_seat}
           rated={view.rated}
-          onDismiss={dismissIntro}
+          onDismiss={onSkipIntro}
         />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * FORFEIT MATCH — a secondary control that takes two deliberate actions.
+ *
+ * WHY IT EXISTS. Without it the only way out of a Showdown is to close the tab,
+ * which leaves the opponent watching a clock tick out lot after lot and leaves
+ * a live match on the server for the same player to be dropped back into on
+ * their next visit. Conceding is a real move, so it is a real command.
+ *
+ * WHY IT IS TWO CLICKS AND NOT ONE. It ends the match with a loss and cannot be
+ * undone, and it sits in the room's header a short distance from "How to play".
+ * A single mis-click there would be the worst possible outcome of a mis-click,
+ * so the first press only reveals the confirmation, the destructive choice is
+ * never the one under the cursor, and Escape backs out. It is deliberately NOT
+ * a `window.confirm`: that is unstyleable, unannounceable, and blocks the poll.
+ */
+function ForfeitControl({ onConfirm, busy }: { onConfirm: () => void; busy: boolean }) {
+  const [confirming, setConfirming] = useState(false);
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!confirming) return;
+    // Focus lands on CANCEL, never on the destructive choice.
+    cancelRef.current?.focus();
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setConfirming(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirming]);
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        className="ar-btn td-forfeit"
+        data-testid="td-forfeit"
+        onClick={() => setConfirming(true)}
+      >
+        Forfeit match
+      </button>
+    );
+  }
+
+  return (
+    <div className="td-forfeit-confirm" data-testid="td-forfeit-confirm" role="group"
+      aria-label="Confirm forfeit">
+      <p className="td-forfeit-question">Concede this match?</p>
+      <button
+        type="button"
+        ref={cancelRef}
+        className="ar-btn"
+        data-testid="td-forfeit-cancel"
+        onClick={() => setConfirming(false)}
+      >
+        Keep playing
+      </button>
+      <button
+        type="button"
+        className="ar-btn td-forfeit-go"
+        data-testid="td-forfeit-confirm-button"
+        disabled={busy}
+        onClick={onConfirm}
+      >
+        {busy ? "Conceding…" : "Forfeit"}
+      </button>
     </div>
   );
 }

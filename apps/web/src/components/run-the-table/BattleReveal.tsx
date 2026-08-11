@@ -470,6 +470,21 @@ export default function BattleReveal({
                 >
                   {LANE_RATING_LABELS.topContributor}
                 </span>
+              </div>
+
+              {/* THE RELATIONSHIP BETWEEN THE TWO ROWS, IN WORDS (F5). See
+                  `LANE_RATING_LABELS.contributorIsExplanatory`: a 21-point
+                  individual edge printed beside a lost lane is not a bug, but a
+                  screen that never says which number decided it is asking the
+                  player to infer the rule. */}
+              <div className="px-1.5">
+                <p
+                  className="pt-0.5 text-[9px] leading-snug"
+                  style={{ color: "var(--text-muted)" }}
+                  data-testid={`rtt-lane-contributor-note-${lane.lane}`}
+                >
+                  {LANE_RATING_LABELS.contributorIsExplanatory}
+                </p>
                 <span className="flex items-center gap-1.5 min-w-0">
                   <span className="truncate text-[10px]" style={{ color: "var(--text-secondary)" }}>
                     {lane.opponent_top_contributor?.name ?? "—"}
@@ -529,24 +544,49 @@ export default function BattleReveal({
                   className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md px-1.5 py-1 text-[10px]"
                   style={{ background: "var(--bg-page)", color: "var(--text-secondary)" }}
                 >
-                  <span data-testid={`rtt-lane-receipt-pre-${lane.lane}`}>
-                    Before perk{" "}
+                  {/* STARTERS, THEN THE BENCH, THEN THE ADJUSTMENTS (F4).
+                      This row used to read "Before perk 62.50 + Bench 0.00 +
+                      Perk 0.00 = Final 62.50" beside a fully populated bench,
+                      which reads as a bug and was in fact a missing line: the
+                      only bench figure it had was `bench_adjustment`, the PERK
+                      residual, correctly zero when nothing has moved the bench
+                      weight. The bench was inside `pre_perk_rating` all along,
+                      because the lane rating is a weighted MEAN over starters
+                      AND bench. So the sum now starts one step earlier. */}
+                  <span data-testid={`rtt-lane-receipt-starters-${lane.lane}`}>
+                    Starters{" "}
                     <span className="score-number" style={{ color: "var(--text-primary)" }}>
-                      {lane.pre_perk_rating.toFixed(2)}
+                      {lane.starters_only_rating.toFixed(2)}
                     </span>
                   </span>
                   <span aria-hidden="true">+</span>
-                  <span data-testid={`rtt-lane-receipt-bench-${lane.lane}`}>
-                    Bench{" "}
-                    <span className="score-number" style={{ color: "var(--text-primary)" }}>
-                      {lane.bench_adjustment.toFixed(2)}
+                  {lane.bench_suppressed_by ? (
+                    /* A RULE THAT REMOVES THE BENCH SAYS SO BY NAME. Printing
+                       an unexplained 0.00 for a bench the player built is the
+                       same defect in a different costume. */
+                    <span
+                      data-testid={`rtt-lane-receipt-bench-${lane.lane}`}
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      Bench suppressed by {lane.bench_suppressed_by}
                     </span>
-                  </span>
+                  ) : (
+                    <span data-testid={`rtt-lane-receipt-bench-${lane.lane}`}>
+                      Bench{" "}
+                      <span className="score-number" style={{ color: "var(--text-primary)" }}>
+                        {/* SIGNED. A bench weaker than the starters pulls the
+                            mean down, and hiding that would make a weak bench
+                            look free. */}
+                        {lane.bench_contribution > 0 ? "+" : ""}
+                        {lane.bench_contribution.toFixed(2)}
+                      </span>
+                    </span>
+                  )}
                   <span aria-hidden="true">+</span>
                   <span data-testid={`rtt-lane-receipt-perk-${lane.lane}`}>
                     Perk{" "}
                     <span className="score-number" style={{ color: "var(--text-primary)" }}>
-                      {lane.perk_adjustment.toFixed(2)}
+                      {(lane.bench_adjustment + lane.perk_adjustment).toFixed(2)}
                     </span>
                   </span>
                   <span aria-hidden="true">=</span>

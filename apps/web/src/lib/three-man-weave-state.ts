@@ -694,6 +694,37 @@ export const TMW_TIMEOUT_CONSEQUENCE =
 /** The locked state shown WHILE the server resolves an expired turn. */
 export const TMW_TIMEOUT_RESOLVING = "Time expired — assigning a legal fallback.";
 
+/**
+ * The state between the countdown reaching zero and the panel locking.
+ *
+ * THE SERVER STILL ACCEPTS A PICK HERE, and the panel says so rather than
+ * pretending otherwise. See `TMW_LAST_CALL_MS`.
+ */
+export const TMW_LAST_CALL = "Last call — a pick sent now can still land.";
+
+/**
+ * How long the panel stays actionable after the local countdown hits zero.
+ *
+ * Matched to the server's `ACTION_GRACE_SECONDS` (`services/arena/clock.py`),
+ * which is the window in which a turn still answers an action after its
+ * deadline, and which exists precisely because a player deciding at 0.5s
+ * remaining is not a player who abandoned the turn.
+ *
+ * WHY THE PANEL MUST NOT LOCK AT LOCAL ZERO. The local deadline is
+ * `performance.now() + seconds_remaining` sampled when a response LANDED, so
+ * it already sits about half a round trip AFTER the server's own deadline —
+ * the client is late, not early. Locking every control at that moment threw
+ * away the entire grace window the server deliberately provides, and the
+ * player saw their last, legal, in-time press do nothing while the fallback
+ * they were trying to avoid was drafted for them. That is the reported
+ * "I clicked John Stockton and got somebody else".
+ *
+ * It grants nothing: the server is still the only thing that decides whether
+ * an action was in time, and `guard_timeout` still refuses a genuinely late
+ * one. This only stops the client from refusing first.
+ */
+export const TMW_LAST_CALL_MS = 2000;
+
 // ---------------------------------------------------------------------------
 // Rearrangement legality (TMW-10)
 // ---------------------------------------------------------------------------
