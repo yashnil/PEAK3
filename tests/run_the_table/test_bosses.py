@@ -142,15 +142,15 @@ class TestIdentityIntegrity:
 
         Originally: seed 23 dealt `joakim-noah-3yr-201314` as the player's
         anchor while the v3 curated act-5 boss fielded the identical card id.
-        Re-anchored under roles-v4 (the deal changed with the role model): the
-        precondition seed is now 3, found by deterministic search, and the
-        property under test — a card the player owns never appears on any
-        boss — is unchanged.
+        Re-anchored per role-model generation (v4: seed 3; v5 window-scoped
+        roles: seed 8), found by deterministic search each time; the property
+        under test — a card the player owns never appears on any boss — is
+        unchanged.
         """
-        st, bn = _roster(pool, 3)
+        st, bn = _roster(pool, 8)
         owned = _excl(pool, st, bn)
-        assert "joakim-noah" in owned, "seed 3 no longer deals the reported card"
-        for boss in slate_for_seed(pool, 3):
+        assert "joakim-noah" in owned, "seed 8 no longer deals the reported card"
+        for boss in slate_for_seed(pool, 8):
             assert "joakim-noah" not in boss_slugs(pool, boss)
 
     @pytest.mark.parametrize("seed", [3, 17, 250])

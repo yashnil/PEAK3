@@ -22,8 +22,10 @@ import {
   totalArenaPoints,
 } from "@/lib/daily-grid-state";
 import { formatCountdown, msUntilNextBoard, recentEntries } from "@/lib/daily-grid-archive";
+import { dailyShareFile, dailyShareFileName } from "@/lib/daily-grid-share-card";
 import OptimalGrid from "./OptimalGrid";
 import RecentResults from "./RecentResults";
+import DailyLeaderboard from "./DailyLeaderboard";
 
 interface Props {
   board: DailyGridBoard;
@@ -166,6 +168,13 @@ export default function CompletionPanel({
 }: Props) {
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
+  // A1: the visual share card. `generating` covers both actions while the
+  // canvas renders and encodes; `shareOutcome` is the one-line feedback strip
+  // (downloaded / shared / failed), cleared on the next action.
+  const [generating, setGenerating] = useState(false);
+  const [shareOutcome, setShareOutcome] = useState<
+    null | "shared" | "downloaded" | "failed"
+  >(null);
   // Ticks once a minute so the countdown to the next board stays roughly
   // right without a per-second timer for something hours away.
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -208,6 +217,80 @@ export default function CompletionPanel({
       // selected by hand rather than silently doing nothing.
       setCopyFailed(true);
     }
+  }
+
+  /** The generated PNG for this exact result. One code path feeds BOTH
+   *  actions, so what gets shared is byte-for-byte what gets downloaded. */
+  async function generateImage(): Promise<File | null> {
+    const canvas = document.createElement("canvas");
+    return dailyShareFile(canvas, {
+      board,
+      progress,
+      result,
+      currentStreak: archive?.current_streak ?? null,
+    });
+  }
+
+  // A1: SHARE IMAGE — the primary action. Native file sharing when the
+  // browser genuinely supports sharing THIS file (`navigator.canShare` with
+  // the files payload, not just the API existing); graceful fall-through to
+  // the download path otherwise, so the button always produces the image.
+  async function handleShareImage() {
+    setGenerating(true);
+    setShareOutcome(null);
+    try {
+      const file = await generateImage();
+      if (!file) {
+        setShareOutcome("failed");
+        return;
+      }
+      const nav = navigator as Navigator & {
+        canShare?: (data: { files: File[] }) => boolean;
+      };
+      if (typeof nav.share === "function" && nav.canShare?.({ files: [file] })) {
+        try {
+          await nav.share({ files: [file] });
+          setShareOutcome("shared");
+          return;
+        } catch (error) {
+          // An abort is the user closing the sheet — not a failure and not a
+          // reason to dump a file in their downloads.
+          if ((error as DOMException)?.name === "AbortError") return;
+          // A real share failure falls through to the download below.
+        }
+      }
+      downloadFile(file);
+      setShareOutcome("downloaded");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleDownloadImage() {
+    setGenerating(true);
+    setShareOutcome(null);
+    try {
+      const file = await generateImage();
+      if (!file) {
+        setShareOutcome("failed");
+        return;
+      }
+      downloadFile(file);
+      setShareOutcome("downloaded");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function downloadFile(file: File) {
+    const url = URL.createObjectURL(file);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = dailyShareFileName(board);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -598,22 +681,63 @@ export default function CompletionPanel({
         time is for you: it does not affect your score.
       </p>
 
+      {/* A1: THE SHAREABLE ARTIFACT IS AN IMAGE. Two primary-adjacent actions
+          produce the same rendered card — share through the native sheet when
+          the browser can share files, download otherwise — and the clipboard
+          text survives only as the small tertiary fallback beside them. */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          data-testid="daily-grid-share-image"
+          onClick={handleShareImage}
+          disabled={generating}
+          className="pk-lift pk-press pk-sheen rounded-lg px-4 py-2 text-sm font-bold disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+        >
+          {generating ? "Generating…" : "Share image"}
+        </button>
+        <button
+          type="button"
+          data-testid="daily-grid-download-image"
+          onClick={handleDownloadImage}
+          disabled={generating}
+          className="pk-lift pk-press rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+          style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+        >
+          Download image
+        </button>
         <button
           type="button"
           data-testid="daily-grid-share"
           onClick={handleShare}
-          className="pk-lift pk-press pk-sheen rounded-lg px-4 py-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-          style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+          className="rounded-lg px-3 py-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+          style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
         >
-          {copied ? "Copied" : "Share result"}
+          {copied ? "Copied" : "Copy text"}
         </button>
         {copied && (
           <span role="status" className="text-xs" style={{ color: "var(--text-muted)" }}>
             Copied to clipboard
           </span>
         )}
+        {shareOutcome && (
+          <span role="status" data-testid="daily-grid-share-outcome" className="text-xs" style={{ color: shareOutcome === "failed" ? "var(--incorrect)" : "var(--text-muted)" }}>
+            {shareOutcome === "shared"
+              ? "Shared"
+              : shareOutcome === "downloaded"
+                ? "Image saved"
+                : "Could not generate the image — try again."}
+          </span>
+        )}
       </div>
+
+      {/* A2: how today's score compares — the server's ranked board, with the
+          player highlighted and honest states for every other case. */}
+      <DailyLeaderboard
+        date={board.date}
+        isArchiveBoard={isArchiveBoard}
+        refreshKey={officialSaved ? 1 : 0}
+      />
 
       {copyFailed && (
         <pre

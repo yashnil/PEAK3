@@ -162,28 +162,31 @@ class TestReceiptBreakdownFixtures:
     # `test_every_lane_of_every_battle_reconciles_for_all_three_seeds` above,
     # which holds the additive decomposition across all 75 lane-battles of
     # the new deals. Both pass unchanged either side of the re-pin.
+    # Re-pinned once more under roles-v5 (window-scoped positions, A0): the
+    # deal changed again for the same reason it changed under v4 — the board
+    # deals by role band. The provenance note above holds unchanged.
     ACT1_PINNED = {
         11: {
             #                          player     opponent
-            "statistical_impact": (35.446, 35.3652),
-            "traditional_production": (40.4965, 41.0526),
-            "individual_recognition": (20.0902, 19.0703),
-            "postseason_individual_value": (18.03, 17.0011),
-            "team_achievement": (27.194, 12.1765),
+            "statistical_impact": (32.8079, 32.6687),
+            "traditional_production": (38.4793, 37.279),
+            "individual_recognition": (12.752, 16.636),
+            "postseason_individual_value": (20.9937, 15.6824),
+            "team_achievement": (20.9425, 16.766),
         },
         42: {
-            "statistical_impact": (34.5653, 33.6858),
-            "traditional_production": (38.1718, 35.1511),
-            "individual_recognition": (20.2039, 22.3597),
-            "postseason_individual_value": (15.7705, 21.3505),
-            "team_achievement": (15.5023, 23.4089),
+            "statistical_impact": (35.53, 33.5153),
+            "traditional_production": (37.8109, 40.1933),
+            "individual_recognition": (13.0151, 19.6344),
+            "postseason_individual_value": (16.7142, 16.7393),
+            "team_achievement": (23.7198, 13.2329),
         },
         2026: {
-            "statistical_impact": (34.5989, 34.2376),
-            "traditional_production": (43.4611, 42.4816),
-            "individual_recognition": (12.8217, 13.5839),
-            "postseason_individual_value": (18.7221, 18.9633),
-            "team_achievement": (14.8534, 12.5164),
+            "statistical_impact": (32.118, 29.0693),
+            "traditional_production": (38.6981, 35.7685),
+            "individual_recognition": (14.6418, 15.8613),
+            "postseason_individual_value": (19.0919, 26.0834),
+            "team_achievement": (17.4481, 21.7784),
         },
     }
 
@@ -191,9 +194,9 @@ class TestReceiptBreakdownFixtures:
     # future boss-generation change can never quietly take the player's
     # published lane ratings with it.
     PLAYER_PINNED = {
-        11: (35.446, 40.4965, 20.0902, 18.03, 27.194),
-        42: (34.5653, 38.1718, 20.2039, 15.7705, 15.5023),
-        2026: (34.5989, 43.4611, 12.8217, 18.7221, 14.8534),
+        11: (32.8079, 38.4793, 12.752, 20.9937, 20.9425),
+        42: (35.53, 37.8109, 13.0151, 16.7142, 23.7198),
+        2026: (32.118, 38.6981, 14.6418, 19.0919, 17.4481),
     }
 
     def test_the_player_side_lane_ratings_match_the_pinned_audit(

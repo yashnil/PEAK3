@@ -51,10 +51,16 @@ export const RATE_LIMITED_MESSAGE =
   "You're searching faster than the grid allows. Wait a moment and try again — your board is safe.";
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // `headers` is merged LAST. It used to sit before `...options`, which
+  // re-spread `options.headers` and silently REPLACED the merged object — so
+  // any call that added an Authorization header (the official save, the
+  // leaderboard read) lost its Content-Type, FastAPI parsed the JSON body as
+  // a plain string, and POST /daily-grid/official failed 422 from the app
+  // while passing in every API-level test that posted directly.
   const res = await fetch(`${API_BASE}/api/v1${path}`, {
-    headers: { "Content-Type": "application/json", ...options.headers },
     credentials: "include",
     ...options,
+    headers: { "Content-Type": "application/json", ...options.headers },
   });
   const json = await res.json().catch(() => ({ detail: "Unknown error" }));
   if (!res.ok) {
@@ -190,3 +196,58 @@ export async function saveOfficialDailyGridResult(
 }
 
 export { DailyGridAPIError };
+
+// ---------------------------------------------------------------------------
+// Daily leaderboard (final polish pass, A2)
+// ---------------------------------------------------------------------------
+
+export interface DailyLeaderboardRow {
+  rank: number;
+  handle: string;
+  score: number;
+  /** Server-witnessed elapsed play in ms (attempt start -> first valid save,
+   *  both server-stamped). Null when the server never owned a clock for this
+   *  completion; such rows rank after timed ones of equal score. */
+  completion_time_ms: number | null;
+  is_current_user: boolean;
+}
+
+export interface DailyLeaderboardYou {
+  rank: number | null;
+  score: number | null;
+  completion_time_ms: number | null;
+  listed: boolean;
+  has_handle: boolean;
+  has_entry: boolean;
+}
+
+export interface DailyLeaderboardResponse {
+  daily_key: string;
+  entries: DailyLeaderboardRow[];
+  total_listed: number;
+  /** Present only for an authenticated caller — their TRUE standing, even
+   *  outside the returned page, so the UI never fakes a placement. */
+  you: DailyLeaderboardYou | null;
+}
+
+/**
+ * Today's (or a named day's) leaderboard. Public to read — the token only
+ * adds `is_current_user` marking and the caller's own `you` block. RANKS
+ * ARRIVE COMPUTED; nothing here re-derives an order (A2.9).
+ */
+export async function fetchDailyLeaderboard(params?: {
+  date?: string;
+  limit?: number;
+  accessToken?: string | null;
+}): Promise<DailyLeaderboardResponse> {
+  const qs = new URLSearchParams();
+  if (params?.date) qs.set("date", params.date);
+  if (params?.limit) qs.set("limit", String(params.limit));
+  const suffix = qs.size > 0 ? `?${qs.toString()}` : "";
+  return apiFetch<DailyLeaderboardResponse>(`/daily-grid/leaderboard${suffix}`, {
+    cache: "no-store",
+    headers: params?.accessToken
+      ? { Authorization: `Bearer ${params.accessToken}` }
+      : undefined,
+  } as RequestInit);
+}

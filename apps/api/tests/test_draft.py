@@ -585,17 +585,14 @@ async def test_owner_sub_survives_actions_and_completion_is_recorded(client: Tes
             break
         offers = state["current_offers"]
         open_roles = state["open_roles"]
+        # The generator-guaranteed greedy path — see `_play_full_game`.
         card_id, role = None, None
-        best_constraint = float("inf")
         for offer in offers:
-            eligible_open = [r for r in offer["eligible_roles"] if r in open_roles]
-            if eligible_open and len(eligible_open) < best_constraint:
-                best_constraint = len(eligible_open)
+            eligible_open = [r for r in ALL_ROLES if r in offer["eligible_roles"] and r in open_roles]
+            if eligible_open:
                 card_id = offer["peak_window_id"]
                 role = eligible_open[0]
-        if card_id is None and open_roles and offers:
-            card_id = offers[0]["peak_window_id"]
-            role = open_roles[0]
+                break
         assert card_id is not None and role is not None
         state = _action(client, game_id, "select_card", card_id=card_id, role=role)
     assert state["status"] == "draft_complete"

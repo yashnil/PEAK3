@@ -14,8 +14,11 @@ from typing import Optional
 
 from app.repositories.daily_grid_protocols import (
     DailyGridAttempt,
+    DailyGridLeaderboardEntry,
     DailyGridResult,
     DailyGridResultRepository,
+    is_strictly_better,
+    leaderboard_sort_key,
 )
 
 
@@ -28,6 +31,11 @@ class MemoryDailyGridResultRepository:
         # UNIQUE (owner_sub, daily_key) constraint, so `start_attempt` is
         # idempotent here for exactly the reason it is idempotent there.
         self._attempts: dict[tuple[str, str], DailyGridAttempt] = {}
+        # (owner_sub, daily_key, board_version) -> best entry. The dict key
+        # plays the Postgres UNIQUE constraint; the better-only replacement
+        # runs under the same lock every other write takes, so a concurrent
+        # pair of submissions serialises here exactly as ON CONFLICT does.
+        self._leaderboard: dict[tuple[str, str, str], DailyGridLeaderboardEntry] = {}
         self._lock = asyncio.Lock()
 
     async def start_attempt(
@@ -75,6 +83,39 @@ class MemoryDailyGridResultRepository:
         rows = [r for r in self._results.values() if r.owner_sub == owner_sub]
         rows.sort(key=lambda r: (r.board_date, r.created_at), reverse=True)
         return rows[:limit]
+
+    async def upsert_leaderboard_best(
+        self, entry: DailyGridLeaderboardEntry
+    ) -> tuple[DailyGridLeaderboardEntry, bool]:
+        async with self._lock:
+            key = (entry.owner_sub, entry.daily_key, entry.board_version)
+            incumbent = self._leaderboard.get(key)
+            if incumbent is not None and not is_strictly_better(entry, incumbent):
+                return incumbent, False
+            entry.id = entry.id or str(uuid.uuid4())
+            self._leaderboard[key] = entry
+            return entry, True
+
+    async def leaderboard_top(
+        self, daily_key: str, limit: int = 25
+    ) -> list[DailyGridLeaderboardEntry]:
+        rows = await self.leaderboard_all_for_day(daily_key)
+        return rows[:limit]
+
+    async def leaderboard_entry_for_owner(
+        self, owner_sub: str, daily_key: str
+    ) -> Optional[DailyGridLeaderboardEntry]:
+        for (sub, key, _version), entry in self._leaderboard.items():
+            if sub == owner_sub and key == daily_key:
+                return entry
+        return None
+
+    async def leaderboard_all_for_day(
+        self, daily_key: str
+    ) -> list[DailyGridLeaderboardEntry]:
+        rows = [e for e in self._leaderboard.values() if e.daily_key == daily_key]
+        rows.sort(key=leaderboard_sort_key)
+        return rows
 
     async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
         """Mirror of the Postgres transfer, including the collision rule --

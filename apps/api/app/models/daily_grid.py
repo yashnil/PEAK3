@@ -512,3 +512,63 @@ class OfficialResultHistoryResponse(BaseModel):
     """GET /api/v1/daily-grid/results -- the caller's own official results."""
 
     results: list[OfficialResultSummary]
+
+
+# ---------------------------------------------------------------------------
+# Daily leaderboard (final polish pass, A2)
+# ---------------------------------------------------------------------------
+
+
+class DailyLeaderboardRow(BaseModel):
+    """One listed entry of the day's board. Public by design and carries
+    exactly what the board displays — handle and two numbers. Never an email,
+    an auth subject, or answer material (A2.7)."""
+
+    rank: int = Field(..., description="1-based position under the server's ranking")
+    handle: str = Field(..., description="The player's chosen public handle")
+    score: int
+    completion_time_ms: Optional[int] = Field(
+        None,
+        description=(
+            "Server-witnessed elapsed play, in milliseconds — the interval "
+            "from the server-stamped start of the player's one timed attempt "
+            "to the server-stamped first save of their valid completion. "
+            "Null when the server never owned a clock for this completion; "
+            "such entries rank after timed ones of equal score."
+        ),
+    )
+    is_current_user: bool = False
+
+
+class DailyLeaderboardYou(BaseModel):
+    """The caller's own standing, whether or not they made the visible top-N.
+
+    `listed` is False in exactly two honest states: the caller has no public
+    handle yet (their entry exists but the board only names players who chose
+    a name — the same rule the Arena leaderboard follows), or they have no
+    qualifying entry at all (`rank` is then null too)."""
+
+    rank: Optional[int] = None
+    score: Optional[int] = None
+    completion_time_ms: Optional[int] = None
+    listed: bool = False
+    has_handle: bool = False
+    has_entry: bool = False
+
+
+class DailyLeaderboardResponse(BaseModel):
+    """GET /api/v1/daily-grid/leaderboard
+
+    THE SERVER DEFINES THE RANKING (A2.9): rank arrives computed, ordered by
+    score DESC, then completion_time_ms ASC (nulls last), then completed_at
+    ASC — a client never re-derives it. `you` is present only for an
+    authenticated caller and reports their true standing even when they are
+    outside the returned page, so a UI never fakes a placement.
+    """
+
+    daily_key: str = Field(..., description="YYYY-MM-DD in America/Los_Angeles")
+    entries: list[DailyLeaderboardRow]
+    total_listed: int = Field(
+        ..., description="How many listed (handle-holding) entries the day has"
+    )
+    you: Optional[DailyLeaderboardYou] = None
