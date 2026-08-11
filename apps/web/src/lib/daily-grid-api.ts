@@ -251,3 +251,59 @@ export async function fetchDailyLeaderboard(params?: {
       : undefined,
   } as RequestInit);
 }
+
+// ---------------------------------------------------------------------------
+// Leaderboard retries (final integrity closure)
+// ---------------------------------------------------------------------------
+
+export interface DailyGridRetryStartResponse {
+  daily_key: string;
+  retry_id: string;
+  started_at: string;
+  server_now: string;
+}
+
+export interface DailyGridRetryCompleteResponse {
+  score: number;
+  completion_time_ms: number;
+  improved: boolean;
+  best_score: number;
+  best_completion_time_ms: number | null;
+}
+
+/**
+ * Open a FRESH retry clock on today's board. Signed-in only, never
+ * idempotent: each call is its own server-stamped attempt. The canonical
+ * official result and its recorded time are not touched by anything on this
+ * path — a retry exists purely to challenge the leaderboard's better-only
+ * upsert.
+ */
+export async function startDailyGridRetry(
+  dailyKey: string,
+  accessToken: string,
+): Promise<DailyGridRetryStartResponse> {
+  return apiFetch<DailyGridRetryStartResponse>(
+    `/daily-grid/${encodeURIComponent(dailyKey)}/retry`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+}
+
+/**
+ * Finish a retry: the server revalidates the nine squares, recomputes the
+ * score, times the run against the active retry clock's own `started_at`,
+ * and lets the outcome challenge the leaderboard. The body carries no score
+ * and no time — there is nothing here a client could inflate.
+ */
+export async function completeDailyGridRetry(
+  body: GridResultRequest,
+  accessToken: string,
+): Promise<DailyGridRetryCompleteResponse> {
+  return apiFetch<DailyGridRetryCompleteResponse>("/daily-grid/retry/complete", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+}

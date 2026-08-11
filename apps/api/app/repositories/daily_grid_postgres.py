@@ -21,6 +21,7 @@ from app.repositories.daily_grid_protocols import (
     DailyGridAttempt,
     DailyGridLeaderboardEntry,
     DailyGridResult,
+    DailyGridRetryAttempt,
 )
 
 try:
@@ -350,6 +351,53 @@ class PostgresDailyGridResultRepository:
                 daily_key,
             )
             return [_row_to_leaderboard_entry(r) for r in rows]
+
+    async def start_retry_attempt(
+        self, attempt: DailyGridRetryAttempt
+    ) -> DailyGridRetryAttempt:
+        """Plain INSERT, no conflict clause: every retry is its own clock and
+        `started_at` is the database's NOW(), never a caller-supplied value."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO daily_grid_retry_attempts (id, owner_sub, daily_key)
+                VALUES ($1, $2, $3)
+                RETURNING *
+                """,
+                attempt.id or str(uuid.uuid4()),
+                attempt.owner_sub,
+                attempt.daily_key,
+            )
+        return DailyGridRetryAttempt(
+            id=str(row["id"]),
+            owner_sub=row["owner_sub"],
+            daily_key=row["daily_key"],
+            started_at=row["started_at"],
+            created_at=row["created_at"],
+        )
+
+    async def latest_retry_attempt(
+        self, owner_sub: str, daily_key: str
+    ) -> Optional[DailyGridRetryAttempt]:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT * FROM daily_grid_retry_attempts
+                WHERE owner_sub = $1 AND daily_key = $2
+                ORDER BY started_at DESC, created_at DESC
+                LIMIT 1
+                """,
+                owner_sub, daily_key,
+            )
+        if row is None:
+            return None
+        return DailyGridRetryAttempt(
+            id=str(row["id"]),
+            owner_sub=row["owner_sub"],
+            daily_key=row["daily_key"],
+            started_at=row["started_at"],
+            created_at=row["created_at"],
+        )
 
     async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
         """Reassign this owner's results to `to_sub` -- the guest-claim path.

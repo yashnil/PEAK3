@@ -111,6 +111,26 @@ class DailyGridAttempt:
     started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+@dataclass
+class DailyGridRetryAttempt:
+    """One RETRY clock for one player's replay of today's board (final
+    integrity closure, gap 1).
+
+    Append-only and deliberately NOT unique per (owner, daily_key), unlike
+    :class:`DailyGridAttempt`: a retry is an explicit, repeatable act, each
+    one is its own attempt with its own server-stamped ``started_at``, and
+    the ACTIVE retry is simply the newest row. Rows here can only ever feed
+    the leaderboard's better-only upsert — they never touch the canonical
+    first attempt or the immutable official result.
+    """
+
+    id: str
+    owner_sub: str
+    daily_key: str
+    started_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 @runtime_checkable
 class DailyGridResultRepository(Protocol):
     async def start_attempt(
@@ -193,6 +213,25 @@ class DailyGridResultRepository(Protocol):
         """Every entry for the day, ranking order — the input the route ranks
         over after joining handles (a public rank is a position among LISTED
         players, and listing requires a handle the repository cannot see)."""
+        ...
+
+    async def start_retry_attempt(
+        self, attempt: "DailyGridRetryAttempt"
+    ) -> "DailyGridRetryAttempt":
+        """Open a FRESH retry clock. Always inserts — never idempotent.
+
+        The deliberate opposite of :meth:`start_attempt`: the canonical first
+        attempt is one non-restartable clock, while a retry is an explicit,
+        repeatable act, and each one is its own attempt with its own
+        server-stamped ``started_at``. The active retry for
+        (owner, daily_key) is defined as the newest row.
+        """
+        ...
+
+    async def latest_retry_attempt(
+        self, owner_sub: str, daily_key: str
+    ) -> Optional["DailyGridRetryAttempt"]:
+        """The active (newest) retry clock for this owner and day, if any."""
         ...
 
     async def transfer_owner(self, from_sub: str, to_sub: str) -> int:

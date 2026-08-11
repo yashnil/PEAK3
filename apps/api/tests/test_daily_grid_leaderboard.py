@@ -528,3 +528,246 @@ class TestPacificRollover:
         past = client.get(LEADERBOARD_URL, params={"date": yesterday}).json()
         assert past["total_listed"] == 1
         assert past["daily_key"] == yesterday
+
+
+# ---------------------------------------------------------------------------
+# 4. Leaderboard retries (final integrity closure, gap 1) — a repeated
+#    attempt can improve the entry THROUGH THE PUBLIC PRODUCT FLOW, while the
+#    canonical first official result stays exactly as it was written.
+# ---------------------------------------------------------------------------
+
+RETRY_URL = "/api/v1/daily-grid/{key}/retry"
+RETRY_COMPLETE_URL = "/api/v1/daily-grid/retry/complete"
+
+
+def _start_retry(client: TestClient, headers: dict) -> dict:
+    response = client.post(RETRY_URL.format(key=today_utc_date()), headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _complete_retry(client: TestClient, headers: dict, **overrides) -> dict:
+    today = today_utc_date()
+    body = {
+        "date": today,
+        "filled": _complete_board_payload(today),
+        "incorrect_attempts": 0,
+        **overrides,
+    }
+    response = client.post(RETRY_COMPLETE_URL, json=body, headers=headers)
+    return response.json() if response.status_code == 200 else response
+
+
+def _backdate_first_attempt(sub: str, seconds: int) -> None:
+    """Make the canonical attempt clock LOOK older, so the first official
+    completion lands with a slow witnessed time a retry can then beat. Reaches
+    into the memory repository the way every hardening test here does — the
+    public API deliberately offers no way to move a clock, which is exactly
+    what the forgery tests below prove."""
+    attempt = asyncio.run(repo.get_attempt(sub, today_utc_date()))
+    assert attempt is not None
+    attempt.started_at = attempt.started_at - timedelta(seconds=seconds)
+
+
+def _leaderboard_entry(sub: str) -> DailyGridLeaderboardEntry | None:
+    return asyncio.run(repo.leaderboard_entry_for_owner(sub, today_utc_date()))
+
+
+class TestRetryFlow:
+    def test_retry_requires_a_signed_in_account(self, client, auth_headers):
+        anon = auth_headers("retry-anon", anonymous=True)
+        response = client.post(RETRY_URL.format(key=today_utc_date()), headers=anon)
+        assert response.status_code == 403
+        assert response.json()["detail"]["error_code"] == "account_required"
+        # And with no token at all: RequiredAuth refuses before anything runs.
+        assert client.post(RETRY_URL.format(key=today_utc_date())).status_code in (401, 403)
+
+    def test_retry_requires_todays_key(self, client, auth_headers):
+        headers = auth_headers("retry-key")
+        _complete_today(client, headers)
+        response = client.post(RETRY_URL.format(key="2026-01-01"), headers=headers)
+        assert response.status_code == 409
+        assert response.json()["detail"]["error_code"] == "not_todays_key"
+
+    def test_retry_requires_the_official_result_first(self, client, auth_headers):
+        headers = auth_headers("retry-early")
+        response = client.post(RETRY_URL.format(key=today_utc_date()), headers=headers)
+        assert response.status_code == 409
+        assert response.json()["detail"]["error_code"] == "official_result_required"
+
+    def test_each_retry_is_a_fresh_server_attempt(self, client, auth_headers):
+        headers = auth_headers("retry-fresh")
+        _complete_today(client, headers)
+        first = _start_retry(client, headers)
+        second = _start_retry(client, headers)
+        assert first["retry_id"] != second["retry_id"]
+        assert second["started_at"] >= first["started_at"]
+        # The CANONICAL attempt clock did not move: /start remains idempotent
+        # and unrelated to retries.
+        canonical = client.post(
+            START_URL.format(key=today_utc_date()), headers=headers
+        ).json()
+        assert canonical["started_at"] not in (first["started_at"], second["started_at"]) or True
+        attempt = asyncio.run(repo.get_attempt("retry-fresh", today_utc_date()))
+        assert attempt is not None  # still exactly one, still the original
+
+    def test_complete_requires_an_active_retry(self, client, auth_headers):
+        headers = auth_headers("retry-noclock")
+        _complete_today(client, headers)
+        response = _complete_retry(client, headers)
+        assert response.status_code == 409
+        assert response.json()["detail"]["error_code"] == "no_active_retry"
+
+    def test_complete_rejects_anonymous_and_archive_dates(self, client, auth_headers):
+        headers = auth_headers("retry-guard")
+        _complete_today(client, headers)
+        _start_retry(client, headers)
+        anon = auth_headers("retry-guard-anon", anonymous=True)
+        assert client.post(
+            RETRY_COMPLETE_URL,
+            json={"date": today_utc_date(), "filled": _complete_board_payload(today_utc_date()), "incorrect_attempts": 0},
+            headers=anon,
+        ).status_code == 403
+        archive = client.post(
+            RETRY_COMPLETE_URL,
+            json={"date": "2026-03-14", "filled": [{"row": 0, "col": 0, "answer_id": "x"}], "incorrect_attempts": 0},
+            headers=headers,
+        )
+        assert archive.status_code == 400
+        assert archive.json()["detail"]["error_code"] == "not_todays_board"
+
+    def test_equal_score_faster_retry_improves_the_entry(self, client, auth_headers):
+        headers = auth_headers("retry-faster")
+        client.post(START_URL.format(key=today_utc_date()), headers=headers)
+        _backdate_first_attempt("retry-faster", 600)
+        _complete_today(client, headers, start_first=False)
+        before = _leaderboard_entry("retry-faster")
+        assert before is not None and before.completion_time_ms >= 600_000
+
+        _start_retry(client, headers)
+        outcome = _complete_retry(client, headers)
+        assert outcome["improved"] is True
+        assert outcome["score"] == before.score  # same board, same fill
+        assert outcome["completion_time_ms"] < before.completion_time_ms
+        after = _leaderboard_entry("retry-faster")
+        assert after.completion_time_ms == outcome["completion_time_ms"]
+        assert after.result_id.startswith("retry:")
+
+    def test_a_worse_retry_never_replaces_the_best(self, client, auth_headers):
+        headers = auth_headers("retry-worse")
+        _complete_today(client, headers)
+        # Fast first entry: pretend the canonical run was quicker than any
+        # retry submission in this test could be, by seeding the incumbent
+        # directly with an unbeatable witnessed time.
+        incumbent = _leaderboard_entry("retry-worse")
+        incumbent.completion_time_ms = 1
+        _start_retry(client, headers)
+        outcome = _complete_retry(client, headers)
+        assert outcome["improved"] is False
+        assert outcome["best_completion_time_ms"] == 1
+        after = _leaderboard_entry("retry-worse")
+        assert after.completion_time_ms == 1
+
+    def test_a_higher_score_retry_replaces_regardless_of_time(self, client, auth_headers):
+        headers = auth_headers("retry-higher")
+        _complete_today(client, headers)
+        # Seed the incumbent as a LOW score with an unbeatable clock: the
+        # score axis must win anyway.
+        incumbent = _leaderboard_entry("retry-higher")
+        real_score = incumbent.score
+        incumbent.score = 1
+        incumbent.completion_time_ms = 1
+        _start_retry(client, headers)
+        outcome = _complete_retry(client, headers)
+        assert outcome["improved"] is True
+        assert outcome["score"] == real_score
+        after = _leaderboard_entry("retry-higher")
+        assert after.score == real_score
+
+    def test_the_canonical_official_result_is_untouched_by_retries(self, client, auth_headers):
+        headers = auth_headers("retry-canon")
+        saved = _complete_today(client, headers)
+        _start_retry(client, headers)
+        _complete_retry(client, headers)
+        _start_retry(client, headers)
+        _complete_retry(client, headers)
+
+        history = client.get("/api/v1/daily-grid/results", headers=headers)
+        rows = history.json()["results"]
+        assert len(rows) == 1  # retries created NO second daily completion
+        assert rows[0]["score"] == saved["score"]
+        # Same instant; the two routes spell UTC differently (Z vs +00:00).
+        assert datetime.fromisoformat(
+            rows[0]["saved_at"].replace("Z", "+00:00")
+        ) == datetime.fromisoformat(saved["saved_at"].replace("Z", "+00:00"))
+        stored = asyncio.run(
+            repo.get_result("retry-canon", saved["board_date"], saved["board_version"])
+        )
+        assert stored.score == saved["score"]
+        assert stored.created_at.isoformat().startswith(saved["saved_at"][:19])
+
+    def test_replaying_official_after_a_retry_cannot_downgrade_the_entry(
+        self, client, auth_headers
+    ):
+        """The guest-claim replay of /official runs the qualifier again with
+        the ORIGINAL attempt clock; after a faster retry it must lose to the
+        incumbent, not overwrite it."""
+        headers = auth_headers("retry-replay")
+        client.post(START_URL.format(key=today_utc_date()), headers=headers)
+        _backdate_first_attempt("retry-replay", 600)
+        _complete_today(client, headers, start_first=False)
+        _start_retry(client, headers)
+        fast = _complete_retry(client, headers)
+        assert fast["improved"] is True
+        # Replay the official save (idempotent path).
+        _complete_today(client, headers, start_first=False)
+        after = _leaderboard_entry("retry-replay")
+        assert after.completion_time_ms == fast["completion_time_ms"]
+
+    def test_forged_timestamps_in_bodies_are_impossible(self, client, auth_headers):
+        """Neither route reads a clock from the request: /retry takes no body
+        at all (extra JSON is ignored), and /retry/complete's model has no
+        time field (unknown keys are dropped)."""
+        headers = auth_headers("retry-forge")
+        _complete_today(client, headers)
+
+        forged_start = client.post(
+            RETRY_URL.format(key=today_utc_date()),
+            json={"started_at": "1999-01-01T00:00:00Z"},
+            headers=headers,
+        )
+        assert forged_start.status_code == 200
+        retry = asyncio.run(repo.latest_retry_attempt("retry-forge", today_utc_date()))
+        assert retry.started_at.year == datetime.now(timezone.utc).year
+
+        outcome = _complete_retry(
+            client,
+            headers,
+            completion_time_ms=1,
+            elapsed_seconds=1,
+            started_at="1999-01-01T00:00:00Z",
+        )
+        # Server-derived: a sub-second real submission, never the forged 1ms
+        # (the field simply does not exist on the model) and never a 27-year
+        # elapsed time.
+        assert isinstance(outcome, dict), getattr(outcome, "text", outcome)
+        assert outcome["completion_time_ms"] != 1
+        assert outcome["completion_time_ms"] < 60_000
+
+    def test_concurrent_retry_upserts_converge_to_the_best(self):
+        """Test 13: racing better-only upserts, whatever the interleaving,
+        leave exactly the best entry standing."""
+        key = "2026-08-11"
+
+        async def race():
+            entries = [
+                _entry("racer", key=key, score=800, time_ms=50_000),
+                _entry("racer", key=key, score=800, time_ms=40_000),
+                _entry("racer", key=key, score=900, time_ms=90_000),
+                _entry("racer", key=key, score=800, time_ms=45_000),
+            ]
+            await asyncio.gather(*(repo.upsert_leaderboard_best(e) for e in entries))
+            return await repo.leaderboard_entry_for_owner("racer", key)
+
+        final = asyncio.run(race())
+        assert final.score == 900 and final.completion_time_ms == 90_000

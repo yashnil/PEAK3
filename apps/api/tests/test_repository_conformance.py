@@ -1261,3 +1261,62 @@ async def test_postgres_daily_grid_leaderboard_conforms(pg_pool):
                 "DELETE FROM daily_grid_leaderboard_entries WHERE daily_key = $1",
                 daily_key,
             )
+
+
+# ---------------------------------------------------------------------------
+# DailyGridResultRepository.retry attempts — same append-only clock semantics
+# on memory and Postgres (final integrity closure, gap 1)
+# ---------------------------------------------------------------------------
+
+
+async def _assert_daily_grid_retry_attempts_conform(repo, daily_key: str) -> None:
+    from app.repositories.daily_grid_protocols import DailyGridRetryAttempt
+
+    owner = f"retry-{uuid.uuid4()}"
+
+    # 1. No clock until one is explicitly started.
+    assert await repo.latest_retry_attempt(owner, daily_key) is None
+
+    # 2. Every start is a FRESH attempt — never idempotent, never re-stamped.
+    first = await repo.start_retry_attempt(
+        DailyGridRetryAttempt(id="", owner_sub=owner, daily_key=daily_key)
+    )
+    second = await repo.start_retry_attempt(
+        DailyGridRetryAttempt(id="", owner_sub=owner, daily_key=daily_key)
+    )
+    assert first.id and second.id and first.id != second.id
+    assert second.started_at >= first.started_at
+
+    # 3. The ACTIVE clock is the newest row.
+    latest = await repo.latest_retry_attempt(owner, daily_key)
+    assert latest is not None and latest.id == second.id
+
+    # 4. Day-partitioned: another key sees nothing.
+    assert await repo.latest_retry_attempt(owner, "2099-12-31") is None
+
+
+@pytest.mark.asyncio
+async def test_memory_daily_grid_retry_attempts_conform():
+    from app.repositories.daily_grid_memory import MemoryDailyGridResultRepository
+
+    await _assert_daily_grid_retry_attempts_conform(
+        MemoryDailyGridResultRepository(), "2099-02-01"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_daily_grid_retry_attempts_conform(pg_pool):
+    from app.repositories.daily_grid_postgres import PostgresDailyGridResultRepository
+
+    daily_key = f"2099-rt-{uuid.uuid4().hex[:8]}"
+    try:
+        await _assert_daily_grid_retry_attempts_conform(
+            PostgresDailyGridResultRepository(pg_pool), daily_key
+        )
+    finally:
+        async with pg_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM daily_grid_retry_attempts WHERE daily_key = $1",
+                daily_key,
+            )

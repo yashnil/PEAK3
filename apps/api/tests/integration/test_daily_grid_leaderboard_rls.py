@@ -206,3 +206,81 @@ async def test_the_owner_write_path_and_the_unique_key_hold(test_database_url: s
             await tx.rollback()
     finally:
         await conn.close()
+
+
+# ---------------------------------------------------------------------------
+# daily_grid_retry_attempts (20260811130000) — the retry clock table.
+# Server-only writes; owner-scoped reads. A client that could insert its own
+# row could stamp itself a fresh clock an instant before submitting a
+# pre-solved board, so the write REVOKE is the whole point.
+# ---------------------------------------------------------------------------
+
+RETRY_TABLE = "daily_grid_retry_attempts"
+
+
+@pytest.mark.asyncio
+async def test_retry_attempts_rls_enabled_and_unwritable_by_clients(
+    test_database_url: str,
+) -> None:
+    conn = await asyncpg.connect(test_database_url)
+    try:
+        enabled = await conn.fetchval(
+            "SELECT rowsecurity FROM pg_tables WHERE schemaname='public' AND tablename=$1",
+            RETRY_TABLE,
+        )
+        assert enabled is True, f"{RETRY_TABLE} missing or RLS disabled"
+
+        grants = await conn.fetch(
+            """
+            SELECT grantee, privilege_type
+              FROM information_schema.role_table_grants
+             WHERE table_schema = 'public' AND table_name = $1
+               AND grantee IN ('anon', 'authenticated')
+               AND privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE','TRIGGER')
+            """,
+            RETRY_TABLE,
+        )
+        assert grants == [], (
+            "these grants must not exist: "
+            + ", ".join(f"{r['grantee']}:{r['privilege_type']}" for r in grants)
+        )
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_anon_cannot_stamp_or_read_a_retry_clock(test_database_url: str) -> None:
+    conn = await asyncpg.connect(test_database_url)
+    daily_key = f"2099-rt-{uuid.uuid4().hex[:8]}"
+    victim = f"victim-{uuid.uuid4()}"
+    try:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute(
+                f"INSERT INTO {RETRY_TABLE} (owner_sub, daily_key) VALUES ($1, $2)",
+                victim, daily_key,
+            )
+            await conn.execute("SET LOCAL ROLE anon")
+
+            # No forged clock, no cleared clock.
+            for stmt in (
+                f"INSERT INTO {RETRY_TABLE} (owner_sub, daily_key) VALUES ('attacker', '{daily_key}')",
+                f"UPDATE {RETRY_TABLE} SET started_at = NOW() WHERE daily_key = '{daily_key}'",
+                f"DELETE FROM {RETRY_TABLE} WHERE daily_key = '{daily_key}'",
+            ):
+                sp = conn.transaction()
+                await sp.start()
+                with pytest.raises(asyncpg.PostgresError, match="permission denied"):
+                    await conn.execute(stmt)
+                await sp.rollback()
+
+            # Owner-scoped read: an unauthenticated caller sees zero rows.
+            count = await conn.fetchval(
+                f"SELECT count(*) FROM {RETRY_TABLE} WHERE daily_key = $1", daily_key
+            )
+            assert count == 0
+        finally:
+            await tx.rollback()
+    finally:
+        await conn.close()

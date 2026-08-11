@@ -8,7 +8,7 @@ import {
   DailyGridProgress,
   GridResultResponse,
 } from "@/types/daily-grid";
-import CompletionPanel from "./CompletionPanel";
+import CompletionPanel, { type RetryOutcome } from "./CompletionPanel";
 
 interface Props {
   open: boolean;
@@ -20,6 +20,13 @@ interface Props {
   archive: DailyGridArchive | null;
   isArchiveBoard: boolean;
   officialSaved: boolean;
+  /** Leaderboard retries (final integrity closure): see CompletionPanel. */
+  canReplay?: boolean;
+  onReplay?: () => void;
+  replayStarting?: boolean;
+  retryRun?: boolean;
+  retryOutcome?: RetryOutcome;
+  onExitRetry?: () => void;
 }
 
 /**
@@ -51,6 +58,12 @@ export default function CompletionModal({
   archive,
   isArchiveBoard,
   officialSaved,
+  canReplay,
+  onReplay,
+  replayStarting,
+  retryRun,
+  retryOutcome,
+  onExitRetry,
 }: Props) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -72,6 +85,12 @@ export default function CompletionModal({
         archive={archive}
         isArchiveBoard={isArchiveBoard}
         officialSaved={officialSaved}
+        canReplay={canReplay}
+        onReplay={onReplay}
+        replayStarting={replayStarting}
+        retryRun={retryRun}
+        retryOutcome={retryOutcome}
+        onExitRetry={onExitRetry}
         onClose={onClose}
         closeButtonRef={closeButtonRef}
       />

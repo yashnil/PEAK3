@@ -17,6 +17,7 @@ from app.repositories.daily_grid_protocols import (
     DailyGridLeaderboardEntry,
     DailyGridResult,
     DailyGridResultRepository,
+    DailyGridRetryAttempt,
     is_strictly_better,
     leaderboard_sort_key,
 )
@@ -36,6 +37,10 @@ class MemoryDailyGridResultRepository:
         # runs under the same lock every other write takes, so a concurrent
         # pair of submissions serialises here exactly as ON CONFLICT does.
         self._leaderboard: dict[tuple[str, str, str], DailyGridLeaderboardEntry] = {}
+        # (owner_sub, daily_key) -> retry attempts, append-only in insertion
+        # order. The active retry is the last element -- no unique constraint
+        # by design (each retry is its own clock).
+        self._retries: dict[tuple[str, str], list[DailyGridRetryAttempt]] = {}
         self._lock = asyncio.Lock()
 
     async def start_attempt(
@@ -116,6 +121,22 @@ class MemoryDailyGridResultRepository:
         rows = [e for e in self._leaderboard.values() if e.daily_key == daily_key]
         rows.sort(key=leaderboard_sort_key)
         return rows
+
+    async def start_retry_attempt(
+        self, attempt: DailyGridRetryAttempt
+    ) -> DailyGridRetryAttempt:
+        async with self._lock:
+            attempt.id = attempt.id or str(uuid.uuid4())
+            self._retries.setdefault(
+                (attempt.owner_sub, attempt.daily_key), []
+            ).append(attempt)
+            return attempt
+
+    async def latest_retry_attempt(
+        self, owner_sub: str, daily_key: str
+    ) -> Optional[DailyGridRetryAttempt]:
+        attempts = self._retries.get((owner_sub, daily_key))
+        return attempts[-1] if attempts else None
 
     async def transfer_owner(self, from_sub: str, to_sub: str) -> int:
         """Mirror of the Postgres transfer, including the collision rule --

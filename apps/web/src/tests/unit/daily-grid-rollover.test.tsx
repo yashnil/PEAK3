@@ -247,11 +247,13 @@ describe("the timer starts on Start and on nothing else", () => {
     await waitFor(() => expect(mockStart).toHaveBeenCalledTimes(1));
   });
 
-  it("resumes an existing attempt's true elapsed time on a second device", async () => {
+  it("a second device shows the attempt's true elapsed time AT REVEAL — no untimed preview", async () => {
     // Nothing in this browser's storage, but the server already has an
-    // in-progress attempt for this account. `/start` is idempotent, so the
-    // first move resolves to the ORIGINAL start instant rather than a new one.
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    // in-progress attempt for this account. The reveal effect calls the
+    // idempotent `/start` the moment the board is on screen, so this tab
+    // resolves to the ORIGINAL start instant with NO move made — a second
+    // tab or device can never study the board on a fresh-looking clock
+    // (final integrity closure, gap 2).
     mockGetBoard.mockResolvedValue({
       ...todayBoard(),
       attempt_status: "in_progress",
@@ -265,9 +267,9 @@ describe("the timer starts on Start and on nothing else", () => {
     });
     render(<DailyGridGame skipRulesGate />);
 
-    const cells = await screen.findAllByTestId("grid-cell");
-    expect(screen.getByTestId("daily-grid-timer")).toHaveTextContent("—");
-    await user.click(cells[0]);
+    await screen.findAllByTestId("grid-cell");
+    // Anchored by the server before any click happens.
+    await waitFor(() => expect(mockStart).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByTestId("daily-grid-timer")).toHaveTextContent("12:40"));
   });
 

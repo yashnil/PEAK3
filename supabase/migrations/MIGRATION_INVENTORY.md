@@ -43,6 +43,7 @@ migration change rather than hand-editing this file.
 | 36 | `20260804100000_arena_foundation` | 7 | 11 | 10 | 3 | 4 | 7 | 7 |
 | 37 | `20260804140000_arena_ratings` | 2 | 4 | 0 | 1 | 2 | 2 | 2 |
 | 38 | `20260811090000_daily_grid_leaderboard` | 1 | 1 | 1 | 0 | 0 | 1 | 1 |
+| 39 | `20260811130000_daily_grid_retry_attempts` | 1 | 1 | 0 | 0 | 0 | 1 | 1 |
 
 ## Detail per migration
 
@@ -1084,6 +1085,33 @@ migration change rather than hand-editing this file.
 **RLS enabled on:** daily_grid_leaderboard_entries
 
 **Policies:** daily_grid_leaderboard_public_read
+
+**Grants:** none (RLS is the access gate; no explicit GRANTs used)
+
+**Seed/config INSERTs into:** none
+
+**Extensions declared:** none
+
+**External table dependencies (not created in this file):** none
+
+**Idempotency:** tables: CREATE TABLE IF NOT EXISTS; indexes: CREATE [UNIQUE] INDEX IF NOT EXISTS; policies: DROP POLICY IF EXISTS guard before CREATE POLICY
+
+### `20260811130000_daily_grid_retry_attempts.sql`
+
+**Tables created:** daily_grid_retry_attempts
+  - `daily_grid_retry_attempts`: id, owner_sub, daily_key, started_at, created_at
+
+**Indexes:** daily_grid_retry_attempts_latest_idx
+
+**Constraints:** none
+
+**Functions:** none
+
+**Triggers:** none
+
+**RLS enabled on:** daily_grid_retry_attempts
+
+**Policies:** daily_grid_retry_attempts_owner_read
 
 **Grants:** none (RLS is the access gate; no explicit GRANTs used)
 

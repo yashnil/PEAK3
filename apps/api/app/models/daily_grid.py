@@ -572,3 +572,36 @@ class DailyLeaderboardResponse(BaseModel):
         ..., description="How many listed (handle-holding) entries the day has"
     )
     you: Optional[DailyLeaderboardYou] = None
+
+
+class DailyGridRetryStartResponse(BaseModel):
+    """POST /api/v1/daily-grid/{daily_key}/retry — a FRESH leaderboard retry
+    clock (final integrity closure, gap 1).
+
+    Never idempotent, unlike /start: each call opens a new attempt with a new
+    server-stamped `started_at`. The route takes no body, so nothing a client
+    sends can influence the stamp.
+    """
+
+    daily_key: str
+    retry_id: str = Field(..., description="This retry attempt's identity")
+    started_at: str = Field(..., description="Server-stamped, ISO-8601 UTC")
+    server_now: str
+
+
+class DailyGridRetryCompleteResponse(BaseModel):
+    """POST /api/v1/daily-grid/retry/complete.
+
+    `score` is recomputed server-side from the submitted board (same
+    revalidation as /official); `completion_time_ms` is now() minus the active
+    retry attempt's server `started_at`. `improved` reports whether the
+    leaderboard's better-only upsert actually replaced the incumbent —
+    `best_*` is what the board now shows either way. The canonical official
+    result is untouched by this route, always.
+    """
+
+    score: int
+    completion_time_ms: int
+    improved: bool
+    best_score: int
+    best_completion_time_ms: Optional[int] = None

@@ -23,6 +23,12 @@ import {
 } from "@/lib/daily-grid-state";
 import { formatCountdown, msUntilNextBoard, recentEntries } from "@/lib/daily-grid-archive";
 import { dailyShareFile, dailyShareFileName } from "@/lib/daily-grid-share-card";
+import { formatCompletionTime } from "./DailyLeaderboard";
+import type { DailyGridRetryCompleteResponse } from "@/lib/daily-grid-api";
+
+/** A finished retry's server verdict; "failed" = the submission never
+ *  counted (network/session), which the player must be told. */
+export type RetryOutcome = DailyGridRetryCompleteResponse | "failed" | null;
 import OptimalGrid from "./OptimalGrid";
 import RecentResults from "./RecentResults";
 import DailyLeaderboard from "./DailyLeaderboard";
@@ -45,6 +51,19 @@ interface Props {
   /** True once the signed-in player's durable, server-validated copy exists.
    *  Changes one label; never changes a number. */
   officialSaved?: boolean;
+  /** Leaderboard retries (final integrity closure): a signed-in player whose
+   *  official result is recorded may replay today's board to challenge their
+   *  own leaderboard entry. The replay never touches the official result —
+   *  the copy under the button says exactly that. */
+  canReplay?: boolean;
+  onReplay?: () => void;
+  replayStarting?: boolean;
+  /** True when THIS panel shows a finished RETRY run rather than the
+   *  canonical daily — flips the banner and where the outcome line reads
+   *  from. */
+  retryRun?: boolean;
+  retryOutcome?: RetryOutcome;
+  onExitRetry?: () => void;
   /** Launch-polish §4: this panel now renders as the CONTENT of a `Dialog`
    *  (see `CompletionModal.tsx`), which already supplies the surface,
    *  border and shadow -- so this component no longer draws its own outer
@@ -163,6 +182,12 @@ export default function CompletionPanel({
   archive,
   isArchiveBoard,
   officialSaved,
+  canReplay,
+  onReplay,
+  replayStarting,
+  retryRun,
+  retryOutcome,
+  onExitRetry,
   onClose,
   closeButtonRef,
 }: Props) {
@@ -731,12 +756,83 @@ export default function CompletionPanel({
         )}
       </div>
 
+      {/* Leaderboard retries (final integrity closure). The retry banner and
+          outcome speak plainly: the official result is untouched, and only a
+          strictly better run moves the board. */}
+      {retryRun && (
+        <p
+          data-testid="daily-grid-retry-banner"
+          className="mt-4 rounded-lg px-3 py-2 text-xs"
+          style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+        >
+          <strong style={{ color: "var(--text-primary)" }}>Replay run.</strong>{" "}
+          Your official result for today is unchanged — this run only counts if
+          it beats your best on the leaderboard.
+        </p>
+      )}
+      {retryRun && retryOutcome && (
+        <p
+          role="status"
+          data-testid="daily-grid-retry-outcome"
+          className="mt-2 text-xs"
+          style={{
+            color:
+              retryOutcome === "failed"
+                ? "var(--incorrect)"
+                : retryOutcome.improved
+                  ? "var(--comp-team-text)"
+                  : "var(--text-secondary)",
+          }}
+        >
+          {retryOutcome === "failed"
+            ? "This replay could not be submitted — it did not count. Your best entry is unchanged."
+            : retryOutcome.improved
+              ? `Leaderboard updated: ${retryOutcome.score} in ${formatCompletionTime(retryOutcome.completion_time_ms)} is your new best.`
+              : `Your earlier run stays on the board — this replay (${retryOutcome.score} in ${formatCompletionTime(retryOutcome.completion_time_ms)}) didn't beat it.`}
+        </p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {canReplay && (
+          <button
+            type="button"
+            data-testid="daily-grid-replay"
+            onClick={onReplay}
+            disabled={replayStarting}
+            className="pk-lift pk-press rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+          >
+            {replayStarting ? "Starting…" : "Replay this board"}
+          </button>
+        )}
+        {canReplay && !retryRun && (
+          <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+            Your official result stays recorded — a better replay can improve
+            today&rsquo;s leaderboard placement. The clock starts the moment
+            you press replay.
+          </span>
+        )}
+        {retryRun && onExitRetry && (
+          <button
+            type="button"
+            data-testid="daily-grid-retry-exit"
+            onClick={onExitRetry}
+            className="rounded-lg px-3 py-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+            style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+          >
+            Back to your official result
+          </button>
+        )}
+      </div>
+
       {/* A2: how today's score compares — the server's ranked board, with the
           player highlighted and honest states for every other case. */}
       <DailyLeaderboard
         date={board.date}
         isArchiveBoard={isArchiveBoard}
-        refreshKey={officialSaved ? 1 : 0}
+        refreshKey={
+          (officialSaved ? 1 : 0) +
+          (retryOutcome && retryOutcome !== "failed" ? 2 : 0)
+        }
       />
 
       {copyFailed && (
