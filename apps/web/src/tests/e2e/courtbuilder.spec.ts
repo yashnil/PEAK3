@@ -116,6 +116,45 @@ async function beginRun(page: Page): Promise<void> {
   await page.locator('[data-testid="court-slot"]').first().waitFor({ state: "visible", timeout: 15_000 });
 }
 
+/**
+ * Wait until BOTH reels have physically finished — not merely until the
+ * ceremony's clock says they should have.
+ *
+ * THE ROOT CAUSE THIS EXISTS FOR (main CI run 31572430106, rerun: three
+ * CourtBuilder failures, all one bug in the tests). SpinStage.tsx runs TWO
+ * independent clocks. The ceremony phase (`spinning` -> `locked` ->
+ * `revealed`, and the `onRevealComplete` that gates the respin controls) is
+ * driven by `setTimeout`s armed at MOUNT. A reel's motion is a CSS transform
+ * transition that only STARTS after a deliberate two-frame
+ * `requestAnimationFrame` arm (see the "Two-frame arm" effect — setting the
+ * start and end transform in one commit would produce no transition at all).
+ * Nothing couples them. On a loaded runner — `next dev` compiling routes on
+ * demand, API + web server + browser sharing two cores — the rAF arm lands
+ * hundreds of milliseconds late while the mount-anchored timers keep running
+ * on the wall clock, so `data-phase="revealed"` is reached while a reel is
+ * still mid-transition.
+ *
+ * Three tests sampled state at exactly that moment and recorded the
+ * transient rather than the result: `era-wheel.innerText()` returned all 141
+ * strip rows instead of `1992-93`, `data-snap-tick` read 1 because the
+ * season reel had not yet crossed into its detent, and a frame sampler's
+ * first delta was 0 because the strip had not started moving. Every one of
+ * them was reproduced locally, deterministically, by delaying only
+ * `requestAnimationFrame`. The product was correct in all three.
+ *
+ * The strip UNMOUNTS at reel stage `done` — SpinStage.tsx's `ReelStage`
+ * docstring states that explicitly, precisely because `innerText()` would
+ * otherwise return every strip label — so "no strip attached" is the
+ * component's own authoritative signal that both reels have landed and each
+ * wheel is rendering its single settled value. Under reduced motion no strip
+ * is ever mounted, so this returns immediately, which is correct rather than
+ * vacuous: there is no animation to be ahead of.
+ */
+async function waitForReelsSettled(page: Page, timeout = 20_000): Promise<void> {
+  await expect(page.locator('[data-testid="team-reel-strip"]')).toHaveCount(0, { timeout });
+  await expect(page.locator('[data-testid="era-reel-strip"]')).toHaveCount(0, { timeout });
+}
+
 // ---------------------------------------------------------------------------
 // Full happy path
 // ---------------------------------------------------------------------------
@@ -587,6 +626,11 @@ test.describe("CourtBuilder spin ceremony", () => {
     const eraWheel = page.locator('[data-testid="era-wheel"]');
     await expect(teamWheel).toBeVisible();
     await expect(eraWheel).toBeVisible();
+    // `revealed` is the ceremony's clock, not the reels' — read the wheels'
+    // text only once the strips have unmounted, or this reads the whole
+    // scrolling strip instead of the landed value (see `waitForReelsSettled`;
+    // the same read failed the respin test in CI run 31572430106).
+    await waitForReelsSettled(page);
     const teamText = (await teamWheel.innerText()).trim();
     const eraText = (await eraWheel.innerText()).trim();
     expect(teamText.length).toBeGreaterThan(0);
@@ -898,56 +942,115 @@ test.describe("CourtBuilder respins", () => {
   // its actual displayed value doesn't change once the respin settles.
   // -------------------------------------------------------------------------
 
+  // Both tests below compare SETTLED SEMANTIC VALUES, never the wheel's raw
+  // `innerText()`. The rerun of CI run 31572430106 failed the team-only test
+  // with `eraBefore` equal to the whole rendered reel strip -- "SEASON" plus
+  // all 141 season rows -- because the era reel was still mid-transition when
+  // the respin button (gated on the ceremony's mount-anchored timers, not on
+  // the reels) became visible. See `waitForReelsSettled`. The API bodies in
+  // that same trace prove the product was right: era_label was `1992-93` in
+  // the game-create response and `1992-93` in the respin-team response, with
+  // only the franchise changing (Washington Bullets -> Portland Trail
+  // Blazers). The assertions here are therefore strengthened rather than
+  // relaxed -- a real server-side era change now fails on the server value
+  // itself, before any DOM is consulted.
+
   test("Phase 8C: team-only respin locks the era wheel and its value is unchanged", async ({ page }) => {
     await startCourtBuilder(page);
     const teamBtn = page.locator('[data-testid="respin-team-btn"]');
-    // The respin button only renders once the ceremony has revealed (see
-    // CourtBuilder.tsx's respin-controls gate) -- waiting for it here is
-    // the real synchronization point; startCourtBuilder itself only waits
-    // for the court, not for the spin ceremony to finish ticking.
+    // The respin button renders once the ceremony has revealed (see
+    // CourtBuilder.tsx's respin-controls gate). That is necessary but NOT
+    // sufficient to read a wheel's value -- the reels can still be running.
     await expect(teamBtn).toBeVisible();
-    const eraBefore = await page.locator('[data-testid="era-wheel"]').innerText();
+    await waitForReelsSettled(page);
 
-    await Promise.all([
+    const eraWheel = page.locator('[data-testid="era-wheel"]');
+    const eraStrip = page.locator('[data-testid="era-reel-strip"]');
+    // `data-selected-season` is the backend's own era_label as rendered, and
+    // `data-final-value` is what the settled surface is actually displaying.
+    // Both must already agree before the respin, or the "unchanged" claim
+    // afterwards would be measured against a value that was never on screen.
+    const eraBefore = await eraWheel.getAttribute("data-selected-season");
+    expect(eraBefore, "the era wheel must expose a real backend value").toBeTruthy();
+    expect(
+      await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value"),
+    ).toBe(eraBefore);
+
+    const [respinResponse] = await Promise.all([
       page.waitForResponse((r) => r.url().includes("/respin-team") && r.status() === 200),
       teamBtn.click(),
     ]);
+    // SERVER-SIDE PROOF, independent of anything the DOM does: the respin
+    // response's own era_label. A backend that quietly rerolled the season
+    // during a team respin fails here even if the UI happened to look right.
+    const body = await respinResponse.json();
+    expect(
+      body?.current_spin?.era_label,
+      "team respin must not reroll the season server-side",
+    ).toBe(eraBefore);
+
     // The era wheel shows the locked badge; the team wheel (the one
     // actually respinning) never does.
     await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toBeVisible();
     await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toHaveCount(0);
+    // The locked wheel does not merely LOOK locked: it never re-arms a reel
+    // at all, so no strip is ever mounted for it during the flourish.
+    await expect(eraStrip).toHaveCount(0);
 
-    // Once the brief respin flourish settles, the era wheel's own value
-    // must be exactly what it was before -- not just visually "locked",
-    // actually unchanged (proves frontend display matches backend's
-    // same-season-different-team respin behavior). Phase 8I bumped the
-    // respin flourish itself from ~480ms to ~1.2s (product ask: respin
-    // should read as a real re-roll) plus a ~200ms exit transition, so this
-    // window is widened to keep the same real safety margin, not just
-    // barely cover the new duration.
+    // Once the respin flourish settles, the era wheel's own value must be
+    // exactly what it was before -- not just visually "locked", actually
+    // unchanged. Phase 8I bumped the flourish from ~480ms to ~1.2s plus a
+    // ~200ms exit transition, hence the widened badge window.
     await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toHaveCount(0, { timeout: 3_500 });
-    const eraAfter = await page.locator('[data-testid="era-wheel"]').innerText();
-    expect(eraAfter).toBe(eraBefore);
+    await waitForReelsSettled(page);
+    expect(await eraWheel.getAttribute("data-selected-season")).toBe(eraBefore);
+    expect(
+      await page.locator('[data-testid="spin-season-reel-center"]').last().getAttribute("data-final-value"),
+    ).toBe(eraBefore);
+    // The rendered pair states the unchanged season next to the NEW team --
+    // proof the wheel is displaying the post-respin roll, not a stale card.
+    const summary = page.locator('[data-testid="roll-summary"]');
+    await expect(summary).toContainText(eraBefore!);
+    await expect(summary).toContainText(body.current_spin.franchise_display_name);
   });
 
   test("Phase 8C: season-only respin locks the team wheel and its value is unchanged", async ({ page }) => {
     await startCourtBuilder(page);
     const seasonBtn = page.locator('[data-testid="respin-season-btn"]');
     await expect(seasonBtn).toBeVisible();
-    const teamBefore = await page.locator('[data-testid="team-wheel"]').innerText();
+    await waitForReelsSettled(page);
 
-    await Promise.all([
+    const teamWheel = page.locator('[data-testid="team-wheel"]');
+    const teamStrip = page.locator('[data-testid="team-reel-strip"]');
+    const teamBefore = await teamWheel.getAttribute("data-selected-team");
+    expect(teamBefore, "the team wheel must expose a real backend value").toBeTruthy();
+    expect(
+      await page.locator('[data-testid="spin-team-reel-center"]').last().getAttribute("data-final-value"),
+    ).toBe(teamBefore);
+
+    const [respinResponse] = await Promise.all([
       page.waitForResponse((r) => r.url().includes("/respin-season") && r.status() === 200),
       seasonBtn.click(),
     ]);
+    const body = await respinResponse.json();
+    expect(
+      body?.current_spin?.franchise_display_name,
+      "season respin must not reroll the franchise server-side",
+    ).toBe(teamBefore);
+
     await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toBeVisible();
     await expect(page.locator('[data-testid="era-wheel-locked-badge"]')).toHaveCount(0);
+    await expect(teamStrip).toHaveCount(0);
 
-    // Phase 8I: same widened window as the team-only respin test above --
-    // the respin flourish itself now runs ~1.2s, not ~480ms.
     await expect(page.locator('[data-testid="team-wheel-locked-badge"]')).toHaveCount(0, { timeout: 3_500 });
-    const teamAfter = await page.locator('[data-testid="team-wheel"]').innerText();
-    expect(teamAfter).toBe(teamBefore);
+    await waitForReelsSettled(page);
+    expect(await teamWheel.getAttribute("data-selected-team")).toBe(teamBefore);
+    expect(
+      await page.locator('[data-testid="spin-team-reel-center"]').last().getAttribute("data-final-value"),
+    ).toBe(teamBefore);
+    const summary = page.locator('[data-testid="roll-summary"]');
+    await expect(summary).toContainText(teamBefore!);
+    await expect(summary).toContainText(body.current_spin.era_label);
   });
 
   test("respin controls disappear once a player is selected", async ({ page }) => {
@@ -1468,20 +1571,42 @@ test.describe("Daily PEAK Season (Phase 9A)", () => {
     // The core shared-challenge property, observed through the UI: the
     // spinner lands on the same team and season both times, because the seed
     // is derived from the date rather than being random per visit.
+    //
+    // THIS TEST HAD THE SAME READINESS BUG as the three CourtBuilder reel
+    // tests (it is the one that failed the first attempt of CI run
+    // 31572430106 and passed on rerun). `roll-summary` becoming visible means
+    // the ceremony's mount-anchored timers reached "revealed" — NOT that the
+    // reels have landed. It then read the team from `team-badge`, whose text
+    // is `teamAccentReady ? initials : "···"`, and `teamAccentReady` is false
+    // for exactly as long as the team reel is still ticking. Two visits that
+    // land on opposite sides of that boundary compare "···" against real
+    // initials and fail on a board that rolled identically both times.
+    // Reproduced locally with the external-asset flag off (the configuration
+    // CI runs), where the badge renders that text node rather than an <img>.
+    // With the flag ON the badge is an <img> with no text at all, so the old
+    // read also passed vacuously on "" == "" — which is why this now reads
+    // the values the wheels actually publish.
     async function rolledTeamAndSeason(): Promise<[string, string]> {
       await page.goto("/arena/court/daily/apex_1y?date=2026-07-29", { waitUntil: "load" });
       await beginRun(page);
-      // Wait for the ceremony to settle on its final values before reading.
       const summary = page.locator('[data-testid="roll-summary"]');
       await summary.waitFor({ state: "visible", timeout: 15_000 });
-      const team = (await page.locator('[data-testid="team-badge"]').first().textContent()) ?? "";
-      const season = (await summary.textContent()) ?? "";
-      return [team.trim(), season.trim()];
+      // The reels' own completion signal, not the ceremony's clock.
+      await waitForReelsSettled(page);
+      const team = await page.locator('[data-testid="team-wheel"]').getAttribute("data-selected-team");
+      const season = await page.locator('[data-testid="era-wheel"]').getAttribute("data-selected-season");
+      // Same pair, as the player reads it off the settled card -- so this
+      // stays a UI-observed property and not just an attribute comparison.
+      await expect(summary).toContainText(team!);
+      await expect(summary).toContainText(season!);
+      return [team ?? "", season ?? ""];
     }
 
     const [firstTeam, firstSeason] = await rolledTeamAndSeason();
     const [secondTeam, secondSeason] = await rolledTeamAndSeason();
 
+    // Non-empty, so an identical pair of blanks can never satisfy this.
+    expect(firstTeam).not.toBe("");
     expect(firstSeason).not.toBe("");
     expect(secondTeam).toBe(firstTeam);
     expect(secondSeason).toBe(firstSeason);
@@ -1758,6 +1883,88 @@ async function readPaylineRecording(page: Page): Promise<PaylineRecording> {
   );
 }
 
+interface ReelMotionRecording {
+  /** One entry per animation frame the strip was mounted for. `t` is the
+   * frame's own `requestAnimationFrame` timestamp, which is what makes a
+   * real velocity — rather than a per-round-trip distance — measurable. */
+  samples: Array<{ t: number; y: number; stage: string }>;
+  /** Computed `transition-timing-function` observed while the strip was in
+   * its long glide, e.g. "cubic-bezier(0.22, 0.61, 0.36, 1)". */
+  spinTiming: string | null;
+  /** Computed `transition-duration` for the same stage, e.g. "1.65s". */
+  spinDuration: string | null;
+  /** Distance between two adjacent rows' tops. Measured from live geometry
+   * rather than assuming SpinStage.tsx's private ROW_H, and taken as a
+   * difference of two rects so sub-pixel rounding cancels out (a single
+   * row's measured HEIGHT drifts by up to a pixel between runs). */
+  rowPitch: number;
+}
+
+/**
+ * Record the team reel's real composited motion, frame by frame, for the whole
+ * life of the strip — then read it back once the strip has unmounted.
+ *
+ * Same discipline as `installPaylineRecorder` above and for the same reason:
+ * an in-page `requestAnimationFrame` loop cannot land in the wrong frame,
+ * whereas a sequence of `page.evaluate` round-trips is at the mercy of
+ * whatever else the runner is doing. This one additionally captures each
+ * frame's TIMESTAMP and the reel's own stage, so the analysis can talk about
+ * speed within a named animation stage instead of about distance per
+ * round-trip.
+ */
+async function recordReelMotion(page: Page): Promise<ReelMotionRecording> {
+  await page.evaluate(() => {
+    const state = {
+      samples: [] as Array<{ t: number; y: number; stage: string }>,
+      spinTiming: null as string | null,
+      spinDuration: null as string | null,
+      rowPitch: 0,
+    };
+    (window as unknown as Record<string, unknown>).__reelMotion = state;
+
+    let sawStrip = false;
+    const tick = (t: number) => {
+      const strip = document.querySelector('[data-testid="team-reel-strip"]');
+      if (!strip) {
+        // Keep waiting while the strip has not mounted yet; once it has been
+        // seen, its disappearance IS the end of the recording (stage `done`
+        // unmounts it).
+        if (!sawStrip) requestAnimationFrame(tick);
+        return;
+      }
+      sawStrip = true;
+      const style = getComputedStyle(strip);
+      const stage = strip.parentElement?.getAttribute("data-stage") ?? "?";
+      if (stage === "spinning") {
+        state.spinTiming = style.transitionTimingFunction;
+        state.spinDuration = style.transitionDuration;
+      }
+      if (state.rowPitch === 0) {
+        const rows = strip.querySelectorAll('[data-testid="reel-row"]');
+        if (rows.length > 1) {
+          state.rowPitch =
+            rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top;
+        }
+      }
+      // The LIVE composited transform, not the React-declared value.
+      state.samples.push({ t, y: new DOMMatrixReadOnly(style.transform).m42, stage });
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+  await page.locator('[data-testid="team-reel-strip"]').waitFor({ state: "detached", timeout: 20_000 });
+  return page.evaluate(
+    () => (window as unknown as Record<string, unknown>).__reelMotion as ReelMotionRecording,
+  );
+}
+
+/** Middle value — robust to the odd long frame in a way a mean is not. */
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted.length === 0 ? NaN : sorted[Math.floor(sorted.length / 2)];
+}
+
 test.describe("Spinner reel rebuild (Phase 9B)", () => {
   test("the strip's target row IS the backend-selected value (structural, no timing)", async ({ page }) => {
     await startCourtBuilder(page);
@@ -1796,29 +2003,99 @@ test.describe("Spinner reel rebuild (Phase 9B)", () => {
 
   test("the reel visibly decelerates into its final row", async ({ page }) => {
     await startCourtBuilder(page);
-    const translateY = () =>
-      page.evaluate(() => {
-        const el = document.querySelector('[data-testid="team-reel-strip"]');
-        if (!el) return null;
-        // Live composited transform -- not the React-declared value.
-        return new DOMMatrixReadOnly(getComputedStyle(el).transform).m42;
-      });
+    const motion = await recordReelMotion(page);
 
-    const samples: number[] = [];
-    for (let i = 0; i < 7; i++) {
-      const v = await translateY();
-      if (v !== null) samples.push(v);
-      await page.waitForTimeout(170);
+    // The probe must actually have watched the animation, or every claim
+    // below would be vacuously true.
+    expect(motion.samples.length, "the recorder captured no frames").toBeGreaterThanOrEqual(12);
+    expect(motion.rowPitch, "could not measure the strip's row pitch").toBeGreaterThan(5);
+
+    // ---- 1. SUBSTANTIAL TRAVEL (structural, unchanged in spirit) ---------
+    // The reel physically moves through dozens of real rows. TRAVEL_ROWS is
+    // 62; the floor is well below that so a deliberate retune is not a
+    // failure, but a 5-row shuffle or a zero-travel spin is.
+    const ys = motion.samples.map((s) => s.y);
+    const travelPx = Math.max(...ys) - Math.min(...ys);
+    expect(travelPx / motion.rowPitch, "the reel must travel through many real rows").toBeGreaterThan(40);
+
+    // ---- 2. DECELERATION, measured as VELOCITY, not as frame deltas ------
+    // WHY THIS REPLACES THE OLD MATH. The old assertion summed the FIRST TWO
+    // and LAST TWO deltas of seven `page.evaluate` samples spaced by
+    // `waitForTimeout(170)` and required `late < early`. Two independent
+    // weaknesses, both of which fired together on CI run 31572430106:
+    //   (a) a delta is a DISTANCE over an unmeasured interval, so it conflates
+    //       "the reel slowed down" with "that round-trip took longer";
+    //   (b) sampling started before the reel armed, so `deltas[0]` was 0 --
+    //       and `early` (0 + 361.99 = 361.99) came out fractionally BELOW
+    //       `late` (234.35 + 131.64 = 365.99) even though the recorded
+    //       sequence 619 -> 383 -> 234 -> 132 is monotonically decelerating.
+    //       The test failed on a reel that was visibly doing the right thing.
+    // The fix is not a tolerance. It is to measure the actual physical
+    // quantity -- speed, dy/dt, with dt from the frame's own timestamp -- and
+    // to compare ROBUST AGGREGATES over portions of the DISTANCE rather than
+    // two scheduler-sensitive individual frames. Pre-motion frames now carry
+    // zero distance and fall out of both buckets on their own.
+    const segments: Array<{ speed: number; distance: number }> = [];
+    const glide = motion.samples.filter((s) => s.stage === "spinning");
+    for (let i = 1; i < glide.length; i++) {
+      const dt = glide[i].t - glide[i - 1].t;
+      const dy = Math.abs(glide[i].y - glide[i - 1].y);
+      if (dt > 0) segments.push({ speed: dy / dt, distance: dy });
     }
-    expect(samples.length).toBeGreaterThanOrEqual(5);
+    expect(segments.length, "no frames observed during the long glide").toBeGreaterThanOrEqual(6);
 
-    const deltas = samples.slice(1).map((v, i) => Math.abs(v - samples[i]));
-    const early = deltas.slice(0, 2).reduce((a, b) => a + b, 0);
-    const late = deltas.slice(-2).reduce((a, b) => a + b, 0);
-    // Fast burst up front, creeping at the end -- the "slows into the final
-    // item" requirement, measured rather than eyeballed.
-    expect(early, `expected real early movement, deltas=${deltas.join(",")}`).toBeGreaterThan(40);
-    expect(late, `expected deceleration, deltas=${deltas.join(",")}`).toBeLessThan(early);
+    const glideDistance = segments.reduce((a, s) => a + s.distance, 0);
+    const fast: number[] = [];
+    const slow: number[] = [];
+    let covered = 0;
+    for (const s of segments) {
+      const fractionBefore = covered / glideDistance;
+      covered += s.distance;
+      if (fractionBefore < 0.25) fast.push(s.speed);
+      if (fractionBefore >= 0.9) slow.push(s.speed);
+    }
+    const fastSpeed = median(fast);
+    const slowSpeed = median(slow);
+    const shape = `fast=${fastSpeed.toFixed(2)}px/ms slow=${slowSpeed.toFixed(2)}px/ms frames=${segments.length}`;
+    // Deliberately measured on the glide only. Including the settle rebound
+    // would let a CONSTANT-speed reel pass, because its rebound creeps too.
+    expect(fastSpeed, `expected a real opening burst (${shape})`).toBeGreaterThan(1.0);
+    expect(slowSpeed, `expected the reel to creep into its final row (${shape})`).toBeLessThan(
+      0.35 * fastSpeed,
+    );
+
+    // ---- 3. THE EASING CONTRACT ITSELF -----------------------------------
+    // The motion above is produced by one composited CSS transition, so the
+    // strongest available statement is the transition's own curve. Asserted
+    // by SHAPE, not by literal string, so retuning the curve is allowed and
+    // removing the deceleration is not: front-loaded (the curve runs ahead
+    // of linear early) and flat-tailed (it arrives with its slope going to
+    // zero). `linear` has no control points at all and fails outright.
+    const bezier = /^cubic-bezier\(([-\d.]+),\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+)\)$/.exec(
+      motion.spinTiming ?? "",
+    );
+    expect(bezier, `the glide must use a cubic-bezier easing, got "${motion.spinTiming}"`).not.toBeNull();
+    const [x1, y1, x2, y2] = bezier!.slice(1).map(Number);
+    expect(y1, `easing must be front-loaded (${motion.spinTiming})`).toBeGreaterThan(x1);
+    expect(y2, `easing must arrive flat (${motion.spinTiming})`).toBeGreaterThanOrEqual(0.99);
+    expect(x2, `easing must arrive flat (${motion.spinTiming})`).toBeLessThanOrEqual(0.9);
+    // The curve has to be spread over a real reveal, not compressed until the
+    // deceleration is imperceptible. SPIN_TEAM_MS is 1650ms; 1s is the floor.
+    const glideSeconds = Number((motion.spinDuration ?? "").replace(/s$/, ""));
+    expect(glideSeconds, `the glide must last a real beat, got "${motion.spinDuration}"`).toBeGreaterThanOrEqual(1);
+
+    // ---- 4. IT LANDS ------------------------------------------------------
+    // The recording ends in `settling`: the glide completed and handed off to
+    // the detent rebound, rather than the strip being torn down mid-flight.
+    // WHICH row it lands on is proven geometrically by the payline test below
+    // and structurally by the target-row test above.
+    const last = motion.samples[motion.samples.length - 1];
+    const prev = motion.samples[motion.samples.length - 2];
+    expect(last.stage, "the reel must finish through its settle stage").toBe("settling");
+    expect(
+      Math.abs(last.y - prev.y) / Math.max(1, last.t - prev.t),
+      "the reel must be at rest on its final frame",
+    ).toBeLessThan(0.05);
   });
 
   test("the row under the payline at rest equals the backend value (geometric)", async ({ page }) => {
@@ -2212,11 +2489,31 @@ test.describe("W5: spin reveal polish", () => {
     await startCourtBuilder(page);
     const stage = page.locator('[data-testid="spin-stage"]');
     await expect(stage).toHaveAttribute("data-phase", "revealed", { timeout: 5_000 });
-    // One detent per reel: the two land ~250ms apart by design (SPIN_TEAM_MS
-    // 1650 vs SPIN_SEASON_MS 1900), which is the "one or two suspense ticks
-    // near the end" the reveal is supposed to have.
+
+    // WHAT `data-snap-tick` IS. A CUMULATIVE counter of detent events for the
+    // life of this round's SpinStage. SpinStage.tsx increments it from two
+    // effects, one per reel, each firing when its own reel crosses from the
+    // long glide into the settle rebound (`stage === "settling"`). It is never
+    // reset and never decremented, so on the initial roll it rises 0 -> 1 -> 2
+    // as the team reel lands and then, ~250ms later by design (SPIN_TEAM_MS
+    // 1650 vs SPIN_SEASON_MS 1900), the season reel lands. A respin adds
+    // exactly one more, for the single axis that rerolled.
+    //
+    // WHY CI READ 1. Not a missing detent. `data-phase="revealed"` is driven
+    // by timers armed at MOUNT while the reels only start moving after a
+    // two-frame rAF arm, so on a loaded runner the reveal overtakes the
+    // slower reel (see `waitForReelsSettled`). The old code read the counter
+    // on the "revealed" edge — mid-ceremony — and caught it at 1, between the
+    // team reel's detent and the season reel's. A local reproduction that
+    // delays only rAF reads 1 at that instant and 2 about 380ms later, with
+    // both reels visibly detenting. So the observation point moves to the
+    // reels' own completion signal; the invariant is not weakened.
+    await waitForReelsSettled(page);
     const ticks = Number(await stage.getAttribute("data-snap-tick"));
-    expect(ticks).toBeGreaterThanOrEqual(2);
+    // EXACTLY two — one per reel. `>= 2` would also be satisfied by one reel
+    // detenting twice, which is the stutter the derived-from-state-machine
+    // design exists to prevent; `<= 1` means a reel snapped without its beat.
+    expect(ticks, "each reel must contribute exactly one detent tick").toBe(2);
     // The reveal must not have grown: SPIN_MS + LOCK_MS + COUNT_MS is ~2.77s,
     // and page start-up is included in this measurement, so 12s is a generous
     // ceiling that still fails loudly if someone doubles the ceremony.
