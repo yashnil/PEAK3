@@ -113,14 +113,24 @@ test.describe("accessibility: Role selector", () => {
   test("no critical/serious violations when role selector is open", async ({ page }) => {
     await page.goto("/arena/practice/apex_1y?seed=42", { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: /peak draft/i }).waitFor({ timeout: 15_000 });
-    // Click first offer card to open role selector
-    const cards = page.locator("button[aria-pressed]");
-    await cards.first().waitFor({ state: "visible" });
-    await cards.first().click();
-    // Wait for role selector
+    // Click the first OFFER CARD to open the role selector — by the card's
+    // own testid, never `button[aria-pressed]`: the header's theme toggle
+    // also carries aria-pressed and sits earlier in the DOM, so that locator
+    // was silently clicking the theme switch (CI run 31565835585's trace
+    // shows the click landing there and the theme flipping).
+    const card = page.getByTestId("offer-card").first();
+    await card.waitFor({ state: "visible" });
+    await card.click();
+    await expect(card).toHaveAttribute("aria-pressed", "true");
+    // The OPEN state is the component's own contract — at least one role
+    // option rendered by RoleSelector — not a hard-coded role name. The old
+    // wait grepped buttons for "Lead Creator|Guard / Wing", which really
+    // matched role LABELS on the offer cards; when the window-scoped role
+    // regeneration legitimately changed seed 42's offer to Wing/Forward,
+    // Forward/Big and Anchor, the proxy stopped matching with the product
+    // working fine. An axe test asserts component state, not one seed's data.
     await page
-      .getByRole("button")
-      .filter({ hasText: /Lead Creator|Guard \/ Wing/ })
+      .getByTestId("role-btn")
       .first()
       .waitFor({ state: "visible", timeout: 5_000 });
     await expectNoViolations(
