@@ -358,6 +358,22 @@ test.describe("Three-Man Weave", () => {
   test("the spinner resolves, then the pick overlay opens on the human's turn", async ({
     browser,
   }) => {
+    // WHY THIS ONE TEST NEEDS MORE THAN PLAYWRIGHT'S DEFAULT 30s. Its
+    // critical path is INTENTIONAL product pacing, not slack: the opening
+    // reveal ceremony is a real 9.2s server turn (OPENING_REVEAL_SECONDS),
+    // the human's seat is drawn from the match seed so up to TWO bot picks
+    // can precede the overlay, and after the human's own pick the test
+    // deliberately waits for two MORE bot turns — and every bot pick takes a
+    // seeded 4–10s think (BOT_THINK_SECONDS_MIN/MAX, enforced server-side
+    // against the turn's opened_at) plus a poll for the move to land. Worst
+    // case by design: 9.2 + 2x(10+2) + 2x(10+2) ≈ 57s of server-enforced
+    // pacing alone, before ~15–20s of setup and live interactions (CI run
+    // 31556826178 died at 30s with the spin resolved, pick 1 drafted and bot
+    // 2 mid-deliberation — nothing wrong, just a budget written for the old
+    // instant-bot timing). 90s = that 77s derived worst case plus CI margin;
+    // the step-level waits below were already sized for this and are
+    // unchanged.
+    test.setTimeout(90_000);
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
