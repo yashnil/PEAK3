@@ -26,6 +26,10 @@ const mockStart = vi.fn(async (dailyKey?: unknown) => ({
   elapsed_seconds: 0,
   attempt_status: "in_progress" as const,
 }));
+// The leaderboard read is secondary by design: a failed fetch renders
+// nothing, which keeps every pre-existing completion test unchanged. Tests
+// that want the board resolve this explicitly.
+const mockFetchLeaderboard = vi.fn().mockRejectedValue(new Error("not stubbed"));
 
 vi.mock("@/lib/daily-grid-api", () => ({
   getDailyGridBoard: (...a: unknown[]) => mockGetBoard(...a),
@@ -33,6 +37,7 @@ vi.mock("@/lib/daily-grid-api", () => ({
   submitDailyGridAnswer: (...a: unknown[]) => mockSubmit(...a),
   getDailyGridResult: (...a: unknown[]) => mockGetResult(...a),
   startDailyGridAttempt: (...a: unknown[]) => mockStart(...a),
+  fetchDailyLeaderboard: (...a: unknown[]) => mockFetchLeaderboard(...a),
   DailyGridAPIError: class DailyGridAPIError extends Error {},
 }));
 
@@ -945,7 +950,11 @@ describe("DailyGridGame — Phase 11D retention", () => {
     await vi.waitFor(() => expect(screen.getByTestId("complete-retention")).toBeInTheDocument());
     expect(screen.getByTestId("complete-local-only")).toHaveTextContent(/Saved on this device/i);
     expect(screen.getByTestId("complete-local-only")).toHaveAttribute("data-official", "false");
-    expect(screen.getByTestId("daily-grid-complete").textContent).not.toMatch(
+    // The LOCAL record block claims no ranking of any kind. (The panel as a
+    // whole now hosts the real server leaderboard section — a separate,
+    // server-ranked surface — so the no-ranking claim is scoped to the local
+    // history, which is the thing that must stay honest about being local.)
+    expect(screen.getByTestId("complete-retention").textContent).not.toMatch(
       /percentile|leaderboard|global rank|you beat \d+%/i,
     );
   });

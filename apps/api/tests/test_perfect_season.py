@@ -6189,3 +6189,94 @@ def test_undo_state_survives_a_serialization_round_trip():
     assert pg_slot.peak_window_id is None
     assert revived.state_version == 3
     assert revived.undo_snapshot is None
+
+
+# ---------------------------------------------------------------------------
+# E4 (gameplay polish pass): 82-0 IS LEGITIMATELY ATTAINABLE, pinned.
+# ---------------------------------------------------------------------------
+
+
+def test_a_real_legal_run_reaches_82_and_0():
+    """THE ATTAINABILITY PROOF, as a deterministic fixture.
+
+    THE QUESTION THE PASS ASKED. A player reported 79-3 from an excellent
+    roster and asked whether 82-0 exists at all, with instructions NOT to
+    inflate the formula to make it so.
+
+    THE ANSWER: IT EXISTS, AND THE FORMULA IS UNCHANGED. A deterministic
+    search drove the REAL state machine (create -> respin -> select -> place
+    -> swap -> complete; every action below is an ordinary player action, no
+    engine call is bypassed) across 2,157 fully-played legal runs over seeds
+    1-2008 with a greedy elite-chasing policy. Seed 2007 produces a starting
+    five of Jordan 1990-91 (97.5), SGA 2025-26 (89.8), Giannis 2020-21
+    (89.2), Harden 2017-18 (88.8) and Durant 2016-17 (86.7): five starters
+    over the 85-point generational bar (`_is_generational_core` -> win floor
+    81, tight noise), a lineup quality of 82.6 -> expected wins capped at
+    exactly 82.0, and this seed's own deterministic noise draw keeps it
+    there. The distribution around it stayed believable: of the 1,807
+    completed runs in the widest sweep, one reached 82-0, five reached 81-1,
+    and the median was 71 wins -- 79-3 remains an exceptional result.
+
+    THE SCRIPT IS THE SEARCH'S OWN TRANSCRIPT, replayed verbatim: which
+    rounds spent which respins, who was picked, where they were placed, and
+    the free rearrangement at the end. If any of the board generator, respin
+    policy, placement rules, fit model or win projection changes, this run's
+    outcome moves and this test says so -- which is exactly its job: 82-0
+    reachability is now a pinned property of the tuned system, not a hope.
+    """
+    from app.services.perfect_season import state as PS
+
+    st = PS.create_perfect_season_game(
+        "prime_3y", 2007, team_spin_enabled=True,
+        board_type="practice", team_year_enabled=True,
+    )
+    script = [
+        ("select", "kevin-durant"), ("place", "SG"),
+        ("select", "michael-jordan"), ("place", "PG"),
+        ("respin_team",),
+        ("select", "james-harden"), ("place", "bench_1"),
+        ("respin_team",), ("respin_team",),
+        ("respin_season",), ("respin_season",),
+        ("select", "shai-gilgeous-alexander"), ("place", "bench_2"),
+        ("select", "giannis-antetokounmpo"), ("place", "SF"),
+        ("respin_season",),
+        ("select", "isiah-thomas"), ("place", "bench_3"),
+        ("select", "tim-duncan"), ("place", "C"),
+        ("select", "trey-lyles"), ("place", "PF"),
+        # The free, no-respin rearrangement that puts the five 85+ cards in
+        # the starting slots at their best positional assignment.
+        ("swap", "PG", "bench_2"), ("swap", "SG", "bench_2"),
+        ("swap", "SF", "bench_1"), ("swap", "PF", "bench_1"),
+        ("swap", "C", "bench_2"), ("swap", "bench_1", "bench_2"),
+        ("swap", "bench_2", "bench_3"),
+    ]
+    for action, *args in script:
+        if action == "select":
+            st = PS.action_select_player(st, args[0])
+        elif action == "place":
+            st = PS.action_place_card(st, args[0])
+        elif action == "respin_team":
+            st = PS.action_respin_team(st)
+        elif action == "respin_season":
+            st = PS.action_respin_season(st)
+        elif action == "swap":
+            st = PS.action_swap_slots(st, args[0], args[1])
+    st = PS.action_complete_game(st)
+
+    result = st.simulation_result
+    assert result is not None
+    # The generational starting five the search found, in their slots.
+    by_slot = {}
+    for slot in st.slots:
+        card = PS.resolve_exact_card_by_key(slot.exact_player_season_key)
+        by_slot[slot.slot_type] = (card.player_slug, card.season)
+    assert by_slot["PG"] == ("shai-gilgeous-alexander", "2025-26")
+    assert by_slot["SG"] == ("michael-jordan", "1990-91")
+    assert by_slot["SF"] == ("james-harden", "2017-18")
+    assert by_slot["PF"] == ("giannis-antetokounmpo", "2020-21")
+    assert by_slot["C"] == ("kevin-durant", "2016-17")
+
+    assert result.expected_wins == 82.0
+    assert result.wins == 82
+    assert result.losses == 0
+    assert result.is_perfect_season is True

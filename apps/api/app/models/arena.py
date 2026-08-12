@@ -155,6 +155,27 @@ class ArenaMatchView(BaseModel):
     #: decision window would render a live pick panel over a ceremony, which is
     #: the exact race this field exists to remove.
     turn_phase: Optional[str] = None
+    #: HOW LONG THE OPEN TURN HAS LEFT, PUBLISHED TO EVERY SEAT.
+    #:
+    #: `seconds_remaining` above is deliberately narrow: it is populated only
+    #: when the open turn is YOURS or belongs to nobody. That is right for a
+    #: field a client renders as "your clock", and it is why both game rooms
+    #: showed an opponent's turn as a COUNT-UP of elapsed time -- they had no
+    #: deadline for a seat that was not theirs, so they timed the wait locally
+    #: from the moment they noticed it. The result was a human watching
+    #: "Deliberating 1s, 2s, 3s" next to their own counting-DOWN clock, with no
+    #: way to tell whether the opponent had eight seconds left or eighty.
+    #:
+    #: A TURN DEADLINE IS NOT HIDDEN INFORMATION. Whose turn it is, and the
+    #: mode's turn length, are both already public; the remaining time is a
+    #: fact about a clock, not about a bid, a pick or a card. Nothing a seat
+    #: could infer from it is withheld anywhere else, so it is published to
+    #: everybody and the count-up timers are gone.
+    #:
+    #: Kept SEPARATE from `seconds_remaining` rather than widening it, because
+    #: "the clock I am on" and "the clock somebody is on" drive different UI and
+    #: several surfaces correctly render nothing when the first is null.
+    turn_seconds_remaining: Optional[float] = None
     # The highest event seq this seat may see, so a client can poll
     # /events?after_seq=N without guessing.
     latest_event_seq: int = -1

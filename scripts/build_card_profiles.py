@@ -43,12 +43,82 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+# Running a script by path puts scripts/ on sys.path, not the repo root; the
+# v4 role derivation imports `nba_peak.perfect_season.career_positions`.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 WINDOWS_PATH = REPO_ROOT / "data" / "web" / "peak_windows.json"
 OUT_DIR = REPO_ROOT / "data" / "game" / "profiles"
 
 PROFILE_VERSION = "v3"
 CARD_POOL_VERSION = "v3"
-TRANSFORM_VERSION = "dna_v2_roles_v3"
+TRANSFORM_VERSION = "dna_v2_roles_v5_window_positional"
+
+# ---------------------------------------------------------------------------
+# Role eligibility — v4: POSITIONS DECIDE ROLES. (F7)
+#
+# THE DEFECT v4 REMOVES. The v2/v3 rules above (`ROLE_RULES_V2`, kept for
+# traces and for the no-position fallback) derive roles from COMPONENT-SCORE
+# PERCENTILES, because at the time "no position ... exists at the card-profile
+# layer" (their own docstring). The consequence is exactly the failure the
+# polish brief names: `guard_wing`'s only real requirement was SI >= 40th
+# percentile, and `lead_creator`'s was SI >= 75th — so any sufficiently GOOD
+# player became positionally universal. Shaquille O'Neal's committed v3
+# profile read `[lead_creator, guard_wing, wing_forward, forward_big]`:
+# a traditional center offered at point guard and NOT offered at anchor,
+# because his traditional-production percentile was too high for the anchor
+# rule's "non-scorer" filter. Player QUALITY was deciding positional
+# flexibility, which is the one thing a role model must never do.
+#
+# THE DATA EXISTS NOW. `nba_peak.perfect_season.career_positions` derives,
+# from committed season data alone (gated on >= 20 games and >= 500 minutes so
+# one-game cameos and father/son slug collisions don't count), the set of
+# positions each player actually logged real NBA minutes at. CourtBuilder and
+# Three-Man Weave already run their legality on it. v4 makes it the basis of
+# RTT role eligibility too.
+#
+# v5: THE WINDOW DECIDES, NOT THE CAREER. v4 unioned every gate-qualified
+# position across the player's whole career, so a particular 3-year card
+# could be legal somewhere purely because the player played that position
+# years earlier or later: LeBron's Miami window carried all five roles off
+# career-wide PG/SG/SF/PF/C listings, and Rodman's Pistons windows carried
+# guard_wing off an SF grant. Eligibility is a claim about THIS card, so the
+# positional evidence is now read from the seasons INSIDE the card's own
+# window (`career_positions.listed_position`, per-season, and gate-qualified
+# exactly as before: a season counts only at >= 20 games and >= 500 minutes,
+# so a positional cameo is never authoritative).
+#
+# THE MAPPING, tightened with it. Each position ACTUALLY PLAYED IN THE
+# WINDOW grants its own family, and nothing else does:
+#
+#     PG -> lead_creator, guard_wing
+#     SG -> guard_wing
+#     SF -> wing_forward            (SF ALONE NEVER GRANTS guard_wing — the
+#                                    v4 grant is what put Rodman at Guard/
+#                                    Wing; guard evidence means PG or SG)
+#     PF -> wing_forward, forward_big
+#     C  -> forward_big, anchor
+#
+# The composites in the brief all fall out of the union: SG+SF -> GW+WF;
+# SF+PF -> WF+FB; PF+C -> WF+FB+Anchor; a true point-forward window
+# (PG+SF) -> LC+GW+WF, with GW carried by the PG evidence, never by the SF.
+#
+# FALLBACK LADDER, narrowest first, recorded per profile as `role_source`:
+#   1. window_positions      — seasons inside the card's own window (v5);
+#   2. career_positions      — the v4 career union, under THIS tightened map,
+#                              for a window none of whose seasons gate-qualify;
+#   3. capability_fallback   — the score-percentile rules, kept only for a
+#                              slug with no positional data at all.
+# As of this build all 984 windows resolve at step 1; the ladder is a safety
+# net, not a live path.
+# ---------------------------------------------------------------------------
+POSITION_ROLE_MAP: dict[str, tuple[str, ...]] = {
+    "PG": ("lead_creator", "guard_wing"),
+    "SG": ("guard_wing",),
+    "SF": ("wing_forward",),
+    "PF": ("wing_forward", "forward_big"),
+    "C":  ("forward_big", "anchor"),
+}
 
 # ---------------------------------------------------------------------------
 # Component normalisation constants (fixed for stable re-runs)
@@ -307,6 +377,35 @@ def _eligible_roles(
     return eligible, traces
 
 
+def _window_seasons(start_season: str, end_season: str) -> list[str]:
+    """Every season label inside [start_season, end_season], inclusive."""
+    first, last = int(start_season[:4]), int(end_season[:4])
+    return [f"{year}-{str(year + 1)[-2:].zfill(2)}" for year in range(first, last + 1)]
+
+
+def _position_roles(
+    player_slug: str, start_season: str, end_season: str
+) -> tuple[list[str], list[str], str]:
+    """(roles, positions, source) for one card window. See the v5 comment on
+    POSITION_ROLE_MAP for the ladder; `source` names which rung answered."""
+    from nba_peak.perfect_season.career_positions import career_positions, listed_position
+
+    window = {
+        listed_position(player_slug, season)
+        for season in _window_seasons(start_season, end_season)
+    } - {None}
+    if window:
+        positions, source = window, "window_positions"
+    else:
+        positions, source = set(career_positions(player_slug)), "career_positions"
+
+    roles: set[str] = set()
+    for position in positions:
+        roles.update(POSITION_ROLE_MAP.get(position, ()))
+    ordered_positions = [p for p in ("PG", "SG", "SF", "PF", "C") if p in positions]
+    return [r for r in ROLES if r in roles], ordered_positions, source
+
+
 def _compute_dna(window: dict) -> dict[str, float]:
     """Compute Lineup DNA v2 — 6 dimensions from 5 PEAK3 components + data_status.
 
@@ -391,7 +490,18 @@ def build_profiles(windows: list[dict]) -> tuple[list[dict], dict]:
         dur = w["duration_years"]
         pcts = pct_arrays[dur]
 
-        eligible, traces = _eligible_roles(w, pcts)
+        # CAPABILITY OBSERVATIONS FIRST — kept as traces either way, and as
+        # the last-rung eligibility fallback for a slug with no position data.
+        capability_roles, traces = _eligible_roles(w, pcts)
+        # THE WINDOW'S OWN POSITIONS DECIDE (v5). See POSITION_ROLE_MAP.
+        position_derived, positions, role_source = _position_roles(
+            w["player_slug"], w["start_season"], w["end_season"]
+        )
+        if position_derived:
+            eligible = position_derived
+        else:
+            eligible = capability_roles
+            role_source = "capability_fallback"
         primary = _primary_role(eligible)
         dna = _compute_dna(w)
 
@@ -432,6 +542,12 @@ def build_profiles(windows: list[dict]) -> tuple[list[dict], dict]:
             "prime_index":           w["prime_index"],
             "eligible_roles":        eligible,
             "primary_role":          primary,
+            # v5: which derivation produced `eligible_roles`, and the real
+            # positions it came from (the card window's own seasons, on the
+            # primary path) — so a surprising role is auditable back to the
+            # exact seasons that earned it.
+            "role_source":           role_source,
+            "window_positions":      positions,
             "role_traces":           traces,
             "lineup_dna":            dna,
             "data_completeness":     w.get("data_status", "unknown"),
@@ -572,14 +688,31 @@ def main() -> int:
     official = [p for p in profiles if p["profile_status"] != "excluded"]
     assert len(official) >= 100, f"FATAL: too few official profiles ({len(official)})"
 
-    # Verify Jordan 1yr is lead_creator
-    jordan_1yr = next(
-        (p for p in profiles if p["player_id"] == "michael-jordan" and p["duration_years"] == 1),
-        None
-    )
-    assert jordan_1yr is not None, "FATAL: Michael Jordan 1yr profile missing"
-    assert jordan_1yr["profile_status"] in ("verified_data_derived", "provisional_data_derived")
-    assert "lead_creator" in jordan_1yr["eligible_roles"], "FATAL: Jordan not eligible for lead_creator"
+    # v5 sanity: eligibility follows each card window's own positional
+    # evidence, never a hand-authored star expectation. The old assert here
+    # ("Jordan must be lead_creator") was exactly such an expectation — under
+    # capability-derived roles it happened to hold, and under window-honest
+    # roles it must NOT: Jordan's windows are SG-listed, so guard_wing is the
+    # correct grant and lead_creator would be the defect. What IS asserted is
+    # the mapping's own invariants, pool-wide (tests/run_the_table/
+    # test_role_eligibility.py holds the per-archetype expectations).
+    for p in profiles:
+        roles = set(p["eligible_roles"])
+        pos = set(p.get("window_positions") or [])
+        if p.get("role_source") in ("window_positions", "career_positions"):
+            assert roles, f"FATAL: {p['peak_window_id']} has positions {pos} but no roles"
+            if "guard_wing" in roles:
+                assert pos & {"PG", "SG"}, (
+                    f"FATAL: {p['peak_window_id']} carries guard_wing without PG/SG evidence ({pos})"
+                )
+            if "anchor" in roles:
+                assert "C" in pos, (
+                    f"FATAL: {p['peak_window_id']} carries anchor without C evidence ({pos})"
+                )
+            if pos == {"C"}:
+                assert roles == {"forward_big", "anchor"}, (
+                    f"FATAL: pure-center window {p['peak_window_id']} has roles {roles}"
+                )
 
     # Verify defensive anchors qualify (diagnostic — not regression)
     diagnostics = []
@@ -640,10 +773,16 @@ def main() -> int:
         "removed_from_v1":            ["peer_quality_adjustment"],
         "rank_derived_fields_removed": ["peak_tier", "prime_index_normalized"],
         "data_constraint": (
-            "No per-stat breakdowns (defensive rating, rebound rate, block rate, position) "
-            "exist at card-profile layer. 6 dimensions is the maximum defensible from available data."
+            "No per-stat breakdowns (defensive rating, rebound rate, block rate) "
+            "exist at card-profile layer. 6 DNA dimensions is the maximum defensible "
+            "from available data. Role eligibility (v4) is derived from real career "
+            "positions (nba_peak.perfect_season.career_positions), not from these "
+            "component scores."
         ),
         "norm_constants":  NORM,
+        # v4: positions decide eligibility; the capability rules survive as
+        # traces and as the fallback for a slug with no position data.
+        "position_role_map": {k: list(v) for k, v in POSITION_ROLE_MAP.items()},
         "role_rules": {
             k: {"id": v["id"], "description": v["description"]}
             for k, v in ROLE_RULES_V2.items()

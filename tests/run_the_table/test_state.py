@@ -70,7 +70,9 @@ SEED_TRADE_MACHINE = 0
 # do-nothing run no longer loses every fight by default on an arbitrary seed.
 # That is the calibration working, not a regression; the fixture just has to
 # name a seed where the roster genuinely cannot keep up.
-SEED_ALL_LOSSES = 12
+# Re-anchored under roles-v5 (window-scoped deal): 6 loses all three under the
+# pass policy with BOTH rngs this file uses (Random(3) and Random(1)).
+SEED_ALL_LOSSES = 6
 SEED_FILM_EARLY = 3      # Scout & Prepare at act 1 stage 2
 # Scout & Prepare ONLY at the very last stage of the run. Re-picked from 9 for
 # v3: `_stage_node_types` is keyed per (act, stage), so adding a fifth act gave
@@ -81,7 +83,11 @@ SEED_FILM_LAST = 239
 # survives changed wholesale. Note this file drives the policy with
 # `random.Random(5)`, NOT with the seed, so it needs its own constant --
 # `test_receipt_and_daily.py` has a separate one for a FLAWLESS (5-0) sweep.
-SEED_GREEDY_SWEEP = 1
+# Re-anchored under roles-v4: the deal changed with the role model (see
+# scripts/build_card_profiles.py POSITION_ROLE_MAP), so the seed that sweeps
+# under the greedy policy is a different one. Found by deterministic search
+# over seeds 1-59; 21 also sweeps 5-0 in test_receipt_and_daily.
+SEED_GREEDY_SWEEP = 21
 
 
 def _volatile(state: S.RunState) -> dict:
@@ -1044,7 +1050,11 @@ class TestBossProgression:
     def test_winning_a_boss_pays_the_published_win_reward(self, pool, blueprints):
         """v1 paid a winner NOTHING and a loser 8 credits, so the only battle
         income in the game went to the player who was losing."""
-        bp = blueprints(8)
+        # Seed 4: under roles-v5 the first-option path through act 1 wins for
+        # this seed (searched deterministically each time the role model
+        # re-deals the board; previous anchors: 8 under v3 percentile roles,
+        # 1 under v4 career roles).
+        bp = blueprints(4)
         st = S.create_run(bp, "r", pool=pool)
         S.action_select_system(st, bp, bp.system_offers[0][0])
         for stage in range(1, STAGES_PER_ACT + 1):

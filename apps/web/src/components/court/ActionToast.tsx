@@ -28,7 +28,12 @@ export default function ActionToast({ message, actionLabel, onAction, onDismiss 
     <div
       data-testid="court-action-toast"
       role="status"
-      className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2.5 text-xs font-semibold shadow-lg"
+      /* z-70: ABOVE the selection overlay (z-60). The toast's Undo applies to
+         the card just placed, and the next round's sheet opens immediately —
+         on a phone it is full-screen, so a toast underneath it would make
+         Undo unreachable for exactly as long as it is valid (E1 regression
+         found by the mobile tap test). */
+      className="fixed bottom-4 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2.5 text-xs font-semibold shadow-lg"
       style={{
         background: "var(--bg-elevated)",
         border: "1px solid var(--border-emphasis)",

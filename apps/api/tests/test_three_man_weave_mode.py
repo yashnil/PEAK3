@@ -38,7 +38,9 @@ from app.services.three_man_weave.mode import (
     EVENT_MATCH_SCORED,
     EVENT_PICK_MADE,
     EVENT_ROLL_REVEALED,
+    COMMAND_SKIP_REVEAL,
     MODE_NAME,
+    OPENING_REVEAL_SECONDS,
     PHASE_PICK,
     PHASE_REVEAL,
     REJECT_NOT_YOUR_TURN,
@@ -664,6 +666,67 @@ def test_replaying_the_ceremony_timeout_is_identical(opening):
     assert first.snapshot == second.snapshot
     assert first.open_turn == second.open_turn
     assert first.events == second.events == ()
+
+
+def test_the_opening_ceremony_gets_a_longer_window_than_the_later_ones(opening):
+    """D1/D2. Round one runs the matchup card BEFORE the reel, so it needs a
+    longer window than a round that only rolls a franchise x decade.
+
+    The two lengths fall out of the two code paths that already existed and
+    need no round-number test anywhere: matchmaking stamps the first turn from
+    `phase_seconds`, and `_reduce_pick` opens every later round itself.
+    """
+    assert mode.phase_seconds(PHASE_REVEAL) == OPENING_REVEAL_SECONDS
+    assert OPENING_REVEAL_SECONDS > REVEAL_SECONDS
+    # Enough for an intro to be read AND for the settled pair to be perceived.
+    assert OPENING_REVEAL_SECONDS - REVEAL_SECONDS >= 4.0
+    assert REVEAL_SECONDS >= 4.0
+
+
+def test_skipping_the_reveal_opens_the_pick_turn_with_a_full_clock(opening):
+    """D1/D2. An intro nobody can skip is a tax on every returning player.
+
+    THE PROPERTY THAT MAKES IT SAFE: it is the same path the ceremony's own
+    expiry takes, so the pick deadline is measured from the instant the skip
+    landed. Skipping buys the drafter NO extra decision time -- it only stops
+    spending real time on an animation.
+    """
+    at = NOW + timedelta(seconds=1.0)
+    out = _reduce(
+        opening,
+        _command(COMMAND_SKIP_REVEAL, {}, seat_index=0),
+        open_turn=_reveal_turn(),
+        now=at,
+    )
+    assert out.accepted, out.rejection_message
+    assert out.open_turn is not None
+    assert out.open_turn.phase == PHASE_PICK
+    assert out.open_turn.seat_index == opening["current_seat"]
+    assert out.open_turn.deadline_at == at + timedelta(seconds=TURN_SECONDS)
+    # A clock transition, not a game event: nothing is drafted by skipping.
+    assert out.events == ()
+    assert out.snapshot["picks"] == opening["picks"]
+
+
+def test_a_skip_with_no_ceremony_open_is_refused(opening):
+    """It cannot be used to shorten a DECISION window.
+
+    Without this guard `tmw_skip_reveal` posted during a pick turn would
+    re-open that turn -- resetting somebody's clock on demand.
+    """
+    refused = _reduce(
+        opening,
+        _command(COMMAND_SKIP_REVEAL, {}, seat_index=0),
+        open_turn=_turn(PHASE_PICK, 0, deadline=NOW + timedelta(seconds=TURN_SECONDS)),
+        now=NOW,
+    )
+    assert not refused.accepted
+    assert refused.open_turn is None
+
+    also_refused = _reduce(
+        opening, _command(COMMAND_SKIP_REVEAL, {}, seat_index=0), open_turn=None, now=NOW
+    )
+    assert not also_refused.accepted
 
 
 def test_no_seat_may_pick_while_the_ceremony_is_running(opening):

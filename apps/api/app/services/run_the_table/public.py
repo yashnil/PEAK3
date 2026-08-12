@@ -313,6 +313,23 @@ def _lane_receipt_public(pool: CardPool, l) -> dict:
         "perk_adjustment": l.player_prep_bonus,
         "bench_adjustment": l.bench_adjustment,
         "final_rating": l.player_score,
+        # -- F4: THE BENCH LINE THAT WAS MISSING ---------------------------
+        # `bench_adjustment` above is the PERK residual and is correctly 0.00
+        # with no Deep Rotation and no boss rule, which is why the receipt read
+        # "+ Bench 0.00" beside a bench the player had deliberately built. The
+        # bench's real contribution was inside `pre_perk_rating` the whole time
+        # -- `lane_score` is a weighted mean over starters AND bench -- and
+        # these three give the receipt a line for it:
+        #
+        #   starters_only_rating + bench_contribution  == pre_perk_rating
+        #   pre_perk_rating + bench_adjustment + perk_adjustment == final_rating
+        #
+        # `bench_contribution` is SIGNED: a bench weaker than the starters pulls
+        # the weighted mean down, and that is exactly the fact a player needs in
+        # order to decide whether to spend on depth.
+        "starters_only_rating": l.starters_only_rating,
+        "bench_contribution": l.bench_contribution,
+        "bench_suppressed_by": l.bench_suppressed_by,
         "top_contributor": _own_lane_value(pool, l.player_top_card_id, l.lane),
         "opponent_top_contributor": _own_lane_value(pool, l.opponent_top_card_id, l.lane),
     }

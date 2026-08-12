@@ -202,10 +202,30 @@ export function GameEngine({
         </p>
       </div>
 
-      {/* Cards + result share ONE container: the result overlays the cards
-          rather than stacking below them, so the stage occupies the same
-          screen space whether or not a result is showing. */}
-      <div className="relative">
+      {/*
+        CARDS AND RESULT SHARE ONE GRID CELL.
+
+        WHY A GRID STACK RATHER THAN `position: absolute`. The result has always
+        overlaid the cards rather than stacking below them, so that the cards do
+        not move and the window does not scroll when an answer lands — that part
+        is right and is unchanged. But it was overlaid with `absolute inset-0`,
+        which pins the panel to the CARDS' box: an absolutely positioned child
+        contributes nothing to its parent's height, so the panel was squeezed
+        into whatever the cards happened to occupy and the remainder was hidden
+        behind `overflow-y-auto`.
+
+        MEASURED at 1440x900: cards 257px, panel 510px — 253px of the result
+        pushed into a nested scrollbar, inside a viewport with ~460px of unused
+        space below the stage. At 1728x1000 it was 269px. So the player was
+        scrolling a 600px-wide panel to reach the rest of a comparison and the
+        "Next duel" button, on a screen that had ample room for both.
+
+        Two children in the same `grid-area` overlap exactly as `absolute` did,
+        but the row is sized to the TALLER of them. The stage is therefore the
+        cards' height while choosing and the result's height while revealing,
+        the cards keep their position either way, and nothing is ever clipped.
+      */}
+      <div className="grid">
       <AnimatePresence mode="wait">
         <motion.div
           key={duel.id}
@@ -213,7 +233,8 @@ export function GameEngine({
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -12 }}
           transition={{ duration: 0.25 }}
-          className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+          style={{ gridArea: "1 / 1" }}
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 self-start"
         >
           <DuelCardComponent
             card={duel.left}
@@ -248,9 +269,15 @@ export function GameEngine({
         </motion.div>
       </AnimatePresence>
 
-      {/* Reveal panel — overlays the cards, in their space. */}
+      {/* Reveal panel — the same grid cell as the cards, so it covers them
+          and sizes the stage rather than being clipped to them. No
+          `overflow-y-auto`: a result that needs an internal scrollbar on a
+          desktop viewport is a layout bug, not a scrolling surface. */}
       {revealed && state.current_answer && (
-        <div className="absolute inset-0 z-10 overflow-y-auto rounded-xl bg-[var(--bg-base)]">
+        <div
+          style={{ gridArea: "1 / 1" }}
+          className="z-10 rounded-xl bg-[var(--bg-base)]"
+        >
           <RevealPanel
             answer={state.current_answer}
             arenaPoints={state.total_arena_points}

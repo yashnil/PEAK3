@@ -47,7 +47,8 @@ RECEIPT_SEEDS = (0, 8, 12, 44, 101, 777)
 # boss slate is generated per run now, so which seeds a policy sweeps changed
 # wholesale, and a flawless sweep is genuinely rarer than it was because each
 # fight is calibrated to the roster instead of to a fixed band.
-SEED_GREEDY_SWEEP = 31
+# Re-anchored under roles-v4 (see test_state.py's constant of the same name).
+SEED_GREEDY_SWEEP = 21
 
 
 def _canonical(receipt: dict) -> str:
@@ -146,63 +147,70 @@ class TestReceiptBreakdownFixtures:
     # the lane math or the pool/leaderboard data that moves any of these
     # numbers must be a deliberate, reviewed change, not a silent drift.
     #
-    # v4 UPDATE, AND EXACTLY HOW MUCH OF IT CHANGED. Every PLAYER-side value
-    # below is BYTE-IDENTICAL to the v3 fixture and to
-    # docs/implementation/rtt-overhaul/rtt_score_semantics_audit.json: the
-    # player's lane ratings depend only on the starting roster and the lane
-    # math, and this pass changed neither. That was verified across all 15
-    # lanes before this fixture was touched, and it is the check that proves
-    # the published score semantics are intact.
+    # ROLES-v4 RE-PIN (F7), AND WHY EVERY NUMBER MOVED. Role eligibility is
+    # now derived from real career positions rather than from component-score
+    # percentiles (see scripts/build_card_profiles.py, POSITION_ROLE_MAP) --
+    # the change that stops a Shaquille O'Neal card being offered at
+    # guard_wing. The board DEALS by role band, so the same seed now deals a
+    # different starting roster, and every rating below is a rating OF A
+    # ROSTER. Both columns therefore re-anchor to the new engine output.
     #
-    # The OPPONENT column moved, and had to: the act-1 boss is no longer five
-    # constants shared by every seed (which is why the opponent numbers used to
-    # be identical for all three seeds -- 25.007, 34.0851, ... repeated down the
-    # table), it is generated against each seed's own roster. Three distinct
-    # opponent columns where there used to be one is the change working.
+    # WHAT PROVES THE LANE MATH ITSELF DID NOT MOVE, since these numbers can
+    # no longer prove it: `test_team_scoring_matrix.py`, which pins the
+    # depth-weighted mean on synthetic cards with hand-computed expected
+    # values -- independent of pool content by construction -- and
+    # `test_every_lane_of_every_battle_reconciles_for_all_three_seeds` above,
+    # which holds the additive decomposition across all 75 lane-battles of
+    # the new deals. Both pass unchanged either side of the re-pin.
+    # Re-pinned once more under roles-v5 (window-scoped positions, A0): the
+    # deal changed again for the same reason it changed under v4 — the board
+    # deals by role band. The provenance note above holds unchanged.
     ACT1_PINNED = {
         11: {
             #                          player     opponent
-            "statistical_impact": (23.7783, 25.8097),
-            "traditional_production": (39.4687, 29.9347),
-            "individual_recognition": (13.7469, 24.5927),
-            "postseason_individual_value": (15.1098, 11.8485),
-            "team_achievement": (26.6511, 10.6629),
+            "statistical_impact": (32.8079, 32.6687),
+            "traditional_production": (38.4793, 37.279),
+            "individual_recognition": (12.752, 16.636),
+            "postseason_individual_value": (20.9937, 15.6824),
+            "team_achievement": (20.9425, 16.766),
         },
         42: {
-            "statistical_impact": (20.8393, 26.0559),
-            "traditional_production": (30.4607, 26.8598),
-            "individual_recognition": (16.7235, 16.0235),
-            "postseason_individual_value": (17.1358, 19.1633),
-            "team_achievement": (19.3007, 17.5398),
+            "statistical_impact": (35.53, 33.5153),
+            "traditional_production": (37.8109, 40.1933),
+            "individual_recognition": (13.0151, 19.6344),
+            "postseason_individual_value": (16.7142, 16.7393),
+            "team_achievement": (23.7198, 13.2329),
         },
         2026: {
-            "statistical_impact": (23.2867, 23.5357),
-            "traditional_production": (25.2047, 35.7748),
-            "individual_recognition": (20.794, 13.4171),
-            "postseason_individual_value": (21.3054, 19.0896),
-            "team_achievement": (20.9487, 18.0086),
+            "statistical_impact": (32.118, 29.0693),
+            "traditional_production": (38.6981, 35.7685),
+            "individual_recognition": (14.6418, 15.8613),
+            "postseason_individual_value": (19.0919, 26.0834),
+            "team_achievement": (17.4481, 21.7784),
         },
     }
 
     # The player-side halves, kept separately and asserted separately, so a
     # future boss-generation change can never quietly take the player's
     # published lane ratings with it.
-    PLAYER_PINNED_UNCHANGED_SINCE_V3 = {
-        11: (23.7783, 39.4687, 13.7469, 15.1098, 26.6511),
-        42: (20.8393, 30.4607, 16.7235, 17.1358, 19.3007),
-        2026: (23.2867, 25.2047, 20.794, 21.3054, 20.9487),
+    PLAYER_PINNED = {
+        11: (32.8079, 38.4793, 12.752, 20.9937, 20.9425),
+        42: (35.53, 37.8109, 13.0151, 16.7142, 23.7198),
+        2026: (32.118, 38.6981, 14.6418, 19.0919, 17.4481),
     }
 
-    def test_the_player_side_lane_ratings_are_unchanged_from_v3(
+    def test_the_player_side_lane_ratings_match_the_pinned_audit(
         self, pool, blueprints
     ):
-        """The score-semantics anchor. These fifteen numbers are the ones
-        `scripts/audit_rtt_score_semantics.py` reconciled against the canonical
-        3Y leaderboard CSV, and no balance or boss change may move them."""
+        """The score-semantics anchor: a BOSS-generation change may never
+        quietly move the player's own published lane ratings. Re-anchored
+        under roles-v4 (the deal changed, so the rosters changed -- see the
+        ACT1_PINNED comment); the lane MATH is pinned pool-independently in
+        `test_team_scoring_matrix.py`."""
         for seed in self.AUDIT_SEEDS:
             _, battles = self._battles(seed, pool, blueprints)
             actual = tuple(l.player_score for l in battles[0].lanes)
-            assert actual == self.PLAYER_PINNED_UNCHANGED_SINCE_V3[seed], seed
+            assert actual == self.PLAYER_PINNED[seed], seed
 
     def test_act_one_lane_ratings_match_the_pinned_fixture(self, pool, blueprints):
         for seed in self.AUDIT_SEEDS:

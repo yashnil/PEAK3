@@ -65,7 +65,7 @@ if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
 from app.core.auth import ANON_COOKIE_NAME, OptionalAuth, RequiredAuth, resolve_owner_sub
-from app.core.dependencies import DailyGridResultRepoDep
+from app.core.dependencies import DailyGridResultRepoDep, ProfileRepoDep
 from app.core.ownership import existing_owner_sub
 from app.models.daily_grid import (
     GRID_SIZE,
@@ -79,12 +79,22 @@ from app.models.daily_grid import (
     GridResultResponse,
     OfficialResultHistoryResponse,
     OfficialResultRequest,
+    DailyGridRetryCompleteResponse,
+    DailyGridRetryStartResponse,
+    DailyLeaderboardResponse,
+    DailyLeaderboardRow,
+    DailyLeaderboardYou,
     OfficialResultResponse,
     OfficialResultSummary,
     SubmitAnswerRequest,
     SubmitAnswerResponse,
 )
-from app.repositories.daily_grid_protocols import DailyGridAttempt, DailyGridResult
+from app.repositories.daily_grid_protocols import (
+    DailyGridAttempt,
+    DailyGridLeaderboardEntry,
+    DailyGridResult,
+    DailyGridRetryAttempt,
+)
 from app.core.config import settings
 from app.core.rate_limit import RateLimitRule, client_key, limiter
 from nba_peak.daily_grid.constraints import all_constraints
@@ -826,6 +836,16 @@ async def save_official_daily_grid_result(
     )
 
     saved, created = await repo.save_result(record)
+
+    # ---- Daily leaderboard qualification (A2) ---------------------------
+    # Derived ENTIRELY from server records — the saved result row and the
+    # server-stamped attempt clock — never from the request. Runs on the
+    # replayed save too (`created=False`): that is the guest-claim promotion
+    # path (sign in -> the client re-POSTs -> the already-claimed result
+    # surfaces here), and the upsert's better-only conflict rule makes the
+    # repeat harmless.
+    await _qualify_for_leaderboard(repo, auth, saved)
+
     return OfficialResultResponse(
         official_saved=True,
         created=created,
@@ -890,6 +910,357 @@ async def list_official_daily_grid_results(
             )
             for row in rows
         ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Daily leaderboard (final polish pass, A2)
+# ---------------------------------------------------------------------------
+
+
+async def _qualify_for_leaderboard(repo, auth, saved: DailyGridResult) -> None:
+    """Write/refresh this owner's leaderboard best from a saved official
+    result — the ONLY code path that ever writes a leaderboard row.
+
+    QUALIFICATION (A2.12): the result must be a live daily
+    (`played_on_board_date` — an archive replay is a real thing a player did
+    and is stored, but it is not today's competition), and the owner must be a
+    real signed-in account (`RequiredAuth` has already run; anonymous Supabase
+    sessions are excluded here — A2.6). Everything else was proven before the
+    result existed: the board was revalidated square by square, the score was
+    recomputed server-side, and duplicates collapsed into the one immutable
+    result row.
+
+    COMPLETION TIME (A2.4), defined exactly: `completion_time_ms =
+    result.created_at - attempt.started_at`, both server-stamped. The attempt
+    clock starts once per (owner, daily_key) when the player begins the board
+    (the client calls `POST /{daily_key}/start` on the first move, after the
+    start gate — so instructions/gate time is excluded) and cannot be
+    restarted; the result is stamped at its first, immutable save. It is
+    wall-clock between those two instants — the server cannot see tab focus,
+    so "active play" means "from the server-witnessed start to the
+    server-witnessed finish". No request field can move either end. When no
+    attempt row exists (a pre-/start legacy client), the time is NULL and the
+    entry ranks after every timed entry of equal score.
+    """
+    if not saved.played_on_board_date:
+        return
+    if getattr(auth, "is_anonymous", False):
+        return
+
+    completion_time_ms = None
+    attempt = await repo.get_attempt(auth.sub, saved.board_date)
+    if attempt is not None:
+        started = attempt.started_at
+        completed = saved.created_at
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if completed.tzinfo is None:
+            completed = completed.replace(tzinfo=timezone.utc)
+        completion_time_ms = max(0, int((completed - started).total_seconds() * 1000))
+
+    await repo.upsert_leaderboard_best(
+        DailyGridLeaderboardEntry(
+            id="",
+            owner_sub=auth.sub,
+            daily_key=saved.board_date,
+            board_id=saved.board_id,
+            board_version=saved.board_version,
+            score=saved.score,
+            completion_time_ms=completion_time_ms,
+            result_id=saved.id,
+            completed_at=saved.created_at,
+        )
+    )
+
+
+@router.post("/daily-grid/{daily_key}/retry", response_model=DailyGridRetryStartResponse)
+async def start_daily_grid_retry(
+    request: Request,
+    auth: RequiredAuth,
+    repo: DailyGridResultRepoDep,
+    daily_key: str = PathParam(
+        ..., max_length=32, description="YYYY-MM-DD; must be TODAY's key"
+    ),
+) -> DailyGridRetryStartResponse:
+    """Open a FRESH retry clock on today's board (final integrity closure).
+
+    THE CANONICAL RECORD IS NOT IN PLAY HERE. The first attempt's clock
+    (`daily_grid_attempts`, non-restartable) and the one immutable official
+    result both stay exactly as they are; a retry exists solely so a signed-in
+    player can try to improve their PUBLIC leaderboard entry, whose upsert is
+    better-only. That is why this route is deliberately NOT idempotent, where
+    `/start` deliberately is: each retry is its own attempt with its own
+    server-stamped `started_at`, and re-clicking "replay" simply opens a new
+    one (the previous clock is abandoned, never rewound).
+
+    PRECONDITIONS, each its own honest error:
+      * a real signed-in account (403 `account_required`) — retries only
+        matter for the leaderboard, and only accounts are listed;
+      * today's key (409 `not_todays_key`) — archive boards are untimed and
+        unranked by design;
+      * the canonical official result already saved (409
+        `official_result_required`) — the daily is played once for the
+        record FIRST; replays come after.
+
+    NO REQUEST BODY, so no field a client sends can influence the stamp.
+    """
+    _enforce(request, "daily_grid:start", settings.DAILY_GRID_BOARD_RATE_LIMIT)
+
+    if getattr(auth, "is_anonymous", False):
+        raise HTTPException(
+            status_code=403,
+            detail=_error_detail(
+                "Retries are for signed-in accounts — they exist to improve a "
+                "leaderboard entry, and only accounts appear on the board.",
+                "account_required",
+            ),
+        )
+
+    try:
+        requested = validate_daily_key(daily_key)
+    except InvalidDailyKey as exc:
+        raise HTTPException(
+            status_code=400, detail=_error_detail(str(exc), "invalid_grid_date")
+        )
+    today = today_utc_date()
+    if requested != today:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error_code": "not_todays_key",
+                "message": f"{requested} is not today's board ({today}). Only "
+                "today's board is ranked, so only today's board can be retried.",
+                "daily_key": requested,
+                "today": today,
+            },
+        )
+
+    board = get_board(today)
+    official = await repo.get_result(auth.sub, board.date, board.version)
+    if official is None:
+        raise HTTPException(
+            status_code=409,
+            detail=_error_detail(
+                "Finish today's board for the record first — a retry can only "
+                "follow a saved official result.",
+                "official_result_required",
+            ),
+        )
+
+    attempt = await repo.start_retry_attempt(
+        DailyGridRetryAttempt(id="", owner_sub=auth.sub, daily_key=today)
+    )
+    started_at = attempt.started_at
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    return DailyGridRetryStartResponse(
+        daily_key=today,
+        retry_id=attempt.id,
+        started_at=_iso(started_at),
+        server_now=_iso(datetime.now(timezone.utc)),
+    )
+
+
+@router.post("/daily-grid/retry/complete", response_model=DailyGridRetryCompleteResponse)
+async def complete_daily_grid_retry(
+    request: Request,
+    body: GridResultRequest,
+    auth: RequiredAuth,
+    repo: DailyGridResultRepoDep,
+) -> DailyGridRetryCompleteResponse:
+    """Finish a retry and let it challenge the leaderboard — nothing else.
+
+    THE SAME VERIFICATION AS /official, WITH NONE OF ITS SIDE EFFECTS: the
+    submitted board is revalidated square by square and the score recomputed
+    by `build_result`; then, instead of writing a result row, the outcome goes
+    straight into the leaderboard's better-only upsert. `daily_grid_results`
+    is never touched, so a retry cannot create, duplicate or disturb the
+    canonical daily completion — test-proven, not just intended.
+
+    COMPLETION TIME: now() minus the ACTIVE retry clock's `started_at`
+    (`latest_retry_attempt` — the newest server-stamped retry row). The body
+    is `GridResultRequest`: nine squares and a miss count. It has no score
+    field and no time field, so neither can be forged; unknown JSON keys are
+    dropped by the model.
+
+    HONEST LIMIT, same as every timed surface here: the server witnesses both
+    ends of the clock but cannot see what the player did between opening the
+    retry and posting it, so scripted submission of a pre-solved board bounds
+    the minimum time. Time is a tiebreaker among equal scores, never a scored
+    quantity.
+    """
+    _enforce(request, "daily_grid:result", settings.DAILY_GRID_RESULT_RATE_LIMIT, body.date)
+
+    if getattr(auth, "is_anonymous", False):
+        raise HTTPException(
+            status_code=403,
+            detail=_error_detail(
+                "Retries are for signed-in accounts.", "account_required"
+            ),
+        )
+
+    board = _resolve_board(body.date)
+    today = today_utc_date()
+    if board.date != today:
+        raise HTTPException(
+            status_code=400,
+            detail=_error_detail(
+                f"{board.date} is not today's board ({today}); archive boards "
+                "are not ranked.",
+                "not_todays_board",
+            ),
+        )
+
+    retry = await repo.latest_retry_attempt(auth.sub, today)
+    if retry is None:
+        raise HTTPException(
+            status_code=409,
+            detail=_error_detail(
+                "No retry clock is running — start one with "
+                f"POST /daily-grid/{today}/retry before submitting.",
+                "no_active_retry",
+            ),
+        )
+
+    _revalidate_completed_board(board, body.filled)
+    grid_result = build_result(
+        board=board,
+        filled=[(cell.row, cell.col, cell.answer_id) for cell in body.filled],
+        incorrect_attempts=body.incorrect_attempts,
+    )
+
+    completed = datetime.now(timezone.utc)
+    started = retry.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    completion_time_ms = max(0, int((completed - started).total_seconds() * 1000))
+
+    best, improved = await repo.upsert_leaderboard_best(
+        DailyGridLeaderboardEntry(
+            id="",
+            owner_sub=auth.sub,
+            daily_key=today,
+            board_id=board.board_id,
+            board_version=board.version,
+            score=grid_result.user_total,
+            completion_time_ms=completion_time_ms,
+            # Provenance: which clock witnessed this run. The official path
+            # stores the result row's id here; a retry has no result row by
+            # design, so it records its attempt instead.
+            result_id=f"retry:{retry.id}",
+            completed_at=completed,
+        )
+    )
+
+    return DailyGridRetryCompleteResponse(
+        score=grid_result.user_total,
+        completion_time_ms=completion_time_ms,
+        improved=improved,
+        best_score=best.score,
+        best_completion_time_ms=best.completion_time_ms,
+    )
+
+
+@router.get("/daily-grid/leaderboard", response_model=DailyLeaderboardResponse)
+async def get_daily_grid_leaderboard(
+    request: Request,
+    repo: DailyGridResultRepoDep,
+    profile_repo: ProfileRepoDep,
+    auth: OptionalAuth = None,
+    date: Optional[str] = Query(
+        None, max_length=32, description="YYYY-MM-DD; defaults to today's board"
+    ),
+    limit: int = Query(25, ge=1, le=100),
+) -> DailyLeaderboardResponse:
+    """Today's Daily Grid leaderboard, ranked by the server (A2.9).
+
+    NO AUTH TO READ — a public leaderboard is public, exactly as the Arena's
+    is; entering it requires a signed-in completion. What that costs is
+    nothing, because a row carries only a handle and two numbers.
+
+    ONLY PLAYERS WITH A PUBLIC HANDLE ARE LISTED — the Arena leaderboard's own
+    rule (launch-polish §8): the only name this product shows is the handle a
+    player chose. An entry whose owner has not picked one is stored, ranked
+    invisible, and surfaces the moment they choose a handle; their own `you`
+    block says so rather than faking a placement.
+
+    THE PARTITION IS THE DAILY KEY — midnight America/Los_Angeles, the same
+    boundary every other Daily surface resets on (`nba_peak/daily_key`). At
+    Pacific midnight the key changes and this route answers for a different
+    board; yesterday's rows remain stored and reachable via `?date=`.
+
+    RANKS ARE COMPUTED HERE, over the listed set, in the repository's own
+    ranking order — a client never derives a rank, and `you.rank` is the real
+    one even when the caller sits outside the returned page.
+    """
+    _enforce(request, "daily_grid:leaderboard", settings.DAILY_GRID_BOARD_RATE_LIMIT)
+
+    if date is not None:
+        try:
+            daily_key = validate_daily_key(date)
+        except InvalidDailyKey as exc:
+            raise HTTPException(
+                status_code=400, detail=_error_detail(str(exc), "invalid_grid_date")
+            )
+        window = daily_window(daily_key)
+        if window.starts_at > datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=400,
+                detail=_error_detail(f"{daily_key} has not started yet", "invalid_grid_date"),
+            )
+    else:
+        daily_key = today_utc_date()
+
+    # Ranking order comes from the repository (database ORDER BY on the
+    # partial index in Postgres); this loop only joins handles and NUMBERS the
+    # rows it was handed, in order.
+    all_entries = await repo.leaderboard_all_for_day(daily_key)
+
+    caller_sub = auth.sub if auth is not None else None
+    listed: list[DailyLeaderboardRow] = []
+    you = None
+    caller_is_anonymous = bool(getattr(auth, "is_anonymous", False)) if auth else False
+
+    rank = 0
+    for entry in all_entries:
+        profile = await profile_repo.get_profile_by_auth_sub(entry.owner_sub)
+        handle = profile.handle if profile is not None else None
+        if handle:
+            rank += 1
+            if len(listed) < limit:
+                listed.append(
+                    DailyLeaderboardRow(
+                        rank=rank,
+                        handle=handle,
+                        score=entry.score,
+                        completion_time_ms=entry.completion_time_ms,
+                        is_current_user=entry.owner_sub == caller_sub,
+                    )
+                )
+        if caller_sub is not None and entry.owner_sub == caller_sub:
+            you = DailyLeaderboardYou(
+                rank=rank if handle else None,
+                score=entry.score,
+                completion_time_ms=entry.completion_time_ms,
+                listed=bool(handle),
+                has_handle=bool(handle),
+                has_entry=True,
+            )
+
+    if caller_sub is not None and you is None and not caller_is_anonymous:
+        # Authenticated, no entry yet: an honest empty standing, so the UI can
+        # say "finish today's board" instead of guessing.
+        profile = await profile_repo.get_profile_by_auth_sub(caller_sub)
+        you = DailyLeaderboardYou(
+            has_handle=bool(profile.handle) if profile is not None else False,
+        )
+
+    return DailyLeaderboardResponse(
+        daily_key=daily_key,
+        entries=listed,
+        total_listed=rank,
+        you=you,
     )
 
 

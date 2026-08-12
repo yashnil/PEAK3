@@ -13,7 +13,7 @@
  */
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import SeatCourt from "@/components/three-man-weave/SeatCourt";
@@ -35,6 +35,7 @@ import type {
   TmwRoster,
 } from "@/types/three-man-weave";
 import {
+  TMW_OPENING_REVEAL_SECONDS,
   TMW_REVEAL_SECONDS,
   TMW_TURN_PHASE_PICK,
   TMW_TURN_PHASE_REVEAL,
@@ -240,6 +241,7 @@ function matchView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
     legal_commands: ["tmw_pick", "tmw_rearrange"],
     current_turn_seat_index: 0,
     seconds_remaining: 45,
+    turn_seconds_remaining: null,
     turn_phase: TMW_TURN_PHASE_PICK,
     latest_event_seq: 3,
     room_code: null,
@@ -689,15 +691,27 @@ describe("TurnStatus", () => {
     expect(regions).toHaveLength(1);
   });
 
-  it("shows a visible clock for a deliberating bot", async () => {
-    // TMW-05: the bot's think time is now 4-10 seconds, longer than the client
-    // poll interval, so the deliberation is genuinely observable. The API sends
-    // no deadline for a seat that is not yours, so this clock counts UP rather
-    // than inventing a countdown.
-    renderStatus();
+  it("counts the deliberating opponent DOWN against the server's deadline", async () => {
+    // D4. This clock used to count UP — "Deliberating 1s, 2s, 3s" — beside the
+    // human's own counting-DOWN clock, for an honest reason: the API published
+    // `seconds_remaining` only to the seat that owned the turn, so there was no
+    // deadline to count down to. The fix was to publish the fact rather than
+    // keep working around its absence; a turn deadline is not hidden
+    // information. See `TurnStatus` and `ArenaMatchView.turn_seconds_remaining`.
+    renderStatus({ opponentDeadlineAt: performance.now() + 8_000 });
+    const clock = await screen.findByTestId("tmw-bot-clock");
+    expect(clock).toHaveAttribute("data-direction", "down");
+    expect(clock).toHaveTextContent(/Deliberating/);
+    expect(clock).toHaveTextContent("8s");
+  });
+
+  it("falls back to elapsed time only when the server published no deadline", async () => {
+    // Showing nothing would be worse than showing what the client does know.
+    renderStatus({ opponentDeadlineAt: null });
     await waitFor(() =>
-      expect(screen.getByTestId("tmw-bot-clock")).toHaveTextContent(/Deliberating/),
+      expect(screen.getByTestId("tmw-bot-clock")).toHaveAttribute("data-direction", "up"),
     );
+    expect(screen.getByTestId("tmw-bot-clock")).toHaveTextContent(/Deliberating/);
   });
 
   it("states what running out of time does, and never promises the best available", () => {
@@ -890,14 +904,44 @@ describe("PickOverlay", () => {
     expect(screen.getByTestId("tmw-overlay-clock-value")).toHaveTextContent("40");
   });
 
-  it("locks into a resolution state at zero rather than staying live", async () => {
-    // `ArenaTimer` has always supported `onExpire` and neither of this mode's
-    // timers passed it. At 0s the panel stayed fully interactive, and a click
-    // then landed outside the server's two-second grace and came back as
-    // `stale_state_version` -- which reads as the game refusing a legal pick.
+  it("stays actionable through the server's grace window at zero, and says so", async () => {
+    // TMW-D3. The panel used to lock every control the instant the LOCAL
+    // countdown hit zero. That local deadline is `performance.now() +
+    // seconds_remaining` sampled when a response landed, so it sits about half
+    // a round trip AFTER the server's own -- and the server deliberately keeps
+    // answering for `ACTION_GRACE_SECONDS` past its deadline. Locking at local
+    // zero therefore threw away the entire window, and the player's last legal
+    // in-time press did nothing while the fallback they were trying to avoid
+    // was drafted for them.
     const { onPick } = renderOverlay({ deadlineAt: performance.now() - 10 });
     await waitFor(() =>
-      expect(screen.getByTestId("tmw-overlay-expired")).toBeInTheDocument(),
+      expect(screen.getByTestId("tmw-overlay-expired")).toHaveAttribute(
+        "data-phase",
+        "last-call",
+      ),
+    );
+    expect(screen.getByTestId("tmw-overlay-expired")).toHaveTextContent(
+      "Last call — a pick sent now can still land.",
+    );
+    // Still live: the row selects and the pick still commits.
+    expect(screen.getByTestId("tmw-candidate-kyle-lowry")).toBeEnabled();
+    await userEvent.click(screen.getByTestId("tmw-candidate-kyle-lowry"));
+    await userEvent.click(screen.getByTestId("tmw-confirm-pick"));
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ player_slug: "kyle-lowry" }),
+      "PG",
+    );
+  });
+
+  it("locks hard once the grace window is gone too", async () => {
+    renderOverlay({ deadlineAt: performance.now() - 10 });
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("tmw-overlay-expired")).toHaveAttribute(
+          "data-phase",
+          "expired",
+        ),
+      { timeout: 4000 },
     );
     expect(screen.getByTestId("tmw-overlay-expired")).toHaveTextContent(
       "Time expired — assigning a legal fallback.",
@@ -905,7 +949,30 @@ describe("PickOverlay", () => {
     expect(screen.getByTestId("tmw-pick-overlay")).toHaveAttribute("data-expired", "true");
     expect(screen.getByTestId("tmw-pick-search")).toBeDisabled();
     expect(screen.getByTestId("tmw-candidate-kawhi-leonard")).toBeDisabled();
-    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it("gives the candidate row NO transform in any interaction state", () => {
+    // THE ROOT CAUSE OF THE REPORTED PICKER LAG, as a regression.
+    // `.pk-lift`/`.pk-press` translate and scale the element that is also
+    // receiving the pointer. On a 44px row in a dense list that is a feedback
+    // loop: measured 29 mouseenter + 29 mouseleave in 1500ms with the pointer
+    // held completely still, and a 2px dead band at the top of every row.
+    renderOverlay();
+    const row = screen.getByTestId("tmw-candidate-kawhi-leonard");
+    expect(row.className).not.toMatch(/pk-lift|pk-press/);
+  });
+
+  it("stages a selection on the PRESS, so a click that splits across elements still lands", () => {
+    // A `click` is only delivered when mousedown and mouseup resolve to the
+    // same element. Staging on pointerdown removes that dependency for the one
+    // interaction the whole mode runs on.
+    renderOverlay();
+    const row = screen.getByTestId("tmw-candidate-kyle-lowry");
+    fireEvent.pointerDown(row, { button: 0 });
+    expect(row).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("tmw-confirm-pick")).toHaveTextContent(
+      /Draft Kyle Lowry at Point guard/,
+    );
   });
 
   it("never promises the best available player on timeout", () => {
@@ -1291,6 +1358,122 @@ describe("WeaveSpinner", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("holds the matchup card long enough to read it", () => {
+    // D1. The intro used to be a 30% share of a 3.2s window — under a second
+    // for three seat names and an objective. It now gets ~4.6s of a 9.2s
+    // opening window, and none of it comes out of anybody's decision clock:
+    // the reveal is its own server turn and the pick turn opens afterwards
+    // with a full one.
+    vi.useFakeTimers();
+    try {
+      render(
+        <WeaveSpinner
+          roll={ROLL}
+          roundNumber={1}
+          totalRounds={6}
+          seats={SEATS}
+          yourSeatIndex={0}
+          showIntro
+          revealSeconds={TMW_OPENING_REVEAL_SECONDS}
+        />,
+      );
+      expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
+      // Four seconds in it is STILL readable.
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
+      expect(screen.getByTestId("tmw-intro")).toBeInTheDocument();
+      // ...and then it hands over to the reel rather than outstaying it.
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      expect(screen.queryByTestId("tmw-intro")).toBeNull();
+      expect(screen.getByTestId("tmw-roll-franchise")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds the resolved roll long enough to perceive it", () => {
+    // D2. The settled franchise × decade is the one fact the round is played
+    // against, and it used to hold for the last 22% of a 3.2s window — about
+    // 0.7s, which read as a flash. It now takes the majority of a 4.6s window.
+    vi.useFakeTimers();
+    try {
+      render(
+        <WeaveSpinner
+          roll={ROLL}
+          roundNumber={2}
+          totalRounds={6}
+          revealSeconds={TMW_REVEAL_SECONDS}
+        />,
+      );
+      const section = screen.getByTestId("tmw-roll");
+      const windowMs = TMW_REVEAL_SECONDS * 1000;
+      // Walk the window and find the instant the pair actually settles, rather
+      // than asserting against a fraction this test would have to restate.
+      let resolvedAt: number | null = null;
+      for (let t = 0; t <= windowMs; t += 50) {
+        if (section.getAttribute("data-revealed") === "true") {
+          resolvedAt = t;
+          break;
+        }
+        act(() => {
+          vi.advanceTimersByTime(50);
+        });
+      }
+      expect(resolvedAt, "the roll never resolved inside the server's window").not.toBeNull();
+      expect(
+        windowMs - resolvedAt!,
+        "the resolved franchise × decade is on screen for less than 2.5s",
+      ).toBeGreaterThanOrEqual(2500);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("offers a way out of the ceremony, labelled for the moment it is in", async () => {
+    const onSkip = vi.fn();
+    vi.useFakeTimers();
+    try {
+      render(
+        <WeaveSpinner
+          roll={ROLL}
+          roundNumber={1}
+          totalRounds={6}
+          seats={SEATS}
+          yourSeatIndex={0}
+          showIntro
+          revealSeconds={TMW_OPENING_REVEAL_SECONDS}
+          onSkip={onSkip}
+        />,
+      );
+      const skip = screen.getByTestId("tmw-ceremony-skip");
+      expect(skip).toHaveTextContent("Skip intro");
+      act(() => {
+        vi.advanceTimersByTime(TMW_OPENING_REVEAL_SECONDS * 1000);
+      });
+      // Once the roll has landed the same control starts the draft.
+      expect(screen.getByTestId("tmw-ceremony-skip")).toHaveTextContent("Draft now");
+    } finally {
+      vi.useRealTimers();
+    }
+    await userEvent.click(screen.getByTestId("tmw-ceremony-skip"));
+    expect(onSkip).toHaveBeenCalled();
+  });
+
+  it("renders no skip control for a seat that cannot command the match", () => {
+    render(
+      <WeaveSpinner
+        roll={ROLL}
+        roundNumber={1}
+        totalRounds={6}
+        revealSeconds={TMW_REVEAL_SECONDS}
+      />,
+    );
+    expect(screen.queryByTestId("tmw-ceremony-skip")).toBeNull();
   });
 
   it("keeps the SAME beat under prefers-reduced-motion, and drops only the movement", () => {

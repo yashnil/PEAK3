@@ -1154,3 +1154,169 @@ async def test_postgres_perfect_season_leaderboard_repo_conforms(pg_pool):
         )
     finally:
         await _purge_leaderboard_rows(pg_pool, owner_sub)
+
+
+# ---------------------------------------------------------------------------
+# DailyGridResultRepository.leaderboard — same best-attempt semantics on
+# memory and Postgres (final polish pass, A2)
+# ---------------------------------------------------------------------------
+#
+# The rule under test is `is_strictly_better`, spelled twice: as Python in the
+# memory repository and as the `ON CONFLICT ... DO UPDATE ... WHERE` clause of
+# one atomic statement in Postgres. This assertion body runs against both, so
+# the two spellings cannot drift apart silently.
+
+
+def _lb_entry(owner_sub, daily_key, score, time_ms, *, completed_at=None):
+    from app.repositories.daily_grid_protocols import DailyGridLeaderboardEntry
+
+    return DailyGridLeaderboardEntry(
+        id="",
+        owner_sub=owner_sub,
+        daily_key=daily_key,
+        board_id=f"grid-{daily_key}",
+        board_version="1.0.0",
+        score=score,
+        completion_time_ms=time_ms,
+        result_id=f"result-{uuid.uuid4()}",
+        completed_at=completed_at or datetime.now(timezone.utc),
+    )
+
+
+async def _assert_daily_grid_leaderboard_conforms(repo, daily_key: str) -> None:
+    owner_a = f"lb-a-{uuid.uuid4()}"
+    owner_b = f"lb-b-{uuid.uuid4()}"
+    owner_c = f"lb-c-{uuid.uuid4()}"
+
+    # 1. First entry inserts.
+    first, applied = await repo.upsert_leaderboard_best(_lb_entry(owner_a, daily_key, 800, 60_000))
+    assert applied and first.score == 800
+
+    # 2. A worse score NEVER replaces; the incumbent is returned unchanged.
+    kept, applied = await repo.upsert_leaderboard_best(_lb_entry(owner_a, daily_key, 700, 10_000))
+    assert not applied and kept.score == 800 and kept.completion_time_ms == 60_000
+
+    # 3. An equal score in strictly less witnessed time replaces.
+    faster, applied = await repo.upsert_leaderboard_best(_lb_entry(owner_a, daily_key, 800, 45_000))
+    assert applied and faster.completion_time_ms == 45_000
+
+    # 4. An equal score in MORE time does not.
+    kept, applied = await repo.upsert_leaderboard_best(_lb_entry(owner_a, daily_key, 800, 46_000))
+    assert not applied and kept.completion_time_ms == 45_000
+
+    # 5. An unwitnessed (NULL) time never beats a witnessed one at equal score…
+    kept, applied = await repo.upsert_leaderboard_best(_lb_entry(owner_a, daily_key, 800, None))
+    assert not applied and kept.completion_time_ms == 45_000
+
+    # 6. …but a better SCORE replaces regardless of the clock.
+    best, applied = await repo.upsert_leaderboard_best(_lb_entry(owner_a, daily_key, 900, None))
+    assert applied and best.score == 900 and best.completion_time_ms is None
+
+    # 7. …and a witnessed time replaces an unwitnessed one at equal score.
+    timed, applied = await repo.upsert_leaderboard_best(_lb_entry(owner_a, daily_key, 900, 80_000))
+    assert applied and timed.completion_time_ms == 80_000
+
+    # 8. Ranking: score DESC, then time ASC with NULL last, ties by
+    #    completed_at then id — identical on both backends.
+    await repo.upsert_leaderboard_best(_lb_entry(owner_b, daily_key, 900, 50_000))
+    await repo.upsert_leaderboard_best(_lb_entry(owner_c, daily_key, 950, None))
+    rows = await repo.leaderboard_all_for_day(daily_key)
+    mine = [r for r in rows if r.owner_sub in {owner_a, owner_b, owner_c}]
+    assert [r.owner_sub for r in mine] == [owner_c, owner_b, owner_a]
+
+    # 9. leaderboard_top honours its limit from the SAME ordering.
+    top = await repo.leaderboard_top(daily_key, limit=1)
+    assert len(top) <= 1
+    if top:
+        assert top[0].owner_sub == rows[0].owner_sub
+
+    # 10. The per-owner lookup finds exactly that owner's row for that day.
+    own = await repo.leaderboard_entry_for_owner(owner_b, daily_key)
+    assert own is not None and own.score == 900 and own.completion_time_ms == 50_000
+    assert await repo.leaderboard_entry_for_owner(f"nobody-{uuid.uuid4()}", daily_key) is None
+
+
+@pytest.mark.asyncio
+async def test_memory_daily_grid_leaderboard_conforms():
+    from app.repositories.daily_grid_memory import MemoryDailyGridResultRepository
+
+    await _assert_daily_grid_leaderboard_conforms(
+        MemoryDailyGridResultRepository(), f"2099-01-{uuid.uuid4().hex[:2]}"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_daily_grid_leaderboard_conforms(pg_pool):
+    from app.repositories.daily_grid_postgres import PostgresDailyGridResultRepository
+
+    daily_key = f"2099-e2e-{uuid.uuid4().hex[:8]}"
+    try:
+        await _assert_daily_grid_leaderboard_conforms(
+            PostgresDailyGridResultRepository(pg_pool), daily_key
+        )
+    finally:
+        async with pg_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM daily_grid_leaderboard_entries WHERE daily_key = $1",
+                daily_key,
+            )
+
+
+# ---------------------------------------------------------------------------
+# DailyGridResultRepository.retry attempts — same append-only clock semantics
+# on memory and Postgres (final integrity closure, gap 1)
+# ---------------------------------------------------------------------------
+
+
+async def _assert_daily_grid_retry_attempts_conform(repo, daily_key: str) -> None:
+    from app.repositories.daily_grid_protocols import DailyGridRetryAttempt
+
+    owner = f"retry-{uuid.uuid4()}"
+
+    # 1. No clock until one is explicitly started.
+    assert await repo.latest_retry_attempt(owner, daily_key) is None
+
+    # 2. Every start is a FRESH attempt — never idempotent, never re-stamped.
+    first = await repo.start_retry_attempt(
+        DailyGridRetryAttempt(id="", owner_sub=owner, daily_key=daily_key)
+    )
+    second = await repo.start_retry_attempt(
+        DailyGridRetryAttempt(id="", owner_sub=owner, daily_key=daily_key)
+    )
+    assert first.id and second.id and first.id != second.id
+    assert second.started_at >= first.started_at
+
+    # 3. The ACTIVE clock is the newest row.
+    latest = await repo.latest_retry_attempt(owner, daily_key)
+    assert latest is not None and latest.id == second.id
+
+    # 4. Day-partitioned: another key sees nothing.
+    assert await repo.latest_retry_attempt(owner, "2099-12-31") is None
+
+
+@pytest.mark.asyncio
+async def test_memory_daily_grid_retry_attempts_conform():
+    from app.repositories.daily_grid_memory import MemoryDailyGridResultRepository
+
+    await _assert_daily_grid_retry_attempts_conform(
+        MemoryDailyGridResultRepository(), "2099-02-01"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.supabase_integration
+async def test_postgres_daily_grid_retry_attempts_conform(pg_pool):
+    from app.repositories.daily_grid_postgres import PostgresDailyGridResultRepository
+
+    daily_key = f"2099-rt-{uuid.uuid4().hex[:8]}"
+    try:
+        await _assert_daily_grid_retry_attempts_conform(
+            PostgresDailyGridResultRepository(pg_pool), daily_key
+        )
+    finally:
+        async with pg_pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM daily_grid_retry_attempts WHERE daily_key = $1",
+                daily_key,
+            )

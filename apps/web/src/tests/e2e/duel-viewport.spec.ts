@@ -83,20 +83,119 @@ test.describe("Peak Duel — the page never moves", () => {
     assertStill(before, afterNext, "after Next duel");
   });
 
-  test("the document height is unchanged by revealing a result", async ({ page }) => {
-    // The direct statement of the fix: the slot reserves its space, so the
-    // page is exactly as tall with the panel open as with it closed.
+  test("the result grows downward only, and is never clipped into a nested scroller", async ({
+    page,
+  }) => {
+    /*
+     * THIS ASSERTION REPLACES "the document height is unchanged".
+     *
+     * WHY IT CHANGED, stated plainly. Document height was a PROXY for the real
+     * requirement — "the page never moves under the player" — and it was too
+     * strict a proxy. Holding it exactly required pinning the result inside the
+     * CARDS' box (`absolute inset-0` + `overflow-y-auto`), and the result does
+     * not fit there: measured at 1440x900 the cards occupy 257px and the result
+     * needs 510px, so 253px of it — most of the component comparison and the
+     * "Next duel" button — lived behind a nested scrollbar, on a viewport with
+     * ~460px of unused space directly below. At 1728x1000 it was 269px.
+     *
+     * The defect the original test was written for was the page JUMPING: the
+     * window scrolling and the cards moving on screen when an answer landed.
+     * That is asserted directly, and unchanged, by the three tests around this
+     * one. What this test adds is everything the proxy was standing in for and
+     * one thing it could not express:
+     *
+     *   1. nothing moves UP — the stage may only extend below the cards;
+     *   2. the result is never clipped — no scrollable ancestor inside it;
+     *   3. the primary action is reachable without scrolling at desktop sizes.
+     *
+     * Growth strictly below the cards, with the scroll position and the cards
+     * fixed, is not movement under the player: it is page that was not being
+     * used. So this is a stronger guard than the one it replaces, not a looser
+     * one — (2) and (3) would both have passed under the old assertion while
+     * the result was unusable.
+     */
     await openDuel(page);
     const before = await frame(page);
     await cards(page).first().click();
-    await expect(page.getByRole("region", { name: /answer result/i })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("region", { name: /answer result/i })).toBeVisible({
+      timeout: 15_000,
+    });
     await page.waitForTimeout(700);
     const after = await frame(page);
+
+    // 1. NOTHING MOVED UP. The cards hold their exact position and the window
+    //    did not scroll; the page may only have got taller underneath.
+    assertStill(before, after, "revealing a result");
     expect(
-      Math.abs(after.docHeight - before.docHeight),
-      "the page grew when the result appeared",
-    ).toBeLessThanOrEqual(TOLERANCE_PX);
+      after.docHeight,
+      "the page got SHORTER when the result appeared",
+    ).toBeGreaterThanOrEqual(before.docHeight - TOLERANCE_PX);
+
+    // 2. THE RESULT IS NOT CLIPPED. No ancestor inside the stage scrolls, and
+    //    the panel is rendered at its full natural height.
+    const clipped = await page.evaluate(() => {
+      const region = document.querySelector(
+        '[role="region"][aria-label*="nswer" i]',
+      ) as HTMLElement | null;
+      if (!region) return { found: false, overflow: 0, chain: "" };
+      let node: HTMLElement | null = region;
+      let worst = 0;
+      const chain: string[] = [];
+      // Walk up to the page body looking for anything scrolling vertically.
+      while (node && node !== document.body) {
+        const over = node.scrollHeight - node.clientHeight;
+        if (over > 1 && getComputedStyle(node).overflowY !== "visible") {
+          worst = Math.max(worst, over);
+          chain.push(`${node.tagName}.${node.className.slice(0, 60)} +${over}px`);
+        }
+        node = node.parentElement;
+      }
+      return { found: true, overflow: worst, chain: chain.join(" | ") };
+    });
+    expect(clipped.found, "the result region was not found").toBe(true);
+    expect(
+      clipped.overflow,
+      `the result is inside a nested scroller: ${clipped.chain}`,
+    ).toBe(0);
   });
+
+  for (const viewport of [
+    { width: 1440, height: 900 },
+    { width: 1728, height: 1000 },
+  ]) {
+    test(`the whole result and Next duel fit the viewport at ${viewport.width}x${viewport.height}`, async ({
+      browser,
+    }) => {
+      // The requirement in product terms: at an ordinary desktop size a player
+      // sees the verdict, the points, the session score, the complete
+      // face-to-face comparison AND the way onward, without scrolling anything.
+      // Shorter viewports may scroll the PAGE; that is fine and is not asserted.
+      const context = await browser.newContext({ viewport });
+      const page = await context.newPage();
+      try {
+        await openDuel(page);
+        await cards(page).first().click();
+        const region = page.getByRole("region", { name: /answer result/i });
+        await expect(region).toBeVisible({ timeout: 15_000 });
+        await page.waitForTimeout(700);
+
+        // Every part of the result, named rather than counted.
+        await expect(region).toContainText(/correct|not quite/i);
+        await expect(region).toContainText(/session total/i);
+        await expect(region).toContainText(/component/i);
+
+        const next = page.getByRole("button", { name: /next duel/i }).first();
+        const box = (await next.boundingBox())!;
+        expect(
+          box.y + box.height,
+          "the Next duel button is below the fold with the result open",
+        ).toBeLessThanOrEqual(viewport.height);
+        expect(await page.evaluate(() => window.scrollY)).toBe(0);
+      } finally {
+        await context.close();
+      }
+    });
+  }
 
   test("keyboard selection moves nothing either", async ({ page }) => {
     // Keyboard is the path most likely to scroll: the browser scrolls focused

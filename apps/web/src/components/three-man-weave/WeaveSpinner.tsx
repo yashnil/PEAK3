@@ -86,10 +86,21 @@ const FRANCHISE_FILLER = [
  *
  * The two reel fractions are of the span AFTER the intro, so round 1's reel is
  * the same shape as every other round's, just compressed.
+ *
+ * WHY `RESOLVE_SHARE` MOVED FROM 0.78 TO 0.35. The franchise x decade is the
+ * one fact the entire round is played against, and it used to hold, settled and
+ * readable, for the last 22% of a 3.2-second window -- about 0.7 seconds. It
+ * read as a flash. The server's window is now 4.6s for the reel rounds, and the
+ * settled pair takes the majority of it (~3.0s), which is what "a reveal you
+ * can actually perceive" means. The reel's own travel is unchanged; only the
+ * hold after it grew.
+ *
+ * NONE OF THIS COSTS DECISION TIME. The reveal is its own server turn and the
+ * pick turn opens afterwards with a full clock. See `mode.py`.
  */
-const INTRO_SHARE = 0.3;
-const SPIN_SHARE = 0.6;
-const RESOLVE_SHARE = 0.78;
+const INTRO_SHARE = 0.5;
+const SPIN_SHARE = 0.34;
+const RESOLVE_SHARE = 0.35;
 
 /** The reels' own travel, as a share of the spin span. Staggered, because two
  * independent physical wheels never stop on the same frame. */
@@ -141,6 +152,8 @@ export default function WeaveSpinner({
   showIntro = false,
   deadlineAt,
   revealSeconds,
+  onSkip,
+  skipping = false,
 }: {
   roll: TmwRoll | null;
   roundNumber: number | null;
@@ -162,6 +175,15 @@ export default function WeaveSpinner({
   deadlineAt?: number | null;
   /** The window's nominal length, in seconds. The server's `REVEAL_SECONDS`. */
   revealSeconds: number;
+  /**
+   * End the ceremony NOW. Posts `tmw_skip_reveal`; see that constant.
+   *
+   * Omitted, the control is not rendered — which is the correct behaviour for
+   * a seat that cannot command the match at all.
+   */
+  onSkip?: () => void;
+  /** A skip is in flight. */
+  skipping?: boolean;
 }) {
   const reduced = usePrefersReducedMotion();
   const rollId = roll?.roll_id ?? null;
@@ -356,6 +378,30 @@ export default function WeaveSpinner({
               </p>
             ) : null}
           </>
+        ) : null}
+
+        {/* THE WAY OUT, FOR SOMEBODY WHO HAS SEEN IT BEFORE.
+            One control, two labels, because it is one action at two moments:
+            during the matchup card it skips an intro; once the roll is up it
+            starts the draft. It ends the SERVER's reveal turn — see
+            `TMW_COMMAND_SKIP_REVEAL` — so the board it hands you is one you can
+            actually act on, and the pick clock still starts at full. */}
+        {onSkip ? (
+          <button
+            type="button"
+            className="btn-secondary tmw-ceremony-skip"
+            data-testid="tmw-ceremony-skip"
+            disabled={skipping}
+            onClick={onSkip}
+          >
+            {skipping
+              ? "Starting…"
+              : stage === "intro"
+                ? "Skip intro"
+                : resolved
+                  ? "Draft now"
+                  : "Skip reveal"}
+          </button>
         ) : null}
       </section>
     </div>

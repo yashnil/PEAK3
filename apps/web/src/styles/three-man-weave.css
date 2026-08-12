@@ -1555,9 +1555,65 @@
   cursor: pointer;
 }
 
+/* ============================================================================
+   THE CANDIDATE ROW RESPONDS IN PAINT ONLY. IT MUST NEVER MOVE. (TMW-D3)
+   ============================================================================
+   THE DEFECT. This row carried `.pk-lift .pk-press`, the arena's universal
+   "this responds to you" pair: `translateY(-2px)` on hover, `scale(0.985)` on
+   press. On a card in a grid that is exactly right. On a 44px row in a dense
+   scrolling list it is a feedback loop, because THE ELEMENT THAT MOVES IS THE
+   ELEMENT THAT RECEIVES THE POINTER:
+
+       pointer enters the row  ->  row rises 2px  ->  pointer is now below the
+       row  ->  row un-hovers and falls back  ->  pointer is inside it again ->
+
+   Measured, with the pointer held COMPLETELY STATIONARY 1px above a row's
+   bottom edge: 29 `mouseenter` and 29 `mouseleave` in 1500ms — roughly 19
+   hover flips per second. Held at the row's centre: 1 enter, 0 leave, stable.
+   Held 1px below the top edge: 0 enter — the top 2px of every row is simply
+   dead, because the row has already lifted out of it.
+
+   So ~2px of dead zone and ~2px of 19Hz oscillation on a 44px row: about 9% of
+   every row's height was either inert or strobing. That is the reported
+   "hover stutters and clicks don't register" in full — an oscillating row is
+   also a row that can be under the cursor at `mousedown` and out from under it
+   at `mouseup`, and a `click` event is only delivered when both landed on the
+   same element.
+
+   `scale(0.985)` on press had the same defect on the horizontal axis: it pulls
+   both side edges inward by ~0.75% of a ~380px row, so a press near either end
+   moves the target out from under a stationary cursor mid-click.
+
+   THE RULE. A row in a scrolling list gives its feedback in colour and
+   elevation, which cost no geometry. The guard below is not decoration: it
+   keeps the composed `.pk-lift`/`.pk-press` transforms neutralised even if
+   somebody re-adds those classes to the markup, because the failure they cause
+   here is invisible in review and unmistakable under a clock. */
+.tmw-candidate,
+.tmw-candidate:hover,
+.tmw-candidate:focus-visible,
+.tmw-candidate:active {
+  transform: none;
+}
+
+.tmw-candidate {
+  transition:
+    background-color var(--pk-dur-lift) var(--pk-ease-decel),
+    border-color var(--pk-dur-lift) var(--pk-ease-decel),
+    box-shadow var(--pk-dur-lift) var(--pk-ease-decel);
+}
+
 .tmw-candidate:hover:not(:disabled) {
   border-color: var(--border-edge);
   background: var(--bg-surface-hover);
+  box-shadow: var(--pk-elev-2);
+}
+
+/* The press reads as "pushed in" without changing the hit target: the
+   elevation collapses instead of the box shrinking. */
+.tmw-candidate:active:not(:disabled) {
+  background: var(--bg-surface-hover);
+  box-shadow: none;
 }
 
 .tmw-candidate:focus-visible {
@@ -1565,24 +1621,24 @@
   outline-offset: 2px;
 }
 
-/* THE SELECTED CANDIDATE KEEPS ITS RING UNDER THE POINTER. `.pk-lift:hover`
-   is defined later in the cascade at the same specificity, so the plain form
-   would drop the accent ring from the one row the player has actually chosen.
-   The `.pk-lift` in the selector is a tie-break, nothing more. */
+/* THE SELECTED CANDIDATE KEEPS ITS RING UNDER THE POINTER, and now under the
+   press too. The hover and active rules above are `:not(:disabled)` compounds
+   and therefore outrank a bare attribute selector, so the selected forms are
+   written out explicitly rather than relying on source order — dropping the
+   accent ring from the one row the player has actually chosen, at the moment
+   they are pointing at it, is the single worst thing this list could do. */
 .tmw-candidate[aria-pressed="true"],
-.tmw-candidate.pk-lift[aria-pressed="true"]:hover,
-.tmw-candidate.pk-lift[aria-pressed="true"]:focus-visible {
+.tmw-candidate[aria-pressed="true"]:hover:not(:disabled),
+.tmw-candidate[aria-pressed="true"]:active:not(:disabled),
+.tmw-candidate[aria-pressed="true"]:focus-visible {
   border-color: var(--peak-accent);
   background: var(--peak-accent-bg);
   box-shadow: 0 0 0 1px var(--peak-accent);
 }
 
-/* A DISABLED CANDIDATE MUST NOT LIFT. `.pk-lift`'s hover rule does not exclude
-   `:disabled`, and a row that rises to the pointer and then refuses the click
-   is offering an interaction it cannot honour -- the same rule this file
-   applies to every other control. */
-.tmw-candidate.pk-lift:disabled:hover {
-  transform: none;
+/* A DISABLED CANDIDATE OFFERS NOTHING — no colour change, no elevation. */
+.tmw-candidate:disabled:hover,
+.tmw-candidate:disabled:active {
   box-shadow: none;
 }
 

@@ -14,6 +14,8 @@ import {
 } from "@/types/three-man-weave";
 import type { TmwCandidate, TmwLockEntry } from "@/lib/three-man-weave-state";
 import {
+  TMW_LAST_CALL,
+  TMW_LAST_CALL_MS,
   TMW_TIMEOUT_CONSEQUENCE,
   TMW_TIMEOUT_RESOLVING,
   eligibilityLine,
@@ -138,8 +140,27 @@ export default function PickOverlay({
    * simply stops matching and nothing has to remember to clear it.
    */
   const [expiredDeadline, setExpiredDeadline] = useState<number | null>(null);
-  const expired = deadlineAt !== null && expiredDeadline === deadlineAt;
+  /**
+   * The deadline whose LAST-CALL WINDOW has also elapsed — the hard lock.
+   *
+   * Same self-invalidating shape as `expiredDeadline` and for the same reason.
+   */
+  const [lockedDeadline, setLockedDeadline] = useState<number | null>(null);
+  /** The countdown has reached zero. The server may still accept a pick. */
+  const lastCall = deadlineAt !== null && expiredDeadline === deadlineAt;
+  /** The grace window is gone too. Nothing sent from here can land. */
+  const expired = deadlineAt !== null && lockedDeadline === deadlineAt;
   const searchRef = useRef<HTMLInputElement | null>(null);
+
+  // THE HARD LOCK IS ONE TIMER, ARMED BY EXPIRY. It is keyed to the deadline
+  // that expired, so a new turn's deadline simply stops matching and the lock
+  // releases itself — nothing has to remember to clear it.
+  useEffect(() => {
+    if (expiredDeadline === null) return;
+    const at = expiredDeadline;
+    const timer = window.setTimeout(() => setLockedDeadline(at), TMW_LAST_CALL_MS);
+    return () => window.clearTimeout(timer);
+  }, [expiredDeadline]);
 
   const reset = useCallback(() => {
     setQuery("");
@@ -267,6 +288,23 @@ export default function PickOverlay({
     );
   }, [mode, chosen, nameOf]);
 
+  /**
+   * Stage a candidate. Local, reversible, idempotent — see the row's
+   * `onPointerDown` for why it has to be all three.
+   */
+  const select = useCallback((candidate: TmwCandidate) => {
+    // Selecting a candidate always cancels a move in progress: the two are
+    // different intentions and the board can only stage one of them.
+    setMovingFrom(null);
+    setSelected((current) =>
+      current === candidate.player_slug ? current : candidate.player_slug,
+    );
+    // Stage the obvious destination immediately, so a single-slot candidate is
+    // one press from committed.
+    const options = placementOptionsFor(candidate);
+    setSlot(options.length === 1 ? options[0] : null);
+  }, []);
+
   const commitMove = useCallback(() => {
     if (!movingFrom || !slot || !roster || !movingPick) return;
     onMove(placementsAfterMove(roster, movingFrom, slot));
@@ -327,14 +365,22 @@ export default function PickOverlay({
           />
         </header>
 
-        {/* THE LOCKED RESOLUTION STATE (TMW-11). At zero the panel stops
-            pretending it can still take an action: the server's sweep is
-            already committing the fallback, and a click landing here would come
-            back as `stale_state_version`. */}
-        {expired ? (
-          <p className="tmw-overlay-expired" data-testid="tmw-overlay-expired" role="status">
+        {/* TWO STATES AT ZERO, NOT ONE (TMW-11, TMW-D3).
+            LAST CALL: the countdown has run out and the server's grace window
+            has not. A pick sent from here still lands, so the panel stays live
+            and says which state it is in.
+            EXPIRED: the grace window is gone too. Now the panel stops
+            pretending it can take an action — the sweep is committing the
+            fallback and a command would come back `stale_state_version`. */}
+        {expired || lastCall ? (
+          <p
+            className="tmw-overlay-expired"
+            data-testid="tmw-overlay-expired"
+            data-phase={expired ? "expired" : "last-call"}
+            role="status"
+          >
             <span className="tmw-overlay-expired-dot" aria-hidden="true" />
-            {TMW_TIMEOUT_RESOLVING}
+            {expired ? TMW_TIMEOUT_RESOLVING : TMW_LAST_CALL}
           </p>
         ) : null}
 
@@ -417,24 +463,37 @@ export default function PickOverlay({
                       data-testid={`tmw-candidate-${candidate.player_slug}`}
                       data-fit={candidate.fit.state}
                       data-selected={isSelected ? "true" : "false"}
-                      /* A candidate row is a card you are choosing between
-                         under a clock, so it responds to the pointer AND to
-                         the press. No `.pk-reveal` here on purpose: this list
+                      /* NO `.pk-lift`, NO `.pk-press`, AND THAT IS THE FIX.
+                         Those two classes translate and scale the row, and the
+                         element they move is the element receiving the pointer,
+                         which on a 44px row in a dense list oscillates hover at
+                         ~19Hz and drops clicks. The row's feedback is now
+                         paint-only; see `.tmw-candidate` in three-man-weave.css
+                         for the measurements. No `.pk-reveal` either: this list
                          re-filters on every keystroke in the search box, and a
                          staggered re-entry on each one would be strobing, not
                          choreography. */
-                      className="tmw-candidate pk-lift pk-press"
-                      onClick={() => {
-                        // Selecting a candidate always cancels a move in
-                        // progress: the two are different intentions and the
-                        // board can only stage one of them.
-                        setMovingFrom(null);
-                        setSelected(candidate.player_slug);
-                        // Stage the obvious destination immediately, so a
-                        // single-slot candidate is one click from committed.
-                        const options = placementOptionsFor(candidate);
-                        setSlot(options.length === 1 ? options[0] : null);
+                      className="tmw-candidate"
+                      /* STAGING LANDS ON THE PRESS, NOT ON THE CLICK.
+                         A `click` is only delivered when `mousedown` and
+                         `mouseup` resolve to the same element, so any movement
+                         under the cursor between them — a re-render, a
+                         scroll, a neighbour resizing — silently swallows the
+                         choice, and the player is left clicking a name that
+                         will not highlight while the clock runs down. Pressing
+                         is unambiguous and this action is purely local and
+                         reversible: it stages a selection, it commits nothing.
+                         `onClick` stays for keyboard and assistive technology
+                         (which fire click with no pointer event), and `select`
+                         is idempotent, so the pair cannot double-apply. */
+                      onPointerDown={(event) => {
+                        // `> 0` rather than `!== 0`: it excludes the secondary,
+                        // middle and back buttons without also excluding the
+                        // `-1` a pen/touch contact reports.
+                        if (event.button > 0) return;
+                        select(candidate);
                       }}
+                      onClick={() => select(candidate)}
                     >
                       <PlayerAvatar
                         name={candidate.player_name}

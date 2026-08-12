@@ -91,12 +91,27 @@ export default function CourtBuilder({
   // and a screen reader with no extra machinery, and there is no such thing
   // as a half-completed drop.
   const [movingSlot, setMovingSlot] = useState<SlotType | null>(null);
-  // Launch-polish §5, gap 1: a third step, ONLY for the higher-stakes case --
-  // exchanging two already-placed cards, where two earlier decisions move at
-  // once. Set when the clicked destination is itself filled; a move into an
-  // open slot (nothing displaced) still executes on the first click, backed
-  // by the Undo toast below instead of a confirmation step.
-  const [pendingSwapConfirm, setPendingSwapConfirm] = useState<{ from: SlotType; to: SlotType } | null>(null);
+  // E1: the selection overlay can be MINIMIZED to work the court underneath
+  // (rearranging mid-run is a real capability the old two-column layout had,
+  // and the overlay must not remove it). Purely view state: the round, the
+  // roll, the respin budget and the candidate pool are untouched — the
+  // overlay reopens on the floating "Resume selection" control, and reopens
+  // ITSELF the moment a new round rolls (see the effect below).
+  const [overlayMinimized, setOverlayMinimized] = useState(false);
+  useEffect(() => {
+    // A new roll is a new decision: never leave it minimized behind a court
+    // the player finished rearranging two rounds ago.
+    setOverlayMinimized(false);
+  }, [state.current_round]);
+  // E3 (polish pass): the third step is GONE. Displacing an already-placed
+  // card used to pause on a separate "Swap?" confirmation banner rendered
+  // elsewhere on the page — easy to miss, and the extra click it demanded
+  // protected nothing the Undo toast does not already protect better (a
+  // confirmation guards against a click you have not made yet; Undo reverses
+  // the one you actually made, through the server's own
+  // `action_undo_last_placement`, with a server-enforced window). Click a
+  // legal destination — empty or occupied — and the move/swap commits
+  // immediately, with Undo offered on the toast either way.
   // Launch-polish LP2-2: the one-line, auto-dismissing receipt for the last
   // placement or swap, with a single REAL reversing action (see
   // `performUndo` below). The toast's own visible duration is not a
@@ -142,7 +157,6 @@ export default function CourtBuilder({
 
   const cancelRearrange = useCallback(() => {
     setMovingSlot(null);
-    setPendingSwapConfirm(null);
   }, []);
 
   // Escape cancels rearrange mode -- the standard exit for a transient modal
@@ -334,37 +348,22 @@ export default function CourtBuilder({
     [state.game_id, state.slots, showToast, performUndo],
   );
 
-  /** The click on a swap-target slot. Only the higher-stakes case --
-   * displacing a card that was already placed -- pauses for confirmation;
-   * a move into an open slot (nothing displaced) still commits on this one
-   * click, backed by the Undo toast in `performSwap` instead. */
+  /** The click on a destination slot while a card is being moved (E3).
+   * Empty target — move immediately. Occupied target — swap immediately.
+   * Every placement in this game is positionally legal by rule (soft
+   * placement; fit is advisory and shown on the badge), so there is no
+   * illegal destination to block; the safety net is the Undo toast
+   * `performSwap` raises, which reverses the committed action through the
+   * server's own undo endpoint. Clicking the SOURCE card again cancels —
+   * handled in `renderSlot`, alongside Escape and the Cancel control. */
   function requestSwap(target: SlotType) {
     const from = movingSlot;
     if (!from || from === target) {
       setMovingSlot(null);
       return;
     }
-    const targetSlot = state.slots.find((s) => s.slot_type === target);
-    if (targetSlot?.filled) {
-      setPendingSwapConfirm({ from, to: target });
-      return;
-    }
     setMovingSlot(null);
     void performSwap(from, target);
-  }
-
-  function confirmPendingSwap() {
-    if (!pendingSwapConfirm) return;
-    const { from, to } = pendingSwapConfirm;
-    setPendingSwapConfirm(null);
-    setMovingSlot(null);
-    void performSwap(from, to);
-  }
-
-  function cancelPendingSwap() {
-    // `movingSlot` stays set -- declining THIS destination should return to
-    // "pick a destination", not discard the whole rearrange.
-    setPendingSwapConfirm(null);
   }
 
   async function handleComplete() {
@@ -400,11 +399,12 @@ export default function CourtBuilder({
       : undefined;
     // While a card is being moved, every OTHER slot (filled or empty) is a
     // destination -- moving into an empty slot is a plain move, and into a
-    // filled one is a swap. Both go through the same endpoint. Frozen (no
-    // target is clickable) while a swap confirmation is already pending, so
-    // a second click cannot race the one awaiting "Confirm".
-    const isSwapTarget =
-      movingSlot != null && movingSlot !== slot.slot_type && !pendingSwapConfirm;
+    // filled one is an immediate swap (E3). Both go through the same endpoint
+    // and both raise the Undo toast.
+    const isSwapTarget = movingSlot != null && movingSlot !== slot.slot_type;
+    // The card being moved: clicking it again is the third cancel path,
+    // beside Escape and the banner's Cancel control (E3).
+    const isMovingSource = movingSlot === slot.slot_type;
     // Launch-polish §5, gap 3: a FILLED slot during the active placement
     // decision is a genuinely illegal destination for the card about to be
     // placed (see PeakCardCourt's own comment) -- but only when it is not
@@ -424,11 +424,12 @@ export default function CourtBuilder({
         pendingFitSeverity={pendingSlotFit?.role_fit_severity}
         pendingPrimaryPosition={phase === "placing" ? state.pending_selection?.primary_position : undefined}
         onMove={
-          rearrangeAvailable && slot.filled && movingSlot == null && !busy && !pendingSwapConfirm
+          rearrangeAvailable && slot.filled && movingSlot == null && !busy
             ? () => setMovingSlot(slot.slot_type)
             : undefined
         }
         onSwapTarget={isSwapTarget && !busy ? () => requestSwap(slot.slot_type) : undefined}
+        onCancelMove={isMovingSource ? cancelRearrange : undefined}
         movingFromSlotLabel={movingSlot ? SLOT_LABELS[movingSlot] : null}
         blockedDuringPlacement={blockedDuringPlacement}
       />
@@ -479,160 +480,206 @@ export default function CourtBuilder({
       )}
 
       {!state.simulation_result && (
-        /* Phase 8D: the arena shell is now ONE consistent layout at every
-           game phase (see .arena-shell in globals.css) -- the court is
-           always the dominant column and the spin/candidate panel is
-           always the same fixed-width companion, from first paint. There
-           is no more mode-dependent resize (Phase 8B/8C's tiny-rail ->
-           big-court swap read as an unstable morph, partly because it also
-           crossed .court-panel-wrapper's own container-query breakpoint
-           mid-transition). Both columns simply stack in document order
-           below 1024px -- no separate mobile markup branch to maintain. */
-        <div className="arena-shell" data-testid="arena-shell">
-          <div className="flex flex-col gap-5 min-w-0 arena-shell-main">
-            {/* Top: the current round's constraint (team + era wheel).
-                Phase 8D: mounted for the WHOLE round (spinning through
-                placing), never conditionally removed -- keyed only on
-                current_round, so canceling a selection and returning to
-                "spinning" in the SAME round no longer remounts it and
-                replays the ceremony. `collapsed` swaps it to a compact
-                locked-in readout once placement starts. */}
-            {(phase === "spinning" || phase === "placing") && roundSpin && (
-              <SpinStage
-                key={state.current_round}
-                spin={roundSpin}
-                roundNumber={state.current_round}
-                totalRounds={state.total_rounds}
-                franchiseNames={franchiseNames}
-                seasonLabels={seasonLabels}
-                teamLogoUrls={teamLogoUrls}
-                rollableTeamSeasonCount={rollableTeamSeasonCount}
-                supportedStartSeason={supportedStartSeason}
-                supportedEndSeason={supportedEndSeason}
-                onRevealComplete={() => setRevealedRound(state.current_round)}
-                respinFlashKey={respinFlashKey}
-                respinKind={respinKind}
-                respinFrom={lastRespin}
-                collapsed={phase === "placing"}
-              />
-            )}
-
-            {/* Phase 7A Part C: up to 3 team + 3 season respins for the WHOLE
-                8-round run (never per-round -- Phase 6G's original per-round
-                reset was a bug). Uses the top-level *_total counters, which
-                are always run-level and never reset, rather than
-                current_spin's own copy of the same numbers. Still only
-                shown while this round's player hasn't been picked yet
-                (ceremonyRevealed implies status === "selection_pending" --
-                the whole block disappears once a player is selected).
-                team_year rounds only -- legacy team_decade/exact_team_season/
-                open_pool rounds don't have a team+season reel to respin. */}
-            {phase === "spinning" && state.current_spin?.spin_type === "team_year" && ceremonyRevealed && (
-              <div className="flex flex-col items-center gap-1.5" data-testid="respin-controls">
-                <div className="flex items-center gap-2">
+        /* E1 (polish pass): THE COURT IS THE STABLE PRIMARY CANVAS. The
+           two-column `.arena-shell` — spin/candidates in a main column, the
+           court in a 460px sticky rail — made the object of the game a
+           sidebar and gave the page two competing scroll surfaces. The court
+           now renders centered as the page's one canvas, fully mounted at
+           every phase, and the whole selection step opens in a viewport
+           overlay above it (below in the JSX, above in z-order). */
+        <div className="courtb-stage" data-testid="courtb-stage">
+          {/* THE SELECTION OVERLAY. The WRAPPER stays mounted for the whole
+              round and hides via `hidden` while a selection is being placed —
+              SpinStage replays its reveal ceremony if remounted, and "choose
+              someone else" must return to this round's already-revealed roll,
+              not to a fresh ceremony (see lastSpinRef above). The pieces that
+              are conditional (`respin-controls`, `candidate-panel`) unmount
+              exactly as they always did, so every existing count/visibility
+              contract about them still holds. */}
+          {(phase === "spinning" || phase === "placing") && roundSpin && (
+            <div
+              className="courtb-overlay-scrim"
+              data-testid="selection-overlay-scrim"
+              hidden={phase !== "spinning" || overlayMinimized}
+            >
+              <section
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Round ${state.current_round} of ${state.total_rounds} — choose a player`}
+                className="courtb-overlay"
+                data-testid="selection-overlay"
+              >
+                <div className="courtb-overlay-head">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-bold uppercase tracking-wider shrink-0" style={{ color: "var(--text-muted)" }}>
+                      Round {state.current_round} / {state.total_rounds}
+                    </span>
+                    {state.current_spin && state.current_spin.spin_type !== "open_pool" && ceremonyRevealed && (
+                      <span className="flex items-center gap-1.5 min-w-0">
+                        <span
+                          aria-hidden="true"
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ background: getTeamColors(state.current_spin.franchise_display_name).primary }}
+                        />
+                        <span
+                          className="text-[12px] font-semibold truncate"
+                          style={{ color: "var(--text-primary)" }}
+                          data-testid="overlay-roll-summary"
+                        >
+                          {state.current_spin.franchise_display_name} · {state.current_spin.era_label}
+                          <span style={{ color: "var(--text-muted)" }}>
+                            {" "}· {state.current_spin.candidates.length} eligible
+                          </span>
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  {/* RESPINS LIVE IN THE HEADER — visible without scrolling
+                      to the bottom of a long candidate list (E1). Same
+                      run-level budget semantics as always (Phase 7A Part C:
+                      3 team + 3 season for the WHOLE 8-round run). */}
+                  {phase === "spinning" && state.current_spin?.spin_type === "team_year" && ceremonyRevealed && (
+                    <div className="flex items-center gap-2 shrink-0" data-testid="respin-controls">
+                      <button
+                        data-testid="respin-team-btn"
+                        onClick={handleRespinTeam}
+                        disabled={busy || state.team_respins_remaining_total <= 0}
+                        className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+                      >
+                        Respin Team ({state.team_respins_remaining_total} left)
+                      </button>
+                      <button
+                        data-testid="respin-season-btn"
+                        onClick={handleRespinSeason}
+                        disabled={busy || state.season_respins_remaining_total <= 0}
+                        className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+                      >
+                        Respin Season ({state.season_respins_remaining_total} left)
+                      </button>
+                    </div>
+                  )}
+                  {/* E1: step aside to work the court (move/swap cards) without
+                      losing the roll. The candidate list, respins and the
+                      round's whole state are exactly as left on resume. */}
                   <button
-                    data-testid="respin-team-btn"
-                    onClick={handleRespinTeam}
-                    disabled={busy || state.team_respins_remaining_total <= 0}
-                    className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                    style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
+                    type="button"
+                    data-testid="minimize-overlay-btn"
+                    onClick={() => setOverlayMinimized(true)}
+                    className="text-xs font-semibold rounded-full px-3 py-1.5 shrink-0"
+                    style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
                   >
-                    Respin Team ({state.team_respins_remaining_total} left)
-                  </button>
-                  <button
-                    data-testid="respin-season-btn"
-                    onClick={handleRespinSeason}
-                    disabled={busy || state.season_respins_remaining_total <= 0}
-                    className="text-xs font-semibold rounded-full px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                    style={{ background: "var(--bg-surface)", color: "var(--text-primary)", border: "1px solid var(--border-default)" }}
-                  >
-                    Respin Season ({state.season_respins_remaining_total} left)
+                    View court
                   </button>
                 </div>
-                <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
-                  Three team respins and three season respins per run. Use them wisely.
-                </p>
-              </div>
-            )}
 
-            {/* Candidate area: clearly its own panel, separate from the court
-                rail -- step 1 of this round (choose), never mixed visually
-                with step 2 (place). */}
-            {phase === "spinning" && state.current_spin && ceremonyRevealed && (
-              <div
-                data-testid="candidate-panel"
-                className="rounded-2xl border p-4 flex flex-col gap-3"
-                style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
-                    Step 1 · Choose a player
-                  </div>
-                  {state.current_spin.spin_type !== "open_pool" && (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span
-                        aria-hidden="true"
-                        className="w-2.5 h-2.5 rounded-full"
-                        style={{ background: getTeamColors(state.current_spin.franchise_display_name).primary }}
+                <div className="courtb-overlay-body">
+                  {/* The round's constraint ceremony (team + era wheel).
+                      Phase 8D contract unchanged: keyed only on
+                      current_round, mounted through spinning AND placing
+                      (the wrapper hides, this never unmounts), so canceling
+                      a selection never replays the ceremony. */}
+                  <SpinStage
+                    key={state.current_round}
+                    spin={roundSpin}
+                    roundNumber={state.current_round}
+                    totalRounds={state.total_rounds}
+                    franchiseNames={franchiseNames}
+                    seasonLabels={seasonLabels}
+                    teamLogoUrls={teamLogoUrls}
+                    rollableTeamSeasonCount={rollableTeamSeasonCount}
+                    supportedStartSeason={supportedStartSeason}
+                    supportedEndSeason={supportedEndSeason}
+                    onRevealComplete={() => setRevealedRound(state.current_round)}
+                    respinFlashKey={respinFlashKey}
+                    respinKind={respinKind}
+                    respinFrom={lastRespin}
+                    collapsed={phase === "placing"}
+                  />
+
+                  {/* Candidate discovery: search + list, scrolling INSIDE the
+                      overlay body — the page never scrolls to choose. */}
+                  {phase === "spinning" && state.current_spin && ceremonyRevealed && (
+                    <div
+                      data-testid="candidate-panel"
+                      className="rounded-2xl border p-4 flex flex-col gap-3"
+                      style={{ background: "var(--bg-elevated)", borderColor: "var(--border-default)" }}
+                    >
+                      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+                        Step 1 · Choose a player
+                      </div>
+                      <EligiblePlayerSearch
+                        candidates={state.current_spin.candidates}
+                        onSelect={handleSelect}
+                        disabled={busy}
                       />
-                      <span
-                        className="text-[11px] font-semibold"
-                        style={{ color: "var(--text-secondary)" }}
-                        title={`${state.current_spin.franchise_display_name} · ${state.current_spin.era_label}`}
-                      >
-                        {state.current_spin.franchise_display_name} · {state.current_spin.era_label}
-                      </span>
                     </div>
                   )}
                 </div>
-                <EligiblePlayerSearch
-                  candidates={state.current_spin.candidates}
-                  onSelect={handleSelect}
-                  disabled={busy}
-                />
-              </div>
-            )}
+              </section>
+            </div>
+          )}
 
-            {phase === "placing" && state.pending_selection && (
-              <div
-                data-testid="placing-banner"
-                className="rounded-xl p-3 text-sm flex flex-col gap-2"
-                style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)", color: "var(--text-primary)" }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
-                      Step 2 · Place {state.pending_selection.player_name}
-                    </div>
-                    Choose any open spot on the court rail — the fit badge shows how well
-                    they match that spot, but every open spot is a legal placement.
+          {/* Step 2, ON THE COURT (E1 variant B): selecting a candidate
+              closes the overlay and the court's open slots light up. The
+              banner names the selection and offers the way back. */}
+          {phase === "placing" && state.pending_selection && (
+            <div
+              data-testid="placing-banner"
+              className="rounded-xl p-3 text-sm flex flex-col gap-2"
+              style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)", color: "var(--text-primary)" }}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--peak-accent-text, #f5c842)" }}>
+                    Selected: {state.pending_selection.player_name}
                   </div>
-                  {/* Launch-polish LP2-1: this banner has plenty of room
-                      (unlike the roster card's Move button), so the
-                      44x44 floor is met by growing the real button
-                      itself rather than a separate hit-area wrapper --
-                      nothing here was visually cramped to begin with. */}
-                  <button
-                    data-testid="cancel-selection-btn"
-                    onClick={handleCancel}
-                    disabled={busy}
-                    className="min-h-[44px] shrink-0 rounded px-3 text-xs font-semibold uppercase tracking-wide"
-                    style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
-                  >
-                    Choose someone else
-                  </button>
+                  Choose any open spot on the court — the fit badge shows how well
+                  they match that spot, but every open spot is a legal placement.
                 </div>
+                {/* "SWITCH SELECTION" (E1): returns to the same round's
+                    already-revealed roll and candidate list — never a respin,
+                    never a lost roll. `action_cancel_selection` server-side. */}
+                <button
+                  data-testid="cancel-selection-btn"
+                  onClick={handleCancel}
+                  disabled={busy}
+                  className="min-h-[44px] shrink-0 rounded px-3 text-xs font-semibold uppercase tracking-wide"
+                  style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
+                >
+                  Switch selection
+                </button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Rail: the court itself (PG/SG/SF/PF/C) with the bench row
-              beneath it -- always visible so the roster-in-progress stays
-              legible across both steps, and (lg+) stays pinned in view
-              while scrolling the candidate list. CourtLayout's own
-              .roster-board provides the visual frame (Phase 6B) -- no
-              redundant outer box around it. */}
-          <div data-testid="court-grid" className="arena-shell-rail">
+          {/* The way back into a minimized selection (E1). Prominent and
+              primary — the selection is the round's outstanding decision. */}
+          {phase === "spinning" && overlayMinimized && (
+            <div
+              className="rounded-xl p-3 flex items-center justify-between gap-3"
+              data-testid="resume-selection-banner"
+              style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)" }}
+            >
+              <span className="text-xs" style={{ color: "var(--text-primary)" }}>
+                Round {state.current_round} of {state.total_rounds} is waiting —
+                rearrange your court, then come back to the roll.
+              </span>
+              <button
+                type="button"
+                data-testid="resume-selection-btn"
+                onClick={() => setOverlayMinimized(false)}
+                className="min-h-[44px] shrink-0 rounded px-4 text-xs font-bold uppercase tracking-wide"
+                style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
+              >
+                Resume selection
+              </button>
+            </div>
+          )}
+
+          {/* The court — the page's one stable canvas. */}
+          <div data-testid="court-grid" className="flex flex-col gap-2.5">
             <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
               Your roster
             </div>
@@ -648,7 +695,7 @@ export default function CourtBuilder({
                 Move players to improve position fit — this never re-spins.
               </p>
             )}
-            {movingSlot != null && !pendingSwapConfirm && (
+            {movingSlot != null && (
               <div
                 data-testid="rearrange-banner"
                 role="status"
@@ -669,59 +716,6 @@ export default function CourtBuilder({
                 >
                   Cancel
                 </button>
-              </div>
-            )}
-            {/* Launch-polish §5, gap 1: the confirmation step, ONLY for
-                displacing an already-placed card. `cancelPendingSwap`
-                deliberately leaves `movingSlot` set -- declining this ONE
-                destination should return to "pick a destination", not
-                discard the whole rearrange and make the player start over. */}
-            {pendingSwapConfirm && (
-              <div
-                data-testid="swap-confirm-banner"
-                role="alertdialog"
-                aria-label="Confirm swap"
-                className="rounded-lg px-2.5 py-2 flex items-center justify-between gap-2 -mt-1"
-                style={{ background: "var(--peak-accent-bg, rgba(245,200,66,0.08))", border: "1px solid var(--peak-accent-dim)" }}
-              >
-                <span className="text-[11px]" style={{ color: "var(--text-primary)" }}>
-                  Swap{" "}
-                  <strong>
-                    {state.slots.find((s) => s.slot_type === pendingSwapConfirm.from)?.player_name ??
-                      SLOT_LABELS[pendingSwapConfirm.from]}
-                  </strong>{" "}
-                  ↔{" "}
-                  <strong>
-                    {state.slots.find((s) => s.slot_type === pendingSwapConfirm.to)?.player_name ??
-                      SLOT_LABELS[pendingSwapConfirm.to]}
-                  </strong>
-                  ?
-                </span>
-                {/* Launch-polish LP2-1: both short labels, both pinned to
-                    44x44 on width and height -- same reasoning as
-                    rearrange-cancel-btn above. */}
-                <span className="flex shrink-0 items-center gap-1.5">
-                  <button
-                    type="button"
-                    data-testid="swap-confirm-btn"
-                    onClick={confirmPendingSwap}
-                    disabled={busy}
-                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded px-3 text-[10px] font-bold uppercase tracking-wide disabled:opacity-50"
-                    style={{ background: "var(--peak-accent)", color: "var(--text-inverse)" }}
-                  >
-                    Swap
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="swap-confirm-cancel-btn"
-                    onClick={cancelPendingSwap}
-                    disabled={busy}
-                    className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded px-3 text-[10px] font-semibold uppercase tracking-wide disabled:opacity-50"
-                    style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-default)" }}
-                  >
-                    Cancel
-                  </button>
-                </span>
               </div>
             )}
             {state.live_build && <LiveBuildPanel liveBuild={state.live_build} />}

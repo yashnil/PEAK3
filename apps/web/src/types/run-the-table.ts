@@ -282,6 +282,27 @@ export interface BattleLanePublic {
    *  its own contract name because it is the SUM the expandable receipt
    *  displays, not merely a repeat of the rating above it. */
   final_rating: number;
+  /**
+   * F4 — THE BENCH LINE THE RECEIPT WAS MISSING.
+   *
+   * `bench_adjustment` above is the PERK residual, and it is correctly 0.00
+   * with no Deep Rotation and no boss rule — which is why the receipt read
+   * "+ Bench 0.00" beside a bench the player had deliberately built. The
+   * bench's real contribution was inside `pre_perk_rating` the whole time,
+   * because the lane rating is a weighted MEAN over starters AND bench.
+   *
+   *   starters_only_rating + bench_contribution === pre_perk_rating
+   *
+   * `bench_contribution` is SIGNED: a bench weaker than the starters pulls the
+   * mean down, and that is precisely the fact a player needs in order to
+   * decide whether to spend on depth.
+   */
+  starters_only_rating: number;
+  bench_contribution: number;
+  /** The rule that removed the bench from this lane entirely, or null. Lets
+   *  the receipt say "Bench suppressed by <rule>" rather than printing an
+   *  unexplained 0.00. */
+  bench_suppressed_by: string | null;
   top_contributor: LaneTopContributor | null;
   opponent_top_contributor: LaneTopContributor | null;
 }

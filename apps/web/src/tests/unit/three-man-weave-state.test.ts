@@ -168,6 +168,7 @@ function matchView(overrides: Partial<TmwMatchView> = {}): TmwMatchView {
     legal_commands: [],
     current_turn_seat_index: 0,
     seconds_remaining: 45,
+    turn_seconds_remaining: null,
     // The open turn is a DECISION window by default. The ceremony is the other
     // value of this field and is exercised explicitly wherever it matters.
     turn_phase: TMW_TURN_PHASE_PICK,
